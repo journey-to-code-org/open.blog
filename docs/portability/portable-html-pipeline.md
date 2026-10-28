@@ -102,7 +102,10 @@ third-party support for extensions. Smart punctuation is not applied to the auth
 Markdown export. open.blog custom quizzes, runnable fences, web sandboxes, and recognized
 embeds are converted according to the [static fallback contract](#static-fallbacks-for-interactive-capabilities);
 they are not additional requirements imposed on destination readers.
-Raw HTML is escaped as literal text with a visible note, never executed. HTML comments
+Raw HTML is escaped as literal text with a visible note, never executed. The one exception
+is a native disclosure: `<details>` (optionally `open`), `<summary>` and plain `code`, `strong`,
+`em`, `b` and `i` inside it, without other attributes, stay markup, as the export already writes
+for a Rust check's spoiler; a closing tag is kept only when its opening tag was. HTML comments
 and declarations are excluded; literal comment syntax inside code stays example content.
 
 ### Envelope, identity, and public context

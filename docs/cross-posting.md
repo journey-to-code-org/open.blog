@@ -125,7 +125,7 @@ element or accepts every hosted image. `contentPlan` in each CLI JSON target and
 
 | Destination | Content subset | Required review |
 | --- | --- | --- |
-| DEV / Hashnode | Static CommonMark, with visible quiz answers, code examples, and canonical interaction links. Authored raw HTML is literal text; custom component/Hashnode embed syntax is converted. | Review the saved draft for Markdown-extension differences. Hashnode stays draft-only. |
+| DEV / Hashnode | Static CommonMark, with visible quiz answers, code examples, and canonical interaction links. Authored raw HTML is literal text, except a native `<details>`/`<summary>` disclosure, which stays collapsible; custom component/Hashnode embed syntax is converted. | Review the saved draft for Markdown-extension differences. Hashnode stays draft-only. |
 | Ghost | Allowlisted static HTML through `source=html`. No authored forms, iframes, scripts, or native components pass through. | Ghost converts HTML to Lexical **lossily**; review headings, tables, anchors, attribution, and code. No Lexical payload or HTML-card workaround is generated. |
 | WordPress | The same allowlisted static HTML as post `content`, for self-hosted and WordPress.com endpoints. | Permissions, filters, plugins, and themes may alter rendering. Core has no external-canonical field; verify an SEO plugin separately. |
 | Medium | Portable Markdown review artifact plus canonical URL; no API payload or remote write. | Use Medium's canonical-URL importer, then verify content, images, attribution, and canonical settings manually. |

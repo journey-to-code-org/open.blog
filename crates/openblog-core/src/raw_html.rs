@@ -491,6 +491,66 @@ pub(crate) fn comment_end(text: &str) -> Option<usize> {
     .min()
 }
 
+/// Whether a raw HTML fragment is only a native disclosure, which the portable Markdown export
+/// keeps as markup instead of escaping: at least one `<details>` or `<summary>` tag, every tag one
+/// of `details` (with nothing but a bare `open`), `summary`, `code`, `strong`, `em`, `b` or `i`
+/// and without attributes, and no comment or other markup. The export already writes the same
+/// disclosure for a Rust check's spoiler, and the destinations render it.
+///
+/// `open` counts the `<details>` kept so far in the document: a `</details>` is kept only when it
+/// closes one of them, so a disclosure whose opening tag had to be escaped never leaves a stray
+/// closing tag. `open` changes only when the fragment is kept.
+pub(crate) fn portable_disclosure(fragment: &str, open: &mut usize) -> bool {
+    const INLINE: [&str; 5] = ["code", "strong", "em", "b", "i"];
+    let mut disclosure = false;
+    let mut depth = *open;
+    let mut rest = fragment;
+    while let Some(lt) = rest.find('<') {
+        let after = &rest[lt + 1..];
+        let Some(gt) = after.find('>') else {
+            return false;
+        };
+        let tag = &after[..gt];
+        let (closing, body) = match tag.strip_prefix('/') {
+            Some(body) => (true, body),
+            None => (false, tag),
+        };
+        let mut words = body.split_ascii_whitespace();
+        let name = words.next().unwrap_or("").to_ascii_lowercase();
+        let attributes: Vec<&str> = words.collect();
+        let allowed = match name.as_str() {
+            "details" => {
+                attributes.is_empty()
+                    || (!closing
+                        && attributes.len() == 1
+                        && attributes[0].eq_ignore_ascii_case("open"))
+            }
+            "summary" => attributes.is_empty(),
+            name if INLINE.contains(&name) => attributes.is_empty(),
+            _ => false,
+        };
+        if !allowed {
+            return false;
+        }
+        if name == "details" {
+            if closing {
+                let Some(less) = depth.checked_sub(1) else {
+                    return false;
+                };
+                depth = less;
+            } else {
+                depth += 1;
+            }
+        }
+        disclosure |= name == "details" || name == "summary";
+        rest = &after[gt + 1..];
+    }
+    if disclosure {
+        *open = depth;
+    }
+    disclosure
+}
+
 pub(crate) fn escape_markdown_fragment(source: &str) -> (String, bool) {
     let mut output = String::new();
     let mut at = 0;

@@ -81,7 +81,7 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
             content_subset: DestinationContentSubset::StaticCommonmark,
             media_delivery: DestinationMediaDelivery::HostedUrlsOnly,
-            conversion_review: "Static CommonMark with visible answers and source examples; authored raw HTML is literal text, not active markup. Review the remote draft for Markdown extension differences.",
+            conversion_review: "Static CommonMark with visible answers and source examples; authored raw HTML is literal text, not active markup, except a native <details> disclosure. Review the remote draft for Markdown extension differences.",
             max_tags: Some(4),
             max_tag_name_chars: Some(30),
             max_request_body_bytes: None,
@@ -96,7 +96,7 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             workflow: "Remote drafts only; publish the saved draft in Hashnode. CLI public publishing is unsupported.",
             content_subset: DestinationContentSubset::StaticCommonmark,
             media_delivery: DestinationMediaDelivery::HostedUrlsOnly,
-            conversion_review: "Static CommonMark with no open.blog components or Hashnode embed directives; authored raw HTML is literal text. Review the saved draft before publishing.",
+            conversion_review: "Static CommonMark with no open.blog components or Hashnode embed directives; authored raw HTML is literal text, except a native <details> disclosure. Review the saved draft before publishing.",
             max_tags: Some(15),
             max_tag_name_chars: None,
             max_request_body_bytes: Some(100_000),
@@ -989,10 +989,12 @@ impl<'a> PortableProjection<'a> {
             // A parsed arrangement's or moments block's frame is open.blog's own markup, not
             // authored raw HTML: the Markdown copy states it without HTML, so only literal HTML
             // in the authors' own text counts.
+            // A native disclosure is kept as markup in the Markdown copy, so only HTML the copy
+            // actually shows as literal source counts.
             has_raw_html: if self.arrangement().is_some() || self.moments().is_some() {
                 escape_raw_html(&self.portable_source()).1 > 0
             } else {
-                rendered.portable_has_raw_html
+                rendered.portable_has_raw_html && escape_raw_html(&self.portable_source()).1 > 0
             },
         })
     }
@@ -2541,6 +2543,7 @@ fn escape_raw_html(markdown: &str) -> (String, usize) {
         .collect::<Vec<_>>();
     spans.sort_by_key(|span| span.start);
     let mut count = 0;
+    let mut kept_details = 0;
     let mut output = String::with_capacity(markdown.len());
     let mut cursor = 0;
     for span in spans {
@@ -2549,6 +2552,13 @@ fn escape_raw_html(markdown: &str) -> (String, usize) {
         }
         let start = span.start.max(cursor);
         output.push_str(&markdown[cursor..start]);
+        // A native disclosure stays markup, as the export writes one itself for a Rust check's
+        // spoiler; everything else is shown as literal source.
+        if crate::raw_html::portable_disclosure(&markdown[start..span.end], &mut kept_details) {
+            output.push_str(&markdown[start..span.end]);
+            cursor = span.end;
+            continue;
+        }
         let (escaped, open_comment) =
             crate::raw_html::escape_markdown_fragment(&markdown[start..span.end]);
         count += usize::from(!escaped.trim().is_empty());
@@ -3815,6 +3825,70 @@ mod tests {
         assert!(!output.html.contains("<script type=\"module\""));
         assert_eq!(post.html, native_html);
         assert_eq!(projection.portable_html().unwrap(), output);
+    }
+
+    #[test]
+    fn portable_markdown_keeps_a_native_disclosure_and_escapes_other_raw_html() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\nThe full file:\n\n<details>\n<summary><code>src/main.rs</code> · 56 lines</summary>\n\n```rust\nfn main() {}\n```\n\n</details>\n\n<details open><summary>Open</summary></details>\n\n<div onclick=\"x()\">Hi</div>\n",
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert!(
+            markdown.contains("<details>\n<summary><code>src/main.rs</code> · 56 lines</summary>\n\n```rust\nfn main() {}\n```\n"),
+            "{markdown}"
+        );
+        assert!(markdown.contains("\n</details>\n"));
+        assert!(!markdown.contains("&lt;details") && !markdown.contains("&lt;summary"));
+        assert!(markdown.contains("<details open><summary>Open</summary></details>"));
+        assert!(markdown.contains("&lt;div onclick=\"x()\"&gt;Hi&lt;/div&gt;"));
+        assert!(
+            markdown.contains("**Portable export note:** 1 raw HTML fragment(s)"),
+            "only the escaped fragment is counted: {markdown}"
+        );
+
+        // Kept in document order, with the open disclosures carried between fragments.
+        let mut open = 0;
+        for fragment in [
+            "<details>",
+            "<summary><strong>Why</strong> it <em>works</em></summary>",
+            "</details>",
+            "<details open>",
+            "</details>",
+        ] {
+            assert!(
+                crate::raw_html::portable_disclosure(fragment, &mut open),
+                "{fragment}"
+            );
+        }
+        assert_eq!(open, 0);
+        for fragment in [
+            "<code>inline only</code>",
+            "<details class=\"x\">",
+            "<summary onclick=\"x()\">S</summary>",
+            "<details><script>x()</script>",
+            "<details><!-- note -->",
+            "<details open=\"\">",
+            "</details open>",
+            "<details",
+            "</details>",
+        ] {
+            assert!(
+                !crate::raw_html::portable_disclosure(fragment, &mut open),
+                "{fragment}"
+            );
+            assert_eq!(open, 0, "a rejected fragment changes nothing: {fragment}");
+        }
+
+        // A closing tag whose opening one was escaped stays escaped too.
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<details id=\"x\"><summary>S</summary>\n\nBody.\n\n</details>\n",
+        );
+        let markdown = PortableProjection::from_post(&site.posts[0], &config)
+            .unwrap()
+            .portable_markdown()
+            .unwrap();
+        assert!(markdown.contains("&lt;/details&gt;"), "{markdown}");
     }
 
     #[test]
