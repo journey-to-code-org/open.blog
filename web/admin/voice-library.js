@@ -6,7 +6,7 @@
 
 import { el } from "./block-forms.js";
 import { buildRoughView, createPolishedEditor, keepBarReachable } from "./voice-polished.js";
-import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, dateText, groupLibrary, libraryHash, visibilityText, voiceErrorText, voiceHash, wordsText } from "./voice.js";
+import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, clearVoiceCopies, dateText, groupLibrary, libraryHash, visibilityText, voiceErrorText, voiceHash, wordsText } from "./voice.js";
 
 let uid = 0;
 
@@ -138,6 +138,98 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
     show(data);
   }
 
+  // ----- erase everything: list first, confirm in words, one all-or-nothing request, then a check
+  function eraseBlock() {
+    const id = `${ids}-erase-${++uid}`;
+    const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-erase-status": "true" });
+    const body = el("div", { class: "oba-voice-erase-body", "data-voice-erase-body": "true" });
+    const start = el("button", { class: "oba-btn", type: "button", "data-action": "voice-erase-start" }, "Erase all voice data…");
+    const reset = () => {
+      body.replaceChildren();
+      start.hidden = false;
+      start.disabled = false;
+    };
+    start.addEventListener("click", async () => {
+      start.disabled = true;
+      status.className = "oba-small";
+      status.textContent = "Checking what is stored…";
+      let plan;
+      try {
+        plan = await api.call("GET", "voice/erase");
+      } catch (error) {
+        start.disabled = false;
+        status.className = "oba-small oba-error";
+        status.textContent = voiceErrorText(error);
+        return;
+      }
+      if (!plan.items.length) {
+        start.disabled = false;
+        status.textContent = "There is no voice data to erase.";
+        return;
+      }
+      start.hidden = true;
+      status.textContent = "";
+      const word = plan.confirm || "erase";
+      const input = el("input", { id: `${id}-word`, type: "text", autocomplete: "off", autocapitalize: "off", spellcheck: "false", "data-voice-erase-word": "true" });
+      const confirm = el("button", { class: "oba-btn oba-btn-danger", type: "button", disabled: true, "data-action": "voice-erase-confirm" }, "Erase everything");
+      const cancel = el("button", { class: "oba-btn", type: "button", "data-action": "voice-erase-cancel" }, "Keep my data");
+      input.addEventListener("input", () => {
+        confirm.disabled = input.value.trim().toLowerCase() !== word;
+      });
+      cancel.addEventListener("click", () => {
+        status.textContent = "Nothing was erased.";
+        reset();
+      });
+      confirm.addEventListener("click", async () => {
+        confirm.disabled = true;
+        cancel.disabled = true;
+        input.disabled = true;
+        status.className = "oba-small";
+        status.textContent = "Erasing…";
+        try {
+          const done = await api.call("POST", "voice/erase", { json: { confirm: input.value.trim() } });
+          clearVoiceCopies(storage);
+          body.replaceChildren();
+          if (done.clean) {
+            status.className = "oba-small oba-ok";
+            status.textContent = `Erased ${done.erased.length} ${done.erased.length === 1 ? "file" : "files"}. Checked again: nothing is left, and the copies kept on this device are gone too.`;
+            start.hidden = false;
+            start.disabled = false;
+          } else {
+            status.className = "oba-small oba-error";
+            status.textContent = `Erased ${done.erased.length} files, but these are still there: ${done.remaining.join(", ")}.`;
+            start.hidden = false;
+            start.disabled = false;
+          }
+        } catch (error) {
+          // The server erases all or nothing, so a failure means everything is still in place.
+          status.className = "oba-small oba-error";
+          status.textContent = `${voiceErrorText(error)} Nothing was erased.`;
+          confirm.disabled = input.value.trim().toLowerCase() !== word;
+          cancel.disabled = false;
+          input.disabled = false;
+        }
+      });
+      body.replaceChildren(
+        el("p", {}, `This permanently erases ${plan.items.length} ${plan.items.length === 1 ? "file" : "files"}, from both the portable and the private folders. It cannot be undone.`),
+        el("ul", { class: "oba-voice-erase-list", "data-voice-erase-list": "true" }, plan.items.map((item) => el("li", {}, el("code", {}, item.path), ` (${item.kind})`))),
+        el("label", { for: `${id}-word` }, `Type "${word}" to confirm`),
+        input,
+        el("div", { class: "oba-landing-actions" }, confirm, cancel),
+      );
+      input.focus();
+    });
+    return el(
+      "section",
+      { class: "oba-voice-group oba-voice-erase", "aria-labelledby": id, "data-voice-erase": "true" },
+      el("h3", { id }, "Erase everything"),
+      el("p", { class: "oba-small" }, "Remove every sample, the session in progress, the voice guide and any editor leftovers. You see the list first, and it all goes or none of it does."),
+      start,
+      body,
+      status,
+    );
+  }
+
   function show(data) {
     const library = groupLibrary(data);
     if (library.empty) {
@@ -150,6 +242,7 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
           el("p", {}, EMPTY_LIBRARY_TEXT),
           el("a", { class: "oba-btn oba-btn-primary", href: voiceHash(), "data-action": "voice-start-session" }, "Start a session"),
         ),
+        eraseBlock(),
       );
       return;
     }
@@ -181,6 +274,7 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
             ),
           )
         : null,
+      eraseBlock(),
     ];
     // A real DOM turns null and arrays into text, so only nodes are passed on.
     root.replaceChildren(...parts.flat().filter(Boolean));

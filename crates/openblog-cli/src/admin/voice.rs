@@ -590,6 +590,64 @@ pub(super) fn scrap(state: &AppState) -> Response {
 }
 
 // ---------------------------------------------------------------------------
+// Erase everything
+// ---------------------------------------------------------------------------
+
+/// The word the author types to confirm an erase.
+pub(super) const ERASE_CONFIRMATION: &str = "erase";
+
+fn erase_items_json(items: &[voice_store::EraseItem]) -> Vec<Json> {
+    items
+        .iter()
+        .map(|item| json!({ "path": item.path, "kind": item.kind.as_str() }))
+        .collect()
+}
+
+/// `GET voice/erase`: what an erase would remove right now (paths and kinds, never text). Read only.
+pub(super) fn erase_plan(state: &AppState) -> Response {
+    match voice_store::erase_plan(&state.root) {
+        Ok(plan) => Response::json(
+            200,
+            &json!({ "items": erase_items_json(&plan), "confirm": ERASE_CONFIRMATION }),
+        ),
+        Err(error) => store_error(state, error),
+    }
+}
+
+/// `POST voice/erase`: erase all voice data, all or nothing, then check. The body must be
+/// `{ "confirm": "erase" }`; anything else is a plain refusal and nothing is touched.
+pub(super) fn erase(state: &AppState, req: &Request) -> Response {
+    let body = match body_object(req, MAX_SMALL_REQUEST_BYTES) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let typed = match optional_text(&body, "confirm") {
+        Ok(text) => text.unwrap_or_default(),
+        Err(response) => return response,
+    };
+    if !typed.trim().eq_ignore_ascii_case(ERASE_CONFIRMATION) {
+        return Response::json(
+            409,
+            &json!({
+                "error": format!("Type \"{ERASE_CONFIRMATION}\" to confirm. Nothing was erased."),
+                "refused": true,
+            }),
+        );
+    }
+    match voice_store::erase_all(&state.root) {
+        Ok(report) => Response::json(
+            200,
+            &json!({
+                "erased": erase_items_json(&report.erased),
+                "remaining": report.remaining,
+                "clean": report.remaining.is_empty(),
+            }),
+        ),
+        Err(error) => store_error(state, error),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Samples
 // ---------------------------------------------------------------------------
 

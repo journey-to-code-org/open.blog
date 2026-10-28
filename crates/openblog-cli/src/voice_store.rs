@@ -680,37 +680,254 @@ pub fn move_visibility(
     Ok(names)
 }
 
-/// Erase a sample. Erasing a rough draft that has a polished draft is refused unless
-/// `with_polished` says to erase both; erasing a polished draft leaves the rough draft.
-// Used by the Admin voice screen, not by the CLI; no Admin route erases yet, so it stays allowed.
-#[allow(dead_code)]
-pub fn erase(
-    root: &Path,
-    visibility: Visibility,
-    file: &str,
-    with_polished: bool,
-) -> Result<Vec<String>> {
-    let _lock = lock(root)?;
-    check_file_name(file)?;
-    let path = path_of(root, visibility, file)?;
-    if read_bounded(&path)?.is_none() {
-        return refused("There is no such voice sample.");
-    }
-    let mut names = vec![file.to_string()];
-    if let Some(polished) = voice::polished_file_name(file) {
-        if read_bounded(&path_of(root, visibility, &polished)?)?.is_some() {
-            if !with_polished {
-                return refused("This rough draft has a polished draft. Erase both together, or erase the polished draft first.");
-            }
-            names.push(polished);
+/// Where the voice guide lives, in each visibility, relative to the project. This is the ONE place
+/// that names those files: the plan, the erase and the post-check all read it, so the guide the
+/// Assistant writes (epic VS4) is wired in here and nowhere else.
+pub fn guide_paths(_root: &Path) -> Vec<(Visibility, String)> {
+    vec![
+        (
+            Visibility::Portable,
+            "assistant/context/voice-guide.md".to_string(),
+        ),
+        (
+            Visibility::Private,
+            ".openblog/private/context/voice-guide.md".to_string(),
+        ),
+    ]
+}
+
+/// The folder (relative) that holds the session record, the editor files and the erase trash.
+const PRIVATE_VOICE_DIR: &str = ".openblog/private/voice";
+/// File-name stems the CLI gives its editor files in [`PRIVATE_VOICE_DIR`].
+const EDITOR_STEMS: [&str; 2] = ["editing", "polishing"];
+const TRASH_PREFIX: &str = "erasing-";
+
+/// What kind of thing an erase removes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EraseKind {
+    Sample,
+    Session,
+    Guide,
+    EditorFile,
+    /// A half-written temporary file or other regular file left in a sample folder.
+    Leftover,
+}
+
+impl EraseKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Sample => "sample",
+            Self::Session => "session record",
+            Self::Guide => "voice guide",
+            Self::EditorFile => "editor file",
+            Self::Leftover => "leftover file",
         }
     }
-    for name in &names {
-        let path = path_of(root, visibility, name)?;
-        fsutil::retry_transient(|| fs::remove_file(&path))
-            .map_err(|error| failed("Cannot erase the sample", error))?;
+}
+
+/// One file an erase would remove, named relative to the project. Never its contents.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EraseItem {
+    pub path: String,
+    pub kind: EraseKind,
+}
+
+/// The result of an erase: what went, and anything the post-check still found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EraseReport {
+    pub erased: Vec<EraseItem>,
+    /// Paths that still exist after the erase; empty means the post-check passed.
+    pub remaining: Vec<String>,
+}
+
+fn is_editor_file(name: &str) -> bool {
+    EDITOR_STEMS.iter().any(|stem| {
+        name == format!("{stem}.md")
+            || (name.starts_with(&format!("{stem}-")) && name.ends_with(".md"))
+    })
+}
+
+fn is_file_or_link(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| !m.is_dir())
+}
+
+fn contained(root: &Path, relative: &str) -> Result<PathBuf> {
+    contained_target(root, Path::new(relative))
+        .map_err(|error| StoreError::Refused(format!("{error}.")))
+}
+
+fn file_names(directory: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|entry| is_file_or_link(&entry.path()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Every voice file that exists, in both folders. Read only. A regular file or link inside a sample
+/// folder counts, valid sample or not; a folder inside one does not (it is never touched).
+fn collect(root: &Path) -> Result<Vec<EraseItem>> {
+    let mut items = Vec::new();
+    for visibility in [Visibility::Portable, Visibility::Private] {
+        for name in file_names(&directory_of(root, visibility)?) {
+            let kind = if name.starts_with('.') || !name.ends_with(".md") {
+                EraseKind::Leftover
+            } else {
+                EraseKind::Sample
+            };
+            items.push(EraseItem {
+                path: format!("{}/{name}", visibility.directory()),
+                kind,
+            });
+        }
     }
-    Ok(names)
+    if is_file_or_link(&contained(root, SESSION_PATH)?) {
+        items.push(EraseItem {
+            path: SESSION_PATH.to_string(),
+            kind: EraseKind::Session,
+        });
+    }
+    for (_, relative) in guide_paths(root) {
+        if is_file_or_link(&contained(root, &relative)?) {
+            items.push(EraseItem {
+                path: relative,
+                kind: EraseKind::Guide,
+            });
+        }
+    }
+    for name in file_names(&contained(root, PRIVATE_VOICE_DIR)?) {
+        if is_editor_file(&name) {
+            items.push(EraseItem {
+                path: format!("{PRIVATE_VOICE_DIR}/{name}"),
+                kind: EraseKind::EditorFile,
+            });
+        }
+    }
+    Ok(items)
+}
+
+/// What [`erase_all`] would remove now. Read only; it creates nothing.
+pub fn erase_plan(root: &Path) -> Result<Vec<EraseItem>> {
+    collect(root)
+}
+
+/// Put one file in the trash folder. A test can make a named file fail here.
+fn stage_for_erase(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    {
+        let blocked = FAIL_ERASE.with(|f| f.borrow().clone());
+        if let (Some(name), Some(file)) = (blocked, from.file_name()) {
+            if file.to_string_lossy() == name {
+                return Err(std::io::Error::other("injected erase failure"));
+            }
+        }
+    }
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fsutil::retry_transient(|| fs::rename(from, to))
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_ERASE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Erase everything the voice feature stored: samples in both folders, the session record, the
+/// guide and leftover editor files. All or nothing: every file is first moved into a trash folder
+/// under `.openblog/private/voice/`, a failed move puts every moved file back and changes nothing,
+/// and only when every file is in the trash is the trash deleted. The post-check then lists
+/// anything that still exists. The caller has already asked the author to confirm.
+pub fn erase_all(root: &Path) -> Result<EraseReport> {
+    let lock = lock(root)?;
+    let plan = collect(root)?;
+    let token = crate::auth::random_token().map_err(StoreError::Failed)?;
+    let trash_relative = format!("{PRIVATE_VOICE_DIR}/{TRASH_PREFIX}{token}");
+    let trash = contained(root, &trash_relative)?;
+    let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut failure = None;
+    for (index, item) in plan.iter().enumerate() {
+        let from = contained(root, &item.path)?;
+        // The index keeps two files with the same name in different folders apart.
+        let to = trash.join(index.to_string());
+        match stage_for_erase(&from, &to) {
+            Ok(()) => staged.push((from, to)),
+            Err(error) => {
+                failure = Some(format!("Cannot erase {}: {error}", item.path));
+                break;
+            }
+        }
+    }
+    if let Some(message) = failure {
+        let mut stuck = false;
+        for (from, to) in staged.iter().rev() {
+            stuck |= fsutil::retry_transient(|| fs::rename(to, from)).is_err();
+        }
+        if !stuck {
+            let _ = fs::remove_dir_all(&trash);
+            return Err(StoreError::Failed(format!(
+                "{message}. Nothing was erased."
+            )));
+        }
+        return Err(StoreError::Failed(format!(
+            "{message}. Some files could not be put back and are kept in {trash_relative}."
+        )));
+    }
+    if let Err(error) = fsutil::retry_transient(|| fs::remove_dir_all(&trash)) {
+        if trash.exists() {
+            return Err(StoreError::Failed(format!(
+                "The voice files were set aside but could not be deleted: {error}. Delete {trash_relative} by hand, or run erase again."
+            )));
+        }
+    }
+    // A trash folder an earlier failed erase left behind goes too.
+    if let Ok(private) = contained(root, PRIVATE_VOICE_DIR) {
+        if let Ok(entries) = fs::read_dir(&private) {
+            for entry in entries.flatten() {
+                if entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(TRASH_PREFIX)
+                {
+                    let _ = fs::remove_dir_all(entry.path());
+                }
+            }
+        }
+    }
+    // Empty sample folders go too; a folder that is not empty stays and the post-check says so.
+    for visibility in [Visibility::Portable, Visibility::Private] {
+        if let Ok(directory) = directory_of(root, visibility) {
+            let _ = fs::remove_dir(&directory);
+        }
+    }
+    drop(lock);
+    // The post-check: look again, from scratch.
+    let mut remaining: Vec<String> = collect(root)?.into_iter().map(|item| item.path).collect();
+    for name in file_names(&contained(root, PRIVATE_VOICE_DIR)?) {
+        if name.starts_with(TRASH_PREFIX) {
+            remaining.push(format!("{PRIVATE_VOICE_DIR}/{name}"));
+        }
+    }
+    if contained(root, &trash_relative).is_ok_and(|path| path.exists()) {
+        remaining.push(trash_relative);
+    }
+    for visibility in [Visibility::Portable, Visibility::Private] {
+        let directory = directory_of(root, visibility)?;
+        if fs::read_dir(&directory).is_ok_and(|mut entries| entries.next().is_some()) {
+            remaining.push(visibility.directory().to_string());
+        }
+    }
+    remaining.sort();
+    remaining.dedup();
+    Ok(EraseReport {
+        erased: plan,
+        remaining,
+    })
 }
 
 /// The slugs the posts under the content folder already use, drafts included, worked out the

@@ -257,10 +257,6 @@ fn file_names_cannot_escape_or_name_other_files() {
     ] {
         assert!(read(&project.0, Visibility::Private, bad).is_err(), "{bad}");
         assert!(
-            erase(&project.0, Visibility::Private, bad, true).is_err(),
-            "{bad}"
-        );
-        assert!(
             move_visibility(&project.0, Visibility::Private, bad, Visibility::Portable).is_err()
         );
     }
@@ -462,26 +458,126 @@ fn moving_copies_the_bytes_unchanged_and_moves_the_pair_together() {
 }
 
 #[test]
-fn erasing_a_rough_draft_with_a_polished_one_needs_both() {
-    let project = Project::with_session("a-mistake-i-made");
-    lock_rough(&project, Visibility::Private);
-    write_polished(&project.0, Visibility::Private, &polished("Clean."), None).unwrap();
-    let error = erase(&project.0, Visibility::Private, ROUGH, false).unwrap_err();
-    assert!(error.to_string().contains("polished draft"), "{error}");
-    assert_eq!(
-        erase(&project.0, Visibility::Private, POLISHED, false).unwrap(),
-        [POLISHED]
+fn the_guide_lives_in_one_named_place_per_visibility() {
+    let paths = guide_paths(Path::new("."));
+    assert_eq!(paths.len(), 2);
+    assert!(paths
+        .iter()
+        .any(|(v, p)| *v == Visibility::Portable && p == "assistant/context/voice-guide.md"));
+    assert!(
+        paths
+            .iter()
+            .any(|(v, p)| *v == Visibility::Private
+                && p == ".openblog/private/context/voice-guide.md")
     );
-    assert_eq!(list(&project.0).len(), 1);
-    write_polished(&project.0, Visibility::Private, &polished("Clean."), None).unwrap();
-    assert_eq!(
-        erase(&project.0, Visibility::Private, ROUGH, true).unwrap(),
-        [ROUGH, POLISHED]
-    );
-    assert!(list(&project.0).is_empty());
-    assert!(erase(&project.0, Visibility::Private, ROUGH, true).is_err());
 }
 
+/// A project holding every kind of thing an erase must find.
+fn full_project() -> Project {
+    let project = Project::with_session("a-mistake-i-made");
+    let dir = &project.0;
+    lock_rough(&project, Visibility::Private);
+    write_polished(dir, Visibility::Private, &polished("Clean."), None).unwrap();
+    let mut portable = rough("portable words");
+    portable.date = "2026-10-29T09:30:00Z".into();
+    project.open_session("a-mistake-i-made");
+    write_rough(dir, Visibility::Portable, &portable).unwrap();
+    project.open_session("a-mistake-i-made");
+    for (_, relative) in guide_paths(dir) {
+        let path = dir.join(&relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "guide words").unwrap();
+    }
+    fs::write(dir.join(".openblog/private/voice/editing-1-2.md"), "ed").unwrap();
+    fs::write(dir.join(".openblog/private/voice/polishing.md"), "ed").unwrap();
+    fs::write(dir.join(PRIVATE_DIR).join(".voice-x.tmp"), "half").unwrap();
+    // Not voice data: must survive.
+    fs::create_dir_all(dir.join("assistant/context")).unwrap();
+    fs::write(dir.join("assistant/context/author.md"), "keep me").unwrap();
+    project
+}
+
+#[test]
+fn the_erase_plan_names_every_kind_and_reads_only() {
+    let project = full_project();
+    let before = snapshot(&project.0);
+    let plan = erase_plan(&project.0).unwrap();
+    let kinds = |kind: EraseKind| plan.iter().filter(|i| i.kind == kind).count();
+    assert_eq!(kinds(EraseKind::Sample), 3);
+    assert_eq!(kinds(EraseKind::Session), 1);
+    assert_eq!(kinds(EraseKind::Guide), 2);
+    assert_eq!(kinds(EraseKind::EditorFile), 2);
+    assert_eq!(kinds(EraseKind::Leftover), 1);
+    assert!(plan.iter().all(|i| !i.path.contains("words")));
+    assert_eq!(snapshot(&project.0), before);
+    // A project without voice data has nothing to erase and gets no folder.
+    let empty = Project::new();
+    assert!(erase_plan(&empty.0).unwrap().is_empty());
+    assert!(snapshot(&empty.0).is_empty());
+}
+
+#[test]
+fn erasing_everything_removes_all_of_it_and_the_post_check_finds_nothing() {
+    let project = full_project();
+    let report = erase_all(&project.0).unwrap();
+    assert_eq!(report.erased.len(), 9);
+    assert!(report.remaining.is_empty(), "{:?}", report.remaining);
+    assert!(erase_plan(&project.0).unwrap().is_empty());
+    assert!(list(&project.0).is_empty());
+    let left: Vec<String> = snapshot(&project.0).into_keys().collect();
+    assert_eq!(left, ["assistant/context/author.md"], "{left:?}");
+    // Repeating it is a quiet no-op.
+    assert!(erase_all(&project.0).unwrap().erased.is_empty());
+}
+
+#[test]
+fn a_failed_erase_puts_everything_back_exactly() {
+    let project = full_project();
+    let before = snapshot(&project.0);
+    // Fail on the last file in plan order, after most of the others were set aside.
+    let plan = erase_plan(&project.0).unwrap();
+    let last = plan
+        .last()
+        .unwrap()
+        .path
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+    FAIL_ERASE.with(|f| *f.borrow_mut() = Some(last));
+    let error = erase_all(&project.0).unwrap_err();
+    FAIL_ERASE.with(|f| *f.borrow_mut() = None);
+    assert!(error.to_string().contains("Nothing was erased"), "{error}");
+    assert_eq!(snapshot(&project.0), before);
+    // And it works once the obstacle is gone.
+    assert!(erase_all(&project.0).unwrap().remaining.is_empty());
+}
+
+#[test]
+fn a_failure_on_the_first_file_also_changes_nothing() {
+    let project = full_project();
+    let before = snapshot(&project.0);
+    let first = erase_plan(&project.0).unwrap()[0]
+        .path
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+    FAIL_ERASE.with(|f| *f.borrow_mut() = Some(first));
+    assert!(erase_all(&project.0).is_err());
+    FAIL_ERASE.with(|f| *f.borrow_mut() = None);
+    assert_eq!(snapshot(&project.0), before);
+}
+
+#[test]
+fn the_post_check_reports_what_it_could_not_remove() {
+    let project = full_project();
+    // A folder inside a sample folder is never touched, so the folder and it remain.
+    fs::create_dir_all(project.0.join(PORTABLE_DIR).join("nested")).unwrap();
+    fs::write(project.0.join(PORTABLE_DIR).join("nested/x.md"), "x").unwrap();
+    let report = erase_all(&project.0).unwrap();
+    assert_eq!(report.remaining, ["assistant/context/voice"]);
+}
 #[test]
 fn private_writes_keep_the_private_folder_out_of_git() {
     let project = Project::with_session("a-mistake-i-made");
@@ -736,6 +832,7 @@ fn a_move_is_reversible_and_a_sample_is_only_staged_while_it_is_portable() {
 }
 
 const PRIVATE_DIR: &str = ".openblog/private/context/voice";
+const PORTABLE_DIR: &str = "assistant/context/voice";
 
 #[test]
 fn a_failed_original_removal_never_costs_the_rough_draft_and_the_move_can_be_finished() {

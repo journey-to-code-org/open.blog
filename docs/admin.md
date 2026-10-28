@@ -266,6 +266,7 @@ openblog voice a-mistake-i-made    # skip the draw
 openblog voice --list              # packs, how many you have answered, and each prompt's stage
 openblog voice --resume            # carry on with an interrupted session (deadline unchanged)
 openblog voice --scrap --yes       # give up the open session and save nothing
+openblog voice erase [--yes]       # list, then erase ALL voice data (see below)
 ```
 
 - **Where you write.** If `$VISUAL` or `$EDITOR` is set, your editor opens a file with the prompt and a
@@ -284,6 +285,19 @@ openblog voice --scrap --yes       # give up the open session and save nothing
   alone. `--dir posts/2026` picks a folder inside `posts`.
 
 `<sample>` is a file name from `voice --list` or a prompt id. Output is plain text.
+
+### Erase your voice data
+
+Samples are private unless you choose portable (`--portable`, or "Portable" when you start a session in
+Admin); "Make private" and "Make portable" on a sample move it, with its partner, and moving it back
+restores the same bytes. Private samples are never published, built, fed or exported.
+
+`openblog voice erase` lists everything the voice feature stored: samples in both folders, the session
+record, the voice guide and leftover editor files. It stops there; add `--yes` to erase. In Admin, **Your
+voice samples** has **Erase all voice data…**: it shows the same list and enables **Erase everything**
+only after you type `erase`. The erase is all or nothing (if one file cannot be removed, everything is put
+back) and ends with a second look that says "nothing is left" or names what is. Admin also clears the
+copies of drafts kept on that device. Copies in Git history or backups are not touched.
 
 ### Write visually or in Markdown
 

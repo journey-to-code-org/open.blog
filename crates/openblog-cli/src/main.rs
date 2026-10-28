@@ -84,6 +84,7 @@ COMMANDS
                                exactly as written (see voice OPTIONS)
     voice --list               Prompts by pack, with what you have answered
     voice --resume             Carry on with an interrupted session (an expired one is locked)
+    voice erase --yes          Erase every sample, the session record, the guide and editor files
     voice polish|diff|promote <sample>
                                Refine a copy, compare it, or make a post draft from it
     themes                     List themes and the inheritance chain of each
@@ -135,6 +136,9 @@ voice OPTIONS
                                a line holding only a dot (.) or end of input
     --resume                   Resume the open session with its original deadline
     --scrap --yes              Give up the open session and save nothing
+    erase [--yes]              List, then (with --yes) erase ALL voice data: samples in both
+                               folders, the session record, the guide and leftover editor
+                               files. All or nothing, then checks that nothing is left
     --list                     Show the prompt packs, answered counts and stages
     polish <sample>            Edit a COPY of a rough draft in $VISUAL/$EDITOR and save it as the
                                polished draft (the rough draft is locked and never changes);

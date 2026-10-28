@@ -405,3 +405,34 @@ test("the invitation never shows when samples exist, even for an admin who has n
   await reloadHome(page);
   await expect(invitation(page)).toHaveCount(0);
 });
+
+test("erase lists first, needs the typed word, keeps everything on Cancel, then removes it all and fits a phone", async ({ page }) => {
+  expect(voiceFiles().length).toBeGreaterThan(0);
+  await signIn(page, "#/voice/library");
+  await page.setViewportSize({ width: 400, height: 800 });
+  await expect(page.getByRole("heading", { level: 2, name: "Your voice samples" })).toBeVisible();
+  await page.locator("[data-voice-erase]").getByRole("button", { name: "Erase all voice data…" }).click();
+  const list = page.locator("[data-voice-erase-list]");
+  await expect(list).toBeVisible();
+  expect(await list.locator("li").count()).toBe(voiceFiles().length);
+  const overflow = await sideways(page, "ob-voice-library");
+  expect(overflow.region, overflow.culprit).toBeLessThanOrEqual(TOLERANCE);
+  expect(overflow.page).toBeLessThanOrEqual(TOLERANCE);
+  const confirm = page.getByRole("button", { name: "Erase everything" });
+  await expect(confirm).toBeDisabled();
+  await page.screenshot({ path: join(shots, "erase-400.png"), fullPage: true });
+
+  // Cancel keeps everything.
+  const before = voiceFiles().length;
+  await page.getByRole("button", { name: "Keep my data" }).click();
+  await expect(list).toHaveCount(0);
+  expect(voiceFiles().length).toBe(before);
+
+  await page.locator("[data-voice-erase]").getByRole("button", { name: "Erase all voice data…" }).click();
+  await page.getByLabel(/^Type "erase" to confirm/).fill("erase");
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(page.locator("[data-voice-erase-status]")).toContainText("nothing is left");
+  expect(voiceFiles()).toEqual([]);
+  expect(existsSync(join(root, ".openblog", "private", "voice", "session.json"))).toBe(false);
+});

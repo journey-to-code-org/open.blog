@@ -2545,3 +2545,9 @@ _Avoid_: Publish, convert
 A Markdown description of how the author writes, built from quoted sample evidence, approved by the author and
 used as Assistant context. It is a later feature (epic #409); this epic only reserves the term.
 _Avoid_: Style guide, persona, system prompt
+
+**Voice erase**:
+Removing every voice sample (both folders), the session record, the guide and leftover editor files in one
+all-or-nothing step, after a listed confirmation, and then checking again that nothing remains. The guide's
+location is named in one place, `voice_store::guide_paths` (ADR 0371).
+_Avoid_: Reset, wipe, delete account
