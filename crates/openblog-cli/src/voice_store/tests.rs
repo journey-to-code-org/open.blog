@@ -615,12 +615,12 @@ fn try_dir_link(target: &Path, link: &Path) -> bool {
     }
     #[cfg(windows)]
     {
-        return std::process::Command::new("cmd")
+        std::process::Command::new("cmd")
             .args(["/C", "mklink", "/J"])
             .arg(link)
             .arg(target)
             .output()
-            .is_ok_and(|out| out.status.success());
+            .is_ok_and(|out| out.status.success())
     }
     #[cfg(not(windows))]
     false
