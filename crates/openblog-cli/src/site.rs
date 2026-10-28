@@ -175,12 +175,52 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-atlas-trail.js"),
     ),
     (
+        "components/ob-reading-path.js",
+        include_str!("../../../web/components/ob-reading-path.js"),
+    ),
+    (
+        "components/ob-explanation-levels.js",
+        include_str!("../../../web/components/ob-explanation-levels.js"),
+    ),
+    (
         "components/ob-concept-previews.js",
         include_str!("../../../web/components/ob-concept-previews.js"),
     ),
     (
         "components/ob-passage-feedback.js",
         include_str!("../../../web/components/ob-passage-feedback.js"),
+    ),
+    (
+        "components/ob-annotations.js",
+        include_str!("../../../web/components/ob-annotations.js"),
+    ),
+    (
+        "components/ob-reflection-history.js",
+        include_str!("../../../web/components/ob-reflection-history.js"),
+    ),
+    (
+        "components/reader-reflections.js",
+        include_str!("../../../web/components/reader-reflections.js"),
+    ),
+    (
+        "components/ob-reading-trail.js",
+        include_str!("../../../web/components/ob-reading-trail.js"),
+    ),
+    (
+        "components/passage-selection.js",
+        include_str!("../../../web/components/passage-selection.js"),
+    ),
+    (
+        "components/reader-annotations.js",
+        include_str!("../../../web/components/reader-annotations.js"),
+    ),
+    (
+        "components/reader-annotations-store.js",
+        include_str!("../../../web/components/reader-annotations-store.js"),
+    ),
+    (
+        "components/reader-annotations-transfer.js",
+        include_str!("../../../web/components/reader-annotations-transfer.js"),
     ),
     (
         "components/passage-feedback.js",
@@ -432,6 +472,12 @@ pub fn read_sources_excluding(
         config,
         openblog_core::community_feature::COMMUNITY_FEATURES_FILE,
     )?;
+    // Continuation links (ADR 0219), the same way.
+    sources.continuations = read_content_file(
+        root,
+        config,
+        openblog_core::continuation::CONTINUATIONS_FILE,
+    )?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
         sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
@@ -595,7 +641,7 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
     };
     // Private project state never feeds the public version, or a private edit
     // would change every public asset URL.
-    let private = fsutil::PrivateState::of(root);
+    let private = fsutil::PrivateState::of(root).withhold(&comparison_files(root, &config));
     for dir in [
         &config.paths.web,
         &config.paths.themes,
@@ -981,6 +1027,10 @@ pub fn generate_site_with_boundary(
     if let Some(error) = &site.community_features_error {
         return Err(error.clone());
     }
+    // And continuation links (ADR 0219).
+    if let Some(error) = &site.continuations_error {
+        return Err(error.clone());
+    }
     // What the projections publish and withhold; a stale approval or an
     // unsafe web address withholds only what it affects, and is named.
     let stores = crate::boundary::Stores::read(root, &shared);
@@ -1082,7 +1132,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
 
     // Private project state (logins, analytics, research) is never copied,
     // even when a static or theme directory is configured to contain it.
-    let private = fsutil::PrivateState::of(root);
+    let private = fsutil::PrivateState::of(root).withhold(&comparison_files(root, config));
 
     // 1. Static files (images, favicon, CNAME, ...) at the site root.
     let static_dir = root.join(&config.paths.static_dir);
@@ -1158,6 +1208,15 @@ pub fn watched_paths(root: &Path, config: &SiteConfig) -> Vec<PathBuf> {
         root.join(&config.paths.themes),
         root.join(&config.paths.web),
     ]
+}
+
+/// Where the interpretation comparison files are stored. They hold drafts and
+/// unapproved AI text beside what is approved, so a configured static or theme
+/// folder that contains them (a `static` of `.`) must never copy them raw: a
+/// comparison reaches a page only through its projection (ADR 0232).
+fn comparison_files(root: &Path, config: &SiteConfig) -> PathBuf {
+    root.join(&config.paths.content)
+        .join(openblog_core::scholarly_comparison::COMPARISONS_DIR)
 }
 
 #[cfg(test)]
@@ -1380,6 +1439,319 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    fn reading_path_project(tag: &str, config: &str) -> PathBuf {
+        let root = temp_root(tag);
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::create_dir_all(root.join("content/paths")).unwrap();
+        fs::write(root.join(CONFIG_FILE), config).unwrap();
+        for (slug, extra) in [
+            ("one", ""),
+            ("two", ""),
+            (
+                "secret",
+                "draft: true
+",
+            ),
+        ] {
+            fs::write(
+                root.join(format!("content/posts/2026-01-05-{slug}.md")),
+                format!(
+                    "---
+title: Post {slug}
+date: 2026-01-05
+{extra}---
+
+Body.
+"
+                ),
+            )
+            .unwrap();
+        }
+        let step = |id: &str, slug: &str, transition: bool| {
+            let mut step = serde_json::json!({"id": id, "target": {"kind": "post", "slug": slug}});
+            if transition {
+                step["transition"] =
+                    serde_json::json!({"relationship": "builds-on", "why": "Because."});
+            }
+            step
+        };
+        let path = serde_json::json!({
+            "format": "openblog-reading-path", "version": 1, "title": "Route",
+            "status": "published",
+            "steps": [step("a", "one", false), step("b", "two", true), step("c", "secret", true)]
+        });
+        fs::write(root.join("content/paths/route.json"), path.to_string()).unwrap();
+        // A damaged file never stops the others or the build.
+        fs::write(root.join("content/paths/broken.json"), "{ not json").unwrap();
+        root
+    }
+
+    #[test]
+    fn interpretation_comparisons_publish_only_their_projection() {
+        const SECRET: &str = "secret-source-marker";
+        const DRAFT: &str = "DRAFT-COMPARISON-MARKER";
+        let config = r#"{"interpretations":{"publish":true},"claimEvidence":{"publish":true},"paths":{"static":"."}}"#;
+        let root = temp_root("interpretations");
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::create_dir_all(root.join("content/comparisons")).unwrap();
+        fs::write(root.join(CONFIG_FILE), config).unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---\ntitle: Cave\ndate: 2026-01-07\n---\n\nThe cave educates.\n",
+        )
+        .unwrap();
+        let library = format!(
+            r#"{{"version":1,"sources":[{{"id":"plato","kind":"work","title":"Politeia","issued":"2003"}},{{"id":"{SECRET}","kind":"work","title":"{SECRET} title"}}]}}"#
+        );
+        let library_path = root.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(library_path.parent().unwrap()).unwrap();
+        fs::write(&library_path, library).unwrap();
+        let claims = serde_json::json!({"version": 1,
+            "claims": [{"id": "c1", "post": "cave", "statement": "The cave educates.", "visibility": "approved"}],
+            "links": [
+                {"id": "l1", "claim": "c1", "relation": "supports", "visibility": "approved",
+                 "evidence": {"source": "plato"}},
+                {"id": "l2", "claim": "c1", "relation": "contextualizes",
+                 "evidence": {"source": SECRET}}]})
+        .to_string();
+        fs::write(root.join(crate::claims_store::CLAIMS_FILE), claims).unwrap();
+        let comparison = serde_json::json!({
+            "format": "openblog-interpretation-comparison", "version": 1,
+            "title": "What the cave stands for", "subject": "Readings of the cave.",
+            "status": "published",
+            "interpretations": [
+                {"id": "a", "attribution": {"kind": "named", "name": "A school"},
+                 "statement": "A city.", "evidence": [{"link": "l1"}, {"link": "l2"}, {"source": SECRET}]},
+                {"id": "b", "attribution": {"kind": "source", "source": "plato"}, "statement": "A mind."},
+                {"id": "c", "attribution": {"kind": "source", "source": SECRET}, "statement": "A third."}
+            ]
+        });
+        fs::write(
+            root.join("content/comparisons/cave.json"),
+            comparison.to_string(),
+        )
+        .unwrap();
+        let mut draft = comparison.clone();
+        draft["status"] = serde_json::json!("draft");
+        draft["title"] = serde_json::json!(format!("{DRAFT} title"));
+        fs::write(
+            root.join("content/comparisons/draft.json"),
+            draft.to_string(),
+        )
+        .unwrap();
+        // A damaged file never stops the others or the build.
+        fs::write(root.join("content/comparisons/broken.json"), "{ not json").unwrap();
+
+        production_build(&root);
+        let on = dist_bytes(&root);
+        let page = String::from_utf8(on["interpretations/cave/index.html"].clone()).unwrap();
+        assert!(
+            page.contains("The cave educates.") && page.contains("Politeia"),
+            "{page}"
+        );
+        assert!(page.contains("A school") && !page.contains("id=\"i-c\""));
+        assert!(!on.contains_key("interpretations/draft/index.html"));
+        assert!(!on.contains_key("interpretations/broken/index.html"));
+        // No output carries a private source or a draft, and the comparison
+        // files are not copied raw even though the static folder is the root.
+        for (path, bytes) in &on {
+            let text = String::from_utf8_lossy(bytes);
+            assert!(!text.contains(SECRET), "{path}");
+            assert!(!text.contains(DRAFT), "{path}");
+        }
+        // Positive control: the static folder really is the project root.
+        assert!(on.contains_key("content/posts/2026-01-07-cave.md"));
+        assert!(
+            on.keys()
+                .all(|path| !path.starts_with("content/comparisons/")),
+            "{:?}",
+            on.keys()
+                .filter(|p| p.contains("comparisons"))
+                .collect::<Vec<_>>()
+        );
+
+        // Off, nothing is written and the folder is never read.
+        fs::write(root.join(CONFIG_FILE), r#"{"paths":{"static":"."}}"#).unwrap();
+        production_build(&root);
+        let off = dist_bytes(&root);
+        assert!(off.keys().all(|path| !path.starts_with("interpretations/")));
+        fs::remove_dir_all(root).unwrap();
+    }
+    /// Approval of the exact text, revocation, a private note and hostile
+    /// metadata through the whole build (#91): the page shows an approved AI
+    /// explanation labelled as an AI draft, and no output holds the text again
+    /// once the approval is removed or the text is edited after approval.
+    #[test]
+    fn an_ai_explanation_publishes_only_while_its_approval_matches_and_private_notes_never_do() {
+        use openblog_core::scholarly_comparison::{Explanation, Level};
+        const NOTE: &str = "PRIVATE-NOTE-MARKER";
+        const AI_TEXT: &str = "AI-EXPLANATION-MARKER for beginners.";
+        let root = temp_root("interpretation-approval");
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::create_dir_all(root.join("content/comparisons")).unwrap();
+        fs::write(
+            root.join(CONFIG_FILE),
+            r#"{"interpretations":{"publish":true}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---
+title: Cave
+date: 2026-01-07
+---
+
+The cave educates.
+",
+        )
+        .unwrap();
+        let digest = Explanation::new("e1", Level::Beginner, AI_TEXT).digest();
+        let write = |text: &str, approval: Option<&str>| {
+            let mut explanation = serde_json::json!({
+                "id": "e1", "level": "beginner", "text": text,
+                "origin": {"kind": "ai-draft", "tool": "A helper"}});
+            if let Some(by) = approval {
+                explanation["approval"] =
+                    serde_json::json!({"by": by, "at": "2026-10-27", "digest": digest});
+            }
+            let comparison = serde_json::json!({
+                "format": "openblog-interpretation-comparison", "version": 1,
+                "title": "The cave <script>alert(1)</script>", "subject": "Readings.",
+                "status": "published", "privateNote": NOTE,
+                "interpretations": [
+                    {"id": "a", "attribution": {"kind": "named", "name": "A school"},
+                     "statement": "A city.", "privateNote": NOTE},
+                    {"id": "b", "attribution": {"kind": "anonymous", "description": "A commentator"},
+                     "statement": "A mind."}],
+                "explanations": [explanation]});
+            fs::write(
+                root.join("content/comparisons/cave.json"),
+                comparison.to_string(),
+            )
+            .unwrap();
+        };
+        let build_text = || {
+            production_build(&root);
+            dist_bytes(&root)
+        };
+
+        // Approved: the text shows, labelled as an AI draft a person approved.
+        write(AI_TEXT, Some("Dana"));
+        let on = build_text();
+        let page = String::from_utf8(on["interpretations/cave/index.html"].clone()).unwrap();
+        for (path, bytes) in &on {
+            assert!(
+                !String::from_utf8_lossy(bytes).contains("Dana"),
+                "an approver's login reached {path}"
+            );
+        }
+        assert!(page.contains("AI-EXPLANATION-MARKER"), "{page}");
+        assert!(page.contains("approved by the author") && !page.contains("<script>alert(1)"));
+        // The static copies sit beside the page, hold the approved explanation
+        // with its AI label, link to the canonical page and hold nothing else.
+        for name in ["portable.html", "portable.md", "portable.txt"] {
+            let copy = String::from_utf8(on[&format!("interpretations/cave/{name}")].clone())
+                .unwrap_or_default();
+            assert!(copy.contains("AI-EXPLANATION-MARKER"), "{name}: {copy}");
+            assert!(copy.contains("/interpretations/cave/"), "{name}: {copy}");
+            // Text is plain text; the HTML copy must never hold the markup.
+            assert!(
+                name != "portable.html" || !copy.contains("<script"),
+                "{copy}"
+            );
+        }
+        assert!(!page.to_lowercase().contains("verified"), "{page}");
+        // Search finds the comparison by its approved interpretation text.
+        let search = String::from_utf8(on["search.json"].clone()).unwrap();
+        assert!(search.contains("/interpretations/cave/") && search.contains("a city."));
+        assert!(!search.contains("ai-explanation-marker"));
+        for (path, bytes) in &on {
+            assert!(
+                !String::from_utf8_lossy(bytes).contains(NOTE),
+                "a private note reached {path}"
+            );
+        }
+
+        // Unapproved, or approval removed: the text is in no output, and the
+        // file, which would publish an unapproved draft, publishes nothing.
+        write(AI_TEXT, None);
+        // Edited after approval: the old approval no longer matches.
+        let edited = format!("{AI_TEXT} Edited later.");
+        for off in [build_text(), {
+            write(&edited, Some("Dana"));
+            build_text()
+        }] {
+            for (path, bytes) in &off {
+                assert!(
+                    !String::from_utf8_lossy(bytes).contains("AI-EXPLANATION-MARKER"),
+                    "an unapproved AI draft reached {path}"
+                );
+            }
+            // A published file holding such text fails validation as a
+            // whole, so the comparison has no page at all.
+            assert!(!off.contains_key("interpretations/cave/index.html"));
+            assert!(off
+                .keys()
+                .all(|path| !path.starts_with("interpretations/cave/")));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reading_paths_are_built_only_while_published_and_never_show_a_draft_step() {
+        let root = reading_path_project("reading-paths", "{}");
+        production_build(&root);
+        let off = dist_bytes(&root);
+        assert!(off.keys().all(|path| !path.starts_with("paths/")));
+        // Only the shipped component and stylesheet carry the name; no page loads it.
+        assert!(off
+            .iter()
+            .filter(|(path, _)| !path.starts_with("assets/"))
+            .all(|(_, bytes)| !String::from_utf8_lossy(bytes).contains("ob-reading-path")));
+
+        fs::write(
+            root.join(CONFIG_FILE),
+            r#"{"readingPaths":{"publish":true}}"#,
+        )
+        .unwrap();
+        production_build(&root);
+        let on = dist_bytes(&root);
+        let page = String::from_utf8(on["paths/route/index.html"].clone()).unwrap();
+        assert!(page.contains("Post one") && page.contains("Post two"));
+        assert!(!page.contains("Post secret") && !page.contains("secret"));
+        assert!(on.contains_key("paths/index.html"));
+        assert!(!on.contains_key("paths/broken/index.html"));
+        // Everything outside the path pages, the sitemap and the stylesheet is what it was.
+        for (path, bytes) in &off {
+            if path.starts_with("assets/") || path == "sitemap.xml" || path == "search.json" {
+                continue;
+            }
+            // A post that is a step of a listed path gains one link section (ADR 0216).
+            let page = String::from_utf8_lossy(&on[path]).into_owned();
+            if path.starts_with("posts/") && page.contains("ob-in-paths") {
+                let start = page.find("<section class=\"ob-in-paths\"").unwrap();
+                let end = start
+                    + page[start..]
+                        .find(
+                            "</section>
+",
+                        )
+                        .unwrap()
+                    + "</section>
+"
+                    .len();
+                let stripped = format!("{}{}", &page[..start], &page[end..]);
+                assert_eq!(stripped.as_bytes(), bytes.as_slice(), "{path}");
+                continue;
+            }
+            assert_eq!(on.get(path), Some(bytes), "{path}");
+        }
+        assert!(on.contains_key("paths.json") && !off.contains_key("paths.json"));
+        assert!(!String::from_utf8_lossy(&on["paths.json"]).contains("secret"));
+        assert!(String::from_utf8_lossy(&on["search.json"]).contains("/paths/route/"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

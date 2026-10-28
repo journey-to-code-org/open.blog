@@ -49,8 +49,11 @@ default, so you can edit values in place and delete the ones you do not need.
   "knowledgeAtlas": { "publish": false },
   "claimEvidence": { "publish": false },
   "comparisons": { "publish": false },
+  "readingPaths": { "publish": false },
+  "interpretations": { "publish": false },
   "curatedContext": { "publish": false },
-  "readingModes": { "default": "standard" }
+  "readingModes": { "default": "standard" },
+  "readerAnnotations": { "enabled": false }
 }
 ```
 
@@ -319,6 +322,28 @@ atlas, the alignments file is private and Git-ignored, so only a build that can 
 comparisons, and `build` and `check` warn when it cannot. See the
 [passage alignments format](specs/passage-alignments.md#publication).
 
+## Reading paths
+
+`readingPaths.publish` (off by default) is the switch for publishing [reading paths](specs/reading-paths.md),
+the ordered routes you curate in Admin under **Content → Reading paths**. While it is off you can write and
+preview paths freely; nothing publishes them and `/paths/` is not reserved. Turning it on reserves
+`/paths/`, so a page named `paths` or a `postPath` that puts a post there is refused by the build and by
+`check`; while it is off, `check` warns when you have path files beside such a page or post.
+While it is on, each published path is a page at `/paths/<slug>/` (see [Pages and progress](specs/reading-paths.md#pages-and-progress)); `/paths/` lists the paths you leave `listed`.
+Listed paths are also linked from the posts and atlas entries they name, found by site search and listed in `paths.json` ([Discovery](specs/reading-paths.md#discovery)). `openblog paths export` and `openblog paths import <file>` move paths between sites ([Export and import](specs/reading-paths.md#export-and-import)).
+
+## Interpretation comparisons
+
+`interpretations.publish` (off by default) is the switch for publishing the [interpretation comparisons](adr/0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md)
+you write in `content/comparisons` or in Admin under **Content → Comparisons**. While it is off nothing
+publishes them and `/interpretations/` is not reserved. Turning it on reserves `/interpretations/`, so a page
+named `interpretations` or a `postPath` that puts a post there is refused by the build. Each published
+comparison with at least two shown readings is a page at `/interpretations/<slug>/`; `/interpretations/`
+lists them. Evidence appears only while `claimEvidence.publish` is on as well, and only for approved links of
+approved claims and the sources they cite. A reading attributed to a source that is not published is left out
+of the page, and the build warns you by comparison and item id. The files in `content/comparisons` are never
+copied as static files.
+
 ## Curated research context
 
 `curatedContext.publish` (off by default) turns on the curated-selection projection: Admin's
@@ -361,6 +386,18 @@ default of its own. It never opts a post in. The order is the post's own
 `readingModes: {default: ...}`, then this site default, then standard, and a reader's saved choice
 beats all three. The key is optional and read tolerantly: a bare mode name works, and anything
 else is read as standard instead of failing the configuration.
+
+## Reader annotations
+
+`readerAnnotations.enabled` (off by default) gives every post a "Your highlights and notes" region where a
+reader can highlight words and keep private notes (see [Reader annotations](specs/reader-annotations.md#highlights-and-notes-on-a-page)).
+They are kept in that reader's own browser and are never sent to you, to the build or to any service. Turning
+it on adds the region, the post's passage text and one script to each post; with it off, pages are unchanged.
+It also adds a second region, "Your reading trails and saved sources", where a reader saves this post or a
+reference it cites and builds trails by hand (see [Reading trails and saved sources](specs/reader-annotations.md#reading-trails-and-saved-sources-on-a-page)).
+Nothing is recorded as a reader reads, and what they keep stays in their browser.
+The same panel lets a reader export that data to a file, import one after a preview, turn the feature off in their
+browser, and erase it (see [Export, import and privacy controls](specs/reader-annotations.md#export-import-and-privacy-controls)).
 
 ## Claim evidence
 

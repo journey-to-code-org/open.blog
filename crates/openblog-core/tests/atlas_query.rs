@@ -540,6 +540,8 @@ fn manifest_of(site: &Site) -> BoundaryManifest {
         atlas_blocked: None,
         public_comparisons: None,
         comparisons_blocked: None,
+        public_paths: None,
+        public_interpretations: None,
         claims_blocked: None,
         library: None,
         notebook: None,

@@ -129,7 +129,7 @@ pub fn load(
 /// The claims file as a build reads it, against the library read for a build
 /// (`source_store::load_for_build`), so a problem in an interpretation never
 /// stops a build.
-fn load_for_build(
+pub(crate) fn load_for_build(
     root: &Path,
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<Snapshot, StoreError> {

@@ -10,6 +10,103 @@ All notable changes to open.blog are recorded here. Releases follow
   are pinned and verified strictly, Git metadata recovery on Render uses the same key, and the entrypoint
   refuses to start if both a key and `OPENBLOG_GIT_TOKEN` are configured. A new `tests/docker-entrypoint.sh`
   check runs in CI.
+  
+## [0.48.0] - 2026-10-28
+
+- Export, delete and send a copy of your readings (with `readerAnnotations.enabled`): each reading can be deleted (after asking, and checked afterwards) or all readings of a post removed; the export preview says how many reflections are left out unless you include them; and a reading can be sent as a separate, previewed Third Perspective copy only after you agree to publication, through the site form where there is one or by copying it yourself. Nothing is sent or recorded as sent unless you do it, and the reading itself stays private and unchanged. See [reader annotations](docs/specs/reader-annotations.md).
+- Compare your readings over time (with `readerAnnotations.enabled`): a "Your readings over time" region on each post where a reader can save how they read it as a private snapshot, add a label, and put any two readings side by side (or one after the other on a small screen), with a note beside each saying whether the post has changed since it was written. Nothing is sent, scored or summarised, and without JavaScript the region explains what it needs. See the [reader annotations contract](docs/specs/reader-annotations.md#comparing-readings-on-device).
+- Private interpretation history, data layer (with `readerAnnotations.enabled`): the reader's local annotation document (now version 2; version 1 documents migrate) can hold reflection snapshots of a work or section, each kept unchanged with the page revision the reader read, a label they chose, and a link to the earlier reading it follows, with stale and article-changed state worked out each time. They stay on the device, are left out of the default export, and can be imported with the same all-or-nothing checks. A bounded copy for public consideration is built only on the reader's explicit consent through the existing Third Perspective form and moderation path, and never converts or marks the local original as public. No page shows it yet. See [Reader annotations](docs/specs/reader-annotations.md#interpretation-history).
+- Admin curation no longer ignores a withdraw, select or unselect made while the site is rebuilding after a
+  reorder; the change waits for the rebuild and is then saved.
+- Reader export, import and privacy controls (with `readerAnnotations.enabled`): the trail panel can download a dated JSON file of the reader's highlights, sources and trails (their own notes left out unless they tick a box, with a sentence saying exactly what the file holds first), preview a file before importing it (what it would add, what is already saved, records that disagree and which version stays, imported highlights on this post that no longer match its text), refuse hostile, newer, oversized or unreadable files whole without changing anything, turn highlights, notes and trails off in this browser without losing the data, and show what is kept and which storage keys are used so an erase can be checked. Nothing is uploaded. See [Reader annotations](docs/specs/reader-annotations.md#export-import-and-privacy-controls).
+- Reader reading trails and saved sources (with `readerAnnotations.enabled`): a second region on each post, "Your reading trails and saved sources", where a reader can save the post or a reference it cites (kept with the post it was found in), start named trails by hand, add sources, highlights and notes once each, reorder them with buttons, list the posts they have marked, and remove one source, trail step, trail, or post's highlights, or clear everything, each after asking. Nothing is recorded as a reader reads; everything stays in the reader's browser, a change that cannot be saved is refused with the reason and leaves saved data as it was, and the region says what it needs without JavaScript. See [Reader annotations](docs/specs/reader-annotations.md#reading-trails-and-saved-sources-on-a-page).
+- Reader highlights and private notes (opt-in with `readerAnnotations.enabled`): readers can select words, highlight them and keep private notes on a word, a section or a whole post, by mouse or keyboard, with no account. They stay in the reader's own browser, are painted over the post without changing it, are looked up again on each visit and kept, with the reason, when the post has changed, and still work for reading when the browser denies or has filled its storage. Sites that do not opt in are unchanged. See [Reader annotations](docs/specs/reader-annotations.md#highlights-and-notes-on-a-page).
+- Reader annotations contract: the portable, versioned format that readers' local highlights, private notes, saved sources and reading trails will share, with exact/prefix/suffix text targets, stale detection when a post changes, strict validation that names the faulty record, and an export that leaves note text out unless the reader includes it and always states it is private. Nothing is stored or shown yet, so pages and builds are unchanged. See [Reader annotations](docs/specs/reader-annotations.md).
+- A published interpretation comparison with explanations now has `portable.html`, `portable.md` and `portable.txt`
+  beside its page in the site build. They list every approved
+  explanation level as a labelled supplemental section with its authors, prerequisite, language, revision,
+  AI label and the author's approval, plus a link to the canonical page. Drafts, unapproved or withdrawn
+  explanations, the approver's login and rankings are never included, and a copy that drops a level or an AI
+  label stops the build.
+- Explanations on an interpretation comparison follow the reader's reading mode. An explanation the author offers
+  only in Guided or Deep dive is left out of the other mode, with a note, a "Show all explanations" button and no dead
+  control (Deep dive shows Guided explanations too); Standard and any
+  page without JavaScript show every explanation. The page also shows an explanation's revision and a link to the
+  explanation it translates. The choice stays on the reader's device and the evidence is never changed.
+- Audience explanations can now state more. An explanation in an interpretation comparison may name its
+  authors, a prerequisite ("helpful to know first", never a barrier), the reading modes it serves, its
+  language and the explanation it translates, and the author can withdraw it without deleting it. An AI
+  draft still reaches no page without a current approval of its exact text, and editing the byline,
+  prerequisite or language withdraws that approval. Existing comparison files are unchanged.
+- Interpretation comparison fixes. An AI-drafted reading's approval now covers its attribution, uncertainty
+  note and language as well as its statement, so changing any of them withdraws the approval. A published
+  page says the author approved an AI draft and never shows the approving Admin login name. An explanation
+  may cite only evidence its reading already cites, so no level choice changes the evidence on the page.
+- Interpretation comparisons now have regression coverage and a guide. The publication boundary lists the
+  comparisons a build publishes (Admin's **What will be public**, and the output check refuses a page for
+  one it does not), published comparisons are found by site search from their approved text only, and
+  `openblog check` warns, while `interpretations.publish` is off, when comparison files sit beside a page
+  or post that would collide with `/interpretations/`. Tests prove an unapproved, stale or revoked AI
+  draft and a private note reach no output. See the [interpretation comparisons guide](docs/interpretation-comparisons.md).
+- Interpretation comparisons can now be published. Turn on `interpretations.publish` and each published
+  comparison becomes a page at `/interpretations/<slug>/`, with an index at `/interpretations/`. Every page
+  says who advances each reading and how firmly, shows the evidence each cites, lists the relations between
+  readings without ranking them, and offers the beginner, student and scholarly explanations as sections of
+  the same page that you can reach by link without JavaScript. With JavaScript a level selector narrows the
+  explanations; it never changes the evidence and print shows every level. Evidence appears only for approved
+  claim links the site already publishes (with `claimEvidence.publish` on). A reading attributed to a source
+  the site does not publish is left out, and the build tells you by id. The comparison files are never copied
+  raw into the site. See [ADR 0232](docs/adr/0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md).
+- Admin Studio can author interpretation comparisons: **Content → Comparisons** lists, creates, edits and
+  moves comparisons to the trash. Every reading needs an attribution (or an explicit unknown author), you can
+  link evidence and see in words whether it is public, private or not found, and missing evidence never
+  blocks saving honest uncertainty. Text an AI tool drafted stays a draft until you press **Approve this
+  exact text**; only that action records an approval, a save can never add one, and editing the text
+  withdraws it. Withdrawing an approval in a published comparison asks before returning it to draft. The
+  preview is the public projection with a list, for you alone, of what readers will not see. Saves are
+  refused when the file changed elsewhere, and source mode keeps fields the release does not know. Publishing is a separate switch (ADR 0232). See [ADR 0231](docs/adr/0231-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md).
+- Interpretation comparisons now have a file format. `content/comparisons/<slug>.json` sets two or more
+  attributed readings of one subject side by side (a named person, a library source, or an explicitly
+  anonymous author), with neutral relations such as "differs from", an uncertainty note, evidence references,
+  translations and optional beginner, student and scholarly explanations. Nothing marks a reading correct,
+  and an explanation never replaces your prose. An AI-drafted reading or explanation is labelled and is
+  published only after you approve its exact text; editing it withdraws the approval. The site reads them only while `interpretations.publish` is on (ADR 0232). See [ADR 0226](docs/adr/0226-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md).
+- Optional update subscriptions: a pluggable, double opt-in service for readers who ask to hear when later work takes up a question, with no provider as the link-only baseline. Requests are confirmed once within 48 hours, answered alike so they reveal nothing, and unsubscribe or deletion erases the address with no account. Hosted storage is additive SQL in `supabase/subscriptions.sql` (rollback in `subscriptions-rollback.sql`), behind `OPENBLOG_SUBSCRIPTIONS_ENABLED`. No page renders a form yet, and no function, mail transport or unsubscribe page exists yet, so readers cannot subscribe until a follow-up adds them.
+- Continuation links: a canonical page now shows "Where this question went" and, on the later work, "Earlier questions this continues" as plain links that work without JavaScript, built from `continuations.json`. Admin links an approved reflection, question or source suggestion to a later published work, previews it, removes it, and drops the links of a removed or withdrawn submission, telling the moderator plainly if they could not be dropped. A note cannot claim cause, endorsement or popularity. Update subscriptions are not part of this change.
+- Reading paths are now easier to find and to move. A post or atlas entry that is a step of a listed path
+  shows "Part of a reading path" with a link to that step; listed paths appear in site search; and
+  `paths.json` lists the listed paths for tools. Unlisted paths are in none of these, feeds never carry
+  paths, and nothing about post order changes. `openblog paths export` writes your published paths to one
+  file (add `--drafts` for drafts) and `openblog paths import <file>` checks it and says what would change;
+  nothing is written unless `--write`, and any problem writes nothing at all. See
+  [Reading paths](docs/specs/reading-paths.md#discovery).
+- With `readingPaths.publish` on, a published reading path is now a page at `/paths/<slug>/`: its steps in
+  the order you chose, each linking to its post or atlas entry with your reason and relationship (never
+  more than you wrote; order alone is not influence), previous and next links, and your rationale and
+  prerequisites notes. It works without JavaScript. `/paths/` lists the paths you leave listed; an unlisted
+  path keeps its page but is not listed or in the sitemap. Readers can optionally mark steps as read, kept
+  only in their own browser, with a link to continue and a reset. A draft step is left out with no trace,
+  and problems are build warnings for you alone. A path file named like a Windows device (`con`, `nul`, ...)
+  is refused, and unknown numbers in a path file are written back digit for digit. See
+  [Reading paths](docs/specs/reading-paths.md#pages-and-progress).
+- Admin Studio can curate reading paths: **Content → Reading paths** lists, creates, edits, reorders (with
+  Move up and Move down, no drag needed) and moves paths to the trash. Steps are chosen from published posts
+  and public atlas entries only, a step that is no longer published is marked as one readers will not see,
+  every step after the first needs a relationship and your own reason, and a preview shows the public
+  projection with diagnostics for you alone. Saves are refused when the file changed elsewhere, written
+  atomically in canonical form, and source mode keeps fields the release does not know. Nothing publishes
+  a path yet, and a site without paths builds exactly as before. See [Reading paths](docs/specs/reading-paths.md#admin).
+- Reading paths now have a defined, checked file format. A path is an ordered list of published
+  posts and Knowledge Atlas entries in `content/paths/<slug>.json`, with a rationale per step and an
+  author-written reason (and a relationship that never defaults to influence) for every step after
+  the first. It is separate from series and changes neither posts nor series. Steps that are not
+  published are left out and named to the author only, never in public output. Nothing renders or
+  exports paths yet, so existing sites build exactly as before; see
+  [Reading paths](docs/specs/reading-paths.md). `influenced` joins two atlas entries only, on an
+  uncontested published relationship in exactly that direction; a path that would show a gap (a left-out
+  step a later step follows) is withheld whole; fields the release does not define are kept and written
+  back; a repeated key is refused; messages never quote a value; and `readingPaths.publish` (off by
+  default) is the switch that reserves `/paths/`.
 
 - New `rust runnable check` fence option: a `---checks` line inside a Rust runnable fence separates the
   reader's starter code from hidden `#[test]` functions. **Check my code** sends both to the Rust Playground
@@ -44,8 +141,12 @@ All notable changes to open.blog are recorded here. Releases follow
 - A series can declare `aliases:` in its front matter and the site can write a `_redirects` file with real
   301s for moved posts, pages and series (`"redirectsFile": true`); alias pages still carry a meta refresh,
   canonical and `noindex` for hosts without redirect rules.
+- The Web Sandbox source tabs (HTML, CSS, JavaScript) are now a proper underlined tab strip, with a hover state and a larger touch target, instead of loose outlined buttons.
+
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
+
+- The home page now uses the configured `home.heading` as its one `<h1>` on every listing page (it was an `<h2>`, so the page had no primary heading). The "Series" heading stays an `<h2>`.
 
 ## [0.47.0] - 2026-10-27
 

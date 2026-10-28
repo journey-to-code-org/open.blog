@@ -1314,8 +1314,10 @@ ob-web-sandbox { display: block; margin: 1.5em 0; }
 .ob-code-block ob-web-sandbox { margin: 0; }
 /* The HTML, CSS, and JavaScript editors use the shared editable-code styles above;
    only the source tabs and the preview frame are sandbox-specific. */
-.ob-web-sandbox-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
-.ob-web-sandbox-tab[aria-pressed="true"] { border-color: var(--ob-color-accent); color: var(--ob-color-accent); font-weight: 700; }
+.ob-web-sandbox-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.65rem; border-bottom: var(--ob-border-width) solid var(--ob-color-border); }
+.ob-web-sandbox-tab { min-height: 2rem; margin-bottom: calc(var(--ob-border-width) * -1); padding: 0.3rem 0.8rem; border-color: transparent; border-bottom: 2px solid transparent; border-radius: var(--ob-radius-sm) var(--ob-radius-sm) 0 0; background: transparent; color: var(--ob-color-muted); }
+.ob-web-sandbox-tab:hover { color: var(--ob-color-text); }
+.ob-web-sandbox-tab[aria-pressed="true"] { border-bottom-color: var(--ob-color-accent); color: var(--ob-color-accent); font-weight: 600; }
 .ob-web-sandbox-preview { display: block; box-sizing: border-box; width: 100%; min-height: 18rem; margin-top: 0.65rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: #fff; }
 /* Console output forwarded from the preview, shown only once something is logged. */
 .ob-web-sandbox-console { margin-top: 0.5rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: var(--ob-color-code-bg); color: var(--ob-color-code-text); }
@@ -3143,6 +3145,58 @@ ob-reading-modes { display: block; }
   .ob-trail-step { border-color: CanvasText; }
 }
 
+/* Reading path pages (#78, ADR 0215): a plain ordered list of steps, each a bordered group whose text
+   wraps anywhere so nothing overflows at 320 pixels or at 400% zoom. It reads in order without CSS or
+   JavaScript. The optional progress controls are added by <ob-reading-path>; print leaves them out and
+   keeps every step whole. */
+.ob-path-steps { list-style: none; margin: 1rem 0; padding: 0; }
+.ob-path-step { border: 1px solid var(--ob-border, currentColor); border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
+.ob-path-step[data-optional="true"] { border-style: dashed; }
+.ob-path-step-title { margin: 0 0 0.25rem; font-size: 1.15rem; }
+.ob-path-step p { margin: 0.35rem 0; }
+.ob-path-relation { font-weight: 600; }
+.ob-path-nav { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+.ob-path-tools { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; margin: 1rem 0; }
+.ob-path-tools .ob-path-status { flex-basis: 100%; margin: 0; }
+.ob-path-read { border-inline-start-width: 0.35rem; }
+@media print {
+  .ob-path-tools, .ob-path-progress { display: none !important; }
+  .ob-path-step { break-inside: avoid; }
+}
+@media (forced-colors: active) {
+  .ob-path-step { border-color: CanvasText; }
+}
+
+/* Interpretation comparison pages (#90, ADR 0232): a plain ordered list of interpretations, each a
+   bordered group, then the relations, then every explanation level as its own section. Text wraps
+   anywhere so nothing overflows at 320 pixels or at 400% zoom. It reads in order without CSS or
+   JavaScript. <ob-explanation-levels> only adds the level buttons; print shows every level and
+   leaves the buttons out. */
+.ob-interp-list { list-style: none; margin: 1rem 0; padding: 0; }
+.ob-interp { border: 1px solid var(--ob-border, currentColor); border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
+.ob-interp-title { margin: 0 0 0.25rem; font-size: 1.15rem; }
+.ob-interp p, .ob-explanation p { margin: 0.35rem 0; }
+.ob-interp-who { font-weight: 600; }
+.ob-interp-evidence, .ob-interp-relations, .ob-interp-contents ul, .ob-level-links ul { padding-inline-start: 1.25rem; overflow-wrap: anywhere; }
+.ob-level { border-inline-start: 0.25rem solid var(--ob-border, currentColor); padding-inline-start: 0.75rem; margin: 1rem 0; overflow-wrap: anywhere; }
+.ob-explanation { margin-bottom: 1rem; }
+.ob-explanation-about { margin: 0.5rem 0 0.25rem; font-size: 1rem; }
+.ob-level-switch { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
+.ob-level-switch button { min-block-size: 2.75rem; padding: 0.4rem 0.9rem; font: inherit; }
+.ob-level-switch button[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
+@media print {
+  .ob-level-switch, .ob-level-status, .ob-level-mode-note { display: none !important; }
+  .ob-level[hidden], .ob-explanation[hidden] { display: block !important; }
+  .ob-level-links li[hidden] { display: list-item !important; }
+  ob-explanation-levels .ob-level-links[hidden] { display: block !important; }
+  .ob-interp, .ob-explanation { break-inside: avoid; }
+}
+@media (forced-colors: active) {
+  .ob-interp { border-color: CanvasText; }
+  .ob-level { border-color: CanvasText; }
+  .ob-level-switch button[aria-pressed="true"] { border: 2px solid Highlight; }
+}
+
 /* Curated research context on a post's page (#197, ADR 0197): a static ordered list of the items the
    author chose, each a bordered group whose facts stack and wrap anywhere, so nothing overflows at
    320 pixels or at 400% zoom. It reads in order without CSS or JavaScript. Print keeps every item
@@ -3707,6 +3761,485 @@ ob-native-lab .ob-native-field { display: grid; gap: 0.25rem; margin-top: 0.75re
 ob-native-lab .ob-native-field label { font-size: 0.85em; }
 ob-native-lab input[type="range"] { width: 100%; min-height: 2.75rem; accent-color: var(--ob-color-accent, currentColor); }
 
+/* Reader highlights and private notes (ADR 0241): one column, native controls, visible focus. */
+
+ob-annotations {
+  display: block;
+  max-inline-size: 42rem;
+}
+
+/* Painted over the saved words with the CSS Custom Highlight API; the post's markup is never changed.
+   System colours keep the words legible in every theme and in forced-colours mode. */
+::highlight(ob-annotation) {
+  background-color: Mark;
+  color: MarkText;
+}
+
+.ob-annotations-make {
+  display: grid;
+  gap: 1rem;
+}
+
+.ob-annotations-make fieldset {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-annotations-choice {
+  display: flex;
+  gap: .5rem;
+  align-items: baseline;
+}
+
+.ob-annotations-field {
+  display: grid;
+  gap: .35rem;
+}
+
+.ob-annotations textarea,
+.ob-annotations select {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-annotations-lead,
+.ob-annotations-selection,
+.ob-annotations-hint,
+.ob-annotations-notice,
+.ob-annotations-status,
+.ob-annotations-error,
+.ob-annotations-quote,
+.ob-annotations-state,
+.ob-annotations-text,
+.ob-annotations-kind {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-annotations-hint,
+.ob-annotations-state,
+.ob-annotations-selection,
+.ob-annotations-kind {
+  color: var(--ob-color-muted);
+}
+
+.ob-annotations-notice,
+.ob-annotations-error {
+  font-weight: 600;
+}
+
+.ob-annotations-error::before {
+  content: "Error: ";
+}
+
+.ob-annotations-status:empty {
+  display: none;
+}
+
+.ob-annotations-text,
+.ob-annotations-quote {
+  white-space: pre-wrap;
+}
+
+blockquote.ob-annotations-quote {
+  margin-inline: 0;
+  padding-inline-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+}
+
+.ob-annotations-list {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-annotations-item {
+  display: grid;
+  gap: .5rem;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-annotations-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+ob-annotations [hidden] {
+  display: none;
+}
+
+.ob-annotations :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-annotations [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Reader interpretation history (ADR 0244): the same quiet controls. Two readings sit side by side where
+   there is room and one after the other where there is not; the order in the page is the same either way. */
+
+.ob-reflection-history {
+  max-inline-size: 60rem;
+}
+
+ob-reflection-history {
+  display: block;
+}
+
+ob-reflection-history [hidden] {
+  display: none;
+}
+
+.ob-reflection-history-make,
+.ob-reflection-history-body,
+.ob-reflection-history-line,
+.ob-reflection-history-compare,
+.ob-reflection-history-reading {
+  display: grid;
+  gap: 1rem;
+  min-inline-size: 0;
+}
+
+.ob-reflection-history-where {
+  display: grid;
+  gap: .5rem;
+}
+
+.ob-reflection-history-choice,
+.ob-reflection-history-field {
+  display: grid;
+  gap: .25rem;
+}
+
+.ob-reflection-history-choice {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.ob-reflection-history textarea,
+.ob-reflection-history select,
+.ob-reflection-history input[type="text"] {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.ob-reflection-history-meta,
+.ob-reflection-history-state,
+.ob-reflection-history-hint,
+.ob-reflection-history-position,
+.ob-reflection-history-empty,
+.ob-reflection-history-notice,
+.ob-reflection-history-status,
+.ob-reflection-history-error,
+.ob-reflection-history-lead,
+.ob-reflection-history-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-reflection-history-meta,
+.ob-reflection-history-state,
+.ob-reflection-history-hint,
+.ob-reflection-history-position {
+  font-size: .9em;
+}
+
+.ob-reflection-history-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ob-reflection-history-notice,
+.ob-reflection-history-error {
+  padding: .5rem .75rem;
+  border: 1px solid currentColor;
+  border-radius: .35rem;
+}
+
+.ob-reflection-history-status:empty {
+  display: none;
+}
+
+.ob-reflection-history-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-reflection-history-item,
+.ob-reflection-history-column {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-reflection-history-picks {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.ob-reflection-history-pair {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.ob-reflection-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-reflection-history-confirm,
+.ob-reflection-history-send,
+.ob-reflection-history-sent,
+.ob-reflection-history-sent-now,
+.ob-reflection-history-remove,
+.ob-reflection-history-preview {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin-block-start: .5rem;
+}
+
+.ob-reflection-history-send,
+.ob-reflection-history-confirm,
+.ob-reflection-history-sent-now {
+  padding: .75rem;
+  border: 1px solid currentColor;
+  border-radius: .25rem;
+}
+
+.ob-reflection-history-send textarea {
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+
+.ob-reflection-history :focus-visible,
+.ob-reflection-history [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Reader saved sources and reading trails (ADR 0242): the same quiet, one-column controls. */
+
+.ob-reading-trail {
+  max-inline-size: 42rem;
+}
+
+ob-reading-trail {
+  display: block;
+}
+
+.ob-reading-trail [hidden] {
+  display: none !important;
+}
+
+.ob-reading-trail .ob-trail-body,
+.ob-reading-trail .ob-trail-section,
+.ob-reading-trail .ob-trail-form,
+.ob-reading-trail .ob-trail-field,
+.ob-reading-trail .ob-trail-item {
+  display: grid;
+  gap: .75rem;
+}
+
+.ob-reading-trail .ob-trail-section {
+  margin-block-start: 1.5rem;
+}
+
+.ob-reading-trail .ob-trail-heading {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.ob-reading-trail .ob-trail-lead,
+.ob-reading-trail .ob-trail-hint,
+.ob-reading-trail .ob-trail-meta,
+.ob-reading-trail .ob-trail-empty,
+.ob-reading-trail .ob-trail-status,
+.ob-reading-trail .ob-trail-notice,
+.ob-reading-trail .ob-trail-error,
+.ob-reading-trail .ob-trail-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-reading-trail .ob-trail-hint,
+.ob-reading-trail .ob-trail-meta,
+.ob-reading-trail .ob-trail-empty {
+  color: var(--ob-color-muted);
+}
+
+.ob-reading-trail .ob-trail-notice,
+.ob-reading-trail .ob-trail-error {
+  font-weight: 600;
+}
+
+.ob-reading-trail .ob-trail-error::before {
+  content: "Error: ";
+}
+
+.ob-reading-trail .ob-trail-status:empty {
+  display: none;
+}
+
+.ob-reading-trail .ob-trail-title {
+  font-weight: 600;
+}
+
+.ob-reading-trail .ob-trail-list,
+.ob-reading-trail .ob-trail-steps {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-reading-trail .ob-trail-item {
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-reading-trail .ob-trail-steps {
+  gap: .75rem;
+  counter-reset: ob-trail-step;
+}
+
+.ob-reading-trail .ob-trail-step {
+  display: grid;
+  gap: .35rem;
+  padding-inline-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+}
+
+.ob-reading-trail .ob-trail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-reading-trail input[type="text"],
+.ob-reading-trail select {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-reading-trail :focus-visible,
+.ob-reading-trail [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Reader export, import and privacy controls (ADR 0243). */
+
+.ob-reading-trail .ob-trail-subheading {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ob-reading-trail .ob-trail-kept {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ob-reading-trail .ob-trail-preview,
+.ob-reading-trail .ob-trail-choice,
+.ob-reading-trail .ob-trail-details {
+  display: grid;
+  gap: .75rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-reading-trail .ob-trail-details {
+  padding: .5rem 1rem;
+}
+
+.ob-reading-trail .ob-trail-file {
+  box-sizing: border-box;
+  max-block-size: 20rem;
+  max-inline-size: 100%;
+  margin: .5rem 0 0;
+  overflow: auto;
+  font-size: .85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ob-reading-trail input[type="file"] {
+  max-inline-size: 100%;
+  font: inherit;
+}
+
+.ob-reading-trail .ob-trail-field:has(> input[type="checkbox"], > input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.ob-reading-trail .ob-trail-body,
+.ob-reading-trail .ob-trail-section,
+.ob-reading-trail .ob-trail-form,
+.ob-reading-trail .ob-trail-preview,
+.ob-reading-trail .ob-trail-choice,
+.ob-reading-trail .ob-trail-details {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ob-reading-trail .ob-trail-field:has(> input[type="file"]) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ob-reading-trail input[type="file"] {
+  box-sizing: border-box;
+  inline-size: 100%;
+}
 /* <ob-practice-lab>: guided Git practice terminal. Themed through --ob-* tokens. */
 ob-practice-lab {
   display: block;

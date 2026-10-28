@@ -1021,6 +1021,66 @@ over a size bound rather than cut. It is listed in the publication boundary like
 (ADRs 0168, 0169).
 _Avoid_: Graph API, public search index, a second atlas; querying the private atlas
 
+**Reading path**:
+An author's own ordered list of published posts and Knowledge Atlas entries, kept as
+`content/paths/<slug>.json`, with a rationale per step and an author-written transition from each step
+to the one before. It is its own content type: it never changes a post or a series, a post may be in
+several, and a series is not a step. It is one line of steps with no branches, no repeated target and
+no path inside a path; a draft is never published (ADRs 0207-0209).
+_Avoid_: Series, playlist, curriculum, learning journey, recommendation
+
+**Path step**:
+One place in a reading path: a stable id, a target (a published post or atlas entry), an optional
+rationale, prerequisite note, difficulty and `optional` flag, and, after the first, a transition. A step
+whose target is not published is left out of the public path and named to the author only, as
+the same sentence whether it is a draft, private or missing (ADR 0211).
+_Avoid_: Lesson, chapter, module
+
+**Path transition**:
+What an author writes to say why a step follows the one before it: required text and a relationship
+from a closed list with no default (`next` claims order only). It is about the step it follows, the
+nearest earlier step that is not optional. `influenced` joins two atlas entries and is kept only with
+a published, uncontested atlas influence from the followed entry to this one; order and dates never
+imply it, and a path that would lose a transition is withheld whole (ADR 0210, ADR 0211).
+_Avoid_: Link, edge, influence chain
+
+**Path editor**:
+Admin Studio's place to curate reading paths (`#/paths`): it offers only published posts and public atlas
+entries, marks a step that is no longer published as one readers will not see, requires a relationship and the
+author's own reason for every step after the first, reorders by Move up and Move down, and previews the one
+public projection. Saves name the revision read and are written atomically in canonical form (ADRs 0213, 0214).
+_Avoid_: Path builder, drag-and-drop curation
+
+**Public reading paths**:
+The allowlisted, deterministic projection of published paths (`openblog-reading-paths`) that later pages,
+discovery and export share, resolved against the published posts and public atlas alone (ADR 0212).
+_Avoid_: Path index, recommendation feed
+
+**Path page**:
+`/paths/<slug>/`, the static page of one published reading path: an ordered list of its shown steps, each
+linking to its post or atlas entry with the author's transition, rationale, previous and next links, and
+no JavaScript needed. `/paths/` lists only paths marked listed (ADR 0215).
+_Avoid_: Lesson, course, playlist
+
+**Path progress**:
+A reader's optional marks of which path steps they have read, kept as step targets in their own browser by
+`<ob-reading-path>` and nowhere else. It can be reset, never changes what the page says, never counts an
+optional step toward finishing and is not sent to anyone (ADR 0215).
+_Avoid_: Completion, certificate, enrolment, tracking
+
+**Path discovery**:
+The ways a reader or tool finds a published reading path: a "Part of a reading path" link on a post or atlas
+entry that is a step of it, an entry in site search, and `paths.json`. All three, and `/paths/` and the
+sitemap, include only listed paths; none changes the order of any post, and feeds never carry a path
+(ADR 0216).
+_Avoid_: Recommendation, related posts, trending
+
+**Path export**:
+`openblog paths export`'s single deterministic file of the author's path files, which `openblog paths import`
+checks as a whole and writes all-or-nothing, never replacing a different stored path without `--overwrite`
+(ADR 0217).
+_Avoid_: Backup, sync, migration
+
 **Concept link**:
 An author's explicit Markdown link to `atlas:<entry id>` in a post. The build resolves it against
 the public atlas projection alone: a published entry becomes an ordinary link to its page, and
@@ -2143,3 +2203,165 @@ notebook: labelled unverified reader text with the page it came from, the reader
 they said about the source as quoted statements, and no name, contact or time. It creates no passage,
 source, draft or link and changes nothing about the suggestion (ADR 0160).
 _Avoid_: Import, conversion, promotion to the library
+
+**Interpretation comparison**:
+An author's own public side-by-side of two or more attributed readings of one subject, kept as
+`content/comparisons/<slug>.json`, with neutral author-written relations between them and optional
+audience explanations. It is its own content type, not a source-library interpretation (which is
+private) and not a series. It never rules on which reading is right and has no verdict, score, rank,
+consensus or preferred field; a file that holds one is refused (ADRs 0226, 0227).
+_Avoid_: Debate, ranking, consensus view, fact check, versus page
+
+**Attributed interpretation**:
+One reading inside a comparison: who held it (a named person or tradition, a library source, or an
+explicitly anonymous author), its statement, the author's uncertainty note, evidence references and
+origin. It may be a translation of another reading of the same comparison. Attribution is required and
+its certainty is the author's own (ADR 0227).
+_Avoid_: Opinion, take, answer, theory
+
+**Audience explanation**:
+An author-written supplement to a comparison or one reading, for one fixed level (`beginner`, `student`,
+`scholarly`), one per level per subject. It never replaces canonical prose and is never evidence; the
+public value always says it is supplemental (ADR 0228). It may also state its authors, a
+prerequisite (advice, never a gate), the reading modes it serves, a language and the explanation it
+translates, and it can be withdrawn without being deleted (ADR 0234). On a comparison page the reader's reading mode narrows only explanations that name modes, and standard shows every one (ADR 0235). A portable copy (HTML, Markdown, text) makes every approved level a labelled supplemental section with a canonical link, and is checked against the public value (ADR 0236).
+_Avoid_: Simplified version, rewrite, reading level setting, personalisation
+
+**AI draft**:
+Text whose `origin` the author states as drafted by a tool. It is labelled as such wherever it appears
+and is published only after a person's approval of its exact text; nothing here calls a model
+(ADR 0229).
+_Avoid_: AI answer, generated explanation, automatic summary
+
+**Comparison approval**:
+A person's recorded statement (`by`, `at`, `digest`) that they read exactly this text and accept it.
+The digest binds it to the text, so editing the text makes the approval stale until it is given again
+(ADR 0229). In Admin only the Approve action records one: a save can keep an approval but never add or
+change it, and editing the text withdraws it (ADR 0231).
+_Avoid_: Sign-off flag, reviewed, verified
+
+**Level selector**:
+The optional control on a published comparison that narrows which explanation level section is shown.
+Every level is a section of the page whatever the control does, the quoted evidence sits outside them,
+and the control stores nothing (ADR 0232).
+_Avoid_: Reading level setting, personalisation, difficulty toggle
+
+## Continuations
+
+How a later work links back to the reader questions that came before it (ADRs 0218 to 0225). Ordinary
+links are the whole feature; updates are an optional extra.
+
+**Continuation**:
+An editor's typed link from one approved question, reflection or source suggestion to a later published
+work that takes it up, kept in `continuations.json` as ids and canonical paths and never a reader's
+words, name or contact. It shows only while the submission is approved and both pages are published,
+and it never says the submission caused the work or that anyone endorses it. Built into the canonical page
+of both ends as a static list of links and managed by the site Admin (ADR 0224).
+_Avoid_: Reply, answer, credit, inspiration, trackback
+
+**Continuation relation**:
+How the later work relates to the earlier submission: takes up, revisits or uses a suggested source. A
+closed set that describes the link and never its worth.
+_Avoid_: Reason, cause, impact
+
+**Update subscription**:
+A reader's optional, explicit request to be told when later work continues one page's questions or one
+series. Off by default and offered only where a site turned it on and the hosted service is reachable;
+otherwise the page offers links only. The address is private, kept only while active, never in static
+output or analytics, and erased by unsubscribing. Nothing in open.blog sends the update itself: a site plugs in a mail provider and a hosted store, and
+with neither the page offers links only (ADRs 0222, 0225).
+_Avoid_: Newsletter, follow, mailing list, tracking
+
+**Double opt-in**:
+The two steps that start a subscription: a request stores a pending record only after a confirmation
+message was sent, and a single-use link in it, followed within 48 hours, makes it active. A late or
+unused request is erased. Every request is answered alike so the answer never reveals who is
+subscribed (ADR 0225).
+_Avoid_: Verification, activation email
+
+**Reader annotation document**:
+One versioned JSON document (`openblog.reader-annotations`) holding a reader's highlights, notes, saved
+sources and reading trails, kept in that reader's own browser. It is reader-private, never public, never
+read by the build, Admin or a hosted service, and unrelated to the author's research notebook (ADRs 0237,
+0240).
+_Avoid_: Research notebook, comments, bookmarks file
+
+**Highlight**:
+A reader's marked quotation in a published work: a passage target of the quoted text with its context,
+the passage revision the reader saw and a time, and no words of the reader's own. Its stale state is
+worked out when it is read, not stored (ADR 0238).
+_Avoid_: Citation, claim, quote of record
+
+**Reader note**:
+A reader's own private text attached to a quotation, a section or a whole work. Left out of an export
+unless the reader includes it, and never a research note or a comment (ADRs 0237, 0239).
+_Avoid_: Comment, research note, feedback
+
+**Saved source**:
+A source a reader keeps in their annotation document: a title and either an http(s) link or a work on a
+site, with an optional note. A linked source also records the work it was found in (`from`). It is not an
+entry in the source library or a reference (ADRs 0237, 0242).
+_Avoid_: Reference, source library entry, bibliography
+
+**Reading trail**:
+A reader's own ordered line of up to 200 highlights, notes and saved sources, each once. Unlike an
+author's reading path it is private, local, built by hand and implies no relationship between steps (ADRs 0240, 0242).
+_Avoid_: Reading path, history
+
+**Trail panel**:
+The second part of a post offered by a site that turns on `readerAnnotations`: "Your reading trails and saved
+sources", where a reader saves this post or a reference it cites, starts trails by hand, orders them, and
+removes one thing or everything. Nothing is recorded as a reader reads; it holds only what the reader added,
+in their browser (ADR 0242).
+_Avoid_: History, recently read, tracking
+
+**Reading-trail export**:
+The file a reader downloads from the trail panel: the annotation document and nothing else, with the text of
+their own notes left out unless they chose to include it, and a sentence before the download saying what it holds.
+Nothing is uploaded (ADRs 0239, 0243).
+_Avoid_: Backup, sync, share
+
+**Import preview**:
+What the trail panel shows after a reader chooses a file and before anything is saved: what would be added, what is
+already saved, records that share an id but differ (the reader chooses which version stays), and imported highlights
+on the post being read that no longer match its text. A file that fails validation is refused whole (ADR 0243).
+_Avoid_: Restore, merge dialog
+
+**Annotation switch**:
+The reader's own setting, kept in their browser, that turns highlights, notes, saved sources and trails off on a
+site without removing what is saved. Erasing is separate and removes the data (ADR 0243).
+_Avoid_: Disable (a site setting), opt-out
+
+**Annotation privacy scope**:
+The statement every annotation document and export carries: `reader-private`, and whether the reader's own
+note text is `included` or `omitted`. It is checked, so a file cannot claim to omit notes while holding
+them (ADR 0239).
+_Avoid_: Visibility, sharing setting
+
+**Annotation region**:
+The part of a post, offered only by a site that turns on `readerAnnotations`, where a reader makes and manages
+their own highlights and notes. It carries no annotation: the build publishes only its static text, the post's
+passage text and a script, and what the reader keeps stays in their browser (ADR 0241).
+_Avoid_: Comments section, annotation feed
+
+**Moved annotation**:
+A reader's highlight whose words were found again, in the same or another section, because the post changed
+since it was saved. It is shown as moved and painted at the new place; an annotation whose words cannot be found
+is stale and stays listed with its reason, never silently moved (ADRs 0238, 0241).
+_Avoid_: Updated highlight, repaired highlight
+
+**Reflection snapshot**:
+One of a reader's own readings of a work or a section of it, kept in the reader-annotation document on
+their device with the revision of the page they read and an optional label they chose. Its words never
+change; it is private, never public and never a submitted copy (ADR 0244).
+_Avoid_: Draft, saved comment, journal entry
+
+**Interpretation history**:
+The line of a reader's reflection snapshots on one work, each following the one before it. It claims
+nothing about what changed or why (ADR 0244).
+_Avoid_: Belief profile, reading log
+
+**Submission record**:
+A line on a reflection snapshot saying the reader sent a copy, when and by which channel. It is not the
+copy, not a receipt, and not a sign the snapshot is public (ADR 0244).
+_Avoid_: Receipt, publication status

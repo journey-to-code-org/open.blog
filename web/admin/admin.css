@@ -4204,3 +4204,229 @@ a.oba-btn-primary {
   max-inline-size: 100%;
   overflow-wrap: anywhere;
 }
+
+/* Reading paths (ADR 0213, #77). Regions wrap instead of overflowing, so they reflow at 320px
+   and at 400% zoom; state is always words, never colour alone. */
+.oba-paths-list,
+.oba-paths-steps,
+.oba-paths-preview-list,
+.oba-paths-problem-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-paths-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  padding: 0.7rem 0;
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-paths-link,
+.oba-paths-meta,
+.oba-paths-step-title,
+.oba-paths-preview bdi,
+.oba-paths-problem-list li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-paths-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.oba-paths-edit,
+.oba-paths-preview,
+.oba-paths-form,
+.oba-paths-source {
+  min-width: 0;
+}
+
+.oba-paths-preview {
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-paths-preview h2,
+.oba-paths-problems h2,
+.oba-paths-form h2 {
+  margin-top: 0;
+  font-size: 1.15rem;
+}
+
+.oba-paths-form fieldset,
+.oba-paths-add {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-paths-step {
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
+}
+
+.oba-paths-step-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.oba-paths-step-heading {
+  flex: 1 1 14rem;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.oba-paths-step-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.oba-paths-state {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.oba-paths-state-warn {
+  padding: 0.2rem 0.5rem;
+  border-left: 3px solid var(--oba-danger);
+  background: var(--ob-color-surface-raised);
+  font-weight: 600;
+}
+
+.oba-paths-optional {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.oba-paths-problems {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--oba-danger);
+  border-radius: var(--ob-radius);
+}
+
+.oba-paths-problem-list li {
+  margin: 0.35rem 0;
+}
+
+.oba-paths-preview-step {
+  padding: 0.6rem 0;
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-paths-preview-step p {
+  margin: 0.2rem 0;
+}
+
+.oba-paths-diagnostics {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-paths-source-text {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-family: var(--ob-font-mono, ui-monospace, monospace);
+  white-space: pre;
+  overflow: auto;
+}
+
+.oba-paths-conflict:not([hidden]) {
+  margin: 0 0 1rem;
+}
+
+.oba-link {
+  margin-left: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ob-color-link, inherit);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.oba-paths-form textarea,
+.oba-paths-form select,
+.oba-paths-form input[type="text"] {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 62rem) {
+  .oba-paths-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Interpretation comparisons (ADR 0231, #89) reuse the reading-path regions above. Evidence and
+   provenance sit in fieldsets that wrap, and every state is words, never colour alone. */
+.oba-cmp-evidence {
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-cmp-evidence-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  padding: 0.35rem 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-cmp-evidence-name,
+.oba-cmp-evidence-state,
+.oba-cmp-item-heading {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-cmp-item-heading {
+  flex: 1 1 14rem;
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.oba-cmp-evidence-set,
+.oba-cmp-provenance {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-cmp-form textarea,
+.oba-cmp-form select,
+.oba-cmp-form input[type="text"] {
+  max-width: 100%;
+  box-sizing: border-box;
+}

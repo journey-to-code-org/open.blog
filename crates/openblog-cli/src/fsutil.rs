@@ -221,19 +221,38 @@ fn prune_empty(dir: &Path, is_root: bool) {
 /// The project's `.openblog` directory: logins, analytics, trash, and private
 /// research. Files inside it, or symlinks that resolve into it, are never
 /// public build input.
-pub struct PrivateState(Option<PathBuf>);
+///
+/// [`PrivateState::withhold`] adds author-written folders that hold material a
+/// page may only reach through its projection, such as the interpretation
+/// comparison files, which keep drafts and unapproved AI text beside what is
+/// approved.
+pub struct PrivateState(Vec<PathBuf>);
 
 impl PrivateState {
     pub fn of(root: &Path) -> Self {
-        Self(fs::canonicalize(root.join(".openblog")).ok())
+        Self(
+            fs::canonicalize(root.join(".openblog"))
+                .ok()
+                .into_iter()
+                .collect(),
+        )
+    }
+
+    /// Also treats everything under `dir` (a folder that may not exist yet) as
+    /// never public build input.
+    pub fn withhold(mut self, dir: &Path) -> Self {
+        if let Ok(dir) = fs::canonicalize(dir) {
+            self.0.push(dir);
+        }
+        self
     }
 
     pub fn contains(&self, path: &Path) -> bool {
-        let Some(private) = &self.0 else {
+        if self.0.is_empty() {
             return false;
-        };
+        }
         // A path that cannot be resolved keeps failing where it is read.
-        fs::canonicalize(path).is_ok_and(|path| path.starts_with(private))
+        fs::canonicalize(path).is_ok_and(|path| self.0.iter().any(|dir| path.starts_with(dir)))
     }
 }
 

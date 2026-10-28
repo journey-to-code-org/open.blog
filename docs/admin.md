@@ -532,6 +532,41 @@ the Markdown and requires an explicit repair choice: inherit to remove the broke
 or set new explicit credits to replace it. Credit-only changes participate in unsaved-change
 warnings, production preview, conflict detection, and the normal save validation.
 
+### Curate a reading path
+
+A reading path is your own ordered route through published posts and public Knowledge Atlas entries.
+Open **Content → Reading paths** and choose **New reading path**. Give it a title and an address name (the
+file name, `content/paths/<name>.json`, which cannot change later), then add steps from the list of
+published posts and public atlas entries. Draft and scheduled posts and private atlas entries are not
+offered. Every step after the first needs a relationship, chosen from a closed list with no default, and a
+reason in your own words; a step after an optional one follows the last required step. Use **Move up** and
+**Move down** to reorder; nothing needs a mouse. A step whose post was later unpublished is marked, in words,
+as one readers will not see, and the preview, which is the same projection a published path would have,
+says when the path would not be published as it stands and why. Saving is refused when the file changed
+elsewhere, offering the newer copy, and **Edit as source** shows the file itself, in its canonical form,
+keeping any field this release does not know.
+
+### Author an interpretation comparison
+
+A comparison sets several attributed readings of one subject side by side, without ruling between them.
+Open **Content → Comparisons** and choose **New comparison**. Give it a title, an address name (the file
+name, `content/comparisons/<name>.json`, which cannot change later) and a neutral description of the
+subject. Add each interpretation with who held it: a named person, school or tradition, a source from your
+library, or **Unknown author** with a description. Write what the reading holds, an optional uncertainty
+note, and link evidence from your evidence links and sources; each reference says in words whether readers
+can see it, whether it is private, or whether it is not in your library. Missing evidence is shown and
+never stops a save. Relations (differs from, agrees with, builds on, responds to) never say which reading
+is right. Explanations are written for a beginner, student or scholarly audience, about the whole
+comparison or one reading, and supplement your prose.
+
+If an AI tool drafted a reading or an explanation, tick **An AI tool drafted this text** and name the
+tool. It stays a draft: readers do not see it until you save the comparison and press **Approve this exact
+text**, which records you and the time against those exact words. Editing the text withdraws the approval
+when you save. **Withdraw approval** on a published comparison asks before returning the whole comparison
+to draft. The preview is what readers would see, and a list for you alone says what they would not. Saving
+is refused when the file changed elsewhere, offering the newer copy, and **Edit as source** shows the file
+itself, keeping any field this release does not know (an approval can be kept there but not added).
+
 ### Start a shared reflection
 
 A shared reflection is a private draft that several writers answer from the same source. Open

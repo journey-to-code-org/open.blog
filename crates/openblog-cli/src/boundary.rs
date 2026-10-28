@@ -80,6 +80,8 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
         Err(error) => blocked.comparisons = Some(error),
     }
     blocked.claims = site.claim_evidence_error.clone();
+    attach_reading_paths(root, site);
+    attach_interpretations(root, site);
     // The public curated context, resolved against exactly what this build
     // publishes (the atlas and comparisons just attached, the posts, the
     // sources they cite), so the pages and curated-context.json read the one
@@ -100,6 +102,108 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
     // attached, and against nothing when it is not published or not readable.
     site.link_concepts();
     blocked
+}
+
+/// Attach the public reading paths (ADR 0212, #78), only while the site
+/// publishes them. They are resolved against exactly what this build
+/// publishes (the posts and the atlas just attached), so a path never names
+/// what production would not show. A file that does not parse, a step that is
+/// not published and a path that is withheld are warned about to the author
+/// (naming the path and step, never a value) and leave the other paths and
+/// every other output as they were. Off means the folder is never read.
+fn attach_reading_paths(root: &Path, site: &mut Site) {
+    site.reading_paths = None;
+    if !site.config.reading_paths.publish {
+        return;
+    }
+    let stored = match crate::reading_path_store::list(root, &site.config.paths.content) {
+        Ok(stored) => stored,
+        Err(error) => {
+            site.warnings
+                .push(format!("reading paths: no path is published: {error}"));
+            return;
+        }
+    };
+    let mut paths = Vec::new();
+    for file in stored {
+        match file.parsed {
+            Ok(path) => paths.push(path),
+            Err(problems) => {
+                for problem in problems {
+                    site.warnings.push(problem.to_string());
+                }
+            }
+        }
+    }
+    let targets = openblog_core::reading_path::PublishedTargets::from_site(site);
+    let resolution = openblog_core::reading_path::PublicPaths::resolve(&paths, &targets);
+    for diagnostic in &resolution.diagnostics {
+        site.warnings.push(diagnostic.to_string());
+    }
+    site.reading_paths = Some(resolution.paths);
+}
+
+/// Attach the public interpretation comparisons (ADR 0232, #90), only while
+/// the site publishes them. Each stored comparison is projected by
+/// `PublicComparison::project` against the sources and evidence links this
+/// build publishes (approved links of approved claims, and only while
+/// `claimEvidence.publish` is on), so a page never names a private source,
+/// link or unapproved text. A file that does not parse and an item that is
+/// left out are warned about to the author by comparison and item id, never
+/// by value, and leave every other output as it was. Off means the folder is
+/// never read.
+fn attach_interpretations(root: &Path, site: &mut Site) {
+    site.interpretations = None;
+    if !site.config.interpretations.publish {
+        return;
+    }
+    let stored = match crate::comparison_store::list(root, &site.config.paths.content) {
+        Ok(stored) => stored,
+        Err(error) => {
+            site.warnings.push(format!(
+                "interpretation comparisons: none is published: {error}"
+            ));
+            return;
+        }
+    };
+    let mut comparisons = Vec::new();
+    for file in stored {
+        match file.parsed {
+            Ok(comparison) => comparisons.push(comparison),
+            Err(problems) => {
+                for problem in problems {
+                    site.warnings.push(problem.to_string());
+                }
+            }
+        }
+    }
+    let (refs, sources, links) =
+        match crate::claims_store::load_for_build(root, &site.config.contributors) {
+            Ok(snapshot) if site.config.claim_evidence.publish && snapshot.stored => {
+                openblog_core::interpretation_publication::PublicInterpretations::publishable(
+                    &snapshot.claims,
+                    &snapshot.library,
+                    true,
+                )
+            }
+            Ok(_) => Default::default(),
+            Err(error) => {
+                if site.config.claim_evidence.publish {
+                    site.warnings.push(format!(
+                        "interpretation comparisons: no evidence is shown: {error}"
+                    ));
+                }
+                Default::default()
+            }
+        };
+    let resolution = openblog_core::interpretation_publication::PublicInterpretations::resolve(
+        &comparisons,
+        &refs,
+        sources,
+        links,
+    );
+    site.warnings.extend(resolution.diagnostics);
+    site.interpretations = Some(resolution.public);
 }
 
 /// The source library and notebook, and the atlas and alignments read
@@ -347,6 +451,8 @@ pub fn manifest(
         atlas_blocked: blocked.atlas.as_deref(),
         public_comparisons: site.comparisons.as_ref(),
         comparisons_blocked: blocked.comparisons.as_deref(),
+        public_paths: site.reading_paths.as_ref(),
+        public_interpretations: site.interpretations.as_ref(),
         claims_blocked: blocked.claims.as_deref(),
         library: stores.library,
         notebook: stores.notebook,
@@ -829,6 +935,9 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     let curated_edges = manifest.published_ids(Projection::Curated, ItemKind::Relationship);
     let curated_sources = manifest.published_ids(Projection::Curated, ItemKind::Source);
     let file_listed = manifest.published_ids(Projection::CuratedContext, ItemKind::CuratedContext);
+    let paths = manifest.published_ids(Projection::ReadingPaths, ItemKind::Path);
+    let interpretations =
+        manifest.published_ids(Projection::Interpretations, ItemKind::Interpretation);
     let post_slugs: BTreeSet<&str> = site.posts.iter().map(|post| post.slug.as_str()).collect();
     // A post's address as the file carries it: the base path in front.
     let base_path = site.config.base_path();
@@ -852,14 +961,30 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     };
     for file in files {
         let segments: Vec<&str> = file.path.split('/').collect();
-        if let [segment, id, "index.html"] = segments.as_slice() {
-            if *segment == "atlas" && site.atlas.is_some() {
+        if let [segment, id, name] = segments.as_slice() {
+            let page = *name == "index.html";
+            // The static copies of a comparison's explanation levels sit beside
+            // its page and name the same comparison (ADR 0236).
+            let portable = matches!(*name, "portable.html" | "portable.md" | "portable.txt");
+            if *segment == "atlas" && page && site.atlas.is_some() {
                 check(&file.path, "atlas entry", id, &atlas_entries);
             }
             if *segment == openblog_core::comparison_publication::COMPARISONS_SEGMENT
+                && page
                 && site.comparisons.is_some()
             {
                 check(&file.path, "comparison", id, &comparisons);
+            }
+            if *segment == openblog_core::interpretation_publication::INTERPRETATIONS_SEGMENT
+                && (page || portable)
+                && site.interpretations.is_some()
+            {
+                check(
+                    &file.path,
+                    "interpretation comparison",
+                    id,
+                    &interpretations,
+                );
             }
         }
         let json = || serde_json::from_str::<Value>(&file.contents).unwrap_or(Value::Null);
@@ -917,6 +1042,25 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
             }
             for id in ids_at(&value, "sources") {
                 check(&file.path, "atlas query source", &id, &query_sources);
+            }
+        } else if file.path == openblog_core::reading_path::PATHS_JSON_FILE {
+            // The paths file may only name paths the manifest publishes, over
+            // posts this build publishes and public atlas entries.
+            let value = json();
+            for path in value["paths"].as_array().into_iter().flatten() {
+                if let Some(slug) = path["slug"].as_str() {
+                    check(&file.path, "reading path", slug, &paths);
+                }
+                for step in path["steps"].as_array().into_iter().flatten() {
+                    let Some(target) = step["target"].as_str() else {
+                        continue;
+                    };
+                    match step["kind"].as_str() {
+                        Some("post") => check(&file.path, "published post", target, &post_slugs),
+                        Some("atlas") => check(&file.path, "atlas entry", target, &atlas_entries),
+                        _ => check(&file.path, "step kind", "unknown", &BTreeSet::new()),
+                    }
+                }
             }
         } else if file.path == openblog_core::curated_context::CURATED_CONTEXT_JSON_FILE {
             // The curated context file may only name what the curated
@@ -1264,6 +1408,84 @@ mod tests {
             path: path.into(),
             contents: contents.into(),
         }
+    }
+
+    #[test]
+    fn an_interpretation_page_may_only_be_one_the_manifest_publishes() {
+        let root = project_with_note(
+            "interpretation-pages",
+            r#"{"interpretations":{"publish":true}}"#,
+        );
+        fs::create_dir_all(root.join("content/comparisons")).unwrap();
+        let comparison = |status: &str| {
+            serde_json::json!({
+                "format": "openblog-interpretation-comparison", "version": 1,
+                "title": "The cave", "subject": "Readings.", "status": status,
+                "interpretations": [
+                    {"id": "a", "attribution": {"kind": "named", "name": "A school"}, "statement": "A city."},
+                    {"id": "b", "attribution": {"kind": "named", "name": "Another"}, "statement": "A mind."}]})
+            .to_string()
+        };
+        fs::write(
+            root.join("content/comparisons/cave.json"),
+            comparison("published"),
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/comparisons/draft.json"),
+            comparison("draft"),
+        )
+        .unwrap();
+
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let preview = site_preview(&root, &mut site, &shared);
+        let published =
+            preview.published_ids(Projection::Interpretations, ItemKind::Interpretation);
+        assert_eq!(published, BTreeSet::from(["cave"]));
+        assert_eq!(
+            Projection::Interpretations.switch(),
+            "interpretations.publish"
+        );
+
+        // A page for the published comparison passes; one for a draft is refused.
+        assert!(checked(
+            &root,
+            &[page("interpretations/cave/index.html", "<p>x</p>")]
+        )
+        .is_ok());
+        let error = checked(
+            &root,
+            &[page("interpretations/draft/index.html", "<p>x</p>")],
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("interpretation comparison `draft`"),
+            "{error}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_paths_file_may_only_name_published_paths_and_published_targets() {
+        let root = project_with_note("paths-file", r#"{"readingPaths":{"publish":true}}"#);
+        let named = |slug: &str, kind: &str, target: &str| {
+            page(
+                "paths.json",
+                &serde_json::json!({"paths":[{"slug": slug, "steps":[{"kind": kind, "target": target}]}]})
+                    .to_string(),
+            )
+        };
+        // No path is published by this site, so any path the file names is refused.
+        let error = checked(&root, &[named("ghost", "post", "ghost-post")]).unwrap_err();
+        assert!(
+            error.contains("`paths.json`") && error.contains("reading path `ghost`"),
+            "{error}"
+        );
+        assert!(error.contains("published post `ghost-post`"), "{error}");
+        let error = checked(&root, &[named("ghost", "atlas", "nobody")]).unwrap_err();
+        assert!(error.contains("atlas entry `nobody`"), "{error}");
+        assert!(checked(&root, &[page("paths.json", r#"{"paths":[]}"#)]).is_ok());
     }
 
     #[test]

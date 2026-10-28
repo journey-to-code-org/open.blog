@@ -395,7 +395,7 @@ const toolbeltLinks = (root) =>
   root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes.href?.startsWith("#/") && !hiddenWithin(link, root)).map((link) => link.textContent);
 
 test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
-  const content = ["Overview", "Posts", "Pages", "Series", "Shared reflections", "Appearance"];
+  const content = ["Overview", "Posts", "Pages", "Series", "Shared reflections", "Reading paths", "Comparisons", "Appearance"];
   const research = "Research workspace";
   const cases = [
     [{ preset: "simple" }, "overview", content],

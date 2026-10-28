@@ -99,6 +99,14 @@ pub struct SiteConfig {
     /// written file while it is off.
     #[serde(skip_serializing_if = "ComparisonsConfig::is_off")]
     pub comparisons: ComparisonsConfig,
+    /// Opt-in publication of reading paths. Omitted from the written file
+    /// while it is off.
+    #[serde(skip_serializing_if = "ReadingPathsConfig::is_off")]
+    pub reading_paths: ReadingPathsConfig,
+    /// Opt-in publication of interpretation comparisons. Omitted from the
+    /// written file while it is off.
+    #[serde(skip_serializing_if = "InterpretationsConfig::is_off")]
+    pub interpretations: InterpretationsConfig,
     /// Opt-in publication of the author's curated selection of research
     /// context for readers (ADR 0185). Omitted from the written file while
     /// it is off.
@@ -111,6 +119,26 @@ pub struct SiteConfig {
         skip_serializing_if = "ReadingModesConfig::is_default"
     )]
     pub reading_modes: ReadingModesConfig,
+    /// Opt-in local highlights and private notes for readers (ADR 0241).
+    /// Omitted from the written file while it is off.
+    #[serde(skip_serializing_if = "ReaderAnnotationsConfig::is_off")]
+    pub reader_annotations: ReaderAnnotationsConfig,
+}
+
+/// Whether posts offer readers local highlights and private notes. Off by
+/// default: pages are then exactly what they were. On, each post gains a
+/// region and a script that keep a reader's annotations in that reader's own
+/// browser; the build never sees them.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReaderAnnotationsConfig {
+    pub enabled: bool,
+}
+
+impl ReaderAnnotationsConfig {
+    fn is_off(&self) -> bool {
+        !self.enabled
+    }
 }
 
 /// The site-wide default reading mode (ADR 0142). It only decides where a
@@ -160,6 +188,39 @@ pub struct ComparisonsConfig {
 }
 
 impl ComparisonsConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether the site publishes reading paths (ADR 0212). Off by default: the
+/// address `/paths/` is then not reserved, so an existing page or post there
+/// keeps working, and `content/paths` is only edited, never published. Turning
+/// it on reserves `/paths/`, and a page or post URL that collides is refused.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReadingPathsConfig {
+    pub publish: bool,
+}
+
+impl ReadingPathsConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether the site publishes interpretation comparisons (ADR 0232). Off by
+/// default: `/interpretations/` is then not reserved and `content/comparisons`
+/// is only edited, never published. Turning it on reserves `/interpretations/`,
+/// and a page or post URL that collides is refused. Evidence a comparison cites
+/// is shown only while `claimEvidence.publish` is on as well.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct InterpretationsConfig {
+    pub publish: bool,
+}
+
+impl InterpretationsConfig {
     fn is_off(&self) -> bool {
         !self.publish
     }
@@ -487,8 +548,11 @@ impl Default for SiteConfig {
             participation: ParticipationConfig::default(),
             claim_evidence: ClaimEvidenceConfig::default(),
             comparisons: ComparisonsConfig::default(),
+            reading_paths: ReadingPathsConfig::default(),
+            interpretations: InterpretationsConfig::default(),
             curated_context: CuratedContextConfig::default(),
             reading_modes: ReadingModesConfig::default(),
+            reader_annotations: ReaderAnnotationsConfig::default(),
         }
     }
 }

@@ -29,6 +29,8 @@
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 //! - [`concept_links`]: an author's explicit `atlas:` links, resolved at build time against the public atlas alone
 //! - [`atlas_query`]: the bounded query projection derived from the public atlas, for components and search
+//! - [`scholarly_comparison`]: attributed interpretation comparisons and author-approved audience explanations that never rule on which reading is right
+//! - [`reading_path`]: author-curated reading paths of published steps with author-written transitions, resolved against what a build publishes
 //! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
 //! - [`curated_selection`]: the author's explicit, revision-aware selection of already-publishable research context for readers
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
@@ -44,6 +46,8 @@
 //! - [`attributed_perspective`]: stable targets at one author's section of a shared reflection, and who may answer a Third Perspective about it
 //! - [`future_suggestion`]: a reader's question or source suggestion for future work, kept private to the editors, never entering the Source Library by itself
 //! - [`community_feature`]: a reader's separate, revision-bound consent to feature an approved reflection on its page, and the editorial selection that is never a vote or a consensus
+//! - [`continuation`]: typed links from an approved question, reflection or source suggestion to the later work that takes it up, and the optional, consented, link-only-by-default update subscription
+//! - [`subscription`]: the pluggable, double opt-in service behind a continuation's optional update subscription, with no provider as its baseline
 //! - [`author_response`]: an author's answer to a Third Perspective as the hosted store keeps it, the request that stores it and the checks that it still belongs under its parent
 
 pub mod accessibility;
@@ -67,10 +71,12 @@ pub mod claim_review;
 pub mod claims;
 pub mod collaboration;
 pub mod community_feature;
+pub mod comparison_portable;
 pub mod comparison_publication;
 pub mod concept_links;
 pub mod config;
 pub mod context_links;
+pub mod continuation;
 pub mod contributor;
 pub mod correction_decision;
 pub mod curated_context;
@@ -88,6 +94,7 @@ pub mod field_journal;
 pub mod frontmatter;
 pub mod future_suggestion;
 pub mod interpretation;
+pub mod interpretation_publication;
 pub mod invitation;
 pub mod knowledge_atlas;
 pub mod markdown;
@@ -108,6 +115,8 @@ pub mod published_moment;
 mod raw_html;
 pub mod reader_references;
 pub mod reading_depth;
+pub mod reading_path;
+pub mod reading_path_exchange;
 pub mod recipe;
 pub mod reflection;
 pub mod render;
@@ -116,6 +125,7 @@ pub mod research_bundle;
 pub mod research_completeness;
 pub mod research_notes;
 pub mod research_search;
+pub mod scholarly_comparison;
 pub mod scholarly_feedback;
 pub mod search;
 pub mod shared_series;
@@ -125,6 +135,7 @@ pub mod slug;
 pub mod source_interchange;
 pub mod source_library;
 pub mod source_review;
+pub mod subscription;
 pub mod synthesis;
 pub mod theme;
 pub mod third_perspective;
