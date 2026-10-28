@@ -38,7 +38,8 @@ test("standard shows every explanation and a named list narrows the other modes"
   assert.equal(modeAllows("guided", "guided"), true);
   assert.equal(modeAllows("guided", "deep-dive"), false);
   assert.equal(modeAllows("deep-dive", "guided deep-dive"), true);
-  assert.equal(modeAllows("deep-dive", " guided "), false);
+  assert.equal(modeAllows("deep-dive", " guided "), true);
+  assert.equal(modeAllows("guided", "deep-dive guided"), true);
   assert.equal(modeAllows("guided", null), true);
 });
 

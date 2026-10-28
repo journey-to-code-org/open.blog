@@ -647,6 +647,28 @@ pub fn generate_with_trail_budget(
                 url_to_file(&published.url),
                 r.interpretation_page(default_theme, public, published),
             )?;
+            // A comparison with explanation levels also gets static copies
+            // (ADR 0236, #220) beside its page, for readers and tools that
+            // cannot run the level selector. A copy that fails its own
+            // portability check stops the build.
+            if !published.comparison.explanations.is_empty() {
+                let copy =
+                    crate::comparison_portable::portable_comparison(public, published, &c.url);
+                if !copy.is_sound() {
+                    let problems: Vec<String> =
+                        copy.diagnostics.iter().map(|d| d.message.clone()).collect();
+                    return Err(format!(
+                        "the portable copies of interpretation comparison `{}` are not sound: {}",
+                        published.comparison.slug,
+                        problems.join("; ")
+                    ));
+                }
+                let dir = url_to_file(&published.url);
+                let dir = dir.trim_end_matches("index.html");
+                out.add(format!("{dir}portable.html"), copy.html)?;
+                out.add(format!("{dir}portable.md"), copy.markdown)?;
+                out.add(format!("{dir}portable.txt"), copy.text)?;
+            }
         }
     }
     // The curated research context (ADR 0197): the data file readers' tools

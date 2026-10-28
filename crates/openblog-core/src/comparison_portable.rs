@@ -1,4 +1,4 @@
-//! Portable copies of a published interpretation comparison (ADR 0352, #220).
+//! Portable copies of a published interpretation comparison (ADR 0236, #220).
 //!
 //! A feed reader, a cross-post or a printout cannot run the level selector, so
 //! each copy is static: every approved explanation level is a labelled

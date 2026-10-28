@@ -278,7 +278,7 @@ fn explanation_item(
     x: &PublicExplanation,
 ) {
     // The modes an author named travel as data; the page shows the explanation
-    // in every mode until script narrows it (ADR 0351).
+    // in every mode until script narrows it (ADR 0235).
     let modes = if x.modes.is_empty() {
         String::new()
     } else {

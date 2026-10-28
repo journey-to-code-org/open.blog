@@ -1605,6 +1605,19 @@ The cave educates.
         }
         assert!(page.contains("AI-EXPLANATION-MARKER"), "{page}");
         assert!(page.contains("approved by the author") && !page.contains("<script>alert(1)"));
+        // The static copies sit beside the page, hold the approved explanation
+        // with its AI label, link to the canonical page and hold nothing else.
+        for name in ["portable.html", "portable.md", "portable.txt"] {
+            let copy = String::from_utf8(on[&format!("interpretations/cave/{name}")].clone())
+                .unwrap_or_default();
+            assert!(copy.contains("AI-EXPLANATION-MARKER"), "{name}: {copy}");
+            assert!(copy.contains("/interpretations/cave/"), "{name}: {copy}");
+            // Text is plain text; the HTML copy must never hold the markup.
+            assert!(
+                name != "portable.html" || !copy.contains("<script"),
+                "{copy}"
+            );
+        }
         assert!(!page.to_lowercase().contains("verified"), "{page}");
         // Search finds the comparison by its approved interpretation text.
         let search = String::from_utf8(on["search.json"].clone()).unwrap();
@@ -1635,6 +1648,9 @@ The cave educates.
             // A published file holding such text fails validation as a
             // whole, so the comparison has no page at all.
             assert!(!off.contains_key("interpretations/cave/index.html"));
+            assert!(off
+                .keys()
+                .all(|path| !path.starts_with("interpretations/cave/")));
         }
         fs::remove_dir_all(root).unwrap();
     }

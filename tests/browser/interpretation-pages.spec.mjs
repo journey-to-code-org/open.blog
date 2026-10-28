@@ -37,7 +37,7 @@ const COMPARISON = {
   ],
 };
 
-// The same comparison with explanations that name the reading modes they are offered in (ADR 0351, #219).
+// The same comparison with explanations that name the reading modes they are offered in (ADR 0235, #219).
 const MODES = {
   ...COMPARISON, title: "Cave readings by mode",
   explanations: [
@@ -266,18 +266,36 @@ test.describe("explanations and reading modes", () => {
     await expect(page.locator("#x-x4")).toBeVisible();
     await expect(page.locator("#level-scholarly")).toBeHidden();
     await expect(page.locator(".ob-level-links a[href='#level-scholarly']")).toBeHidden();
-    await expect(page.locator(".ob-level-mode-note")).toContainText("Choose Standard reading mode");
+    await expect(page.locator(".ob-level-mode-note")).toContainText("leaves them out");
     await buttons(page).filter({ hasText: "Student" }).click();
     await expect(page.locator("#level-beginner")).toBeHidden();
     expect(await page.locator("#interpretations").innerText()).toBe(evidence);
   });
 
-  test("deep-dive mode drops guided-only explanations and their level", async ({ page }) => {
+  test("deep-dive mode shows guided and deep-dive explanations, like every supplement", async ({ page }) => {
     await inMode(page, "deep-dive");
-    await expect(buttons(page)).toHaveText(["All levels", "Beginner", "Scholarly"]);
-    await expect(page.locator("#x-x2")).toBeVisible();
+    await expect(buttons(page)).toHaveText(["All levels", "Beginner", "Student", "Scholarly"]);
+    for (const id of ["x1", "x2", "x3", "x4"]) await expect(page.locator(`#x-${id}`)).toBeVisible();
+    await expect(page.locator(".ob-level-mode-note")).toHaveCount(0);
+  });
+
+  test("the note's button shows every explanation on the page without changing the saved mode", async ({ page }) => {
+    await inMode(page, "guided");
+    await expect(page.locator("#x-x2")).toBeHidden();
+    await page.getByRole("button", { name: "Show all explanations" }).click();
+    for (const id of ["x1", "x2", "x3", "x4"]) await expect(page.locator(`#x-${id}`)).toBeVisible();
+    await expect(buttons(page)).toHaveText(["All levels", "Beginner", "Student", "Scholarly"]);
+    expect(await page.evaluate(() => localStorage.getItem("ob-reading-mode"))).toBe("guided");
+    await page.getByRole("button", { name: "Follow my reading mode again" }).click();
+    await expect(page.locator("#x-x2")).toBeHidden();
+  });
+
+  test("a link to a level the mode emptied shows that level", async ({ page }) => {
+    await inMode(page, "guided");
+    await expect(page.locator("#level-scholarly")).toBeHidden();
+    await page.evaluate(() => { location.hash = "#level-scholarly"; });
+    await expect(page.locator("#level-scholarly")).toBeVisible();
     await expect(page.locator("#x-x3")).toBeVisible();
-    await expect(page.locator("#level-student")).toBeHidden();
   });
 
   test("a link into an explanation the mode left out shows it", async ({ page }) => {

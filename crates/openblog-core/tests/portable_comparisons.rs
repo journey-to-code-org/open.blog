@@ -1,4 +1,4 @@
-//! Portable copies of an interpretation comparison (ADR 0352, #220): every
+//! Portable copies of an interpretation comparison (ADR 0236, #220): every
 //! approved explanation level as a labelled supplemental section in HTML,
 //! Markdown and text, the canonical link, AI provenance and approval, hostile
 //! and bidirectional text, and nothing private.

@@ -1,4 +1,4 @@
-# ADR 0350: An explanation states its authors, prerequisite, modes and withdrawal, and one explanation serves every mode
+# ADR 0234: An explanation states its authors, prerequisite, modes and withdrawal, and one explanation serves every mode
 
 - Status: Accepted
 - Date: 2026-10-27

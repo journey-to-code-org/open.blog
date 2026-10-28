@@ -48,7 +48,7 @@ An explanation may also carry `authors` (up to five display names), a one-line `
 The prerequisite is advice and the page says the article can be read without it. To retire an
 explanation, add `"withdrawn": {"at": "<time>", "reason": "<note for you>"}`: it leaves every public
 output, the reason is never shown, and its level is free for a replacement. See
-[ADR 0350](adr/0350-an-explanation-states-its-authors-prerequisite-modes-and-withdrawal-and-one-explanation-serves-every-mode.md).
+[ADR 0234](adr/0234-an-explanation-states-its-authors-prerequisite-modes-and-withdrawal-and-one-explanation-serves-every-mode.md).
 
 ## AI drafts and your responsibility
 
@@ -83,8 +83,9 @@ uses no animation and does not overflow a narrow screen.
 ## Portable copies
 
 `openblog_core::comparison_portable::portable_comparison` produces HTML, Markdown and plain-text copies of
-a published comparison for feeds and cross-posts (ADR 0352). Every approved explanation level is a
+a published comparison. The build writes them as `portable.html`, `portable.md` and `portable.txt` beside
+the page of every comparison that has explanations (ADR 0236). Feeds and Admin export do not carry them yet. Every approved explanation level is a
 labelled supplemental section with its authors, prerequisite, language, revision, AI label and approval
 statement, and each copy links to the canonical page. The level selector and the reading-mode filter do
 not travel, so every approved explanation appears; the copy's diagnostics say so. A copy that lost a
-level, an AI label or the canonical link is reported as an error and must not be published.
+level, an AI label or the canonical link is reported as an error and stops the build.

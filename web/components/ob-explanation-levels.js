@@ -13,16 +13,20 @@
 // every level), and stores nothing. A link to a level, or to an explanation
 // inside one, shows it. Print shows every level.
 //
-// Reading modes (ADR 0351, #219). An explanation may name the modes it is
+// Reading modes (ADR 0235, #219). An explanation may name the modes it is
 // offered in (`data-modes`, "guided deep-dive"). The component reads the
 // reader's saved reading mode, only to read it and never to write it, and
 // hides an explanation that names modes without the current one. Standard
 // mode filters nothing, so the page stays complete, and an explanation that
-// names no modes is in every mode. A level left with nothing to show gets no
+// names no modes is in every mode. The modes are cumulative like every other
+// supplement's (ADR 0140): deep dive shows what is offered in guided or in
+// deep dive. The comparison page has no reading-mode control, so the note that
+// says something was left out carries a button that shows everything on this
+// page only, without changing the saved mode. A level left with nothing to show gets no
 // button, so no control leads nowhere. A blocked store reads as standard.
 // The article, the interpretations and their evidence are never touched.
 
-import { localStore, readPreference, resolveMode, storageKey } from "./reading-modes.js";
+import { localStore, readPreference, resolveMode, shows, storageKey } from "./reading-modes.js";
 
 const LEVELS = ["beginner", "student", "scholarly"];
 const ALL = "all";
@@ -46,13 +50,14 @@ export function levelFromHash(hash, levels) {
 /**
  * Whether an explanation offered in `modes` (a space separated list, or
  * nothing) shows in `mode`. Standard shows every explanation; an unreadable
- * list shows it too, so a label the page cannot read never hides text.
+ * list shows it too, so a label the page cannot read never hides text. Deep
+ * dive is a superset of guided, as for every supplement (`shows`).
  */
 export function modeAllows(mode, modes) {
   const list = typeof modes === "string" ? modes.split(/\s+/).filter(Boolean) : [];
   if (mode === "standard" || list.length === 0) return true;
   const known = list.filter((m) => m === "guided" || m === "deep-dive");
-  return known.length === 0 || known.includes(mode);
+  return known.length === 0 || known.some((m) => shows(mode, m));
 }
 
 /** What the status line says for the choice. */
@@ -68,12 +73,15 @@ export class ObExplanationLevels extends BaseElement {
   #added = [];
   #hiddenNav = null;
   #hiddenItems = [];
+  /** Set by the note's button: this page shows every explanation until it is reloaded. */
+  #showAll = false;
 
   connectedCallback() {
     if (this.#controller) return;
     const sections = [...this.querySelectorAll("section.ob-level[data-level]")];
     const key = storageKey(this.getAttribute("data-ob-base") ?? "");
-    const mode = resolveMode(readPreference(localStore(), key), null);
+    const saved = resolveMode(readPreference(localStore(), key), null);
+    const mode = this.#showAll ? "standard" : saved;
     // Hide what the mode leaves out; a section with nothing left is not a level to choose.
     for (const section of sections) {
       let any = false;
@@ -96,6 +104,7 @@ export class ObExplanationLevels extends BaseElement {
       "storage",
       (event) => {
         if (event.key !== key && event.key !== null) return;
+        this.#showAll = false;
         this.disconnectedCallback();
         this.connectedCallback();
       },
@@ -108,21 +117,48 @@ export class ObExplanationLevels extends BaseElement {
         this.#hiddenItems.push(link.parentElement);
       }
     }
-    if (this.querySelector("[data-mode-hidden]")) {
+    const restart = (showAll) => {
+      this.#showAll = showAll;
+      this.disconnectedCallback();
+      this.connectedCallback();
+    };
+    const addNote = (message, buttonText, showAll) => {
       const note = document.createElement("p");
       note.className = "ob-meta ob-level-mode-note";
-      note.textContent = `Some explanations are offered only in other reading modes, so the ${mode === "guided" ? "Guided" : "Deep dive"} mode leaves them out. Choose Standard reading mode to see every explanation.`;
+      note.append(`${message} `);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("data-mode-toggle", showAll ? "all" : "mode");
+      button.textContent = buttonText;
+      button.addEventListener("click", () => restart(showAll), { signal });
+      note.append(button);
       (this.querySelector("nav.ob-level-links") ?? this.firstChild)?.before(note);
       this.#added.push(note);
+    };
+    if (this.querySelector("[data-mode-hidden]")) {
+      addNote(
+        `Some explanations are offered only in other reading modes, so the ${mode === "guided" ? "Guided" : "Deep dive"} mode leaves them out.`,
+        "Show all explanations",
+        true,
+      );
+    } else if (this.#showAll) {
+      addNote("Showing every explanation on this page.", "Follow my reading mode again", false);
     }
     // A link into something the mode left out shows it: a link is never dead.
     const reveal = () => {
       const target = this.#target();
-      const item = target?.closest("[data-mode-hidden]");
+      const item = target?.closest("[data-mode-hidden], section.ob-level[data-mode-empty]");
       if (!item) return;
       item.hidden = false;
       const section = item.closest("section.ob-level");
-      if (section) section.hidden = false;
+      if (section) {
+        section.hidden = false;
+        section.setAttribute("data-mode-revealed", "");
+        // An emptied level opened by a link shows what the mode left out of it.
+        if (section.hasAttribute("data-mode-empty")) {
+          for (const inner of section.querySelectorAll("[data-mode-hidden]")) inner.hidden = false;
+        }
+      }
     };
     if (levels.length < 2) {
       globalThis.addEventListener?.("hashchange", reveal, { signal });
@@ -158,8 +194,9 @@ export class ObExplanationLevels extends BaseElement {
     let current = ALL;
     const choose = (choice, announce = true) => {
       current = choice;
-      for (const section of open) {
-        section.hidden = choice !== ALL && section.getAttribute("data-level") !== choice;
+      for (const section of sections) {
+        const left = section.hasAttribute("data-mode-empty") && !section.hasAttribute("data-mode-revealed");
+        section.hidden = left || (choice !== ALL && section.getAttribute("data-level") !== choice);
       }
       for (const [name, button] of buttons) button.setAttribute("aria-pressed", String(name === choice));
       status.textContent = announce ? statusFor(choice) : "";
@@ -210,7 +247,8 @@ export class ObExplanationLevels extends BaseElement {
     this.#hiddenNav = null;
     for (const node of this.#hiddenItems) node.hidden = false;
     this.#hiddenItems = [];
-    for (const node of this.querySelectorAll("[data-mode-hidden], [data-mode-empty]")) {
+    for (const node of this.querySelectorAll("[data-mode-hidden], [data-mode-empty], [data-mode-revealed]")) {
+      node.removeAttribute("data-mode-revealed");
       node.removeAttribute("data-mode-hidden");
       node.removeAttribute("data-mode-empty");
     }

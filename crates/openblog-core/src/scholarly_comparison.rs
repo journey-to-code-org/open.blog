@@ -72,7 +72,7 @@ pub const MAX_SHORT_CHARS: usize = 200;
 pub const MAX_NOTE_CHARS: usize = 1_000;
 /// Longest interpretation statement, in characters.
 pub const MAX_STATEMENT_CHARS: usize = 4_000;
-/// Most authors named on one explanation (ADR 0350).
+/// Most authors named on one explanation (ADR 0234).
 pub const MAX_AUTHORS: usize = 5;
 
 /// Longest explanation, in characters.
@@ -158,7 +158,7 @@ impl Level {
 }
 
 /// A reading mode a supplement may be offered in. `standard` shows no
-/// supplement, so it is not a value here (ADR 0350).
+/// supplement, so it is not a value here (ADR 0234).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ExplanationMode {
@@ -530,7 +530,7 @@ impl Explanation {
     /// The digest an approval of this explanation must carry. It covers the
     /// text and, when present, what else a reader sees of it: authors,
     /// prerequisite, language and translation link. An explanation that has
-    /// none of those keeps the digest it had before they existed (ADR 0350).
+    /// none of those keeps the digest it had before they existed (ADR 0234).
     pub fn digest(&self) -> String {
         let plain = self.authors.is_empty()
             && self.prerequisite.is_none()
@@ -1638,7 +1638,7 @@ pub enum WithheldReason {
     /// interpretation cannot be shown without saying who holds it, and the
     /// id of a private source is never written to a public value.
     AttributionNotPublic,
-    /// The author withdrew it (ADR 0350).
+    /// The author withdrew it (ADR 0234).
     Withdrawn,
     /// The comparison is a draft.
     Draft,

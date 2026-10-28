@@ -1,5 +1,5 @@
-//! Audience-explanation refinements of the comparison contract (ADR 0350 and
-//! 0351, #209, #219): authors, prerequisite, reading modes, translations,
+//! Audience-explanation refinements of the comparison contract (ADR 0234 and
+//! 0235, #209, #219): authors, prerequisite, reading modes, translations,
 //! withdrawal, and compatibility with the #88 (legacy) data.
 
 use openblog_core::scholarly_comparison::{

@@ -1,11 +1,11 @@
-# ADR 0352: A portable copy of a comparison is static sections built from the public value and checked against it
+# ADR 0236: A portable copy of a comparison is static sections built from the public value and checked against it
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#220](https://github.com/journey-to-code-org/open.blog/issues/220)
 - Parent story: [#200](https://github.com/journey-to-code-org/open.blog/issues/200)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0232](0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md), [ADR 0350](0350-an-explanation-states-its-authors-prerequisite-modes-and-withdrawal-and-one-explanation-serves-every-mode.md), [ADR 0351](0351-reading-modes-narrow-explanations-that-name-them-and-standard-shows-all.md)
+- Builds on: [ADR 0232](0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md), [ADR 0234](0234-an-explanation-states-its-authors-prerequisite-modes-and-withdrawal-and-one-explanation-serves-every-mode.md), [ADR 0235](0235-reading-modes-narrow-explanations-that-name-them-and-standard-shows-all.md)
 
 ## Decision
 
@@ -29,9 +29,11 @@
   `check_portable`, which an exporter can call on any copy it changed. Errors: `explanation-missing`,
   `explanation-provenance-lost`, `canonical-link-missing`, `scripted-markup`. Messages name ids and the
   format, never authored text. A copy with an error is not published.
-- **Conservative scope.** This adds a library surface only; no new file is written into a site build and no
-  feed gains items (comparisons are not feed items, ADR 0232). Wiring a copy into a particular destination
-  is that destination's task. Nothing here ranks, scores or counts agreement.
+- **Written beside the page.** A comparison with explanations gets `portable.html`, `portable.md` and
+  `portable.txt` next to its `index.html` in the static build. A copy that is not sound stops the build.
+  The output boundary lists these files with the page: each must name a comparison the manifest
+  publishes. No feed gains items (comparisons are not feed items, ADR 0232) and Admin shows no export;
+  those destinations are separate tasks. Nothing here ranks, scores or counts agreement.
 
 ## Consequences
 
