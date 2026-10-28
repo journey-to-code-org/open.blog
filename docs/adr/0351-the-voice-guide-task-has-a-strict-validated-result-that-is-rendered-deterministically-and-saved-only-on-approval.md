@@ -70,3 +70,7 @@ saved.
 - A guide saved from a proposal has a quote for every claim, and `(one sample)` marks the ones a second sample
   has not yet confirmed (ADR 0353 reads those markers).
 - Provider adapters are unchanged: they only gain the new result type and its schema.
+
+## Amendment: private samples never reach portable context
+
+The proposal records the visibilities of its source samples on a `<!-- openblog:voice-provenance sources=... -->` line under the title and reports `portableAllowed: false` when any sample is private. The Admin disables "Save as portable" for such a guide, and the context save refuses (422) a portable voice guide whose provenance includes `private`, because portable context is git-tracked and the guide quotes samples verbatim.

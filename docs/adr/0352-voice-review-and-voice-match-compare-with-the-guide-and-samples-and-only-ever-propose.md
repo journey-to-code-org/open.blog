@@ -37,8 +37,8 @@ passage sound more like themselves, through the apply and undo path reviews alre
   the validator refuses a skill without the `document` scope there. The skill's rules and the check below keep
   it to passages, not rewrites.
 - **A suggestion that does not anchor is advice, never applied.** For `voice-match` findings only: if the
-  evidence does not identify exactly one place in the draft, or the passage is longer than 2,000 characters, or
-  it is the whole document, the finding is kept, its `suggestion` becomes null and the suggested wording is
+  evidence does not identify exactly one place in the draft, or the passage is longer than 600 characters, spans a
+  blank line, is half the document or more, or is beyond the fifth applicable suggestion of the review, the finding is kept, its `suggestion` becomes null and the suggested wording is
   appended to the explanation as advice. (Every other skill is unchanged: evidence that does not anchor
   rejects the whole review.) So there is no full-document rewrite and nothing unanchored is offered with an
   Apply button.
