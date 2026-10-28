@@ -12707,15 +12707,20 @@ export class ObAdmin extends AdminElement {
       scheduleDraft();
     };
     /** What a save or a refused save does to the page the owner is looking at. */
-    const applySaved = (result) => {
+    const applySaved = (result, sent = null) => {
       revision = result.revision ?? null;
       exists = true;
       saved = pageFrom(result.page);
-      draft = structuredClone(saved);
+      // Edits typed while the save was in flight stay: only an unchanged draft is replaced.
+      const untouched = !sent || pageSame(draft, sent);
+      if (untouched) draft = structuredClone(saved);
       serverProblems = new Map();
       attempted = false;
       conflictBox.hidden = true;
       conflictBox.replaceChildren();
+      restoreBox.hidden = true;
+      pendingDraft = null;
+      return untouched;
     };
     const save = async () => {
       if (busy) return;
@@ -12734,16 +12739,22 @@ export class ObAdmin extends AdminElement {
       saveButton.disabled = true;
       say("Saving…");
       try {
-        const result = await this.api.call("PUT", "landing", { json: { revision, page: pagePayload(draft) } });
+        const sent = structuredClone(draft);
+        const result = await this.api.call("PUT", "landing", { json: { revision, page: pagePayload(sent) } });
         if (this.viewVersion !== mountedView) return false;
-        applySaved(result);
-        drafts.clear();
-        clearUndo();
+        const untouched = applySaved(result, sent);
+        if (untouched) {
+          drafts.clear();
+          clearUndo();
+        } else persistDraft();
         renderCards();
         renderBar();
-        if (result.build && result.build.ok === false) say(`Saved, but your site could not be rebuilt yet: ${result.build.error}`, "error");
-        else say("Saved. Your landing page is ready to publish.", "ok");
-        return true;
+        if (result.build && result.build.ok === false) {
+          say(`Saved, but your site could not be rebuilt yet: ${result.build.error}`, "error");
+          return false;
+        }
+        say(untouched ? "Saved. Your landing page is ready to publish." : "Saved. Changes you made while saving are still unsaved.", untouched ? "ok" : "small");
+        return untouched;
       } catch (error) {
         // Whatever went wrong, a copy of the work is on this device now.
         persistDraft();

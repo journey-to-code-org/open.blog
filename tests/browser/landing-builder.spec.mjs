@@ -706,6 +706,55 @@ test("Publish saves what is unsaved first, then publishes, and says what happene
   expect(calls.filter((method) => method === "POST")).toEqual(["POST"]);
 });
 
+test("edits typed while a save is in flight are kept, still unsaved, and not overwritten", async ({ page }) => {
+  seed(THREE());
+  let release;
+  const gate = new Promise((resolveGate) => (release = resolveGate));
+  await page.route("**/admin/api/landing", async (route) => {
+    if (route.request().method() !== "PUT") return route.fallback();
+    const response = await route.fetch();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await openLanding(page);
+  await card(page, "hello").getByRole("button", { name: /^Edit/ }).click();
+  const heading = card(page, "hello").getByLabel("Welcome heading");
+  await heading.fill("First heading");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("[data-landing-status]")).toHaveText("Saving…");
+  await heading.fill("Typed while saving");
+  release();
+  await expect(page.locator("[data-landing-status]")).toContainText("still unsaved");
+  await expect(page.locator("[data-landing-dirty]")).toContainText("unsaved changes");
+  await expect(card(page, "hello").getByLabel("Welcome heading")).toHaveValue("Typed while saving");
+  expect(stored().sections[0].heading).toBe("First heading");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
+  expect(stored().sections[0].heading).toBe("Typed while saving");
+});
+
+test("Publish stops and keeps the build error when the saved page does not build", async ({ page }) => {
+  seed(THREE());
+  let publishes = 0;
+  await page.route("**/admin/api/publish", async (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { repo: true, remote: "origin", changed: [], drafts: [], ahead: 0, behind: 0, auto: false } });
+    publishes += 1;
+    return route.fulfill({ json: { ok: true, message: "Published.", commit: "abc1234", pushed: true, committed: true, drafts: [] } });
+  });
+  await page.route("**/admin/api/landing", async (route) => {
+    if (route.request().method() !== "PUT") return route.fallback();
+    const response = await route.fetch();
+    const json = await response.json();
+    await route.fulfill({ response, json: { ...json, build: { ok: false, error: "template exploded" } } });
+  });
+  await openLanding(page);
+  await card(page, "hello").getByRole("button", { name: /^Edit/ }).click();
+  await card(page, "hello").getByLabel("Welcome heading").fill("Does not build");
+  await page.locator('[data-landing-bar] [data-action="publish"]').click();
+  await expect(page.locator("[data-landing-status]")).toContainText("could not be rebuilt yet: template exploded");
+  expect(publishes).toBe(0);
+});
+
 
 // ----- never lose work: local drafts, the leave guard and conflict recovery (ADR 0356, #329)
 
