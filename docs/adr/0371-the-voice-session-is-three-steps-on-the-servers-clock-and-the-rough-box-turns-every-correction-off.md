@@ -43,7 +43,7 @@ author's words are never rewritten, the clock cannot be gamed, nothing is lost, 
   editing. Edits typed while a save is in flight stay unsaved instead of being overwritten by the answer.
 - **Voice follows the Assistant module of the layout.** Its tab sits in an "Assistant" group that the Simple
   layout hides like the other optional modules, and is shown on its own page whatever the layout. The
-  invitation card (ADR 0373) is how a Simple-layout author finds it.
+  invitation card (ADR 0376) is how a Simple-layout author finds it.
 
 ## Considered options
 

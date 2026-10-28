@@ -365,6 +365,16 @@ export const EMPTY_LIBRARY_TEXT =
 
 // ---------------------------------------------------------------- the invitation
 
+/**
+ * Whether the one-time invitation shows (ADR 0372): only when the author has no samples, has not dismissed it
+ * and no session is open. A status the page could not read shows nothing.
+ */
+export function invitationVisible({ dismissed, status }) {
+  if (dismissed || !status || typeof status !== "object") return false;
+  if (status.session?.open) return false;
+  return Number(status.samples) === 0;
+}
+
 /** The hash for the Voice view, with the pack a session should draw from if one is named. */
 export const voiceHash = (pack) => (pack ? `#/voice?pack=${encodeURIComponent(pack)}` : "#/voice");
 export const libraryHash = (id) => (id ? `#/voice/library/${encodeURIComponent(id)}` : "#/voice/library");

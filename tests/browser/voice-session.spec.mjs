@@ -131,6 +131,44 @@ const sideways = (page, selector) =>
     return { region: region.scrollWidth - region.clientWidth, widest: widest - width, page: document.documentElement.scrollWidth - width, left: region.getBoundingClientRect().left, culprit };
   }, selector);
 
+const preferenceFiles = () => {
+  const folder = join(root, ".openblog", "private", "admin-preferences");
+  return existsSync(folder) ? readdirSync(folder).map((name) => join(folder, name)) : [];
+};
+const invitation = (page) => page.locator("[data-voice-invitation]");
+
+test("the invitation shows once on the Admin home, Start opens Voice, and Dismiss is remembered", async ({ page }) => {
+  await clean(page);
+  await page.goto(`${origin}/admin/#/overview`);
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  await expect(invitation(page)).toBeVisible();
+  await expect(invitation(page).getByRole("heading", { name: "Gather your voice" })).toBeVisible();
+  // A session in progress means it is not shown.
+  const drawn = await api(page, "POST", "voice/draw", {});
+  const open = await api(page, "POST", "voice/session/start", { promptId: drawn.body.prompts[0].id });
+  expect(open.status).toBe(201);
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  await expect(invitation(page)).toHaveCount(0);
+  await api(page, "DELETE", "voice/session", {});
+  await page.reload();
+  await expect(invitation(page)).toBeVisible();
+  // Start opens the Voice view.
+  await invitation(page).getByRole("link", { name: /voice session/i }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Voice" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose what to write about" })).toBeVisible();
+  // Dismiss is stored in the admin's own preferences and the card does not come back.
+  await page.goto(`${origin}/admin/#/overview`);
+  await expect(invitation(page)).toBeVisible();
+  await invitation(page).getByRole("button", { name: "Dismiss this invitation" }).click();
+  await expect(invitation(page)).toHaveCount(0);
+  await expect.poll(() => preferenceFiles().some((file) => readFileSync(file, "utf8").includes('"voiceInvitationDismissed": true') || readFileSync(file, "utf8").includes('"voiceInvitationDismissed":true'))).toBe(true);
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  await expect(invitation(page)).toHaveCount(0);
+  await page.screenshot({ path: join(shots, "overview-dismissed.png") });
+});
+
 test("the whole flow works in a real browser and the rough box refuses every correction", async ({ page }) => {
   await clean(page);
   await page.goto(`${origin}/admin/#/voice`);
@@ -299,4 +337,13 @@ test("the clock runs out in real time: the last thirty seconds warn in words and
   // The session is over: the server takes no more text for it.
   const late = await api(page, "PUT", "voice/session/draft", { sessionId: open.body.sessionId, text: "too late" });
   expect(late.status).toBe(409);
+});
+
+test("the invitation never shows when samples exist, even for an admin who has not dismissed it", async ({ page }) => {
+  expect(voiceFiles().length).toBeGreaterThan(0);
+  for (const file of preferenceFiles()) rmSync(file, { force: true });
+  await signIn(page, "#/overview");
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  await expect(page.locator("[data-action=\"logout\"]")).toBeVisible();
+  await expect(invitation(page)).toHaveCount(0);
 });

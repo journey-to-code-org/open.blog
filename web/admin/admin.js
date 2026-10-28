@@ -8,8 +8,9 @@ import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.j
 import { buildChecksPanel } from "./checks-panel.js";
 import { buildHistory } from "./landing-history.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
-import { createVoiceLibrary } from "./voice-library.js";
+import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createVoiceSession } from "./voice-session.js";
+import { invitationVisible } from "./voice.js";
 import {
   LIMITS as LANDING_LIMITS,
   PREVIEW_SIZES,
@@ -107,7 +108,8 @@ export function normalizeAdminPreferences(value) {
   // Layouts saved before the research workspace showed research only with Evidence Studio, so a
   // layout that hid Evidence Studio keeps the workspace hidden too (ADR 0120).
   if (!suppliedOrder.includes("research") && hiddenModules.includes("evidence") && !hiddenModules.includes("research")) hiddenModules.push("research");
-  return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules };
+  // Only a dismissed invitation is written, so every other set of preferences keeps its exact shape.
+  return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules, ...(input.voiceInvitationDismissed === true ? { voiceInvitationDismissed: true } : {}) };
 }
 
 export function visibleAdminModules(preferences, available = ADMIN_OPTIONAL_MODULES) {
@@ -11858,6 +11860,28 @@ export class ObAdmin extends AdminElement {
         .map((item) => ({ ...item, kind })),
     );
     const problemCount = documentProblems.length + (status.lastError ? 1 : 0);
+    // The one-time invitation to the Voice view (ADR 0376): only with no samples, no open session and no earlier
+    // dismissal. If the question cannot be answered the card is simply not shown.
+    let invitation = null;
+    try {
+      const voiceStatus = await this.api.call("GET", "voice/status");
+      if (invitationVisible({ dismissed: this.preferences?.voiceInvitationDismissed === true, status: voiceStatus })) {
+        invitation = buildVoiceInvitation({
+          onDismiss: async () => {
+            // Stored settings that could not be read are replaced only from Personalize.
+            if (this.preferencesUnreadable) return false;
+            await this.saveWorkspacePreferences((saved) => ({ ...saved, voiceInvitationDismissed: true }));
+            return true;
+          },
+          onGone: () => {
+            // Focus stays in the page: it moves to the first thing that follows the card.
+            this.querySelector?.(".oba-overview-metrics a")?.focus();
+          },
+        });
+      }
+    } catch {
+      // Without an answer the invitation stays away; nothing else on this page needs it.
+    }
     const overviewMetric = (label, value, note, href) =>
       h(
         "a",
@@ -11929,6 +11953,7 @@ export class ObAdmin extends AdminElement {
     this.mount(
       this.shell(
         "overview",
+        invitation?.element,
         h(
           "section",
           { class: "oba-overview-metrics", "aria-label": "Publishing pipeline" },

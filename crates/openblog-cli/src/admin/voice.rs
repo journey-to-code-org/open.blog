@@ -884,7 +884,7 @@ fn write_polished(
             }
         }
         Err(StoreError::Stale { message, current }) => {
-            // Say what is stored now, so the page can offer the author's choice (ADR 0376).
+            // Say what is stored now, so the page can offer the author's choice (ADR 0372).
             let latest = current.as_ref().and_then(|_| {
                 let file = sample
                     .voice

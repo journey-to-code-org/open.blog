@@ -44,6 +44,56 @@ function groupNode(group, ids) {
   );
 }
 
+/**
+ * The one-time invitation to the Voice view, shown on the Admin home (ADR 0376). `onDismiss()` remembers the
+ * dismissal (it resolves true when it did, false when it cannot) and `onGone()` runs once the card is removed.
+ * Start is an ordinary link to the Voice view. A dismissal that could not be saved keeps the card and says so.
+ */
+export function buildVoiceInvitation({ onDismiss, onGone = () => {} }) {
+  const id = `oba-voice-invite-${++uid}`;
+  const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-invitation-status": "true" });
+  const dismiss = el(
+    "button",
+    {
+      class: "oba-btn",
+      type: "button",
+      "data-action": "voice-dismiss",
+      "aria-label": "Dismiss this invitation",
+      onClick: async () => {
+        dismiss.disabled = true;
+        let saved = false;
+        try {
+          saved = (await onDismiss()) !== false;
+        } catch {
+          saved = false;
+        }
+        if (saved) {
+          element.remove();
+          onGone();
+          return;
+        }
+        dismiss.disabled = false;
+        status.textContent = "That could not be remembered just now, so the invitation stays. Try again later.";
+      },
+    },
+    "Dismiss",
+  );
+  const element = el(
+    "section",
+    { class: "oba-notice oba-voice-invitation", "aria-labelledby": id, "data-voice-invitation": "true" },
+    el("h2", { id }, "Gather your voice"),
+    el("p", {}, "Draw three prompts, pick one and write for three minutes, the way you would say it. Your rough draft stays exactly as you wrote it, you can polish a copy, and nothing is ever published. It is private by default and takes about five minutes."),
+    el(
+      "div",
+      { class: "oba-landing-actions" },
+      el("a", { class: "oba-btn oba-btn-primary", href: voiceHash(), "data-action": "voice-invitation-start" }, "Try a voice session"),
+      dismiss,
+    ),
+    status,
+  );
+  return { element };
+}
+
 /** Returns `{ element, load, isDirty, isBusy, destroy }`. */
 export function createVoiceLibrary({ api }) {
   const root = el("ob-voice-library", { class: "oba-voice oba-voice-library", "data-voice-library": "true" });
