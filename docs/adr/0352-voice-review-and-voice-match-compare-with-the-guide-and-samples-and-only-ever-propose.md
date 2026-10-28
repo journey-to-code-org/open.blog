@@ -27,3 +27,20 @@ passage sound more like themselves, through the apply and undo path reviews alre
   guide, the finding is kept but its verification becomes `unverified-advice`, the label every finding without
   evidence already gets. The check is exact and case sensitive; "this doesn't sound like you" is not
   evidence. Without voice context, and for every other skill, findings are validated exactly as before.
+
+### Voice match (#459)
+
+- **A new built-in review skill, `voice-match`**, returns findings with a `suggestion` anchored to the exact
+  source passage in `evidence`, so the browser's existing Apply suggestion and Undo path (which re-finds the
+  evidence, applies only when it is found exactly once, and undoes from the same finding) handles it. It
+  declares `scopes: [selection, section, document]`: the only review entry today sends the whole document, and
+  the validator refuses a skill without the `document` scope there. The skill's rules and the check below keep
+  it to passages, not rewrites.
+- **A suggestion that does not anchor is advice, never applied.** For `voice-match` findings only: if the
+  evidence does not identify exactly one place in the draft, or the passage is longer than 2,000 characters, or
+  it is the whole document, the finding is kept, its `suggestion` becomes null and the suggested wording is
+  appended to the explanation as advice. (Every other skill is unchanged: evidence that does not anchor
+  rejects the whole review.) So there is no full-document rewrite and nothing unanchored is offered with an
+  Apply button.
+- `voice-match` findings follow the same evidence rule as `voice-review`: `supplied-context` only when the
+  explanation names a selected sample or a section of the selected guide.

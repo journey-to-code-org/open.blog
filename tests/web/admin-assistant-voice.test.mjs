@@ -181,3 +181,24 @@ test("saving writes only through the context save with an explicit destination, 
   assert.deepEqual(calls, [{ method: "PUT", path: "assistant/context", request: { json: { contextType: "voice", visibility: "private", content: "# Voice guide\n- mine\n", etag: "r1" } } }]);
   assert.match(editor.ui.voiceGuideStatus.textContent, /saved as private/);
 });
+
+// ---- voice match reuses the apply and undo path (#459) -----------------------------------------
+
+import { applyAssistantSuggestion } from "../../web/admin/admin.js";
+
+test("an anchored voice-match suggestion applies to exactly its passage and the original text comes back from the same finding", () => {
+  const markdown = "Opening.\n\nIt is what it is, and so on.";
+  const finding = { evidence: "It is what it is", suggestion: "That is that", range: { start: 10, end: 26 } };
+  const applied = applyAssistantSuggestion(markdown, finding);
+  assert.equal(applied.ok, true);
+  assert.equal(applied.markdown, "Opening.\n\nThat is that, and so on.");
+  // Undo restores the text from the evidence the review quoted.
+  const undone = applyAssistantSuggestion(applied.markdown, { evidence: finding.suggestion, suggestion: finding.evidence, range: { start: applied.start, end: applied.end } });
+  assert.equal(undone.markdown, markdown);
+});
+
+test("an advice-only voice-match finding has no replacement to apply", () => {
+  const advice = { evidence: "Words the author never wrote", suggestion: null, range: { start: 0, end: 0 } };
+  assert.deepEqual(applyAssistantSuggestion("Opening.", advice), { ok: false, error: "This finding does not include an applicable replacement." });
+  assert.equal(applyAssistantSuggestion("Opening.", { ...advice, suggestion: "Warmer" }).ok, false, "evidence that is not in the draft is never applied");
+});

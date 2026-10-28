@@ -730,3 +730,76 @@ fn the_built_in_voice_guide_skill_runs_the_task_and_is_not_a_review_skill() {
     );
     assert_eq!(review.status, 400);
 }
+
+// ---- voice-match through the review route (#459) ---------------------------------------------
+
+#[test]
+fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_the_rest() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-match-route");
+    let session = login_ok(&f);
+    let file = write_rough(
+        &f.dir,
+        Visibility::Private,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    let finding = |id: &str, evidence: &str, suggestion: &str| {
+        json!({
+            "id": id, "skillId": "voice-match", "skillVersion": "1.0.0", "category": "voice",
+            "severity": "note", "title": "Sounds stiff",
+            "explanation": format!("You write plainly in {file}."),
+            "range": { "start": 0, "end": 4 }, "evidence": evidence, "suggestion": suggestion,
+            "sources": [], "verification": "supplied-context",
+        })
+    };
+    let reply = json!({ "findings": [
+        finding("m1", "It is what it is", "That is that"),
+        finding("m2", "Words the author never wrote", "Warmer words"),
+    ]});
+    let (endpoint, captured, provider) = capturing_provider(reply.to_string());
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let markdown = "Opening.\n\nIt is what it is, and so on.";
+    let response = post(
+        &f,
+        &session,
+        "/admin/api/assistant/review",
+        json!({
+            "source": { "title": "Unsaved", "metadata": { "draft": "true" }, "markdown": markdown },
+            "skillIds": ["voice-match"],
+            "contextIds": [format!("voice:private:{file}")],
+        }),
+    );
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    provider.join().unwrap();
+    let outbound = captured.recv().unwrap();
+    assert_eq!(outbound["skills"][0]["id"], "voice-match");
+    assert_eq!(outbound["untrustedData"]["context"][0]["content"], MISTAKE);
+    let result = body_json(&response);
+    let findings = result["findings"].as_array().unwrap();
+    // Anchored: the range is the exact passage, so the browser's apply and undo path can use it.
+    assert_eq!(findings[0]["suggestion"], "That is that");
+    let chars: Vec<char> = markdown.chars().collect();
+    let start = findings[0]["range"]["start"].as_u64().unwrap() as usize;
+    let end = findings[0]["range"]["end"].as_u64().unwrap() as usize;
+    assert_eq!(
+        chars[start..end].iter().collect::<String>(),
+        "It is what it is"
+    );
+    // Unanchored: advice only, never applicable.
+    assert!(findings[1]["suggestion"].is_null());
+    assert!(findings[1]["explanation"]
+        .as_str()
+        .unwrap()
+        .contains("Warmer words"));
+    assert_eq!(result["skills"][0]["id"], "voice-match");
+}

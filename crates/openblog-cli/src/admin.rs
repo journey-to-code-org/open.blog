@@ -30334,7 +30334,7 @@ What I read:
                 .iter()
                 .filter(|skill| skill["source"] == "built-in")
                 .count(),
-            8
+            9
         );
         let broken = skills.iter().find(|skill| skill["id"] == "broken").unwrap();
         assert_eq!(broken["valid"], false);

@@ -252,6 +252,10 @@ pub const BUILTIN_SKILL_SOURCES: &[(&str, &str)] = &[
         include_str!("assistant_skills/voice-review.md"),
     ),
     (
+        "voice-match",
+        include_str!("assistant_skills/voice-match.md"),
+    ),
+    (
         "voice-guide",
         include_str!("assistant_skills/voice-guide.md"),
     ),
@@ -2297,6 +2301,14 @@ fn unique_evidence_range(markdown: &[char], evidence: &str) -> Option<FindingRan
 
 /// The built-in skill that compares a document with the voice guide and voice samples.
 pub const VOICE_REVIEW_SKILL: &str = "voice-review";
+/// The built-in skill that proposes anchored replacements so a passage sounds more like the author.
+pub const VOICE_MATCH_SKILL: &str = "voice-match";
+/// The longest passage, in Unicode code points, a voice-match suggestion may replace.
+pub const VOICE_MATCH_MAX_PASSAGE: usize = 2_000;
+
+fn is_voice_skill(id: &str) -> bool {
+    id == VOICE_REVIEW_SKILL || id == VOICE_MATCH_SKILL
+}
 
 fn has_voice_context(context: &[ReviewContext]) -> bool {
     context
@@ -2413,14 +2425,27 @@ pub fn validate_review_findings(
                 .iter()
                 .copied()
                 .eq(evidence.chars());
-        let range = if supplied_range_matches {
-            FindingRange { start, end }
+        let located = if supplied_range_matches {
+            Some(FindingRange { start, end })
         } else {
-            unique_evidence_range(&markdown_characters, &evidence).ok_or_else(|| {
-                invalid_review(format!(
+            unique_evidence_range(&markdown_characters, &evidence)
+        };
+        // A voice-match suggestion is applicable only when it anchors to one bounded passage; one that
+        // does not is kept as advice, never applied (ADR 0352). Every other skill needs an exact
+        // anchor or the whole review is rejected, as before.
+        let (range, anchored) = match located {
+            Some(range) if skill_id == VOICE_MATCH_SKILL => {
+                let bounded = range.end - range.start <= VOICE_MATCH_MAX_PASSAGE
+                    && !(range.start == 0 && range.end == character_count);
+                (range, bounded)
+            }
+            Some(range) => (range, true),
+            None if skill_id == VOICE_MATCH_SKILL => (FindingRange { start: 0, end: 0 }, false),
+            None => {
+                return Err(invalid_review(format!(
                     "finding {number} evidence does not identify one exact source range"
-                ))
-            })?
+                )))
+            }
         };
         let suggestion = match value.get("suggestion") {
             None | Some(Json::Null) => None,
@@ -2432,6 +2457,16 @@ pub fn validate_review_findings(
                     "finding {number} has an invalid suggestion"
                 )))
             }
+        };
+        let mut explanation = explanation;
+        let suggestion = match suggestion {
+            Some(text) if !anchored => {
+                explanation.push_str(&format!(
+                    "\n\nSuggested wording, shown as advice only because it does not match one short passage of your text exactly: {text}"
+                ));
+                None
+            }
+            other => other,
         };
         let sources = value["sources"]
             .as_array()
@@ -2451,7 +2486,7 @@ pub fn validate_review_findings(
             }
         };
         // A voice finding is only supplied-context when it names its evidence (ADR 0352).
-        let verification = if skill_id == VOICE_REVIEW_SKILL
+        let verification = if is_voice_skill(&skill_id)
             && verification == FindingVerification::SuppliedContext
             && has_voice_context(context)
             && !cites_voice_context(&explanation, context)

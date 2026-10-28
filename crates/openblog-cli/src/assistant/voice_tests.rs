@@ -539,3 +539,156 @@ fn voice_review_without_voice_context_and_other_skills_behave_as_before() {
         FindingVerification::SuppliedContext
     );
 }
+
+// ---- voice-match (#459) -----------------------------------------------------------------------
+
+fn match_request(markdown: &str) -> AssistantRequest {
+    let skill = builtin_skill("voice-match");
+    AssistantRequest::document_review(
+        "test-model".into(),
+        AssistantDocument {
+            title: "Unsaved".into(),
+            metadata: json!({}),
+            markdown: markdown.into(),
+            hash: "abc".into(),
+        },
+        vec![ReviewSkill {
+            id: skill.id,
+            version: skill.version,
+            instructions: skill.body,
+        }],
+        voice_context(),
+    )
+}
+
+fn match_finding(evidence: &str, suggestion: Json) -> Json {
+    json!({
+        "id": "m1",
+        "skillId": "voice-match",
+        "skillVersion": "1.0.0",
+        "category": "voice",
+        "severity": "note",
+        "title": "Sounds stiff",
+        "explanation": format!("Your plain style in {ROUGH} is warmer."),
+        "range": { "start": 0, "end": 1 },
+        "evidence": evidence,
+        "suggestion": suggestion,
+        "sources": [],
+        "verification": "supplied-context",
+    })
+}
+
+#[test]
+fn the_built_in_voice_match_skill_validates_and_forbids_full_rewrites() {
+    let skill = builtin_skill("voice-match");
+    assert_eq!(skill.output, SkillOutputKind::Review);
+    assert_eq!(
+        skill.scopes,
+        vec![
+            SkillScope::Selection,
+            SkillScope::Section,
+            SkillScope::Document
+        ]
+    );
+    for rule in [
+        "never by rewriting the document",
+        "never a whole section and never the whole document",
+        "copied exactly",
+        "leave `suggestion` null",
+        "You only propose",
+        "never propose changes to one",
+    ] {
+        assert!(skill.body.contains(rule), "missing: {rule}");
+    }
+}
+
+#[test]
+fn a_suggestion_anchored_to_one_short_passage_stays_applicable() {
+    let markdown = "Intro line.\n\nIt is what it is, truly.\n\nEnd.";
+    let request = match_request(markdown);
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding("It is what it is, truly.", json!("Honestly, that is that."))] }),
+        &request,
+    )
+    .unwrap()
+    .findings;
+    assert_eq!(
+        findings[0].suggestion.as_deref(),
+        Some("Honestly, that is that.")
+    );
+    let chars: Vec<char> = markdown.chars().collect();
+    let range = &findings[0].range;
+    assert_eq!(
+        chars[range.start..range.end].iter().collect::<String>(),
+        "It is what it is, truly."
+    );
+    assert_eq!(
+        findings[0].verification,
+        FindingVerification::SuppliedContext
+    );
+}
+
+#[test]
+fn a_suggestion_that_does_not_anchor_is_shown_as_advice_only() {
+    let request = match_request("Intro line.\n\nIt is what it is, truly.\n\nEnd.");
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding("A sentence the author never wrote.", json!("Something warmer."))] }),
+        &request,
+    )
+    .expect("the review is kept");
+    let finding = &findings.findings[0];
+    assert_eq!(finding.suggestion, None, "never applied");
+    assert!(finding.explanation.contains("shown as advice only"));
+    assert!(finding.explanation.contains("Something warmer."));
+    // The text of an ambiguous passage is no anchor either.
+    let twice = match_request("Same words. Same words.");
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding("Same words.", json!("Other words."))] }),
+        &twice,
+    )
+    .unwrap();
+    assert_eq!(findings.findings[0].suggestion, None);
+}
+
+#[test]
+fn a_suggestion_cannot_replace_the_whole_document_or_a_long_passage() {
+    let whole = "Everything the author wrote, in one line.";
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding(whole, json!("Rewritten."))] }),
+        &match_request(whole),
+    )
+    .unwrap();
+    assert_eq!(
+        findings.findings[0].suggestion, None,
+        "no full-document rewrite"
+    );
+
+    let long = "word ".repeat(VOICE_MATCH_MAX_PASSAGE / 5 + 10);
+    let document = format!("Start.\n\n{long}\n\nEnd.");
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding(long.trim_end(), json!("Short."))] }),
+        &match_request(&document),
+    )
+    .unwrap();
+    assert_eq!(findings.findings[0].suggestion, None, "no long rewrite");
+}
+
+#[test]
+fn other_skills_still_reject_a_review_whose_evidence_does_not_anchor() {
+    let mut value = match_finding("A sentence the author never wrote.", json!("x"));
+    value["skillId"] = json!("voice-review");
+    value["skillVersion"] = json!("1.1.0");
+    let request = voice_review_request(voice_context());
+    assert!(validate_review_findings(&json!({ "findings": [value] }), &request).is_err());
+}
+
+#[test]
+fn a_voice_match_finding_with_no_named_evidence_is_unverified_advice() {
+    let request = match_request("It is what it is, truly.");
+    let mut value = match_finding("It is what it is", json!("That is that"));
+    value["explanation"] = json!("This sounds stiff.");
+    assert_eq!(
+        verification(&json!({ "findings": [value] }), &request),
+        FindingVerification::UnverifiedAdvice
+    );
+}
