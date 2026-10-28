@@ -226,6 +226,33 @@ Saved references live under `assistant/context/references/` or the matching
 `.openblog/private/context/references/` directory. They are labelled untrusted reference data;
 selecting one uses the saved Markdown snapshot and never silently contacts the URL again.
 
+### Where voice samples are kept
+
+Voice samples are the author's own writing, captured so Assistant tools can learn how you sound
+(see [ADR 0350](adr/0350-voice-samples-are-assistant-context-and-a-rough-draft-is-immutable.md)).
+They are Assistant context, not posts: they are never published, built into the site, added to a
+feed, or exported. The foundation (files, storage and prompt catalog) ships first; the commands
+and Admin screens that write them follow.
+
+| What | Portable | Private |
+| --- | --- | --- |
+| Rough and polished drafts | `assistant/context/voice/<YYYY-MM-DD>-<prompt-id>-<stage>.md` | `.openblog/private/context/voice/` (same names) |
+| The open writing session | | `.openblog/private/voice/session.json` (always private) |
+| Your own prompts and hidden packs | `assistant/voice/catalog.md` | |
+
+- **Private is the default.** Everything under `.openblog/private/` is ignored by Git
+  (`openblog init` adds `/.openblog/private/` to `.gitignore`) and excluded from publish staging.
+  The Context view warns, and names the file, if a private voice sample is tracked by Git.
+- **A rough draft never changes.** Once its session ends the store refuses any later write to it;
+  to fix typos, make a polished draft, which is yours to edit. You can move a pair between
+  portable and private, or erase it.
+- **Add prompts or hide packs** with `assistant/voice/catalog.md`: `## pack-id: Title` and
+  `### prompt-id: Title` sections (see the bundled catalog in the open.blog source), and
+  `disabled: [pack-id]` in its front matter to hide a pack. A prompt id the bundled catalog
+  already uses is rejected.
+- A project that has never written a sample has none of these folders, and its builds are
+  identical to before.
+
 ### Write visually or in Markdown
 
 The Write view defaults to **Visual**, which behaves like a word processor while keeping

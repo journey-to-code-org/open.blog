@@ -216,6 +216,80 @@ mod tests {
     }
 
     #[test]
+    fn init_ignores_the_private_voice_paths_in_a_git_project() {
+        let dir = std::env::temp_dir().join(format!("ob-init-voice-ignore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let git = crate::git::Git::new(&dir);
+        git.init().unwrap();
+
+        init(&dir, Some("Voice"), false).unwrap();
+
+        // The private context folder (which holds voice samples) and the session record are both
+        // under the ignored `/.openblog/private/`, while portable samples are not ignored.
+        for private in [
+            ".openblog/private/context/voice/2026-10-28-a-mistake-i-made-rough.md",
+            ".openblog/private/voice/session.json",
+        ] {
+            assert!(
+                git.run(&["check-ignore", "-q", "--no-index", private])
+                    .is_ok(),
+                "{private} should be ignored"
+            );
+        }
+        assert!(git
+            .run(&[
+                "check-ignore",
+                "-q",
+                "--no-index",
+                "assistant/context/voice/2026-10-28-a-mistake-i-made-rough.md"
+            ])
+            .is_err());
+        // Creating a voice folder is not init's job.
+        assert!(!dir.join("assistant").exists());
+        assert!(!dir.join(".openblog/private").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn init_leaves_an_existing_gitignore_alone_in_a_project_without_git() {
+        let dir =
+            std::env::temp_dir().join(format!("ob-init-no-git-ignore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join(".gitignore"),
+            "/dist
+/custom-cache",
+        )
+        .unwrap();
+
+        let created = init(&dir, Some("No Git"), false).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.join(".gitignore")).unwrap(),
+            "/dist
+/custom-cache"
+        );
+        assert!(!created.iter().any(|path| path == ".gitignore"));
+        let _ = fs::remove_dir_all(&dir);
+
+        // A fresh project without Git gets the standard file, which already lists the private folder.
+        let fresh =
+            std::env::temp_dir().join(format!("ob-init-fresh-ignore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&fresh);
+        init(&fresh, Some("Fresh"), false).unwrap();
+        assert_eq!(
+            fs::read_to_string(fresh.join(".gitignore")).unwrap(),
+            "/dist
+/.openblog
+/.openblog/private/
+"
+        );
+        let _ = fs::remove_dir_all(&fresh);
+    }
+
+    #[test]
     fn init_creates_a_buildable_project_and_never_overwrites() {
         let dir = std::env::temp_dir().join(format!("ob-init-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);

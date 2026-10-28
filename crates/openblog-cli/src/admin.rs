@@ -10534,22 +10534,48 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
             ".openblog/private/context/site.md",
             ".openblog/private/context/posts/.openblog-ignore-probe.md",
             ".openblog/private/context/references/.openblog-ignore-probe.txt",
+            ".openblog/private/context/voice/.openblog-ignore-probe.md",
         ]
         .iter()
         .all(|path| git.run(&["check-ignore", "-q", "--no-index", path]).is_ok());
         let tracked = git
             .run(&["ls-files", "--", ".openblog/private"])
             .is_ok_and(|paths| !paths.trim().is_empty());
-        let warning = if tracked {
-            Some("Private assistant content is already tracked by Git. Remove it from the index and rotate any exposed secrets before using it.")
+        let tracked_voice_files: Vec<String> = git
+            .run(&[
+                "ls-files",
+                "--",
+                ".openblog/private/context/voice",
+                ".openblog/private/voice",
+            ])
+            .map(|paths| {
+                paths
+                    .lines()
+                    .map(|path| path.trim().to_string())
+                    .filter(|path| !path.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let warning = if let Some(first) = tracked_voice_files.first() {
+            let more = tracked_voice_files.len() - 1;
+            Some(format!(
+                "Your private voice sample {first}{} is tracked by Git, so it could be published or shared. Remove it from Git with `git rm --cached` and make sure /.openblog/private/ is in .gitignore.",
+                if more == 0 {
+                    String::new()
+                } else {
+                    format!(" (and {more} more)")
+                }
+            ))
+        } else if tracked {
+            Some("Private assistant content is already tracked by Git. Remove it from the index and rotate any exposed secrets before using it.".to_string())
         } else if !ignored {
-            Some("Private assistant content is not ignored by Git. Add /.openblog/private/ to .gitignore before saving sensitive context.")
+            Some("Private assistant content is not ignored by Git. Add /.openblog/private/ to .gitignore before saving sensitive context.".to_string())
         } else {
             None
         };
-        json!({ "gitRepository": true, "ignored": ignored, "tracked": tracked, "warning": warning })
+        json!({ "gitRepository": true, "ignored": ignored, "tracked": tracked, "trackedVoiceFiles": tracked_voice_files, "warning": warning })
     } else {
-        json!({ "gitRepository": false, "ignored": null, "tracked": false, "warning": null })
+        json!({ "gitRepository": false, "ignored": null, "tracked": false, "trackedVoiceFiles": [], "warning": null })
     };
     Response::json(
         200,
@@ -30601,6 +30627,55 @@ What I read:
             .as_str()
             .unwrap()
             .contains("already tracked"));
+    }
+
+    #[test]
+    fn context_warns_by_name_when_a_private_voice_sample_is_tracked_by_git() {
+        let f = fixture("voice-tracked-warning");
+        let session = login_ok(&f);
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        fs::write(
+            f.dir.join(".gitignore"),
+            "/dist
+/.openblog/private/
+",
+        )
+        .unwrap();
+        let get = || {
+            body_json(&handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+            ))
+        };
+
+        // Ignored and untracked: no warning, and nothing about voice.
+        let safe = get();
+        assert_eq!(safe["privateSafety"]["ignored"], true);
+        assert!(safe["privateSafety"]["warning"].is_null());
+        assert_eq!(safe["privateSafety"]["trackedVoiceFiles"], json!([]));
+
+        let file = ".openblog/private/context/voice/2026-10-28-a-mistake-i-made-rough.md";
+        fs::create_dir_all(f.dir.join(".openblog/private/context/voice")).unwrap();
+        fs::write(f.dir.join(file), "private words").unwrap();
+        git.run(&["add", "-f", file]).unwrap();
+        let tracked = get();
+        assert_eq!(tracked["privateSafety"]["trackedVoiceFiles"], json!([file]));
+        let warning = tracked["privateSafety"]["warning"].as_str().unwrap();
+        assert!(warning.contains(file), "{warning}");
+        assert!(warning.contains("tracked by Git"), "{warning}");
+        assert!(!warning.contains("private words"));
+
+        // A portable sample is meant to be shared and never triggers it.
+        git.run(&["rm", "--cached", "-q", file]).unwrap();
+        fs::create_dir_all(f.dir.join("assistant/context/voice")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/voice/2026-10-28-x-rough.md"),
+            "shared words",
+        )
+        .unwrap();
+        git.run(&["add", "assistant/context/voice"]).unwrap();
+        assert!(get()["privateSafety"]["warning"].is_null());
     }
 
     #[test]

@@ -8786,6 +8786,18 @@ export function assistantReviewGroups(review = {}, skills = []) {
   }));
 }
 
+/**
+ * Show, or hide, the plain-language warning about private Assistant files and Git in the Context
+ * view. The server writes the sentence (it names a tracked private voice sample by path); this only
+ * puts it on the page, so an unsafe project is never silent.
+ */
+export function showPrivateContextWarning(element, privateSafety) {
+  const warning = (privateSafety && privateSafety.warning) || "";
+  element.textContent = warning;
+  element.hidden = !warning;
+  return warning;
+}
+
 export function assistantContextDisclosure(documents = [], selectedIds = new Set()) {
   const selected = documents
     .filter((document) => selectedIds.has(document.id) && document.exists && document.valid)
@@ -22710,9 +22722,7 @@ export class Editor {
         );
       }),
     );
-    const warning = catalog.privateSafety?.warning || "";
-    this.ui.assistantContextSafety.textContent = warning;
-    this.ui.assistantContextSafety.hidden = !warning;
+    showPrivateContextWarning(this.ui.assistantContextSafety, catalog.privateSafety);
     this.renderAssistantContextDisclosure();
     this.renderAssistantReviewSummary();
   }
