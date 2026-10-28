@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Interpretation comparisons now have portable copies. HTML, Markdown and plain-text copies list every approved
+  explanation level as a labelled supplemental section with its authors, prerequisite, language, revision,
+  AI label and the author's approval, plus a link to the canonical page. Drafts, unapproved or withdrawn
+  explanations, the approver's login and rankings are never included, and a copy that drops a level or an AI
+  label is reported as an error.
+
 - Explanations on an interpretation comparison follow the reader's reading mode. An explanation the author offers
   only in Guided or Deep dive is left out of the other mode, with a note and no dead control; Standard and any
   page without JavaScript show every explanation. The page also shows an explanation's revision and a link to the

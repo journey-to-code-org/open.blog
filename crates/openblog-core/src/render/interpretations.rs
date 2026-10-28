@@ -26,7 +26,7 @@ const LEDE: &str = "Attributed readings of one subject, set side by side, with t
 /// What a comparison page says about itself.
 const NOTE: &str = "Each interpretation is the reading of the person or work it is attributed to, in the author's summary. The page does not say which is right, and an explanation below is a supplement to the interpretations: it never replaces them or changes their evidence.";
 
-fn relation_label(kind: RelationKind) -> &'static str {
+pub(crate) fn relation_label(kind: RelationKind) -> &'static str {
     match kind {
         RelationKind::DiffersFrom => "differs from",
         RelationKind::AgreesWith => "agrees with",
@@ -35,7 +35,7 @@ fn relation_label(kind: RelationKind) -> &'static str {
     }
 }
 
-fn level_label(level: Level) -> &'static str {
+pub(crate) fn level_label(level: Level) -> &'static str {
     match level {
         Level::Beginner => "Beginner",
         Level::Student => "Student",
@@ -44,7 +44,7 @@ fn level_label(level: Level) -> &'static str {
 }
 
 /// A short phrase for how firmly the author attributes the reading.
-fn certainty_label(value: &str) -> &'static str {
+pub(crate) fn certainty_label(value: &str) -> &'static str {
     match value {
         "stated" => "the person or work states this reading",
         "attributed" => "traditionally attributed to them",
@@ -367,7 +367,7 @@ fn explanation_item(
 
 /// The words that say who wrote the text, shown only when an AI drafted it.
 /// An author's own text carries no label.
-fn provenance_label(provenance: &PublicProvenance) -> Option<String> {
+pub(crate) fn provenance_label(provenance: &PublicProvenance) -> Option<String> {
     match provenance {
         PublicProvenance::Author => None,
         PublicProvenance::AiDraft { tool } => Some(format!(
@@ -378,7 +378,7 @@ fn provenance_label(provenance: &PublicProvenance) -> Option<String> {
 
 /// Who advances the reading, in words: a name, a described unknown author, or
 /// the formatted reference of a public source.
-fn attribution_name(public: &PublicInterpretations, i: &PublicInterpretation) -> String {
+pub(crate) fn attribution_name(public: &PublicInterpretations, i: &PublicInterpretation) -> String {
     match &i.attribution {
         PublicAttribution::Named { name, .. } => name.clone(),
         PublicAttribution::Anonymous { description, .. } => description.clone(),
@@ -392,7 +392,7 @@ fn attribution_name(public: &PublicInterpretations, i: &PublicInterpretation) ->
     }
 }
 
-fn locator_text(link: &PublicLink) -> String {
+pub(crate) fn locator_text(link: &PublicLink) -> String {
     link.locators
         .iter()
         .map(|l| match &l.to {

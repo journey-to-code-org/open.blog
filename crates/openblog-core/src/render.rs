@@ -28,7 +28,7 @@ use crate::participation::{self, ParticipationKind, ParticipationMode};
 use crate::reader_references::ReaderReferences;
 use crate::theme::{Theme, ThemeSet};
 
-mod interpretations;
+pub(crate) mod interpretations;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputFile {

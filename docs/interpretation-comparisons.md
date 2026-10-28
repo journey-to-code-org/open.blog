@@ -79,3 +79,12 @@ Admin's **What will be public** lists the comparisons the next build publishes.
 A comparison page is static HTML first: readings are headings and lists, levels are sections with
 anchors, and the page works with no JavaScript. The selector is keyboard operable with named controls,
 uses no animation and does not overflow a narrow screen.
+
+## Portable copies
+
+`openblog_core::comparison_portable::portable_comparison` produces HTML, Markdown and plain-text copies of
+a published comparison for feeds and cross-posts (ADR 0352). Every approved explanation level is a
+labelled supplemental section with its authors, prerequisite, language, revision, AI label and approval
+statement, and each copy links to the canonical page. The level selector and the reading-mode filter do
+not travel, so every approved explanation appears; the copy's diagnostics say so. A copy that lost a
+level, an AI label or the canonical link is reported as an error and must not be published.

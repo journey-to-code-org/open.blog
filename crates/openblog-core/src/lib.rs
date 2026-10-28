@@ -71,6 +71,7 @@ pub mod claim_review;
 pub mod claims;
 pub mod collaboration;
 pub mod community_feature;
+pub mod comparison_portable;
 pub mod comparison_publication;
 pub mod concept_links;
 pub mod config;
