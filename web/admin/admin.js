@@ -2876,6 +2876,7 @@ export function curationPostSlug(value) {
 export function createCurationSection({ api, getPost = () => "", onSessionEnded, onChange, idPrefix = "oba-curation", rebuildDelay = 800 }) {
   let view = null;
   let rebuildTimer = null;
+  let rebuilding = null; // the deferred rebuild in flight, which a change waits for rather than dropping
   let busy = false;
   let draft = null; // { kind, target, label } while the author is choosing fields
   let open = null; // { id, what } while a withdraw or unselect is being confirmed
@@ -2901,6 +2902,10 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
     rebuildTimer = null;
     if (busy) return scheduleRebuild();
     busy = true;
+    let finished;
+    rebuilding = new Promise((resolve) => {
+      finished = resolve;
+    });
     try {
       const result = await api.call("POST", "research/curation/rebuild", { json: {} });
       if (view) delete view.build;
@@ -2910,6 +2915,8 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
       say(`The order was saved, but rebuilding the served site failed: ${error?.data?.error || error?.message || "no reason was given"} Readers still see the site as it was.`, true);
     } finally {
       busy = false;
+      rebuilding = null;
+      finished();
     }
   };
   function scheduleRebuild() {
@@ -2954,6 +2961,8 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
 
   /** One request. A conflict reloads and changes nothing; a refusal stays with this section. */
   const send = async (method, path, body, done, after) => {
+    // A deferred rebuild after reordering is not the author's change: wait for it, never drop the click.
+    while (rebuilding) await rebuilding;
     if (busy) return false;
     if (outdated()) {
       // The post's address changed since this was read: reread rather than change another post's selections.

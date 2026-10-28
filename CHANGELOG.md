@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Admin curation no longer ignores a withdraw, select or unselect made while the site is rebuilding after a
+  reorder; the change waits for the rebuild and is then saved.
 - A published interpretation comparison with explanations now has `portable.html`, `portable.md` and `portable.txt`
   beside its page in the site build. They list every approved
   explanation level as a labelled supplemental section with its authors, prerequisite, language, revision,
