@@ -8804,6 +8804,9 @@ export function showPrivateContextWarning(element, privateSafety) {
  */
 export function assistantContextLabel(document = {}) {
   const visibility = document.visibility === "private" ? "Private" : "Portable";
+  if (document.contextType === "voice") {
+    return `${document.path || document.name} · Voice guide · ${visibility} · ${document.characters} characters`;
+  }
   if (document.kind === "voiceSample") {
     return `${document.path || document.name} · Voice sample · ${document.stage || "unknown stage"} · ${document.pack || "no pack"} · ${visibility} · ${document.characters} characters`;
   }
@@ -8856,10 +8859,21 @@ export function voiceGuideSaveRequest(proposal = {}, visibility, content) {
   return { contextType: "voice", visibility, content, etag: target.exists ? target.etag : null };
 }
 
+/**
+ * What turning on AI autocomplete tells the author about the context it will send. Autocomplete uses
+ * the context selected in the Context view, so when the voice guide (or anything else) is selected
+ * it is named here, before the first suggestion is requested.
+ */
+export function assistantAutocompleteDisclosure(documents = [], selectedIds = new Set()) {
+  const chosen = documents.filter((document) => selectedIds.has(document.id) && document.exists && document.valid);
+  if (!chosen.length) return "";
+  return `Each suggestion also sends the selected context: ${chosen.map((document) => assistantContextLabel(document)).join("; ")}. Change it in the Context view.`;
+}
+
 export function assistantContextDisclosure(documents = [], selectedIds = new Set()) {
   const selected = documents
     .filter((document) => selectedIds.has(document.id) && document.exists && document.valid)
-    .map(({ name, visibility, characters, kind, path, stage, pack }) => ({ name, visibility, characters, ...(kind ? { kind, path } : {}), ...(kind === "voiceSample" ? { stage, pack } : {}) }));
+    .map(({ name, visibility, characters, kind, path, stage, pack, contextType }) => ({ name, visibility, characters, ...(kind ? { kind, path } : {}), ...(kind === "voiceSample" ? { stage, pack } : {}), ...(contextType === "voice" ? { contextType } : {}) }));
   return {
     documents: selected,
     totalCharacters: selected.reduce((total, document) => total + document.characters, 0),
@@ -22162,7 +22176,8 @@ export class Editor {
       this.ui.assistantAutocompleteStatus.textContent = "AI autocomplete is unavailable. Configure a provider in Assistant; non-AI writing remains available.";
       return;
     }
-    this.ui.assistantAutocompleteStatus.textContent = "AI autocomplete is on. Suggestions appear after you pause typing; nothing is inserted automatically.";
+    const contextNote = assistantAutocompleteDisclosure(this.assistantContextDocuments || [], this.assistantContextSelected || new Set());
+    this.ui.assistantAutocompleteStatus.textContent = `AI autocomplete is on. Suggestions appear after you pause typing; nothing is inserted automatically.${contextNote ? ` ${contextNote}` : ""}`;
   }
 
   scheduleAssistantAutocomplete() {

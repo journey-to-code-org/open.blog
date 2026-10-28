@@ -803,3 +803,54 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
         .contains("Warmer words"));
     assert_eq!(result["skills"][0]["id"], "voice-match");
 }
+
+// ---- completion leans on the voice guide through the ordinary context path (#460) -----------
+
+#[test]
+fn completion_includes_the_voice_guide_only_when_it_is_a_selected_context_item() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-completion");
+    let session = login_ok(&f);
+    let guide = "# Voice guide\n\n## Word choice\n\n- Plain words: \"so i deleted\" (a-rough.md)\n";
+    fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+    fs::write(f.dir.join("assistant/context/voice.md"), guide).unwrap();
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+
+    for (ids, expect_guide) in [(json!(["portable:voice"]), true), (json!([]), false)] {
+        let (endpoint, captured, provider) =
+            capturing_provider(json!({ "completion": " and on." }).to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        let response = post(
+            &f,
+            &session,
+            "/admin/api/assistant/complete",
+            complete_body(ids),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        provider.join().unwrap();
+        let outbound = captured.recv().unwrap();
+        let context = outbound["untrustedData"]["context"].as_array().unwrap();
+        if expect_guide {
+            assert_eq!(context.len(), 1);
+            assert_eq!(context[0]["kind"], "voice-guide");
+            assert_eq!(context[0]["content"], guide);
+            assert_eq!(context[0]["id"], "portable:voice");
+            assert!(outbound["systemInstructions"]
+                .as_str()
+                .unwrap()
+                .contains("approved description"));
+        } else {
+            assert!(context.is_empty(), "an unselected guide is never sent");
+            assert!(!outbound["systemInstructions"]
+                .as_str()
+                .unwrap()
+                .contains("voice-guide"));
+        }
+    }
+}

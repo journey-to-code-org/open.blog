@@ -44,3 +44,25 @@ passage sound more like themselves, through the apply and undo path reviews alre
   Apply button.
 - `voice-match` findings follow the same evidence rule as `voice-review`: `supplied-context` only when the
   explanation names a selected sample or a section of the selected guide.
+
+### Completion (#460)
+
+- **Completion leans toward the voice guide through the context it already has.** The guide is an ordinary context
+  item (`portable:voice`, `private:voice`, ADR 0350); when the author has selected it and AI autocomplete is on,
+  the completion request carries it as an `untrustedData.context` entry with `kind: "voice-guide"`, and nothing
+  else about completion changes. An unselected guide is never sent, and a request without it is unchanged.
+- **Turning autocomplete on says what it will send.** The status after enabling names every selected context
+  item, including the guide ("voice.md - Voice guide - Portable - 321 characters"), before the first suggestion
+  is requested, and points to the Context view to change it.
+
+## Considered options
+
+- **Always send the guide to completion when one exists.** Rejected: the author chooses what leaves the machine,
+  every time, and a guide is context like any other.
+- **Let voice-match rewrite sections.** Rejected: a long rewrite is exactly what the author cannot review at a
+  glance, and the apply path can only re-find a passage, not a section.
+
+## Consequences
+
+- Every suggestion from these skills is either anchored and undoable or plain advice.
+- The apply path (ADR 0266) is unchanged: AI proposes, the author applies.

@@ -202,3 +202,39 @@ test("an advice-only voice-match finding has no replacement to apply", () => {
   assert.deepEqual(applyAssistantSuggestion("Opening.", advice), { ok: false, error: "This finding does not include an applicable replacement." });
   assert.equal(applyAssistantSuggestion("Opening.", { ...advice, suggestion: "Warmer" }).ok, false, "evidence that is not in the draft is never applied");
 });
+
+// ---- autocomplete discloses the voice guide before it is enabled (#460) --------------------------
+
+import { assistantAutocompleteDisclosure } from "../../web/admin/admin.js";
+
+const guideDocument = { id: "portable:voice", name: "voice.md", contextType: "voice", visibility: "portable", characters: 321, exists: true, valid: true };
+
+test("the autocomplete disclosure lists the voice guide when it is selected, and nothing when no context is", () => {
+  assert.equal(assistantAutocompleteDisclosure([guideDocument], new Set()), "");
+  const text = assistantAutocompleteDisclosure([guideDocument], new Set([guideDocument.id]));
+  assert.match(text, /voice\.md · Voice guide · Portable · 321 characters/);
+  assert.match(text, /Each suggestion also sends the selected context/);
+  assert.equal(assistantContextLabel({ ...guideDocument, visibility: "private" }), "voice.md · Voice guide · Private · 321 characters");
+});
+
+test("turning autocomplete on names the selected voice guide; the request names it by id", async () => {
+  const calls = [];
+  const editor = autocompleteEditor(async (method, path, request) => {
+    calls.push({ method, path, request });
+    return path === "assistant/status" ? { configured: true, capabilities: { autocomplete: true } } : { completion: "" };
+  }, [guideDocument], [guideDocument.id]);
+  editor.ui.assistantAutocompleteToggle = { checked: true };
+  editor.loadAssistantStatus = async () => ({ configured: true, capabilities: { autocomplete: true } });
+  await editor.setAssistantAutocomplete(true);
+  assert.match(editor.ui.assistantAutocompleteStatus.textContent, /AI autocomplete is on\./);
+  assert.match(editor.ui.assistantAutocompleteStatus.textContent, /voice\.md · Voice guide/);
+  await editor.requestAssistantAutocomplete(editor.assistantAutocompleteGeneration);
+  const completion = calls.find((call) => call.path === "assistant/complete");
+  assert.deepEqual(completion.request.json.contextIds, ["portable:voice"]);
+
+  const plain = autocompleteEditor(async () => ({ configured: true, capabilities: { autocomplete: true } }), [guideDocument], []);
+  plain.ui.assistantAutocompleteToggle = { checked: true };
+  plain.loadAssistantStatus = async () => ({ configured: true, capabilities: { autocomplete: true } });
+  await plain.setAssistantAutocomplete(true);
+  assert.equal(plain.ui.assistantAutocompleteStatus.textContent, "AI autocomplete is on. Suggestions appear after you pause typing; nothing is inserted automatically.");
+});
