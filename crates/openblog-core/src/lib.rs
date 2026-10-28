@@ -69,6 +69,7 @@ pub mod citations;
 pub mod claim_publication;
 pub mod claim_review;
 pub mod claims;
+pub mod code_windows;
 pub mod collaboration;
 pub mod community_feature;
 pub mod comparison_portable;

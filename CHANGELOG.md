@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- New `codeWindows` theme option: each plain code block on the theme's pages is framed like a titled one,
+  captioned Rust, Terminal, Diff, its language or Code, while the page is written. Titled and runnable
+  blocks, feeds and portable copies are unchanged (ADR 0269).
+
 ## [0.50.0] - 2026-10-28
 
 - The landing page and Customize look (epic #314, ADRs 0245 to 0264, overview in ADR 0265): owners arrange their home page and choose their site's colors and fonts from Admin, from a phone, without HTML or CSS. Docs: [the Landing page and Customize look in Admin](docs/admin.md#change-your-home-page-and-your-look), [Landing page sections](docs/content.md#landing-page-sections), [Look controls](docs/themes.md#look-controls) and [the `ob-home-*` classes](docs/theme-components.md#styling-the-landing-page).

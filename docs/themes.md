@@ -89,6 +89,7 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 | `postCovers` | Show the cover image on the post page |
 | `codeHighlighting` | Colour code blocks with the built-in highlighter (`codeKeyword`, `codeString`, ... colour tokens); off when the theme brings its own |
 | `codeLineNumbers` | Number the lines of code blocks with two or more lines (default `true`). The numbers are never copied with the code |
+| `codeWindows` | Frame every plain code block like a titled one, `<figure class="ob-code-block">` with a `<figcaption class="ob-code-title">` naming it (Rust, Terminal, Diff, the fence language, or Code). Only pages in the theme; feeds and portable copies keep plain blocks ([ADR 0269](adr/0269-a-theme-may-frame-every-code-block-as-it-writes-the-page.md)) |
 
 ## Look controls
 
