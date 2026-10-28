@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Explanations on an interpretation comparison follow the reader's reading mode. An explanation the author offers
+  only in Guided or Deep dive is left out of the other mode, with a note and no dead control; Standard and any
+  page without JavaScript show every explanation. The page also shows an explanation's revision and a link to the
+  explanation it translates. The choice stays on the reader's device and the evidence is never changed.
 - Audience explanations can now state more. An explanation in an interpretation comparison may name its
   authors, a prerequisite ("helpful to know first", never a barrier), the reading modes it serves, its
   language and the explanation it translates, and the author can withdraw it without deleting it. An AI

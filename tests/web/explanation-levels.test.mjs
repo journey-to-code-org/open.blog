@@ -6,7 +6,7 @@ import test from "node:test";
 
 globalThis.HTMLElement = class {};
 globalThis.customElements = { get: () => undefined, define() {} };
-const { levelFromHash, levelsOf, statusFor } = await import("../../web/components/ob-explanation-levels.js");
+const { levelFromHash, levelsOf, modeAllows, statusFor } = await import("../../web/components/ob-explanation-levels.js");
 
 test("levels are offered in the fixed order whatever order the page has them", () => {
   assert.deepEqual(levelsOf(["scholarly", "beginner"]), ["beginner", "scholarly"]);
@@ -29,4 +29,20 @@ test("the status says what is shown and that the evidence is unchanged", () => {
   const text = statusFor("student");
   assert.match(text, /student explanations/);
   assert.match(text, /evidence above are unchanged/);
+});
+
+test("standard shows every explanation and a named list narrows the other modes", () => {
+  for (const modes of [null, undefined, "", "guided", "deep-dive", "guided deep-dive"]) {
+    assert.equal(modeAllows("standard", modes), true, String(modes));
+  }
+  assert.equal(modeAllows("guided", "guided"), true);
+  assert.equal(modeAllows("guided", "deep-dive"), false);
+  assert.equal(modeAllows("deep-dive", "guided deep-dive"), true);
+  assert.equal(modeAllows("deep-dive", " guided "), false);
+  assert.equal(modeAllows("guided", null), true);
+});
+
+test("a list the page cannot read never hides an explanation", () => {
+  assert.equal(modeAllows("guided", "expert"), true);
+  assert.equal(modeAllows("guided", 7), true);
 });

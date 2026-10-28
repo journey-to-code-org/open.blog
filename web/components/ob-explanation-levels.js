@@ -12,6 +12,17 @@
 // anything outside the level sections (so the quoted evidence is the same at
 // every level), and stores nothing. A link to a level, or to an explanation
 // inside one, shows it. Print shows every level.
+//
+// Reading modes (ADR 0351, #219). An explanation may name the modes it is
+// offered in (`data-modes`, "guided deep-dive"). The component reads the
+// reader's saved reading mode, only to read it and never to write it, and
+// hides an explanation that names modes without the current one. Standard
+// mode filters nothing, so the page stays complete, and an explanation that
+// names no modes is in every mode. A level left with nothing to show gets no
+// button, so no control leads nowhere. A blocked store reads as standard.
+// The article, the interpretations and their evidence are never touched.
+
+import { localStore, readPreference, resolveMode, storageKey } from "./reading-modes.js";
 
 const LEVELS = ["beginner", "student", "scholarly"];
 const ALL = "all";
@@ -32,6 +43,18 @@ export function levelFromHash(hash, levels) {
   return match && levels.includes(match[1]) ? match[1] : null;
 }
 
+/**
+ * Whether an explanation offered in `modes` (a space separated list, or
+ * nothing) shows in `mode`. Standard shows every explanation; an unreadable
+ * list shows it too, so a label the page cannot read never hides text.
+ */
+export function modeAllows(mode, modes) {
+  const list = typeof modes === "string" ? modes.split(/\s+/).filter(Boolean) : [];
+  if (mode === "standard" || list.length === 0) return true;
+  const known = list.filter((m) => m === "guided" || m === "deep-dive");
+  return known.length === 0 || known.includes(mode);
+}
+
 /** What the status line says for the choice. */
 export function statusFor(choice) {
   if (choice === ALL) return "Showing every explanation level.";
@@ -44,15 +67,68 @@ export class ObExplanationLevels extends BaseElement {
   #controller = null;
   #added = [];
   #hiddenNav = null;
+  #hiddenItems = [];
 
   connectedCallback() {
     if (this.#controller) return;
     const sections = [...this.querySelectorAll("section.ob-level[data-level]")];
-    const levels = levelsOf(sections.map((section) => section.getAttribute("data-level")));
-    if (levels.length < 2) return;
+    const key = storageKey(this.getAttribute("data-ob-base") ?? "");
+    const mode = resolveMode(readPreference(localStore(), key), null);
+    // Hide what the mode leaves out; a section with nothing left is not a level to choose.
+    for (const section of sections) {
+      let any = false;
+      for (const item of section.querySelectorAll(".ob-explanation")) {
+        const allowed = modeAllows(mode, item.getAttribute("data-modes"));
+        item.hidden = !allowed;
+        item.toggleAttribute("data-mode-hidden", !allowed);
+        any ||= allowed;
+      }
+      section.toggleAttribute("data-mode-empty", !any);
+    }
+    const open = sections.filter((section) => !section.hasAttribute("data-mode-empty"));
+    for (const section of sections) section.hidden = section.hasAttribute("data-mode-empty");
+    const levels = levelsOf(open.map((section) => section.getAttribute("data-level")));
     const controller = new AbortController();
     const { signal } = controller;
     this.#controller = controller;
+    // Another tab chose a reading mode: follow it by starting again.
+    globalThis.addEventListener?.(
+      "storage",
+      (event) => {
+        if (event.key !== key && event.key !== null) return;
+        this.disconnectedCallback();
+        this.connectedCallback();
+      },
+      { signal },
+    );
+    for (const link of this.querySelectorAll("nav.ob-level-links a[href^='#level-']")) {
+      const level = link.getAttribute("href").slice("#level-".length);
+      if (!levels.includes(level)) {
+        link.parentElement.hidden = true;
+        this.#hiddenItems.push(link.parentElement);
+      }
+    }
+    if (this.querySelector("[data-mode-hidden]")) {
+      const note = document.createElement("p");
+      note.className = "ob-meta ob-level-mode-note";
+      note.textContent = `Some explanations are offered only in other reading modes, so the ${mode === "guided" ? "Guided" : "Deep dive"} mode leaves them out. Choose Standard reading mode to see every explanation.`;
+      (this.querySelector("nav.ob-level-links") ?? this.firstChild)?.before(note);
+      this.#added.push(note);
+    }
+    // A link into something the mode left out shows it: a link is never dead.
+    const reveal = () => {
+      const target = this.#target();
+      const item = target?.closest("[data-mode-hidden]");
+      if (!item) return;
+      item.hidden = false;
+      const section = item.closest("section.ob-level");
+      if (section) section.hidden = false;
+    };
+    if (levels.length < 2) {
+      globalThis.addEventListener?.("hashchange", reveal, { signal });
+      reveal();
+      return;
+    }
 
     const make = (tag, props = {}, text = "") => {
       const element = document.createElement(tag);
@@ -82,7 +158,7 @@ export class ObExplanationLevels extends BaseElement {
     let current = ALL;
     const choose = (choice, announce = true) => {
       current = choice;
-      for (const section of sections) {
+      for (const section of open) {
         section.hidden = choice !== ALL && section.getAttribute("data-level") !== choice;
       }
       for (const [name, button] of buttons) button.setAttribute("aria-pressed", String(name === choice));
@@ -105,17 +181,24 @@ export class ObExplanationLevels extends BaseElement {
       const hash = globalThis.location?.hash ?? "";
       const level = levelFromHash(hash, levels);
       if (level) return choose(level);
+      reveal();
       if (current === ALL || !hash) return;
-      let target = null;
-      try {
-        target = this.querySelector(`#${CSS.escape(decodeURIComponent(hash.slice(1)))}`);
-      } catch {
-        target = null;
-      }
+      const target = this.#target();
       if (target && target.closest("[hidden]")) choose(ALL);
     };
     globalThis.addEventListener?.("hashchange", follow, { signal });
     follow();
+  }
+
+  /** The element the URL fragment points at inside this component, if any. */
+  #target() {
+    const hash = globalThis.location?.hash ?? "";
+    if (!hash || hash.length < 2) return null;
+    try {
+      return this.querySelector(`#${CSS.escape(decodeURIComponent(hash.slice(1)))}`);
+    } catch {
+      return null;
+    }
   }
 
   disconnectedCallback() {
@@ -125,7 +208,13 @@ export class ObExplanationLevels extends BaseElement {
     this.#added = [];
     if (this.#hiddenNav) this.#hiddenNav.hidden = false;
     this.#hiddenNav = null;
-    for (const section of this.querySelectorAll("section.ob-level[hidden]")) section.hidden = false;
+    for (const node of this.#hiddenItems) node.hidden = false;
+    this.#hiddenItems = [];
+    for (const node of this.querySelectorAll("[data-mode-hidden], [data-mode-empty]")) {
+      node.removeAttribute("data-mode-hidden");
+      node.removeAttribute("data-mode-empty");
+    }
+    for (const node of this.querySelectorAll("section.ob-level[hidden], .ob-explanation[hidden]")) node.hidden = false;
   }
 }
 

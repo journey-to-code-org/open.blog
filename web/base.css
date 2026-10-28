@@ -3159,8 +3159,10 @@ ob-reading-modes { display: block; }
 .ob-level-switch button { min-block-size: 2.75rem; padding: 0.4rem 0.9rem; font: inherit; }
 .ob-level-switch button[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
 @media print {
-  .ob-level-switch, .ob-level-status { display: none !important; }
-  .ob-level[hidden], ob-explanation-levels .ob-level-links[hidden] { display: block !important; }
+  .ob-level-switch, .ob-level-status, .ob-level-mode-note { display: none !important; }
+  .ob-level[hidden], .ob-explanation[hidden] { display: block !important; }
+  .ob-level-links li[hidden] { display: list-item !important; }
+  ob-explanation-levels .ob-level-links[hidden] { display: block !important; }
   .ob-interp, .ob-explanation { break-inside: avoid; }
 }
 @media (forced-colors: active) {

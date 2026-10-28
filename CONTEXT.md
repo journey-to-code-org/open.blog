@@ -2224,7 +2224,7 @@ An author-written supplement to a comparison or one reading, for one fixed level
 `scholarly`), one per level per subject. It never replaces canonical prose and is never evidence; the
 public value always says it is supplemental (ADR 0228). It may also state its authors, a
 prerequisite (advice, never a gate), the reading modes it serves, a language and the explanation it
-translates, and it can be withdrawn without being deleted (ADR 0350).
+translates, and it can be withdrawn without being deleted (ADR 0350). On a comparison page the reader's reading mode narrows only explanations that name modes, and standard shows every one (ADR 0351).
 _Avoid_: Simplified version, rewrite, reading level setting, personalisation
 
 **AI draft**:

@@ -240,7 +240,14 @@ impl Renderer<'_> {
             .into_iter()
             .filter(|level| c.explanations.iter().any(|x| x.level == *level))
             .collect();
-        body.push_str("<ob-explanation-levels>\n<nav class=\"ob-level-links\" aria-label=\"Explanation levels\">\n<ul>\n");
+        let base = self.site.config.base_path();
+        let scope = if base.is_empty() {
+            String::new()
+        } else {
+            format!(" data-ob-base=\"{}\"", attr(&base))
+        };
+        body.push_str(&format!("<ob-explanation-levels{scope}>\n"));
+        body.push_str("<nav class=\"ob-level-links\" aria-label=\"Explanation levels\">\n<ul>\n");
         for level in &levels {
             body.push_str(&format!(
                 "<li><a href=\"#level-{0}\">{1}</a></li>\n",
@@ -270,8 +277,27 @@ fn explanation_item(
     c: &crate::scholarly_comparison::PublicComparison,
     x: &PublicExplanation,
 ) {
+    // The modes an author named travel as data; the page shows the explanation
+    // in every mode until script narrows it (ADR 0351).
+    let modes = if x.modes.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " data-modes=\"{}\"",
+            x.modes
+                .iter()
+                .map(|m| m.value())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    };
+    let lang = x
+        .language
+        .as_deref()
+        .map(|l| format!(" lang=\"{}\"", attr(l)))
+        .unwrap_or_default();
     body.push_str(&format!(
-        "<div id=\"x-{}\" class=\"ob-explanation\">\n",
+        "<div id=\"x-{}\" class=\"ob-explanation\"{modes}{lang}>\n",
         attr(&x.id)
     ));
     let about = match &x.about {
@@ -317,6 +343,17 @@ fn explanation_item(
                 .map(|a| text(a))
                 .collect::<Vec<_>>()
                 .join(", ")
+        ));
+    }
+    if let Some(original) = &x.translation_of {
+        body.push_str(&format!(
+            "<p class=\"ob-meta ob-explanation-translation\">A translation of <a href=\"#x-{}\">another explanation on this page</a>.</p>\n",
+            attr(original)
+        ));
+    }
+    if let Some(revision) = x.revision {
+        body.push_str(&format!(
+            "<p class=\"ob-meta ob-explanation-revision\">Revision {revision}.</p>\n"
         ));
     }
     if let Some(label) = provenance_label(&x.provenance) {
