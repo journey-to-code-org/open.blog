@@ -89,6 +89,7 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 | `postCovers` | Show the cover image on the post page |
 | `codeHighlighting` | Colour code blocks with the built-in highlighter (`codeKeyword`, `codeString`, ... colour tokens); off when the theme brings its own |
 | `codeLineNumbers` | Number the lines of code blocks with two or more lines (default `true`). The numbers are never copied with the code |
+| `seriesPageCover` | Show the series cover on its page (default `true`). Set `false` when the page brings its own hero; hiding the figure with CSS still downloads the image. The cover stays on series cards ([ADR 0270](adr/0270-a-series-page-with-its-own-hero-renders-no-cover.md)) |
 
 ## Look controls
 
