@@ -26,7 +26,7 @@ const LEDE: &str = "Attributed readings of one subject, set side by side, with t
 /// What a comparison page says about itself.
 const NOTE: &str = "Each interpretation is the reading of the person or work it is attributed to, in the author's summary. The page does not say which is right, and an explanation below is a supplement to the interpretations: it never replaces them or changes their evidence.";
 
-fn relation_label(kind: RelationKind) -> &'static str {
+pub(crate) fn relation_label(kind: RelationKind) -> &'static str {
     match kind {
         RelationKind::DiffersFrom => "differs from",
         RelationKind::AgreesWith => "agrees with",
@@ -35,7 +35,7 @@ fn relation_label(kind: RelationKind) -> &'static str {
     }
 }
 
-fn level_label(level: Level) -> &'static str {
+pub(crate) fn level_label(level: Level) -> &'static str {
     match level {
         Level::Beginner => "Beginner",
         Level::Student => "Student",
@@ -44,7 +44,7 @@ fn level_label(level: Level) -> &'static str {
 }
 
 /// A short phrase for how firmly the author attributes the reading.
-fn certainty_label(value: &str) -> &'static str {
+pub(crate) fn certainty_label(value: &str) -> &'static str {
     match value {
         "stated" => "the person or work states this reading",
         "attributed" => "traditionally attributed to them",
@@ -240,7 +240,14 @@ impl Renderer<'_> {
             .into_iter()
             .filter(|level| c.explanations.iter().any(|x| x.level == *level))
             .collect();
-        body.push_str("<ob-explanation-levels>\n<nav class=\"ob-level-links\" aria-label=\"Explanation levels\">\n<ul>\n");
+        let base = self.site.config.base_path();
+        let scope = if base.is_empty() {
+            String::new()
+        } else {
+            format!(" data-ob-base=\"{}\"", attr(&base))
+        };
+        body.push_str(&format!("<ob-explanation-levels{scope}>\n"));
+        body.push_str("<nav class=\"ob-level-links\" aria-label=\"Explanation levels\">\n<ul>\n");
         for level in &levels {
             body.push_str(&format!(
                 "<li><a href=\"#level-{0}\">{1}</a></li>\n",
@@ -270,8 +277,27 @@ fn explanation_item(
     c: &crate::scholarly_comparison::PublicComparison,
     x: &PublicExplanation,
 ) {
+    // The modes an author named travel as data; the page shows the explanation
+    // in every mode until script narrows it (ADR 0235).
+    let modes = if x.modes.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " data-modes=\"{}\"",
+            x.modes
+                .iter()
+                .map(|m| m.value())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    };
+    let lang = x
+        .language
+        .as_deref()
+        .map(|l| format!(" lang=\"{}\"", attr(l)))
+        .unwrap_or_default();
     body.push_str(&format!(
-        "<div id=\"x-{}\" class=\"ob-explanation\">\n",
+        "<div id=\"x-{}\" class=\"ob-explanation\"{modes}{lang}>\n",
         attr(&x.id)
     ));
     let about = match &x.about {
@@ -300,7 +326,36 @@ fn explanation_item(
             text(&about)
         )),
     }
+    if let Some(p) = &x.prerequisite {
+        body.push_str(&format!(
+            "<p class=\"ob-explanation-prerequisite\">Helpful to know first: {}. You can read the article without it.</p>
+",
+            text(p)
+        ));
+    }
     body.push_str(&paragraphs(&x.text));
+    if !x.authors.is_empty() {
+        body.push_str(&format!(
+            "<p class=\"ob-explanation-authors\">Written by {}.</p>
+",
+            x.authors
+                .iter()
+                .map(|a| text(a))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if let Some(original) = &x.translation_of {
+        body.push_str(&format!(
+            "<p class=\"ob-meta ob-explanation-translation\">A translation of <a href=\"#x-{}\">another explanation on this page</a>.</p>\n",
+            attr(original)
+        ));
+    }
+    if let Some(revision) = x.revision {
+        body.push_str(&format!(
+            "<p class=\"ob-meta ob-explanation-revision\">Revision {revision}.</p>\n"
+        ));
+    }
     if let Some(label) = provenance_label(&x.provenance) {
         body.push_str(&format!(
             "<p class=\"ob-interp-provenance\">{}</p>\n",
@@ -312,7 +367,7 @@ fn explanation_item(
 
 /// The words that say who wrote the text, shown only when an AI drafted it.
 /// An author's own text carries no label.
-fn provenance_label(provenance: &PublicProvenance) -> Option<String> {
+pub(crate) fn provenance_label(provenance: &PublicProvenance) -> Option<String> {
     match provenance {
         PublicProvenance::Author => None,
         PublicProvenance::AiDraft { tool } => Some(format!(
@@ -323,7 +378,7 @@ fn provenance_label(provenance: &PublicProvenance) -> Option<String> {
 
 /// Who advances the reading, in words: a name, a described unknown author, or
 /// the formatted reference of a public source.
-fn attribution_name(public: &PublicInterpretations, i: &PublicInterpretation) -> String {
+pub(crate) fn attribution_name(public: &PublicInterpretations, i: &PublicInterpretation) -> String {
     match &i.attribution {
         PublicAttribution::Named { name, .. } => name.clone(),
         PublicAttribution::Anonymous { description, .. } => description.clone(),
@@ -337,7 +392,7 @@ fn attribution_name(public: &PublicInterpretations, i: &PublicInterpretation) ->
     }
 }
 
-fn locator_text(link: &PublicLink) -> String {
+pub(crate) fn locator_text(link: &PublicLink) -> String {
     link.locators
         .iter()
         .map(|l| match &l.to {

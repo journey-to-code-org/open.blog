@@ -37,6 +37,18 @@ const COMPARISON = {
   ],
 };
 
+// The same comparison with explanations that name the reading modes they are offered in (ADR 0235, #219).
+const MODES = {
+  ...COMPARISON, title: "Cave readings by mode",
+  explanations: [
+    { id: "x1", level: "beginner", text: "Imagine people who only see shadows.", language: "en", revision: 2, authors: ["Ada", "Grace"] },
+    { id: "x1fr", level: "beginner", text: "Imaginez des gens qui ne voient que des ombres.", language: "fr", translationOf: "x1" },
+    { id: "x2", level: "beginner", text: "A deep-dive-only note for beginners.", modes: ["deep-dive"] },
+    { id: "x3", level: "scholarly", text: "Both readings are attested.", modes: ["deep-dive"] },
+    { id: "x4", level: "student", text: "A guided-only student note.", modes: ["guided"], prerequisite: "What an allegory is" },
+  ],
+};
+
 let root;
 let server;
 let origin;
@@ -63,6 +75,7 @@ test.beforeAll(async () => {
     links: [{ id: "l1", claim: "c1", relation: "supports", visibility: "approved", evidence: { source: "plato" } }],
   }));
   writeFileSync(join(root, "content", "comparisons", "cave.json"), JSON.stringify(COMPARISON));
+  writeFileSync(join(root, "content", "comparisons", "modes.json"), JSON.stringify(MODES));
   writeFileSync(join(root, "content", "comparisons", "draft.json"), JSON.stringify({ ...COMPARISON, status: "draft", title: `${DRAFT} title` }));
   const listener = createServer();
   listener.listen(0, "127.0.0.1");
@@ -207,5 +220,88 @@ test.describe("with JavaScript", () => {
     });
     expect(measured.page).toBeLessThanOrEqual(0);
     expect(measured.content).toBeLessThanOrEqual(0);
+  });
+});
+
+const inMode = async (page, mode) => {
+  await page.addInitScript((value) => { try { localStorage.setItem("ob-reading-mode", value); } catch {} }, mode);
+  await page.goto(`${origin}/interpretations/modes/`);
+};
+const buttons = (page) => page.getByRole("group", { name: "Explanation level" }).getByRole("button");
+
+test.describe("explanations and reading modes", () => {
+  test("without JavaScript every explanation is on the page with its labels", async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.goto(`${origin}/interpretations/modes/`);
+    for (const id of ["x1", "x1fr", "x2", "x3", "x4"]) await expect(page.locator(`#x-${id}`)).toBeVisible();
+    await expect(page.locator("#x-x1")).toContainText("Revision 2.");
+    await expect(page.locator("#x-x1")).toContainText("Written by Ada, Grace.");
+    await expect(page.locator("#x-x1fr")).toHaveAttribute("lang", "fr");
+    await expect(page.locator("#x-x1fr a[href='#x-x1']")).toBeVisible();
+    await expect(page.locator("#x-x3")).toHaveAttribute("data-modes", "deep-dive");
+    await context.close();
+  });
+
+  test("standard mode and an unset or blocked store show every level and explanation", async ({ page }) => {
+    await inMode(page, "standard");
+    await expect(buttons(page)).toHaveText(["All levels", "Beginner", "Student", "Scholarly"]);
+    for (const id of ["x1", "x2", "x3", "x4"]) await expect(page.locator(`#x-${id}`)).toBeVisible();
+    await expect(page.locator(".ob-level-mode-note")).toHaveCount(0);
+  });
+
+  test("a blocked store reads as standard", async ({ page }) => {
+    await page.addInitScript(() => { Object.defineProperty(window, "localStorage", { get() { throw new Error("denied"); } }); });
+    await page.goto(`${origin}/interpretations/modes/`);
+    await expect(buttons(page)).toHaveText(["All levels", "Beginner", "Student", "Scholarly"]);
+    await expect(page.locator("#x-x2")).toBeVisible();
+  });
+
+  test("guided mode leaves out deep-dive explanations and offers no control for an empty level", async ({ page }) => {
+    await inMode(page, "guided");
+    const evidence = await page.locator("#interpretations").innerText();
+    await expect(buttons(page)).toHaveText(["All levels", "Beginner", "Student"]);
+    await expect(page.locator("#x-x1")).toBeVisible();
+    await expect(page.locator("#x-x2")).toBeHidden();
+    await expect(page.locator("#x-x4")).toBeVisible();
+    await expect(page.locator("#level-scholarly")).toBeHidden();
+    await expect(page.locator(".ob-level-links a[href='#level-scholarly']")).toBeHidden();
+    await expect(page.locator(".ob-level-mode-note")).toContainText("leaves them out");
+    await buttons(page).filter({ hasText: "Student" }).click();
+    await expect(page.locator("#level-beginner")).toBeHidden();
+    expect(await page.locator("#interpretations").innerText()).toBe(evidence);
+  });
+
+  test("deep-dive mode shows guided and deep-dive explanations, like every supplement", async ({ page }) => {
+    await inMode(page, "deep-dive");
+    await expect(buttons(page)).toHaveText(["All levels", "Beginner", "Student", "Scholarly"]);
+    for (const id of ["x1", "x2", "x3", "x4"]) await expect(page.locator(`#x-${id}`)).toBeVisible();
+    await expect(page.locator(".ob-level-mode-note")).toHaveCount(0);
+  });
+
+  test("the note's button shows every explanation on the page without changing the saved mode", async ({ page }) => {
+    await inMode(page, "guided");
+    await expect(page.locator("#x-x2")).toBeHidden();
+    await page.getByRole("button", { name: "Show all explanations" }).click();
+    for (const id of ["x1", "x2", "x3", "x4"]) await expect(page.locator(`#x-${id}`)).toBeVisible();
+    await expect(buttons(page)).toHaveText(["All levels", "Beginner", "Student", "Scholarly"]);
+    expect(await page.evaluate(() => localStorage.getItem("ob-reading-mode"))).toBe("guided");
+    await page.getByRole("button", { name: "Follow my reading mode again" }).click();
+    await expect(page.locator("#x-x2")).toBeHidden();
+  });
+
+  test("a link to a level the mode emptied shows that level", async ({ page }) => {
+    await inMode(page, "guided");
+    await expect(page.locator("#level-scholarly")).toBeHidden();
+    await page.evaluate(() => { location.hash = "#level-scholarly"; });
+    await expect(page.locator("#level-scholarly")).toBeVisible();
+    await expect(page.locator("#x-x3")).toBeVisible();
+  });
+
+  test("a link into an explanation the mode left out shows it", async ({ page }) => {
+    await inMode(page, "guided");
+    await expect(page.locator("#x-x3")).toBeHidden();
+    await page.evaluate(() => { location.hash = "#x-x3"; });
+    await expect(page.locator("#x-x3")).toBeVisible();
   });
 });

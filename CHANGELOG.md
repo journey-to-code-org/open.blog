@@ -9,6 +9,22 @@ All notable changes to open.blog are recorded here. Releases follow
 - Reader reading trails and saved sources (with `readerAnnotations.enabled`): a second region on each post, "Your reading trails and saved sources", where a reader can save the post or a reference it cites (kept with the post it was found in), start named trails by hand, add sources, highlights and notes once each, reorder them with buttons, list the posts they have marked, and remove one source, trail step, trail, or post's highlights, or clear everything, each after asking. Nothing is recorded as a reader reads; everything stays in the reader's browser, a change that cannot be saved is refused with the reason and leaves saved data as it was, and the region says what it needs without JavaScript. See [Reader annotations](docs/specs/reader-annotations.md#reading-trails-and-saved-sources-on-a-page).
 - Reader highlights and private notes (opt-in with `readerAnnotations.enabled`): readers can select words, highlight them and keep private notes on a word, a section or a whole post, by mouse or keyboard, with no account. They stay in the reader's own browser, are painted over the post without changing it, are looked up again on each visit and kept, with the reason, when the post has changed, and still work for reading when the browser denies or has filled its storage. Sites that do not opt in are unchanged. See [Reader annotations](docs/specs/reader-annotations.md#highlights-and-notes-on-a-page).
 - Reader annotations contract: the portable, versioned format that readers' local highlights, private notes, saved sources and reading trails will share, with exact/prefix/suffix text targets, stale detection when a post changes, strict validation that names the faulty record, and an export that leaves note text out unless the reader includes it and always states it is private. Nothing is stored or shown yet, so pages and builds are unchanged. See [Reader annotations](docs/specs/reader-annotations.md).
+- A published interpretation comparison with explanations now has `portable.html`, `portable.md` and `portable.txt`
+  beside its page in the site build. They list every approved
+  explanation level as a labelled supplemental section with its authors, prerequisite, language, revision,
+  AI label and the author's approval, plus a link to the canonical page. Drafts, unapproved or withdrawn
+  explanations, the approver's login and rankings are never included, and a copy that drops a level or an AI
+  label stops the build.
+- Explanations on an interpretation comparison follow the reader's reading mode. An explanation the author offers
+  only in Guided or Deep dive is left out of the other mode, with a note, a "Show all explanations" button and no dead
+  control (Deep dive shows Guided explanations too); Standard and any
+  page without JavaScript show every explanation. The page also shows an explanation's revision and a link to the
+  explanation it translates. The choice stays on the reader's device and the evidence is never changed.
+- Audience explanations can now state more. An explanation in an interpretation comparison may name its
+  authors, a prerequisite ("helpful to know first", never a barrier), the reading modes it serves, its
+  language and the explanation it translates, and the author can withdraw it without deleting it. An AI
+  draft still reaches no page without a current approval of its exact text, and editing the byline,
+  prerequisite or language withdraws that approval. Existing comparison files are unchanged.
 - Interpretation comparison fixes. An AI-drafted reading's approval now covers its attribution, uncertainty
   note and language as well as its statement, so changing any of them withdraws the approval. A published
   page says the author approved an AI draft and never shows the approving Admin login name. An explanation

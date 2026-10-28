@@ -2222,7 +2222,9 @@ _Avoid_: Opinion, take, answer, theory
 **Audience explanation**:
 An author-written supplement to a comparison or one reading, for one fixed level (`beginner`, `student`,
 `scholarly`), one per level per subject. It never replaces canonical prose and is never evidence; the
-public value always says it is supplemental (ADR 0228).
+public value always says it is supplemental (ADR 0228). It may also state its authors, a
+prerequisite (advice, never a gate), the reading modes it serves, a language and the explanation it
+translates, and it can be withdrawn without being deleted (ADR 0234). On a comparison page the reader's reading mode narrows only explanations that name modes, and standard shows every one (ADR 0235). A portable copy (HTML, Markdown, text) makes every approved level a labelled supplemental section with a canonical link, and is checked against the public value (ADR 0236).
 _Avoid_: Simplified version, rewrite, reading level setting, personalisation
 
 **AI draft**:

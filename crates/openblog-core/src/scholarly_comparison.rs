@@ -72,6 +72,9 @@ pub const MAX_SHORT_CHARS: usize = 200;
 pub const MAX_NOTE_CHARS: usize = 1_000;
 /// Longest interpretation statement, in characters.
 pub const MAX_STATEMENT_CHARS: usize = 4_000;
+/// Most authors named on one explanation (ADR 0234).
+pub const MAX_AUTHORS: usize = 5;
+
 /// Longest explanation, in characters.
 pub const MAX_EXPLANATION_CHARS: usize = 6_000;
 
@@ -102,6 +105,10 @@ pub const JUDGEMENT_FIELDS: &[&str] = &[
     "canonical",
     "body",
     "overrides",
+    "hides",
+    "hidden",
+    "gated",
+    "locked",
 ];
 
 /// Whether a comparison is public. Absent means a draft.
@@ -148,6 +155,42 @@ impl Level {
     fn parse(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|l| l.value() == value)
     }
+}
+
+/// A reading mode a supplement may be offered in. `standard` shows no
+/// supplement, so it is not a value here (ADR 0234).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExplanationMode {
+    Guided,
+    DeepDive,
+}
+
+impl ExplanationMode {
+    pub const ALL: [Self; 2] = [Self::Guided, Self::DeepDive];
+
+    pub fn value(self) -> &'static str {
+        match self {
+            Self::Guided => "guided",
+            Self::DeepDive => "deep-dive",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.value() == value)
+    }
+}
+
+/// An author's withdrawal of an explanation: it stays in the file and is
+/// never public. The reason is for the author and never leaves the file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Withdrawal {
+    pub at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// How an interpretation relates to another. None of these says which one is
@@ -433,12 +476,32 @@ pub struct Explanation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub about: Option<String>,
     pub text: String,
+    /// Who wrote it, as display names. Empty means the comparison's author.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<String>,
+    /// What the author suggests a reader know first. Advice, never a gate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prerequisite: Option<String>,
+    /// The reading modes it is offered in; empty means every mode that
+    /// shows supplements. One explanation serves them all.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modes: Vec<ExplanationMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// The explanation this one translates (same level, same subject).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation_of: Option<String>,
+    /// The author's number for the revision on view; informational.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<EvidenceRef>,
     #[serde(skip_serializing_if = "Origin::is_plain")]
     pub origin: Origin,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval: Option<Approval>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub withdrawn: Option<Withdrawal>,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -450,16 +513,47 @@ impl Explanation {
             level,
             about: None,
             text: text.into(),
+            authors: Vec::new(),
+            prerequisite: None,
+            modes: Vec::new(),
+            language: None,
+            translation_of: None,
+            revision: None,
             evidence: Vec::new(),
             origin: Origin::default(),
             approval: None,
+            withdrawn: None,
             extra: Extra::new(),
         }
     }
 
-    /// The digest an approval of this explanation must carry.
+    /// The digest an approval of this explanation must carry. It covers the
+    /// text and, when present, what else a reader sees of it: authors,
+    /// prerequisite, language and translation link. An explanation that has
+    /// none of those keeps the digest it had before they existed (ADR 0234).
     pub fn digest(&self) -> String {
-        text_digest("explanation", &self.id, &self.text)
+        let plain = self.authors.is_empty()
+            && self.prerequisite.is_none()
+            && self.language.is_none()
+            && self.translation_of.is_none();
+        if plain {
+            return text_digest("explanation", &self.id, &self.text);
+        }
+        let mut text = String::new();
+        let authors = self.authors.join("\u{1f}");
+        for part in [
+            authors.as_str(),
+            self.prerequisite.as_deref().unwrap_or(""),
+            self.language.as_deref().unwrap_or(""),
+            self.translation_of.as_deref().unwrap_or(""),
+            &self.text,
+        ] {
+            text.push_str(&part.len().to_string());
+            text.push(':');
+            text.push_str(part);
+            text.push(' ');
+        }
+        text_digest("explanation", &self.id, &text)
     }
 
     pub fn standing(&self) -> Standing {
@@ -777,9 +871,23 @@ fn read_explanation(value: Value, errs: &mut Vec<String>) -> Option<Explanation>
     );
     let about = take_text(&mut obj, "about", "", false, errs);
     let text = take_text(&mut obj, "text", "", true, errs);
+    let authors = read_text_list(&mut obj, "authors", MAX_AUTHORS, errs);
+    let prerequisite = take_text(&mut obj, "prerequisite", "", false, errs);
+    let modes = read_modes(&mut obj, errs);
+    let language = take_text(&mut obj, "language", "", false, errs);
+    let translation_of = take_text(&mut obj, "translationOf", "", false, errs);
+    let revision = match obj.remove("revision") {
+        None => None,
+        Some(Value::Number(n)) if n.as_u64().is_some_and(|n| n >= 1) => n.as_u64(),
+        Some(_) => {
+            errs.push("`revision` must be a whole number from 1".into());
+            None
+        }
+    };
     let evidence = read_evidence(&mut obj, errs);
     let origin = read_origin(&mut obj, errs);
     let approval = read_approval(&mut obj, errs);
+    let withdrawn = read_withdrawal(&mut obj, errs);
     if errs.len() > before {
         return None;
     }
@@ -788,10 +896,53 @@ fn read_explanation(value: Value, errs: &mut Vec<String>) -> Option<Explanation>
         level: level?,
         about,
         text: text?,
+        authors,
+        prerequisite,
+        modes,
+        language,
+        translation_of,
+        revision,
         evidence,
         origin,
         approval,
+        withdrawn,
         extra: obj.into_iter().collect(),
+    })
+}
+
+fn read_text_list(obj: &mut Obj, name: &str, max: usize, errs: &mut Vec<String>) -> Vec<String> {
+    let items = take_list(obj, name, max, errs);
+    let mut out = Vec::new();
+    for item in items {
+        match item {
+            Value::String(s) => out.push(s),
+            _ => errs.push(format!("`{name}` holds text only")),
+        }
+    }
+    out
+}
+
+fn read_modes(obj: &mut Obj, errs: &mut Vec<String>) -> Vec<ExplanationMode> {
+    let items = take_list(obj, "modes", ExplanationMode::ALL.len(), errs);
+    let mut out = Vec::new();
+    for item in items {
+        match item.as_str().and_then(ExplanationMode::parse) {
+            Some(m) if !out.contains(&m) => out.push(m),
+            Some(_) => errs.push("`modes` names a mode twice".into()),
+            None => errs.push("`modes` holds `guided` or `deep-dive`".into()),
+        }
+    }
+    out
+}
+
+fn read_withdrawal(obj: &mut Obj, errs: &mut Vec<String>) -> Option<Withdrawal> {
+    let mut w = take_object(obj, "withdrawn", false, errs)?;
+    let at = take_text(&mut w, "at", "withdrawn.", true, errs);
+    let reason = take_text(&mut w, "reason", "withdrawn.", false, errs);
+    Some(Withdrawal {
+        at: at?,
+        reason,
+        extra: w.into_iter().collect(),
     })
 }
 
@@ -1180,7 +1331,7 @@ impl Comparison {
                 at("repeats an earlier relation of the same kind between the same pair".into());
             }
         }
-        let mut subjects: BTreeSet<(Level, Option<&str>)> = BTreeSet::new();
+        let mut subjects: BTreeSet<(Level, Option<&str>, Option<&str>)> = BTreeSet::new();
         for (index, x) in self.explanations.iter().enumerate() {
             let label = name(&x.id, index);
             let mut at = |message: String| push(&label, message);
@@ -1197,11 +1348,64 @@ impl Comparison {
                     at("`about` names no interpretation of this comparison".into());
                 }
             }
-            if !subjects.insert((x.level, x.about.as_deref())) {
+            // A withdrawn explanation gives up its place, so a replacement
+            // can take it; a translation has its own language.
+            if x.withdrawn.is_none()
+                && !subjects.insert((x.level, x.about.as_deref(), x.language.as_deref()))
+            {
                 at(format!(
-                    "a second `{}` explanation of the same subject; there is one per level",
+                    "a second `{}` explanation of the same subject in the same language; there is one per level",
                     x.level.value()
                 ));
+            }
+            let mut named: BTreeSet<&str> = BTreeSet::new();
+            for author in &x.authors {
+                check_required(author, "authors", MAX_SHORT_CHARS, false, &mut at);
+                if !named.insert(author.as_str()) {
+                    at("`authors` names someone twice".into());
+                }
+            }
+            check_optional(
+                x.prerequisite.as_deref(),
+                "prerequisite",
+                MAX_SHORT_CHARS,
+                &mut at,
+            );
+            if x.prerequisite
+                .as_deref()
+                .is_some_and(|p| p.trim().is_empty())
+            {
+                at("`prerequisite` is empty; leave it out".into());
+            }
+            if let Some(w) = &x.withdrawn {
+                check_time(&w.at, "withdrawn.at", &mut at);
+                check_optional(
+                    w.reason.as_deref(),
+                    "withdrawn.reason",
+                    MAX_NOTE_CHARS,
+                    &mut at,
+                );
+            }
+            if let Some(language) = &x.language {
+                if !valid_language_tag(language) {
+                    at("`language` is not a language tag such as `en` or `grc`".into());
+                }
+            }
+            if let Some(of) = &x.translation_of {
+                match self.explanations.iter().find(|o| &o.id == of) {
+                    _ if of == &x.id => at("`translationOf` names this explanation itself".into()),
+                    None => at("`translationOf` names no explanation of this comparison".into()),
+                    Some(o) if o.translation_of.is_some() => {
+                        at("`translationOf` names a translation; point at the original".into())
+                    }
+                    Some(o) if o.level != x.level || o.about != x.about => at(
+                        "`translationOf` names an explanation for another level or subject".into(),
+                    ),
+                    Some(_) if x.language.is_none() => {
+                        at("a translation says its `language`".into())
+                    }
+                    Some(_) => {}
+                }
             }
             check_evidence(&x.evidence, &mut at);
             // An explanation never brings evidence of its own: what it cites
@@ -1434,6 +1638,8 @@ pub enum WithheldReason {
     /// interpretation cannot be shown without saying who holds it, and the
     /// id of a private source is never written to a public value.
     AttributionNotPublic,
+    /// The author withdrew it (ADR 0234).
+    Withdrawn,
     /// The comparison is a draft.
     Draft,
     /// Fewer than two interpretations are public.
@@ -1524,6 +1730,18 @@ pub struct PublicExplanation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub about: Option<String>,
     pub text: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prerequisite: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modes: Vec<ExplanationMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation_of: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<PublicEvidence>,
     pub provenance: PublicProvenance,
@@ -1694,6 +1912,13 @@ impl PublicComparison {
                 });
                 continue;
             }
+            if x.withdrawn.is_some() {
+                withheld.push(Withheld {
+                    id: x.id.clone(),
+                    reason: WithheldReason::Withdrawn,
+                });
+                continue;
+            }
             let standing = x.standing();
             if !standing.publishable() {
                 withheld.push(Withheld {
@@ -1707,9 +1932,25 @@ impl PublicComparison {
                 level: x.level,
                 about: x.about.clone(),
                 text: x.text.clone(),
+                authors: x.authors.clone(),
+                prerequisite: x.prerequisite.clone(),
+                modes: x.modes.clone(),
+                language: x.language.clone(),
+                translation_of: x.translation_of.clone(),
+                revision: x.revision,
                 evidence: public_evidence(&x.evidence, public, &x.id, &mut withheld),
                 provenance: public_provenance(&x.origin),
             });
+        }
+        // A translation keeps its pointer only while the original is shown.
+        let shown_x: BTreeSet<String> = explanations.iter().map(|x| x.id.clone()).collect();
+        for x in &mut explanations {
+            if x.translation_of
+                .as_ref()
+                .is_some_and(|of| !shown_x.contains(of))
+            {
+                x.translation_of = None;
+            }
         }
         // Readers are offered the whole-comparison explanations first, then
         // each interpretation's, levels always in the same order.

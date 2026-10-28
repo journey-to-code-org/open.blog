@@ -961,16 +961,22 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     };
     for file in files {
         let segments: Vec<&str> = file.path.split('/').collect();
-        if let [segment, id, "index.html"] = segments.as_slice() {
-            if *segment == "atlas" && site.atlas.is_some() {
+        if let [segment, id, name] = segments.as_slice() {
+            let page = *name == "index.html";
+            // The static copies of a comparison's explanation levels sit beside
+            // its page and name the same comparison (ADR 0236).
+            let portable = matches!(*name, "portable.html" | "portable.md" | "portable.txt");
+            if *segment == "atlas" && page && site.atlas.is_some() {
                 check(&file.path, "atlas entry", id, &atlas_entries);
             }
             if *segment == openblog_core::comparison_publication::COMPARISONS_SEGMENT
+                && page
                 && site.comparisons.is_some()
             {
                 check(&file.path, "comparison", id, &comparisons);
             }
             if *segment == openblog_core::interpretation_publication::INTERPRETATIONS_SEGMENT
+                && (page || portable)
                 && site.interpretations.is_some()
             {
                 check(

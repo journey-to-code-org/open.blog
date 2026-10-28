@@ -168,7 +168,9 @@ fn the_evidence_is_outside_every_level_so_switching_levels_cannot_change_it() {
 fn hostile_text_is_escaped_and_never_becomes_markup() {
     let (files, _) = build(ON, &[comparison("cave", base())]);
     for (path, text) in &files {
-        if path.starts_with("interpretations/") {
+        // A plain-text portable copy is not markup, so it keeps the text as
+        // written (ADR 0236); every markup file must escape it.
+        if path.starts_with("interpretations/") && !path.ends_with(".txt") {
             assert!(!text.contains(HOSTILE), "{path}");
         }
     }
