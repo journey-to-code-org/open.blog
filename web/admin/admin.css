@@ -5029,3 +5029,67 @@ a.oba-btn-primary {
 .oba-look-adjustments[hidden] {
   display: none;
 }
+
+/* Rich text landing section (ADR 0354, #330). The same word-processor surface as the Visual editor,
+   with a toolbar of words. The toolbar stays in view while the text scrolls and every button is at
+   least 44px tall. */
+.oba-landing-rich-label {
+  display: block;
+  font-weight: 700;
+}
+
+.oba-landing-rich-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.35rem 0;
+  background: var(--ob-color-surface);
+}
+
+.oba-landing-rich-toolbar .oba-btn {
+  flex: 1 1 auto;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.oba-landing-rich-toolbar .oba-btn[aria-pressed="true"] {
+  border: 2px solid var(--ob-color-accent-border);
+  background: var(--ob-color-glow);
+  font-weight: 700;
+}
+
+.oba-landing-rich-panel {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-landing-rich-panel .oba-btn {
+  min-height: 44px;
+}
+
+.oba-rich-body.oba-landing-rich {
+  min-height: 10rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+}
+
+.oba-landing-rich .oba-protected-actions {
+  flex-wrap: wrap;
+}
+
+.oba-landing-rich .oba-protected-actions button {
+  min-height: 44px;
+}
+
+.oba-landing-form [contenteditable="true"] {
+  scroll-margin-bottom: 8rem;
+}

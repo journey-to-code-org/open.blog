@@ -2426,3 +2426,12 @@ A named, ready-made combination of palette and font style (Calm, Warm, Bold, Nig
 Ocean, Sunset), pre-checked for readable contrast in light and dark. It is data, not a theme: applying
 one fills in the look, and resetting returns exactly to the theme default (ADR 0248).
 _Avoid_: Theme, template, preset theme
+
+## Landing text
+
+**Text section**:
+The landing page's rich text section (`rich-text`), written in the Visual editor's word-processor surface
+with a toolbar of words (Paragraph, Heading, Bold, Italic, Link, Bulleted list, Numbered list, Quote, Image,
+Undo, Redo) and stored as inert Markdown. It has no Markdown toggle, no HTML view, and no control that
+accepts markup; a picture needs a description (ADR 0354).
+_Avoid_: HTML block, WYSIWYG box, Markdown field

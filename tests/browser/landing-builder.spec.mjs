@@ -104,12 +104,12 @@ test("Add a section lists every type in plain words with a sample, and adds the 
   await expect(picker).toBeHidden();
   const added = card(page, "rich-text");
   await expect(added.getByRole("textbox", { name: "Your text (optional)" })).toBeFocused();
-  await added.getByRole("textbox", { name: "Your text (optional)" }).fill("Hello from the **builder**.");
-  await expect(added.locator(".oba-landing-card-summary")).toHaveText("Hello from the **builder**.");
+  await added.getByRole("textbox", { name: "Your text (optional)" }).fill("Hello from the builder.");
+  await expect(added.locator(".oba-landing-card-summary")).toHaveText("Hello from the builder.");
   await added.getByRole("button", { name: "Done" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
-  expect(stored().sections.at(-1)).toEqual({ id: "rich-text", type: "rich-text", markdown: "Hello from the **builder**." });
+  expect(stored().sections.at(-1)).toEqual({ id: "rich-text", type: "rich-text", markdown: "Hello from the builder." });
 });
 
 test("Escape closes the picker and puts focus back on the button that opened it", async ({ page }) => {
@@ -134,10 +134,11 @@ test("an edit form has typed inputs only: nothing takes HTML or CSS", async ({ p
   await expect(page.locator("#oba-landing-picker")).not.toContainText(/\bHTML\b|\bCSS\b/);
   // Markup typed into a text field stays text.
   await card(page, "text").getByRole("button", { name: /^Edit/ }).click();
-  await card(page, "text").getByLabel("Your text").fill("<script>window.__x=1</script> plain");
+  await card(page, "text").getByRole("textbox", { name: "Your text (optional)" }).fill("<script>window.__x=1</script> plain");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
-  expect(stored().sections[1].markdown).toBe("<script>window.__x=1</script> plain");
+  // The text is kept as words; the editor only escapes the characters Markdown would read.
+  expect(stored().sections[1].markdown).toBe("<script>window.\\_\\_x=1</script> plain");
   expect(await page.evaluate(() => window.__x)).toBeUndefined();
 });
 

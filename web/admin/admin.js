@@ -9,6 +9,7 @@ import {
   PREVIEW_SIZES,
   SECTION_CATALOG,
   addSection,
+  addressProblem,
   compareSections,
   createDraftStore,
   draftTimeText,
@@ -9589,6 +9590,7 @@ function landingField(spec, data, ctx, prefix) {
   const id = `${ctx.idBase}-${path.replaceAll(".", "-")}`;
   if (spec.kind === "group") return landingGroup(spec, data, ctx, path);
   if (spec.kind === "list") return landingList(spec, data, ctx, path, id);
+  if (spec.kind === "richtext") return landingRichText(spec, data, ctx, path, id);
   const error = h("p", { class: "oba-field-error", id: `${id}-error`, hidden: true });
   const hint = spec.hint ? h("p", { class: "oba-small oba-landing-hint", id: `${id}-hint` }, spec.hint) : null;
   const optional = spec.required ? "" : " (optional)";
@@ -9635,6 +9637,415 @@ function landingField(spec, data, ctx, prefix) {
   input.addEventListener("input", () => ctx.changed());
   input.addEventListener("change", () => ctx.changed());
   return h("div", { class: "oba-field oba-landing-field", "data-field": path }, label, input, hint, error);
+}
+
+// Rich text landing section (ADR 0354, #330). The Visual (word-processor) editor's own Markdown
+// round-trip is reused as it is: `parseVisualMarkdown` reads the stored Markdown, the post editor's
+// block renderer draws it, and `visualBlockMarkdown` writes it back. Only the toolbar and the
+// plain-words panels for a link and a picture are new, and nothing here accepts markup.
+
+/** Draw stored Markdown into a rich-text surface; blocks the surface cannot edit are kept verbatim as cards. */
+function landingRichRender(editor, markdown, onChange) {
+  const host = {
+    editProtectedBlock() {},
+    moveProtectedBlock(card, direction) {
+      const sibling = direction < 0 ? card.previousElementSibling : card.nextElementSibling;
+      if (!sibling) return;
+      if (direction < 0) card.parentElement.insertBefore(card, sibling);
+      else card.parentElement.insertBefore(sibling, card);
+      onChange?.();
+      card.querySelector("button")?.focus();
+    },
+    removeProtectedBlock(card) {
+      card.remove();
+      onChange?.();
+      editor.focus();
+    },
+  };
+  editor.replaceChildren();
+  for (const block of parseVisualMarkdown(String(markdown ?? ""))) {
+    if (block.type === "space") continue;
+    const node = Editor.prototype.visualBlockElement.call(host, block);
+    // There is no Markdown mode on this surface, so a preserved block cannot be opened as source.
+    node.querySelector?.(".oba-protected-actions button")?.remove();
+    editor.append(node);
+  }
+  if (!editor.children.length) editor.append(h("p", { "data-visual-block": "paragraph" }, h("br")));
+}
+
+/** The Markdown a rich-text surface writes: its blocks, joined by blank lines. */
+export function landingRichMarkdown(editor) {
+  return [...editor.children].map(visualBlockMarkdown).filter((block) => block.length).join("\n\n");
+}
+
+/** Markdown through the surface and back, for tests: what the owner would save without touching it. */
+export function landingRichRoundTrip(markdown) {
+  const editor = h("div");
+  landingRichRender(editor, markdown);
+  return landingRichMarkdown(editor);
+}
+
+/** The toolbar: every button is named in words and says whether it is on. */
+const LANDING_RICH_TOOLS = [
+  ["paragraph", "Paragraph"],
+  ["heading", "Heading"],
+  ["bold", "Bold"],
+  ["italic", "Italic"],
+  ["link", "Link"],
+  ["bulleted", "Bulleted list"],
+  ["numbered", "Numbered list"],
+  ["quote", "Quote"],
+  ["image", "Image"],
+  ["undo", "Undo"],
+  ["redo", "Redo"],
+];
+
+function landingRichText(spec, data, ctx, path, id) {
+  const editor = h("div", {
+    id,
+    class: "oba-rich-body oba-landing-rich",
+    contenteditable: "true",
+    role: "textbox",
+    "aria-multiline": "true",
+    "aria-labelledby": `${id}-label`,
+    spellcheck: "true",
+    "data-rich-text": "true",
+  });
+  const error = h("p", { class: "oba-field-error", id: `${id}-error`, hidden: true });
+  const hint = spec.hint ? h("p", { class: "oba-small oba-landing-hint", id: `${id}-hint` }, spec.hint) : null;
+  const label = h("span", { class: "oba-landing-rich-label", id: `${id}-label` }, `${spec.label}${spec.required ? "" : " (optional)"}`);
+  label.addEventListener("click", () => editor.focus());
+  const announce = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-rich-status": "true" });
+  const panelSlot = h("div", { class: "oba-landing-rich-panel-slot" });
+  let wired = false;
+  const changed = () => {
+    data[spec.name] = landingRichMarkdown(editor);
+    ctx.changed();
+    refresh();
+  };
+  landingRichRender(editor, data[spec.name], () => changed());
+
+  // Keep the caret in the text while a button or a panel has the focus.
+  let saved = null;
+  const inEditor = (range) => Boolean(range) && editor.contains(range.commonAncestorContainer);
+  const remember = () => {
+    const selection = getSelection();
+    if (selection?.rangeCount && inEditor(selection.getRangeAt(0))) saved = selection.getRangeAt(0).cloneRange();
+  };
+  const restore = () => {
+    editor.focus();
+    const selection = getSelection();
+    // Focusing a text surface can move its caret to the start, so the remembered place is put back.
+    if (saved && inEditor(saved)) {
+      selection.removeAllRanges();
+      selection.addRange(saved.cloneRange());
+    }
+  };
+  /** Where the caret is, as the number of letters before it, which survives the browser rebuilding the text. */
+  const caretPosition = () => {
+    const selection = getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.setEnd(selection.anchorNode, selection.anchorOffset);
+    return range.toString().length;
+  };
+  const placeCaret = (letters) => {
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    let left = letters;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (left <= node.length) {
+        const range = document.createRange();
+        range.setStart(node, left);
+        range.collapse(true);
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+      left -= node.length;
+    }
+  };
+  /** Text or inline things the browser left straight under the surface go into a paragraph. */
+  const tidy = () => {
+    const selection = getSelection();
+    const keep = selection?.rangeCount ? { node: selection.anchorNode, offset: selection.anchorOffset } : null;
+    let moved = false;
+    // Some browsers put a list or a quote inside the paragraph that held the words; a block never
+    // sits inside a paragraph, so the paragraph steps aside.
+    for (const paragraph of [...editor.querySelectorAll(":scope > p")]) {
+      if (![...paragraph.children].some((child) => /^(ul|ol|blockquote|h[1-6]|p|div|pre)$/i.test(child.tagName))) continue;
+      paragraph.replaceWith(...paragraph.childNodes);
+      moved = true;
+    }
+    for (const node of [...editor.childNodes]) {
+      const stray = node.nodeType === Node.TEXT_NODE || (node.nodeType === Node.ELEMENT_NODE && /^(a|strong|b|em|i|code|img|span|br)$/i.test(node.tagName));
+      if (!stray) continue;
+      if (node.nodeType === Node.TEXT_NODE && !node.nodeValue.trim() && editor.children.length) {
+        node.remove();
+        continue;
+      }
+      const paragraph = h("p", { "data-visual-block": "paragraph" });
+      editor.insertBefore(paragraph, node);
+      paragraph.append(node);
+      moved = true;
+    }
+    if (!editor.children.length) editor.append(h("p", { "data-visual-block": "paragraph" }, h("br")));
+    if (moved && keep && keep.node && editor.contains(keep.node)) {
+      const range = document.createRange();
+      range.setStart(keep.node, Math.min(keep.offset, keep.node.nodeType === Node.TEXT_NODE ? keep.node.length : keep.node.childNodes.length));
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  };
+
+  // ----- the toolbar
+  const buttons = new Map();
+  const state = () => {
+    const selection = getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const start = range && inEditor(range) ? range.startContainer : null;
+    const element = start ? (start.nodeType === 1 ? start : start.parentElement) : null;
+    const within = (selector) => Boolean(element?.closest?.(selector)) && editor.contains(element.closest(selector));
+    const query = (command) => {
+      try {
+        return Boolean(start) && document.queryCommandState(command);
+      } catch {
+        return false;
+      }
+    };
+    return {
+      heading: within("h1, h2, h3, h4, h5, h6"),
+      paragraph: Boolean(element) && !within("h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre"),
+      bold: query("bold"),
+      italic: query("italic"),
+      link: within("a"),
+      bulleted: within("ul"),
+      numbered: within("ol"),
+      quote: within("blockquote"),
+    };
+  };
+  function refresh() {
+    const now = state();
+    for (const [name, button] of buttons) if (name in now) button.setAttribute("aria-pressed", String(now[name]));
+  }
+  const run = (command, value) => {
+    // A keyboard user who pressed a toolbar button stays on it, so the next tool is one key away.
+    const origin = toolbar.contains(document.activeElement) ? document.activeElement : null;
+    restore();
+    const selection = getSelection();
+    const before = selection?.rangeCount && selection.isCollapsed && editor.contains(selection.anchorNode) ? caretPosition() : -1;
+    document.execCommand(command, false, value);
+    tidy();
+    // Turning a line into a list or a heading moves the caret to the start of the line; it goes back.
+    const now = getSelection();
+    if (before >= 0 && now.rangeCount && now.isCollapsed && !["undo", "redo"].includes(command) && caretPosition() !== before) placeCaret(before);
+    changed();
+    remember();
+    origin?.focus();
+  };
+  const closePanel = (focus = true) => {
+    panelSlot.replaceChildren();
+    if (focus) restore();
+  };
+  const panel = (name, title, fields, apply, applyLabel) => {
+    remember();
+    const problem = h("p", { class: "oba-field-error", role: "alert", hidden: true });
+    const inputs = fields.map((field) => {
+      const input = h("input", { id: `${id}-${name}-${field.key}`, type: field.type || "text", value: field.value || "", autocomplete: "off", autocapitalize: "off", spellcheck: "false", ...(field.type === "url" ? { inputmode: "url" } : {}) });
+      return { field, input };
+    });
+    const submit = () => {
+      const values = Object.fromEntries(inputs.map(({ field, input }) => [field.key, input.value.trim()]));
+      const message = apply(values);
+      if (message) {
+        problem.hidden = false;
+        problem.textContent = message;
+        return;
+      }
+      closePanel(true);
+    };
+    const box = h(
+      "div",
+      { class: "oba-landing-rich-panel", role: "group", "aria-label": title, "data-rich-panel": name },
+      ...inputs.map(({ field, input }) => h("div", { class: "oba-field" }, h("label", { for: input.id }, field.label), input, field.hint ? h("p", { class: "oba-small" }, field.hint) : null)),
+      problem,
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": `rich-${name}-apply`, onClick: submit }, applyLabel),
+        ...(name === "link" ? [h("button", { class: "oba-btn", type: "button", "data-action": "rich-link-remove", onClick: () => { selectLink(); closePanel(true); run("unlink"); } }, "Remove link")] : []),
+        h("button", { class: "oba-btn", type: "button", "data-action": `rich-${name}-cancel`, onClick: () => closePanel(true) }, "Cancel"),
+      ),
+    );
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closePanel(true);
+      } else if (event.key === "Enter" && event.target.tagName === "INPUT") {
+        event.preventDefault();
+        submit();
+      }
+    });
+    panelSlot.replaceChildren(box);
+    inputs[0].input.focus();
+  };
+  /** The link the caret or selection is in, selected whole so it can be changed or removed. */
+  const selectLink = () => {
+    const start = saved?.startContainer;
+    const anchor = (start?.nodeType === 1 ? start : start?.parentElement)?.closest?.("a");
+    if (!anchor || !editor.contains(anchor)) return null;
+    const range = document.createRange();
+    range.selectNodeContents(anchor);
+    saved = range;
+    return anchor;
+  };
+  const linkPanel = () => {
+    const existing = selectLink();
+    const collapsed = !existing && (!saved || saved.collapsed);
+    const fields = [{ key: "address", label: "Where the link goes", type: "url", value: existing?.getAttribute("href") || "", hint: "A web address starting with https://, a page on your site such as /archive/, or mailto: and an email." }];
+    if (collapsed) fields.unshift({ key: "words", label: "Words to show for the link" });
+    panel("link", "Add a link", fields, (values) => {
+      if (!values.address) return "Enter where the link goes.";
+      const bad = addressProblem(values.address, "links");
+      if (bad) return bad;
+      const safe = safeVisualUrl(values.address);
+      if (!safe) return "Use a web address starting with https://, a page on your site such as /archive/, or mailto: and an email.";
+      if (collapsed && !values.words) return "Enter the words to show for the link.";
+      restore();
+      if (collapsed) {
+        document.execCommand("insertText", false, values.words);
+        const selection = getSelection();
+        const node = selection.anchorNode;
+        const end = selection.anchorOffset;
+        if (node?.nodeType === Node.TEXT_NODE && end >= values.words.length) {
+          const select = document.createRange();
+          select.setStart(node, end - values.words.length);
+          select.setEnd(node, end);
+          selection.removeAllRanges();
+          selection.addRange(select);
+        }
+      }
+      document.execCommand("createLink", false, safe);
+      tidy();
+      changed();
+      remember();
+      announce.textContent = "Link added.";
+      return "";
+    }, "Add link");
+  };
+  const imagePanel = () => {
+    panel("image", "Add an image", [
+      { key: "address", label: "Where the picture is", type: "url", hint: "A web address starting with https:// or a file on your site such as /uploads/photo.jpg." },
+      { key: "alt", label: "Describe the picture (needed)", hint: "A short description for people who cannot see it, such as: A cup of tea on a windowsill." },
+    ], (values) => {
+      if (!values.address) return "Enter where the picture is.";
+      const bad = addressProblem(values.address, "pictures");
+      if (bad) return bad;
+      if (!safeVisualUrl(values.address)) return "Use a web address starting with https:// or a file on your site such as /uploads/photo.jpg.";
+      if (!values.alt) return "Describe the picture so people who cannot see it know what it shows.";
+      if ([...values.alt].length > LANDING_LIMITS.alt) return `The description can be at most ${LANDING_LIMITS.alt} characters.`;
+      restore();
+      document.execCommand("insertImage", false, values.address);
+      const added = [...editor.querySelectorAll("img")].filter((image) => !image.hasAttribute("alt")).at(-1);
+      if (added) {
+        added.setAttribute("alt", values.alt);
+        added.classList.add("oba-rich-image");
+      }
+      tidy();
+      changed();
+      remember();
+      announce.textContent = "Picture added.";
+      return "";
+    }, "Add image");
+  };
+  const act = (name) => {
+    announce.textContent = "";
+    if (name === "link") return linkPanel();
+    if (name === "image") return imagePanel();
+    panelSlot.replaceChildren();
+    const now = state();
+    if (name === "paragraph") run("formatBlock", "p");
+    else if (name === "heading") run("formatBlock", now.heading ? "p" : "h2");
+    else if (name === "bold" || name === "italic") run(name);
+    else if (name === "bulleted") run("insertUnorderedList");
+    else if (name === "numbered") run("insertOrderedList");
+    else if (name === "quote") run("formatBlock", now.quote ? "p" : "blockquote");
+    else if (name === "undo" || name === "redo") run(name);
+    refresh();
+    return undefined;
+  };
+  const toolbar = h("div", { class: "oba-landing-rich-toolbar", role: "toolbar", "aria-label": `${spec.label}: formatting`, "aria-controls": id });
+  LANDING_RICH_TOOLS.forEach(([name, text], index) => {
+    const button = h("button", { class: "oba-btn", type: "button", "data-rich": name, tabindex: index === 0 ? "0" : "-1", onClick: () => act(name) }, text);
+    if (!["undo", "redo"].includes(name)) button.setAttribute("aria-pressed", "false");
+    // A tap on a button must not move the caret out of the text.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("pointerdown", () => remember());
+    buttons.set(name, button);
+    toolbar.append(button);
+  });
+  toolbar.addEventListener("keydown", (event) => {
+    const list = [...buttons.values()];
+    const at = list.indexOf(document.activeElement);
+    if (at < 0 || !["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? list.length - 1 : (at + (event.key === "ArrowRight" ? 1 : -1) + list.length) % list.length;
+    for (const button of list) button.tabIndex = -1;
+    list[next].tabIndex = 0;
+    list[next].focus();
+  });
+  toolbar.addEventListener("focusin", (event) => {
+    if (event.target.tagName !== "BUTTON") return;
+    for (const button of buttons.values()) button.tabIndex = button === event.target ? 0 : -1;
+  });
+
+  // ----- the text
+  editor.addEventListener("input", () => {
+    tidy();
+    changed();
+    remember();
+  });
+  editor.addEventListener("keyup", () => {
+    remember();
+    refresh();
+  });
+  editor.addEventListener("mouseup", () => {
+    remember();
+    refresh();
+  });
+  editor.addEventListener("focus", refresh);
+  // Only plain words are pasted or dropped in, so nothing else can ride along with them.
+  editor.addEventListener("paste", (event) => {
+    event.preventDefault();
+    const plain = event.clipboardData?.getData("text/plain") || "";
+    if (plain) document.execCommand("insertText", false, plain);
+  });
+  editor.addEventListener("beforeinput", (event) => {
+    if (event.inputType === "insertFromDrop" || event.inputType === "insertFromYank") event.preventDefault();
+  });
+  document.addEventListener("selectionchange", function onSelection() {
+    if (!editor.isConnected) {
+      if (wired) document.removeEventListener("selectionchange", onSelection);
+      return;
+    }
+    wired = true;
+    if (editor.contains(getSelection()?.anchorNode || null)) {
+      remember();
+      refresh();
+    }
+  });
+
+  const entry = { path, input: editor, error, hint, shown: false };
+  ctx.fields.push(entry);
+  const field = h("div", { class: "oba-field oba-landing-field oba-landing-rich-field", "data-field": path }, label, toolbar, panelSlot, editor, announce, hint, error);
+  field.addEventListener("focusout", (event) => {
+    if (field.contains(event.relatedTarget)) return;
+    entry.shown = true;
+    ctx.showProblems();
+  });
+  return field;
 }
 
 function landingGroup(spec, data, ctx, path) {
@@ -12497,7 +12908,7 @@ export class ObAdmin extends AdminElement {
       editingId = editingId === id ? null : id;
       renderCards();
       focusAction(id, "edit");
-      if (editingId === id) cards.querySelector(`[data-section="${CSS.escape(id)}"] .oba-landing-form input, [data-section="${CSS.escape(id)}"] .oba-landing-form textarea, [data-section="${CSS.escape(id)}"] .oba-landing-form select`)?.focus();
+      if (editingId === id) cards.querySelector(`[data-section="${CSS.escape(id)}"] .oba-landing-form input, [data-section="${CSS.escape(id)}"] .oba-landing-form textarea, [data-section="${CSS.escape(id)}"] .oba-landing-form select, [data-section="${CSS.escape(id)}"] .oba-landing-form [contenteditable="true"]`)?.focus();
     };
     const closeEdit = (id) => {
       editingId = null;
@@ -12627,7 +13038,7 @@ export class ObAdmin extends AdminElement {
       closePicker(false);
       renderCards();
       const form = cards.querySelector(`[data-section="${CSS.escape(result.added.id)}"]`);
-      form?.querySelector(".oba-landing-form input, .oba-landing-form textarea, .oba-landing-form select")?.focus();
+      form?.querySelector(".oba-landing-form input, .oba-landing-form textarea, .oba-landing-form select, .oba-landing-form [contenteditable=\"true\"]")?.focus();
       form?.scrollIntoView?.({ block: "nearest" });
       say(`${sectionTitle(result.added)} added at the end, position ${sections().length} of ${sections().length}. Fill it in, then choose Done.`);
       onEdited();

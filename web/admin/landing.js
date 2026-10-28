@@ -64,7 +64,7 @@ export const SECTION_CATALOG = Object.freeze([
     description: "A few paragraphs about you or your blog.",
     sample: "About this blog. I write about slow living, with lists and links.",
     blank: () => ({ markdown: "Write something about you or your blog." }),
-    fields: [{ kind: "textarea", name: "markdown", label: "Your text", max: LIMITS.markdown, rows: 8, hint: "Plain text. Blank lines start a new paragraph; **bold**, *italic* and [links](https://example.com) work. Tags such as <b> show as typed." }],
+    fields: [{ kind: "richtext", name: "markdown", label: "Your text", max: LIMITS.markdown, hint: "Use the buttons above the text for headings, bold, italic, links, lists, quotes and pictures. Anything you type is shown as written; it is never run as code." }],
   },
   {
     type: "latest-posts",
@@ -386,7 +386,7 @@ export function fieldProblem(spec, value) {
   if (spec.kind === "post") return empty ? "Choose a post." : "";
   if (empty) return spec.required ? `${spec.label} is needed.` : "";
   const str = String(value);
-  if (/[\u0000-\u001f]/u.test(str) && spec.kind !== "textarea") return `${spec.label} must be on one line.`;
+  if (/[\u0000-\u001f]/u.test(str) && spec.kind !== "textarea" && spec.kind !== "richtext") return `${spec.label} must be on one line.`;
   if (spec.max && [...str].length > spec.max) return `${spec.label} is ${[...str].length} characters; the most is ${spec.max}.`;
   if (spec.kind === "url") return addressProblem(str, spec.schemes);
   if (spec.kind === "email") {
@@ -408,6 +408,9 @@ function sectionRules(section) {
     const id = String(section.video ?? "");
     const ok = section.provider === "vimeo" ? /^[0-9]{1,12}$/.test(id) : /^[A-Za-z0-9_-]{11}$/.test(id);
     if (id.trim() && !ok) problems.push({ path: "video", message: section.provider === "vimeo" ? "A Vimeo video id is digits only, such as 76979871." : "A YouTube video id is 11 letters, digits, - or _." });
+  }
+  if (section.type === "rich-text" && /!\[\s*\]\(/.test(String(section.markdown ?? ""))) {
+    problems.push({ path: "markdown", message: "Every picture needs a description. Remove the picture and add it again with the Image button." });
   }
   if (section.type === "contact" && !clean(section.email) && !clean(section.phone) && !clean(section.address)) {
     problems.push({ path: "email", message: "Add an email, a phone number or an address." });

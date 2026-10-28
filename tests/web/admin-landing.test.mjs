@@ -277,3 +277,15 @@ test("Compare says in plain words what differs between your page and the newer o
   const same = compareSections(mine, structuredClone(mine));
   assert.deepEqual(same, { rows: [], order: false });
 });
+
+test("the Text section is a rich text field and a picture without a description is a problem", () => {
+  const info = SECTION_CATALOG.find((entry) => entry.type === "rich-text");
+  assert.equal(info.fields.length, 1);
+  assert.equal(info.fields[0].kind, "richtext");
+  assert.equal(fieldProblem(info.fields[0], "line one\n\nline two"), "");
+  assert.match(fieldProblem(info.fields[0], "x".repeat(LIMITS.markdown + 1)), /the most is/);
+  const bad = sectionProblems({ id: "t", type: "rich-text", markdown: "Look ![](https://example.com/a.png)" });
+  assert.deepEqual(bad.map((p) => p.path), ["markdown"]);
+  assert.match(bad[0].message, /needs a description/);
+  assert.deepEqual(sectionProblems({ id: "t", type: "rich-text", markdown: "Look ![Tea](https://example.com/a.png)" }), []);
+});
