@@ -1,0 +1,181 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+import {
+  LIMITS,
+  SECTION_CATALOG,
+  addSection,
+  addressProblem,
+  fieldProblem,
+  landingErrorText,
+  moveSection,
+  newSection,
+  pageFrom,
+  pagePayload,
+  pageProblems,
+  pageSame,
+  removeSection,
+  restoreSection,
+  sectionProblems,
+  sectionSummary,
+  sectionTitle,
+  serverProblemsBySection,
+  setHidden,
+  uniqueId,
+} from "../../web/admin/landing.js";
+
+// The server's section types, read from the Rust source so the picker can never miss one.
+const rust = readFileSync(new URL("../../crates/openblog-core/src/landing.rs", import.meta.url), "utf8");
+const serverTypes = [...rust.match(/pub const SECTION_TYPES: \[&str; \d+\] = \[([\s\S]*?)\];/)[1].matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
+
+const page = (...ids) => ({ sections: ids.map((id) => ({ id, type: "series", heading: id })) });
+const ids = (sections) => sections.map((section) => section.id);
+
+test("the picker offers every section type the server knows, each with a plain description and sample", () => {
+  assert.deepEqual(SECTION_CATALOG.map((entry) => entry.type).sort(), [...serverTypes].sort());
+  for (const entry of SECTION_CATALOG) {
+    assert.ok(entry.label && entry.description && entry.sample && entry.icon, entry.type);
+    assert.ok(entry.fields.length > 0, entry.type);
+  }
+});
+
+test("no field takes markup or styling: no html section, style, class or script field exists", () => {
+  const names = [];
+  const walk = (specs) => specs.forEach((spec) => { names.push(spec.name); if (spec.fields) walk(spec.fields); });
+  for (const entry of SECTION_CATALOG) walk(entry.fields);
+  for (const bad of ["html", "css", "style-sheet", "script", "class", "classes", "attributes"]) assert.ok(!names.includes(bad), bad);
+  assert.ok(!SECTION_CATALOG.some((entry) => entry.type === "html" || entry.type === "custom-html"));
+});
+
+test("a new section gets an id no other section has", () => {
+  assert.equal(uniqueId("welcome", []), "welcome");
+  assert.equal(uniqueId("welcome", [{ id: "welcome" }]), "welcome-2");
+  assert.equal(uniqueId("welcome", [{ id: "welcome" }, { id: "welcome-2" }]), "welcome-3");
+  const added = addSection([newSection("welcome", [])], "welcome");
+  assert.deepEqual(ids(added.sections), ["welcome", "welcome-2"]);
+  assert.equal(added.added.heading, "Welcome to my blog");
+});
+
+test("a page holds at most the server's number of sections", () => {
+  let sections = [];
+  for (let i = 0; i < LIMITS.sections; i += 1) sections = addSection(sections, "series").sections;
+  const full = addSection(sections, "series");
+  assert.equal(full.full, true);
+  assert.equal(full.sections.length, LIMITS.sections);
+});
+
+test("moving a section swaps it with its neighbour and stops at the ends", () => {
+  const sections = page("a", "b", "c").sections;
+  assert.deepEqual(ids(moveSection(sections, "b", -1).sections), ["b", "a", "c"]);
+  assert.deepEqual(ids(moveSection(sections, "b", 1).sections), ["a", "c", "b"]);
+  const top = moveSection(sections, "a", -1);
+  assert.equal(top.sections, sections);
+  assert.equal(top.from, top.to);
+  assert.equal(moveSection(sections, "c", 1).from, 2);
+});
+
+test("hiding keeps the section and showing removes the flag", () => {
+  const sections = page("a", "b").sections;
+  const hidden = setHidden(sections, "a", true);
+  assert.equal(hidden[0].hidden, true);
+  assert.equal(hidden.length, 2);
+  assert.ok(!("hidden" in setHidden(hidden, "a", false)[0]));
+  assert.equal(sections[0].hidden, undefined, "the original is not changed");
+});
+
+test("deleting is undone into the same position, even after other changes", () => {
+  const sections = page("a", "b", "c", "d").sections;
+  const { sections: after, removed } = removeSection(sections, "c");
+  assert.deepEqual(ids(after), ["a", "b", "d"]);
+  assert.equal(removed.index, 2);
+  assert.deepEqual(ids(restoreSection(after, removed)), ["a", "b", "c", "d"]);
+  // Restoring at the end and into a shorter list stays in range.
+  const last = removeSection(sections, "d");
+  assert.deepEqual(ids(restoreSection(page("a").sections, last.removed)), ["a", "d"]);
+  // A taken id gets a new one rather than a duplicate.
+  const clash = restoreSection([{ id: "c", type: "series", heading: "x" }], removed);
+  assert.equal(new Set(ids(clash)).size, 2);
+  assert.equal(removeSection(sections, "zzz").removed, null);
+});
+
+test("cards say what they hold in plain words", () => {
+  assert.equal(sectionTitle({ type: "welcome" }), "Welcome banner");
+  assert.equal(sectionSummary({ type: "welcome", heading: "Hello there" }), "Hello there");
+  assert.equal(sectionSummary({ type: "welcome", heading: "" }), "No heading yet");
+  assert.equal(sectionSummary({ type: "latest-posts", heading: "News", count: 3 }), "News (3 posts)");
+  assert.equal(sectionSummary({ type: "buttons", items: [{ label: "Read" }, { label: "Email" }] }), "2 buttons: Read, Email");
+  assert.equal(sectionSummary({ type: "faq", items: [] }), "No questions yet");
+  assert.equal(sectionSummary({ type: "featured-post", post: "" }), "No post chosen yet");
+  assert.ok(sectionSummary({ type: "rich-text", markdown: "x".repeat(300) }).length <= 80);
+});
+
+test("required fields and limits are explained inline in plain words", () => {
+  assert.deepEqual(sectionProblems({ id: "w", type: "welcome", heading: "Hi" }), []);
+  assert.equal(sectionProblems({ id: "w", type: "welcome", heading: " " })[0].message, "Welcome heading is needed.");
+  const long = sectionProblems({ id: "w", type: "welcome", heading: "x".repeat(LIMITS.heading + 1) })[0].message;
+  assert.match(long, /the most is 120/);
+  assert.match(sectionProblems({ id: "i", type: "image", src: "/a.png", alt: "" })[0].message, /Describe the picture is needed/);
+  assert.match(sectionProblems({ id: "m", type: "map", label: "Here", lat: null, lon: 5 })[0].message, /Enter a number for latitude/);
+  assert.match(sectionProblems({ id: "m", type: "map", label: "Here", lat: 91, lon: 5 })[0].message, /at most 90/);
+  assert.match(sectionProblems({ id: "v", type: "video", provider: "youtube", video: "short", title: "T" })[0].message, /11 letters/);
+  assert.match(sectionProblems({ id: "c", type: "contact", email: "", phone: "", address: "" })[0].message, /Add an email/);
+  assert.match(sectionProblems({ id: "c", type: "contact", email: "nope" })[0].message, /email address/);
+  assert.match(sectionProblems({ id: "f", type: "faq", items: [] })[0].message, /Add at least one question/);
+  assert.equal(sectionProblems({ id: "f", type: "faq", items: [{ question: "Q", answer: "" }] })[0].path, "items.0.answer");
+  assert.equal(sectionProblems({ id: "w", type: "welcome", heading: "Hi", button: { label: "Go", href: "http://x.com" } })[0].path, "button.href");
+  assert.match(sectionProblems({ id: "z", type: "mystery" })[0].message, /does not know/);
+});
+
+test("addresses follow the server's rules and say what to change", () => {
+  for (const ok of ["/archive/", "#top", "https://example.com/a", "mailto:me@example.com", "tel:+15550100"]) assert.equal(addressProblem(ok, "links"), "", ok);
+  assert.match(addressProblem("http://example.com"), /https/);
+  assert.match(addressProblem("javascript:alert(1)"), /not allowed/);
+  assert.match(addressProblem("//evil.example"), /https:\/\//);
+  assert.match(addressProblem("has space"), /spaces/);
+  assert.match(addressProblem("mailto:me@example.com", "pictures"), /not allowed/);
+  assert.match(addressProblem("/local", "https"), /https:\/\//);
+  assert.match(addressProblem("https://"), /site's name/);
+});
+
+test("a count is a whole number in range, and blank means the usual number", () => {
+  const spec = SECTION_CATALOG.find((entry) => entry.type === "latest-posts").fields[1];
+  assert.equal(fieldProblem(spec, null), "");
+  assert.equal(fieldProblem(spec, 5), "");
+  assert.match(fieldProblem(spec, 0), /at least 1/);
+  assert.match(fieldProblem(spec, 51), /at most 50/);
+  assert.match(fieldProblem(spec, 2.5), /whole number/);
+  assert.match(fieldProblem(spec, "abc"), /must be a number/);
+});
+
+test("the payload drops blank optional numbers and never changes the page it came from", () => {
+  const draft = pageFrom({ format: "openblog-landing", version: 1, "x-future": { keep: 1 }, sections: [{ id: "l", type: "latest-posts", heading: "News", count: null }] });
+  assert.equal(draft["x-future"].keep, 1);
+  assert.ok(!("format" in draft) && !("version" in draft));
+  const payload = pagePayload(draft);
+  assert.deepEqual(payload.sections[0], { id: "l", type: "latest-posts", heading: "News" });
+  assert.equal(payload["x-future"].keep, 1);
+  assert.equal(draft.sections[0].count, null);
+});
+
+test("a preview can leave out the sections that have problems", () => {
+  const draft = { sections: [{ id: "a", type: "series", heading: "Series" }, { id: "b", type: "welcome", heading: "" }] };
+  assert.deepEqual(ids(pagePayload(draft, { leaveOut: true }).sections), ["a"]);
+  assert.deepEqual([...pageProblems(draft).keys()], ["b"]);
+});
+
+test("the page compares by value and the server's problems are grouped by section", () => {
+  assert.ok(pageSame(page("a"), page("a")));
+  assert.ok(!pageSame(page("a"), page("b")));
+  const grouped = serverProblemsBySection([{ section: "a", message: "one" }, { section: "a", message: "two" }, { section: null, message: "page" }]);
+  assert.deepEqual(grouped.get("a"), ["one", "two"]);
+  assert.deepEqual(grouped.get(""), ["page"]);
+});
+
+test("a failed request is worded for a person, not a developer", () => {
+  assert.match(landingErrorText({ status: 409, data: { conflict: true } }), /changed somewhere else/);
+  assert.match(landingErrorText({ status: 409, data: { newerVersion: true } }), /newer version/);
+  assert.match(landingErrorText({ status: 401 }), /Sign in again/);
+  assert.match(landingErrorText({ status: 413 }), /too big/);
+  assert.match(landingErrorText(new Error("Failed to fetch")), /Failed to fetch/);
+});

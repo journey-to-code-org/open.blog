@@ -1035,6 +1035,13 @@ post, buttons, image, video, map, opening hours, contact, social links, FAQ, cal
 with raw HTML disabled, so markup typed into it shows as text (ADR 0245).
 _Avoid_: Widget, block, embed, custom HTML
 
+**Landing page builder**:
+The Admin view at `#/landing` where an owner changes the landing page without code: sections are cards with
+Edit, Move up, Move down, Hide or Show and Delete buttons, added from a picker that describes each type in
+plain words, and edited in a plain form. Nothing is written until Save, a deletion can be undone, and no field
+takes HTML or CSS (ADR 0353).
+_Avoid_: Page editor, theme editor, drag-and-drop designer
+
 **Reading path**:
 An author's own ordered list of published posts and Knowledge Atlas entries, kept as
 `content/paths/<slug>.json`, with a rationale per step and an author-written transition from each step

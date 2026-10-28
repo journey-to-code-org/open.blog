@@ -4430,3 +4430,255 @@ a.oba-btn-primary {
   max-width: 100%;
   box-sizing: border-box;
 }
+
+/* Landing page builder (ADR 0353, #326). One column from 320px; every control is a real button or
+   input at least 44px tall; state is always said in words, never by colour alone. */
+.oba-landing {
+  min-width: 0;
+}
+
+.oba-landing-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+
+.oba-landing-head h2 {
+  margin: 0;
+}
+
+.oba-landing-cards,
+.oba-landing-items,
+.oba-landing-types {
+  margin: 0.75rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-landing-card {
+  min-width: 0;
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-landing-card-hidden {
+  border-style: dashed;
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-landing-card-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.oba-landing-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+  font-size: 1.25rem;
+}
+
+.oba-landing-card-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.oba-landing-card-title {
+  margin: 0;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-card-summary,
+.oba-landing-hint {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-hidden-note {
+  font-weight: 400;
+  color: var(--ob-color-muted);
+}
+
+.oba-landing-attention {
+  margin: 0.25rem 0 0;
+  font-weight: 600;
+  color: var(--oba-danger);
+}
+
+.oba-landing-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.oba-landing-button {
+  min-width: 44px;
+}
+
+.oba-landing-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.oba-landing-form {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-landing-form .oba-field input[type="url"],
+.oba-landing-form .oba-field input[type="email"],
+.oba-landing-form .oba-field input[type="tel"],
+.oba-landing-form .oba-field input[type="number"],
+.oba-landing-form .oba-field input[type="text"],
+.oba-landing-form .oba-field select,
+.oba-landing-form .oba-field textarea {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  /* 16px stops phone browsers zooming in when a field takes focus. */
+  font-size: 1rem;
+}
+
+.oba-landing-form .oba-field > label {
+  font-size: 0.95rem;
+}
+
+.oba-landing-form .oba-field input[aria-invalid="true"],
+.oba-landing-form .oba-field select[aria-invalid="true"],
+.oba-landing-form .oba-field textarea[aria-invalid="true"] {
+  border-color: var(--oba-danger);
+  border-width: 2px;
+}
+
+.oba-field-error {
+  margin: 0;
+  color: var(--oba-danger);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.oba-landing-group,
+.oba-landing-list,
+.oba-landing-item fieldset {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+}
+
+.oba-landing-item {
+  margin-bottom: 0.75rem;
+}
+
+.oba-landing-item fieldset {
+  margin-bottom: 0;
+}
+
+.oba-landing-group legend,
+.oba-landing-list legend,
+.oba-landing-item legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+
+.oba-landing-add-row {
+  margin: 0.5rem 0 1rem;
+}
+
+.oba-landing-picker {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border: 2px solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-landing-picker h3 {
+  margin-top: 0;
+}
+
+.oba-landing-type {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.oba-landing-type:hover {
+  border-color: var(--ob-color-accent-border);
+}
+
+.oba-landing-type:focus-visible {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
+}
+
+.oba-landing-type-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-status:empty {
+  display: none;
+}
+
+.oba-landing-toast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-landing-toast[hidden] {
+  display: none;
+}
+
+.oba-landing-toast-text {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}

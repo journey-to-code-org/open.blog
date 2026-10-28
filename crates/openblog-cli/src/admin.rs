@@ -518,13 +518,14 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin" | "/admin/" => "index.html",
         "/admin/admin.js" => "admin.js",
         "/admin/admin.css" => "admin.css",
+        "/admin/landing.js" => "landing.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
     match site::admin_file(&state.root, &config, file) {
         Some(bytes) => {
             let ctype = match file {
-                "admin.js" => "text/javascript; charset=utf-8",
+                "admin.js" | "landing.js" => "text/javascript; charset=utf-8",
                 "admin.css" => "text/css; charset=utf-8",
                 _ => "text/html; charset=utf-8",
             };
@@ -34161,6 +34162,15 @@ series: letters
         let styles = handle(&f.state, &req("GET", "/admin/admin.css"));
         assert_eq!(styles.status, 200);
         assert!(String::from_utf8_lossy(&styles.body).contains(".oba-theme-toggle"));
+        // The landing page builder's model is its own module beside the Admin script.
+        let landing = handle(&f.state, &req("GET", "/admin/landing.js"));
+        assert_eq!(landing.status, 200);
+        assert!(landing
+            .headers
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
+                && value.starts_with("text/javascript")));
+        assert!(String::from_utf8_lossy(&landing.body).contains("SECTION_CATALOG"));
         assert_eq!(
             handle(&f.state, &req("GET", "/admin/secrets.txt")).status,
             404

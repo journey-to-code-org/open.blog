@@ -7,6 +7,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 - The home page can be built from landing sections. A site that adds `content/landing.json` (a versioned list of welcome banner, rich text, latest posts, series, featured post, buttons, image, video, map, opening hours, contact, social links, FAQ and call-out sections) gets those sections, in order, on the first home page; a site without the file, or with no visible section, is built exactly as before. Text in a section is never read as HTML: markup typed into any field, including Markdown, shows as plain text. Admin gains `GET`/`PUT /admin/api/landing`, which save the file atomically against a revision and refuse stale writes. A file that cannot be used is a build warning and the site falls back to `home.heading`, `home.intro` and `home.showSeries`. The sections are styled once in `web/base.css` from `--ob-*` tokens, so every bundled theme shows them legibly in light and dark, with 44px touch targets, visible focus rings and no motion under reduced-motion.
 
+- Admin has a Landing page builder at `#/landing`. The home page's sections show as cards you can add from a plain-language picker (each type has a description and a sample), edit in a simple form, move with Move up and Move down buttons (or Alt with the arrow keys), hide, and delete with an Undo. Fields are checked in plain words next to the field, nothing takes HTML or CSS, and nothing is written until Save. A home page whose first latest-posts list is shorter than the archive and carries no pager now ends with an "All posts" link to the archive.
+
 ## [0.49.0] - 2026-10-28
 
 - The container can publish with a repository-scoped SSH deploy key (`OPENBLOG_GIT_SSH_KEY_PATH` and

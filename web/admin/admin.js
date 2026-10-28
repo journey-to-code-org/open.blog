@@ -4,6 +4,26 @@
 // previews are served from an authenticated URL into an opaque-origin sandbox.
 
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
+import {
+  LIMITS as LANDING_LIMITS,
+  SECTION_CATALOG,
+  addSection,
+  landingErrorText,
+  moveSection,
+  pagePayload,
+  pageFrom,
+  pageProblems,
+  pageSame,
+  parseNumberInput,
+  removeSection,
+  restoreSection,
+  sectionInfo,
+  sectionProblems,
+  sectionSummary,
+  sectionTitle,
+  serverProblemsBySection,
+  setHidden,
+} from "./landing.js";
 
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
 const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
@@ -9529,6 +9549,129 @@ class Api {
   }
 }
 
+// Landing page builder (ADR 0353, #326). The form for one section is built from the section type's
+// field specs (web/admin/landing.js): every field is a labelled, typed input, and there is no field
+// for markup or styling. `ctx` carries `idBase`, `posts`, `changed()`, `showProblems()` and a
+// `fields` registry the section uses to show problems.
+
+/** Build the labelled fields for `specs` over `data`. `prefix` is the dotted path of `data` in the section. */
+function landingFields(specs, data, ctx, prefix = "") {
+  return specs.map((spec) => landingField(spec, data, ctx, prefix));
+}
+
+function landingField(spec, data, ctx, prefix) {
+  const path = prefix ? `${prefix}.${spec.name}` : spec.name;
+  const id = `${ctx.idBase}-${path.replaceAll(".", "-")}`;
+  if (spec.kind === "group") return landingGroup(spec, data, ctx, path);
+  if (spec.kind === "list") return landingList(spec, data, ctx, path, id);
+  const error = h("p", { class: "oba-field-error", id: `${id}-error`, hidden: true });
+  const hint = spec.hint ? h("p", { class: "oba-small oba-landing-hint", id: `${id}-hint` }, spec.hint) : null;
+  const optional = spec.required ? "" : " (optional)";
+  const label = h("label", { for: id }, `${spec.label}${optional}`);
+  let input;
+  if (spec.kind === "textarea") {
+    input = h("textarea", { id, rows: spec.rows || 4, value: data[spec.name] ?? "" });
+    input.addEventListener("input", () => { data[spec.name] = input.value; });
+  } else if (spec.kind === "select") {
+    input = h("select", { id }, spec.options.map(([value, text]) => h("option", { value }, text)));
+    input.value = data[spec.name] ?? spec.default ?? spec.options[0][0];
+    data[spec.name] = input.value;
+    input.addEventListener("change", () => { data[spec.name] = input.value; });
+  } else if (spec.kind === "post" && Array.isArray(ctx.posts)) {
+    const current = data[spec.name] ?? "";
+    const known = ctx.posts.some((post) => post.slug === current);
+    input = h(
+      "select",
+      { id },
+      h("option", { value: "" }, "Choose a post…"),
+      current && !known ? h("option", { value: current }, `${current} (not found among your published posts)`) : null,
+      ctx.posts.map((post) => h("option", { value: post.slug }, post.title || post.slug)),
+    );
+    input.value = current;
+    input.addEventListener("change", () => { data[spec.name] = input.value; });
+  } else {
+    const type = spec.kind === "post" ? "text" : spec.kind;
+    const props = { id, type, value: data[spec.name] === null || data[spec.name] === undefined ? "" : String(data[spec.name]) };
+    if (spec.kind === "url") Object.assign(props, { inputmode: "url", autocapitalize: "off", autocomplete: "off", spellcheck: "false" });
+    if (spec.kind === "email") Object.assign(props, { inputmode: "email", autocapitalize: "off", autocomplete: "email", spellcheck: "false" });
+    if (spec.kind === "tel") Object.assign(props, { inputmode: "tel", autocomplete: "tel" });
+    if (spec.kind === "number") Object.assign(props, { inputmode: spec.integer ? "numeric" : "decimal", step: spec.step || "1", min: spec.min, max: spec.max });
+    input = h("input", props);
+    input.addEventListener("input", () => {
+      data[spec.name] = spec.kind === "number" ? parseNumberInput(input.value) : input.value;
+    });
+  }
+  const entry = { path, input, error, hint, shown: false };
+  ctx.fields.push(entry);
+  input.addEventListener("blur", () => {
+    entry.shown = true;
+    ctx.showProblems();
+  });
+  input.addEventListener("input", () => ctx.changed());
+  input.addEventListener("change", () => ctx.changed());
+  return h("div", { class: "oba-field oba-landing-field", "data-field": path }, label, input, hint, error);
+}
+
+function landingGroup(spec, data, ctx, path) {
+  const body = h("div", { class: "oba-landing-group-body" });
+  const box = h("fieldset", { class: "oba-landing-group", "data-group": path }, h("legend", {}, `${spec.label} (optional)`), body);
+  const render = (focus) => {
+    if (landingIsObject(data[spec.name])) {
+      const remove = h("button", { class: "oba-btn", type: "button", "data-action": "remove-group", onClick: () => {
+        delete data[spec.name];
+        render("add");
+        ctx.changed();
+      } }, spec.removeLabel);
+      body.replaceChildren(...landingFields(spec.fields, data[spec.name], ctx, path), remove);
+      if (focus === "first") body.querySelector("input, textarea, select")?.focus();
+    } else {
+      body.replaceChildren(h("button", { class: "oba-btn", type: "button", "data-action": "add-group", onClick: () => {
+        data[spec.name] = spec.blank();
+        render("first");
+        ctx.changed();
+      } }, spec.addLabel));
+      if (focus === "add") body.querySelector("button")?.focus();
+    }
+  };
+  render();
+  return box;
+}
+
+function landingList(spec, data, ctx, path, id) {
+  const listError = h("p", { class: "oba-field-error", id: `${id}-error`, hidden: true });
+  const entry = { path, error: listError, shown: false, input: null, list: true };
+  ctx.fields.push(entry);
+  const items = h("ol", { class: "oba-landing-items" });
+  const add = h("button", { class: "oba-btn", type: "button", "data-action": "add-item", onClick: () => {
+    data[spec.name] = [...(data[spec.name] || []), spec.blank()];
+    render();
+    items.lastElementChild?.querySelector("input, textarea, select")?.focus();
+    ctx.changed();
+  } }, spec.addLabel);
+  const render = () => {
+    const list = Array.isArray(data[spec.name]) ? data[spec.name] : (data[spec.name] = []);
+    items.replaceChildren(
+      ...list.map((item, i) => {
+        const name = `${spec.itemLabel} ${i + 1}`;
+        const remove = h("button", { class: "oba-btn", type: "button", "data-action": "remove-item", "aria-label": `Remove ${name}`, onClick: () => {
+          list.splice(i, 1);
+          render();
+          (items.children[Math.min(i, items.children.length - 1)]?.querySelector("input, textarea, select") || add).focus();
+          ctx.changed();
+        } }, "Remove");
+        return h("li", { class: "oba-landing-item" }, h("fieldset", {}, h("legend", {}, name), ...landingFields(spec.fields, item, ctx, `${path}.${i}`), remove));
+      }),
+    );
+    add.hidden = Boolean(spec.max && list.length >= spec.max);
+  };
+  render();
+  return h("fieldset", { class: "oba-landing-list", "data-list": path }, h("legend", {}, spec.label), items, listError, add);
+}
+
+function landingIsObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 // Reading paths (ADR 0213, #77). A path is the public file `content/paths/<slug>.json`; these
 // helpers turn the file's JSON into an editor draft and back without losing a field the editor
 // does not show, move steps without losing written text, and word what the server reports. The
@@ -10446,6 +10589,7 @@ export class ObAdmin extends AdminElement {
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
       h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
+      h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
       h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
       h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
       h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
@@ -10460,6 +10604,8 @@ export class ObAdmin extends AdminElement {
         ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
+      : active === "landing"
+        ? { title: "Landing page", detail: "Build the first page your visitors see from sections you add, order and preview, without writing any code." }
       : active === "paths"
         ? { title: "Reading paths", detail: "Curate ordered routes through published posts and Knowledge Atlas entries, with your own reason for each step." }
       : active === "comparisons"
@@ -10718,6 +10864,7 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
@@ -10940,6 +11087,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
+      else if (head === "landing") await this.showLanding();
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "appearance") await this.showAppearance();
@@ -12052,6 +12200,411 @@ export class ObAdmin extends AdminElement {
     );
     mountedView = this.viewVersion;
     this.viewDirty = () => dirty;
+    this.viewBusy = () => busy;
+  }
+
+  // ---- landing page (ADR 0353, #326)
+
+  /**
+   * `#/landing`: the owner's home page as a list of cards. Sections are added from a picker,
+   * edited in a plain form, moved with real buttons, hidden or deleted (and a deletion can be
+   * undone). Nothing is written until Save; the server owns every rule (ADR 0246).
+   */
+  async showLanding() {
+    let loaded;
+    try {
+      loaded = await this.api.call("GET", "landing");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      this.mount(this.shell("landing", h("p", { class: "oba-error", role: "alert" }, landingErrorText(error))));
+      return;
+    }
+    let posts = null;
+    try {
+      const list = await this.api.call("GET", "documents?kind=posts");
+      posts = (list.items || []).filter((item) => item.status === "published" && item.slug).map((item) => ({ slug: item.slug, title: item.title }));
+    } catch {
+      // A post is then typed by its address name; everything else works.
+    }
+    // A site with no stored page starts from what its visitors see today.
+    let revision = loaded.revision ?? null;
+    let exists = Boolean(loaded.exists);
+    const readable = loaded.valid !== false;
+    let saved = pageFrom(loaded.page || loaded.legacy);
+    let draft = structuredClone(saved);
+    let editingId = null;
+    let picking = false;
+    let undo = null;
+    let busy = false;
+    let attempted = false;
+    let serverProblems = new Map();
+    const isDirty = () => !pageSame(draft, saved);
+    const sections = () => draft.sections;
+
+    const status = h("p", { class: "oba-landing-status oba-small", role: "status", "aria-live": "polite", "data-landing-status": "true" });
+    const say = (text, kind = "small") => {
+      status.className = `oba-landing-status ${kind === "error" ? "oba-error" : kind === "ok" ? "oba-ok" : kind === "notice" ? "oba-notice" : "oba-small"}`;
+      status.textContent = text;
+    };
+    const cards = h("ol", { class: "oba-landing-cards", "aria-label": "Sections on your landing page" });
+    const empty = h("p", { class: "oba-notice", "data-landing-empty": "true", hidden: true }, "Your page has no sections yet. Choose Add a section to start.");
+    const count = h("span", { class: "oba-small", "data-landing-count": "true" });
+    const picker = h("section", { class: "oba-landing-picker", "aria-labelledby": "oba-landing-picker-title", hidden: true });
+    const toast = h("div", { class: "oba-landing-toast", role: "status", "aria-live": "polite", "data-landing-toast": "true", hidden: true });
+    const actions = h("div", { class: "oba-landing-actions", role: "group", "aria-label": "Landing page actions" });
+    const summaryOf = (section) => {
+      const text = sectionSummary(section);
+      return text ? `${sectionTitle(section)}: ${text}` : sectionTitle(section);
+    };
+    const shortName = (section) => {
+      const text = sectionSummary(section);
+      const trimmed = text.length > 40 ? `${text.slice(0, 39)}…` : text;
+      return trimmed ? `${sectionTitle(section)} “${trimmed}”` : sectionTitle(section);
+    };
+
+    /** The per-section parts that change as the owner types, refreshed without rebuilding the form. */
+    const refreshCard = (id) => {
+      const card = cards.querySelector(`[data-section="${CSS.escape(id)}"]`);
+      const section = sections().find((item) => item.id === id);
+      if (!card || !section) return;
+      card.querySelector(".oba-landing-card-summary").textContent = sectionSummary(section) || " ";
+      const bad = pageProblems(draft).get(id)?.length || 0;
+      const badge = card.querySelector(".oba-landing-attention");
+      badge.hidden = !bad;
+      badge.textContent = bad ? `${bad} ${bad === 1 ? "thing needs" : "things need"} attention` : "";
+    };
+
+    const cardActions = (section, index) => {
+      const name = shortName(section);
+      const total = sections().length;
+      const position = `section ${index + 1} of ${total}`;
+      const button = (action, text, label, onClick, extra = {}) =>
+        h("button", { class: "oba-btn oba-landing-button", type: "button", "data-action": action, "aria-label": `${label}, ${name} (${position})`, onClick, ...extra }, text);
+      const open = editingId === section.id;
+      return h(
+        "div",
+        { class: "oba-landing-card-actions", role: "group", "aria-label": `Actions for ${name} (${position})` },
+        button("edit", open ? "Close" : "Edit", open ? "Close the form" : "Edit", () => toggleEdit(section.id), { "aria-expanded": String(open), "aria-controls": `oba-landing-form-${section.id}` }),
+        button("move-up", "Move up", "Move up", () => move(section.id, -1), { disabled: index === 0 }),
+        button("move-down", "Move down", "Move down", () => move(section.id, 1), { disabled: index === total - 1 }),
+        button("hide", section.hidden ? "Show" : "Hide", section.hidden ? "Show on the page" : "Hide from visitors", () => toggleHidden(section.id), { "aria-pressed": String(Boolean(section.hidden)) }),
+        button("delete", "Delete", "Delete", () => remove(section.id), { class: "oba-btn oba-btn-danger oba-landing-button" }),
+      );
+    };
+
+    const sectionForm = (section) => {
+      const info = sectionInfo(section.type);
+      const ctx = {
+        idBase: `oba-landing-${section.id}`,
+        posts,
+        fields: [],
+        changed: () => {
+          refreshCard(section.id);
+          ctx.showProblems();
+          onEdited();
+        },
+        showProblems: () => {
+          const found = sectionProblems(section);
+          for (const entry of ctx.fields) {
+            if (entry.input && !entry.input.isConnected) continue;
+            const problem = found.find((item) => item.path === entry.path);
+            const visible = (entry.shown || attempted) && problem;
+            entry.error.hidden = !visible;
+            entry.error.textContent = visible ? problem.message : "";
+            if (entry.input) {
+              entry.input.setAttribute("aria-invalid", visible ? "true" : "false");
+              const ids = [entry.hint ? entry.hint.id : "", visible ? entry.error.id : ""].filter(Boolean).join(" ");
+              if (ids) entry.input.setAttribute("aria-describedby", ids);
+              else entry.input.removeAttribute("aria-describedby");
+            }
+          }
+        },
+      };
+      const fromServer = serverProblems.get(section.id) || [];
+      const serverBox = h("div", { class: "oba-error", role: "alert", hidden: !fromServer.length, "data-landing-server-problems": "true" }, fromServer.map((message) => h("p", {}, message)));
+      const known = Boolean(info.fields.length);
+      const form = h(
+        "div",
+        { class: "oba-landing-form", id: `oba-landing-form-${section.id}`, role: "group", "aria-label": `Edit ${sectionTitle(section)}` },
+        known ? null : h("p", { class: "oba-notice" }, "This version of open.blog does not know this kind of section. It is kept as it is and cannot be edited here."),
+        serverBox,
+        ...landingFields(info.fields, section, ctx),
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "done", onClick: () => closeEdit(section.id) }, "Done")),
+      );
+      queueMicrotask(() => ctx.showProblems());
+      return form;
+    };
+
+    const renderCards = () => {
+      const list = sections();
+      cards.replaceChildren(
+        ...list.map((section, index) => {
+          const info = sectionInfo(section.type);
+          const bad = (pageProblems(draft).get(section.id) || []).length;
+          const attention = h("p", { class: "oba-landing-attention", hidden: !bad }, bad ? `${bad} ${bad === 1 ? "thing needs" : "things need"} attention` : "");
+          const card = h(
+            "li",
+            { class: `oba-landing-card${section.hidden ? " oba-landing-card-hidden" : ""}`, "data-section": section.id, "data-type": section.type, "data-hidden": section.hidden ? "true" : "false" },
+            h(
+              "div",
+              { class: "oba-landing-card-head" },
+              h("span", { class: "oba-landing-icon", "aria-hidden": "true" }, info.icon),
+              h(
+                "div",
+                { class: "oba-landing-card-text" },
+                h("h3", { class: "oba-landing-card-title" }, sectionTitle(section), section.hidden ? h("span", { class: "oba-landing-hidden-note" }, " – hidden from visitors") : null),
+                h("p", { class: "oba-small oba-landing-card-summary" }, sectionSummary(section) || " "),
+                attention,
+              ),
+            ),
+            cardActions(section, index),
+            editingId === section.id ? sectionForm(section) : null,
+          );
+          card.addEventListener("keydown", (event) => {
+            if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key) || event.target.closest(".oba-landing-form")) return;
+            event.preventDefault();
+            move(section.id, event.key === "ArrowUp" ? -1 : 1);
+          });
+          return card;
+        }),
+      );
+      empty.hidden = list.length > 0;
+      count.textContent = `${list.length} of ${LANDING_LIMITS.sections} sections`;
+      addButton.disabled = list.length >= LANDING_LIMITS.sections;
+    };
+
+    const focusAction = (id, action) => {
+      const card = cards.querySelector(`[data-section="${CSS.escape(id)}"]`);
+      const wanted = card?.querySelector(`[data-action="${action}"]:not(:disabled)`) || card?.querySelector("button:not(:disabled)");
+      wanted?.focus();
+    };
+
+    const onEdited = () => {
+      if (undo) clearUndo();
+      renderBar();
+    };
+
+    const toggleEdit = (id) => {
+      editingId = editingId === id ? null : id;
+      renderCards();
+      focusAction(id, "edit");
+      if (editingId === id) cards.querySelector(`[data-section="${CSS.escape(id)}"] .oba-landing-form input, [data-section="${CSS.escape(id)}"] .oba-landing-form textarea, [data-section="${CSS.escape(id)}"] .oba-landing-form select`)?.focus();
+    };
+    const closeEdit = (id) => {
+      editingId = null;
+      renderCards();
+      focusAction(id, "edit");
+    };
+
+    const move = (id, step) => {
+      const result = moveSection(sections(), id, step);
+      if (result.from === result.to) return;
+      draft.sections = result.sections;
+      const section = result.sections[result.to];
+      renderCards();
+      // A button at the end of the list is disabled; keep focus on the other direction.
+      const card = cards.querySelector(`[data-section="${CSS.escape(id)}"]`);
+      const wanted = card?.querySelector(`[data-action="${step < 0 ? "move-up" : "move-down"}"]`);
+      focusAction(id, wanted && !wanted.disabled ? (step < 0 ? "move-up" : "move-down") : step < 0 ? "move-down" : "move-up");
+      say(`${sectionTitle(section)} moved ${step < 0 ? "up" : "down"} to position ${result.to + 1} of ${result.sections.length}.`);
+      onEdited();
+    };
+
+    const toggleHidden = (id) => {
+      const section = sections().find((item) => item.id === id);
+      const hidden = !section.hidden;
+      draft.sections = setHidden(sections(), id, hidden);
+      renderCards();
+      focusAction(id, "hide");
+      say(hidden ? `${sectionTitle(section)} is now hidden from visitors. It is kept, and you can show it again.` : `${sectionTitle(section)} is shown to visitors again.`);
+      onEdited();
+    };
+
+    const clearUndo = () => {
+      undo = null;
+      toast.hidden = true;
+      toast.replaceChildren();
+    };
+    const remove = (id) => {
+      const section = sections().find((item) => item.id === id);
+      const index = sections().findIndex((item) => item.id === id);
+      const name = shortName(section);
+      const result = removeSection(sections(), id);
+      draft.sections = result.sections;
+      if (editingId === id) editingId = null;
+      serverProblems.delete(id);
+      renderCards();
+      undo = result.removed;
+      toast.hidden = false;
+      toast.replaceChildren(
+        h("span", { class: "oba-landing-toast-text" }, `Deleted ${name}.`),
+        h("button", { class: "oba-btn", type: "button", "data-action": "undo", onClick: restore }, "Undo"),
+        h("button", { class: "oba-btn", type: "button", "data-action": "dismiss-undo", onClick: () => { clearUndo(); actionsFocus(); } }, "Dismiss"),
+      );
+      say(`Deleted ${name}. Choose Undo to put it back.`);
+      renderBar();
+      // Focus moves to the next card (or the one before it), else to Add a section.
+      const next = sections()[Math.min(index, sections().length - 1)];
+      if (next) focusAction(next.id, "edit");
+      else addButton.focus();
+    };
+    const restore = () => {
+      if (!undo) return;
+      const record = undo;
+      draft.sections = restoreSection(sections(), record);
+      clearUndo();
+      renderCards();
+      const at = Math.min(record.index, sections().length - 1);
+      const back = sections()[at];
+      say(`Put ${shortName(back)} back at position ${at + 1} of ${sections().length}.`);
+      focusAction(back.id, "edit");
+      renderBar();
+    };
+    const actionsFocus = () => actions.querySelector("button:not(:disabled)")?.focus();
+
+    // ----- adding
+    const addButton = h("button", { class: "oba-btn oba-btn-primary oba-landing-add", type: "button", "data-action": "add-section", "aria-expanded": "false", "aria-controls": "oba-landing-picker", onClick: () => openPicker() }, "Add a section");
+    picker.id = "oba-landing-picker";
+    const closePicker = (focus = true) => {
+      picking = false;
+      picker.hidden = true;
+      addButton.setAttribute("aria-expanded", "false");
+      if (focus) addButton.focus();
+    };
+    const openPicker = () => {
+      picking = true;
+      picker.hidden = false;
+      addButton.setAttribute("aria-expanded", "true");
+      picker.querySelector("button")?.focus();
+      picker.scrollIntoView?.({ block: "nearest" });
+    };
+    picker.append(
+      h("h3", { id: "oba-landing-picker-title", tabindex: "-1" }, "What would you like to add?"),
+      h("p", { class: "oba-small" }, "Pick one. You can change it, move it, hide it or delete it afterwards."),
+      h(
+        "ul",
+        { class: "oba-landing-types" },
+        SECTION_CATALOG.map((entry) =>
+          h(
+            "li",
+            {},
+            h(
+              "button",
+              { class: "oba-landing-type", type: "button", "data-add-type": entry.type, onClick: () => addOfType(entry.type) },
+              h("span", { class: "oba-landing-icon", "aria-hidden": "true" }, entry.icon),
+              h("span", { class: "oba-landing-type-text" }, h("strong", {}, entry.label), h("span", {}, entry.description), h("span", { class: "oba-small oba-landing-sample" }, `For example: ${entry.sample}`)),
+            ),
+          ),
+        ),
+      ),
+      h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-action": "cancel-add", onClick: () => closePicker() }, "Cancel")),
+    );
+    picker.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePicker();
+      }
+    });
+    const addOfType = (type) => {
+      const result = addSection(sections(), type);
+      if (result.full) {
+        say(`A page holds at most ${LANDING_LIMITS.sections} sections.`, "error");
+        return;
+      }
+      draft.sections = result.sections;
+      editingId = result.added.id;
+      closePicker(false);
+      renderCards();
+      const form = cards.querySelector(`[data-section="${CSS.escape(result.added.id)}"]`);
+      form?.querySelector(".oba-landing-form input, .oba-landing-form textarea, .oba-landing-form select")?.focus();
+      form?.scrollIntoView?.({ block: "nearest" });
+      say(`${sectionTitle(result.added)} added at the end, position ${sections().length} of ${sections().length}. Fill it in, then choose Done.`);
+      onEdited();
+    };
+
+    // ----- saving
+    const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: () => save() }, "Save");
+    const dirtyNote = h("span", { class: "oba-small oba-landing-dirty", "data-landing-dirty": "true" });
+    const renderBar = () => {
+      dirtyNote.textContent = isDirty() ? "You have unsaved changes." : exists ? "All changes saved." : "Not saved yet. Your site still shows your home settings.";
+    };
+    /** What a save or a refused save does to the page the owner is looking at. */
+    const applySaved = (result) => {
+      revision = result.revision ?? null;
+      exists = true;
+      saved = pageFrom(result.page);
+      draft = structuredClone(saved);
+      serverProblems = new Map();
+      attempted = false;
+    };
+    const save = async () => {
+      if (busy) return;
+      const local = pageProblems(draft);
+      if (local.size) {
+        attempted = true;
+        const first = sections().find((section) => local.has(section.id));
+        editingId = first.id;
+        renderCards();
+        const total = [...local.values()].reduce((sum, list) => sum + list.length, 0);
+        say(`Nothing was saved: ${total} ${total === 1 ? "thing needs" : "things need"} attention. The first is in ${shortName(first)}.`, "error");
+        cards.querySelector(`[data-section="${CSS.escape(first.id)}"] [aria-invalid="true"]`)?.focus();
+        return;
+      }
+      busy = true;
+      saveButton.disabled = true;
+      say("Saving…");
+      try {
+        const result = await this.api.call("PUT", "landing", { json: { revision, page: pagePayload(draft) } });
+        if (this.viewVersion !== mountedView) return;
+        applySaved(result);
+        clearUndo();
+        renderCards();
+        renderBar();
+        say("Saved. Your landing page is ready to publish.", "ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        if (error.data?.problems) {
+          serverProblems = serverProblemsBySection(error.data.problems);
+          renderCards();
+        }
+        say(landingErrorText(error), "error");
+      } finally {
+        busy = false;
+        saveButton.disabled = false;
+      }
+    };
+    actions.replaceChildren(saveButton, dirtyNote);
+
+    const intro = h(
+      "section",
+      { class: "oba-contributor-intro" },
+      h("p", {}, "This is the first page your visitors see. Add the sections you want, put them in the order you like, and choose Save. Nothing changes on your site until you save and publish."),
+      exists ? null : h("p", { class: "oba-notice", "data-landing-legacy": "true" }, "You have not built a landing page yet. This starts from what your home page shows now. Your site stays as it is until you save."),
+      readable ? null : h("div", { class: "oba-error", role: "alert", "data-landing-unreadable": "true" }, h("p", {}, "The saved landing page could not be read, so your site is using your home settings instead. You can start again below; saving replaces the unreadable file."), h("ul", {}, (loaded.problems || []).map((problem) => h("li", {}, problem.text || problem.message)))),
+    );
+
+    let mountedView = -1;
+    renderCards();
+    renderBar();
+    this.mount(
+      this.shell(
+        "landing",
+        intro,
+        status,
+        h(
+          "div",
+          { class: "oba-landing" },
+          h("div", { class: "oba-landing-head" }, h("h2", { id: "oba-landing-sections-title" }, "Sections"), count),
+          empty,
+          cards,
+          h("div", { class: "oba-landing-add-row" }, addButton),
+          picker,
+        ),
+        h("div", { class: "oba-landing-bar", "data-landing-bar": "true" }, toast, actions),
+      ),
+    );
+    mountedView = this.viewVersion;
+    this.viewDirty = () => isDirty();
     this.viewBusy = () => busy;
   }
 
