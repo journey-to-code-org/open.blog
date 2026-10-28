@@ -342,6 +342,88 @@ export function restoreSection(sections, removed) {
   return [...sections.slice(0, at), section, ...sections.slice(at)];
 }
 
+// ---------------------------------------------------------------- starter layouts (ADR 0370, #338)
+
+const SAMPLE_NOTE = "This is a sample layout. Every sentence marked as a sample is a stand-in: replace it with your own words, then choose Save. Delete this note when you are done.";
+
+/**
+ * Ready-made starting points. Each is only a list of sections (the same typed data the builder
+ * saves), never markup. `build({ posts })` returns fresh sections every time; `posts` are the
+ * owner's published posts, so a featured post is only offered when there is one to feature.
+ */
+export const STARTERS = Object.freeze([
+  {
+    id: "welcome",
+    label: "Welcome",
+    description: "A friendly welcome, a few words about you and your newest posts.",
+    build: () => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Welcome to my blog", subheading: "Sample: a short line about what you write and who it is for.", button: { label: "Read the blog", href: "/archive/", style: "primary" } },
+      { id: "about", type: "rich-text", markdown: "Sample: Hello, I am glad you are here. Write two or three sentences about yourself and why you write." },
+      { id: "latest", type: "latest-posts", heading: "Latest posts" },
+    ],
+  },
+  {
+    id: "small-business",
+    label: "Small business",
+    description: "When you are open, how to reach you and where to find you.",
+    build: () => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Welcome to Sample Shop", subheading: "Sample: one line about what you sell or do." },
+      { id: "hours", type: "opening-hours", rows: [{ days: "Monday to Friday", hours: "9am to 5pm" }, { days: "Saturday", hours: "10am to 2pm" }, { days: "Sunday", hours: "Closed" }], note: "Sample times: change them to your own." },
+      { id: "contact", type: "contact", email: "you@example.com", phone: "+1 555 010 0100", address: "Sample: 12 High Street" },
+      { id: "map", type: "map", provider: "openstreetmap", label: "Sample: 12 High Street", lat: 51.5072, lon: -0.1276 },
+    ],
+  },
+  {
+    id: "portfolio",
+    label: "Portfolio",
+    description: "Show one thing you are proud of, and where people can find you.",
+    build: ({ posts = [] } = {}) => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Hello, I am Sample Name", subheading: "Sample: what you make, in one line." },
+      posts.length
+        ? { id: "featured", type: "featured-post", post: posts[0].slug, heading: "Start here" }
+        : { id: "latest", type: "latest-posts", heading: "My latest work", count: 3 },
+      { id: "links", type: "buttons", items: [{ label: "See all my work", href: "/archive/", style: "primary" }, { label: "Email me", href: "mailto:you@example.com", style: "secondary" }] },
+      { id: "social", type: "social-links", items: [{ label: "Sample profile", href: "https://example.com/you" }] },
+    ],
+  },
+  {
+    id: "newsletter",
+    label: "Newsletter",
+    description: "Invite people to follow along, with your newest posts underneath.",
+    build: () => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Get every new post", subheading: "Sample: say what readers will get and how often.", button: { label: "Follow along", href: "/rss.xml", style: "primary" } },
+      { id: "about", type: "rich-text", markdown: "Sample: Tell people what each issue holds. Keep it short and kind." },
+      { id: "latest", type: "latest-posts", heading: "Recent issues" },
+    ],
+  },
+]);
+
+/** The starter with this id, or null. */
+export function starterById(id) {
+  return STARTERS.find((starter) => starter.id === id) || null;
+}
+
+/** The sections of a starter, new each time. `scratch` is an empty page. */
+export function starterSections(id, context = {}) {
+  if (id === "scratch") return [];
+  const starter = starterById(id);
+  return starter ? starter.build(context) : [];
+}
+
+/** Whether choosing a layout would replace sections the owner already has, and so needs a yes first. */
+export function replacingNeedsConfirm(sections, { exists = false, dirty = false } = {}) {
+  return sections.length > 0 && (exists || dirty);
+}
+
+/** A page with its sections swapped for a layout, keeping everything else the page holds. The old sections are returned so Undo can bring them back. */
+export function applyLayout(page, sections) {
+  return { page: { ...page, sections }, previous: page.sections };
+}
+
 // ---------------------------------------------------------------- checking, in plain words
 
 const SCHEMES = {

@@ -2443,3 +2443,12 @@ with a toolbar of words (Paragraph, Heading, Bold, Italic, Link, Bulleted list, 
 Undo, Redo) and stored as inert Markdown. It has no Markdown toggle, no HTML view, and no control that
 accepts markup; a picture needs a description (ADR 0257).
 _Avoid_: HTML block, WYSIWYG box, Markdown field
+
+## Landing starters
+
+**Starter layout**:
+A ready-made list of sample landing sections (Welcome, Small business, Portfolio, Newsletter) or an empty page
+(Start from scratch), chosen in the Landing page builder. It is plain section data with every stand-in sentence
+marked "Sample", it is applied like any other unsaved edit, it can be undone, and it never replaces existing
+sections without asking (ADR 0370).
+_Avoid_: Template, theme, preset

@@ -26,6 +26,10 @@ import {
   previewSize,
   removeSection,
   restoreSection,
+  STARTERS,
+  applyLayout,
+  replacingNeedsConfirm,
+  starterSections,
   sectionInfo,
   sectionProblems,
   sectionSummary,
@@ -12770,6 +12774,7 @@ export class ObAdmin extends AdminElement {
     let editingId = null;
     let picking = false;
     let undo = null;
+    let layoutUndo = null;
     let busy = false;
     let attempted = false;
     let serverProblems = new Map();
@@ -12930,7 +12935,7 @@ export class ObAdmin extends AdminElement {
     };
 
     const onEdited = () => {
-      if (undo) clearUndo();
+      if (undo || layoutUndo) clearUndo();
       renderBar();
       schedulePreview();
     };
@@ -12973,6 +12978,7 @@ export class ObAdmin extends AdminElement {
 
     const clearUndo = () => {
       undo = null;
+      layoutUndo = null;
       toast.hidden = true;
       toast.replaceChildren();
     };
@@ -12981,6 +12987,7 @@ export class ObAdmin extends AdminElement {
       const index = sections().findIndex((item) => item.id === id);
       const name = shortName(section);
       const result = removeSection(sections(), id);
+      layoutUndo = null;
       draft.sections = result.sections;
       if (editingId === id) editingId = null;
       serverProblems.delete(id);
@@ -13074,6 +13081,116 @@ export class ObAdmin extends AdminElement {
       say(`${sectionTitle(result.added)} added at the end, position ${sections().length} of ${sections().length}. Fill it in, then choose Done.`);
       onEdited();
     };
+
+    // ----- starting points (ADR 0370, #338): a layout is a list of sections, applied like any other edit
+    const layoutContext = { posts: posts || [] };
+    const defaultSections = () => (loaded.legacy ? pageFrom(loaded.legacy).sections : starterSections("welcome", layoutContext));
+    const startersPanel = h("section", { class: "oba-landing-picker oba-landing-starters", id: "oba-landing-starters", "aria-labelledby": "oba-landing-starters-title", hidden: true, "data-landing-starters": "true" });
+    const confirmBox = h("div", { class: "oba-notice oba-landing-confirm", role: "group", "aria-labelledby": "oba-landing-confirm-title", hidden: true, "data-landing-confirm": "true" });
+    const layoutButton = h("button", { class: "oba-btn oba-landing-button", type: "button", "data-action": "choose-layout", "aria-expanded": "false", "aria-controls": "oba-landing-starters", onClick: () => openStarters() }, "Choose a ready-made layout");
+    const resetButton = h("button", { class: "oba-btn oba-landing-button", type: "button", "data-action": "reset-default", onClick: () => chooseLayout("default", "the default layout", defaultSections) }, "Reset to default");
+    const closeStarters = (focus = true) => {
+      startersPanel.hidden = true;
+      layoutButton.setAttribute("aria-expanded", "false");
+      if (focus) layoutButton.focus();
+    };
+    const closeConfirm = () => {
+      confirmBox.hidden = true;
+      confirmBox.replaceChildren();
+    };
+    function openStarters(move = true) {
+      closeConfirm();
+      startersPanel.hidden = false;
+      layoutButton.setAttribute("aria-expanded", "true");
+      if (move) {
+        startersPanel.querySelector("button")?.focus();
+        startersPanel.scrollIntoView?.({ block: "nearest" });
+      }
+    }
+    const applyChoice = (label, next) => {
+      const { page: nextPage, previous } = applyLayout(draft, next);
+      draft = nextPage;
+      clearUndo();
+      layoutUndo = { sections: previous };
+      editingId = null;
+      serverProblems = new Map();
+      closeStarters(false);
+      closeConfirm();
+      renderCards();
+      toast.hidden = false;
+      toast.replaceChildren(
+        h("span", { class: "oba-landing-toast-text" }, `Your page now uses ${label}.`),
+        h("button", { class: "oba-btn", type: "button", "data-action": "undo-layout", onClick: restoreLayout }, "Undo"),
+        h("button", { class: "oba-btn", type: "button", "data-action": "dismiss-undo", onClick: () => { clearUndo(); actionsFocus(); } }, "Dismiss"),
+      );
+      renderBar();
+      schedulePreview();
+      if (next.length) {
+        say(`Your page now uses ${label}. Nothing is saved yet. Choose Undo to go back, or Edit on a section to change its words.`, "notice");
+        focusAction(next.find((section) => section.type !== "callout")?.id || next[0].id, "edit");
+      } else {
+        say("Your page is empty. Add the first section when you are ready. Nothing is saved yet, and Undo brings your sections back.", "notice");
+        openPicker();
+      }
+    };
+    const restoreLayout = () => {
+      if (!layoutUndo) return;
+      const record = layoutUndo;
+      draft.sections = record.sections;
+      clearUndo();
+      editingId = null;
+      renderCards();
+      renderBar();
+      schedulePreview();
+      say("Put your earlier sections back.");
+      const first = sections()[0];
+      if (first) focusAction(first.id, "edit");
+      else layoutButton.focus();
+    };
+    const chooseLayout = (id, label, build) => {
+      const next = build();
+      if (pageSame(next, draft.sections)) {
+        closeStarters(false);
+        say("Your page already looks like that.");
+        return;
+      }
+      if (!replacingNeedsConfirm(sections(), { exists, dirty: isDirty() })) {
+        applyChoice(label, next);
+        return;
+      }
+      closeStarters(false);
+      confirmBox.hidden = false;
+      confirmBox.replaceChildren(
+        h("strong", { id: "oba-landing-confirm-title", tabindex: "-1" }, `Replace your ${sections().length === 1 ? "section" : `${sections().length} sections`} with ${label}?`),
+        h("p", {}, "Your current sections are put away, not lost: choose Undo afterwards to bring them back. Nothing changes on your site until you save and publish."),
+        h("div", { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "confirm-layout", onClick: () => applyChoice(label, next) }, "Replace my sections"),
+          h("button", { class: "oba-btn", type: "button", "data-action": "cancel-layout", onClick: () => { closeConfirm(); layoutButton.focus(); say("Kept your sections as they are."); } }, "Keep what I have"),
+        ),
+      );
+      confirmBox.querySelector("strong").focus();
+    };
+    startersPanel.append(
+      h("h3", { id: "oba-landing-starters-title", tabindex: "-1" }, "Start from a ready-made layout"),
+      h("p", { class: "oba-small" }, "Pick a starting point. It comes with sample words for you to replace. You can change everything, and you can undo your choice."),
+      h(
+        "ul",
+        { class: "oba-landing-types" },
+        [
+          ...STARTERS.map((starter) => ({ id: starter.id, label: starter.label, description: starter.description, name: `the ${starter.label} layout` })),
+          { id: "scratch", label: "Start from scratch", description: "An empty page. You add the sections you want, one at a time.", name: "an empty page" },
+        ].map((entry) =>
+          h("li", {}, h("button", { class: "oba-landing-type", type: "button", "data-starter": entry.id, onClick: () => chooseLayout(entry.id, entry.name, () => starterSections(entry.id, layoutContext)) }, h("span", { class: "oba-landing-type-text" }, h("strong", {}, entry.label), h("span", {}, entry.description)))),
+        ),
+      ),
+      h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-action": "cancel-layouts", onClick: () => closeStarters() }, exists ? "Cancel" : "Keep what my home page shows now")),
+    );
+    startersPanel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeStarters();
+      }
+    });
 
     // ----- a save that finds a newer page: your changes are never replaced, and neither is the newer page
     const conflictBox = h("div", { class: "oba-error oba-landing-conflict", role: "group", "aria-labelledby": "oba-landing-conflict-title", hidden: true, "data-landing-conflict": "true" });
@@ -13378,7 +13495,9 @@ export class ObAdmin extends AdminElement {
             h("div", { class: "oba-landing-head" }, h("h2", { id: "oba-landing-sections-title" }, "Sections"), count),
             empty,
             cards,
-            h("div", { class: "oba-landing-add-row" }, addButton),
+            h("div", { class: "oba-landing-add-row" }, addButton, layoutButton, resetButton),
+            confirmBox,
+            startersPanel,
             picker,
           ),
           side,
@@ -13435,6 +13554,8 @@ export class ObAdmin extends AdminElement {
     addEventListener("pagehide", keepCopy);
     addEventListener("hashchange", keepCopy);
     document.addEventListener("visibilitychange", keepCopy);
+    // A first visit offers the starting points; it is never forced and the home page stays as it is until the owner chooses.
+    if (!exists && readable && !pendingDraft && !isDirty()) openStarters(false);
     // Beside the builder on a wide screen, the preview is there from the start.
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();

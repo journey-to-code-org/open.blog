@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Start your landing page from a ready-made layout: Welcome, Small business, Portfolio or Newsletter, each with
+  clearly marked sample words to replace, or Start from scratch. A first visit offers the choices; Choose a
+  ready-made layout and Reset to default are always there. Choosing one is unsaved until you save, can be undone,
+  and asks first before it replaces sections you already have (ADR 0370).
 - Customize the look with simple presets, never CSS (engine and storage; the Admin screen comes next): a new
   optional `appearance` setting in `openblog.json` holds an accent color, one of eight curated looks (Calm,
   Warm, Bold, Night, Garden, Paper, Ocean, Sunset), a font style, a text size, corner roundness, spacing, page

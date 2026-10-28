@@ -289,3 +289,65 @@ test("the Text section is a rich text field and a picture without a description 
   assert.match(bad[0].message, /needs a description/);
   assert.deepEqual(sectionProblems({ id: "t", type: "rich-text", markdown: "Look ![Tea](https://example.com/a.png)" }), []);
 });
+
+// ---------------------------------------------------------------- starter layouts (ADR 0370, #338)
+
+import { STARTERS, applyLayout, replacingNeedsConfirm, starterSections } from "../../web/admin/landing.js";
+import { writeFileSync as writeFixture } from "node:fs";
+
+const withPosts = { posts: [{ slug: "one", title: "One" }] };
+const starterCases = () => [
+  ...STARTERS.map((starter) => [starter.id, starter.build({ posts: [] })]),
+  ["portfolio-with-post", starterSections("portfolio", withPosts)],
+];
+
+test("every starter is a valid list of sections with its own ids and clearly marked sample words", () => {
+  assert.deepEqual(STARTERS.map((s) => s.id), ["welcome", "small-business", "portfolio", "newsletter"]);
+  for (const [name, sections] of starterCases()) {
+    assert.ok(sections.length >= 3 && sections.length <= LIMITS.sections, name);
+    assert.equal(new Set(sections.map((s) => s.id)).size, sections.length, `${name}: ids are unique`);
+    for (const section of sections) {
+      assert.deepEqual(sectionProblems(section), [], `${name}/${section.id}`);
+      assert.ok(serverTypes.includes(section.type), `${name}/${section.id}`);
+    }
+    assert.match(JSON.stringify(sections), /Sample/, name);
+    assert.equal(sections[0].id, "sample-note", `${name}: starts with a note that says it is a sample`);
+  }
+});
+
+test("a starter is data only: no markup, and a fresh copy each time", () => {
+  for (const [name, sections] of starterCases()) assert.doesNotMatch(JSON.stringify(sections), /<[a-z!/]|javascript:|style=/i, name);
+  const a = starterSections("welcome");
+  a[0].body = "changed";
+  assert.notEqual(starterSections("welcome")[0].body, "changed");
+  assert.deepEqual(starterSections("scratch"), []);
+  assert.deepEqual(starterSections("nonsense"), []);
+});
+
+test("the portfolio features a post only when there is one to feature", () => {
+  assert.ok(!starterSections("portfolio").some((s) => s.type === "featured-post"));
+  assert.equal(starterSections("portfolio", withPosts).find((s) => s.type === "featured-post").post, "one");
+});
+
+test("applying a layout swaps the sections, keeps the rest of the page and hands back the old sections for Undo", () => {
+  const before = { custom: 1, sections: [{ id: "a", type: "series", heading: "A" }] };
+  const { page: after, previous } = applyLayout(before, starterSections("welcome"));
+  assert.equal(after.custom, 1);
+  assert.equal(after.sections.length, 4);
+  assert.deepEqual(previous, before.sections);
+  assert.equal(before.sections.length, 1, "the original page is not changed");
+});
+
+test("an existing page is never replaced without asking", () => {
+  assert.equal(replacingNeedsConfirm([], { exists: true, dirty: true }), false);
+  assert.equal(replacingNeedsConfirm([{ id: "a" }], { exists: true }), true);
+  assert.equal(replacingNeedsConfirm([{ id: "a" }], { dirty: true }), true);
+  assert.equal(replacingNeedsConfirm([{ id: "a" }], {}), false, "an untouched home-page start can be replaced, with Undo");
+});
+
+test("the starters shared with the Rust render test are up to date", () => {
+  const path = new URL("../../crates/openblog-core/tests/fixtures/landing-starters.json", import.meta.url);
+  const expected = JSON.stringify(Object.fromEntries(starterCases()), null, 2) + "\n";
+  if (process.env.UPDATE_STARTERS) writeFixture(path, expected);
+  assert.equal(readFileSync(path, "utf8").replace(/\r\n/g, "\n"), expected, "run UPDATE_STARTERS=1 node --test tests/web/admin-landing.test.mjs");
+});
