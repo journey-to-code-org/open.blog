@@ -252,13 +252,15 @@ test("without JavaScript the post reads as usual and the region says what it nee
 const trailsPanel = (page) => page.getByRole("region", { name: "Your reading trails and saved sources" });
 const HOSTED = "https://hosted.example.org";
 
-async function hostThirdPerspective(page) {
-  await page.evaluate((endpoint) => {
+async function hostThirdPerspective(page, { receipts = true } = {}) {
+  await page.evaluate(({ endpoint, receipts }) => {
     const region = document.createElement("ob-third-perspective");
     region.setAttribute("endpoint", endpoint);
-    region.setAttribute("receipts", "");
+    region.setAttribute("page", "https://readings-site.example.org/tides/");
+    region.setAttribute("contact", "mailto:author@example.org");
+    if (receipts) region.setAttribute("receipts", "");
     document.body.append(region);
-  }, HOSTED);
+  }, { endpoint: HOSTED, receipts });
 }
 
 async function prepare(page, item, { consent = true } = {}) {
@@ -330,6 +332,7 @@ test("a copy is prepared, previewed and only recorded when the reader says they 
     if (new URL(request.url()).origin !== origin) outside.push(request.url());
   });
   await open(page);
+  await hostThirdPerspective(page, { receipts: false });
   await save(page, "A private view.", "Secret label");
   const item = items(page).first();
 
@@ -348,6 +351,10 @@ test("a copy is prepared, previewed and only recorded when the reader says they 
   expect(copy).toMatchObject({ kind: "third-perspective", work: "/tides/", body: "A private view.", consent: { publish: true } });
   expect(text).not.toContain("Secret label");
   expect(text).not.toContain("refl-");
+  // The copy names the page's canonical address and offers its contact, not the reader's own URL.
+  await send.getByRole("button", { name: "Copy to send myself" }).click();
+  await expect(send.getByLabel("The copy to send")).toHaveValue(/Third Perspective on https:\/\/readings-site\.example\.org\/tides\//);
+  await expect(send.getByRole("link", { name: "Write to the author" })).toHaveAttribute("href", "mailto:author@example.org");
   // No hosted form on this site: the only send is the reader's own.
   await expect(send.getByRole("button", { name: "Send for review" })).toHaveCount(0);
   expect((await saved(page)).reflections[0].submissions).toBeUndefined();
@@ -395,6 +402,7 @@ test("sending through the site: a failure records nothing, then success keeps th
 
 test("a label change after sending does not touch the words that were sent", async ({ page }) => {
   await open(page);
+  await hostThirdPerspective(page, { receipts: false });
   await save(page, "Original words.");
   const item = items(page).first();
   const send = await prepare(page, item);
@@ -410,4 +418,62 @@ test("a label change after sending does not touch the words that were sent", asy
   expect(doc.reflections[0].submissions).toHaveLength(1);
   expect(JSON.parse(sentText).body).toBe("Original words.");
   await expect(item).toContainText("changing or deleting this reading does not change it");
+});
+
+test("a post that takes no Third Perspectives offers no send control", async ({ page }) => {
+  await open(page);
+  await save(page, "Only mine.");
+  const item = items(page).first();
+  await expect(item.getByRole("button", { name: /^Send a copy for review/ })).toHaveCount(0);
+  await expect(item).toContainText("This post does not take Third Perspectives");
+  await expect(item.getByRole("button", { name: /^Delete this reading/ })).toBeVisible();
+  expect((await saved(page)).reflections[0].submissions).toBeUndefined();
+});
+
+async function sendFailure(page, { route, before } = {}) {
+  let requests = 0;
+  await page.route(`${HOSTED}/feedback`, async (r) => {
+    requests += 1;
+    if (route) await route(r);
+  });
+  await open(page);
+  await hostThirdPerspective(page);
+  await save(page, "Keep me.");
+  const item = items(page).first();
+  const send = await prepare(page, item);
+  if (before) await before();
+  await send.getByRole("button", { name: "Send for review" }).click();
+  return { send, count: () => requests };
+}
+
+test("sending while offline says so, sends nothing and records nothing", async ({ page, context }) => {
+  const { send, count } = await sendFailure(page, { before: () => context.setOffline(true) });
+  await expect(panel(page).getByRole("status")).toHaveText(/You seem to be offline, so nothing was sent\. Your reading is unchanged/);
+  expect(count()).toBe(0);
+  expect((await saved(page)).reflections[0].submissions).toBeUndefined();
+  await expect(send.getByRole("button", { name: "Send for review" })).toBeEnabled();
+});
+
+test("a service that never answers times out, records nothing and re-enables the button", async ({ page }) => {
+  await page.clock.install();
+  const { send, count } = await sendFailure(page, { route: () => new Promise(() => {}) });
+  await expect(send.getByRole("button", { name: "Sending…" })).toBeVisible();
+  await page.clock.fastForward(16000);
+  await expect(panel(page).getByRole("status")).toHaveText(/The copy was not sent: the service did not answer\. Your reading is unchanged and nothing is recorded as sent/);
+  await expect(send.getByRole("button", { name: "Send for review" })).not.toHaveAttribute("aria-disabled", "true");
+  expect(count()).toBe(1);
+  expect((await saved(page)).reflections[0].submissions).toBeUndefined();
+});
+
+test("a duplicate and a rate limit give their own messages and record nothing", async ({ page }) => {
+  let status = 409;
+  const { send } = await sendFailure(page, {
+    route: (r) => r.fulfill({ status, contentType: "application/json", body: JSON.stringify(status === 409 ? { code: "duplicate" } : {}) }),
+  });
+  await expect(panel(page).getByRole("status")).toHaveText("This copy was already sent from here and is waiting for review.");
+  expect((await saved(page)).reflections[0].submissions).toBeUndefined();
+  status = 429;
+  await send.getByRole("button", { name: "Send for review" }).click();
+  await expect(panel(page).getByRole("status")).toHaveText(/The copy was not sent: too many have come from here recently/);
+  expect((await saved(page)).reflections[0].submissions).toBeUndefined();
 });

@@ -42,6 +42,24 @@ function hostedEndpoint() {
   }
 }
 
+/** The post's Third Perspective region, if the post takes them: the gate every submission path follows. */
+function thirdPerspectiveRegion() {
+  return document.querySelector("ob-third-perspective[endpoint]");
+}
+
+/** The region's contact link, only as plain mailto: or https: (the same rule ob-third-perspective applies). */
+function regionContact(region) {
+  const value = region?.getAttribute("contact");
+  if (!value) return null;
+  if (/^mailto:[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$/.test(value)) return value;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && url.hostname ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 const STATE_WORDS = Object.freeze({
@@ -451,6 +469,11 @@ export class ObReflectionHistory extends HTMLElement {
   /** The delete and send controls of one reading. */
   #controls(record, number, actions) {
     const name = this.#title(record, number);
+    if (!thirdPerspectiveRegion()) {
+      const remove = this.#deleteButton(record, name);
+      actions.append(el("span", "ob-reflection-history-hint", "This post does not take Third Perspectives, so a copy cannot be sent from here."), remove);
+      return;
+    }
     const send = el("button", undefined, "Send a copy for review");
     send.type = "button";
     send.dataset.control = "send";
@@ -464,6 +487,11 @@ export class ObReflectionHistory extends HTMLElement {
       this.#focusAfter = { id: record.id, control: this.#sendFor ? "send-first" : "send" };
       this.#render();
     });
+    const remove = this.#deleteButton(record, name);
+    actions.append(send, remove);
+  }
+
+  #deleteButton(record, name) {
     const remove = el("button", undefined, "Delete this reading");
     remove.type = "button";
     remove.dataset.control = "delete";
@@ -474,7 +502,7 @@ export class ObReflectionHistory extends HTMLElement {
       this.#focusAfter = { id: record.id, control: "delete-no" };
       this.#render();
     });
-    actions.append(send, remove);
+    return remove;
   }
 
   /** What has been sent from this reading. The copy has its own life: nothing here changes it. */
@@ -649,10 +677,16 @@ export class ObReflectionHistory extends HTMLElement {
       } else {
         preview.append(el("p", "ob-reflection-history-hint", "This site does not take reflections through a form. Copy the text and send it to the author yourself, then say you did."));
       }
+      const contact = regionContact(thirdPerspectiveRegion());
+      if (contact) {
+        const link = el("a", undefined, contact.startsWith("mailto:") ? "Write to the author" : "Open the author's contact page");
+        link.href = contact;
+        preview.append(link);
+      }
       const copy = el("button", undefined, "Copy to send myself");
       copy.type = "button";
       copy.addEventListener("click", async () => {
-        const text = thirdPerspectiveCopyText(prepared.submission, location.href);
+        const text = thirdPerspectiveCopyText(prepared.submission, thirdPerspectiveRegion()?.getAttribute("page") || "");
         try {
           await globalThis.navigator.clipboard.writeText(text);
           this.#say("The copy was copied. When you have sent it, choose I sent it myself.");

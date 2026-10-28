@@ -195,7 +195,7 @@ test("a file made by export imports back, and the highlights panel refreshes", a
   await trails.getByLabel("Reading-trail file").setInputFiles(asFile(file.text, file.name));
   const preview = trails.getByRole("group", { name: /^Import preview: / });
   await expect(preview).toBeVisible();
-  await expect(preview).toContainText("Would add: 2 highlights and notes, 1 saved source, 1 trail.");
+  await expect(preview).toContainText("Would add: 2 highlights and notes, 1 saved source, 1 trail, 0 private readings.");
   expect(await raw(page)).toBeNull();
   await expect(preview.getByRole("heading")).toBeFocused();
   await preview.getByRole("button", { name: "Import" }).click();
@@ -222,7 +222,7 @@ test("a conflicting record is listed, and the reader chooses which version stays
   const preview = trails.getByRole("group", { name: /^Import preview: / });
   await expect(preview).toContainText("1 record in the file has the same id as one you have but different content");
   await expect(preview.getByLabel("Keep what I have saved")).toBeChecked();
-  await expect(preview).toContainText("Would add: 1 highlight or note, 0 saved sources, 0 trails.");
+  await expect(preview).toContainText("Would add: 1 highlight or note, 0 saved sources, 0 trails, 0 private readings.");
   await preview.getByLabel("Use the file's version").check();
   await preview.getByRole("button", { name: "Import" }).click();
   const now = await saved(page);
@@ -379,4 +379,17 @@ test("the controls fit a phone and the page without JavaScript still reads", asy
   await expect(panel(bare)).toContainText("need JavaScript");
   await expect(bare.locator("article")).toContainText("Shadows on the wall stay shadows.");
   await plain.close();
+});
+
+test("the import preview names private readings, so they never enter the notebook unannounced", async ({ page }) => {
+  await open(page);
+  const trails = panel(page);
+  const reading = { id: "refl-a", kind: "reflection", work: work("/cave/"), revision: REVISION, target: { version: 1, kind: "work" }, text: "What I thought then", provenance: "written", createdAt: NOW, updatedAt: NOW };
+  await trails.getByLabel("Reading-trail file").setInputFiles(asFile(documentOf({ reflections: [reading] })));
+  const preview = trails.getByRole("group", { name: /^Import preview: / });
+  await expect(preview).toContainText("Would add: 0 highlights and notes, 0 saved sources, 0 trails, 1 private reading.");
+  await preview.getByRole("button", { name: "Import" }).click();
+  expect((await saved(page)).reflections).toHaveLength(1);
+  await trails.getByLabel("Reading-trail file").setInputFiles(asFile(documentOf({ reflections: [reading] })));
+  await expect(trails.getByRole("group", { name: /^Import preview: / })).toContainText("Nothing in the file would change what is saved.");
 });

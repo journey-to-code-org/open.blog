@@ -949,15 +949,15 @@ export class ObReadingTrail extends HTMLElement {
     }
     const lines = el("ul", "ob-trail-list");
     const add = plan.added;
-    lines.append(el("li", undefined, `Would add: ${plural(add.annotations, "highlight or note", "highlights and notes")}, ${plural(add.sources, "saved source")}, ${plural(add.trails, "trail")}.`));
-    const sameTotal = plan.same.annotations + plan.same.sources + plan.same.trails;
+    lines.append(el("li", undefined, `Would add: ${plural(add.annotations, "highlight or note", "highlights and notes")}, ${plural(add.sources, "saved source")}, ${plural(add.trails, "trail")}, ${plural(add.reflections ?? 0, "private reading")}.`));
+    const sameTotal = plan.same.annotations + plan.same.sources + plan.same.trails + (plan.same.reflections ?? 0);
     if (sameTotal > 0) lines.append(el("li", undefined, `${plural(sameTotal, "record")} already saved, left as is.`));
     if (plan.duplicates.length > 0) lines.append(el("li", undefined, `${plural(plan.duplicates.length, "record")} already saved under another id, not added again.`));
     if (plan.stale.length > 0) {
-      lines.append(el("li", undefined, `${plural(plan.stale.length, "added highlight or note", "added highlights and notes")} on this post no longer ${plan.stale.length === 1 ? "matches" : "match"} its text. They would be kept and shown as not found.`));
+      lines.append(el("li", undefined, `${plural(plan.stale.length, "added highlight, note or private reading", "added highlights, notes and private readings")} on this post no longer ${plan.stale.length === 1 ? "matches" : "match"} its text. They would be kept and shown as not found.`));
     }
-    if (plan.reanchored > 0) lines.append(el("li", undefined, `${plural(plan.reanchored, "added highlight or note", "added highlights and notes")} would be found again in changed text.`));
-    if (plan.unchecked > 0) lines.append(el("li", undefined, `${plural(plan.unchecked, "added highlight or note", "added highlights and notes")} on other posts will be checked when you open those posts.`));
+    if (plan.reanchored > 0) lines.append(el("li", undefined, `${plural(plan.reanchored, "added highlight, note or private reading", "added highlights, notes and private readings")} would be found again in changed text.`));
+    if (plan.unchecked > 0) lines.append(el("li", undefined, `${plural(plan.unchecked, "added highlight, note or private reading", "added highlights, notes and private readings")} on other posts will be checked when you open those posts.`));
     if (plan.notes === "omitted") lines.append(el("li", undefined, "This file leaves out the text of notes."));
     wrap.append(lines);
     if (plan.conflicts.length > 0) {
