@@ -274,6 +274,7 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/block-forms.js"),
     ),
     ("admin.css", include_str!("../../../web/admin/admin.css")),
+    ("landing.js", include_str!("../../../web/admin/landing.js")),
 ];
 
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");

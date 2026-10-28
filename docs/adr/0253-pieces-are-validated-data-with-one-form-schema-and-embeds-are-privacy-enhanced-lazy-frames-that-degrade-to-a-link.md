@@ -1,4 +1,4 @@
-# ADR 0370: Pieces are validated data with one form schema, and embeds are privacy-enhanced lazy frames that degrade to a link
+# ADR 0253: Pieces are validated data with one form schema, and embeds are privacy-enhanced lazy frames that degrade to a link
 
 - Status: Accepted
 - Date: 2026-10-28

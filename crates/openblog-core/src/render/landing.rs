@@ -34,6 +34,8 @@ struct Context<'t> {
     page_count: usize,
     /// Whether the page's `<h1>` has been written.
     h1: bool,
+    /// Whether a latest-posts section has been written.
+    latest_seen: bool,
 }
 
 impl Context<'_> {
@@ -62,6 +64,7 @@ impl Renderer<'_> {
             per_page,
             page_count,
             h1: false,
+            latest_seen: false,
         };
         let mut out = String::new();
         let mut pager_used = false;
@@ -196,7 +199,13 @@ impl Renderer<'_> {
         if !*pager_used && cx.page_count > 1 && shown == cx.per_page {
             *pager_used = true;
             inner.push_str(&self.pager(1, cx.page_count));
+        } else if !cx.latest_seen && self.site.posts.len() > shown {
+            // The first list stops short of the rest and carries no pager:
+            // a plain link keeps every post reachable.
+            inner.push_str("<p class=\"ob-home-all\"><a class=\"ob-home-link\" href=\"/archive/\">All posts</a></p>
+");
         }
+        cx.latest_seen = true;
         self.landing_wrap(section, true, &inner, "")
     }
 

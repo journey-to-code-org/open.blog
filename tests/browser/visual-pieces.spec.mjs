@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
 // The real Admin Studio: callouts, tables, task lists, embeds and pieces are edited with forms in
-// the Visual editor, at phone and desktop sizes (ADR 0371, #332).
+// the Visual editor, at phone and desktop sizes (ADR 0254, #332).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");

@@ -1,7 +1,7 @@
 # ADR 0247: The home page renders landing sections from validated data, with one h1 and no change when there are none
 
 - Status: Accepted
-- Superseded in part by: ADR 0370 (Video and Map sections render privacy-enhanced lazy frames; the "no frame or third-party request" rule no longer holds for them)
+- Superseded in part by: ADR 0253 (Video and Map sections render privacy-enhanced lazy frames; the "no frame or third-party request" rule no longer holds for them)
 - Date: 2026-10-28
 - Decision issue: [#324](https://github.com/journey-to-code-org/open.blog/issues/324)
 - Parent story: [#315](https://github.com/journey-to-code-org/open.blog/issues/315)

@@ -523,13 +523,14 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/admin.js" => "admin.js",
         "/admin/block-forms.js" => "block-forms.js",
         "/admin/admin.css" => "admin.css",
+        "/admin/landing.js" => "landing.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
     match site::admin_file(&state.root, &config, file) {
         Some(bytes) => {
             let ctype = match file {
-                "admin.js" | "block-forms.js" => "text/javascript; charset=utf-8",
+                "admin.js" | "block-forms.js" | "landing.js" => "text/javascript; charset=utf-8",
                 "admin.css" => "text/css; charset=utf-8",
                 _ => "text/html; charset=utf-8",
             };
@@ -701,6 +702,7 @@ fn authenticated_api(
         ("DELETE", "comparisons") => comparisons::remove(state, req),
         ("GET", "landing") => landing::get(state),
         ("PUT", "landing") => landing::save(state, req),
+        ("POST", "landing/preview") => landing::preview(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
@@ -17198,7 +17200,7 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
 }
 
 /// Check one piece's form values and return the Markdown that holds it in a
-/// post (ADR 0370). The engine is the only place a piece is validated or
+/// post (ADR 0253). The engine is the only place a piece is validated or
 /// written, so the Admin cannot save one the build would refuse. Nothing is
 /// stored.
 fn build_piece(req: &Request) -> Response {
@@ -17462,26 +17464,8 @@ fn preview(state: &AppState, req: &Request) -> Response {
         Ok(token) => token,
         Err(e) => return Response::error(500, &e),
     };
-    let asset_origin = http_origin(&preview_site.config.cdn.url);
-    let script_sources = asset_origin
-        .as_deref()
-        .map(|origin| format!("'self' {origin}"))
-        .unwrap_or_else(|| "'self'".to_string());
-    let frame_sources = openblog_core::embed::FRAME_SOURCES;
-    let csp = format!(
-        "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
-         img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
-         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
-    );
-    let mut previews = lock(&state.previews);
-    previews.push(PreviewDocument {
-        token: token.clone(),
-        html: document.contents,
-        csp,
-    });
-    if previews.len() > 16 {
-        previews.remove(0);
-    }
+    let csp = preview_csp(&preview_site.config);
+    store_preview(state, &token, document.contents, csp);
     let accessibility: Vec<_> = preview_site
         .accessibility
         .iter()
@@ -17546,6 +17530,35 @@ fn citation_preview(slug: &str, summary: &openblog_core::bibliography::CitationS
             ),
         },
     })
+}
+
+/// The policy every preview document is served under: it can load this site's own assets and the
+/// configured asset origin, and nothing else.
+fn preview_csp(config: &SiteConfig) -> String {
+    let asset_origin = http_origin(&config.cdn.url);
+    let script_sources = asset_origin
+        .as_deref()
+        .map(|origin| format!("'self' {origin}"))
+        .unwrap_or_else(|| "'self'".to_string());
+    let frame_sources = openblog_core::embed::FRAME_SOURCES;
+    format!(
+        "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
+         img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
+         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+    )
+}
+
+/// Keep a preview document for `preview_document` to serve; only the newest sixteen are kept.
+fn store_preview(state: &AppState, token: &str, html: String, csp: String) {
+    let mut previews = lock(&state.previews);
+    previews.push(PreviewDocument {
+        token: token.to_string(),
+        html,
+        csp,
+    });
+    if previews.len() > 16 {
+        previews.remove(0);
+    }
 }
 
 fn preview_document(state: &AppState, token: &str) -> Response {
@@ -34277,6 +34290,15 @@ series: letters
         let styles = handle(&f.state, &req("GET", "/admin/admin.css"));
         assert_eq!(styles.status, 200);
         assert!(String::from_utf8_lossy(&styles.body).contains(".oba-theme-toggle"));
+        // The landing page builder's model is its own module beside the Admin script.
+        let landing = handle(&f.state, &req("GET", "/admin/landing.js"));
+        assert_eq!(landing.status, 200);
+        assert!(landing
+            .headers
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
+                && value.starts_with("text/javascript")));
+        assert!(String::from_utf8_lossy(&landing.body).contains("SECTION_CATALOG"));
         assert_eq!(
             handle(&f.state, &req("GET", "/admin/secrets.txt")).status,
             404

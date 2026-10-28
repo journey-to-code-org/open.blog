@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
 // The real Admin Studio: the Add something dialog writes a piece's Markdown at the caret in both editor modes, at phone
-// and desktop sizes, and the Visual editor shows the piece as an editable block (ADR 0371, #333).
+// and desktop sizes, and the Visual editor shows the piece as an editable block (ADR 0254, #333).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");

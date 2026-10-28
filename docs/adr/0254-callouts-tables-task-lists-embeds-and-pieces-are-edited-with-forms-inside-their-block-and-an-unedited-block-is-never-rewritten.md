@@ -1,4 +1,4 @@
-# ADR 0371: Callouts, tables, task lists, embeds and pieces are edited with forms inside their block, and an unedited block is never rewritten
+# ADR 0254: Callouts, tables, task lists, embeds and pieces are edited with forms inside their block, and an unedited block is never rewritten
 
 - Status: Accepted
 - Date: 2026-10-28
@@ -33,7 +33,7 @@ byte for byte, and the raw HTML and knowledge-check blocks must stay protected.
   table (a bar in a cell is written `\|`; column alignment is kept); a task list is `- [ ]`/`- [x]` lines; an
   embed is the bare address on its own line, checked against the YouTube and CodePen patterns the engine
   embeds. No new syntax, no HTML.
-- **Pieces are written by the engine.** The `piece` fence (ADR 0370) has a form built from the engine's schema
+- **Pieces are written by the engine.** The `piece` fence (ADR 0253) has a form built from the engine's schema
   (`meta.pieces`). The Admin sends the values to `POST /admin/api/pieces`, which validates them with the same
   rules as the build and returns the Markdown or the list of problems; the Admin never writes piece Markdown
   itself and cannot save a piece the build would refuse. Nothing is stored by the call. The route is behind
@@ -48,7 +48,7 @@ byte for byte, and the raw HTML and knowledge-check blocks must stay protected.
 - **Edit in place inside the rendered block.** Rejected for now: contenteditable tables and nested quotes make
   the saved bytes depend on browser behaviour, which breaks "byte stable".
 - **A modal dialog for each block.** Rejected: a form beside the block it changes keeps the context and needs no
-  extra focus trap; the Add something dialog (ADR 0372) is for new things.
+  extra focus trap; the Add something dialog (ADR 0255) is for new things.
 - **Parse tables and callouts on the server.** Rejected: the Markdown shapes are simple and the Visual editor
   already reads Markdown blocks on the client; only the pieces need the engine's rules.
 

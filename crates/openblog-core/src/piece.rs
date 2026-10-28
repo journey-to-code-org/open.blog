@@ -1,5 +1,5 @@
 //! The piece library: small structured things an author adds to a post or to
-//! the landing page with a form (ADR 0370, #331).
+//! the landing page with a form (ADR 0253, #331).
 //!
 //! A piece is validated data, never markup. The same nine pieces serve both
 //! places and share one form schema ([`schema`], [`schema_json`]) and one set

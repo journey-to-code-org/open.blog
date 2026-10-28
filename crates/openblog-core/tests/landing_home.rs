@@ -434,3 +434,25 @@ fn the_pager_continues_a_latest_posts_list_that_ends_where_page_two_starts() {
     ]));
     assert!(!home(&load(config(""), Some(&short))).contains("rel=\"next\""));
 }
+
+#[test]
+fn a_short_first_list_links_to_the_archive_when_it_carries_no_pager() {
+    let short = landing(serde_json::json!([
+        {"id": "c", "type": "latest-posts", "heading": "Latest", "count": 1}
+    ]));
+    let html = home(&load(config(""), Some(&short)));
+    assert_eq!(
+        count(&html, "href=\"/archive/\">All posts</a>"),
+        1,
+        "{html}"
+    );
+    // A list that shows every post, or one that carries the pager, needs none.
+    let all = landing(serde_json::json!([
+        {"id": "c", "type": "latest-posts", "heading": "Latest", "count": 5}
+    ]));
+    assert!(!home(&load(config(""), Some(&all))).contains("All posts"));
+    let full = landing(serde_json::json!([
+        {"id": "c", "type": "latest-posts", "heading": "Latest"}
+    ]));
+    assert!(!home(&load(config(""), Some(&full))).contains("All posts"));
+}

@@ -1,4 +1,4 @@
-# ADR 0372: Add something is one schema-driven dialog that hands engine-checked Markdown to the existing insert seam, in either editor mode
+# ADR 0255: Add something is one schema-driven dialog that hands engine-checked Markdown to the existing insert seam, in either editor mode
 
 - Status: Accepted
 - Date: 2026-10-28
@@ -10,7 +10,7 @@
 ## Context
 
 Authors should add a button, map, video or call-out to a post the way the landing page does, from a form,
-without learning the `piece` fence (ADR 0370) and without any way to type HTML. The post editor already has one
+without learning the `piece` fence (ADR 0253) and without any way to type HTML. The post editor already has one
 seam that puts a block at the caret in either mode with undo and a spoken status (the research panel's
 `insertFromResearch`, shared with citations). The landing page workspace (LB2) is built in parallel and needs the
 same forms.
@@ -22,11 +22,11 @@ same forms.
   (label and a plain sentence each) as full-width buttons at least 56px tall, then a form for the chosen piece,
   built by `buildPieceForm` from the same schema entry. Lists (opening times, links, questions) can grow and
   shrink with Add and Remove buttons that announce the change and keep focus on a sensible control.
-- **The engine decides, the editor inserts.** **Insert** sends the values to `POST /admin/api/pieces` (ADR 0371).
+- **The engine decides, the editor inserts.** **Insert** sends the values to `POST /admin/api/pieces` (ADR 0254).
   A refusal is shown as a list inside the form, keeps every value, and inserts nothing. Accepted Markdown goes to
   the existing insert seam, which already refuses a caret inside code or HTML, writes after the caret's
   paragraph in either mode, restores an exact undo, and says what it did. A refusal from that seam is shown in
-  the same place. In Visual mode the new fence appears as an editable Piece block (ADR 0371); in Markdown mode it
+  the same place. In Visual mode the new fence appears as an editable Piece block (ADR 0254); in Markdown mode it
   is written at the caret, and the caret then rests on the blank line below so a second piece can follow.
 - **Focus.** On open, focus goes to the first piece; on a form, to its first field; the dialog is labelled by its
   title, Escape and Cancel close it and put focus back in the editor with the caret and selection it had, and a

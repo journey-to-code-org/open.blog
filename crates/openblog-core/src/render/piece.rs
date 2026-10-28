@@ -1,4 +1,4 @@
-//! Piece markup, shared by the landing page and posts (ADR 0370, #331).
+//! Piece markup, shared by the landing page and posts (ADR 0253, #331).
 //!
 //! Each function turns validated data into theme-neutral `ob-home-*` markup
 //! (the classes the bundled stylesheet already styles) and escapes every

@@ -1,9 +1,9 @@
 // Visual forms for the Markdown blocks the Visual editor used to protect (callouts,
-// tables, task lists, embeds, pieces) and the "Add something" dialog (ADR 0371).
+// tables, task lists, embeds, pieces) and the "Add something" dialog (ADR 0254).
 //
 // Everything here writes the Markdown those blocks already use. A block that is
 // not edited is never touched, so a round trip stays byte-stable. The piece forms
-// are built from the engine's own schema (`meta.pieces`, ADR 0370); the engine
+// are built from the engine's own schema (`meta.pieces`, ADR 0253); the engine
 // validates and writes a piece, so this file never invents piece Markdown.
 //
 // The pieces dialog and the form builder are reusable on purpose: the landing page

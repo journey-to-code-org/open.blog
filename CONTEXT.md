@@ -1040,8 +1040,28 @@ One of nine small structured things (button, image with caption, video, map, ope
 social links, questions and answers, call-out) added with a form to a post or to the landing page. It is
 validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a
 ```` ```piece <kind> ```` fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
-frame with a link beside it that becomes only the link in a portable export (ADR 0370).
+frame with a link beside it that becomes only the link in a portable export (ADR 0253).
 _Avoid_: Widget, shortcode, embed code, custom HTML
+
+**Landing page builder**:
+The Admin view at `#/landing` where an owner changes the landing page without code: sections are cards with
+Edit, Move up, Move down, Hide or Show and Delete buttons, added from a picker that describes each type in
+plain words, and edited in a plain form. Nothing is written until Save, a deletion can be undone, and no field
+takes HTML or CSS (ADR 0249).
+_Avoid_: Page editor, theme editor, drag-and-drop designer
+
+**Landing preview**:
+The home page as the build would make it from the sections in the builder, saved or not, shown in a
+script-free sandboxed frame in Phone, Tablet and Desktop sizes. It is built in memory by the production
+renderer and never writes, saves or publishes (ADR 0250).
+_Avoid_: Draft site, staging page, live edit
+
+**Landing draft**:
+The unsaved landing page changes the builder keeps on the owner's device (or in memory for the visit when the
+device will not keep them), with the revision they were based on. It is offered back as "Restore your unsaved
+changes", never applied unasked, and cleared by a save. A save that finds a newer stored page is a choice
+between Keep mine, Use the newer version and Compare, never an overwrite (ADR 0252).
+_Avoid_: Autosave, backup, sync
 
 **Reading path**:
 An author's own ordered list of published posts and Knowledge Atlas entries, kept as

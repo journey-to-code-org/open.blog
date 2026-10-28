@@ -246,7 +246,7 @@ pairs, `https` only) and `faq` (`question`/`answer` pairs; answers are Markdown 
 call-out is the `> [!NOTE]` call-out above. Addresses must be `https`, `mailto`, `tel` or a page of the site;
 anything else is refused with a message, and a piece that is not valid shows an error in place and is reported by
 the build. Videos and maps are lazy-loaded, titled, privacy-enhanced frames (`youtube-nocookie.com`, Vimeo with
-`dnt`, OpenStreetMap) with a plain link beside them; in portable copies they are links only. See ADR 0370.
+`dnt`, OpenStreetMap) with a plain link beside them; in portable copies they are links only. See ADR 0253.
 
 #### Linking a word to the Knowledge Atlas
 
