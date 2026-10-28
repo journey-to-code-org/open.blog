@@ -9,6 +9,8 @@
 //! keys (`voice.stage: rough`), which the post parser also ignores as unknown keys. Keys this
 //! release does not know are preserved and written back in a fixed order.
 
+pub mod catalog;
+
 use std::collections::BTreeMap;
 use std::fmt;
 

@@ -39,6 +39,22 @@ mod tests {
     }
 
     #[test]
+    fn the_bundled_catalog_parses_with_the_core_parser() {
+        let catalog = openblog_core::voice::catalog::Catalog::parse_bundled(BUNDLED).unwrap();
+        assert_eq!(catalog.version, openblog_core::voice::CATALOG_VERSION);
+        assert!(catalog.packs.len() >= 10);
+        assert!(catalog.prompts().count() >= 40);
+        assert!(catalog.packs.iter().all(|pack| pack.prompts.len() >= 3));
+        let ids: BTreeSet<&str> = catalog.prompts().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids.len(), catalog.prompts().count());
+        assert!(catalog.rule.contains("the way you would say it"));
+        for prompt in catalog.prompts() {
+            // Answerable in three minutes: a few hundred words at most.
+            assert!(prompt.words_max <= 250, "{}", prompt.id);
+        }
+    }
+
+    #[test]
     fn the_standing_rule_is_stored_once_not_per_prompt() {
         assert_eq!(BUNDLED.matches("the way you would say it").count(), 1);
         assert!(BUNDLED.starts_with("---\nversion: 1\nrule: "));
