@@ -47,6 +47,16 @@ rewrite it. So the format is small, versioned from the first byte, and conservat
 `assistant/context/voice/` (portable) or `.openblog/private/context/voice/` (private), beside the other
 Assistant context. Neither is read by a build.
 
+### From a polished draft to a post draft
+
+`VoiceSample::to_post_draft(existing_slugs)` is pure. It copies `title`, `subtitle`, `slug`, `date`,
+`description`, `tags` and the body into post front matter, drops the whole `voice` block and every unknown key
+(they may be private notes), and adds `draft: true`, the existing convention that keeps a post out of a normal
+build. The suggested file is `<day>-<slug>.md`. Only a polished draft can become a post draft, because the
+rough draft is never the thing an author would publish and never changes; the post is a copy and the sample
+stays where it is. A slug already used by a post is an error naming the slug, never renamed silently. The
+result loads through the ordinary post loader (tested).
+
 ## Considered options
 
 - **Nested `voice:` map as in the epic text.** Rejected: it needs a second front matter parser, and a
