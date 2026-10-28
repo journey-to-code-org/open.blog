@@ -2261,10 +2261,15 @@ impl<'a> Renderer<'a> {
                 "<ob-reading-modes default=\"{default_mode}\"{scope}>"
             ));
         }
+        let prose = self.prose_with_conversations(post);
+        let prose = if theme.code_windows {
+            crate::code_windows::frame(&prose).into()
+        } else {
+            prose
+        };
         body.push_str(&format!(
-            "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
+            "<ob-code{}><div class=\"ob-prose e-content\">{prose}</div></ob-code>\n",
             self.code_attr(theme, Some(post)),
-            self.prose_with_conversations(post)
         ));
         if reading_modes.is_some() {
             body.push_str("</ob-reading-modes>\n");
@@ -3020,10 +3025,12 @@ impl<'a> Renderer<'a> {
             body.push_str(&format!("<figure class=\"ob-cover\"><img src=\"{}\" alt=\"\" decoding=\"async\"></figure>\n", attr(cover)));
         }
         if !series.description_html.trim().is_empty() {
-            body.push_str(&format!(
-                "<div class=\"ob-prose\">{}</div>\n",
-                series.description_html
-            ));
+            let description = if theme.code_windows {
+                crate::code_windows::frame(&series.description_html)
+            } else {
+                series.description_html.clone()
+            };
+            body.push_str(&format!("<div class=\"ob-prose\">{description}</div>\n"));
         }
         // Only a series holding a collaborative work names its contributors and each part's
         // authors (ADR 0040); every other series keeps exactly the markup it always had.
