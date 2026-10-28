@@ -38,7 +38,7 @@ first, and so must the rule everything else leans on: the author's rough words a
   instructions.
 - **Opt-in.** `openblog init`, builds, publishing and the existing Assistant workflows are unchanged when no
   sample exists. Nothing creates a voice folder until the author writes a first sample (tested).
-- **Line endings are normalized once, before the lock.** A CRLF draft is stored with LF endings. That is the
+- **Line endings are normalized once, before the lock.** A CRLF draft, or one with a lone CR, is stored with LF endings. That is the
   only change ever made to the text, and it is made on the way in, while the session is still open, so the
   locked text is the stored text.
 

@@ -72,14 +72,18 @@ result loads through the ordinary post loader (tested).
   and touches nothing. No other function replaces a file that is, or claims to be, a rough draft.
 - **Polished is update-with-revision.** `write_polished` requires the rough draft to exist in the same folder
   with the same prompt, takes its own file name from it (so there is one polished draft per rough draft),
-  and refuses to overwrite a file whose front matter says it is rough.
+  and replaces only a polished draft it can read: the existing file must parse in this release's format, be
+  polished, and carry the same prompt and `roughOf`. A file in a newer format, or one that does not parse, is
+  left as it is. Keys the existing file has and the new save lacks are carried over.
 - **Moving and erasing.** A move copies the pair's bytes unchanged, checks the copies, then removes the
-  originals; it never overwrites. Erasing a rough draft that has a polished one needs both to be named.
+  originals, polished first and rough last; it never overwrites a different file. A byte-identical copy already
+  at the target counts as moved, so an interrupted move is finished by repeating it. Once an original has been
+  removed, no copy is ever deleted; the failure says the move is partly done. Erasing a rough draft that has a polished one needs both to be named.
 - **Listing never hides trouble.** Every `.md` file in either folder is listed. A file that cannot be read
   (not UTF-8, too large, bad front matter, a name that disagrees with its content, a link instead of a file,
   a polished draft whose rough draft is gone) is listed as invalid with a sentence on how to repair it.
 - **Opt-in by construction.** Reads and listing create nothing. The first write creates the folders. A private
-  write adds `/.openblog/private/` to a Git project's `.gitignore` if it is not already ignored, as landing
+  write, and every session start or save (the record holds the draft), adds `/.openblog/private/` to a Git project's `.gitignore` if it is not already ignored, as landing
   history does (ADR 0264).
 - **Never public.** A build reads only the content folder; tests prove a build is byte-identical with and
   without samples, that no sample text reaches any built file (including a drafts preview build), that
@@ -101,7 +105,8 @@ startedAt, deadline, timeLimitSeconds, draft, surface, visibility }`.
 - **Expiry locks from the saved text.** Resuming an expired session locks the rough draft from the last saved
   draft (an expired session with nothing saved is discarded). A final text handed over at zero is accepted
   within 10 seconds of the deadline, to allow for a request in flight; later than that the saved text wins.
-  Saving a draft is refused after the same grace.
+  Saving a draft takes no such grace: it is refused from the deadline on. A record whose deadline is later
+  than its start plus its time limit is treated as damaged.
 - **The only way a rough draft is born.** Locking calls `voice_store::write_rough`, which requires this record
   to be open for that prompt, and then removes the record. The record is also removed by a scrap (which writes
   nothing). Both are repeatable after a crash: a lock whose rough file already holds identical bytes succeeds.

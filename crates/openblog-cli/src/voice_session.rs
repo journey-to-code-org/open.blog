@@ -34,8 +34,8 @@ pub const DEFAULT_SECONDS: u32 = 180;
 /// The shortest and longest writing window a session may have.
 pub const MIN_SECONDS: u32 = 30;
 pub const MAX_SECONDS: u32 = 3600;
-/// How long after the deadline a surface may still hand over its final text, for the delay of
-/// a request that left at zero. Later than this, the last saved text is what gets locked.
+/// How long after the deadline a surface may still hand over its final text to [`lock`], for the
+/// delay of a request that left at zero. [`save_draft`] has no such grace. Later than this, the last saved text is what gets locked.
 pub const LOCK_GRACE_SECONDS: i64 = 10;
 /// The most text a draft can hold, leaving room in the 64 KiB file for the front matter.
 pub const MAX_DRAFT_BYTES: usize = 60 * 1024;
@@ -169,7 +169,7 @@ fn path(root: &Path) -> Result<PathBuf> {
 }
 
 fn normalized(text: &str) -> String {
-    text.replace("\r\n", "\n")
+    text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 /// Read the record. `Ok(None)` if there is none; an error if it exists but cannot be used, which
@@ -228,6 +228,14 @@ fn read(root: &Path) -> Result<Option<Session>> {
     };
     if DateTime::parse(&session.started_at).is_none()
         || DateTime::parse(&session.deadline).is_none()
+    {
+        return Err(unusable());
+    }
+    // A deadline later than the window allows would stretch the writing time; the record is
+    // not trusted.
+    if session.deadline_unix()
+        > DateTime::parse(&session.started_at).map_or(0, DateTime::unix)
+            + i64::from(session.time_limit_seconds)
     {
         return Err(unusable());
     }
@@ -358,13 +366,12 @@ pub fn start(
         visibility,
     };
     write(root, &session)?;
-    if visibility == Visibility::Private {
-        crate::landing_history::keep_out_of_git(root);
-    }
+    // The record holds the whole draft and always lives under the private folder.
+    crate::landing_history::keep_out_of_git(root);
     Ok(session)
 }
 
-/// Save the text so far. Refused once the time has run out: the saved text is what will be locked.
+/// Save the text so far. Refused from the deadline on: the saved text is what will be locked.
 pub fn save_draft(root: &Path, text: &str, now: DateTime) -> Result<Status> {
     let text = normalized(text);
     if text.len() > MAX_DRAFT_BYTES {
@@ -380,11 +387,13 @@ pub fn save_draft(root: &Path, text: &str, now: DateTime) -> Result<Status> {
     let Some(mut session) = read(root)? else {
         return refused("There is no open writing session.");
     };
-    if now.unix() > session.deadline_unix() + LOCK_GRACE_SECONDS {
+    // No grace here: new text is never taken after the deadline. The grace is for `lock` only.
+    if now.unix() >= session.deadline_unix() {
         return refused("Time is up. The draft will be locked from what was saved last.");
     }
     session.draft = text;
     write(root, &session)?;
+    crate::landing_history::keep_out_of_git(root);
     Ok(Status::Active {
         remaining_seconds: session.remaining_seconds(now),
         session,
@@ -394,7 +403,7 @@ pub fn save_draft(root: &Path, text: &str, now: DateTime) -> Result<Status> {
 /// End the session by locking its rough draft. `final_text` is the text on screen when the
 /// author finished; it is used only if it arrives within [`LOCK_GRACE_SECONDS`] of the deadline,
 /// otherwise the last saved text is locked. Nothing is corrected, trimmed or reflowed: the only
-/// change is that CRLF line endings become LF before the lock. `visibility` overrides where the
+/// change is that CRLF and lone CR line endings become LF before the lock. `visibility` overrides where the
 /// session said to keep it.
 pub fn lock(
     root: &Path,

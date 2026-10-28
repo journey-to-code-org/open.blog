@@ -194,19 +194,65 @@ fn an_expired_session_with_nothing_written_is_discarded() {
 }
 
 #[test]
-fn saving_stops_when_time_is_up_but_allows_the_final_request_a_short_grace() {
+fn saving_stops_at_the_deadline_and_only_the_final_lock_has_a_grace() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
     save_draft(&project.0, "one", at(100)).unwrap();
-    assert!(save_draft(&project.0, "two", at(180 + LOCK_GRACE_SECONDS)).is_ok());
-    let error = save_draft(&project.0, "three", at(180 + LOCK_GRACE_SECONDS + 1)).unwrap_err();
+    assert!(save_draft(&project.0, "two", at(179)).is_ok());
+    let error = save_draft(&project.0, "three", at(180)).unwrap_err();
     assert!(error.to_string().contains("Time is up"), "{error}");
+    assert!(save_draft(&project.0, "four", at(180 + LOCK_GRACE_SECONDS)).is_err());
     assert!(save_draft(&project.0, &"x".repeat(MAX_DRAFT_BYTES + 1), at(1)).is_err());
     assert!(save_draft(&project.0, "a\0b", at(1)).is_err());
     match status(&project.0, at(1)).unwrap() {
         Status::Active { session, .. } => assert_eq!(session.draft, "two"),
         other => panic!("{other:?}"),
     }
+    // The lock still takes the final text within the grace.
+    let locked = lock(
+        &project.0,
+        &catalog(),
+        Some("final"),
+        None,
+        at(180 + LOCK_GRACE_SECONDS),
+    )
+    .unwrap();
+    assert_eq!(locked.words, 1);
+}
+
+#[test]
+fn a_record_whose_deadline_exceeds_its_window_is_not_trusted() {
+    let project = Project::new();
+    begin(&project, "a-mistake-i-made", Visibility::Private);
+    let text = fs::read_to_string(record(&project)).unwrap();
+    let stretched = text.replace(&at(180).rfc3339(), &at(100_000).rfc3339());
+    assert_ne!(text, stretched);
+    fs::write(record(&project), &stretched).unwrap();
+    let error = save_draft(&project.0, "more", at(5)).unwrap_err();
+    assert!(error.to_string().contains("damaged"), "{error}");
+    assert_eq!(fs::read_to_string(record(&project)).unwrap(), stretched);
+}
+
+#[test]
+fn the_session_record_is_kept_out_of_git_even_for_a_portable_session() {
+    let project = Project::new();
+    fs::create_dir_all(project.0.join(".git")).unwrap();
+    begin(&project, "a-mistake-i-made", Visibility::Portable);
+    let ignore = fs::read_to_string(project.0.join(".gitignore")).unwrap();
+    assert!(
+        ignore.lines().any(|l| l == "/.openblog/private/"),
+        "{ignore}"
+    );
+}
+
+#[test]
+fn a_lone_carriage_return_becomes_a_line_feed_so_the_lock_can_succeed() {
+    let project = Project::new();
+    begin(&project, "a-mistake-i-made", Visibility::Private);
+    save_draft(&project.0, "one\rtwo\r\nthree", at(5)).unwrap();
+    let locked = lock(&project.0, &catalog(), Some("a\rb"), None, at(10)).unwrap();
+    let loaded = voice_store::read(&project.0, Visibility::Private, &locked.written.file).unwrap();
+    assert_eq!(loaded.sample.unwrap().body, "a\nb");
 }
 
 #[test]
