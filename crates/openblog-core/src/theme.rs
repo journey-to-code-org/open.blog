@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::look::LookSettings;
+use crate::look_css::{self, CompiledLook};
+
 /// The on-disk shape of `themes/<name>/theme.json`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -104,6 +107,8 @@ pub struct Theme {
     pub stylesheets: Vec<String>,
     /// Absolute site URLs of theme scripts, in load order.
     pub scripts: Vec<String>,
+    /// The owner's look compiled for this theme (ADR 0360); `None` leaves the theme untouched.
+    pub look: Option<CompiledLook>,
 }
 
 /// A valid custom element name: lowercase ASCII, starts with a letter, and
@@ -310,7 +315,17 @@ pub fn kebab(key: &str) -> String {
 
 impl Theme {
     pub fn tokens_url(&self) -> String {
-        format!("/themes/{}/tokens.css", self.name)
+        match &self.look {
+            Some(look) => format!("/themes/{}/tokens.css?v={}", self.name, look.hash),
+            None => format!("/themes/{}/tokens.css", self.name),
+        }
+    }
+
+    /// This theme with the owner's look compiled over it. A look that changes nothing here returns the
+    /// theme unchanged, so its output stays byte-identical.
+    pub fn with_look(mut self, look: &LookSettings) -> Theme {
+        self.look = look_css::compile(look, &self);
+        self
     }
 
     /// The generated `tokens.css` for this theme.
@@ -397,6 +412,10 @@ impl Theme {
             );
             push_colors(&mut css, colors, "    ");
             css.push_str("  }\n}\n");
+        }
+        // The owner's look comes last so it layers over the theme and its print rule (ADR 0360).
+        if let Some(look) = &self.look {
+            css.push_str(&look.css);
         }
         css
     }
