@@ -14,7 +14,8 @@ All notable changes to open.blog are recorded here. Releases follow
   higher contrast), with a plain sentence saying so. Themes may list the controls they honor in
   `customizable` (omitted keeps every current theme valid). `GET`/`PUT /admin/api/look` read and save the look
   with a revision check, touching nothing else in `openblog.json`. A site without `appearance` builds
-  byte-for-byte as before. See [Look controls](docs/themes.md#look-controls) and ADR 0360.
+  byte-for-byte as before. Saving a look rewrites `openblog.json` through serde_json (keys sorted, formatting normalized, values preserved), the same as the existing Appearance save; a byte-preserving config save is a possible future change for all Admin config saves. See [Look controls](docs/themes.md#look-controls) and ADR 0248.
+- The home page can be built from landing sections. A site that adds `content/landing.json` (a versioned list of welcome banner, rich text, latest posts, series, featured post, buttons, image, video, map, opening hours, contact, social links, FAQ and call-out sections) gets those sections, in order, on the first home page; a site without the file, or with no visible section, is built exactly as before. Text in a section is never read as HTML: markup typed into any field, including Markdown, shows as plain text. Admin gains `GET`/`PUT /admin/api/landing`, which save the file atomically against a revision and refuse stale writes. A file that cannot be used is a build warning and the site falls back to `home.heading`, `home.intro` and `home.showSeries`. The sections are styled once in `web/base.css` from `--ob-*` tokens, so every bundled theme shows them legibly in light and dark, with 44px touch targets, visible focus rings and no motion under reduced-motion.
 
 ## [0.49.0] - 2026-10-28
 

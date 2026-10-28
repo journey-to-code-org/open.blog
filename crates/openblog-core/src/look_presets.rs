@@ -1,5 +1,5 @@
 //! Curated looks: eight named, ready-made combinations of a complete light and dark palette and a font
-//! style (ADR 0360). They are data in core, not themes. Applying one fills in the look; resetting the
+//! style (ADR 0248). They are data in core, not themes. Applying one fills in the look; resetting the
 //! look returns exactly to the theme's own default.
 //!
 //! Every palette is pre-checked against the contrast model (see the tests): body text 7:1, muted and

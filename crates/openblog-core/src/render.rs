@@ -29,6 +29,7 @@ use crate::reader_references::ReaderReferences;
 use crate::theme::{Theme, ThemeSet};
 
 pub(crate) mod interpretations;
+mod landing;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputFile {
@@ -1907,52 +1908,64 @@ impl<'a> Renderer<'a> {
         let start = (page_number - 1) * per_page;
         let indices: Vec<usize> = (start..self.site.posts.len().min(start + per_page)).collect();
         let mut body = String::from("<div class=\"ob-container\">\n");
-        if page_number == 1 && !c.home.intro.trim().is_empty() {
-            let intro = markdown::render(
-                &c.home.intro,
-                RenderOptions {
-                    heading_anchors: false,
-                    concept_links: true,
-                    ..Default::default()
-                },
-            );
-            // An `atlas:` link is only its label here (ADR 0172).
-            let intro = if intro.html.contains(crate::concept_links::MARK_PREFIX) {
-                crate::concept_links::link_html(&intro.html, None).html
-            } else {
-                intro.html
-            };
-            body.push_str(&format!(
-                "<section class=\"ob-intro ob-prose\">{intro}</section>\n"
-            ));
-        }
-        body.push_str("<section class=\"ob-section\" aria-labelledby=\"latest\">\n");
-        body.push_str(
-            &self
-                .heading(theme, 1, &c.home.heading, "ob-section-heading")
-                .replace(
-                    "<h1 class=\"ob-title\"",
-                    "<h1 id=\"latest\" class=\"ob-title\"",
-                ),
-        );
-        body.push_str(&self.post_list(theme, &indices));
-        body.push_str(&self.pager(page_number, page_count));
-        body.push_str("\n</section>\n");
-        if page_number == 1
-            && c.home.show_series
-            && self.site.series.iter().any(|s| !s.posts.is_empty())
-        {
-            body.push_str("<section class=\"ob-section\" aria-labelledby=\"series\">\n");
+        // A landing page with a visible section replaces the home settings'
+        // layout on the first page; every other page, and every site without
+        // one, is built exactly as before (ADR 0247).
+        let landing = self
+            .site
+            .landing
+            .as_ref()
+            .filter(|landing| page_number == 1 && landing.has_visible_sections());
+        if let Some(landing) = landing {
+            body.push_str(&self.landing_sections(theme, landing, per_page, page_count));
+        } else {
+            if page_number == 1 && !c.home.intro.trim().is_empty() {
+                let intro = markdown::render(
+                    &c.home.intro,
+                    RenderOptions {
+                        heading_anchors: false,
+                        concept_links: true,
+                        ..Default::default()
+                    },
+                );
+                // An `atlas:` link is only its label here (ADR 0172).
+                let intro = if intro.html.contains(crate::concept_links::MARK_PREFIX) {
+                    crate::concept_links::link_html(&intro.html, None).html
+                } else {
+                    intro.html
+                };
+                body.push_str(&format!(
+                    "<section class=\"ob-intro ob-prose\">{intro}</section>\n"
+                ));
+            }
+            body.push_str("<section class=\"ob-section\" aria-labelledby=\"latest\">\n");
             body.push_str(
                 &self
-                    .heading(theme, 2, "Series", "ob-section-heading")
+                    .heading(theme, 1, &c.home.heading, "ob-section-heading")
                     .replace(
-                        "<h2 class=\"ob-title\"",
-                        "<h2 id=\"series\" class=\"ob-title\"",
+                        "<h1 class=\"ob-title\"",
+                        "<h1 id=\"latest\" class=\"ob-title\"",
                     ),
             );
-            body.push_str(&self.series_cards(theme));
+            body.push_str(&self.post_list(theme, &indices));
+            body.push_str(&self.pager(page_number, page_count));
             body.push_str("\n</section>\n");
+            if page_number == 1
+                && c.home.show_series
+                && self.site.series.iter().any(|s| !s.posts.is_empty())
+            {
+                body.push_str("<section class=\"ob-section\" aria-labelledby=\"series\">\n");
+                body.push_str(
+                    &self
+                        .heading(theme, 2, "Series", "ob-section-heading")
+                        .replace(
+                            "<h2 class=\"ob-title\"",
+                            "<h2 id=\"series\" class=\"ob-title\"",
+                        ),
+                );
+                body.push_str(&self.series_cards(theme));
+                body.push_str("\n</section>\n");
+            }
         }
         body.push_str("</div>");
         let path = if page_number == 1 {
@@ -4638,6 +4651,7 @@ mod tests {
                 third_perspectives: None,
                 community_features: None,
                 continuations: None,
+                landing: None,
             },
             LoadOptions::default(),
         )

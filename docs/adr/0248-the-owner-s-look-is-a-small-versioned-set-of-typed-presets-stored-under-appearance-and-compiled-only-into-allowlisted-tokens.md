@@ -1,4 +1,4 @@
-# ADR 0360: The owner's look is a small, versioned set of typed presets stored under `appearance` and compiled only into allowlisted tokens
+# ADR 0248: The owner's look is a small, versioned set of typed presets stored under `appearance` and compiled only into allowlisted tokens
 
 - Status: Accepted
 - Date: 2026-10-28
@@ -77,6 +77,7 @@ once sites hold it, every later engine has to read it.
   they do, loudly.
 - A site without `appearance` builds byte-for-byte as before; `web/base.css` gained `--ob-text-scale`
   defaulting to 1.
+- Saving a look rewrites `openblog.json` through serde_json (keys sorted, formatting normalized, values preserved), the same as the existing Appearance save; a byte-preserving config save is a possible future change for all Admin config saves.
 
 ## Domain language
 

@@ -1,4 +1,4 @@
-//! A pure contrast model for the owner's look (ADR 0360): from a chosen accent and the page and
+//! A pure contrast model for the owner's look (ADR 0248): from a chosen accent and the page and
 //! surface colors of a scheme, derive an accent that stays readable, the text color on it, and soft
 //! tints, enforcing WCAG 2 AA (4.5:1 for text, 3:1 for interface parts).
 //!

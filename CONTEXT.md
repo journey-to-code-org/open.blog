@@ -1021,6 +1021,20 @@ over a size bound rather than cut. It is listed in the publication boundary like
 (ADRs 0168, 0169).
 _Avoid_: Graph API, public search index, a second atlas; querying the private atlas
 
+**Landing page**:
+The home page when the site has a `content/landing.json`: an ordered list of landing sections the owner
+arranges instead of the fixed intro, post list and series. Without the file the home page is built from
+`home.heading`, `home.intro` and `home.showSeries` exactly as before, and the file maps to and from them
+losslessly. It is versioned; a file from a newer release is never overwritten (ADR 0245).
+_Avoid_: Homepage template, page builder, layout file
+
+**Landing section**:
+One typed, validated piece of the landing page (welcome banner, rich text, latest posts, series, featured
+post, buttons, image, video, map, opening hours, contact, social links, FAQ, call-out) with a stable id and a
+`hidden` flag. It is data the engine renders and escapes. There is no HTML section, and its Markdown is read
+with raw HTML disabled, so markup typed into it shows as text (ADR 0245).
+_Avoid_: Widget, block, embed, custom HTML
+
 **Reading path**:
 An author's own ordered list of published posts and Knowledge Atlas entries, kept as
 `content/paths/<slug>.json`, with a rationale per step and an author-written transition from each step
@@ -2372,16 +2386,16 @@ _Avoid_: Receipt, publication status
 The owner's choices for how the site feels: an accent color, a curated palette, a font style, a text
 size, roundness, spacing, page width and heading weight. Every choice is a closed option or a strict
 hex color, stored versioned under `appearance` in `openblog.json`, and compiled only into allowlisted
-`--ob-*` tokens. No look means the theme as it is (ADR 0360).
+`--ob-*` tokens. No look means the theme as it is (ADR 0248).
 _Avoid_: Custom CSS, theme editor, skin
 
 **Look control**:
 One of the eight choices a look holds. A theme lists the ones it honors in `customizable`; Admin shows
-only those and says kindly why the rest are missing (ADR 0360).
+only those and says kindly why the rest are missing (ADR 0248).
 _Avoid_: Setting, style option
 
 **Curated look**:
 A named, ready-made combination of palette and font style (Calm, Warm, Bold, Night, Garden, Paper,
 Ocean, Sunset), pre-checked for readable contrast in light and dark. It is data, not a theme: applying
-one fills in the look, and resetting returns exactly to the theme default (ADR 0360).
+one fills in the look, and resetting returns exactly to the theme default (ADR 0248).
 _Avoid_: Theme, template, preset theme

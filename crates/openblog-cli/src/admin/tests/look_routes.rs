@@ -1,4 +1,4 @@
-//! Admin look routes (ADR 0360, #349): deny by default, CSRF, validation, stale writes, bounded
+//! Admin look routes (ADR 0248, #349): deny by default, CSRF, validation, stale writes, bounded
 //! bodies, an atomic write that touches only `appearance`, and the rebuilt site.
 
 use super::*;

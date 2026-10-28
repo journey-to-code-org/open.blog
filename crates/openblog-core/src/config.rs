@@ -33,7 +33,7 @@ pub struct SiteConfig {
     pub theme: String,
     /// Override the theme's light/dark button. None follows each page's theme.
     pub color_scheme_toggle: Option<bool>,
-    /// The owner's look: typed presets compiled into allowlisted tokens (ADR 0360). Absent means the
+    /// The owner's look: typed presets compiled into allowlisted tokens (ADR 0248). Absent means the
     /// theme as it is.
     #[serde(skip_serializing_if = "LookSettings::is_default")]
     pub appearance: LookSettings,

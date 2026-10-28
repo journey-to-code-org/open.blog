@@ -1,4 +1,4 @@
-//! Admin routes for the site look (ADR 0360, #349): `GET` and `PUT /admin/api/look`.
+//! Admin routes for the site look (ADR 0248, #349): `GET` and `PUT /admin/api/look`.
 //!
 //! Both sit behind the session and, for the write, the CSRF check in `api`; an unknown name is a
 //! 404. A save is validated by the core, compared with the revision the editor started from, and

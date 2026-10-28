@@ -1,5 +1,5 @@
 //! The owner's look: a small set of typed, bounded presets stored under `appearance` in
-//! `openblog.json` (ADR 0360).
+//! `openblog.json` (ADR 0248).
 //!
 //! Every field is an enum or a strict hex color. Nothing is free text, so no value can carry markup,
 //! a URL or a style rule into the generated stylesheet. An unset field means "use the theme as it is"

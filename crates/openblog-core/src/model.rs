@@ -58,6 +58,10 @@ pub struct Sources {
     /// The site's continuation links (`continuations.json` in the content
     /// folder, ADR 0219), when the file exists.
     pub continuations: Option<SourceFile>,
+    /// The site's landing page (`landing.json` in the content folder, ADR
+    /// 0245), when the file exists. Without it, or with no visible section,
+    /// the home page is built from `home.*` exactly as before.
+    pub landing: Option<SourceFile>,
 }
 
 /// The private source library as a site load receives it.
@@ -571,6 +575,10 @@ pub struct Site {
     /// [`Site::set_curation`], which drops it.
     curated_cache:
         std::sync::OnceLock<Option<std::sync::Arc<crate::curated_context::CuratedContext>>>,
+    /// The landing page, when the site has a valid `landing.json`
+    /// (ADR 0245). The home page renders its visible sections instead of the
+    /// `home.*` layout; `None` leaves the home page as it always was.
+    pub landing: Option<crate::landing::LandingPage>,
     /// Why this site's claim evidence cannot be published (ADR 0075): the
     /// claims file, or the library or notebook it is checked against, cannot
     /// be read or validated. A full build or `check` refuses while it is set,
@@ -1019,6 +1027,7 @@ impl Site {
         }
 
         scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
+        let landing = load_landing(&sources, &posts, &mut warnings);
         Ok(Site {
             config,
             posts,
@@ -1037,6 +1046,7 @@ impl Site {
             interpretations: None,
             curation: None,
             curated_cache: std::sync::OnceLock::new(),
+            landing,
             claim_evidence_error,
             reader_feedback_error,
             third_perspectives_error,
@@ -1500,6 +1510,42 @@ fn attach_third_perspectives(
 /// and never any content. A post whose Third Perspectives are hidden shows no
 /// feature. A post without a feature, and a site without the file, are
 /// untouched.
+/// Reads the site's landing page. A file that does not parse is a warning that
+/// names the problem and the site falls back to the `home.*` layout, so a
+/// hand edit can never take the site down; a featured post that is not
+/// published is a warning too, and that section renders nothing.
+fn load_landing(
+    sources: &Sources,
+    posts: &[Post],
+    warnings: &mut Vec<String>,
+) -> Option<crate::landing::LandingPage> {
+    let file = sources.landing.as_ref()?;
+    match crate::landing::LandingPage::parse(&file.contents) {
+        Ok(page) => {
+            for section in &page.sections {
+                if let crate::landing::SectionKind::FeaturedPost(featured) = &section.kind {
+                    if !posts.iter().any(|post| post.slug == featured.post) {
+                        warnings.push(format!(
+                            "{}: section `{}` features `{}`, which is not a published post; it is left out",
+                            file.path, section.id, featured.post
+                        ));
+                    }
+                }
+            }
+            Some(page)
+        }
+        Err(problems) => {
+            let shown: Vec<String> = problems.iter().take(5).map(ToString::to_string).collect();
+            warnings.push(format!(
+                "{}: not used, the home page is built from the home settings instead ({})",
+                file.path,
+                shown.join("; ")
+            ));
+            None
+        }
+    }
+}
+
 fn attach_community_features(
     posts: &mut [Post],
     sources: &Sources,
@@ -2404,6 +2450,7 @@ mod tests {
             third_perspectives: None,
             community_features: None,
             continuations: None,
+            landing: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

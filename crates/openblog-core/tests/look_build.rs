@@ -1,4 +1,4 @@
-//! The owner's look in a whole build (ADR 0360): a site without a look builds exactly as before, and a
+//! The owner's look in a whole build (ADR 0248): a site without a look builds exactly as before, and a
 //! site with one gets a hashed, layered `tokens.css` on every page.
 
 use openblog_core::config::SiteConfig;

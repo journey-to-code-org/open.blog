@@ -1,5 +1,5 @@
 //! Compile a validated [`LookSettings`] into an override block of allowlisted `--ob-*` tokens
-//! (ADR 0360).
+//! (ADR 0248).
 //!
 //! Safety comes from construction, not escaping: property names come from fixed tables, every value is
 //! either a table constant or formatted from typed data (a number, or a `#rrggbb` built from three

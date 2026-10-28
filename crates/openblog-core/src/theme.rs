@@ -33,7 +33,7 @@ pub struct ThemeFile {
     pub scripts: Vec<String>,
     /// The look controls this theme honors (`accent`, `palette`, `fontStyle`, `textSize`, `roundness`,
     /// `spacing`, `pageWidth`, `headingWeight`). Omitted inherits the parent's list; `base` honors all.
-    /// A theme with bespoke CSS or scripts lists only the controls its own rules leave alone (ADR 0360).
+    /// A theme with bespoke CSS or scripts lists only the controls its own rules leave alone (ADR 0248).
     pub customizable: Option<Vec<String>>,
 }
 
@@ -113,7 +113,7 @@ pub struct Theme {
     pub scripts: Vec<String>,
     /// The look controls honored, in the order of [`crate::look::CONTROLS`].
     pub customizable: Vec<String>,
-    /// The owner's look compiled for this theme (ADR 0360); `None` leaves the theme untouched.
+    /// The owner's look compiled for this theme (ADR 0248); `None` leaves the theme untouched.
     pub look: Option<CompiledLook>,
 }
 
@@ -443,7 +443,7 @@ impl Theme {
             push_colors(&mut css, colors, "    ");
             css.push_str("  }\n}\n");
         }
-        // The owner's look comes last so it layers over the theme and its print rule (ADR 0360).
+        // The owner's look comes last so it layers over the theme and its print rule (ADR 0248).
         if let Some(look) = &self.look {
             css.push_str(&look.css);
         }

@@ -97,6 +97,7 @@ pub mod interpretation;
 pub mod interpretation_publication;
 pub mod invitation;
 pub mod knowledge_atlas;
+pub mod landing;
 pub mod look;
 pub mod look_contrast;
 pub mod look_css;
