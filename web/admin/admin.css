@@ -5278,3 +5278,44 @@ a.oba-btn-primary {
 .oba-landing-form [contenteditable="true"] {
   scroll-margin-bottom: 8rem;
 }
+
+/* The landing builder's short tour and its Help words (ADR 0371). Nothing here moves, so reduced motion needs no special case. */
+.oba-landing-tour {
+  margin: 0 0 1rem;
+  border-inline-start: 4px solid var(--ob-color-accent-border);
+}
+
+.oba-landing-tour[hidden] {
+  display: none;
+}
+
+.oba-landing-tour h3 {
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-tour .oba-btn {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.oba-landing-help {
+  margin: 0.5rem 0;
+}
+
+.oba-landing-help summary {
+  min-height: 44px;
+  padding-block: 0.5rem;
+  cursor: pointer;
+}
+
+.oba-landing-help dt {
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.oba-landing-help dd {
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
+}

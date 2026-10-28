@@ -166,3 +166,76 @@ test("the layout choices work by keyboard and fit a phone without sideways scrol
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-landing-toast]")).toContainText("Your page now uses the Welcome layout.");
 });
+
+// ---------------------------------------------------------------- the short tour and plain-language help (ADR 0371, #339)
+
+const tour = (page) => page.locator("[data-landing-tour]");
+
+async function pageWithStoredLanding(page) {
+  writeFileSync(landingFile(), JSON.stringify({ format: "openblog-landing", version: 1, sections: [{ id: "mine", type: "rich-text", markdown: "My own words." }] }));
+  await openLanding(page);
+}
+
+test("the tour has three steps, works by keyboard, can be skipped and never comes back", async ({ page }) => {
+  await pageWithStoredLanding(page);
+  await expect(tour(page)).toBeVisible();
+  await expect(tour(page).getByRole("heading", { level: 3 })).toHaveText("Step 1 of 3: Your page is a list of sections");
+  await tour(page).getByRole("button", { name: "Next" }).focus();
+  await page.keyboard.press("Enter");
+  const heading = tour(page).getByRole("heading", { level: 3 });
+  await expect(heading).toHaveText("Step 2 of 3: Change a section");
+  await expect(heading).toBeFocused();
+  await expect(heading).toHaveAccessibleDescription(/Choose Edit on a card/);
+  await tour(page).getByRole("button", { name: "Back" }).click();
+  await expect(heading).toContainText("Step 1 of 3");
+  await tour(page).getByRole("button", { name: "Next" }).click();
+  await tour(page).getByRole("button", { name: "Next" }).click();
+  await expect(heading).toContainText("Step 3 of 3");
+  await expect(tour(page).getByRole("button", { name: "Finish the tour" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(tour(page)).toBeHidden();
+  await expect(page.getByRole("button", { name: "Add a section" })).toBeFocused();
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 2, name: "Sections" })).toBeVisible();
+  await expect(tour(page)).toBeHidden();
+  await page.goto(`${origin}/admin/#/overview`);
+  await page.goto(`${origin}/admin/#/landing`);
+  await expect(page.getByRole("heading", { level: 2, name: "Sections" })).toBeVisible();
+  await expect(tour(page)).toBeHidden();
+});
+
+test("Skip the tour closes it for good, and a first visit waits until the layouts are chosen or put away", async ({ page }) => {
+  await openLanding(page);
+  await expect(startersPanel(page)).toBeVisible();
+  await expect(tour(page)).toBeHidden();
+  await startersPanel(page).getByRole("button", { name: "Keep what my home page shows now" }).click();
+  await expect(tour(page)).toBeVisible();
+  await tour(page).getByRole("button", { name: "Skip the tour" }).click();
+  await expect(tour(page)).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 2, name: "Sections" })).toBeVisible();
+  await expect(tour(page)).toBeHidden();
+});
+
+test("the tour does not animate under reduced motion and stays inside a phone screen", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 320, height: 640 });
+  await pageWithStoredLanding(page);
+  await expect(tour(page)).toBeVisible();
+  const facts = await tour(page).evaluate((node) => ({ over: node.scrollWidth - node.clientWidth, animation: getComputedStyle(node).animationName, transition: getComputedStyle(node).transitionDuration }));
+  expect(facts.over).toBeLessThanOrEqual(1);
+  expect(facts.animation).toBe("none");
+  expect(parseFloat(facts.transition)).toBe(0);
+});
+
+test("an empty page says what to do, and Help explains the words in plain language", async ({ page }) => {
+  await pageWithStoredLanding(page);
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.locator("[data-landing-empty]")).toBeVisible();
+  await expect(page.locator("[data-landing-empty]")).toContainText("Choose a ready-made layout to start from, or choose Add a section");
+  const help = page.locator("[data-landing-help]");
+  await help.locator("summary").click();
+  await expect(help.getByText("Publish (make it live)", { exact: true })).toBeVisible();
+  await expect(help.getByText("Web address", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toHaveAttribute("title", /make your saved page live/);
+});

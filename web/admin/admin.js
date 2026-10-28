@@ -26,8 +26,12 @@ import {
   previewSize,
   removeSection,
   restoreSection,
+  EMPTY_STATE_TEXT,
+  GLOSSARY,
   STARTERS,
+  TOUR_STEPS,
   applyLayout,
+  createTourStore,
   replacingNeedsConfirm,
   starterSections,
   sectionInfo,
@@ -9864,7 +9868,7 @@ function landingRichText(spec, data, ctx, path, id) {
       const cards = [...editor.querySelectorAll(".oba-protected-block")];
       const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
       if (start?.closest?.(".oba-protected-block") || cards.some((cardNode) => range.intersectsNode(cardNode))) {
-        announce.textContent = "Select text between the preserved blocks only.";
+        announce.textContent = "Select text outside the kept cards only.";
         origin?.focus();
         return;
       }
@@ -12802,7 +12806,7 @@ export class ObAdmin extends AdminElement {
       status.textContent = text;
     };
     const cards = h("ol", { class: "oba-landing-cards", "aria-label": "Sections on your landing page" });
-    const empty = h("p", { class: "oba-notice", "data-landing-empty": "true", hidden: true }, "Your page has no sections yet. Choose Add a section to start.");
+    const empty = h("p", { class: "oba-notice", "data-landing-empty": "true", hidden: true }, EMPTY_STATE_TEXT);
     const count = h("span", { class: "oba-small", "data-landing-count": "true" });
     const picker = h("section", { class: "oba-landing-picker", "aria-labelledby": "oba-landing-picker-title", hidden: true });
     const toast = h("div", { class: "oba-landing-toast", role: "status", "aria-live": "polite", "data-landing-toast": "true", hidden: true });
@@ -13093,6 +13097,7 @@ export class ObAdmin extends AdminElement {
       startersPanel.hidden = true;
       layoutButton.setAttribute("aria-expanded", "false");
       if (focus) layoutButton.focus();
+      maybeTour();
     };
     const closeConfirm = () => {
       confirmBox.hidden = true;
@@ -13191,6 +13196,45 @@ export class ObAdmin extends AdminElement {
         closeStarters();
       }
     });
+
+    // ----- the short tour (ADR 0371, #339): three steps, skippable, never shown again once dismissed
+    const tourStore = createTourStore(`ob-landing-tour:${this.user}`);
+    const tour = h("section", { class: "oba-notice oba-landing-tour", "aria-labelledby": "oba-landing-tour-title", hidden: true, "data-landing-tour": "true" });
+    let tourShown = false;
+    const endTour = (focus = true) => {
+      tourStore.dismiss();
+      tour.hidden = true;
+      tour.replaceChildren();
+      say("The tour is closed. It will not appear again.");
+      if (focus) addButton.focus();
+    };
+    const showTourStep = (n, move) => {
+      const step = TOUR_STEPS[n];
+      const last = n === TOUR_STEPS.length - 1;
+      tour.hidden = false;
+      tour.replaceChildren(
+        h("h3", { id: "oba-landing-tour-title", tabindex: "-1", "aria-describedby": "oba-landing-tour-body" }, `Step ${n + 1} of ${TOUR_STEPS.length}: ${step.title}`),
+        h("p", { id: "oba-landing-tour-body" }, step.body),
+        h("div", { class: "oba-toolbar" },
+          n > 0 ? h("button", { class: "oba-btn", type: "button", "data-action": "tour-back", onClick: () => showTourStep(n - 1, true) }, "Back") : null,
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": last ? "tour-done" : "tour-next", onClick: () => (last ? endTour() : showTourStep(n + 1, true)) }, last ? "Finish the tour" : "Next"),
+          h("button", { class: "oba-btn", type: "button", "data-action": "tour-skip", onClick: () => endTour() }, "Skip the tour"),
+        ),
+      );
+      if (move) tour.querySelector("h3").focus();
+    };
+    tour.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        endTour();
+      }
+    });
+    // It waits while the starting points or a restore offer are on screen, and shows once per visit at most.
+    function maybeTour() {
+      if (tourShown || tourStore.dismissed() || !startersPanel.hidden || !restoreBox.hidden) return;
+      tourShown = true;
+      showTourStep(0, false);
+    }
 
     // ----- a save that finds a newer page: your changes are never replaced, and neither is the newer page
     const conflictBox = h("div", { class: "oba-error oba-landing-conflict", role: "group", "aria-labelledby": "oba-landing-conflict-title", hidden: true, "data-landing-conflict": "true" });
@@ -13361,7 +13405,7 @@ export class ObAdmin extends AdminElement {
     let publishing = false;
     const canPublish = Boolean(publishInfo?.repo);
     const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-landing-publish-note", hidden: canPublish }, "Publishing is off because this site is not a git repository. Run openblog publish setup to turn it on.");
-    const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-landing-publish-note", onClick: () => publish() }, "Publish");
+    const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", title: "Publish: make your saved page live", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-landing-publish-note", onClick: () => publish() }, "Publish");
     const publish = async () => {
       if (busy || publishing) return;
       if (isDirty() && !(await save())) return;
@@ -13471,7 +13515,8 @@ export class ObAdmin extends AdminElement {
     const intro = h(
       "section",
       { class: "oba-contributor-intro" },
-      h("p", {}, "This is the first page your visitors see. Add the sections you want, put them in the order you like, and choose Save. Nothing changes on your site until you save and publish."),
+      h("p", {}, "This is the first page your visitors see. Add the sections you want, put them in the order you like, and choose Save. Nothing changes for visitors until you save and then choose Publish (make it live)."),
+      h("details", { class: "oba-landing-help", "data-landing-help": "true" }, h("summary", {}, "Help: what the words on this page mean"), h("dl", {}, GLOSSARY.flatMap((entry) => [h("dt", {}, entry.term), h("dd", {}, entry.meaning)]))),
       exists ? null : h("p", { class: "oba-notice", "data-landing-legacy": "true" }, "You have not built a landing page yet. This starts from what your home page shows now. Your site stays as it is until you save."),
       readable ? null : h("div", { class: "oba-error", role: "alert", "data-landing-unreadable": "true" }, h("p", {}, "The saved landing page could not be read, so your site is using your home settings instead. You can start again below; saving replaces the unreadable file."), h("ul", {}, (loaded.problems || []).map((problem) => h("li", {}, problem.text || problem.message)))),
     );
@@ -13483,6 +13528,7 @@ export class ObAdmin extends AdminElement {
       this.shell(
         "landing",
         intro,
+        tour,
         restoreBox,
         status,
         conflictBox,
@@ -13556,6 +13602,7 @@ export class ObAdmin extends AdminElement {
     document.addEventListener("visibilitychange", keepCopy);
     // A first visit offers the starting points; it is never forced and the home page stays as it is until the owner chooses.
     if (!exists && readable && !pendingDraft && !isDirty()) openStarters(false);
+    else maybeTour();
     // Beside the builder on a wide screen, the preview is there from the start.
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();

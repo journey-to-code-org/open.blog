@@ -340,7 +340,7 @@ test("block tools and dragging leave a preserved card where it is", async ({ pag
     await editor(page).locator("p").first().click();
     await page.keyboard.press("ControlOrMeta+A");
     await tool(page, name).click();
-    await expect(page.locator("[data-rich-status]")).toHaveText("Select text between the preserved blocks only.");
+    await expect(page.locator("[data-rich-status]")).toHaveText("Select text outside the kept cards only.");
     expect(await shape(), name).toEqual(before);
   }
   // A drop is not accepted either.

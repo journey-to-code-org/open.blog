@@ -150,7 +150,7 @@ test("a field explains what is wrong in plain words once it has been left, and S
   await heading.fill("");
   await expect(card(page, "hello").locator(".oba-field-error:not([hidden])")).toHaveCount(0);
   await heading.blur();
-  await expect(card(page, "hello").locator(".oba-field-error:not([hidden])")).toHaveText("Welcome heading is needed.");
+  await expect(card(page, "hello").locator(".oba-field-error:not([hidden])")).toHaveText("Welcome heading is needed. Fill it in before you save.");
   await expect(heading).toHaveAttribute("aria-invalid", "true");
   await expect(heading).toHaveAccessibleDescription(/Welcome heading is needed/);
   await expect(card(page, "hello").locator(".oba-landing-attention")).toHaveText("1 thing needs attention");
@@ -180,7 +180,7 @@ test("an address and an email are checked as they are typed, with the fix in wor
   const email = card(page, "c").getByLabel("Email (optional)");
   await email.fill("not-an-email");
   await email.blur();
-  await expect(card(page, "c").locator(".oba-field-error:not([hidden])")).toHaveText("That does not look like an email address.");
+  await expect(card(page, "c").locator(".oba-field-error:not([hidden])")).toHaveText("That does not look like an email address. Write it like name@example.com.");
 });
 
 test("sections move with real buttons, with the keyboard, and the result is announced", async ({ page }) => {
@@ -379,7 +379,7 @@ test.describe("preview beside the builder on a wide screen", () => {
     await expect(page.locator("[data-landing-side]")).toBeVisible();
     await page.getByRole("button", { name: "Add a section" }).click();
     await page.locator('[data-add-type="image"]').click();
-    await expect(page.locator("[data-preview-note]")).toHaveText("1 section needs attention and is left out of this preview.", { timeout: 2500 });
+    await expect(page.locator("[data-preview-note]")).toHaveText("1 section needs attention and is left out of this preview. Open it and fix what is marked to see it here.", { timeout: 2500 });
     await expect(preview(page).getByRole("heading", { name: "Hello there" })).toBeVisible();
   });
 

@@ -112,7 +112,7 @@ test("cards say what they hold in plain words", () => {
 
 test("required fields and limits are explained inline in plain words", () => {
   assert.deepEqual(sectionProblems({ id: "w", type: "welcome", heading: "Hi" }), []);
-  assert.equal(sectionProblems({ id: "w", type: "welcome", heading: " " })[0].message, "Welcome heading is needed.");
+  assert.equal(sectionProblems({ id: "w", type: "welcome", heading: " " })[0].message, "Welcome heading is needed. Fill it in before you save.");
   const long = sectionProblems({ id: "w", type: "welcome", heading: "x".repeat(LIMITS.heading + 1) })[0].message;
   assert.match(long, /the most is 120/);
   assert.match(sectionProblems({ id: "i", type: "image", src: "/a.png", alt: "" })[0].message, /Describe the picture is needed/);
@@ -350,4 +350,96 @@ test("the starters shared with the Rust render test are up to date", () => {
   const expected = JSON.stringify(Object.fromEntries(starterCases()), null, 2) + "\n";
   if (process.env.UPDATE_STARTERS) writeFixture(path, expected);
   assert.equal(readFileSync(path, "utf8").replace(/\r\n/g, "\n"), expected, "run UPDATE_STARTERS=1 node --test tests/web/admin-landing.test.mjs");
+});
+
+// ---------------------------------------------------------------- plain-language copy and the tour (ADR 0371, #339)
+
+import { EMPTY_STATE_TEXT, GLOSSARY, TOUR_STEPS, createTourStore, previewLeftOutText } from "../../web/admin/landing.js";
+
+// Words a person who has never built a web page does not know. They may appear in the Help words
+// (marked "also called") and in addresses, never in a label, hint, message or button.
+const JARGON = /\b(url|urls|uri|markdown|html|css|json|slug|block|blocks|api|schema|payload|metadata|revision|endpoint|markup|token|dom|parse|hex|alt text|id|ids|csrf)\b/i;
+
+/** Every sentence-like string literal in a source text. */
+const prose = (source) => [...source.matchAll(/"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)].map((m) => m[1] ?? m[2]).filter((text) => /[A-Za-z]+ [A-Za-z]+/.test(text) && text !== "Edit in Markdown" && !/[{}]|\.oba-|\[data-/.test(text));
+
+test("no jargon in the words the landing builder shows: labels, hints, samples, messages, starters and the tour", () => {
+  const landing = readFileSync(new URL("../../web/admin/landing.js", import.meta.url), "utf8");
+  // The model file minus the Help words, which explain the technical terms on purpose.
+  const withoutGlossary = landing.replace(/export const GLOSSARY[\s\S]*?\]\);/, "");
+  const found = prose(withoutGlossary).filter((text) => JARGON.test(text));
+  assert.deepEqual(found, []);
+  const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
+  const start = admin.indexOf("// ---- landing page (ADR 0249");
+  const end = admin.indexOf("// ---- customize look");
+  assert.ok(start > 0 && end > start);
+  assert.deepEqual(prose(admin.slice(start, end)).filter((text) => JARGON.test(text)), []);
+  // The form fields, lists and the rich text toolbar.
+  const fieldsStart = admin.indexOf("function landingFields(");
+  const fieldsEnd = admin.indexOf("export function previewFrame");
+  assert.ok(fieldsStart > 0 && fieldsEnd > fieldsStart);
+  assert.deepEqual(prose(admin.slice(fieldsStart, fieldsEnd)).filter((text) => JARGON.test(text)), []);
+});
+
+test("every message about a problem says what happened and what to do next", () => {
+  const messages = [
+    addressProblem("a b"), addressProblem("a\\b"), addressProblem("//x"), addressProblem("http://x.org"), addressProblem("ftp://x.org"),
+    addressProblem("https://"), addressProblem("tel:abc"), addressProblem("mailto:"), addressProblem("x.org", "https"),
+    fieldProblem({ kind: "number", label: "Count", min: 1, max: 5, integer: true }, "x"),
+    fieldProblem({ kind: "number", label: "Count", min: 1, max: 5, integer: true }, "2.5"),
+    fieldProblem({ kind: "number", label: "Count", min: 1, max: 5 }, "0"),
+    fieldProblem({ kind: "number", label: "Count", min: 1, max: 5 }, "9"),
+    fieldProblem({ kind: "number", label: "Count", required: true }, ""),
+    fieldProblem({ kind: "text", label: "Name", required: true }, ""),
+    fieldProblem({ kind: "text", label: "Name", max: 3 }, "abcdef"),
+    fieldProblem({ kind: "text", label: "Name" }, "a\nb"),
+    fieldProblem({ kind: "email", label: "Email" }, "nope"),
+    fieldProblem({ kind: "tel", label: "Phone" }, "abc"),
+    fieldProblem({ kind: "post", label: "Post", required: true }, ""),
+    ...sectionProblems({ id: "v", type: "video", provider: "youtube", video: "x", title: "T" }).map((p) => p.message),
+    ...sectionProblems({ id: "v", type: "video", provider: "vimeo", video: "x", title: "T" }).map((p) => p.message),
+    ...sectionProblems({ id: "c", type: "contact" }).map((p) => p.message),
+    ...sectionProblems({ id: "u", type: "nope" }).map((p) => p.message),
+    ...sectionProblems(null).map((p) => p.message),
+    ...sectionProblems({ id: "r", type: "rich-text", markdown: "![](x.png)" }).map((p) => p.message),
+    ...sectionProblems({ id: "b", type: "buttons", items: [] }).map((p) => p.message),
+    ...[401, 403, 409, 413, 422, undefined].map((status) => landingErrorText({ status })),
+    landingErrorText({ status: 409, data: { newerVersion: true } }),
+    previewLeftOutText(2),
+  ];
+  const doing = /\b(open|fix|enter|add|use|remove|choose|start|write|shorten|fill|type|copy|check|try|sign in|reload|update|delete|describe|stay|look for|leave|save)\b/i;
+  for (const message of messages) {
+    assert.ok(message && message.length > 0);
+    assert.doesNotMatch(message, JARGON, message);
+    assert.match(message, doing, `says what to do: ${message}`);
+  }
+});
+
+test("the empty state, the Help words and the tour are short real text", () => {
+  assert.match(EMPTY_STATE_TEXT, /ready-made layout/);
+  assert.match(EMPTY_STATE_TEXT, /Add a section/);
+  assert.equal(TOUR_STEPS.length, 3);
+  for (const step of TOUR_STEPS) {
+    assert.ok(step.title.length < 60 && step.body.length < 260, step.title);
+    assert.doesNotMatch(`${step.title} ${step.body}`, JARGON);
+    assert.doesNotMatch(`${step.title} ${step.body}`, /[<>]/);
+  }
+  const terms = GLOSSARY.map((entry) => entry.term);
+  for (const need of ["Section", "Layout", "Hide", "Preview", "Save", "Publish (make it live)", "Web address", "Picture description"]) assert.ok(terms.includes(need), need);
+});
+
+test("the tour never comes back once dismissed, even when the device will not keep anything", () => {
+  const kept = new Map();
+  const storage = () => ({ getItem: (key) => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, value) });
+  const tour = createTourStore("tour-a", storage);
+  assert.equal(tour.dismissed(), false);
+  tour.dismiss();
+  assert.equal(tour.dismissed(), true);
+  assert.equal(createTourStore("tour-a", storage).dismissed(), true, "a later visit remembers");
+  assert.equal(createTourStore("tour-b", storage).dismissed(), false, "another account does not");
+  const blocked = () => { throw new Error("blocked"); };
+  const memory = createTourStore("tour-c", blocked);
+  assert.equal(memory.dismissed(), false);
+  memory.dismiss();
+  assert.equal(memory.dismissed(), true, "remembered for the visit");
 });
