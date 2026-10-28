@@ -5649,3 +5649,79 @@ ob-voice-library {
     flex: 0 0 auto;
   }
 }
+
+/* The voice sample library (ADR 0373). Packs are groups; a row is a prompt with badges that say the stage in a
+   word and a shape. Everything wraps, and long titles never push the page sideways. */
+.oba-voice-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.oba-voice-group {
+  min-width: 0;
+  margin: 1.5rem 0;
+}
+
+.oba-voice-group h3 {
+  margin: 0 0 0.25rem;
+}
+
+.oba-voice-coverage {
+  margin: 0.25rem 0 0.5rem;
+  font-weight: 600;
+}
+
+.oba-voice-rows {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-voice-row {
+  min-width: 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  overflow-wrap: anywhere;
+}
+
+.oba-voice-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.oba-voice-row-meta {
+  margin: 0.25rem 0 0;
+}
+
+.oba-voice-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.oba-voice-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.oba-voice-badge-polished {
+  border-width: 2px;
+  font-weight: 700;
+}
+
+.oba-voice-group > .oba-btn {
+  min-height: 44px;
+}

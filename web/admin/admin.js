@@ -8,6 +8,7 @@ import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.j
 import { buildChecksPanel } from "./checks-panel.js";
 import { buildHistory } from "./landing-history.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
+import { createVoiceLibrary } from "./voice-library.js";
 import { createVoiceSession } from "./voice-session.js";
 import {
   LIMITS as LANDING_LIMITS,
@@ -13777,18 +13778,27 @@ export class ObAdmin extends AdminElement {
    * as it is written and locked at the end, so it never counts as unsaved work.
    */
   async showVoice(tail, params) {
-    const session = createVoiceSession({
-      api: this.api,
-      user: this.user,
-      params,
-      go: (hash) => {
-        location.hash = hash;
-      },
-    });
-    this.mount(this.shell("voice", session.element));
-    this.viewDirty = () => session.isDirty();
-    this.viewBusy = () => session.isBusy();
-    await session.load();
+    const inLibrary = tail === "library" || tail.startsWith("library/");
+    const view = inLibrary
+      ? createVoiceLibrary({ api: this.api })
+      : createVoiceSession({
+          api: this.api,
+          user: this.user,
+          params,
+          go: (hash) => {
+            location.hash = hash;
+          },
+        });
+    const nav = h(
+      "nav",
+      { class: "oba-voice-nav", "aria-label": "Voice" },
+      h("a", { class: "oba-tab", "aria-current": inLibrary ? null : "page", href: "#/voice" }, "Write a sample"),
+      h("a", { class: "oba-tab", "aria-current": inLibrary ? "page" : null, href: "#/voice/library" }, "Sample library"),
+    );
+    this.mount(this.shell("voice", nav, view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    await view.load();
   }
 
   // ---- customize look (ADR 0256, #350)

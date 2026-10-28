@@ -797,6 +797,7 @@ fn the_voice_scripts_are_served_to_the_admin_page_and_are_the_embedded_ones() {
         ("/admin/voice.js", "createCountdown"),
         ("/admin/voice-session.js", "ROUGH_ATTRIBUTES"),
         ("/admin/voice-polished.js", "createPolishedEditor"),
+        ("/admin/voice-library.js", "createVoiceLibrary"),
     ] {
         let response = handle(&f.state, &req("GET", path));
         assert_eq!(response.status, 200, "{path}");

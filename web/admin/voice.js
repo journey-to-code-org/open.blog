@@ -245,6 +245,82 @@ export function createPolishedDraftStore(key, storage = () => globalThis.localSt
   };
 }
 
+// ---------------------------------------------------------------- the library
+
+const newest = (a, b) => (b.date || "").localeCompare(a.date || "") || a.file.localeCompare(b.file);
+
+/** `3 of 4 prompts written, 1 polished`. */
+export function coverageText(pack) {
+  const written = `${pack.withRough} of ${pack.total} ${pack.total === 1 ? "prompt" : "prompts"} written`;
+  return pack.withPolished ? `${written}, ${pack.withPolished} polished` : written;
+}
+
+/**
+ * The library as groups. Packs come in the catalog's order, and inside a pack the prompts with samples come
+ * newest first (by the newest file, then by name), so the same files always give the same page. A prompt that
+ * has a rough and a polished draft is one row with both badges. Samples of a pack the catalog no longer offers
+ * go in a last group, and files that cannot be read in a group of their own with guidance for repairing them.
+ */
+export function groupLibrary({ samples = [], coverage = [] }) {
+  const valid = samples.filter((sample) => sample.valid);
+  const rowsFor = (items) => {
+    const byPrompt = new Map();
+    for (const sample of items) {
+      const row = byPrompt.get(sample.prompt) || { prompt: sample.prompt, title: sample.promptTitle || sample.title || sample.prompt, rough: null, polished: null };
+      row[sample.stage] = row[sample.stage] && newest(row[sample.stage], sample) <= 0 ? row[sample.stage] : sample;
+      byPrompt.set(sample.prompt, row);
+    }
+    const rows = [...byPrompt.values()].map((row) => {
+      const files = [row.rough, row.polished].filter(Boolean);
+      const latest = [...files].sort(newest)[0];
+      const best = row.polished || row.rough;
+      return {
+        ...row,
+        badges: [row.rough && "rough", row.polished && "polished"].filter(Boolean),
+        words: best.words,
+        visibility: best.visibility,
+        date: latest.date,
+        sort: latest,
+      };
+    });
+    return rows.sort((a, b) => newest(a.sort, b.sort));
+  };
+  const known = new Set(coverage.map((pack) => pack.id));
+  const groups = coverage.map((pack) => ({
+    id: pack.id,
+    title: pack.title,
+    summary: pack.summary,
+    coverage: coverageText(pack),
+    pack,
+    rows: rowsFor(valid.filter((sample) => sample.pack === pack.id)),
+    unwritten: pack.prompts.filter((prompt) => !prompt.rough).length,
+  }));
+  const others = valid.filter((sample) => !known.has(sample.pack));
+  const otherRows = rowsFor(others);
+  return {
+    groups,
+    other: otherRows.length ? { id: "other", title: "Other prompts", summary: "Samples of prompts this site no longer offers. They stay readable.", rows: otherRows } : null,
+    invalid: samples.filter((sample) => !sample.valid).sort((a, b) => a.file.localeCompare(b.file)),
+    empty: samples.length === 0,
+  };
+}
+
+/** The badge words and a shape for each stage; the shape is not the only signal. */
+export const STAGE_BADGES = Object.freeze({
+  rough: Object.freeze({ symbol: "◇", text: "Rough" }),
+  polished: Object.freeze({ symbol: "◆", text: "Polished" }),
+});
+
+export const visibilityText = (visibility) => (visibility === "portable" ? "Portable" : "Private");
+
+export const dateText = (date) => {
+  const value = new Date(date);
+  return Number.isNaN(value.getTime()) ? "" : value.toLocaleDateString(undefined, { dateStyle: "medium" });
+};
+
+export const EMPTY_LIBRARY_TEXT =
+  "A voice sample is a short piece of your own writing, written against a three-minute clock so it sounds like you talking. Samples are private by default and never become posts or appear on your site. Start a session to write your first one.";
+
 // ---------------------------------------------------------------- the invitation
 
 /** The hash for the Voice view, with the pack a session should draw from if one is named. */

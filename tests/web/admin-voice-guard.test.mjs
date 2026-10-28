@@ -57,8 +57,8 @@ test("the guard compares the polished text with the saved state, not with whethe
 
 test("Admin asks the Voice view whether it has unsaved work, and the view answers with the polished editor", () => {
   const shown = admin.slice(admin.indexOf("async showVoice("), admin.indexOf("// ---- customize look"));
-  assert.match(shown, /this\.viewDirty = \(\) => session\.isDirty\(\)/);
-  assert.match(shown, /this\.viewBusy = \(\) => session\.isBusy\(\)/);
+  assert.match(shown, /this\.viewDirty = \(\) => view\.isDirty\(\)/);
+  assert.match(shown, /this\.viewBusy = \(\) => view\.isBusy\(\)/);
 });
 
 test("a pre-filled polished editor is not unsaved work; an edit is; undoing the edit is not", async () => {
