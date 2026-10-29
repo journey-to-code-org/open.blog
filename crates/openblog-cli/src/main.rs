@@ -138,7 +138,8 @@ voice OPTIONS
     --seconds <n>              Writing time, 30 to 3600 (default: 180)
     --stdin                    Type in the terminal even if $VISUAL/$EDITOR is set; finish with
                                a line holding only a dot (.) or end of input
-    --resume                   Resume the open session with its original deadline
+    --resume                   Resume the open session with its original deadline (one window at
+                               a time; $VISUAL/$EDITOR must wait for its window, e.g. code --wait)
     --scrap --yes              Give up the open session and save nothing
     erase [--yes]              List, then (with --yes) erase ALL voice data: samples in both
                                folders, the session record, the guide and leftover editor
@@ -154,7 +155,9 @@ voice OPTIONS
     export [--out <file>] [--include-private] [--write]
                                Put the voice samples and guide in one portable JSON file. Private
                                samples and guide are left out unless --include-private, and such a
-                               file is only written outside the project or in .openblog/private/
+                               file is only written outside the project or in .openblog/private/.
+                               One guide travels (the portable one when both exist); one export
+                               holds at most 100 samples and 8 MiB
     import <file> [--overwrite] [--as private] [--write]
                                Check an export and say what would change; with --write apply it all
                                or not at all. Items keep their folder (--as private makes all

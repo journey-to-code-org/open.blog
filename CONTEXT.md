@@ -2522,7 +2522,8 @@ _Avoid_: Quiz, exercise, writing sprint
 One stored answer to one voice prompt at one stage, `rough` or `polished`. The rough stage is immutable once
 its session ends: nothing, including spell-check, autocorrect, AI and any save path, rewrites it, and the
 store refuses to. A voice sample is Assistant context, not a Post, so it is never published, built into the
-site, fed or exported (ADR 0266).
+site, fed or exported as content (a **Voice export** carries private samples only with `--include-private`)
+(ADR 0266).
 _Avoid_: Draft post, writing sample, entry
 
 **Rough draft**:

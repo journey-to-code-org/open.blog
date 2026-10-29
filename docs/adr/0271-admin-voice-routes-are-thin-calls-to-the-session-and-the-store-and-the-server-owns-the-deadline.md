@@ -64,3 +64,12 @@ Admin layer must add reach, not rules, so that a bug in a page cannot rewrite or
 
 - The CLI and Admin cannot disagree about time, lengths or files.
 - The page may be replaced or buggy without being able to extend a session or edit a rough draft.
+
+## Notes
+
+- 2026-10-28: `POST samples/{id}/promote` (ADR 0270) and `GET`/`POST voice/erase` (ADR 0283) were added after
+  this decision; the route list above predates them. `DELETE voice/session` now names the session it gives up
+  (`{ sessionId }`, a 409 `otherSession` otherwise; only an unreadable record may be scrapped unnamed), so a page
+  left on an earlier session cannot throw away a newer one. `GET voice/session` answers `finishing` within the
+  lock grace after the deadline instead of locking or discarding, so the surface that was writing can still hand
+  over its last words. An error is scrubbed of the project's canonical path; a relative root is never matched.

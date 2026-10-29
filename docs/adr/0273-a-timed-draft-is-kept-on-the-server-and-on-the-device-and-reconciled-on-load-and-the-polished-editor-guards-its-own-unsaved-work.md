@@ -65,3 +65,10 @@ whatever this browser kept.
 
 - Reloading is always safe; the clock continues from the server's deadline.
 - Nothing about the device's copy is ever sent anywhere except to the session's own draft route.
+
+## Notes
+
+- 2026-10-28: a session that ends without signing out keeps the voice copies on the device; signing in removes
+  every copy except the signed-in author's, and signing out still removes them all. A copy that was due when
+  the view was replaced is never written. When a lock cannot reach the server, the latest words are saved to
+  the device first and the page says whether the server has them.

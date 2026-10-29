@@ -123,6 +123,11 @@ fn gather(root: &Path, include_private: bool) -> Result<(String, usize, bool), S
                 // One guide travels: the portable one, as the Assistant prefers it.
                 if guide.is_none() {
                     guide = Some(item);
+                } else {
+                    eprintln!(
+                        "warning: left out of the export: the {} voice guide (one guide travels, and the portable one is preferred)",
+                        visibility.as_str()
+                    );
                 }
             }
             _ => eprintln!(

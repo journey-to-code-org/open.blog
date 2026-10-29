@@ -33,7 +33,7 @@ bounded, and stale or ambiguous edits fail closed. See [Using the Admin](admin.m
 
 Write a three-minute answer to a prompt, from `openblog voice` or the Admin **Voice** view, and keep it as a
 sample of how you sound. The rough draft is locked exactly as written, typos included; a polished draft is
-your own revision; either can become a post draft. Samples are Assistant context, private by default, and
+your own revision, and a polished draft can become a post draft. Samples are Assistant context, private by default, and
 are never published, built, fed or exported as content. You can select them for the Assistant, have it
 propose a voice guide made only of quotations from your own samples, and move your library between projects
 with a previewed, all-or-nothing export and import. Nothing changes for a project without samples. See
