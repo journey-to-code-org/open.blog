@@ -3,7 +3,7 @@
 //! These contracts live in the deterministic core so network adapters cannot
 //! invent a second description of supported open.blog syntax or profiles.
 
-use crate::profile::{ARTICLE_ID, FIELD_JOURNAL_ID, RECIPE_ID, RESEARCH_ID, VIDEO_ID};
+use crate::profile::{ARTICLE_ID, FIELD_JOURNAL_ID, JOB_ID, RECIPE_ID, RESEARCH_ID, VIDEO_ID};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineCapability {
@@ -46,7 +46,7 @@ pub fn engine_capabilities() -> Vec<EngineCapability> {
         EngineCapability {
             id: "content-profiles",
             contract: format!(
-                "The built-in post content profile IDs are `{ARTICLE_ID}`, `{RECIPE_ID}`, `{VIDEO_ID}`, `{FIELD_JOURNAL_ID}`, and `{RESEARCH_ID}`. Profiles add field-specific validation and publishing behavior; unknown profile IDs are preserved with fallback guidance. Do not invent front matter fields or silently change a profile."
+                "The built-in post content profile IDs are `{ARTICLE_ID}`, `{RECIPE_ID}`, `{VIDEO_ID}`, `{FIELD_JOURNAL_ID}`, `{JOB_ID}`, and `{RESEARCH_ID}`. Profiles add field-specific validation and publishing behavior; unknown profile IDs are preserved with fallback guidance. Do not invent front matter fields or silently change a profile."
             ),
         },
         capability(

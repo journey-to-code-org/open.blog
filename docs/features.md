@@ -3,7 +3,7 @@
 ## Content profiles
 
 Posts can opt into field-specific authoring and publishing behavior with `profile` in front
-matter. The shared catalog currently provides `article`, `recipe`, `research`, `video`, and `field-journal`; the admin reads the
+matter. The shared catalog currently provides `article`, `recipe`, `research`, `video`, `field-journal`, and `job`; the admin reads the
 same definitions as the native and WebAssembly-capable core. Unknown ids are preserved and
 fall back to article output with a warning, so content remains portable while future
 journalism, education, media, and dataset profiles are added incrementally. Research posts
@@ -13,6 +13,7 @@ privacy-enhanced YouTube player, discovery metadata, and a release-kit workflow;
 [Video productions and release kits](video-production.md).
 Field journals add local GPX analysis and location-privacy controls; see
 [Field journals and private-by-default tracks](field-journal.md).
+Jobs record finished trade work as posts; see [Jobs](jobs.md).
 
 ## Authoring Assistant
 

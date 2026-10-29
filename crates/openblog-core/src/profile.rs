@@ -8,6 +8,7 @@ pub const RECIPE_ID: &str = "recipe";
 pub const RESEARCH_ID: &str = "research";
 pub const VIDEO_ID: &str = "video";
 pub const FIELD_JOURNAL_ID: &str = "field-journal";
+pub const JOB_ID: &str = "job";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileFieldKind {
@@ -238,6 +239,12 @@ const PROFILES: &[ContentProfile] = &[
             "An outdoor field note with route, conditions, observations, and location privacy.",
         fields: FIELD_JOURNAL_FIELDS,
     },
+    ContentProfile {
+        id: JOB_ID,
+        label: "Job",
+        description: "One piece of completed trade work: trade, service, town, dates, and before and after images.",
+        fields: &[],
+    },
 ];
 
 pub fn catalog() -> &'static [ContentProfile] {
@@ -251,6 +258,7 @@ pub enum ProfileBehavior {
     Research,
     Video,
     FieldJournal,
+    Job,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,6 +284,7 @@ pub fn resolve(front_matter: &FrontMatter) -> ProfileResolution {
             RESEARCH_ID => ProfileBehavior::Research,
             VIDEO_ID => ProfileBehavior::Video,
             FIELD_JOURNAL_ID => ProfileBehavior::FieldJournal,
+            JOB_ID => ProfileBehavior::Job,
             _ => ProfileBehavior::Article,
         };
         let mut warnings = Vec::new();
