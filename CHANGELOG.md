@@ -5,6 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Social publishing announcements, model (story #356; ADR 0470): an announcement links an already-public post of your own site at a UTC time. Only a published post with a public `https` address can be announced (not a draft, a future-dated post or a cross-post whose canonical address is elsewhere); the caption is bounded per destination and refuses control and direction-changing characters; the time must name its zone and lie between a minute and a year ahead; only a scheduled announcement no worker has claimed can be changed or canceled. The Rust Admin and the hosted function share one fixture of accepted and refused values.
 - Social publishing credentials (story #354; ADR 0295): provider tokens are envelope-encrypted by the hosted function (AES-256-GCM, a per-connection data key wrapped by `OPENBLOG_SOCIAL_TOKEN_KEYS`, which is never in the database), refreshed once at a time shortly before expiry, erased on revoke or when the provider drops the grant, and never shown in Admin, errors or logs. `OPENBLOG_SOCIAL_TOKEN_KEYS` is now required to enable social publishing.
 
 - Social publishing schema (story #354; ADR 0294): `supabase/social.sql` adds private, site-keyed tables for connected accounts, the schedule queue and delivery attempts, shaped for atomic claim, idempotency keys and provider response ids, with `supabase/social-rollback.sql`. It is optional, additive and re-runnable, and nothing reads it unless social publishing is enabled.

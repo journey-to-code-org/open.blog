@@ -2663,6 +2663,17 @@ One queued announcement of one canonical post to one social account, with a time
 and an idempotency key. It is `published` only with the provider's own response id.
 _Avoid_: Syndicated copy, job
 
+**Announcement**:
+One scheduled social post seen from the author's side: a caption for one account, a link to one already-public
+canonical post, and a UTC time. It can be changed or canceled only while it is `scheduled`, before a worker claims
+it. A cross-posted article, a draft and a post dated in the future cannot be announced.
+_Avoid_: Syndicated copy, campaign
+
+**Schedule instant**:
+The time of an announcement: a full RFC 3339 date and time that names its zone, stored as UTC to the second. The
+author's time zone says how it was chosen and is not stored.
+_Avoid_: Local time, publish date (a post's own date)
+
 **Delivery attempt**:
 One recorded try to deliver a scheduled social post, with its outcome (`published`, `failed` or `unknown`) and a
 redacted error. Attempts are added and finished, never deleted.
