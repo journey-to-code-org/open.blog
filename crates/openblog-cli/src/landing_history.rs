@@ -212,9 +212,17 @@ pub fn summarize(previous: Option<&LandingPage>, page: &LandingPage) -> String {
     }
 }
 
-/// Keep `.openblog/private/` out of Git for a project that uses it, as `openblog init` does.
+/// Whether `root` is inside a Git working tree: it, or a folder above it, holds `.git` (a folder,
+/// or the file a worktree or submodule has).
+fn inside_git(root: &Path) -> bool {
+    let start = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    start.ancestors().any(|folder| folder.join(".git").exists())
+}
+
+/// Keep `.openblog/private/` out of Git for a project that uses it, as `openblog init` does. A site
+/// in a subfolder of a repository gets the rule in its own `.gitignore`, which Git honours there.
 pub(crate) fn keep_out_of_git(root: &Path) {
-    if !root.join(".git").exists() {
+    if !inside_git(root) {
         return;
     }
     let path = root.join(".gitignore");
@@ -525,6 +533,21 @@ mod tests {
             fs::read_to_string(other.join(".gitignore")).unwrap(),
             "/.openblog\n"
         );
+    }
+
+    #[test]
+    fn a_site_in_a_subfolder_of_a_repository_gets_its_own_ignore_rule() {
+        let repository = root("nested");
+        fs::create_dir_all(repository.join(".git")).unwrap();
+        let site = repository.join("blog");
+        fs::create_dir_all(&site).unwrap();
+        keep_out_of_git(&site);
+        assert_eq!(
+            fs::read_to_string(site.join(".gitignore")).unwrap(),
+            "/.openblog/private/
+"
+        );
+        assert!(!repository.join(".gitignore").exists());
     }
 
     #[test]
