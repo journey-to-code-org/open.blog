@@ -1,14 +1,15 @@
 //! Optional social publishing is off by default and invisible to the publishing pipeline
-//! (ADR 0293): a site build, a portable export and a cross-posting plan are byte for byte the
-//! same whether or not the deployment holds social publishing settings and secrets, and no such
-//! secret ever reaches their output.
+//! (ADRs 0293 and 0740): a site build with its feeds, a portable export, a cross-posting plan and
+//! offline authoring (`openblog new`, `openblog check`) are byte for byte the same whether or not
+//! the deployment holds social publishing settings and secrets, on the hosted side and on the
+//! Admin side, and no such secret ever reaches their output. This is a release gate.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const SECRETS: [(&str, &str); 7] = [
+const SECRETS: [(&str, &str); 23] = [
     ("OPENBLOG_SOCIAL_ENABLED", "true"),
     ("SUPABASE_URL", "https://project.supabase.co"),
     (
@@ -28,11 +29,44 @@ const SECRETS: [(&str, &str); 7] = [
         "OPENBLOG_SOCIAL_TOKEN_KEYS",
         "k1:c29jaWFsb3B0aW4zMzMzMzMzMzMzMzMzMzMzMzMzMzM=",
     ),
+    // The Admin side: an endpoint nothing listens on, so a stray call would fail loudly.
+    ("OPENBLOG_SOCIAL_ENDPOINT", "http://127.0.0.1:9/api/social"),
+    (
+        "OPENBLOG_SOCIAL_CALLBACK_BASE",
+        "https://blog.example.org/api/social",
+    ),
+    (
+        "OPENBLOG_SOCIAL_LINKEDIN_CLIENT_ID",
+        "lnk-client-socialoptin",
+    ),
+    (
+        "OPENBLOG_SOCIAL_LINKEDIN_CLIENT_SECRET",
+        "lnk_secret_socialoptin44444444444444444",
+    ),
+    ("OPENBLOG_SOCIAL_FACEBOOK_CLIENT_ID", "1234567890"),
+    (
+        "OPENBLOG_SOCIAL_FACEBOOK_CLIENT_SECRET",
+        "fb_secret_socialoptin555555555555555555",
+    ),
+    ("OPENBLOG_SOCIAL_LINKEDIN_API_VERSION", "202610"),
+    ("OPENBLOG_SOCIAL_FACEBOOK_API_VERSION", "v23.0"),
+    ("OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS", "true"),
+    ("OPENBLOG_SOCIAL_OPS", "true"),
+    ("OPENBLOG_SOCIAL_RETENTION_DAYS", "365"),
+    ("OPENBLOG_SOCIAL_BATCH_SIZE", "5"),
+    ("OPENBLOG_SOCIAL_MAX_ATTEMPTS", "5"),
+    ("OPENBLOG_SOCIAL_LEASE_SECONDS", "300"),
+    ("OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS", "4"),
+    ("OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS", "8"),
 ];
 
 fn project() -> PathBuf {
+    project_named("site")
+}
+
+fn project_named(label: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "openblog-social-opt-in-{}-{}",
+        "openblog-social-opt-in-{label}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -112,6 +146,9 @@ fn builds_exports_and_cross_posting_plans_ignore_social_publishing_settings() {
     assert!(built_social.status.success());
     let (plain_tree, social_tree) = (tree(&plain), tree(&social));
     assert!(!plain_tree.is_empty());
+    for feed in ["rss.xml", "feed.json"] {
+        assert!(plain_tree.contains_key(feed), "the build writes {feed}");
+    }
     assert_eq!(
         plain_tree.keys().collect::<Vec<_>>(),
         social_tree.keys().collect::<Vec<_>>()
@@ -135,4 +172,50 @@ fn builds_exports_and_cross_posting_plans_ignore_social_publishing_settings() {
         assert_no_secret(&format!("{args:?}"), &with.stderr);
     }
     let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn offline_authoring_ignores_social_publishing_settings() {
+    // Two identical sites: one authored without any social setting, one with all of them. Writing a
+    // new post and checking the site must produce the same files and the same report.
+    let plain = project_named("author-plain");
+    let social = project_named("author-social");
+    for args in [
+        &["new", "Second thoughts", "--tags", "notes"][..],
+        &["check", "--json"][..],
+        &["check"][..],
+    ] {
+        let without = run(&plain, args, false);
+        let with = run(&social, args, true);
+        assert_eq!(without.status.code(), with.status.code(), "{args:?}");
+        let normalise = |bytes: &[u8], root: &Path| {
+            String::from_utf8_lossy(bytes)
+                .replace(&root.to_string_lossy().to_string(), "<root>")
+                .replace('\\', "/")
+        };
+        assert_eq!(
+            normalise(&without.stdout, &plain),
+            normalise(&with.stdout, &social),
+            "{args:?} stdout differs"
+        );
+        assert_eq!(
+            normalise(&without.stderr, &plain),
+            normalise(&with.stderr, &social),
+            "{args:?} stderr differs"
+        );
+        assert_no_secret(&format!("{args:?}"), &with.stdout);
+        assert_no_secret(&format!("{args:?}"), &with.stderr);
+    }
+    let (plain_posts, social_posts) = (tree(&plain.join("content")), tree(&social.join("content")));
+    assert_eq!(plain_posts.len(), 2, "the new post was written");
+    assert_eq!(plain_posts, social_posts);
+    for (name, bytes) in &social_posts {
+        assert_no_secret(name, bytes);
+    }
+    assert_eq!(
+        fs::read(plain.join("openblog.json")).unwrap(),
+        fs::read(social.join("openblog.json")).unwrap()
+    );
+    let _ = fs::remove_dir_all(&plain);
+    let _ = fs::remove_dir_all(&social);
 }
