@@ -231,8 +231,10 @@ selecting one uses the saved Markdown snapshot and never silently contacts the U
 Voice samples are the author's own writing, captured so Assistant tools can learn how you sound
 (see [ADR 0266](adr/0266-voice-samples-are-assistant-context-and-a-rough-draft-is-immutable.md)).
 They are Assistant context, not posts: they are never published, built into the site, added to a
-feed, or exported. From the terminal, [`openblog voice`](#write-a-voice-sample-from-the-terminal)
-writes them; the Admin screen follows.
+feed, or exported as content. You write them from the terminal
+([`openblog voice`](#write-a-voice-sample-from-the-terminal)) or in Admin
+([Voice](#write-a-voice-sample-in-admin)), and you can take them with you
+([export and import](#move-your-voice-library-between-projects)).
 
 | What | Portable | Private |
 | --- | --- | --- |
@@ -285,6 +287,32 @@ openblog voice --scrap --yes       # give up the open session and save nothing
 
 `<sample>` is a file name from `voice --list` or a prompt id. Output is plain text.
 
+### Write a voice sample in Admin
+
+The **Voice** view (`#/voice`) does the same job as `openblog voice`, with the same files and the same rules
+(see [ADR 0271](adr/0271-admin-voice-routes-are-thin-calls-to-the-session-and-the-store-and-the-server-owns-the-deadline.md)
+to [0277](adr/0277-the-voice-invitation-is-shown-once-on-the-admin-home-and-a-dismissal-is-an-admin-preference.md)).
+The Admin home offers it once, in a **Gather your voice** card, while you have no samples; **Dismiss** keeps
+it away for good.
+
+1. **Choose what to write about.** **Draw from every pack** shows three prompts; choose one, or
+   **Draw three more**, or **Draw from this pack** in the library.
+2. **Write.** **Start the 3:00 timer**, then write. Spell-check, autocorrect and writing suggestions are off
+   in this box on purpose. The server owns the clock: it is a display, a reload or a lost connection carries on
+   with the original deadline, and text sent after the deadline is refused. Your draft is saved to the server a
+   moment after you stop typing, and a bounded copy stays on the device (cleared after a day, and when you sign
+   out). **Finish early** locks it at once.
+3. **Polish (optional).** The locked rough draft is shown read-only, exactly as written. Below it is a copy
+   to edit: **Reset to rough** starts the copy over and **Save polished draft** saves it, checking that nobody
+   changed it meanwhile. Leaving with unsaved polished edits asks first. **Make portable** or **Make private**
+   moves the pair together (the default is private), and **Make a post draft** creates a draft post from the
+   polished draft.
+
+The **Sample library** (`#/voice/library`) groups your samples by prompt pack, newest first, with Rough and
+Polished badges, length, visibility and date, a coverage line per pack, and a note for any file that cannot
+be read and what to do about it. A rough sample opens read-only. The view works on a phone and from the
+keyboard; the timer is not announced every second, only at its marks and when it locks.
+
 ### Use voice samples and a voice guide with the Assistant
 
 Your samples and a **voice guide** can be chosen as Assistant context, so reviews and suggestions
@@ -314,6 +342,49 @@ Nothing is sent unless you select it and run a request, and nothing here changes
   draft: it proposes, you decide.
 - **What is missing.** `openblog voice --list` also shows prompts with a rough draft and no polished draft, and
   guide traits that still rest on one sample; the Context view and the guide request use the same list.
+
+### Move your voice library between projects
+
+`openblog voice export` puts your voice samples and your voice guide in one JSON file; `openblog voice import`
+reads such a file ([ADR 0350](adr/0350-the-voice-library-travels-as-one-previewed-all-or-nothing-export-that-keeps-each-items-folder.md)).
+Neither needs a hosted service.
+
+```text
+openblog voice export                                  # print the portable samples and guide
+openblog voice export --out voice-library.json --write # create the file (never replaces one)
+openblog voice export --include-private --out .openblog/private/voice-library.json --write
+openblog voice import voice-library.json               # preview: what would be created or replaced
+openblog voice import voice-library.json --write       # apply, all or nothing
+```
+
+- **Private stays private.** An export holds only the portable folder unless you pass `--include-private`, and
+  a file with private material is refused inside the project except under `.openblog/private/`.
+- **Previewed.** Import is a dry run unless `--write`. It lists `create`, `replace` or `unchanged` for each file
+  and the folder it goes to, and it writes nothing at all if any item is invalid, too large, in a newer format
+  or in conflict.
+- **Folders are kept.** An item lands in the folder it came from; an import never moves private text to the
+  portable folder, and `--as private` puts everything in the private folder. When files would go to the
+  portable folder (which Git tracks) the preview says so.
+- **Rough drafts are safe.** A rough draft that differs from the one already saved is a conflict, with or
+  without `--overwrite`. A differing polished draft or guide is replaced only with `--overwrite`.
+- **The guide follows its provenance.** A guide whose provenance line lists private samples is only accepted
+  into the private folder, and is left out of a portable export.
+- A valid file round-trips byte for byte. A library with no samples exports an empty file, and Admin has no
+  import screen: the file moves between projects, and the command line is the place for it.
+
+Erasing the whole voice library (`openblog voice erase` and the Admin Erase action) is documented by the
+privacy work in epic #410; this paragraph is a placeholder until that work is merged.
+
+### Write your own prompt packs
+
+Add prompts, or hide whole packs, with `assistant/voice/catalog.md`. It has the same shape as the bundled
+catalog: optional front matter with `disabled: [pack-id]`, then `## pack-id: Title` sections (with an optional
+one-line summary) holding `### prompt-id: Title` sections that begin with `words: low-high` and then the
+invitation. Ids are lowercase kebab-case and are never renamed or reused, because a sample records its prompt
+id; a prompt id the bundled catalog already uses is rejected. Write prompts the way you would ask a friend
+("Tell me about a mistake you made and what it taught you"), keep each to a sentence or two, and give a pack
+at least three so a draw has something to choose from. `openblog voice --list` shows your packs and a warning
+for any section that could not be read.
 
 ### Write visually or in Markdown
 

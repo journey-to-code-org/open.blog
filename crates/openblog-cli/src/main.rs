@@ -88,6 +88,8 @@ COMMANDS
     voice --resume             Carry on with an interrupted session (an expired one is locked)
     voice polish|diff|promote <sample>
                                Refine a copy, compare it, or make a post draft from it
+    voice export|import        Move your voice samples and guide in one file, previewed and
+                               all or nothing (see voice OPTIONS)
     themes                     List themes and the inheritance chain of each
     import hashnode <host>     Import a Hashnode blog (e.g. yourname.hashnode.dev)
     contributors migrate --id <stable-id> [--write]
