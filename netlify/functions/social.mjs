@@ -13,6 +13,7 @@
 import { SocialScopeError, authorizeSocial, refuseClientScope, socialSettings } from "../lib/social-scope.mjs";
 import { SocialCredentialError } from "../lib/social-credentials.mjs";
 import { SocialOAuthError, createConnector, OUTCOMES } from "../lib/social-oauth.mjs";
+import { createAccounts } from "../lib/social-accounts.mjs";
 import { ProviderError, describeProvider, socialProviders, validProvider } from "../lib/social-providers.mjs";
 
 const MAX_BODY_CHARS = 4096;
@@ -89,6 +90,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       const query = queryOf(event);
       const providers = socialProviders(env);
       const connector = createConnector({ settings, providers, fetchImpl, now, random });
+      const accounts = createAccounts({ connector, settings, providers, fetchImpl, now });
 
       // The provider's redirect: no key, no JSON, a fixed page. Anything but GET /callback/<provider> is not here.
       if (segments[0] === "callback") {
@@ -114,6 +116,21 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         if (method === "POST" && action === "cancel" && segments.length === 3 && UUID.test(id)) {
           only(body, []);
           return json(200, { connection: await connector.cancel(id) });
+        }
+        if (method === "POST" && action === "select" && segments.length === 3 && UUID.test(id)) {
+          only(body, ["destination"]);
+          return json(201, await connector.select({ id, destination: body.destination, actor: identity.actor }));
+        }
+      }
+      if (head === "accounts") {
+        if (method === "GET" && segments.length === 1) return json(200, { accounts: await accounts.list() });
+        if (method === "POST" && action === "reconnect" && segments.length === 3 && UUID.test(id)) {
+          only(body, []);
+          return json(201, await accounts.reconnect(id, identity.actor));
+        }
+        if (method === "POST" && action === "disconnect" && segments.length === 3 && UUID.test(id)) {
+          only(body, []);
+          return json(200, { account: await accounts.disconnect(id) });
         }
       }
       return failure(404, "not-found", "Not found.");

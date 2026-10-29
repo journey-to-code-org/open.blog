@@ -14,6 +14,8 @@
 // put in an error, a log line or anything returned to Admin.
 
 import { SocialScopeError, scopedQuery } from "./social-scope.mjs";
+import { SocialCredentialError, createCredentialStore } from "./social-credentials.mjs";
+import { NOTES, REASONS, discover } from "./social-discovery.mjs";
 import { SocialTokenError, openCredential, sealCredential } from "./social-tokens.mjs";
 import { ProviderError, authorizationUrl, checkScopes, exchangeCode, pkceChallenge, randomToken, revokeAtProvider, sha256Hex, validProvider } from "./social-providers.mjs";
 
@@ -21,6 +23,7 @@ export const PENDING_TTL_MS = 10 * 60 * 1000;
 export const AUTHORIZED_TTL_MS = 30 * 60 * 1000;
 export const MAX_OPEN_CONNECTIONS = 10;
 const CONNECTIONS = "openblog_social_connections";
+const ACCOUNTS = "openblog_social_accounts";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const STATE = /^[A-Za-z0-9_-]{43}$/;
 const CODE = /^[\x21-\x7e]{1,2048}$/;
@@ -48,6 +51,7 @@ export const OUTCOMES = Object.freeze({
   "identity-mismatch": "That is a different account from the one being reconnected. Sign in as the original account.",
   "no-destination": "Nothing this app may post to was found for that account.",
   "storage-failed": "The connection could not be saved. Try again.",
+  canceled: "This connection attempt was canceled.",
 });
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -55,6 +59,7 @@ const iso = (ms) => new Date(ms).toISOString();
 export function createConnector({ settings, providers, fetchImpl = globalThis.fetch, now = () => Date.now(), random } = {}) {
   if (!settings || settings.enabled !== true || !settings.tokenKeys) throw new SocialScopeError(404, "not-enabled", "Social publishing is not enabled.");
   const keyring = settings.tokenKeys;
+  const credentials = createCredentialStore({ settings, keyring, fetchImpl, now });
 
   const rest = async (method, table, query, body) => {
     let response;
@@ -67,6 +72,7 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
     } catch {
       throw new SocialOAuthError(503, "storage-unavailable", "The connection store could not be reached.");
     }
+    if (response.status === 409) throw new SocialOAuthError(409, "conflict", "That record already exists or changed.");
     if (!response.ok) throw new SocialOAuthError(response.status >= 500 ? 503 : 500, "storage-failed", "The connection store refused the request.");
     const rows = await response.json();
     return Array.isArray(rows) ? rows : [];
@@ -115,8 +121,23 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
       errorCode: row.error_code || null,
       message: row.error_code ? OUTCOMES[row.error_code] || null : null,
       destinations: Array.isArray(row.destinations) ? row.destinations : [],
+      notes: (row.notes ? row.notes.split(" ").filter(Boolean) : []).map((code) => ({ code, text: NOTES[code] || "" })).filter((note) => note.text),
     });
   };
+
+  const accountOf = (row) =>
+    Object.freeze({
+      id: row.id,
+      provider: row.provider,
+      kind: row.kind,
+      externalId: row.external_id,
+      displayName: row.display_name,
+      status: row.status,
+      connectedBy: row.connected_by,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      disconnectedAt: row.disconnected_at || null,
+    });
 
   const providerOf = (name) => {
     const provider = validProvider(name) ? providers?.[name] : null;
@@ -126,25 +147,68 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
 
   const failureFor = (error) => (error instanceof ProviderError ? (error.code === "code-rejected" ? "code-rejected" : error.retryable || error.code === "provider-unreachable" ? "provider-unavailable" : "provider-error") : "storage-failed");
 
-  // After a verified exchange: keep the tokens sealed under the connection and wait for the author
-  // to choose a destination.
-  const authorize = async ({ connection, tokens }) => {
+  const remaining = (stamp) => (stamp ? Math.max(1, Math.floor((Date.parse(stamp) - now()) / 1000)) : undefined);
+
+  // The tokens that belong to one destination. LinkedIn shares the member's grant with the
+  // organizations that member administers; each Facebook Page has a token of its own.
+  const tokensFor = (provider, row, secrets, destination) => {
+    if (provider === "facebook") {
+      const token = secrets.pageTokens?.[destination.id];
+      if (typeof token !== "string" || !token) throw new SocialOAuthError(409, "destination-not-eligible", "Facebook gave no access for this Page. Connect again.");
+      return { accessToken: token };
+    }
+    return { accessToken: secrets.accessToken, refreshToken: secrets.refreshToken, expiresIn: remaining(row.access_expires_at), refreshExpiresIn: remaining(row.refresh_expires_at) };
+  };
+
+  // Reconnect: the same provider identity signs in again. A different one is refused and nothing
+  // changes, so a sign-in as the wrong person can never swap an account's credentials.
+  const reconnect = async ({ connection, provider, tokens, secrets, record, granted, expiry }) => {
+    const [account] = owned(await rest("GET", ACCOUNTS, scopedQuery(settings, { id: `eq.${connection.reauth_account_id}`, select: "*" }).toString()));
+    const destination = account && record.destinations.find((candidate) => candidate.id === account.external_id);
+    const fail = async (code) => {
+      await revokeAtProvider(provider, tokens, fetchImpl);
+      await finish(connection, "failed", code, { granted_scopes: granted, ...record });
+      return { ok: false, code };
+    };
+    if (!account || account.provider !== provider.provider || account.status === "disconnected" || !destination) return fail("identity-mismatch");
+    if (!destination.eligible) return fail("no-destination");
+    try {
+      await credentials.save(account.id, tokensFor(provider.provider, { ...connection, ...expiry }, secrets, destination), { scope: granted });
+      await rest("PATCH", ACCOUNTS, scopedQuery(settings, { id: `eq.${account.id}`, status: "in.(connected,needs-reauth)" }).toString(), { status: "connected", display_name: destination.name, updated_at: iso(now()) });
+    } catch {
+      return fail("storage-failed");
+    }
+    await finish(connection, "completed", null, { granted_scopes: granted, ...record });
+    return { ok: true };
+  };
+
+  // After a verified exchange: ask the provider where the grant can post, keep the tokens sealed
+  // until the author chooses, or, when reconnecting, finish at once for the same identity only.
+  const authorize = async ({ connection, provider, tokens }) => {
+    const granted = tokens.granted.join(" ").slice(0, 1000);
+    const stop = async (code, extra = {}) => {
+      // Nothing usable was kept, so withdraw the grant where the provider allows it.
+      await revokeAtProvider(provider, tokens, fetchImpl);
+      await finish(connection, "failed", code, { granted_scopes: granted, ...extra });
+      return { ok: false, code };
+    };
+    let found;
+    try {
+      found = await discover(provider, tokens, fetchImpl);
+    } catch (error) {
+      return stop(failureFor(error));
+    }
+    const record = { destinations: found.destinations, notes: found.notes.join(" ") };
+    if (!found.destinations.some((destination) => destination.eligible)) return stop("no-destination", record);
     const secrets = { accessToken: tokens.accessToken };
     if (tokens.refreshToken) secrets.refreshToken = tokens.refreshToken;
-    const row = await write(
-      connection,
-      {
-        status: "authorized",
-        granted_scopes: tokens.granted.join(" ").slice(0, 1000),
-        access_expires_at: Number.isFinite(tokens.expiresIn) ? iso(now() + tokens.expiresIn * 1000) : null,
-        refresh_expires_at: Number.isFinite(tokens.refreshExpiresIn) ? iso(now() + tokens.refreshExpiresIn * 1000) : null,
-        expires_at: iso(now() + AUTHORIZED_TTL_MS),
-        destinations: [],
-        error_code: null,
-        ...(await seal(connection, secrets)),
-      },
-      { status: "eq.exchanging" },
-    );
+    if (provider.provider === "facebook") secrets.pageTokens = found.secrets;
+    const expiry = {
+      access_expires_at: Number.isFinite(tokens.expiresIn) ? iso(now() + tokens.expiresIn * 1000) : null,
+      refresh_expires_at: Number.isFinite(tokens.refreshExpiresIn) ? iso(now() + tokens.refreshExpiresIn * 1000) : null,
+    };
+    if (connection.reauth_account_id) return reconnect({ connection, provider, tokens, secrets, record, granted, expiry });
+    const row = await write(connection, { status: "authorized", granted_scopes: granted, expires_at: iso(now() + AUTHORIZED_TTL_MS), error_code: null, ...record, ...expiry, ...(await seal(connection, secrets)) }, { status: "eq.exchanging" });
     return row ? { ok: true } : { ok: false, code: "storage-failed" };
   };
 
@@ -159,6 +223,8 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
     finish,
     expireDue,
     now,
+    credentials,
+    accountOf,
 
     // Begins a handshake. Returns what Admin may show and the URL to send the author's browser to.
     async start({ provider: name, actor, reauthAccountId = null }) {
@@ -260,6 +326,44 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
         // Storage failed part-way. The row stays `exchanging` until it expires; it cannot be reused.
         return refused("storage-failed");
       }
+    },
+
+    // The author chose a destination from an authorized connection: create the account and store its
+    // credential, once. A failure puts the connection back so the author can try again.
+    async select({ id, destination: destinationId, actor }) {
+      if (!UUID.test(String(id))) throw new SocialOAuthError(400, "invalid-connection", "That is not a connection id.");
+      if (typeof destinationId !== "string" || !destinationId || destinationId.length > 200) throw new SocialOAuthError(400, "invalid-destination", "Choose a destination from the list.");
+      const [row] = await read({ id: `eq.${id}` });
+      if (!row) throw new SocialOAuthError(404, "not-found", "No such connection.");
+      if (row.status !== "authorized" || row.reauth_account_id) throw new SocialOAuthError(409, "not-authorized", "This connection is not waiting for a choice.");
+      if (Date.parse(row.expires_at) <= now()) {
+        await finish(row, "expired", "expired");
+        throw new SocialOAuthError(409, "expired", OUTCOMES.expired);
+      }
+      const destination = (Array.isArray(row.destinations) ? row.destinations : []).find((candidate) => candidate.id === destinationId);
+      if (!destination) throw new SocialOAuthError(400, "unknown-destination", "That destination is not in the list for this connection.");
+      if (!destination.eligible) throw new SocialOAuthError(409, "destination-not-eligible", REASONS[destination.reason] || "That destination cannot be used.");
+      const provider = providerOf(row.provider);
+      const claimed = await write(row, { status: "exchanging" }, { status: "eq.authorized" });
+      if (!claimed) throw new SocialOAuthError(409, "conflict", "The connection changed; try again.");
+      let account = null;
+      try {
+        const secrets = await open(claimed);
+        const tokens = tokensFor(provider.provider, claimed, secrets, destination);
+        [account] = owned(await rest("POST", ACCOUNTS, "", { site_id: settings.siteId, provider: provider.provider, kind: destination.kind, external_id: destination.id, display_name: destination.name, status: "connected", connected_by: actor }));
+        await credentials.save(account.id, tokens, { scope: claimed.granted_scopes || "" });
+      } catch (error) {
+        if (account) {
+          await rest("PATCH", ACCOUNTS, scopedQuery(settings, { id: `eq.${account.id}` }).toString(), { status: "disconnected", disconnected_at: iso(now()), updated_at: iso(now()) }).catch(() => {});
+        }
+        // Back to authorized, still sealed, so the author can choose again without signing in again.
+        await write(claimed, { status: "authorized" }, { status: "eq.exchanging" }).catch(() => {});
+        if (error instanceof SocialOAuthError && error.code === "conflict") throw new SocialOAuthError(409, "already-connected", "That account is already connected. Use Reconnect on it instead.");
+        if (error instanceof SocialOAuthError || error instanceof SocialCredentialError) throw error;
+        throw new SocialOAuthError(500, "storage-failed", "The account could not be saved. Try again.");
+      }
+      await finish(claimed, "completed", null);
+      return { account: accountOf(account), credential: await credentials.describe(account.id) };
     },
 
     // Cancels an open connection and erases whatever it sealed.

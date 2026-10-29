@@ -15,12 +15,15 @@ const NOW = Date.parse("2026-10-29T12:00:00Z");
 const linkedinToken = (over = {}) => ({ status: 200, body: { access_token: ACCESS, refresh_token: REFRESH, expires_in: 5184000, refresh_token_expires_in: 31536000, scope: "openid,profile,w_member_social", ...over } });
 const world = (extra = {}) =>
   fakeWorld({
-    linkedin: { "POST www.linkedin.com/oauth/v2/accessToken": linkedinToken(), "POST www.linkedin.com/oauth/v2/revoke": { status: 200, body: {} } },
+    linkedin: { "POST www.linkedin.com/oauth/v2/accessToken": linkedinToken(), "POST www.linkedin.com/oauth/v2/revoke": { status: 200, body: {} }, "GET api.linkedin.com/v2/userinfo": { status: 200, body: { sub: "abc123", name: "Ada" } } },
     fallback: { status: 404, body: {} },
     ...extra,
   });
 const make = (overrides = {}, worldOptions = {}) => {
   const w = world(worldOptions);
+  // Discovery (ADR 0461) asks the provider where the grant can post; these tests are about the handshake.
+  w.handlers["GET api.linkedin.com/v2/userinfo"] ||= { status: 200, body: { sub: "abc123", name: "Ada" } };
+  w.handlers["GET graph.facebook.com/v23.0/me/accounts"] ||= { status: 200, body: { data: [{ id: "111", name: "Page", tasks: ["CREATE_CONTENT"], access_token: "EAApage-token-0006" }] } };
   const clock = { t: NOW };
   const handler = createHandler({ env: env(overrides), fetchImpl: w.fetchImpl, now: () => clock.t });
   return { w, clock, handler };
@@ -95,7 +98,7 @@ test("start: only the Admin key may begin, a request cannot name a site or a red
   assert.equal(row.site_id, "lantern-studios");
   assert.match(row.state_hash, /^[0-9a-f]{64}$/);
   assert.ok(!db(w).includes(state));
-  assert.deepEqual(Object.keys(body.connection).sort(), ["createdAt", "createdBy", "destinations", "errorCode", "expiresAt", "grantedScopes", "id", "message", "provider", "reauthAccountId", "requestedScopes", "status"]);
+  assert.deepEqual(Object.keys(body.connection).sort(), ["createdAt", "createdBy", "destinations", "errorCode", "expiresAt", "grantedScopes", "id", "message", "notes", "provider", "reauthAccountId", "requestedScopes", "status"]);
 });
 
 test("PKCE: the challenge is S256 of a verifier that is sealed at rest and sent only in the exchange", async () => {

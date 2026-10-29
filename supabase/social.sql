@@ -221,6 +221,8 @@ create table if not exists public.openblog_social_connections (
   access_expires_at timestamptz,
   refresh_expires_at timestamptz,
   destinations jsonb check (jsonb_typeof(destinations) = 'array' and octet_length(destinations::text) <= 65536),
+  -- Fixed note codes about what the provider could not confirm (ADR 0461).
+  notes text check (char_length(notes) <= 500),
   error_code text check (error_code ~ '^[a-z][a-z0-9-]{0,39}$'),
   version integer not null default 1 check (version >= 1),
   created_at timestamptz not null default now(),

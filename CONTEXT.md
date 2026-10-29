@@ -2688,3 +2688,14 @@ _Avoid_: Login, session
 The unguessable single-use value that ties a provider's redirect back to the connection an authorized Admin
 started. It is the callback's only proof, since the callback carries no key.
 _Avoid_: Nonce, CSRF token (the Admin CSRF token is a different thing)
+
+**Destination**:
+Where a connected account may actually post: a LinkedIn member or organization, or a Facebook Page. It is offered
+only when the provider confirmed the permission and the person's role; otherwise it is listed with the reason and
+cannot be chosen.
+_Avoid_: Channel, target (a cross-posting target is a different thing)
+
+**Reconnect**:
+A new handshake for an existing social account that can finish only for the same provider identity, replacing its
+credential and clearing its needs-reauth flag.
+_Avoid_: Refresh (a silent token renewal), re-add

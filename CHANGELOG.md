@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Social publishing destinations (story #355; ADR 0461): after authorizing, the hosted function lists where the grant can really post (a LinkedIn member and, with approval, organizations; Facebook Pages the person can create content on) and offers only what the provider confirms, with the reason for the rest and a plain note when something cannot be verified, such as Meta App Review. The author chooses once; reconnecting works only for the same identity; disconnecting erases the stored tokens and asks LinkedIn to revoke when nothing else shares the grant. Tokens are never returned.
+
 - Social publishing OAuth (story #355; ADR 0460): the hosted function can start and finish a LinkedIn or Facebook OAuth authorization-code handshake with a single-use state, optional PKCE, exact registered redirects, scopes verified from the provider's grant, and tokens sealed until the author picks a destination. Providers, API versions and scopes are settings; `supabase/social.sql` gains one additive table. Off unless social publishing is enabled and a provider is configured. See [Social publishing](docs/social-publishing.md).
 
 - Social publishing credentials (story #354; ADR 0295): provider tokens are envelope-encrypted by the hosted function (AES-256-GCM, a per-connection data key wrapped by `OPENBLOG_SOCIAL_TOKEN_KEYS`, which is never in the database), refreshed once at a time shortly before expiry, erased on revoke or when the provider drops the grant, and never shown in Admin, errors or logs. `OPENBLOG_SOCIAL_TOKEN_KEYS` is now required to enable social publishing.

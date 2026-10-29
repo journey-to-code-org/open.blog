@@ -104,3 +104,31 @@ and `<CALLBACK_BASE>/callback/facebook`. Nothing in a request can change the red
 Each attempt expires after ten minutes, works once, and at most ten may be open. If the author declines a
 permission, the attempt fails with a plain message and nothing is stored. The scopes shown in Admin are the ones
 the provider actually granted. Client secrets are sent in the request body to the provider, never in a URL.
+
+## Choosing where to post
+
+After the author authorizes, the function asks the provider where the grant can post
+([ADR 0461](adr/0461-destinations-are-discovered-from-the-grant-and-offered-only-when-the-provider-confirms-them.md)).
+Admin lists each destination and chooses one; nothing is connected until it does, and the choice is made once.
+
+- **LinkedIn** offers the member, and the organizations they administer when you set
+  `OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS=true` and LinkedIn has approved the Community Management API for your app.
+  Admin tells apart "not asked for", "not granted", "LinkedIn refused the lookup" (usually no approval), "could not
+  be listed" and "you administer none"; it never reads a refusal as an empty list.
+- **Facebook** offers a Page only if `pages_manage_posts` was granted, your role on the Page includes creating
+  content, and Facebook returned access for it. A Page whose role Facebook did not report is shown but not
+  offered. Meta's App Review status cannot be read from the API, so Admin always reminds you to confirm it.
+- A destination that is already connected cannot be connected twice; use **Reconnect** on it.
+
+**Reconnect** signs in again and replaces the stored credential, but only for the same LinkedIn identity or the
+same Page. A different login is refused, LinkedIn is asked to withdraw that grant, and nothing is changed.
+
+**Disconnect** erases the stored tokens and keeps the account row for history. LinkedIn is asked to revoke the
+grant when no other connected LinkedIn account could share it. Facebook is not asked, because withdrawing the grant
+would also cut off your other Pages: remove the app under **Settings > Business integrations** in Facebook if you
+want the grant gone. Revoke the app in the provider's settings as well when you retire the site.
+
+An account shows as **Needs reconnecting** when a provider dropped the grant, its tokens were erased, or its tokens
+(and refresh token) have run out, and as **Expiring** within seven days of that moment. LinkedIn tokens refresh
+themselves while a refresh token is valid. Admin shows each account's provider id and name, its status, its dates and
+the permissions that were granted, never a token.
