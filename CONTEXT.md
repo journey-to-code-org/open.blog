@@ -2832,3 +2832,32 @@ _Avoid_: Error queue
 The time until which a rate-limited social account sends nothing, for any of its posts, so one limit is not hit again by
 the next announcement.
 _Avoid_: Cooldown, ban
+
+## Distribution
+
+**Provider manifest**:
+The versioned statement of what this release's adapter does at one destination (a cross-posting target or a social
+provider): each capability's support, the login method and scopes, the verified provider limits, how the canonical
+address travels, what makes something public, and the policy version and sources it was checked against. It is code,
+never a credential, and anything unknown in it refuses the whole manifest (ADR 0720).
+_Avoid_: Provider config (the deployer's settings), integration, capability flags
+
+**Distribution capability**:
+One of the closed list of things a distribution can ask of a destination: link, text, article, image, video, draft,
+schedule. A name outside the list refuses the request it appears in.
+_Avoid_: Feature, content type
+
+**Capability support**:
+How far this release goes for one capability at one destination: `adapter` (done through the provider's API),
+`manual` (the provider can, but only the author can, by hand) or `unsupported`.
+_Avoid_: Partial support, best effort
+
+**Policy version**:
+The day a provider manifest's facts were checked against the provider's documentation (`YYYY-MM-DD`, optionally
+`.N`). Any change to a manifest raises it, so a provider and policy version always mean one set of facts.
+_Avoid_: API version (the provider's own, such as LinkedIn's `YYYYMM`), manifest version (the format)
+
+**Destination eligibility**:
+Whether a destination can take a distribution request through its adapter. An ineligible destination is reported
+with destination-specific reasons (a manual or unsupported capability, a limit), never sent a part of the request.
+_Avoid_: Validation error, warning

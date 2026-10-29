@@ -121,6 +121,7 @@ pub mod piece;
 pub mod portability;
 pub mod preview;
 pub mod profile;
+pub mod provider_manifest;
 pub mod publication_boundary;
 pub mod publication_review;
 pub mod published_moment;
