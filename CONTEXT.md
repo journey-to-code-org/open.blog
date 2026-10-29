@@ -2584,6 +2584,13 @@ core and placed by Admin's Job mode or `openblog new --profile job`. They are or
 locked (ADR 0287).
 _Avoid_: Template, form body
 
+**Before and after pair**:
+Two pictures of the same thing, written as a `compare` fence with a required description for each, an optional
+caption and a label ("Before" and "After" by default). Any post may hold one. The page shows a comparison
+control; feeds, syndicated copies and exports show two captioned figures. Reported as the `before-after`
+capability (ADR 0400).
+_Avoid_: Slider, image diff, gallery
+
 **Service**:
 One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
 typical timeline, and FAQs. A job's `service` names one of them.
