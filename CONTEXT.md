@@ -2595,6 +2595,14 @@ _Avoid_: Reset, wipe, delete account
 
 ## Trades
 
+**Business facts**:
+The one `business` block in `openblog.json`: legal and display name, trade, phone (E.164), email, hours per
+weekday with closed days, license number and issuer, an insured flag, accepted kinds of payment and the founding
+year. Every page, the footer, the Landing page's Business facts section and the `LocalBusiness` structured data
+read it, so nothing contradicts itself. Unset means nothing changes; it never holds anything about customers
+(ADR 0400).
+_Avoid_: Company profile, contact details (they are one part)
+
 **Job**:
 A dated Post using the `job` content profile that records one piece of completed work: trade, service, place,
 problem, what was found, what was done, result, media. A job is a post, so feeds, tags, series and export treat

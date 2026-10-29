@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Business facts in `openblog.json` (epic #473, story #482; ADR 0400): an optional, versioned `business` block states the legal and display name, trade, phone (stored as E.164 and formatted when pages are built), email, opening hours per weekday with closed days, license number and issuer, an insured flag, accepted kinds of payment and the founding year. A bad phone, time or payment method fails with a plain message naming the field. Without the block nothing changes. See [Configuration](docs/configuration.md#business-facts).
+
 - A trades voice prompt pack (epic #472, story #481): the bundled voice catalog gains a `trades` pack of eight short prompts for people who work with their hands (a job that went sideways, the question every customer asks, the tool you would never give up, and more), each answerable in three minutes. Hide it like any pack with `disabled: [trades]` in `assistant/voice/catalog.md`.
 
 - Draft with AI in Capture (epic #472, story #480; ADR 0304): with a configured Assistant provider and some notes (typed, or a transcript), **Draft with AI** first shows where the notes go and what goes with them, with a tick to write it in your voice by sending your voice guide, and sends nothing until you tap **Send to the Assistant**. The result fills an editable Title, Description and the four job sections as unsaved changes, with one **Undo the draft**; it replaces the notes in the saved post only when you tap **Save draft**, and never saves or publishes by itself. Without a provider your typed notes become the post as before. A waiting capture keeps an applied draft in its queue record (an optional `fields.draft`, version 1).

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::business::BusinessConfig;
 use crate::contributor::{self, Contributor};
 use crate::look::LookSettings;
 use crate::participation::ParticipationConfig;
@@ -132,6 +133,11 @@ pub struct SiteConfig {
     /// 0285). Omitted from the written file while empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra_trades: Vec<String>,
+    /// The business facts stated once for every page (ADR 0400). Omitted from the
+    /// written file while nothing is stated, so a site that never sets it builds
+    /// exactly as before.
+    #[serde(skip_serializing_if = "BusinessConfig::is_default")]
+    pub business: BusinessConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -564,6 +570,7 @@ impl Default for SiteConfig {
             reading_modes: ReadingModesConfig::default(),
             reader_annotations: ReaderAnnotationsConfig::default(),
             extra_trades: Vec::new(),
+            business: BusinessConfig::default(),
         }
     }
 }
@@ -1130,6 +1137,11 @@ impl SiteConfig {
             }
         }
         contributor::normalize_registry(&mut self.contributors)?;
+        if !self.business.trade.is_empty() {
+            self.business.trade =
+                crate::job::normalize_trade(&self.business.trade, &self.extra_trades)
+                    .map_err(|error| error.replacen("job.trade", "business.trade", 1))?;
+        }
         Ok(())
     }
 
@@ -1252,6 +1264,34 @@ mod tests {
             bad.contains("invalid openblog.json") && bad.contains("accent"),
             "{bad}"
         );
+    }
+
+    #[test]
+    fn business_is_validated_with_the_config_and_absent_by_default() {
+        let plain = SiteConfig::from_json("{}").unwrap();
+        assert!(plain.business.is_default());
+        assert!(!plain.to_json().contains("business"));
+        let set = SiteConfig::from_json(
+            r#"{"extraTrades":["fencing"],"business":{"version":1,"displayName":"Acme","phone":"+13605550142","trade":"Fencing","hours":{"sunday":{"closed":true}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(set.business.trade, "fencing");
+        let json = set.to_json();
+        assert!(json.contains("\"phone\": \"+13605550142\"") && json.contains("\"closed\": true"));
+        let bad_phone =
+            SiteConfig::from_json(r#"{"business":{"phone":"360-555-0142"}}"#).unwrap_err();
+        assert!(
+            bad_phone.contains("invalid openblog.json")
+                && bad_phone.contains("business: phone must include the country code"),
+            "{bad_phone}"
+        );
+        let bad_hours = SiteConfig::from_json(
+            r#"{"business":{"hours":{"monday":{"open":"9","close":"17:00"}}}}"#,
+        )
+        .unwrap_err();
+        assert!(bad_hours.contains("24-hour time like 08:00"), "{bad_hours}");
+        let bad_trade = SiteConfig::from_json(r#"{"business":{"trade":"wizardry"}}"#).unwrap_err();
+        assert!(bad_trade.contains("business.trade"), "{bad_trade}");
     }
 
     #[test]
