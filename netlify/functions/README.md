@@ -36,7 +36,8 @@ browser script.
    this binding prevents the token from being sent to a changed destination.
 
 New comments remain pending until approved in **Admin → Moderation inbox** (see
-[Moderation inbox](#moderation-inbox) below). For every
+[Moderation inbox](#moderation-inbox) below). To keep bots out of that queue, optionally add a
+captcha: see [Comment captcha](#comment-captcha-optional) for its five variables. For every
 public comment read or submission, the function fetches the generated `openblog-comments.json`
 manifest from `OPENBLOG_SITE_ORIGIN` and enforces its open, locked, or hidden policy before querying Supabase.
 Keep that origin current and publicly reachable. Public pages never receive any Supabase key or the
@@ -45,48 +46,83 @@ before content is stored.
 
 ## Comment captcha (optional)
 
-In Admin → Analytics, enable **Verify comments with Cloudflare Turnstile** and enter the
-public site key, or add to `engagement` in `openblog.json`:
+A Cloudflare Turnstile challenge before the first comment of a visit keeps bots out of the
+moderation queue. It is off unless you turn it on in two places that must agree: the public
+settings (`openblog.json`, Admin) and the Netlify environment. The design is in ADR 0400.
 
-```json
-"captcha": { "enabled": true, "provider": "turnstile", "siteKey": "YOUR_PUBLIC_SITE_KEY" }
-```
+1. **Create a Turnstile widget** in the Cloudflare dashboard (Turnstile → Add widget), listing your
+   public hostname. Use the *Managed* mode. You get a public **site key** and a private **secret**.
+2. **Public settings.** In Admin → Analytics, open *Comment captcha (advanced)*, choose Cloudflare
+   Turnstile and enter the site key, or add to `engagement` in `openblog.json`:
 
-Create a Turnstile widget allowing your public hostname. Set these Netlify environment variables:
+   ```json
+   "captcha": { "provider": "turnstile", "siteKey": "YOUR_PUBLIC_SITE_KEY", "scope": "session" }
+   ```
 
-| Variable | Value |
-| --- | --- |
-| `OPENBLOG_CAPTCHA_ENABLED` | `true` to enforce verification; absent means off |
-| `OPENBLOG_TURNSTILE_SECRET` | Widget secret, server only |
-| `OPENBLOG_CAPTCHA_PASS_SECRET` | Separate cryptographically random value, at least 32 characters |
+   `scope` is `session` (default) or `every-comment`. Only these three public values are stored.
+3. **Netlify environment variables** (set them, then redeploy):
 
-Rebuild and redeploy together. Never enter either secret in Admin, config, or source control.
-Enabled protection with missing secrets refuses submissions (`503 captcha_configuration`).
-Unverified submissions return `403 captcha_required` before comment storage. Success returns
-`captchaSession: {pass, expiresAt}` with a Unix-seconds expiry. The signed bearer pass lasts
-30 minutes in the tab session, and existing comment quotas still apply. Attempts have an additional
-hourly quota (20 per client, 2,000 per site). No SQL migration is required. Rotate the signing
-secret to invalidate all passes. Disable both public configuration and the environment opt-in,
-then rebuild/redeploy to roll back.
+   | Variable | Value |
+   | --- | --- |
+   | `OPENBLOG_CAPTCHA_PROVIDER` | `turnstile` to enforce verification; `off` or unset means off |
+   | `OPENBLOG_TURNSTILE_SECRET` | The widget's secret, server only |
+   | `OPENBLOG_CAPTCHA_SESSION_SECRET` | A separate, cryptographically random value of at least 32 characters, used to sign passes; not needed with `every-comment` |
+   | `OPENBLOG_CAPTCHA_SCOPE` | `session` (default) or `every-comment`; must match `engagement.captcha.scope` |
+   | `OPENBLOG_CAPTCHA_SESSION_TTL_SECONDS` | Optional pass lifetime, default `1800` (30 minutes), kept between 60 and 86400 |
 
-The script loads only after form interaction. If you supply a Content-Security-Policy, allow
-`https://challenges.cloudflare.com` in `script-src` and `frame-src`; no wildcard is necessary.
-Blocked scripts show retry and preserve the draft. Local `openblog serve` comments are unaffected.
+   Never enter a secret in Admin, `openblog.json`, generated pages or source control. Then rebuild
+   so pages carry the public attributes.
+4. **Check it.** `node scripts/deployment-smoke.mjs <site-origin> <admin-origin> <open-post-path> --captcha`
+   confirms a direct, unverified comment is refused with `captcha_required` (it stores nothing when
+   protection works; use a disposable deployment to diagnose a misconfiguration).
 
-Use [Cloudflare's published test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)
-only on a disposable deployment. The visible always-pass site key is
-`1x00000000000000000000AA` with test secret `1x0000000000000000000000000000000AA`;
-the always-fail test secret is `2x0000000000000000000000000000000AA`. Use the passing
-site key to exercise the widget, and the failing secret to exercise server rejection.
-Never deploy test keys to production. This verifier
-also requires the returned hostname to match `OPENBLOG_SITE_ORIGIN` and action `comment`:
-test responses with dummy hostname/action must be tested through a mocked verifier instead of
-weakening production validation. `tests/browser/comment-captcha.spec.mjs` intercepts the provider
-in Chromium, checking lazy loading, session reuse, rejection and blocked-script recovery.
+How it behaves:
 
-Run `node scripts/deployment-smoke.mjs <site-origin> <admin-origin> <open-post-path> --captcha`
-to check that a direct unverified comment POST is refused. It stores nothing when protection
-is correctly enabled; use a disposable deployment to diagnose a misconfiguration.
+- `POST /comments` checks origin, policy and fields, then the captcha, then the rate limit, then
+  stores. An unverified comment gets `403 captcha_required`; an expired pass gets `403 captcha_expired`.
+  A valid `captchaToken` is verified with Cloudflare (5 second limit) and answered with
+  `captchaPass` and `captchaPassExpiresAt`. The browser keeps the pass in `sessionStorage`, so it
+  ends with the tab, and sends it with later comments. Existing comment quotas still apply to every comment.
+- Failed verifications spend a separate `captcha` bucket in the existing rate-limit function (10 per
+  client and 1,000 per site per hour) and then answer `429 captcha_rate_limited`. The bucket name is
+  data, so **no SQL migration** is needed.
+- Enabled with a missing or invalid variable, the function refuses comments with
+  `503 captcha_unconfigured`, naming the variable (never a value) instead of accepting unverified
+  comments. A misspelled provider or scope fails the same way.
+- A stateless HMAC-SHA256 pass carries only the site id, an expiry and a random id. It authorizes
+  comment submissions for that site and nothing else. Passes cannot be revoked one by one: rotate
+  `OPENBLOG_CAPTCHA_SESSION_SECRET` to invalidate them all.
+- To roll back, set `OPENBLOG_CAPTCHA_PROVIDER` to `off` (or remove it) and set the public provider
+  to Off; comments then behave exactly as before. Local `openblog serve` comments never use this.
+
+What the provider receives: nothing loads when a page is viewed. When a reader first clicks or
+types in the comment form, their browser requests Cloudflare's script
+(`https://challenges.cloudflare.com/turnstile/v0/api.js`), so Cloudflare sees the reader's IP
+address and browser details. Your function sends Cloudflare the widget secret, the one-time
+challenge result and the reader's IP address for verification. The form tells readers this in one
+line above the Submit button. Blocked scripts show a plain explanation and a Retry button and keep
+the typed text.
+
+Security headers: the site's `netlify.toml` publishes no Content-Security-Policy, so nothing is
+added for the provider. If you add your own, allow only `https://challenges.cloudflare.com` in
+`script-src` and `frame-src`, and only on sites that use captcha. No `connect-src` is needed,
+because verification runs on the server.
+
+Testing with Turnstile's [published test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)
+on a disposable deployment (never production): the always-passing site key
+`1x00000000000000000000AA` with secret `1x0000000000000000000000000000000AA`, the always-failing
+secret `2x0000000000000000000000000000000AA`, and the token-already-spent secret
+`3x0000000000000000000000000000000AA`. The verifier does not pin the response hostname so these
+keys work. The repository's checks run the real function handler with a fake provider:
+`tests/web/comment-captcha.test.mjs` (server), `tests/web/comment-captcha-component.test.mjs`
+(browser component) and the Playwright specs `tests/browser/comment-captcha.spec.mjs` and
+`comment-captcha-admin.spec.mjs`.
+
+Troubleshooting: *"Comment verification is enabled but X is not set correctly"* means that
+variable is missing, too short or misspelled; fix it and redeploy. A reader who sees *"The human
+check could not load"* has the provider's script blocked; they can retry or come back later. If
+every comment gets `captcha_required`, check that `OPENBLOG_CAPTCHA_SCOPE` matches the public
+`scope` and that the pages were rebuilt after enabling.
 
 ## Passage feedback (optional)
 

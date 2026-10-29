@@ -2,7 +2,7 @@
 // comment content is assigned only through textContent. With the `reports`
 // attribute (abuse reports open on the post, ADR 0107), each comment offers a
 // private, anonymous report form. With the public `captcha-*` attributes
-// (ADR 0316) the first comment of a session is verified by a hosted challenge
+// (ADR 0400) the first comment of a session is verified by a hosted challenge
 // that only loads once the reader starts writing.
 
 import { reportForm } from "./ob-abuse-report.js";
