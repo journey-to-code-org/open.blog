@@ -1,4 +1,4 @@
-// The Services screen (ADR 0310, #511): each thing the business sells, written once. A list of the
+// The Services screen (ADR 0313, #511): each thing the business sells, written once. A list of the
 // services under `#/services`, and a form for one (`#/services/new`, `#/services/edit/<path>`) with a name,
 // an id, a summary, what is included, a price band, a typical timeline, a list of questions and answers, and
 // the text that goes on the service's own page. It edits the `services/` collection through the same

@@ -2,7 +2,7 @@
 
 A service is one thing your business sells, described once: what it includes, a starting price band, a typical
 timeline and the questions customers ask. It is a Markdown file in `content/services/`. A site that has no such
-folder builds exactly as it did before. A Markdown file in `content/services/` counts as a service only if its front matter has `version` or `id`; a file with neither is ignored as it always was, and one with either that is otherwise invalid fails the build naming the file ([ADR 0308](adr/0308-services-are-a-services-collection-of-markdown-files-with-versioned-front-matter-and-a-jobs-service-is-checked-against-it-only-when-the-site-has-one.md)).
+folder builds exactly as it did before. A Markdown file in `content/services/` counts as a service only if its front matter has `version` or `id`; a file with neither is ignored as it always was, and one with either that is otherwise invalid fails the build naming the file ([ADR 0311](adr/0311-services-are-a-services-collection-of-markdown-files-with-versioned-front-matter-and-a-jobs-service-is-checked-against-it-only-when-the-site-has-one.md)).
 
 open.blog is not a field-service tool. A price band is a label you choose to show; nothing here adds up,
 estimates or quotes.
@@ -55,7 +55,7 @@ questions are a list: **Add a question** puts the cursor in the new one, and eac
 words beside the field they are about, and nothing is saved until the build would accept it. The screen is one
 column from 320px with 44px controls. It uses the same document routes as posts, pages and series (session,
 CSRF and the revision check included), so there is nothing new to secure; see
-[ADR 0310](adr/0310-services-are-edited-in-admin-through-the-document-routes-with-a-screen-of-their-own-scaffolded-as-drafts-from-the-command-line.md).
+[ADR 0313](adr/0313-services-are-edited-in-admin-through-the-document-routes-with-a-screen-of-their-own-scaffolded-as-drafts-from-the-command-line.md).
 The job form's service box suggests the ids of your published services.
 
 From the command line, `openblog new "Hardwood installation" --profile service` writes
@@ -84,7 +84,7 @@ A site with at least one service gets:
 
 The price band is shown in words (`$2,000 to $10,000`) with the note that it is a guide, not a quote. Change
 one band, rebuild, and the page, the index and the structured data all change. A site with no services builds
-exactly as it did before. See [ADR 0309](adr/0309-service-pages-the-index-and-their-structured-data-are-rendered-from-the-collection-alone-deterministically-and-only-for-a-site-that-has-services.md).
+exactly as it did before. See [ADR 0312](adr/0312-service-pages-the-index-and-their-structured-data-are-rendered-from-the-collection-alone-deterministically-and-only-for-a-site-that-has-services.md).
 
 ## Jobs and services
 

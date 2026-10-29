@@ -14045,7 +14045,7 @@ export class ObAdmin extends AdminElement {
     await view.load();
   }
 
-  // ---- services (ADR 0310)
+  // ---- services (ADR 0313)
 
   /** `#/services`: the list; `#/services/new` and `#/services/edit/<path>`: one service, edited through the document routes. */
   async showServices(tail) {

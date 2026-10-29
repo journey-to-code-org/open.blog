@@ -1,11 +1,11 @@
-# ADR 0309: Service pages, the index and their structured data are rendered from the collection alone, deterministically, and only for a site that has services
+# ADR 0312: Service pages, the index and their structured data are rendered from the collection alone, deterministically, and only for a site that has services
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#483](https://github.com/journey-to-code-org/open.blog/issues/483)
 - Task: [#510](https://github.com/journey-to-code-org/open.blog/issues/510)
 - Parent epic: [#473](https://github.com/journey-to-code-org/open.blog/issues/473)
-- Builds on: [ADR 0308](0308-services-are-a-services-collection-of-markdown-files-with-versioned-front-matter-and-a-jobs-service-is-checked-against-it-only-when-the-site-has-one.md), [ADR 0286](0286-jobs-archives-are-derived-from-job-posts-and-page-like-the-home-page.md), [ADR 0306](0306-business-facts-render-as-one-engine-block-in-the-footer-and-a-landing-section-with-localbusiness-data-on-the-home-page.md)
+- Builds on: [ADR 0311](0311-services-are-a-services-collection-of-markdown-files-with-versioned-front-matter-and-a-jobs-service-is-checked-against-it-only-when-the-site-has-one.md), [ADR 0286](0286-jobs-archives-are-derived-from-job-posts-and-page-like-the-home-page.md), [ADR 0306](0306-business-facts-render-as-one-engine-block-in-the-footer-and-a-landing-section-with-localbusiness-data-on-the-home-page.md)
 
 ## Context
 

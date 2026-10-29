@@ -175,7 +175,7 @@ const NESTED_KEY: &str = "job";
 const MAX_NESTING: usize = 3;
 
 /// The one key whose value may be a list of mappings (a service's questions
-/// and answers, ADR 0308). Entry `n` (counting from 1) is stored flattened as
+/// and answers, ADR 0311). Entry `n` (counting from 1) is stored flattened as
 /// `faq.<n>.question` and `faq.<n>.answer`, so the `Value` shape is unchanged.
 /// A list whose first entry does not start `- question:` is an ordinary list.
 const FAQ_KEY: &str = "faq";

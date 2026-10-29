@@ -1,11 +1,11 @@
-# ADR 0310: Services are edited in Admin through the document routes with a screen of their own, scaffolded as drafts from the command line
+# ADR 0313: Services are edited in Admin through the document routes with a screen of their own, scaffolded as drafts from the command line
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#483](https://github.com/journey-to-code-org/open.blog/issues/483)
 - Task: [#511](https://github.com/journey-to-code-org/open.blog/issues/511)
 - Parent epic: [#473](https://github.com/journey-to-code-org/open.blog/issues/473)
-- Builds on: [ADR 0308](0308-services-are-a-services-collection-of-markdown-files-with-versioned-front-matter-and-a-jobs-service-is-checked-against-it-only-when-the-site-has-one.md), [ADR 0309](0309-service-pages-the-index-and-their-structured-data-are-rendered-from-the-collection-alone-deterministically-and-only-for-a-site-that-has-services.md), [ADR 0307](0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md)
+- Builds on: [ADR 0311](0311-services-are-a-services-collection-of-markdown-files-with-versioned-front-matter-and-a-jobs-service-is-checked-against-it-only-when-the-site-has-one.md), [ADR 0312](0312-service-pages-the-index-and-their-structured-data-are-rendered-from-the-collection-alone-deterministically-and-only-for-a-site-that-has-services.md), [ADR 0307](0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md)
 
 ## Context
 
@@ -30,7 +30,7 @@ write path.
   `faq.<number>.<name>` (a number of up to three digits, one name, nothing deeper) and nothing else; a key like
   `faq.x.question` or `faq.1.question.extra` is refused. The editor sends `faq.1.question`, `faq.1.answer` and
   so on, renumbered from 1, so a removed question leaves no stale key behind and the front matter writer emits
-  them back as the block list ADR 0308 defines.
+  them back as the block list ADR 0311 defines.
 - **A screen of its own, built like Business facts.** `#/services` lists the services; `#/services/new` and
   `#/services/edit/<path>` edit one. It is a module (`web/admin/services.js`) with the pure rules at the top,
   tested without a page, and one column from 320px with every control at least 44px tall and named. It has

@@ -2663,9 +2663,9 @@ _Avoid_: AI post, generated post
 One offering a business sells, kept as a Markdown file in the `services/` collection with an `id`, a name, a
 one-sentence summary, what is included, a starting price band, a typical timeline, and FAQs. A job's `service`
 names one of them by id; once a site has any service, a job naming an unknown id is refused with the known ids
-listed. The price band is the jobs' cost band, a label and never a quote (ADR 0308). A site with services gets a
+listed. The price band is the jobs' cost band, a label and never a quote (ADR 0311). A site with services gets a
 `/services/` index and a page per service with `Service` structured data, and `FAQPage` data only for a service
-that has questions (ADR 0309). `openblog new --profile service` and Admin's Services screen write them (ADR 0310).
+that has questions (ADR 0312). `openblog new --profile service` and Admin's Services screen write them (ADR 0313).
 _Avoid_: Product, category
 
 **Service area**:

@@ -1,4 +1,4 @@
-//! Admin service routes (ADR 0310, #511): services are edited through the same document routes posts, pages
+//! Admin service routes (ADR 0313, #511): services are edited through the same document routes posts, pages
 //! and series use, behind the same session and CSRF checks, with the build's own validation in plain words.
 
 use super::*;
