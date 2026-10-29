@@ -4,7 +4,7 @@
 - Date: 2026-10-29
 - Parent story: [#479](https://github.com/journey-to-code-org/open.blog/issues/479)
 - Task: [#500](https://github.com/journey-to-code-org/open.blog/issues/500)
-- Builds on: [ADR 0293](0293-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md)
+- Builds on: [ADR 0293](0296-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md)
 
 ## Context
 

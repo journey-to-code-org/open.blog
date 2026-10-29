@@ -4,7 +4,7 @@
 - Date: 2026-10-29
 - Parent story: [#479](https://github.com/journey-to-code-org/open.blog/issues/479)
 - Task: [#501](https://github.com/journey-to-code-org/open.blog/issues/501)
-- Builds on: [ADR 0293](0293-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md), [ADR 0294](0294-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
+- Builds on: [ADR 0293](0296-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md), [ADR 0294](0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
 
 ## Context
 
