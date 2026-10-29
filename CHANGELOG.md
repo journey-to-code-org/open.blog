@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Hosted comment captcha (#296): optional lazy Turnstile verification, a signed 30-minute tab-session pass, server-side attempt quotas, public-only Admin configuration, and accessible retry without losing drafts.
+
 ## [0.51.0] - 2026-10-29
 
 - Jobs (epic #471, story #476; ADR 0285): a new `job` content profile records one piece of finished trade work as an ordinary post, with a `job` front matter mapping for trade, service, town, dates, materials, a cost band and before and after images. Fields are checked with plain messages that name the field, `costBand` is an enum, a place is a town and never an address, and unknown keys are kept. Sites add their own trades with `extraTrades` in `openblog.json`, and a site with jobs gets `/jobs/`, `/jobs/<trade>/` and `/jobs/<trade>/<service>/` archives (paged like the home page, in the sitemap, none when empty; ADR 0286). A site that does not use the profile builds byte for byte as before. See [Jobs](docs/jobs.md).

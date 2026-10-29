@@ -4794,6 +4794,7 @@ fn engagement_settings(state: &AppState) -> Response {
             "analytics": config.engagement.analytics,
             "endpoint": config.engagement.endpoint,
             "feedback": config.engagement.feedback,
+            "captcha": config.engagement.captcha,
             "etag": etag,
             "credential": credential,
         }),
@@ -4884,6 +4885,19 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
     if let Some(feedback) = body["feedback"].as_bool() {
         engagement.insert("feedback".into(), json!(feedback));
     }
+    if let Some(captcha) = body.get("captcha") {
+        let parsed =
+            match serde_json::from_value::<openblog_core::config::CaptchaConfig>(captcha.clone()) {
+                Ok(parsed) => parsed,
+                Err(_) => {
+                    return Response::error(
+                        422,
+                        "Captcha accepts only enabled, provider, and public siteKey",
+                    )
+                }
+            };
+        engagement.insert("captcha".into(), json!(parsed));
+    }
     value["engagement"] = Json::Object(engagement);
     let candidate = match serde_json::to_string_pretty(&value) {
         Ok(value) => format!("{value}\n"),
@@ -4938,6 +4952,7 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
         &json!({
             "enabled": enabled, "comments": comments, "analytics": analytics,
             "endpoint": endpoint, "etag": etag, "credential": credential,
+            "captcha": value["engagement"]["captcha"],
         }),
     )
 }
@@ -25555,6 +25570,25 @@ What I read:
         assert_eq!(initial.status, 200);
         let initial_json = body_json(&initial);
         assert_eq!(initial_json["enabled"], false);
+        let secret_attempt = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "etag": initial_json["etag"],
+                        "captcha": { "enabled": true, "siteKey": "public-key", "secret": "never-persist-this" }
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(secret_attempt.status, 422);
+        assert!(!fs::read_to_string(f.dir.join(site::CONFIG_FILE))
+            .unwrap()
+            .contains("never-persist-this"));
         let save = json!({
             "enabled": true,
             "comments": true,
@@ -25563,6 +25597,7 @@ What I read:
             "etag": initial_json["etag"],
             "credentialAction": "replace",
             "credential": "moderation-secret",
+            "captcha": { "enabled": true, "provider": "turnstile", "siteKey": "public-key" },
         });
         assert_eq!(
             handle(
@@ -25585,6 +25620,7 @@ What I read:
             ),
         );
         assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["captcha"]["siteKey"], "public-key");
         assert_eq!(body_json(&saved)["credential"]["configured"], true);
         assert!(!String::from_utf8_lossy(&saved.body).contains("moderation-secret"));
         let config = site::load_config(&f.dir).unwrap();
@@ -25636,6 +25672,8 @@ What I read:
         assert_eq!(kept.status, 200);
         let config = site::load_config(&f.dir).unwrap();
         assert!(config.engagement.feedback && !config.engagement.comments);
+        assert!(config.engagement.captcha.enabled);
+        assert_eq!(config.engagement.captcha.site_key, "public-key");
         let off = handle(
             &f.state,
             &authed(
