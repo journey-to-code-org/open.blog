@@ -2867,3 +2867,17 @@ How a newer manifest of a provider relates to the older one: same, compatible (o
 documentation changes; approvals stand) or breaking (anything narrowed, tightened or changed in login, canonical or
 publishing; approvals under the old policy version are void) (ADR 0722).
 _Avoid_: Semver, upgrade safety
+
+**Distribution plan**:
+For one published post and the destinations the author chose, a preview per destination: exactly the portable
+copy the run would send (or the author would import), the intent (draft, published or manual), the capabilities that
+asks for, and its status: ready, manual (the guided workflow) or blocked, with every destination-specific reason.
+It is identified by a plan digest and written as dry-run artifacts by `openblog syndicate --preview`; with no
+destination it holds the portable copy as a fallback (ADRs 0723, 0725).
+_Avoid_: Campaign, schedule, dry-run output (the existing text and JSON plans)
+
+**Distribution approval**:
+The author's explicit consent to one distribution plan, given by its digest: bound to the source revision, the
+canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
+under. Private; with `requireApproval` a write sends only what it covers (ADR 0724).
+_Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)
