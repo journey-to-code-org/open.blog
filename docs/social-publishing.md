@@ -463,3 +463,23 @@ says how many were canceled.
 - Late queue: `select id, status, scheduled_for, next_attempt_at, last_error_code from openblog_social_posts where status = 'scheduled' and coalesce(next_attempt_at, scheduled_for) < now() - interval '15 minutes';`
 - Expired leases without waiting for a run: `select * from openblog_social_sweep('<your site id>');`
 - Needs checking: `select id, last_error_code, updated_at from openblog_social_posts where status = 'unknown';` and settle each in Admin.
+
+## How delivery safety is tested
+
+Nothing here uses a real account or the network; providers and Supabase are fakes.
+
+- **Races** (`tests/web/social-races.test.mjs`): two workers run at once over the same queue and each announcement is
+  sent exactly once; an author's cancel and a worker's claim cannot both win.
+- **Fault injection**: a storage failure (a dropped connection or a 500 carrying a key) is injected at every single
+  call of a worker run in turn, then healthy runs follow. Whatever failed, nothing is sent twice, nothing is
+  `published` without the provider's id, nothing stays claimed, and no key or token reaches a summary or a stored row.
+  Every provider failure the adapter contract allows (refused, rate limited, signed out, timed out, crashed, a success
+  without an id) is run the same way: only an answer that certainly did not post is ever sent again.
+- **The SQL** of the queue, the history and the operations runs against a real Postgres in CI
+  (`social-queue-sql`, `social-history-sql`, `social-ops-sql`), including two concurrent claimers, the append-only
+  history and retention that never touches scheduled, sending or unknown work.
+- **Security**: every Admin route needs a session and every write a CSRF token; the hosted routes take the admin key
+  only, refuse a request that names a site and read only this site's rows; captions, paths and codes are rendered
+  as text; and Admin rebuilds every reply from known fields.
+- **In a browser** (`tests/browser/social-announcements.spec.mjs`): the real binary and Admin over the real hosted
+  routes, by keyboard and at 320 px, including the status history.

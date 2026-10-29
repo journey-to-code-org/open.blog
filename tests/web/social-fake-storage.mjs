@@ -21,6 +21,7 @@ export function fakeStorage({ onPatch, ignoreFilters = false } = {}) {
     { id: FUTURE, site_id: SITE, provider: "threads", kind: "member", display_name: "Future", status: "connected" },
   ];
   const posts = [];
+  const attempts = [];
   const calls = [];
   let sequence = 0;
   const matches = (row, params) => {
@@ -40,7 +41,10 @@ export function fakeStorage({ onPatch, ignoreFilters = false } = {}) {
     const method = options.method || "GET";
     const body = options.body ? JSON.parse(options.body) : undefined;
     calls.push({ method, table, query: target.search, body, headers: options.headers });
-    const rows = table === "openblog_social_accounts" ? accounts : posts;
+    // Only the tables this stand-in knows; anything else (a function, a table from an optional file
+    // that was not run) is a 404, as PostgREST answers.
+    const rows = { openblog_social_accounts: accounts, openblog_social_posts: posts, openblog_social_attempts: attempts }[table];
+    if (!rows) return new Response(JSON.stringify({ code: "PGRST202", message: "not found" }), { status: 404, headers: { "content-type": "application/json" } });
     const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
     if (method === "GET") {
       let found = ignoreFilters ? [...rows] : rows.filter((row) => matches(row, target.searchParams));
@@ -83,6 +87,6 @@ export function fakeStorage({ onPatch, ignoreFilters = false } = {}) {
     }
     return json(405, {});
   };
-  return { fetchImpl, accounts, posts, calls };
+  return { fetchImpl, accounts, posts, attempts, calls };
 }
 

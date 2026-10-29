@@ -641,3 +641,10 @@ test("the Social screen shows delivery health beside the queue, and stays out of
   assert.equal(byData(broken.root, "data-social-health")[0].hidden, true, "a health failure never blocks the screen");
   assert.ok(byData(broken.root, "data-announcement").length > 0);
 }));
+
+test("captions, paths and codes from the queue are only ever text (no markup is built from data)", withDom(async () => {
+  const hostile = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+  const { root } = await open({ queue: [row({ caption: hostile, work: '/posts/"><svg onload=alert(3)>/', lastErrorCode: "<b>x</b>", status: "failed", editable: false, retryable: true, attemptCount: 1 })] });
+  assert.equal(all(root, "img").length + all(root, "script").length + all(root, "svg").length + all(root, "b").length, 0);
+  assert.ok(text(byData(root, "data-row-caption")[0]).includes(hostile));
+}));

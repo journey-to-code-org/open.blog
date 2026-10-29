@@ -120,6 +120,7 @@ test.beforeEach(({ page }) => {
     throw new Error(`unexpected ${dialog.type()}: ${dialog.message()}`);
   });
   storage.posts.length = 0;
+  storage.attempts.length = 0;
   sawKey = [];
 });
 
@@ -354,4 +355,42 @@ test("checking an unknown result moves focus into a labelled choice", async ({ p
   await page.keyboard.press("Enter");
   await expect(row.getByRole("radio", { name: "It was posted" })).toBeFocused();
   await expect(row.getByRole("group", { name: "What did you find?" })).toBeVisible();
+});
+
+test("an announcement's state and history read in words, by keyboard, without sideways scroll on a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await openSocial(page);
+  await compose(page);
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-announcement]")).toHaveCount(1);
+  // One try that certainly did not post, and the worker will try again (ADR 0318, 0700).
+  const post = storage.posts[0];
+  const started = new Date(Date.now() + 1000).toISOString();
+  Object.assign(post, { attempt_count: 1, version: 3, last_error_code: "rate-limited", next_attempt_at: new Date(Date.now() + 600_000).toISOString() });
+  storage.attempts.push({ site_id: post.site_id, post_id: post.id, attempt_no: 1, worker: "@worker", started_at: started, finished_at: started, outcome: "failed", http_status: 429, error_code: "rate-limited", error_detail: "The provider asked us to slow down. (HTTP 429.)", provider_request_id: "req-hidden" });
+  await page.reload();
+  const row = page.locator("[data-announcement]").first();
+  await expect(row.locator("[data-status-badge]")).toContainText("Retrying");
+  await expect(row.locator("[data-row-next-step]")).toContainText("tried again by itself");
+  // Delivery health: the optional operations file is not installed here, and the screen says how to get it.
+  await expect(page.locator("[data-health-off]")).toContainText("social-ops.sql");
+
+  const summary = row.locator("[data-history] summary");
+  await expect(summary).toHaveText("History (1 try)");
+  await summary.focus();
+  await page.keyboard.press("Enter");
+  const timeline = row.getByRole("list", { name: /^Status history of/ });
+  await expect(timeline.locator("li")).toHaveCount(3);
+  await expect(timeline.locator("li").nth(1)).toContainText("Sending, try 1");
+  await expect(timeline.locator("li").nth(2)).toContainText("Retrying, try 1. The provider asked us to slow down.");
+  await expect(row.locator("[data-timeline-rebuilt]")).toBeVisible();
+  await expect(row.getByRole("list", { name: /^Attempts for/ }).locator("li")).toContainText(["Try 1"]);
+  const html = await page.content();
+  for (const hidden of ["@worker", "req-hidden", ADMIN_KEY, SERVICE_KEY]) expect(html).not.toContain(hidden);
+  const fit = await page.locator("[data-social-screen]").evaluate((screen) => ({
+    screen: screen.scrollWidth <= screen.clientWidth + 1,
+    rows: [...screen.querySelectorAll("[data-announcement]")].every((item) => item.scrollWidth <= item.clientWidth + 1),
+    page: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+  }));
+  expect(fit).toEqual({ screen: true, rows: true, page: true });
 });
