@@ -6,6 +6,7 @@
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
 import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.js";
 import { buildChecksPanel } from "./checks-panel.js";
+import { applyJobDraft, bodyTakesScaffold, buildJobForm, JOB_PROFILE } from "./job-form.js";
 import { buildHistory } from "./landing-history.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
@@ -21371,10 +21372,24 @@ export class Editor {
         }
         syncProfileHelp();
         syncProfileFields();
+        this.syncJobMode();
       });
       syncProfileHelp();
       syncProfileFields();
-      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp), ui.profileFields);
+      this.jobForm = buildJobForm({
+        fields: f,
+        meta: this.meta.job || {},
+        upload: (file) => this.upload(file),
+        check: async (jobFields) => (await this.app.api.call("POST", "job/check", { json: { fields: jobFields } })).problems || [],
+        onChange: () => {
+          this.app.dirty = true;
+          this.markDirty();
+          this.updateSeoAudit();
+          this.schedulePreview();
+        },
+      });
+      this.jobForm.setVisible(ui.profile.value === JOB_PROFILE);
+      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp), ui.profileFields, this.jobForm.element);
       ui.description = h("textarea", { id: "oba-desc", rows: 3, value: f.description || "" });
       side.push(this.field("oba-desc", "Description", ui.description, "Shown in search results and feeds. Leave empty to use an excerpt."));
       ui.commentPolicy = h("select", { id: "oba-comments" },
@@ -22704,6 +22719,21 @@ export class Editor {
     if (this.ui.saveState.textContent === "Unsaved changes") return;
     this.ui.saveState.textContent = "Unsaved changes";
     this.ui.saveState.classList.add("is-dirty");
+  }
+
+  /**
+   * Show the Job form when the Job profile is chosen and give an empty draft the four scaffold headings
+   * (ADR 0287). The headings are ordinary Markdown: nothing is locked, and leaving the profile never touches the body.
+   */
+  syncJobMode() {
+    if (!this.jobForm) return;
+    const on = this.ui.profile.value === JOB_PROFILE;
+    this.jobForm.setVisible(on);
+    if (!on) return;
+    this.jobForm.prefillDates();
+    this.syncRichToMarkdown();
+    const scaffold = this.jobForm.scaffold();
+    if (scaffold && bodyTakesScaffold(this.ui.body.value)) this.replaceDraftMarkdown(scaffold);
   }
 
   /** Put changed Markdown into the draft from outside the writing surface (a suggestion's fix), in either mode. */
@@ -25195,6 +25225,7 @@ export class Editor {
       this.profileFieldDrafts = preserveProfileFieldDrafts(this.profileFieldDrafts, ui.profileFieldControls);
     }
     let fields = this.kind === "posts" ? applyProfileFieldDrafts(this.f, this.profileFieldDrafts) : { ...this.f };
+    if (this.kind === "posts" && this.jobForm) fields = applyJobDraft(fields, this.jobForm.draft());
     const set = (key, value) => {
       const empty = value === "" || value === null || value === undefined || (Array.isArray(value) && !value.length);
       if (empty) delete fields[key];

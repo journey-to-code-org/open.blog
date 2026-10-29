@@ -111,6 +111,8 @@ const MAX_PIECE_REQUEST_BYTES: usize = 64 * 1024;
 /// The most `[field, value]` pairs a piece request may carry; the largest piece has far fewer.
 const MAX_PIECE_VALUES: usize = 64;
 const MAX_JSON_BODY: usize = 2 * 1024 * 1024 + 64 * 1024;
+/// A job's fields only: no body, so a small bound is plenty.
+const MAX_JOB_CHECK_BYTES: usize = 64 * 1024;
 const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SKILL_BYTES: usize = 256 * 1024;
@@ -507,6 +509,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "pieces" {
             return Ok(MAX_PIECE_REQUEST_BYTES);
         }
+        if name == "job/check" {
+            return Ok(MAX_JOB_CHECK_BYTES);
+        }
         if name.starts_with("voice/") {
             return Ok(voice::request_limit(req, name));
         }
@@ -548,6 +553,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing-history.js" => "landing-history.js",
         "/admin/checks.js" => "checks.js",
         "/admin/checks-panel.js" => "checks-panel.js",
+        "/admin/job-form.js" => "job-form.js",
         "/admin/voice.js" => "voice.js",
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
@@ -903,6 +909,7 @@ fn authenticated_api(
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
         ("POST", "pieces") => build_piece(req),
+        ("POST", "job/check") => job_check(state, req),
         ("POST", "research/review") => review_before_publication(state, req),
         ("GET", "research/boundary") => boundary_site(state),
         ("GET", "research/readiness") => readiness_site(state),
@@ -3727,6 +3734,36 @@ fn etag_bytes(bytes: &[u8]) -> String {
 // Reading
 // ---------------------------------------------------------------------------
 
+/// Check a job's fields with the same validation the build uses and say, in
+/// the build's own sentences, what is still missing. Nothing is written.
+fn job_check(state: &AppState, req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(b) => b,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let fields = match fields_from_json(&body["fields"]) {
+        Ok(f) => f,
+        Err(e) => return Response::error(422, &e),
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(c) => c,
+        Err(e) => return Response::error(500, &e),
+    };
+    let front_matter = frontmatter::FrontMatter { fields };
+    let problems = match openblog_core::job::from_front_matter(&front_matter, &config.extra_trades)
+    {
+        Ok(_) => Vec::new(),
+        Err(problems) => problems,
+    };
+    Response::json(
+        200,
+        &json!({ "ok": problems.is_empty(), "problems": problems }),
+    )
+}
+
 fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
     let mut map = Map::new();
     for (k, v) in fields {
@@ -3743,6 +3780,21 @@ fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
     Json::Object(map)
 }
 
+/// A front matter key. The only dotted keys are the flattened `job.*` ones the
+/// job profile uses (ADR 0285); every segment is a plain word.
+fn is_field_name(key: &str) -> bool {
+    let plain = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
+    match key.strip_prefix("job.") {
+        Some(rest) => rest.split('.').count() <= 3 && rest.split('.').all(plain),
+        None => plain(key),
+    }
+}
+
 fn fields_from_json(value: &Json) -> Result<BTreeMap<String, Value>, String> {
     let object = value.as_object().ok_or("fields must be an object")?;
     if object.len() > 60 {
@@ -3753,9 +3805,7 @@ fn fields_from_json(value: &Json) -> Result<BTreeMap<String, Value>, String> {
         let valid_key = !key.is_empty()
             && key.len() <= 40
             && key.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-            && key
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+            && is_field_name(key);
         if !valid_key {
             return Err(format!("field name `{key}` is not allowed"));
         }
@@ -3853,6 +3903,25 @@ fn meta(state: &AppState) -> Response {
         }
     }
     tags.sort_by_key(|t| t.to_lowercase());
+    let mut services: Vec<String> = Vec::new();
+    for file in &sources.posts {
+        if let Ok(doc) = frontmatter::parse(&file.contents) {
+            if let Some(service) = doc.front_matter.get("job.service") {
+                if let Ok(service) = openblog_core::job::normalize_service(service) {
+                    if !services.contains(&service) {
+                        services.push(service);
+                    }
+                }
+            }
+        }
+    }
+    services.sort();
+    let job_form = json!({
+        "trades": openblog_core::job::known_trades(&config.extra_trades),
+        "costBands": openblog_core::job::CostBand::ALL.map(openblog_core::job::CostBand::as_str),
+        "services": services,
+        "scaffold": openblog_core::job::scaffold_body(),
+    });
     let profiles: Vec<Json> = openblog_core::profile::catalog()
         .iter()
         .map(|profile| {
@@ -3901,6 +3970,7 @@ fn meta(state: &AppState) -> Response {
             "defaultTheme": config.theme,
             "themes": theme_list,
             "profiles": profiles,
+            "job": job_form,
             "contributors": config.contributors,
             "creditRoles": credit_roles,
             "pieces": openblog_core::piece::schema_json(),
@@ -25164,6 +25234,120 @@ What I read:
         assert_eq!(profiles[3]["fields"][0]["kind"], "production-status");
         assert_eq!(profiles[3]["fields"][4]["key"], "videoUrl");
         assert_eq!(profiles[3]["fields"][5]["kind"], "duration");
+    }
+
+    #[test]
+    fn admin_meta_offers_the_job_form_its_trades_bands_scaffold_and_known_services() {
+        let f = fixture("job-meta");
+        std::fs::create_dir_all(f.state.root.join("content/posts")).unwrap();
+        std::fs::write(
+            f.state.root.join("content/posts/2026-10-21-floor.md"),
+            "---\ntitle: Floor\ndate: 2026-10-21\nprofile: job\ndraft: true\njob:\n  trade: flooring\n  service: Hardwood-Install\n---\nBody\n",
+        )
+        .unwrap();
+        let body = body_json(&meta(&f.state));
+        let job = &body["job"];
+        assert!(job["trades"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t == "flooring"));
+        assert_eq!(job["costBands"][0], "under-500");
+        assert_eq!(job["services"], json!(["hardwood-install"]));
+        assert!(job["scaffold"]
+            .as_str()
+            .unwrap()
+            .contains("## What we found"));
+    }
+
+    #[test]
+    fn job_fields_save_as_one_nested_mapping_and_check_with_core_sentences() {
+        let f = fixture("job-save");
+        let session = login_ok(&f);
+        let fields = json!({
+            "title": "Oak floor", "date": "2026-10-21", "profile": "job",
+            "job.trade": "flooring", "job.service": "hardwood-install",
+            "job.place.town": "Maple Falls", "job.place.region": "WA",
+            "job.started": "2026-10-14", "job.finished": "2026-10-16",
+            "job.media.before": ["/images/before.jpg"],
+        });
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({ "kind": "posts", "fields": fields, "body": "## Problem\n" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let path = body_json(&saved)["path"].as_str().unwrap().to_string();
+        let on_disk = std::fs::read_to_string(f.state.root.join("content").join(&path)).unwrap();
+        assert!(on_disk.contains("  media:\n    before:\n      - /images/before.jpg\n  place:\n    region: WA\n    town: Maple Falls\n"), "{on_disk}");
+        let reread = handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={path}")),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(
+            body_json(&reread)["fields"]["job.place.town"],
+            "Maple Falls"
+        );
+
+        let check = |fields: Json, csrf: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/job/check", json!({ "fields": fields })),
+                    &session,
+                    csrf,
+                ),
+            )
+        };
+        let bad = check(
+            json!({ "job.trade": "welding", "job.costBand": "cheap" }),
+            true,
+        );
+        assert_eq!(bad.status, 200);
+        let problems = body_json(&bad)["problems"].to_string();
+        assert!(
+            problems.contains("welding") && problems.contains("job.costBand"),
+            "{problems}"
+        );
+        assert!(
+            problems.contains("job.place.town"),
+            "every problem at once: {problems}"
+        );
+        assert_eq!(check(json!({ "job.trade": "flooring" }), false).status, 403);
+        let odd = check(json!({ "job..x": "a", "job.a.b.c.d": "b" }), true);
+        assert_eq!(odd.status, 422);
+        assert_eq!(
+            handle(
+                &f.state,
+                &json_req("POST", "/admin/api/job/check", json!({}))
+            )
+            .status,
+            401
+        );
+        assert_eq!(
+            preflight(
+                &f.state,
+                &authed(req("POST", "/admin/api/job/check"), &session, true)
+            )
+            .unwrap(),
+            MAX_JOB_CHECK_BYTES
+        );
     }
 
     #[test]

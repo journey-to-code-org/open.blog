@@ -119,6 +119,71 @@ pub fn check_extra_trade(trade: &str) -> Result<(), String> {
     }
 }
 
+/// The four headings a new job starts with (ADR 0287). They are ordinary
+/// Markdown: the author may rename, reorder or delete them.
+pub const SCAFFOLD_HEADINGS: [&str; 4] = ["Problem", "What we found", "What we did", "Result"];
+
+/// The starting body of a job: each scaffold heading with an empty line to
+/// write under it. Shared by `openblog new --profile job` and Admin.
+pub fn scaffold_body() -> String {
+    let mut body = String::new();
+    for heading in SCAFFOLD_HEADINGS {
+        body.push_str(&format!("## {heading}\n\n"));
+    }
+    body
+}
+
+/// A trade id the site knows, lowercased, or the sentence listing the bundled
+/// and site-level options.
+pub fn normalize_trade(value: &str, extra_trades: &[String]) -> Result<String, String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    let trades = known_trades(extra_trades);
+    if trades.contains(&normalized) {
+        return Ok(normalized);
+    }
+    let bundled = TRADES.join(", ");
+    let site: Vec<&String> = trades
+        .iter()
+        .filter(|trade| !TRADES.contains(&trade.as_str()))
+        .collect();
+    let site = if site.is_empty() {
+        "none yet; add your own to `extraTrades` in openblog.json".to_string()
+    } else {
+        site.iter()
+            .map(|trade| trade.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    Err(format!(
+        "job.trade: `{}` is not a known trade; bundled trades are {bundled}; this site's own trades: {site}",
+        value.trim()
+    ))
+}
+
+/// A service id, lowercased, or the sentence naming the rule.
+pub fn normalize_service(value: &str) -> Result<String, String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if is_slug(&normalized) && normalized != RESERVED {
+        Ok(normalized)
+    } else {
+        Err(format!(
+            "job.service: `{}` is not a service id; use lowercase letters, digits and hyphens",
+            value.trim()
+        ))
+    }
+}
+
+/// A town or region name for a job, or the sentence saying why it is refused
+/// (a town only, never an address).
+pub fn normalize_place(value: &str, field: &str) -> Result<String, String> {
+    let mut problems = Vec::new();
+    let value = place_part(Some(value.trim()), field, &mut problems);
+    match problems.into_iter().next() {
+        Some(problem) => Err(problem),
+        None => Ok(value),
+    }
+}
+
 /// Read and validate the `job` mapping. Every problem is a sentence naming
 /// the field; all of them are returned, not only the first.
 pub fn from_front_matter(
@@ -144,22 +209,18 @@ pub fn from_front_matter(
     };
     let list = |key: &str| fm.get_list(&format!("{JOB_KEY}.{key}"));
 
-    let trades = known_trades(extra_trades);
     let trade = match scalar("trade") {
         None => {
             problems.push("job.trade: add a trade, such as `flooring` or `other`".into());
             String::new()
         }
-        Some(value) => {
-            let normalized = value.to_ascii_lowercase();
-            if !trades.contains(&normalized) {
-                problems.push(format!(
-                    "job.trade: `{value}` is not a known trade; use one of {} (or add it to `extraTrades` in openblog.json)",
-                    trades.join(", ")
-                ));
+        Some(value) => match normalize_trade(value, extra_trades) {
+            Ok(trade) => trade,
+            Err(problem) => {
+                problems.push(problem);
+                value.to_ascii_lowercase()
             }
-            normalized
-        }
+        },
     };
 
     let service = match scalar("service") {
@@ -167,15 +228,13 @@ pub fn from_front_matter(
             problems.push("job.service: add the service this job was, as a short id such as `hardwood-install`".into());
             String::new()
         }
-        Some(value) => {
-            let normalized = value.to_ascii_lowercase();
-            if !is_slug(&normalized) || normalized == RESERVED {
-                problems.push(format!(
-                    "job.service: `{value}` is not a service id; use lowercase letters, digits and hyphens"
-                ));
+        Some(value) => match normalize_service(value) {
+            Ok(service) => service,
+            Err(problem) => {
+                problems.push(problem);
+                value.to_ascii_lowercase()
             }
-            normalized
-        }
+        },
     };
 
     let town = place_part(scalar("place.town"), "job.place.town", &mut problems);

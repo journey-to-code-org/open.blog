@@ -195,6 +195,90 @@ pub fn new_post(
     Ok(rel)
 }
 
+/// The answers `openblog new --profile job` can take. Every one is optional: a
+/// job starts as a draft and the build says what is still missing.
+#[derive(Default)]
+pub struct JobStart<'a> {
+    pub trade: Option<&'a str>,
+    pub service: Option<&'a str>,
+    pub town: Option<&'a str>,
+    pub region: Option<&'a str>,
+}
+
+/// Create a draft job post (ADR 0287): the same `job` front matter and the same
+/// four headings Admin's Job mode writes, checked by the job profile in core.
+pub fn new_job(
+    root: &Path,
+    title: &str,
+    series: Option<&str>,
+    tags: &[String],
+    start: &JobStart,
+) -> Result<String, String> {
+    use openblog_core::job;
+    let config = site::load_config(root)?;
+    fn clean(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|value| !value.is_empty())
+    }
+    let trade = match clean(start.trade) {
+        Some(trade) => job::normalize_trade(trade, &config.extra_trades)?,
+        None => String::new(),
+    };
+    let service = match clean(start.service) {
+        Some(service) => job::normalize_service(service)?,
+        None => String::new(),
+    };
+    let town = match clean(start.town) {
+        Some(town) => job::normalize_place(town, "job.place.town")?,
+        None => String::new(),
+    };
+    let region = match clean(start.region) {
+        Some(region) => job::normalize_place(region, "job.place.region")?,
+        None => String::new(),
+    };
+    let slug = slugify(title);
+    if slug.is_empty() {
+        return Err("the title needs at least one letter or digit".into());
+    }
+    let date = today().ymd();
+    let rel = format!("{}/posts/{date}-{slug}.md", config.paths.content);
+    let path = root.join(&rel);
+    if path.exists() {
+        return Err(format!("{rel} already exists"));
+    }
+    let mut fields: Vec<(&str, Value)> = vec![
+        ("title", Value::Scalar(title.to_string())),
+        ("date", Value::Scalar(date.clone())),
+    ];
+    if let Some(s) = series {
+        fields.push(("series", Value::Scalar(slugify(s))));
+    }
+    if !tags.is_empty() {
+        fields.push(("tags", Value::List(tags.to_vec())));
+    }
+    fields.push(("description", Value::Scalar(String::new())));
+    fields.push((
+        "profile",
+        Value::Scalar(openblog_core::profile::JOB_ID.into()),
+    ));
+    fields.push(("draft", Value::Scalar("true".into())));
+    for (key, value) in [
+        ("job.trade", trade),
+        ("job.service", service),
+        ("job.place.town", town),
+        ("job.place.region", region),
+        ("job.started", date.clone()),
+        ("job.finished", date),
+    ] {
+        fields.push((key, Value::Scalar(value)));
+    }
+    let mut text = frontmatter::serialize(&fields);
+    text.push('\n');
+    text.push_str(&job::scaffold_body());
+    fs::create_dir_all(path.parent().unwrap_or(root)).map_err(|e| e.to_string())?;
+    fsutil::write_file(&path, text.as_bytes())?;
+    Ok(rel)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

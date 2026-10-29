@@ -5704,6 +5704,84 @@ ob-voice-library {
   gap: 8px;
 }
 
+/* The Job form in the Write view (ADR 0287): one column, 44px targets, long names wrap. */
+.oba-job-form {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0.75rem 0 0;
+  border-top: var(--ob-border-width) solid var(--ob-color-border);
+}
+.oba-job-form[hidden] {
+  display: none;
+}
+.oba-job-heading {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+.oba-job-form .oba-field input[type="date"] {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+.oba-job-form .oba-field input[type="text"],
+.oba-job-form .oba-field select {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+.oba-job-group {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+.oba-job-photos {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+.oba-job-photos li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 4px 0;
+}
+.oba-job-photo-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-job-photos .oba-btn,
+.oba-job-form > .oba-btn {
+  min-height: 44px;
+}
+.oba-job-add {
+  display: block;
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ob-color-muted);
+}
+.oba-job-group input[type="file"] {
+  max-width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+.oba-job-problems {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
 /* Earlier versions of the landing page (ADR 0264). Everything wraps; nothing depends on a font's width. */
 .oba-history-wrap {
   margin: 16px 0;

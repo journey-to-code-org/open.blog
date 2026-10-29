@@ -55,6 +55,21 @@ job:
 Keys you add that this version does not know are kept untouched, so a file written by a newer version
 survives an older one. The `job` mapping is the only place front matter may nest.
 
+## Writing a job
+
+In Admin, open a new post, then **Settings**, and set **Content profile** to **Job**. An **About this job** form
+asks for the trade, service, town, region, start and finish dates, a price range and before and after photos,
+and writes the `job` mapping above for you. An empty body gets four headings, `Problem`, `What we found`,
+`What we did` and `Result`, as ordinary Markdown: change, move or delete them freely, in Visual or Markdown mode.
+Choosing another profile hides the form and leaves your Markdown alone. **Check this job** shows what the build
+would still ask for. The service box suggests the services your other jobs already use.
+
+From the command line, `openblog new "New oak floor" --profile job` writes the same front matter and the same
+four headings. Add `--trade`, `--service`, `--town` and `--region` to fill them in; each is checked the way the
+build checks it, and an unknown trade is refused with the bundled trades and your own `extraTrades` listed. A job
+made this way is always a draft (the dates start as today), so a half-written one never stops a build; it is
+reported as `job not ready to publish` until you finish it and remove `draft`.
+
 ## Trades
 
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,
