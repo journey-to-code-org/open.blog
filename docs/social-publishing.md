@@ -240,3 +240,11 @@ limit is tried again later, and an "unknown error" is `unknown` because the post
 Verify at setup, because Meta changes them: the Graph version (`OPENBLOG_SOCIAL_FACEBOOK_API_VERSION`, for example
 `v23.0`; old versions are retired), that your app has `pages_manage_posts` (and `pages_show_list`), and App Review:
 until the app has Advanced access, only people with a role on the app can post to Pages.
+
+### How the adapters are tested
+
+Both adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0492](adr/0492-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-run-through-both-adapters-and-a-result-contract.md)):
+success, 401, 403, 429, 5xx, a network failure, a timeout and ambiguous successes, plus unsupported networks and a
+check that no token or provider wording reaches a result. No test uses a real account or the network. The replies are
+written from the providers' documentation, so check them against the current documentation when you change an API
+version.
