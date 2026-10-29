@@ -169,7 +169,7 @@ fn check_file_name(file: &str) -> Result<()> {
     Ok(())
 }
 
-fn path_of(root: &Path, visibility: Visibility, file: &str) -> Result<PathBuf> {
+pub(crate) fn path_of(root: &Path, visibility: Visibility, file: &str) -> Result<PathBuf> {
     check_file_name(file)?;
     contained_target(root, &Path::new(visibility.directory()).join(file))
         .map_err(|error| StoreError::Refused(format!("{error}.")))
@@ -353,6 +353,12 @@ pub fn library(root: &Path) -> Vec<LibraryEntry> {
         .collect()
 }
 
+/// The bytes of one stored sample file exactly as they are on disk, or `None` if there is no such
+/// file. Read only; used by the portable export and import.
+pub fn raw(root: &Path, visibility: Visibility, file: &str) -> Result<Option<Vec<u8>>> {
+    read_bounded(&path_of(root, visibility, file)?)
+}
+
 /// One sample, with its revision.
 pub fn read(root: &Path, visibility: Visibility, file: &str) -> Result<Loaded> {
     let path = path_of(root, visibility, file)?;
@@ -381,7 +387,7 @@ fn write_text(sample: &VoiceSample) -> Result<Vec<u8>> {
 }
 
 /// Whatever the session said, a sample written to the private folder keeps that folder out of Git.
-fn keep_private_out_of_git(root: &Path, visibility: Visibility) {
+pub(crate) fn keep_private_out_of_git(root: &Path, visibility: Visibility) {
     if visibility == Visibility::Private {
         crate::landing_history::keep_out_of_git(root);
     }
@@ -538,7 +544,7 @@ pub fn write_polished(
     })
 }
 
-fn replace(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn replace(path: &Path, bytes: &[u8]) -> Result<()> {
     let directory = path
         .parent()
         .ok_or_else(|| StoreError::Failed("The sample has no folder.".into()))?;

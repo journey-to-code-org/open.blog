@@ -42,7 +42,7 @@ fn guide_target(doc: &Json) -> Json {
     })
 }
 
-const PROVENANCE_MARKER: &str = "<!-- openblog:voice-provenance";
+use openblog_core::voice::guide::PROVENANCE_MARKER;
 
 /// Record which visibilities the guide was folded from, on the line after the title, so a later
 /// save can tell that a guide quotes private samples.
@@ -59,17 +59,7 @@ fn with_provenance(markdown: &str, samples: &[ReviewContext]) -> String {
 
 /// Whether a voice guide's provenance line says it quotes a private sample.
 pub(super) fn guide_quotes_private_samples(content: &str) -> bool {
-    content.lines().any(|line| {
-        line.trim_start().starts_with(PROVENANCE_MARKER)
-            && line.split("sources=").nth(1).is_some_and(|sources| {
-                sources
-                    .split("-->")
-                    .next()
-                    .unwrap_or("")
-                    .split(',')
-                    .any(|v| v.trim() == "private")
-            })
-    })
+    openblog_core::voice::guide::quotes_private_samples(content)
 }
 
 pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response {

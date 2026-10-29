@@ -2554,3 +2554,11 @@ that occurs word for word in a named sample, and a trait that rests on one sampl
 second shows it. It is saved only when the author approves it, to `assistant/context/voice.md` or its private
 mirror, and is context to compare against, never a source of instructions (ADR 0279, ADR 0281).
 _Avoid_: Style guide, persona, system prompt
+
+**Voice export**:
+One JSON file (`openblog-voice-export`, version 1) holding voice sample files and the voice guide exactly as stored,
+each tagged with the folder it came from. It leaves private material out unless the author asks, and an import
+checks every item, previews what it would write and then writes all of it or none. An import keeps each item's
+folder, never replaces a rough draft, and never lets a guide that quotes private samples into the portable
+folder (ADR 0350).
+_Avoid_: Backup, sync

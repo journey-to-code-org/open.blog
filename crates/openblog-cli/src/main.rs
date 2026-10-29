@@ -42,6 +42,7 @@ mod voice_assistant;
 mod voice_capture;
 mod voice_cli;
 mod voice_diff;
+mod voice_exchange;
 mod voice_prompts;
 mod voice_session;
 mod voice_store;
@@ -144,6 +145,15 @@ voice OPTIONS
     promote <sample>           Create a post draft (draft: true) in content/posts from the polished
                                draft; refuses a taken slug; --dir posts/2026 picks a folder under
                                posts. The sample is left in place.
+    export [--out <file>] [--include-private] [--write]
+                               Put the voice samples and guide in one portable JSON file. Private
+                               samples and guide are left out unless --include-private, and such a
+                               file is only written outside the project or in .openblog/private/
+    import <file> [--overwrite] [--as private] [--write]
+                               Check an export and say what would change; with --write apply it all
+                               or not at all. Items keep their folder (--as private makes all
+                               private); a rough draft is never replaced; --overwrite replaces a
+                               differing polished draft or guide
     <sample> is a file name from `voice --list` output or a prompt id. The clock is fixed when the
     session starts: text after the deadline is not saved, and an interrupted session locks what
     was saved when you resume after the deadline. Nothing edits a rough draft.
@@ -179,6 +189,7 @@ const SWITCHES: &[&str] = &[
     "password-stdin",
     "github-pages",
     "overwrite",
+    "include-private",
     "recipe",
     "write",
     "publish",

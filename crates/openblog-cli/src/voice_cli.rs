@@ -91,6 +91,33 @@ pub fn run(
     };
     let first = positional.first().map(String::as_str);
     match first {
+        Some("export") | Some("import") => {
+            let import = first == Some("import");
+            let file = if import {
+                positional.get(1).map(String::as_str)
+            } else {
+                options.get("out").map(String::as_str)
+            };
+            if positional.len() > if import { 2 } else { 1 } {
+                return Err("usage: openblog voice export|import (see `openblog help`)".into());
+            }
+            let options = crate::voice_exchange::Options {
+                file,
+                write: switches.contains("write"),
+                include_private: switches.contains("include-private"),
+                overwrite: switches.contains("overwrite"),
+                as_private: match options.get("as").map(String::as_str) {
+                    None => false,
+                    Some("private") => true,
+                    Some(_) => return Err("--as only accepts `private`".into()),
+                },
+            };
+            if import {
+                crate::voice_exchange::import(root, &options)
+            } else {
+                crate::voice_exchange::export(root, &options)
+            }
+        }
         Some("polish") => polish(root, one_sample(positional, "polish")?, options),
         Some("diff") => diff(root, one_sample(positional, "diff")?),
         Some("promote") => promote(

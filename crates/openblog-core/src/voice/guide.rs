@@ -8,6 +8,25 @@
 
 use serde_json::Value as Json;
 
+/// The start of the provenance comment a saved guide carries on the line after its title.
+pub const PROVENANCE_MARKER: &str = "<!-- openblog:voice-provenance";
+
+/// Whether a voice guide's provenance line says it quotes a private sample. Such a guide must
+/// never be saved, exported or imported into the portable (Git-tracked) folder.
+pub fn quotes_private_samples(content: &str) -> bool {
+    content.lines().any(|line| {
+        line.trim_start().starts_with(PROVENANCE_MARKER)
+            && line.split("sources=").nth(1).is_some_and(|sources| {
+                sources
+                    .split("-->")
+                    .next()
+                    .unwrap_or("")
+                    .split(',')
+                    .any(|v| v.trim() == "private")
+            })
+    })
+}
+
 /// The only section ids a proposal may use, with the heading each renders under. The order is the
 /// order of the rendered guide, whatever order the provider answered in.
 pub const SECTIONS: [(&str, &str); 7] = [
