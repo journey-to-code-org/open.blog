@@ -473,7 +473,8 @@ fn apply_with(root: &Path, steps: &[Step], hooks: &Hooks) -> Result<(), String> 
                 label: step.relative(root),
             });
             if step.action == Action::Create {
-                fsutil::write_new_atomic(&path, step.content.as_bytes())?;
+                voice_store::create_new(&path, step.content.as_bytes())
+                    .map_err(|error| error.to_string())?;
             } else {
                 voice_store::replace(&path, step.content.as_bytes())
                     .map_err(|error| error.to_string())?;

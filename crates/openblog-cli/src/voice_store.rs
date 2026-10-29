@@ -404,13 +404,11 @@ pub(crate) fn keep_private_out_of_git(root: &Path, visibility: Visibility) {
 
 /// Create a new file without replacing one, with a sentence that names the file and the cause but
 /// never its absolute path.
-fn create_new(path: &Path, bytes: &[u8]) -> Result<()> {
-    fsutil::write_new_atomic(path, bytes).map_err(|message| {
+pub(crate) fn create_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    fsutil::create_new_file(path, bytes).map_err(|cause| {
         let name = path
             .file_name()
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-        // The cause is the operating system's own sentence at the end of the message.
-        let cause = message.rsplit(": ").next().unwrap_or("").trim();
         StoreError::Failed(format!(
             "Cannot save `{name}`; nothing was replaced ({cause})."
         ))

@@ -1516,3 +1516,25 @@ fn a_linked_guide_or_guide_folder_refuses_the_move_and_touches_nothing() {
     }
     let _ = fs::remove_file(&outside);
 }
+
+#[test]
+fn a_create_that_cannot_happen_names_the_file_not_an_export_or_the_absolute_path() {
+    let project = Project::new();
+    let path = project.0.join("assistant/context/voice").join(ROUGH);
+    put(
+        &project,
+        &format!("assistant/context/voice/{ROUGH}"),
+        b"first",
+    );
+    let message = create_new(&path, b"second").unwrap_err().to_string();
+    assert!(
+        message.starts_with(&format!("Cannot save `{ROUGH}`; nothing was replaced (")),
+        "{message}"
+    );
+    assert!(!message.contains("export"), "{message}");
+    assert!(
+        !message.contains(&*project.0.to_string_lossy()),
+        "{message}"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"first");
+}

@@ -441,6 +441,28 @@ fn a_rollback_that_fails_names_the_files_it_could_not_restore() {
 }
 
 #[test]
+fn an_import_create_that_cannot_happen_names_the_file_and_never_talks_of_an_export() {
+    let b = project("apply-exists");
+    let steps = both_steps();
+    // Something else created the file after the plan was made.
+    let taken = b.join("assistant/context/voice").join(POLISHED);
+    fs::create_dir_all(taken.parent().unwrap()).unwrap();
+    fs::write(&taken, "someone else's").unwrap();
+    let hooks = Hooks {
+        after_write: |_| Ok(()),
+        restore: |_| Ok(()),
+    };
+    let error = apply_with(&b, &steps, &hooks).unwrap_err();
+    assert!(
+        error.starts_with(&format!("Cannot save `{POLISHED}`; nothing was replaced (")),
+        "{error}"
+    );
+    assert!(!error.contains("export"), "{error}");
+    assert!(!error.contains(&*b.to_string_lossy()), "{error}");
+    assert_eq!(fs::read_to_string(&taken).unwrap(), "someone else's");
+}
+
+#[test]
 fn a_plan_writes_rough_drafts_before_their_polished_partner() {
     let b = project("order");
     let polished = Item {
