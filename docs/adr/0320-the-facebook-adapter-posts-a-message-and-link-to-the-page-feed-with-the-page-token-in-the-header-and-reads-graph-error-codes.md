@@ -13,19 +13,30 @@ that would explain them, and its answer to a successful post is a JSON object wi
 
 ## Decision
 
-- **Same seam as LinkedIn (ADR 0319).** `publish(post, credentials)` with `credentials.accessToken` being the Page
-  token, and the same result shape and conservative rules.
+- **Same contract as LinkedIn (ADR 0319).** `facebookAdapter(settings, { fetchImpl, now })` implements the worker's
+  interface: `publish({ post, account, accessToken, signal })` with `accessToken` being the Page token the credential
+  store opened for that account and `account.externalId` the numeric Page id. It resolves to `{ providerPostId }` or
+  throws a `DeliveryError`.
 - **Request.** `POST {apiBase}/{pageId}/feed` (the Graph version is the configured setting) with a form body of
-  `message` (the caption) and `link` (the canonical post). The token is sent as `Authorization: Bearer`, never as
-  an `access_token` parameter, so it is in no URL or body that a proxy or access log could keep. Permissions are
-  the ones discovery already verified (`pages_manage_posts`, and a role with `CREATE_CONTENT`); the adapter does
-  not re-request them.
-- **Published.** Only HTTP 200 with an `id` shaped `<pageId>_<postId>` for the same Page. Anything else that is 2xx
-  is `unknown`.
-- **Errors are read by Graph code, then by status.** `190` and `102` are `auth-rejected` (reauthorize); `10` and
-  `200`-`299` are `permission-denied`; `4`, `17`, `32`, `341` and `613` are `throttled` and retryable; `1` and
-  `2` ("an unknown error occurred") are `unknown`, because Graph can say that after creating the post. Other codes
-  fall back to the HTTP status table of ADR 0319. The message, type, subcode and trace id are never copied.
+  `message` (the caption) and `link` (the canonical post), and the worker's abort signal. The token is sent as
+  `Authorization: Bearer`, never as an `access_token` parameter, so it is in no URL or body that a proxy or access
+  log could keep. Permissions are the ones discovery already verified (`pages_manage_posts`, and a role with
+  `CREATE_CONTENT`); the adapter does not re-request them. No idempotency key exists for this call (ADR 0319).
+- **Success.** Only HTTP 200 with an `id` shaped `<pageId>_<postId>` for the same Page. Anything else that is 2xx
+  is `uncertain`.
+- **Errors are read by Graph code, then by status.** `190` and `102` are `auth`; `10` and `200`-`299` are
+  `rejected`; `4`, `17`, `32`, `341` and `613` are `rate-limited` (with `Retry-After` when Graph sent one, otherwise
+  the worker's back-off); `1` and `2` ("an unknown error occurred") are `uncertain`, because Graph can say that after
+  creating the post. Other codes fall back to the status rules of ADR 0319. The message, type, subcode and trace id
+  are never copied.
+- **Reconcile is a read-only look at the Page's own posts.** `reconcile({ post, account, accessToken, attemptedAt,
+  signal })` sends `GET {apiBase}/{pageId}/published_posts?fields=id,message,created_time,attachments{url,unshimmed_url}`
+  with `since` two minutes before the attempt started and `limit=25`, token in the header. A post of this Page whose
+  `message` equals the caption, or whose attachment links the canonical URL, is `{ state: "published",
+  providerPostId }`. When none matches it is `{ state: "absent", conclusive }`, conclusive only if Graph returned the
+  whole window (no `paging.next`); the worker still waits for its settle time before believing an absence
+  (ADR 0318). Anything else (no start time, a missing `pages_read_engagement` grant, an error, an unreadable answer)
+  is `{ state: "unknown" }`; it never throws and never posts.
 
 ## Considered options
 
@@ -33,9 +44,15 @@ that would explain them, and its answer to a successful post is a JSON object wi
   keeps the token out of anything that records bodies.
 - **Treat every 400 as final.** Rejected: Graph returns throttles and expired tokens as 400 too, and they need
   opposite handling.
+- **Reconcile through `/{pageId}/feed`.** Rejected: the feed also lists other people's posts on the Page;
+  `published_posts` lists only the Page's own.
+- **Match only by caption.** Rejected: an author may edit the caption on Facebook while the outcome is unknown; the
+  canonical link in the attachment is a second, independent match.
 
 ## Consequences
 
-- Graph error codes are a small table in `social-publish.mjs`; a code Meta adds falls to the status table, which
-  fails closed (final failure for 4xx, unknown for 5xx).
-- A Page token does not expire, so `auth-rejected` normally means the author removed the app or lost the Page role.
+- Graph error codes are a small table in `social-publish.mjs`; a code Meta adds falls to the status rules, which
+  fail closed (final refusal for 4xx, `uncertain` for 5xx).
+- A Page token does not expire, so `auth` normally means the author removed the app or lost the Page role.
+- Reconcile needs `pages_read_engagement`, which is requested by default but optional; without it every unknown
+  Facebook outcome is settled by a person, exactly as for LinkedIn.

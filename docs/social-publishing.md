@@ -216,15 +216,29 @@ delivery is set up.
 
 ## Publishing adapters
 
-Delivery calls one narrow function per provider ([ADR 0319](adr/0319-the-publishing-adapters-answer-published-failed-or-unknown-from-one-narrow-call-and-never-copy-provider-text.md)):
-`publish(post, credentials)` answers `published`, `failed` or `unknown`, with the provider post id when there is
-one. A post is `published` only when the provider confirmed it with an id. A server error, a timeout or an unclear
-success is `unknown`: the post may be live, so a person reconciles it and it is never sent again automatically.
+The delivery worker calls one adapter per provider through the interface documented in
+`netlify/lib/social-delivery.mjs` ([ADR 0319](adr/0319-the-publishing-adapters-implement-the-worker-delivery-contract-and-never-copy-provider-text.md)).
+An adapter is registered only for a provider you configured (its client id and secret, below); with none configured,
+nothing is delivered and announcements wait. `publish` returns the provider's own post id only when the provider
+confirmed the post and named it. Anything else is a typed error the worker acts on (see
+[Retries, rate limits and uncertain outcomes](#retries-rate-limits-and-uncertain-outcomes)): a refused sign-in, a
+refusal, a rate limit with the provider's `Retry-After`, a request that certainly never left (retried), or an outcome
+that may have posted (a server error, a timeout, a dropped connection, a success without an id), which is never sent
+again automatically.
+
+Neither LinkedIn nor Facebook accepts an idempotency key on these calls, so none is sent: only an answer that means
+"definitely not processed" is ever retried.
+
+**Looking up an unclear outcome.** Facebook: the worker looks at the Page's own published posts since the attempt, read
+only, and settles the announcement when it finds one with the same caption or link. This needs
+`pages_read_engagement` (requested by default); without it the lookup cannot tell and you settle it. LinkedIn: there
+is no lookup, because reading a member's or organization's posts needs permissions LinkedIn gives only to approved
+partners, so an unclear LinkedIn outcome comes straight to you as **Needs checking**.
 
 ### LinkedIn
 
 Posts as the connected member or organization through the versioned REST Posts API (`POST /rest/posts`), with the
-post link as an article. The caption is sent as typed: LinkedIn formatting characters (`( ) [ ] { } < > @ | ~ _ * #`
+post link as an article whose title is the caption's first line. The caption is sent as typed: LinkedIn formatting characters (`( ) [ ] { } < > @ | ~ _ * #`
 and the backslash) are escaped, so a caption cannot mention people or format text.
 
 Verify at setup, because LinkedIn changes them: the API version (`OPENBLOG_SOCIAL_LINKEDIN_API_VERSION`, a dated
@@ -245,11 +259,12 @@ until the app has Advanced access, only people with a role on the app can post t
 
 ### How the adapters are tested
 
-Both adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0321](adr/0321-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-run-through-both-adapters-and-a-result-contract.md)):
-success, 401, 403, 429, 5xx, a network failure, a timeout and ambiguous successes, plus unsupported networks and a
-check that no token or provider wording reaches a result. No test uses a real account or the network. The replies are
-written from the providers' documentation, so check them against the current documentation when you change an API
-version.
+Both adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0321](adr/0321-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-and-by-the-real-worker-over-a-scripted-provider.md)):
+success, 401, 403, 429, 5xx, a redirect, a network failure, a refused connection, a timeout and ambiguous successes.
+The real worker is also run with the real adapters over a scripted provider, from the reply to the stored
+announcement, with a check that no token or provider wording reaches a stored error, a summary or a log. No test uses
+a real account or the network. The replies are written from the providers' documentation, so check them against the
+current documentation when you change an API version.
 
 ## Delivery queue
 
@@ -318,10 +333,11 @@ the endpoint by hand with the key.
 
 **Adapters.** The worker never talks to LinkedIn or Facebook itself. It calls an adapter registered in
 `netlify/lib/social-adapters.mjs` through a narrow interface (documented in `netlify/lib/social-delivery.mjs`): `publish`
-returns the provider's own post id only when the provider confirmed success, or throws a typed error. An announcement
-for a provider that has no adapter registered yet **waits in the queue**, untouched; one for a provider this release does
-not know fails with `unsupported-provider`. Provider API versions, permissions and app review are settings you verify at
-setup (see Provider setup above); nothing is guessed at run time.
+returns the provider's own post id only when the provider confirmed success, or throws a typed error. An adapter is
+registered only for a provider you configured (see [Publishing adapters](#publishing-adapters)); an announcement for a
+provider with no adapter **waits in the queue**, untouched, and one for a provider this release does not know fails with
+`unsupported-provider`. Provider API versions, permissions and app review are settings you verify at setup (see
+Provider setup above); nothing is guessed at run time.
 
 ## Retries, rate limits and uncertain outcomes
 
@@ -346,8 +362,9 @@ the post is there, and choose **Check the result** in Admin. To find stuck work 
 `select id, status, last_error_code, updated_at from openblog_social_posts where status in ('unknown','failed');`.
 
 **Settings** (optional, bounded; a value out of range is ignored): `OPENBLOG_SOCIAL_MAX_ATTEMPTS` (default 5, 1 to 10)
-and `OPENBLOG_SOCIAL_BACKOFF_SECONDS` (default 60, 5 to 3600). An adapter that can use an idempotency key is given one
-that is the same for every attempt of one announcement; the worker does not rely on it.
+and `OPENBLOG_SOCIAL_BACKOFF_SECONDS` (default 60, 5 to 3600). The worker gives an adapter an idempotency key that is the
+same for every attempt of one announcement, for a provider that honours one; LinkedIn and Facebook do not, so it is not
+sent and nothing relies on it.
 
 **What is recorded.** Each attempt keeps its number, times, outcome, HTTP status, a short code and a fixed sentence,
 and the provider's post id. It never keeps a token, a header, a request or anything the provider wrote, so the history
