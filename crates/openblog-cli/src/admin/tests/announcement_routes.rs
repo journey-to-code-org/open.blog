@@ -895,6 +895,7 @@ fn delivery_health_is_counts_and_alert_codes_only() {
         json!({
             "health": {
                 "installed": true, "overdue": 2, "needsReview": 1, "overdueMinutes": 15,
+                "waitingOnPause": 4, "waitingOnProvider": 1,
                 "alerts": ["backlog-overdue", "needs-review", "<b>x</b>", 7],
                 "oldestDueAt": "2026-11-01T12:00:00Z",
                 "caption": "SECRET caption", "accountName": "Ada", "due": -3,
@@ -912,6 +913,8 @@ fn delivery_health_is_counts_and_alert_codes_only() {
     assert_eq!(s, 200);
     assert_eq!(b["health"]["installed"], true);
     assert_eq!(b["health"]["overdue"], 2);
+    assert_eq!(b["health"]["waitingOnPause"], 4);
+    assert_eq!(b["health"]["waitingOnProvider"], 1);
     assert_eq!(
         b["health"]["alerts"],
         json!(["backlog-overdue", "needs-review"])

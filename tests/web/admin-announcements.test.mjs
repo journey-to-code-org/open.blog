@@ -615,6 +615,8 @@ test("delivery health reads as sentences, most urgent first, and ignores codes i
   assert.match(lines[0].text, /^2 announcements are more than 15 minutes late\. The delivery worker may not be running/);
   assert.match(lines[1].text, /^1 account needs to be connected again before it can post/);
   assert.match(lines[2].text, /^1 announcement needs you to check whether it was posted/);
+  const unset = healthLines({ installed: true, waitingOnProvider: 2, alerts: ["provider-not-configured"] });
+  assert.match(unset[0].text, /^2 announcements wait for a provider this site has not set up for posting\. Add its settings and redeploy, or cancel them\./);
   assert.deepEqual(healthLines({ installed: false, alerts: ["backlog-overdue"] }), []);
   assert.deepEqual(healthLines(null), []);
 });

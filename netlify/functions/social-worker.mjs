@@ -13,7 +13,7 @@ import { SocialScopeError, authorizeSocial, refuseClientScope, socialSettings } 
 import { SocialCredentialError } from "../lib/social-credentials.mjs";
 import { QueueError } from "../lib/social-queue.mjs";
 import { socialProviders } from "../lib/social-providers.mjs";
-import { socialAdapters } from "../lib/social-adapters.mjs";
+import { socialAdapters, waitingProviders } from "../lib/social-adapters.mjs";
 import { deliveryPolicy } from "../lib/social-delivery.mjs";
 import { createWorker } from "../lib/social-worker.mjs";
 import { afterRun, createOps, logEvent, opsPolicy } from "../lib/social-ops.mjs";
@@ -56,10 +56,11 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       refuseClientScope({ query, body });
       const providers = socialProviders(env);
       const policy = deliveryPolicy(env);
+      const delivering = adapters || socialAdapters({ providers, fetchImpl, now, env });
       const worker = createWorker({
         settings,
         providers,
-        adapters: adapters || socialAdapters({ providers, fetchImpl, now, env }),
+        adapters: delivering,
         fetchImpl,
         now,
         random,
@@ -70,7 +71,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       const ops = opsPolicy(env);
       if (!ops.enabled) return json(200, { ok: true, summary });
       // Operations (social-ops.sql): sweep, health, retention. Never fails the run.
-      const report = await afterRun(createOps({ settings, fetchImpl, policy: ops }), { maxAttempts: policy.maxAttempts, sink });
+      const report = await afterRun(createOps({ settings, fetchImpl, policy: ops, skipProviders: waitingProviders(delivering) }), { maxAttempts: policy.maxAttempts, sink });
       return json(200, { ok: true, summary, ops: { alerts: report.alerts, ...(report.error ? { error: report.error } : {}) } });
     } catch (error) {
       if (error instanceof SocialScopeError) return failure(error.status, error.code, error.message);

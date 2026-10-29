@@ -132,7 +132,7 @@ const optionalZone = (value) => {
   if (value !== undefined && value !== null) checkTimeZone(value);
 };
 
-export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, now = () => Date.now(), ops = opsPolicy({}) } = {}) {
+export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, now = () => Date.now(), ops = opsPolicy({}), skipProviders = [] } = {}) {
   if (!settings || settings.enabled !== true) throw new SocialScopeError(404, "not-enabled", "Social publishing is not enabled.");
   const iso = (ms) => new Date(ms).toISOString();
 
@@ -437,7 +437,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
   // supabase/social-ops.sql has not been run. Reading it changes nothing.
   const health = async () => {
     try {
-      return reply(200, { health: await createOps({ settings, fetchImpl, policy: ops }).health() });
+      return reply(200, { health: await createOps({ settings, fetchImpl, policy: ops, skipProviders }).health() });
     } catch (error) {
       if (error instanceof OpsError) throw new RouteError(502, error.code, "The schedule could not be reached. Try again.");
       throw error;

@@ -9,6 +9,7 @@
 // output or a log. `fetchImpl` and `now` are injected so the adapters are tested against fakes.
 
 import { ADAPTER_FACTORIES } from "./social-publish.mjs";
+import { PROVIDERS } from "./social-providers.mjs";
 
 export function socialAdapters({ providers = {}, fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
   const adapters = Object.create(null);
@@ -18,4 +19,9 @@ export function socialAdapters({ providers = {}, fetchImpl = globalThis.fetch, n
     adapters[provider] = factory(settings, { fetchImpl, now });
   }
   return Object.freeze(adapters);
+}
+
+/** Providers this release knows but `adapters` cannot deliver to: the claim leaves their announcements waiting. */
+export function waitingProviders(adapters = {}) {
+  return PROVIDERS.filter((provider) => !(adapters && Object.hasOwn(adapters, provider)));
 }

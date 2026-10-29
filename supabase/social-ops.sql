@@ -23,9 +23,14 @@ begin;
 
 insert into public.openblog_social_schema (version) values (4) on conflict do nothing;
 
+-- `due`, `overdue` and `oldest_due_at` use the claim's own rule (openblog_social_claim_due): an
+-- announcement whose account is paused after a rate limit, or whose provider the worker has no
+-- adapter for (p_skip_providers, as the claim takes it), is held back on purpose. Those are counted
+-- apart, in waiting_on_pause and waiting_on_provider, so a working worker never reads as late.
 create or replace function public.openblog_social_health(
   p_site_id text,
-  p_overdue_seconds integer default 900
+  p_overdue_seconds integer default 900,
+  p_skip_providers text[] default '{}'
 ) returns table (
   due integer,
   overdue integer,
@@ -38,7 +43,9 @@ create or replace function public.openblog_social_health(
   failed_recently integer,
   accounts_need_reconnect integer,
   accounts_paused integer,
-  stale_connections integer
+  stale_connections integer,
+  waiting_on_pause integer,
+  waiting_on_provider integer
 )
 language plpgsql
 stable
@@ -46,21 +53,30 @@ set search_path = public, pg_temp
 as $fn$
 declare
   v_late interval := make_interval(secs => least(greatest(coalesce(p_overdue_seconds, 900), 60), 86400));
+  v_skip text[] := coalesce(p_skip_providers, '{}');
 begin
   if p_site_id is null or p_site_id !~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$' then
     raise exception 'invalid site' using errcode = '22023';
   end if;
   return query
+  with waiting as (
+    -- Scheduled and due, sorted by why it waits: the claim takes only 'ready'.
+    select coalesce(p.next_attempt_at, p.scheduled_for) as due_at,
+           case
+             when a.provider = any (v_skip) then 'provider'
+             when a.paused_until > now() then 'paused'
+             else 'ready'
+           end as why
+    from openblog_social_posts p
+    join openblog_social_accounts a on a.id = p.account_id and a.site_id = p.site_id
+    where p.site_id = p_site_id and p.status = 'scheduled'
+      and p.scheduled_for <= now()
+      and coalesce(p.next_attempt_at, p.scheduled_for) <= now()
+  )
   select
-    (select count(*)::integer from openblog_social_posts p
-      where p.site_id = p_site_id and p.status = 'scheduled'
-        and coalesce(p.next_attempt_at, p.scheduled_for) <= now()),
-    (select count(*)::integer from openblog_social_posts p
-      where p.site_id = p_site_id and p.status = 'scheduled'
-        and coalesce(p.next_attempt_at, p.scheduled_for) <= now() - v_late),
-    (select min(coalesce(p.next_attempt_at, p.scheduled_for)) from openblog_social_posts p
-      where p.site_id = p_site_id and p.status = 'scheduled'
-        and coalesce(p.next_attempt_at, p.scheduled_for) <= now()),
+    (select count(*)::integer from waiting w where w.why = 'ready'),
+    (select count(*)::integer from waiting w where w.why = 'ready' and w.due_at <= now() - v_late),
+    (select min(w.due_at) from waiting w where w.why = 'ready'),
     (select count(*)::integer from openblog_social_posts p
       where p.site_id = p_site_id and p.status = 'claimed' and p.lease_expires_at > now()),
     (select count(*)::integer from openblog_social_posts p
@@ -80,7 +96,9 @@ begin
       where a.site_id = p_site_id and a.status = 'connected' and a.paused_until > now()),
     (select count(*)::integer from openblog_social_connections c
       where c.site_id = p_site_id and c.status in ('pending', 'exchanging', 'authorized')
-        and c.expires_at <= now());
+        and c.expires_at <= now()),
+    (select count(*)::integer from waiting w where w.why = 'paused'),
+    (select count(*)::integer from waiting w where w.why = 'provider');
 end
 $fn$;
 
@@ -177,10 +195,10 @@ begin
 end
 $fn$;
 
-revoke all on function public.openblog_social_health(text, integer) from public, anon, authenticated;
+revoke all on function public.openblog_social_health(text, integer, text[]) from public, anon, authenticated;
 revoke all on function public.openblog_social_sweep(text, integer) from public, anon, authenticated;
 revoke all on function public.openblog_social_prune(text, integer, integer) from public, anon, authenticated;
-grant execute on function public.openblog_social_health(text, integer) to service_role;
+grant execute on function public.openblog_social_health(text, integer, text[]) to service_role;
 grant execute on function public.openblog_social_sweep(text, integer) to service_role;
 grant execute on function public.openblog_social_prune(text, integer, integer) to service_role;
 

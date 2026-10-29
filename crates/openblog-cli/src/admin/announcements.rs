@@ -815,7 +815,7 @@ fn project_timeline(value: &Json) -> Json {
 /// Delivery health rebuilt from known fields only (ADR 0701): whole-number counts, alert codes and
 /// one time. Anything else the function sends is dropped.
 fn project_health(value: &Json) -> Json {
-    const COUNTS: [&str; 12] = [
+    const COUNTS: [&str; 14] = [
         "overdueMinutes",
         "due",
         "overdue",
@@ -828,6 +828,8 @@ fn project_health(value: &Json) -> Json {
         "accountsNeedReconnect",
         "accountsPaused",
         "staleConnections",
+        "waitingOnPause",
+        "waitingOnProvider",
     ];
     let mut kept = Map::new();
     kept.insert(

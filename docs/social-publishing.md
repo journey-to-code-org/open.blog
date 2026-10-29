@@ -425,15 +425,17 @@ when there is an alert, so point your log drain or alerting at `"event":"openblo
 
 | Alert | Meaning | What to do |
 | --- | --- | --- |
-| `backlog-overdue` | Announcements are more than `OPENBLOG_SOCIAL_BACKLOG_ALERT_MINUTES` (default 15, 1 to 1440) late. | The worker is not running or not keeping up: check `select * from cron.job_run_details order by start_time desc limit 5;`, the Vault secrets, and the function's log. |
+| `backlog-overdue` | Announcements the worker could take now are more than `OPENBLOG_SOCIAL_BACKLOG_ALERT_MINUTES` (default 15, 1 to 1440) late. Announcements of an account paused after a rate limit are not counted here (they show as `waiting_on_pause` and wait for the pause to end). | The worker is not running or not keeping up: check `select * from cron.job_run_details order by start_time desc limit 5;`, the Vault secrets, and the function's log. |
 | `expired-leases` | A run stopped mid-delivery. | Nothing: the next run returns it to the queue, or marks it Needs checking if it may have posted. If it repeats, raise the function timeout or lower the batch. |
+| `provider-not-configured` | Announcements wait for a provider whose settings this deployment does not have, so the worker leaves them in the queue. | Add the provider's settings and redeploy, or cancel them in Admin. |
 | `accounts-need-reconnect` | A provider refused an account's sign-in. | Reconnect it in Admin, then **Try again** its failed announcements. |
 | `needs-review` | An outcome may have posted and could not be looked up. | Check the account and use **Check the result** in Admin. |
 | `failed-recently` | Something failed in the last day. | Read its History in Admin. |
 | `stale-connections` | An unfinished account connection expired. | Nothing: the sweep cleaned it up. |
 
 Admin's Social screen shows the same health under **Delivery health**, whether or not `OPENBLOG_SOCIAL_OPS` is set,
-once the file is installed. To check by hand: `select * from openblog_social_health('<your site id>', 900);`.
+once the file is installed. To check by hand: `select * from openblog_social_health('<your site id>', 900);` (add a third argument such as
+`array['facebook']` to count a provider without settings apart, as the worker does).
 
 ### Retention (optional, deletes data)
 

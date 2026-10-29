@@ -25,7 +25,7 @@ begin;
 -- functions (social-queue.sql), which return the queue table's row type, then the tables.
 drop function if exists public.openblog_social_prune(text, integer, integer);
 drop function if exists public.openblog_social_sweep(text, integer);
-drop function if exists public.openblog_social_health(text, integer);
+drop function if exists public.openblog_social_health(text, integer, text[]);
 drop trigger if exists openblog_social_posts_history on public.openblog_social_posts;
 drop function if exists public.openblog_social_record_event();
 drop table if exists public.openblog_social_post_events;

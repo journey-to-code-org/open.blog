@@ -16,6 +16,7 @@ import { SocialScopeError, authorizeSocial, refuseClientScope, socialSettings } 
 import { SocialCredentialError } from "../lib/social-credentials.mjs";
 import { SocialOAuthError, createConnector, OUTCOMES } from "../lib/social-oauth.mjs";
 import { createAnnouncements } from "../lib/social-announcements.mjs";
+import { socialAdapters, waitingProviders } from "../lib/social-adapters.mjs";
 import { createAccounts } from "../lib/social-accounts.mjs";
 import { ProviderError, describeProvider, socialProviders, validProvider } from "../lib/social-providers.mjs";
 
@@ -106,7 +107,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       // announcements module authorizes the same admin key and bounds its own body.
       if (segments[0] === "announcements" || segments[0] === "destinations") {
         const raw = event.isBase64Encoded && event.body ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
-        const scheduled = createAnnouncements({ settings, fetchImpl, now, ops: opsPolicy(env) });
+        const scheduled = createAnnouncements({ settings, fetchImpl, now, ops: opsPolicy(env), skipProviders: waitingProviders(socialAdapters({ providers, fetchImpl, now })) });
         const result = await scheduled({ method, route: segments.join("/"), query, headers: event.headers || {}, body: raw });
         return json(result.status, result.body);
       }

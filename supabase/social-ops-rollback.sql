@@ -8,7 +8,7 @@ begin;
 
 drop function if exists public.openblog_social_prune(text, integer, integer);
 drop function if exists public.openblog_social_sweep(text, integer);
-drop function if exists public.openblog_social_health(text, integer);
+drop function if exists public.openblog_social_health(text, integer, text[]);
 
 delete from public.openblog_social_schema where version = 4;
 

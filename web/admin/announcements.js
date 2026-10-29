@@ -174,6 +174,7 @@ export function healthLines(health) {
   const lines = {
     "backlog-overdue": () => `${plural(n("overdue"), "announcement is", "announcements are")} more than ${plural(health.overdueMinutes || 15, "minute", "minutes")} late. The delivery worker may not be running: check its schedule and its log.`,
     "expired-leases": () => `${plural(n("expiredLeases"), "delivery", "deliveries")} stopped before finishing. The next run picks them up; nothing is sent twice.`,
+    "provider-not-configured": () => `${plural(n("waitingOnProvider"), "announcement waits", "announcements wait")} for a provider this site has not set up for posting. Add its settings and redeploy, or cancel ${n("waitingOnProvider") === 1 ? "it" : "them"}.`,
     "accounts-need-reconnect": () => `${plural(n("accountsNeedReconnect"), "account needs", "accounts need")} to be connected again before ${n("accountsNeedReconnect") === 1 ? "it" : "they"} can post.`,
     "needs-review": () => `${plural(n("needsReview"), "announcement needs", "announcements need")} you to check whether ${n("needsReview") === 1 ? "it was" : "they were"} posted.`,
     "failed-recently": () => `${plural(n("failedRecently"), "announcement", "announcements")} failed in the last day.`,

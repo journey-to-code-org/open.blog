@@ -99,6 +99,8 @@ const HEALTH_FIELDS = Object.freeze({
   accounts_need_reconnect: "accountsNeedReconnect",
   accounts_paused: "accountsPaused",
   stale_connections: "staleConnections",
+  waiting_on_pause: "waitingOnPause",
+  waiting_on_provider: "waitingOnProvider",
 });
 
 /** Fixed alert codes for a health reading, most urgent first. */
@@ -108,6 +110,7 @@ export function alertsOf(health) {
   if (health.overdue > 0) alerts.push("backlog-overdue");
   if (health.expiredLeases > 0) alerts.push("expired-leases");
   if (health.accountsNeedReconnect > 0) alerts.push("accounts-need-reconnect");
+  if (health.waitingOnProvider > 0) alerts.push("provider-not-configured");
   if (health.needsReview > 0) alerts.push("needs-review");
   if (health.failedRecently > 0) alerts.push("failed-recently");
   if (health.staleConnections > 0) alerts.push("stale-connections");
@@ -128,8 +131,12 @@ export class OpsError extends Error {
   }
 }
 
-export function createOps({ settings, fetchImpl = globalThis.fetch, policy = opsPolicy({}) } = {}) {
+// `skipProviders` are the providers the worker has no adapter for (waitingProviders in
+// social-adapters.mjs). The claim leaves their announcements alone, so health counts them apart
+// (waitingOnProvider) instead of as late, just as it does announcements of a paused account.
+export function createOps({ settings, fetchImpl = globalThis.fetch, policy = opsPolicy({}), skipProviders = [] } = {}) {
   if (!settings || settings.enabled !== true) throw new SocialScopeError(404, "not-enabled", "Social publishing is not enabled.");
+  const skip = (Array.isArray(skipProviders) ? skipProviders : []).filter((provider) => typeof provider === "string" && CODE.test(provider));
 
   // An RPC call. A function PostgREST does not know (social-ops.sql not run) is `null`.
   const rpc = async (name, body) => {
@@ -155,7 +162,7 @@ export function createOps({ settings, fetchImpl = globalThis.fetch, policy = ops
 
     /** Counts only. `{ installed: false }` when social-ops.sql has not been run. */
     async health() {
-      const rows = await rpc("openblog_social_health", { p_overdue_seconds: policy.overdueMinutes * 60 });
+      const rows = await rpc("openblog_social_health", { p_overdue_seconds: policy.overdueMinutes * 60, p_skip_providers: skip });
       if (rows === null) return { installed: false, overdueMinutes: policy.overdueMinutes, alerts: [] };
       const row = rows[0] || {};
       const health = { installed: true, overdueMinutes: policy.overdueMinutes, oldestDueAt: instant(row.oldest_due_at) };

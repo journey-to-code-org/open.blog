@@ -95,11 +95,24 @@ test("health is counts and alert codes, most urgent first; a missing install is 
   assert.equal(health.oldestDueAt, "2026-11-01T11:00:00Z");
   assert.equal(health.caption, undefined);
   assert.deepEqual(health.alerts, ["backlog-overdue", "accounts-need-reconnect", "needs-review"]);
-  assert.deepEqual(storage.calls[0].body, { p_site_id: SITE, p_overdue_seconds: 1200 }, "this site only, with the alert threshold");
+  assert.deepEqual(storage.calls[0].body, { p_site_id: SITE, p_overdue_seconds: 1200, p_skip_providers: [] }, "this site only, with the alert threshold");
   assert.deepEqual(await createOps({ settings, fetchImpl: opsStorage({ installed: false }).fetchImpl }).health(), { installed: false, overdueMinutes: 15, alerts: [] });
   await assert.rejects(createOps({ settings, fetchImpl: opsStorage({ fail: true }).fetchImpl }).health(), (error) => error.code === "storage-failed" && !error.message.includes(SERVICE_KEY));
   assert.deepEqual(alertsOf({ installed: true, expiredLeases: 1, staleConnections: 1 }), ["expired-leases", "stale-connections"]);
   assert.deepEqual(alertsOf({ installed: false, overdue: 9 }), []);
+});
+
+test("announcements the claim holds back on purpose are never a late backlog", async () => {
+  // A paused account's announcements wait for the pause to end: counted, never an alert.
+  const paused = await createOps({ settings, fetchImpl: opsStorage({ health: { waiting_on_pause: 2, accounts_paused: 1 } }).fetchImpl }).health();
+  assert.equal(paused.waitingOnPause, 2);
+  assert.deepEqual(paused.alerts, [], "a working worker behind a rate-limit pause raises no backlog-overdue");
+  // A provider without an adapter is a setup problem with its own code, not a stopped worker.
+  const storage = opsStorage({ health: { waiting_on_provider: 3 } });
+  const unset = await createOps({ settings, fetchImpl: storage.fetchImpl, skipProviders: ["facebook", "Not A Code", 7] }).health();
+  assert.equal(unset.waitingOnProvider, 3);
+  assert.deepEqual(unset.alerts, ["provider-not-configured"]);
+  assert.deepEqual(storage.calls[0].body.p_skip_providers, ["facebook"], "only provider codes reach the query");
 });
 
 test("retention runs only when configured, and the worker's operations step never throws", async () => {
@@ -158,6 +171,8 @@ test("each worker run logs one line of counts; with operations on it sweeps, che
   on.addPost();
   const body = JSON.parse((await on.call()).body);
   assert.deepEqual(body.ops, { alerts: ["needs-review"] });
+  const asked = on.ops.calls.find((c) => c.name === "rpc/openblog_social_health");
+  assert.deepEqual(asked.body.p_skip_providers, ["facebook"], "health leaves out what the claim leaves out: the providers without an adapter");
   assert.deepEqual(on.sink.lines.map(([level, line]) => [level, JSON.parse(line).event]), [["info", "openblog-social-worker"], ["warn", "openblog-social-ops"]]);
   for (const [, line] of [...plain.sink.lines, ...on.sink.lines]) {
     for (const secret of [ACCESS, SERVICE_KEY, WORKER_KEY, ADMIN_KEY, "A new post is live.", "blog.example.org", "urn:li:person"]) assert.equal(line.includes(secret), false, secret);
@@ -184,6 +199,7 @@ test("the hosted health route answers the admin key only, for this site only", a
   assert.equal(health.overdueMinutes, 45);
   assert.deepEqual(health.alerts, ["backlog-overdue"]);
   assert.equal(storage.calls[0].body.p_site_id, SITE);
+  assert.deepEqual(storage.calls[0].body.p_skip_providers, ["linkedin", "facebook"], "Admin's health uses the worker's rule: no provider is set up here, so none has an adapter");
   assert.equal((await ask({ authorization: `Bearer ${WORKER_KEY}` })).statusCode, 403);
   assert.equal((await ask({})).statusCode, 401);
   assert.equal((await ask({ authorization: `Bearer ${ADMIN_KEY}`, "x-openblog-actor": "mikey" }, "site_id=other")).statusCode, 400);
