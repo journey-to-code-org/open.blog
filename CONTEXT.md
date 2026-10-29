@@ -2699,3 +2699,9 @@ _Avoid_: Channel, target (a cross-posting target is a different thing)
 A new handshake for an existing social account that can finish only for the same provider identity, replacing its
 credential and clearing its needs-reauth flag.
 _Avoid_: Refresh (a silent token renewal), re-add
+
+**Connected accounts screen**:
+The Admin page (`#/social`) where an author connects, reviews, reconnects and disconnects social accounts. It shows
+only what the Admin server rebuilt from the hosted function's reply, and appears in the navigation only when the
+Admin server has social settings.
+_Avoid_: Integrations, social settings

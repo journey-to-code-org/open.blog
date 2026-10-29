@@ -132,3 +132,33 @@ An account shows as **Needs reconnecting** when a provider dropped the grant, it
 (and refresh token) have run out, and as **Expiring** within seven days of that moment. LinkedIn tokens refresh
 themselves while a refresh token is valid. Admin shows each account's provider id and name, its status, its dates and
 the permissions that were granted, never a token.
+
+## Connected accounts in Admin
+
+Admin has a **Social accounts** page (`#/social`, and in the navigation once social settings exist)
+([ADR 0462](adr/0462-connected-accounts-are-managed-through-admin-routes-that-rebuild-every-reply-from-known-fields.md)).
+It is the only place you connect, reconnect or disconnect an account. Tell the machine that runs `openblog serve --admin`
+where the function is and give it the Admin key, as environment variables (never in `openblog.json`):
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENBLOG_SOCIAL_ENDPOINT` | The function's address, such as `https://blog.example.com/api/social`. `https:` only (plain `http:` is allowed to `127.0.0.1` or `localhost` for local development). No credentials, query or fragment. |
+| `OPENBLOG_SOCIAL_ADMIN_KEY` | The same value as the function's `OPENBLOG_SOCIAL_ADMIN_KEY`. At least 32 characters. |
+
+With neither set, Admin has no Social accounts entry and the page only explains how to turn the feature on. If one is
+set but wrong, the page names the setting at fault and sends nothing.
+
+What you can do on the page:
+
+- **Connect**: each provider shows the permissions it will ask for in plain words (optional ones marked) and the
+  exact redirect address to register in the provider's app. **Connect** gives a link that opens the provider in a new
+  tab; approve access there, return to Admin, press **I have finished, check now** (or just return to the tab), then
+  choose where posts may go. The link is not kept after a reload; cancel and start again if you lose it.
+- **Choose a destination**: destinations the provider did not confirm are shown disabled, with the reason.
+- **Reconnect**: appears on every account and leads when access ran out or was withdrawn. Sign in as the same account.
+- **Disconnect**: asks first, then erases the stored tokens and keeps the account in your history.
+
+Each account shows its status as words (Connected, Expiring soon, Needs reconnecting, Disconnected), its dates, who
+connected it, its provider id and the permissions the provider granted. Admin never receives a token: the page is
+rebuilt from known fields on the Admin server, so even a faulty function reply cannot put one in front of you.
+The page works with the keyboard and a screen reader and has no sideways scroll at 320 px.
