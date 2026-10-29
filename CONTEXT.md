@@ -2660,3 +2660,44 @@ _Avoid_: Lead, booking, ticket
 **Proof**:
 A review or testimonial saved as a provenance-tracked snapshot and optionally linked to a job.
 _Avoid_: Rating (the number alone), social proof
+
+**Social publishing**:
+An optional, off-by-default outward announcement of an already-published canonical post to a connected LinkedIn
+identity or Facebook Page, on a schedule. It never replaces the post or cross-posting. Everything about it is
+server-side; builds and exports do not know it exists.
+_Avoid_: Syndication (a full copy of the article on another platform)
+
+**Site scope**:
+The one site a social deployment acts for, taken from the server's `OPENBLOG_SITE_ID` and never from a request.
+Every social row carries it and every query is filtered by it.
+_Avoid_: Tenant, owner, namespace when the server's choice is meant
+
+**Social actor**:
+The signed-in Admin user the Rust Admin names to the hosted social function, or `@worker` for the scheduled
+worker. It is an audit attribution; the role is decided by which server key authenticated the call.
+_Avoid_: User, owner
+
+**Social account**:
+A connected LinkedIn identity or Facebook Page that a site may announce to. It is stored per site; its credentials
+are never part of the account row. Disconnecting keeps the row for history.
+_Avoid_: Profile, channel
+
+**Scheduled social post**:
+One queued announcement of one canonical post to one social account, with a time, a lease while a worker holds it
+and an idempotency key. It is `published` only with the provider's own response id.
+_Avoid_: Syndicated copy, job
+
+**Delivery attempt**:
+One recorded try to deliver a scheduled social post, with its outcome (`published`, `failed` or `unknown`) and a
+redacted error. Attempts are added and finished, never deleted.
+_Avoid_: Retry (a later attempt)
+
+**Credential envelope**:
+The encrypted form of a social account's provider tokens: AES-256-GCM ciphertext plus a wrapped data key, bound to
+one site and account, openable only with a key from `OPENBLOG_SOCIAL_TOKEN_KEYS` that is never in the database.
+_Avoid_: Vault secret, encrypted token column
+
+**Refresh lease**:
+A short claim on one account's credential that lets exactly one caller exchange its refresh token, so concurrent
+refreshes cannot burn a rotating refresh token.
+_Avoid_: Lock
