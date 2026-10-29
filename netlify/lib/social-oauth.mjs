@@ -1,5 +1,5 @@
 // The OAuth authorization-code handshake of optional social publishing (epic #353, story #355,
-// ADR 0460). Server-only, behind the site scope of ADR 0293.
+// ADR 0299). Server-only, behind the site scope of ADR 0293.
 //
 // An author asks Admin to connect LinkedIn or Facebook. `start` makes a connection row holding a
 // hash of a single-use `state` (and, where the deployer turned it on, a PKCE verifier sealed like a

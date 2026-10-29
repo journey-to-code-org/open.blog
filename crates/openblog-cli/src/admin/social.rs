@@ -1,4 +1,4 @@
-//! Admin routes for connected social accounts (ADR 0462, epic #353 story #355).
+//! Admin routes for connected social accounts (ADR 0301, epic #353 story #355).
 //!
 //! Social publishing is optional and off by default. Admin reaches the hosted social function
 //! only from this server: the browser never holds a key, never talks to Supabase and never talks

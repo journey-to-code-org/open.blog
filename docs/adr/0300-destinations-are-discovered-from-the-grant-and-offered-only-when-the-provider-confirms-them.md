@@ -1,4 +1,4 @@
-# ADR 0461: Destinations are discovered from the grant and offered only when the provider confirms them
+# ADR 0300: Destinations are discovered from the grant and offered only when the provider confirms them
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -14,7 +14,7 @@ approval (LinkedIn's Community Management API, Meta's App Review) varies per app
 
 ## Decision
 
-- **Discovery runs inside the handshake**, right after the scopes are verified (ADR 0460), and the result is
+- **Discovery runs inside the handshake**, right after the scopes are verified (ADR 0299), and the result is
   stored on the connection as `destinations` plus `notes`. Neither holds a token. Provider-supplied names are
   stripped of control and bidirectional-override characters, collapsed and cut to 200 characters; ids are
   validated by shape (`urn:li:person:<id>`, `urn:li:organization:<digits>`, a numeric Page id) or skipped.

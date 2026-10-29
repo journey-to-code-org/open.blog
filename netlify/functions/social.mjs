@@ -1,4 +1,4 @@
-// The hosted social publishing function (epic #353, story #355; ADRs 0293, 0460). Off unless
+// The hosted social publishing function (epic #353, story #355; ADRs 0293, 0299). Off unless
 // OPENBLOG_SOCIAL_ENABLED=true and every setting is valid: then every route answers 404 and
 // nothing touches Supabase or a provider.
 //

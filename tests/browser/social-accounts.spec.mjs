@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Connected social accounts in Admin (ADR 0462, #366), from the real binary and the real Admin Studio, against a
+// Connected social accounts in Admin (ADR 0301, #366), from the real binary and the real Admin Studio, against a
 // scripted stand-in for the hosted social function. No provider is ever contacted: the page only ever builds a
 // link to the provider and the test never follows it.
 

@@ -1,4 +1,4 @@
-# ADR 0462: Connected accounts are managed through Admin routes that rebuild every reply from known fields
+# ADR 0301: Connected accounts are managed through Admin routes that rebuild every reply from known fields
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -50,7 +50,7 @@ comfortable on a phone, and must never put a token, key or secret where a browse
 - **Invisible when off.** Admin's `meta` says whether any social setting exists; the navigation entry and the
   command-palette entry appear only then (the page itself is reachable at `#/social` and explains the feature).
   The screen requests accounts and connections only after status says the feature is on.
-- **Returning from the provider.** The provider's redirect lands on the hosted function's fixed page (ADR 0460),
+- **Returning from the provider.** The provider's redirect lands on the hosted function's fixed page (ADR 0299),
   not in Admin. The author returns to Admin and presses "I have finished, check now", or simply returns to the
   tab, which looks again if an attempt is waiting.
 

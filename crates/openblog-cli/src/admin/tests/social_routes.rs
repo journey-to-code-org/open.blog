@@ -1,4 +1,4 @@
-//! Admin routes for connected social accounts (ADR 0462): off and invisible unless configured,
+//! Admin routes for connected social accounts (ADR 0301): off and invisible unless configured,
 //! the session, CSRF and body bounds of every Admin route, the actor and key sent to the hosted
 //! function, and replies rebuilt from known fields so no token, key or foreign address gets through.
 

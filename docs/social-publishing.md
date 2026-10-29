@@ -73,7 +73,7 @@ sees a connection's status and dates, never a token. Tokens never appear in erro
 ## Connecting LinkedIn and Facebook (OAuth)
 
 Connecting an account is an OAuth authorization-code flow
-([ADR 0460](adr/0460-the-oauth-handshake-is-a-single-use-state-bound-connection-finished-by-the-hosted-function.md)).
+([ADR 0299](adr/0299-the-oauth-handshake-is-a-single-use-state-bound-connection-finished-by-the-hosted-function.md)).
 The provider sends the author's browser back to your hosted function, so it needs a public `https:` address.
 
 Create an app with each provider you want and set these in the function's environment (never in `openblog.json`):
@@ -108,7 +108,7 @@ the provider actually granted. Client secrets are sent in the request body to th
 ## Choosing where to post
 
 After the author authorizes, the function asks the provider where the grant can post
-([ADR 0461](adr/0461-destinations-are-discovered-from-the-grant-and-offered-only-when-the-provider-confirms-them.md)).
+([ADR 0300](adr/0300-destinations-are-discovered-from-the-grant-and-offered-only-when-the-provider-confirms-them.md)).
 Admin lists each destination and chooses one; nothing is connected until it does, and the choice is made once.
 
 - **LinkedIn** offers the member, and the organizations they administer when you set
@@ -136,7 +136,7 @@ the permissions that were granted, never a token.
 ## Connected accounts in Admin
 
 Admin has a **Social accounts** page (`#/social`, and in the navigation once social settings exist)
-([ADR 0462](adr/0462-connected-accounts-are-managed-through-admin-routes-that-rebuild-every-reply-from-known-fields.md)).
+([ADR 0301](adr/0301-connected-accounts-are-managed-through-admin-routes-that-rebuild-every-reply-from-known-fields.md)).
 It is the only place you connect, reconnect or disconnect an account. Tell the machine that runs `openblog serve --admin`
 where the function is and give it the Admin key, as environment variables (never in `openblog.json`):
 

@@ -1,4 +1,4 @@
-// Provider adapters for optional social publishing (epic #353, story #355, ADR 0460): the
+// Provider adapters for optional social publishing (epic #353, story #355, ADR 0299): the
 // LinkedIn and Facebook settings, the authorization URL, the code exchange and the scope check.
 // Server-only. Every provider call goes through an injected `fetchImpl`, so tests run against fakes
 // and no real network call is ever made by this repository's tests.

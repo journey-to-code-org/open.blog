@@ -62,6 +62,7 @@ pub mod attributed_perspective;
 pub mod author_response;
 pub mod bibliography;
 pub mod capability;
+pub mod capture;
 pub mod chronology;
 pub mod chronology_index;
 pub mod citation_review;

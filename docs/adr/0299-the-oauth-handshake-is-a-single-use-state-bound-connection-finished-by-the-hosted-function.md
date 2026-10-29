@@ -1,4 +1,4 @@
-# ADR 0460: The OAuth handshake is a single-use, state-bound connection finished by the hosted function
+# ADR 0299: The OAuth handshake is a single-use, state-bound connection finished by the hosted function
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -60,4 +60,4 @@ stranger could forge.
 ## Consequences
 
 - `social.sql` gains one additive table, `openblog_social_connections`, dropped by `social-rollback.sql`.
-- Choosing a destination, discovery and the Admin screens build on the `authorized` state (ADR 0461, 0462).
+- Choosing a destination, discovery and the Admin screens build on the `authorized` state (ADR 0300, 0301).

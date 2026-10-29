@@ -1,4 +1,4 @@
-// Connected accounts as Admin sees them (epic #353, story #355, ADR 0461): list, reconnect and
+// Connected accounts as Admin sees them (epic #353, story #355, ADR 0300): list, reconnect and
 // disconnect. Server-only, behind the site scope. What leaves this module is a status, dates,
 // the provider's account id and name, and the scopes granted; never a token or ciphertext.
 //

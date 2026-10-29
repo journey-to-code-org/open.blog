@@ -1,4 +1,4 @@
-// The OAuth handshake of optional social publishing (epic #353, story #355, ADR 0460): state,
+// The OAuth handshake of optional social publishing (epic #353, story #355, ADR 0299): state,
 // PKCE, exact callbacks, verified scopes, single use, and the promise that no code, token or
 // secret reaches a response, a page or a stored column in the clear.
 import test from "node:test";
@@ -21,7 +21,7 @@ const world = (extra = {}) =>
   });
 const make = (overrides = {}, worldOptions = {}) => {
   const w = world(worldOptions);
-  // Discovery (ADR 0461) asks the provider where the grant can post; these tests are about the handshake.
+  // Discovery (ADR 0300) asks the provider where the grant can post; these tests are about the handshake.
   w.handlers["GET api.linkedin.com/v2/userinfo"] ||= { status: 200, body: { sub: "abc123", name: "Ada" } };
   w.handlers["GET graph.facebook.com/v23.0/me/accounts"] ||= { status: 200, body: { data: [{ id: "111", name: "Page", tasks: ["CREATE_CONTENT"], access_token: "EAApage-token-0006" }] } };
   const clock = { t: NOW };

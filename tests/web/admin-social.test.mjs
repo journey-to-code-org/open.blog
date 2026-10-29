@@ -1,4 +1,4 @@
-// The Connected accounts screen (ADR 0462, #366): off and honest when social publishing is not set up,
+// The Connected accounts screen (ADR 0301, #366): off and honest when social publishing is not set up,
 // permissions reviewed before connecting, a provider link that only ever points at the provider, a
 // destination choice with reasons, reconnect and disconnect with a confirmation, status as words, and
 // nothing secret ever drawn.

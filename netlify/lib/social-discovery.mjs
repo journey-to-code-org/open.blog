@@ -1,4 +1,4 @@
-// Finding where an authorized account may post (epic #353, story #355, ADR 0461). Server-only.
+// Finding where an authorized account may post (epic #353, story #355, ADR 0300). Server-only.
 //
 // After the handshake the function asks the provider what the grant can reach: the member and the
 // organizations they administer on LinkedIn, the Pages they manage on Facebook. Eligibility is

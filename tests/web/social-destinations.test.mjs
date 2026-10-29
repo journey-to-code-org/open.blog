@@ -1,5 +1,5 @@
 // Destinations and connected accounts of optional social publishing (epic #353, story #355, ADR
-// 0461): LinkedIn members and organizations, Facebook Pages, eligibility that is verified and never
+// 0300): LinkedIn members and organizations, Facebook Pages, eligibility that is verified and never
 // guessed, choosing a destination once, reconnecting only the same identity, and disconnecting.
 import test from "node:test";
 import assert from "node:assert/strict";

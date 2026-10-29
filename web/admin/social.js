@@ -1,4 +1,4 @@
-// <ob-social-accounts>: the Connected accounts screen of optional social publishing (ADR 0462).
+// <ob-social-accounts>: the Connected accounts screen of optional social publishing (ADR 0301).
 // An author connects LinkedIn or Facebook, reviews the permissions asked for, chooses where posts
 // may go, and reconnects or disconnects an account. Everything here is a request to the Admin
 // server, which holds the key to the hosted function: this page never sees a token, a client

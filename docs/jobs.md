@@ -70,8 +70,33 @@ build checks it, and an unknown trade is refused with the bundled trades and you
 made this way is always a draft (the dates start as today), so a half-written one never stops a build; it is
 reported as `job not ready to publish` until you finish it and remove `draft`.
 
-## Trades
+## Capturing a job from a phone
 
+On site, open **Capture** in Admin's navigation (`#/capture`). It is one column built for a 400 px screen: a
+large **Add photos** button (your phone offers the camera or the photo library), the trade, a service, a town
+(your last few towns are one tap away) and a **Notes** box. Trade, service and towns are remembered on that
+device only. **Save draft** makes an unpublished job draft you can find in Write: the Job form's keys, the four
+headings, your notes under the first and the photos after them. Nothing is published, and no AI provider is
+contacted. A capture holds at most twelve photos (each within your upload limit) and 8,000 characters of notes.
+
+If the connection drops, nothing is lost: **Save draft** keeps the capture on the phone (in the browser's
+IndexedDB) and sends it when you are back online, or when you open Capture again, or when you tap **Send now**.
+Waiting captures are listed under **Waiting to send**, and each can be discarded. Sending twice never makes a
+second draft, because every capture carries its own id. The phone keeps at most five waiting captures, 60 MB
+each and 120 MB in all, and says so when one does not fit; it never deletes a capture on its own. A browser
+without IndexedDB sends straight away instead.
+
+Where the browser allows it, **Record a voice note** talks instead of types: it starts only when you tap it
+(the browser then asks for the microphone), shows the time, and stops with **Stop recording**, at three minutes
+or at 8 MB, whichever comes first. **Discard** throws a recording away. A finished note plays back in the view
+and is sent with the capture, then kept privately on your own server (in `.openblog/captures/`, never in your
+site's files or the post). Nothing is transcribed and nothing is sent to an AI. A browser that cannot record
+simply shows no Record control.
+See [ADR 0296](adr/0296-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md),
+[ADR 0297](adr/0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
+and [ADR 0298](adr/0298-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md).
+
+## Trades
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,
 `plumbing`, `electrical`, `landscaping`, `painting`, `hvac`, `other`. Add your own in `openblog.json`:
 
