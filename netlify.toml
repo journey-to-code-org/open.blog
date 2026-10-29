@@ -47,6 +47,15 @@
 [functions."social"]
   node_bundler = "esbuild"
 
+# The delivery worker, called by pg_cron through pg_net with the worker key (ADR 0481).
+[functions."social-worker"]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/social-worker"
+  to = "/.netlify/functions/social-worker"
+  status = 200
+
 [[redirects]]
   from = "/api/social/*"
   to = "/.netlify/functions/social/:splat"

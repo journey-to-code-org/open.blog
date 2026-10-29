@@ -1024,8 +1024,15 @@ cannot be changed, and the row says why. If it was picked up while you were look
 tells you instead of failing. Use **Show** to filter by status.
 
 It works with a keyboard alone (Tab through the fields, Enter on **Schedule announcement**), every field has a visible
-label, and on a phone it is one column with buttons at least 44px tall. Nothing is posted by this screen yet: delivery
-arrives in a later story.
+label, and on a phone it is one column with buttons at least 44px tall. This screen only schedules; the delivery worker
+and the provider adapters do the posting (see [social publishing](social-publishing.md#the-delivery-worker)).
+
+**When a post does not go out.** A **Failed** announcement says why in plain words, with the short code beside it.
+**Try again** asks first, then puts it back in the queue with a fresh allowance of attempts. A **Needs checking**
+announcement is one where the provider did not say whether the post went out. It is never sent again by itself: look
+at the LinkedIn or Facebook account, then choose **Check the result** and say it was posted (with the post id the
+provider shows) or was not (it then becomes Failed, and you can try it again). A **Scheduled** announcement that is
+waiting to try again says when. **What was tried** under each announcement lists every attempt with its result.
 
 ## Running it for real
 

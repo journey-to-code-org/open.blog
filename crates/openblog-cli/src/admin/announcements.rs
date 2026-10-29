@@ -151,6 +151,9 @@ pub(super) fn owns(name: &str) -> bool {
             | "announcements"
             | "announcements/reschedule"
             | "announcements/cancel"
+            | "announcements/retry"
+            | "announcements/resolve"
+            | "announcements/attempts"
     )
 }
 
@@ -208,6 +211,9 @@ pub(super) fn route(
         ("PATCH", "announcements") => edit(transport, user, req),
         ("POST", "announcements/reschedule") => reschedule(transport, user, req),
         ("POST", "announcements/cancel") => cancel(transport, user, req),
+        ("POST", "announcements/retry") => retry(transport, user, req),
+        ("POST", "announcements/resolve") => resolve(transport, user, req),
+        ("GET", "announcements/attempts") => attempts(transport, user, req),
         _ => Response::error(404, "Unknown API route"),
     }
 }
@@ -566,6 +572,102 @@ fn cancel(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     )
 }
 
+/// Puts a failed announcement back in the queue (ADR 0318). The hosted function refuses any
+/// other status, so an outcome nobody confirmed cannot be retried from here.
+fn retry(transport: &dyn Transport, user: &str, req: &Request) -> Response {
+    let id = match announcement_id(req) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let body: CancelBody = match body_of(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    relay(
+        transport,
+        user,
+        "POST",
+        "announcements/retry",
+        vec![("id".into(), id)],
+        Some(json!({ "version": body.version })),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ResolveBody {
+    version: u64,
+    outcome: String,
+    provider_post_id: Option<String>,
+}
+
+/// A provider's post id as it is kept: printable ASCII, no spaces, at most 300 characters.
+fn plain_post_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 300 && id.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
+}
+
+/// Settles an announcement whose outcome is unknown, after the author has looked at the account:
+/// posted (with the provider's post id) or not posted.
+fn resolve(transport: &dyn Transport, user: &str, req: &Request) -> Response {
+    let id = match announcement_id(req) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let body: ResolveBody = match body_of(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let mut payload = json!({ "version": body.version, "outcome": body.outcome });
+    match (body.outcome.as_str(), body.provider_post_id) {
+        ("published", Some(post_id)) if plain_post_id(&post_id) => {
+            payload["providerPostId"] = Json::String(post_id);
+        }
+        ("published", _) => {
+            return Response::json(
+                400,
+                &json!({
+                    "error": "Enter the post id the provider shows for it.",
+                    "code": "invalid-provider-post-id",
+                }),
+            )
+        }
+        ("not-posted", None) => {}
+        _ => {
+            return Response::json(
+                400,
+                &json!({
+                    "error": "Say whether it was posted or not posted.",
+                    "code": "invalid-outcome",
+                }),
+            )
+        }
+    }
+    relay(
+        transport,
+        user,
+        "POST",
+        "announcements/resolve",
+        vec![("id".into(), id)],
+        Some(payload),
+    )
+}
+
+/// The attempts made for one announcement, as the hosted function reports them.
+fn attempts(transport: &dyn Transport, user: &str, req: &Request) -> Response {
+    let id = match announcement_id(req) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    relay(
+        transport,
+        user,
+        "GET",
+        "announcements/attempts",
+        vec![("id".into(), id)],
+        None,
+    )
+}
+
 /// Calls the hosted function and returns only what the composer needs. An answer is passed on
 /// only through an allow-list of fields; anything else the function says is dropped, a function
 /// that rejects the Admin's own key is reported as a setup problem (never as a session problem),
@@ -591,7 +693,13 @@ fn relay(
     };
     if (200..300).contains(&status) {
         let mut kept = Map::new();
-        for name in ["announcement", "announcements", "destinations", "replayed"] {
+        for name in [
+            "announcement",
+            "announcements",
+            "destinations",
+            "replayed",
+            "attempts",
+        ] {
             if let Some(found) = value.get(name) {
                 kept.insert(name.to_string(), found.clone());
             }
