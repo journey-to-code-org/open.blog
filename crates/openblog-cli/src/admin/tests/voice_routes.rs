@@ -70,6 +70,8 @@ fn every_route_requires_a_session_and_a_write_the_csrf_token_and_the_same_origin
         ("POST", "/admin/api/voice/session/start", true),
         ("PUT", "/admin/api/voice/session/draft", true),
         ("POST", "/admin/api/voice/session/lock", true),
+        ("GET", "/admin/api/voice/erase", false),
+        ("POST", "/admin/api/voice/erase", true),
         ("GET", "/admin/api/voice/samples", false),
         ("POST", "/admin/api/voice/samples", true),
         ("GET", "/admin/api/voice/samples/2026-10-28-a-rough", false),
@@ -165,6 +167,7 @@ fn the_body_limits_are_set_before_any_body_is_read() {
         256 * 1024
     );
     assert_eq!(limit("POST", "/admin/api/voice/draw"), 4 * 1024);
+    assert_eq!(limit("POST", "/admin/api/voice/erase"), 4 * 1024);
     assert_eq!(limit("POST", "/admin/api/voice/session/start"), 4 * 1024);
     assert_eq!(
         limit("POST", "/admin/api/voice/samples/x/visibility"),
@@ -961,4 +964,73 @@ fn a_session_lock_that_lost_a_race_reads_back_as_no_session() {
         (200, Some("none")),
         "{second}"
     );
+}
+
+#[test]
+fn erase_lists_first_needs_the_typed_word_and_removes_everything_with_a_post_check() {
+    let f = fixture("voice-erase");
+    let s = login_ok(&f);
+    let (status, none) = get(&f, &s, "/admin/api/voice/erase");
+    assert_eq!((status, none["items"].clone()), (200, json!([])));
+
+    let (_, rough) = locked_sample(&f, &s, "private");
+    let (_, _) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/samples",
+        json!({ "roughOf": rough["file"], "title": "T", "body": MARKER }),
+    );
+    fs::create_dir_all(f.dir.join(SESSION_PATH).parent().unwrap()).unwrap();
+    fs::write(f.dir.join(SESSION_PATH), "{}").unwrap();
+    fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+    fs::write(f.dir.join("assistant/context/voice.md"), "guide").unwrap();
+    fs::write(f.dir.join("assistant/context/author.md"), "keep").unwrap();
+
+    let (status, plan) = get(&f, &s, "/admin/api/voice/erase");
+    assert_eq!(status, 200);
+    let kinds: Vec<&str> = plan["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["kind"].as_str().unwrap())
+        .collect();
+    for kind in ["sample", "session record", "voice guide"] {
+        assert!(kinds.contains(&kind), "{kinds:?}");
+    }
+    let listed = plan.to_string();
+    assert!(!listed.contains(MARKER) && !listed.contains(&f.dir.display().to_string()));
+
+    // Without the typed word nothing happens.
+    for body in [
+        json!({}),
+        json!({ "confirm": "yes" }),
+        json!({ "confirm": true }),
+    ] {
+        let (status, _) = call(&f, &s, "POST", "/admin/api/voice/erase", body);
+        assert!(status == 409 || status == 400, "{status}");
+    }
+    assert_eq!(
+        get(&f, &s, "/admin/api/voice/erase").1["items"],
+        plan["items"]
+    );
+
+    let (status, done) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/erase",
+        json!({ "confirm": "Erase" }),
+    );
+    assert_eq!(status, 200, "{done}");
+    assert_eq!(done["clean"], json!(true));
+    assert_eq!(done["remaining"], json!([]));
+    assert_eq!(done["erased"], plan["items"]);
+    assert_eq!(get(&f, &s, "/admin/api/voice/erase").1["items"], json!([]));
+    assert!(!f.dir.join("assistant/context/voice.md").exists());
+    assert_eq!(
+        fs::read_to_string(f.dir.join("assistant/context/author.md")).unwrap(),
+        "keep"
+    );
+    assert!(!f.dir.join(SESSION_PATH).exists());
 }

@@ -748,6 +748,8 @@ fn authenticated_api(
         ("POST", "voice/draw") => voice::draw(state, req),
         ("GET", "voice/session") => voice::get_session(state),
         ("DELETE", "voice/session") => voice::scrap(state),
+        ("GET", "voice/erase") => voice::erase_plan(state),
+        ("POST", "voice/erase") => voice::erase(state, req),
         ("POST", "voice/session/start") => voice::start(state, req),
         ("PUT", "voice/session/draft") => voice::save_draft(state, req),
         ("POST", "voice/session/lock") => voice::lock_session(state, req),

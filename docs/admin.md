@@ -268,6 +268,7 @@ openblog voice a-mistake-i-made    # skip the draw
 openblog voice --list              # packs, how many you have answered, and each prompt's stage
 openblog voice --resume            # carry on with an interrupted session (deadline unchanged)
 openblog voice --scrap --yes       # give up the open session and save nothing
+openblog voice erase [--yes]       # list, then erase ALL voice data (see below)
 ```
 
 - **Where you write.** If `$VISUAL` or `$EDITOR` is set, your editor opens a file with the prompt and a
@@ -313,6 +314,19 @@ Polished badges, length, visibility and date, a coverage line per pack, and a no
 be read and what to do about it. A rough sample opens read-only. The view works on a phone and from the
 keyboard; the timer is not announced every second, only at its marks and when it locks.
 
+### Erase your voice data
+
+Samples are private unless you choose portable (`--portable`, or "Portable" when you start a session in
+Admin); "Make private" and "Make portable" on a sample move it, with its partner, and moving it back
+restores the same bytes. Private samples are never published, built, fed or exported.
+
+`openblog voice erase` lists everything the voice feature stored: samples in both folders, the session
+record, the voice guide and leftover editor files. It stops there; add `--yes` to erase. In Admin, **Your
+voice samples** has **Erase all voice data…**: it shows the same list and enables **Erase everything**
+only after you type `erase`. The erase is all or nothing (if one file cannot be removed, everything is put
+back) and ends with a second look that says "nothing is left" or names what is. Admin also clears the
+copies of drafts kept on that device. Copies in Git history or backups are not touched.
+
 ### Use voice samples and a voice guide with the Assistant
 
 Your samples and a **voice guide** can be chosen as Assistant context, so reviews and suggestions
@@ -346,7 +360,7 @@ Nothing is sent unless you select it and run a request, and nothing here changes
 ### Move your voice library between projects
 
 `openblog voice export` puts your voice samples and your voice guide in one JSON file; `openblog voice import`
-reads such a file ([ADR 0350](adr/0350-the-voice-library-travels-as-one-previewed-all-or-nothing-export-that-keeps-each-items-folder.md)).
+reads such a file ([ADR 0284](adr/0284-the-voice-library-travels-as-one-previewed-all-or-nothing-export-that-keeps-each-items-folder.md)).
 Neither needs a hosted service.
 
 ```text
@@ -372,8 +386,11 @@ openblog voice import voice-library.json --write       # apply, all or nothing
 - A valid file round-trips byte for byte. A library with no samples exports an empty file, and Admin has no
   import screen: the file moves between projects, and the command line is the place for it.
 
-Erasing the whole voice library (`openblog voice erase` and the Admin Erase action) is documented by the
-privacy work in epic #410; this paragraph is a placeholder until that work is merged.
+To remove the whole voice library from a project, see [Erase your voice data](#erase-your-voice-data):
+`openblog voice erase [--yes]`, or **Erase all voice data…** in Admin with the typed confirmation. It is all or
+nothing, checks again afterwards, and refuses a linked folder (see
+[ADR 0282](adr/0282-voice-samples-are-private-until-the-author-chooses-portable-and-a-move-between-the-folders-is-reversible.md)
+and [ADR 0283](adr/0283-erasing-voice-data-is-listed-confirmed-staged-in-a-trash-folder-and-checked-again.md)).
 
 ### Write your own prompt packs
 

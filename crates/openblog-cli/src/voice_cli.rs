@@ -119,6 +119,7 @@ pub fn run(
             }
         }
         Some("polish") => polish(root, one_sample(positional, "polish")?, options),
+        Some("erase") if positional.len() == 1 => erase(root, switches.contains("yes")),
         Some("diff") => diff(root, one_sample(positional, "diff")?),
         Some("promote") => promote(
             root,
@@ -430,6 +431,39 @@ fn scrap(root: &Path, yes: bool) -> Result<(), String> {
             );
             Ok(())
         }
+    }
+}
+
+/// `openblog voice erase`: list everything the voice feature stored, and with `--yes` erase it all
+/// or nothing, then say what the post-check found.
+fn erase(root: &Path, yes: bool) -> Result<(), String> {
+    let plan = voice_store::erase_plan(root).map_err(store_error)?;
+    if plan.is_empty() {
+        println!("There is no voice data to erase.");
+        return Ok(());
+    }
+    println!("This erases, from both the portable and the private folders:");
+    for item in &plan {
+        println!("  {} ({})", item.path, item.kind.as_str());
+    }
+    if !yes {
+        return Err(
+            "Nothing was erased. This cannot be undone: run it again with --yes to confirm.".into(),
+        );
+    }
+    let report = voice_store::erase_all(root).map_err(store_error)?;
+    if report.remaining.is_empty() {
+        println!(
+            "Erased {} file{}. Checked again: nothing is left.",
+            report.erased.len(),
+            if report.erased.len() == 1 { "" } else { "s" }
+        );
+        Ok(())
+    } else {
+        for path in &report.remaining {
+            eprintln!("  still there: {path}");
+        }
+        Err("Erased what could be erased, but the files above are still there.".into())
     }
 }
 

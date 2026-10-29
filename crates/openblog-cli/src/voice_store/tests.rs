@@ -257,10 +257,6 @@ fn file_names_cannot_escape_or_name_other_files() {
     ] {
         assert!(read(&project.0, Visibility::Private, bad).is_err(), "{bad}");
         assert!(
-            erase(&project.0, Visibility::Private, bad, true).is_err(),
-            "{bad}"
-        );
-        assert!(
             move_visibility(&project.0, Visibility::Private, bad, Visibility::Portable).is_err()
         );
     }
@@ -462,26 +458,278 @@ fn moving_copies_the_bytes_unchanged_and_moves_the_pair_together() {
 }
 
 #[test]
-fn erasing_a_rough_draft_with_a_polished_one_needs_both() {
-    let project = Project::with_session("a-mistake-i-made");
-    lock_rough(&project, Visibility::Private);
-    write_polished(&project.0, Visibility::Private, &polished("Clean."), None).unwrap();
-    let error = erase(&project.0, Visibility::Private, ROUGH, false).unwrap_err();
-    assert!(error.to_string().contains("polished draft"), "{error}");
-    assert_eq!(
-        erase(&project.0, Visibility::Private, POLISHED, false).unwrap(),
-        [POLISHED]
-    );
-    assert_eq!(list(&project.0).len(), 1);
-    write_polished(&project.0, Visibility::Private, &polished("Clean."), None).unwrap();
-    assert_eq!(
-        erase(&project.0, Visibility::Private, ROUGH, true).unwrap(),
-        [ROUGH, POLISHED]
-    );
-    assert!(list(&project.0).is_empty());
-    assert!(erase(&project.0, Visibility::Private, ROUGH, true).is_err());
+fn the_guide_lives_in_one_named_place_per_visibility() {
+    let paths = guide_paths(Path::new("."));
+    assert_eq!(paths.len(), 2);
+    assert!(paths
+        .iter()
+        .any(|(v, p)| *v == Visibility::Portable && p == "assistant/context/voice.md"));
+    assert!(paths
+        .iter()
+        .any(|(v, p)| *v == Visibility::Private && p == ".openblog/private/context/voice.md"));
 }
 
+/// A project holding every kind of thing an erase must find.
+fn full_project() -> Project {
+    let project = Project::with_session("a-mistake-i-made");
+    let dir = &project.0;
+    lock_rough(&project, Visibility::Private);
+    write_polished(dir, Visibility::Private, &polished("Clean."), None).unwrap();
+    let mut portable = rough("portable words");
+    portable.date = "2026-10-29T09:30:00Z".into();
+    project.open_session("a-mistake-i-made");
+    write_rough(dir, Visibility::Portable, &portable).unwrap();
+    project.open_session("a-mistake-i-made");
+    for (_, relative) in guide_paths(dir) {
+        let path = dir.join(&relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "guide words").unwrap();
+    }
+    fs::write(dir.join(".openblog/private/voice/editing-1-2.md"), "ed").unwrap();
+    fs::write(dir.join(".openblog/private/voice/polishing.md"), "ed").unwrap();
+    fs::write(dir.join(PRIVATE_DIR).join(".voice-x.tmp"), "half").unwrap();
+    // Not voice data: must survive.
+    fs::create_dir_all(dir.join("assistant/context")).unwrap();
+    fs::write(dir.join("assistant/context/author.md"), "keep me").unwrap();
+    project
+}
+
+#[test]
+fn the_erase_plan_names_every_kind_and_reads_only() {
+    let project = full_project();
+    let before = snapshot(&project.0);
+    let plan = erase_plan(&project.0).unwrap();
+    let kinds = |kind: EraseKind| plan.iter().filter(|i| i.kind == kind).count();
+    assert_eq!(kinds(EraseKind::Sample), 3);
+    assert_eq!(kinds(EraseKind::Session), 1);
+    assert_eq!(kinds(EraseKind::Guide), 2);
+    assert_eq!(kinds(EraseKind::EditorFile), 2);
+    assert_eq!(kinds(EraseKind::Leftover), 1);
+    assert!(plan.iter().all(|i| !i.path.contains("words")));
+    assert_eq!(snapshot(&project.0), before);
+    // A project without voice data has nothing to erase and gets no folder.
+    let empty = Project::new();
+    assert!(erase_plan(&empty.0).unwrap().is_empty());
+    assert!(snapshot(&empty.0).is_empty());
+}
+
+#[test]
+fn erasing_everything_removes_all_of_it_and_the_post_check_finds_nothing() {
+    let project = full_project();
+    let report = erase_all(&project.0).unwrap();
+    assert_eq!(report.erased.len(), 9);
+    assert!(report.remaining.is_empty(), "{:?}", report.remaining);
+    assert!(erase_plan(&project.0).unwrap().is_empty());
+    assert!(list(&project.0).is_empty());
+    let left: Vec<String> = snapshot(&project.0).into_keys().collect();
+    assert_eq!(left, ["assistant/context/author.md"], "{left:?}");
+    // Repeating it is a quiet no-op.
+    assert!(erase_all(&project.0).unwrap().erased.is_empty());
+}
+
+#[test]
+fn a_failed_erase_puts_everything_back_exactly() {
+    let project = full_project();
+    let before = snapshot(&project.0);
+    // Fail on the last file in plan order, after most of the others were set aside.
+    let plan = erase_plan(&project.0).unwrap();
+    let last = plan
+        .last()
+        .unwrap()
+        .path
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+    FAIL_ERASE.with(|f| *f.borrow_mut() = Some(last));
+    let error = erase_all(&project.0).unwrap_err();
+    FAIL_ERASE.with(|f| *f.borrow_mut() = None);
+    assert!(error.to_string().contains("Nothing was erased"), "{error}");
+    assert_eq!(snapshot(&project.0), before);
+    // And it works once the obstacle is gone.
+    assert!(erase_all(&project.0).unwrap().remaining.is_empty());
+}
+
+#[test]
+fn a_failure_on_the_first_file_also_changes_nothing() {
+    let project = full_project();
+    let before = snapshot(&project.0);
+    let first = erase_plan(&project.0).unwrap()[0]
+        .path
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+    FAIL_ERASE.with(|f| *f.borrow_mut() = Some(first));
+    assert!(erase_all(&project.0).is_err());
+    FAIL_ERASE.with(|f| *f.borrow_mut() = None);
+    assert_eq!(snapshot(&project.0), before);
+}
+
+/// Make a link, or `None` when this OS or user may not (Windows without the privilege).
+fn try_link(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+    #[cfg(windows)]
+    {
+        if target.is_dir() {
+            std::os::windows::fs::symlink_dir(target, link).is_ok()
+        } else {
+            std::os::windows::fs::symlink_file(target, link).is_ok()
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (target, link);
+        false
+    }
+}
+
+#[test]
+fn a_link_entry_is_erased_as_a_link_and_the_target_outside_the_project_survives() {
+    let project = full_project();
+    let outside = std::env::temp_dir().join(format!("ob-voice-link-{}.md", std::process::id()));
+    fs::write(&outside, "outside words").unwrap();
+    // Sorts last, so earlier entries have been set aside before it is reached.
+    let link = project.0.join(PORTABLE_DIR).join("zz-link.md");
+    if !try_link(&outside, &link) {
+        eprintln!("skipped: this OS refused to create a link");
+        let _ = fs::remove_file(&outside);
+        return;
+    }
+    let report = erase_all(&project.0).unwrap();
+    assert!(report.remaining.is_empty(), "{:?}", report.remaining);
+    assert!(fs::symlink_metadata(&link).is_err());
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "outside words");
+    let left: Vec<String> = snapshot(&project.0).into_keys().collect();
+    assert_eq!(left, ["assistant/context/author.md"], "{left:?}");
+    let _ = fs::remove_file(&outside);
+}
+
+/// A folder link: a symlink, else a junction on Windows. `false` when neither can be made.
+fn try_dir_link(target: &Path, link: &Path) -> bool {
+    if try_link(target, link) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .is_ok_and(|out| out.status.success())
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+fn project_with_posts() -> Project {
+    let project = Project::new();
+    let posts = project.0.join("content/posts");
+    fs::create_dir_all(&posts).unwrap();
+    fs::write(posts.join("2026-01-01-keep.md"), "post words").unwrap();
+    fs::write(posts.join(".hidden.tmp"), "tmp").unwrap();
+    fs::create_dir_all(posts.join("erasing-old")).unwrap();
+    fs::write(posts.join("erasing-old/inner.md"), "inner").unwrap();
+    project
+}
+
+fn assert_posts_survive(project: &Project) {
+    let posts = project.0.join("content/posts");
+    assert_eq!(
+        fs::read_to_string(posts.join("2026-01-01-keep.md")).unwrap(),
+        "post words"
+    );
+    assert!(posts.join(".hidden.tmp").exists());
+    assert!(posts.join("erasing-old/inner.md").exists());
+}
+
+#[test]
+fn a_voice_folder_that_is_a_link_refuses_the_erase_and_touches_nothing() {
+    for (voice_dir, ancestor) in [
+        ("assistant/context/voice", false),
+        (".openblog/private/context/voice", false),
+        (".openblog/private/voice", false),
+        ("assistant/context", true),
+        (".openblog/private", true),
+    ] {
+        let project = project_with_posts();
+        let link = project.0.join(voice_dir);
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        if !try_dir_link(&project.0.join("content/posts"), &link) {
+            eprintln!("skipped: this OS refused to create a folder link");
+            return;
+        }
+        let before = snapshot(&project.0);
+        let error = erase_all(&project.0).unwrap_err();
+        assert!(
+            matches!(error, StoreError::Refused(_)),
+            "{voice_dir}: {error}"
+        );
+        assert!(
+            erase_plan(&project.0).is_err(),
+            "{voice_dir} (ancestor {ancestor}) must not be enumerated"
+        );
+        assert_posts_survive(&project);
+        assert_eq!(snapshot(&project.0), before, "{voice_dir}");
+    }
+}
+
+#[test]
+fn a_linked_private_voice_folder_never_has_its_stale_trash_deleted() {
+    let project = project_with_posts();
+    let link = project.0.join(".openblog/private/voice");
+    fs::create_dir_all(link.parent().unwrap()).unwrap();
+    if !try_dir_link(&project.0.join("content/posts"), &link) {
+        eprintln!("skipped: this OS refused to create a folder link");
+        return;
+    }
+    assert!(erase_all(&project.0).is_err());
+    assert_posts_survive(&project);
+}
+
+#[test]
+fn an_erase_with_nothing_to_remove_still_cleans_stale_trash() {
+    let project = Project::new();
+    let stale = project
+        .0
+        .join(PRIVATE_VOICE_DIR_FOR_TESTS)
+        .join("erasing-abc");
+    fs::create_dir_all(&stale).unwrap();
+    fs::write(stale.join("0"), "old").unwrap();
+    let report = erase_all(&project.0).unwrap();
+    assert!(report.erased.is_empty());
+    assert!(report.remaining.is_empty(), "{:?}", report.remaining);
+    assert!(!stale.exists());
+}
+
+const PRIVATE_VOICE_DIR_FOR_TESTS: &str = ".openblog/private/voice";
+
+#[test]
+fn a_post_check_that_cannot_run_says_the_files_were_erased() {
+    let project = full_project();
+    FAIL_CHECK.with(|f| f.set(true));
+    let error = erase_all(&project.0).unwrap_err();
+    FAIL_CHECK.with(|f| f.set(false));
+    let text = error.to_string();
+    assert!(text.contains("erased, but the check"), "{text}");
+    assert!(!text.contains("Nothing was erased"), "{text}");
+    let left: Vec<String> = snapshot(&project.0).into_keys().collect();
+    assert_eq!(left, ["assistant/context/author.md"], "{left:?}");
+}
+
+#[test]
+fn the_post_check_reports_what_it_could_not_remove() {
+    let project = full_project();
+    // A folder inside a sample folder is never touched, so the folder and it remain.
+    fs::create_dir_all(project.0.join(PORTABLE_DIR).join("nested")).unwrap();
+    fs::write(project.0.join(PORTABLE_DIR).join("nested/x.md"), "x").unwrap();
+    let report = erase_all(&project.0).unwrap();
+    assert_eq!(report.remaining, ["assistant/context/voice"]);
+}
 #[test]
 fn private_writes_keep_the_private_folder_out_of_git() {
     let project = Project::with_session("a-mistake-i-made");
@@ -672,7 +920,97 @@ fn publishing_never_stages_a_private_voice_sample() {
     assert!(error.contains("private assistant"), "{error}");
 }
 
+#[test]
+fn a_move_is_reversible_and_a_sample_is_only_staged_while_it_is_portable() {
+    use crate::git::Git;
+    let project = Project::new();
+    let dir = &project.0;
+    crate::scaffold::init(dir, Some("P"), false).unwrap();
+    let git = Git::new(dir);
+    git.init().unwrap();
+    git.run(&["config", "user.email", "t@example.com"]).unwrap();
+    git.run(&["config", "user.name", "T"]).unwrap();
+    git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+    fs::write(dir.join(".gitignore"), "/dist\n").unwrap();
+    project.open_session("a-mistake-i-made");
+    write_rough(dir, Visibility::Private, &rough("round trip words")).unwrap();
+    write_polished(dir, Visibility::Private, &polished("Clean."), None).unwrap();
+    let mut config = site::load_config(dir).unwrap();
+    config.publish.paths = vec!["assistant".into(), ".openblog".into()];
+    let voice_files = |tree: &BTreeMap<String, Vec<u8>>| -> BTreeMap<String, Vec<u8>> {
+        tree.iter()
+            .filter(|(path, _)| path.contains("context/voice/"))
+            .map(|(path, bytes)| (path.clone(), bytes.clone()))
+            .collect()
+    };
+    let before = voice_files(&snapshot(dir));
+    assert_eq!(before.len(), 2);
+
+    // Private: a publish commits no voice file, and the built site carries none.
+    let first = crate::publish::publish(dir, &config, Some("Private")).unwrap();
+    assert!(first.committed.iter().all(|path| !path.contains("voice")));
+    let built = build_into(dir, &dir.join("target-out/a"));
+    // Positive control: the build produced real pages, so "no marker" below says something.
+    assert!(
+        built.keys().any(|path| path.ends_with("index.html")),
+        "{:?}",
+        built.keys().collect::<Vec<_>>()
+    );
+    assert!(built
+        .values()
+        .all(|bytes| !String::from_utf8_lossy(bytes).contains("round trip words")));
+    let tracked = |pathspec: &str| git.run(&["ls-files", "--", pathspec]).unwrap();
+    assert!(!tracked("assistant").contains("voice"));
+
+    // Made portable on purpose: now both files are staged.
+    move_visibility(dir, Visibility::Private, ROUGH, Visibility::Portable).unwrap();
+    let second = crate::publish::publish(dir, &config, Some("Portable")).unwrap();
+    for name in [ROUGH, POLISHED] {
+        assert!(
+            second
+                .committed
+                .contains(&format!("assistant/context/voice/{name}")),
+            "{:?}",
+            second.committed
+        );
+    }
+
+    // Positive control: while portable, git does track both files.
+    let tracked_now = tracked("assistant");
+    for name in [ROUGH, POLISHED] {
+        assert!(tracked_now.contains(name), "{tracked_now}");
+    }
+
+    // Moved back: the same bytes are in the same place, and nothing private is staged. Git
+    // history keeps the commit that carried the sample while it was portable; moving it back
+    // stops it being tracked from now on, it does not rewrite the past.
+    move_visibility(dir, Visibility::Portable, ROUGH, Visibility::Private).unwrap();
+    assert_eq!(voice_files(&snapshot(dir)), before);
+    assert!(!dir.join("assistant/context/voice").join(ROUGH).exists());
+    let third = crate::publish::publish(dir, &config, Some("Private again")).unwrap();
+    assert!(
+        third
+            .committed
+            .iter()
+            .all(|path| !path.starts_with(".openblog/")),
+        "{:?}",
+        third.committed
+    );
+    let tracked_after = git.run(&["ls-files"]).unwrap();
+    assert!(!tracked_after.contains(ROUGH), "{tracked_after}");
+    assert!(!tracked_after.contains(POLISHED), "{tracked_after}");
+    // Positive control, and the honest limit: earlier commits still carry the file.
+    let history = git.run(&["log", "--all", "--name-only"]).unwrap();
+    assert!(history.contains(ROUGH), "{history}");
+    let rebuilt = build_into(dir, &dir.join("target-out/b"));
+    assert!(rebuilt.keys().any(|path| path.ends_with("index.html")));
+    assert!(rebuilt
+        .values()
+        .all(|bytes| !String::from_utf8_lossy(bytes).contains("round trip words")));
+}
+
 const PRIVATE_DIR: &str = ".openblog/private/context/voice";
+const PORTABLE_DIR: &str = "assistant/context/voice";
 
 #[test]
 fn a_failed_original_removal_never_costs_the_rough_draft_and_the_move_can_be_finished() {

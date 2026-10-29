@@ -1,4 +1,4 @@
-//! `openblog voice export` and `openblog voice import` (ADR 0350, #464).
+//! `openblog voice export` and `openblog voice import` (ADR 0284, #464).
 //!
 //! The author's voice library (sample files and the voice guide) in one portable JSON file. Both
 //! need no hosted service and no build. Export is a dry run (the file is printed) unless `--out`
@@ -36,18 +36,17 @@ pub struct Options<'a> {
     pub as_private: bool,
 }
 
-const PORTABLE_GUIDE: &str = "assistant/context/voice.md";
-const PRIVATE_GUIDE: &str = ".openblog/private/context/voice.md";
-
-fn guide_relative(visibility: Visibility) -> &'static str {
-    match visibility {
-        Visibility::Portable => PORTABLE_GUIDE,
-        Visibility::Private => PRIVATE_GUIDE,
-    }
+/// Where the guide for `visibility` lives, as defined once in `voice_store::guide_paths`.
+fn guide_relative(root: &Path, visibility: Visibility) -> String {
+    voice_store::guide_paths(root)
+        .into_iter()
+        .find(|(v, _)| *v == visibility)
+        .map(|(_, relative)| relative)
+        .unwrap_or_default()
 }
 
 fn guide_path(root: &Path, visibility: Visibility) -> Result<PathBuf, String> {
-    contained_target(root, Path::new(guide_relative(visibility)))
+    contained_target(root, Path::new(&guide_relative(root, visibility)))
         .map_err(|error| format!("{error}."))
 }
 
@@ -239,10 +238,10 @@ struct Step {
 }
 
 impl Step {
-    fn relative(&self) -> String {
+    fn relative(&self, root: &Path) -> String {
         match &self.file {
             Some(file) => format!("{}/{file}", self.visibility.directory()),
-            None => guide_relative(self.visibility).to_string(),
+            None => guide_relative(root, self.visibility),
         }
     }
 }
@@ -444,39 +443,38 @@ fn apply(root: &Path, steps: &[Step]) -> Result<(), String> {
 
 fn apply_with(root: &Path, steps: &[Step], hooks: &Hooks) -> Result<(), String> {
     let mut done: Vec<Undo> = Vec::new();
-    let result = (|| -> Result<(), String> {
-        for step in steps.iter().filter(|s| s.action != Action::Unchanged) {
-            let path = match &step.file {
-                Some(file) => {
-                    voice_store::path_of(root, step.visibility, file).map_err(|e| e.to_string())?
+    let result =
+        (|| -> Result<(), String> {
+            for step in steps.iter().filter(|s| s.action != Action::Unchanged) {
+                let path = match &step.file {
+                    Some(file) => voice_store::path_of(root, step.visibility, file)
+                        .map_err(|e| e.to_string())?,
+                    None => guide_path(root, step.visibility)?,
+                };
+                let old = match step.action {
+                    Action::Replace => Some(fs::read(&path).map_err(|error| {
+                        format!("cannot read {}: {error}", step.relative(root))
+                    })?),
+                    _ => None,
+                };
+                // Recorded before the write: a write can publish the file and still report an error,
+                // and the undo of a file that is not there is a no-op.
+                done.push(Undo {
+                    path: path.clone(),
+                    old,
+                    label: step.relative(root),
+                });
+                if step.action == Action::Create {
+                    fsutil::write_new_atomic(&path, step.content.as_bytes())?;
+                } else {
+                    voice_store::replace(&path, step.content.as_bytes())
+                        .map_err(|error| error.to_string())?;
                 }
-                None => guide_path(root, step.visibility)?,
-            };
-            let old = match step.action {
-                Action::Replace => Some(
-                    fs::read(&path)
-                        .map_err(|error| format!("cannot read {}: {error}", step.relative()))?,
-                ),
-                _ => None,
-            };
-            // Recorded before the write: a write can publish the file and still report an error,
-            // and the undo of a file that is not there is a no-op.
-            done.push(Undo {
-                path: path.clone(),
-                old,
-                label: step.relative(),
-            });
-            if step.action == Action::Create {
-                fsutil::write_new_atomic(&path, step.content.as_bytes())?;
-            } else {
-                voice_store::replace(&path, step.content.as_bytes())
-                    .map_err(|error| error.to_string())?;
+                (hooks.after_write)(&path)?;
+                voice_store::keep_private_out_of_git(root, step.visibility);
             }
-            (hooks.after_write)(&path)?;
-            voice_store::keep_private_out_of_git(root, step.visibility);
-        }
-        Ok(())
-    })();
+            Ok(())
+        })();
     if let Err(message) = result {
         let failed: Vec<&str> = done
             .iter()
@@ -524,7 +522,7 @@ pub fn import(root: &Path, options: &Options<'_>) -> Result<(), String> {
             "{} {} {}",
             step.action.verb(),
             step.visibility.as_str(),
-            step.relative()
+            step.relative(root)
         );
     }
     if !problems.is_empty() {

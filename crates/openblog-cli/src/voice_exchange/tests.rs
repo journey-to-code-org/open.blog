@@ -5,6 +5,7 @@ use openblog_core::voice::VoiceMeta;
 use super::*;
 
 const ROUGH: &str = "2026-10-28-a-mistake-i-made-rough.md";
+const PORTABLE_GUIDE: &str = "assistant/context/voice.md";
 const POLISHED: &str = "2026-10-28-a-mistake-i-made-polished.md";
 
 fn sample(stage: VoiceStage, body: &str) -> String {
@@ -52,7 +53,7 @@ fn put(root: &Path, visibility: Visibility, file: &str, text: &str) {
 }
 
 fn put_guide(root: &Path, visibility: Visibility, text: &str) {
-    let path = root.join(guide_relative(visibility));
+    let path = root.join(guide_relative(root, visibility));
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, text).unwrap();
 }

@@ -1,4 +1,4 @@
-//! Portable export and import of the voice library (ADR 0350).
+//! Portable export and import of the voice library (ADR 0284).
 //!
 //! An export is one deterministic JSON file that carries the voice sample files and the voice
 //! guide exactly as they are stored, each tagged with the folder it came from (`portable` or

@@ -714,6 +714,49 @@ fn promote_makes_a_post_draft_the_site_accepts_and_leaves_the_samples_alone() {
 }
 
 #[test]
+fn erase_lists_then_removes_everything_only_with_yes_and_checks_nothing_is_left() {
+    let dir = site("erase");
+    let none = run(&dir, &["voice", "erase", "--yes"], "");
+    assert!(none.status.success(), "{}", text(&none));
+    assert!(text(&none).contains("no voice data"), "{}", text(&none));
+
+    write_rough_sample(&dir);
+    let portable = run(
+        &dir,
+        &["voice", "your-town", "--stdin", "--portable"],
+        "x\n",
+    );
+    assert!(portable.status.success(), "{}", text(&portable));
+    assert_eq!(samples(&dir, PORTABLE).len(), 1);
+    fs::create_dir_all(dir.join("assistant/context")).unwrap();
+    fs::write(dir.join("assistant/context/voice.md"), "guide").unwrap();
+    fs::write(dir.join(".openblog/private/voice/editing-9-9.md"), "ed").unwrap();
+    write_session(&dir, 10, 180, "unsaved");
+    fs::write(dir.join("assistant/context/author.md"), "keep").unwrap();
+
+    let refused = run(&dir, &["voice", "erase"], "");
+    let printed = text(&refused);
+    assert!(!refused.status.success(), "{printed}");
+    assert!(printed.contains("voice.md") && printed.contains("session.json"));
+    assert!(printed.contains("--yes"), "{printed}");
+    assert!(!samples(&dir, PRIVATE).is_empty() && session_path(&dir).exists());
+
+    let output = run(&dir, &["voice", "erase", "--yes"], "");
+    let printed = text(&output);
+    assert!(output.status.success(), "{printed}");
+    assert!(printed.contains("nothing is left"), "{printed}");
+    assert!(samples(&dir, PRIVATE).is_empty() && samples(&dir, PORTABLE).is_empty());
+    assert!(!session_path(&dir).exists());
+    assert!(!dir.join("assistant/context/voice.md").exists());
+    assert!(!dir.join(".openblog/private/voice/editing-9-9.md").exists());
+    assert_eq!(
+        fs::read_to_string(dir.join("assistant/context/author.md")).unwrap(),
+        "keep"
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn list_names_rough_only_prompts_and_one_sample_traits_from_the_guide() {
     let dir = site("list-gaps");
     // No guide and no sample: the list is as it was, with no gap sections.

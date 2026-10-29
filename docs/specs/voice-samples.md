@@ -132,9 +132,12 @@ Assistant workflow behave as they did.
   export` and `import`, deterministic and byte-identical for valid files, private material only on request,
   never replacing a rough draft, never moving a sample between folders, refusing newer formats and a
   portable guide that quotes private samples. See
-  [ADR 0350](../adr/0350-the-voice-library-travels-as-one-previewed-all-or-nothing-export-that-keeps-each-items-folder.md).
-- Erasing the library is explicit, all or nothing and verified afterwards (#465); its ADR is recorded with
-  that work.
+  [ADR 0284](../adr/0284-the-voice-library-travels-as-one-previewed-all-or-nothing-export-that-keeps-each-items-folder.md).
+- Erasing the library is listed, confirmed (`openblog voice erase --yes`, or typing `erase` in Admin), all or
+  nothing, and checked again afterwards; it refuses linked folders. See
+  [ADR 0282](../adr/0282-voice-samples-are-private-until-the-author-chooses-portable-and-a-move-between-the-folders-is-reversible.md)
+  and
+  [ADR 0283](../adr/0283-erasing-voice-data-is-listed-confirmed-staged-in-a-trash-folder-and-checked-again.md).
 
 ## Testing decisions
 
@@ -159,7 +162,7 @@ Assistant workflow behave as they did.
 2. VS2: command-line session, polish, diff and promote (ADRs 0269 and 0270).
 3. VS3: Admin routes, session view, library, invitation (ADRs 0271 to 0277).
 4. VS4: Assistant context, guide, review and match, engine guide (ADRs 0278 to 0281).
-5. VS5: privacy proof, export and import (ADR 0350), erase, this spec, documentation and release.
+5. VS5: privacy proof, export and import (ADR 0284), privacy and erase (ADRs 0282 and 0283), this spec, documentation and release.
 
 ## Out of scope
 

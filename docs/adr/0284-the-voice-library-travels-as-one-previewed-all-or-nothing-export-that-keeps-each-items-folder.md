@@ -1,4 +1,4 @@
-# ADR 0350: The voice library travels as one previewed, all-or-nothing export that keeps each item's folder
+# ADR 0284: The voice library travels as one previewed, all-or-nothing export that keeps each item's folder
 
 - Status: Accepted
 - Date: 2026-10-28

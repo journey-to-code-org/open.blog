@@ -2560,5 +2560,11 @@ One JSON file (`openblog-voice-export`, version 1) holding voice sample files an
 each tagged with the folder it came from. It leaves private material out unless the author asks, and an import
 checks every item, previews what it would write and then writes all of it or none. An import keeps each item's
 folder, never replaces a rough draft, and never lets a guide that quotes private samples into the portable
-folder (ADR 0350).
+folder (ADR 0284).
 _Avoid_: Backup, sync
+
+**Voice erase**:
+Removing every voice sample (both folders), the session record, the guide and leftover editor files in one
+all-or-nothing step, after a listed confirmation, and then checking again that nothing remains. The guide's
+location is named in one place, `voice_store::guide_paths` (ADR 0283).
+_Avoid_: Reset, wipe, delete account
