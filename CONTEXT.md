@@ -1628,7 +1628,7 @@ item starts pending like everything else. Replying sends nothing to the reader.
 _Avoid_: Revision note, correction, comment by the author, reply notification
 
 **Captcha challenge**:
-The optional human check a reader passes before commenting on a hosted site (ADR 0400). The browser loads
+The optional human check a reader passes before commenting on a hosted site (ADR 0319). The browser loads
 the provider's script only when the reader first clicks or types in the comment form; the server, never
 the browser, decides whether the result is valid. It guards comment submission only, never reading,
 reports or analytics, and the local `openblog serve` comment store does not use it.

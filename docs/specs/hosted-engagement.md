@@ -194,7 +194,7 @@ stands, the reader's evidence beside the claim it names, duplicate cues and "Rec
 ## Comment captcha
 
 Hosted comments can optionally require a Cloudflare Turnstile challenge before storage (epic #296,
-ADR 0400). It is off unless both `engagement.captcha.provider` and `OPENBLOG_CAPTCHA_PROVIDER` are
+ADR 0319). It is off unless both `engagement.captcha.provider` and `OPENBLOG_CAPTCHA_PROVIDER` are
 `turnstile`; sites that do nothing behave, and build, exactly as before.
 
 12. As a site owner, I want the server to refuse an unverified comment before anything is stored, so that bots cannot fill the moderation queue by calling the API directly.
@@ -216,5 +216,5 @@ Contract (`POST /comments`, checks in this order: origin, policy, field validati
 - `OPENBLOG_CAPTCHA_SCOPE=every-comment` never issues or accepts a pass.
 - With the provider off, request and response shapes are unchanged.
 
-See [setup](../../netlify/functions/README.md#comment-captcha-optional) and ADR 0400. Local comments
+See [setup](../../netlify/functions/README.md#comment-captcha-optional) and ADR 0319. Local comments
 are unchanged.
