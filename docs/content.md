@@ -250,6 +250,30 @@ anything else is refused with a message, and a piece that is not valid shows an 
 the build. Videos and maps are lazy-loaded, titled, privacy-enhanced frames (`youtube-nocookie.com`, Vimeo with
 `dnt`, OpenStreetMap) with a plain link beside them; in portable copies they are links only. See ADR 0253.
 
+#### Before and after
+
+A `compare` fence pairs two photos, in any post (not only a job). One `key: value` per line; the picture and its
+description are required for each side, and the caption and label are optional (the labels are "Before" and
+"After" unless you change them). Admin's **Add something** writes it for you.
+
+````markdown
+```compare
+before: /images/floor-before.jpg
+before-alt: The old floor, stained and cracked along the door
+before-caption: Day one
+after: /images/floor-after.jpg
+after-alt: The same floor, sanded and sealed
+after-label: Finished
+```
+````
+
+The fields are `before`, `before-alt`, `before-caption`, `before-label` and the same four for `after`. A picture
+is an `https` address or a file on this site. A missing picture or description, an unknown field and a repeated
+field are refused with a plain message; the post shows the error in place and the build reports it. On the page the
+pair is a comparison control (`ob-compare`) where JavaScript runs and motion is welcome. Without JavaScript, in
+feeds, in syndicated copies and in portable export it is two captioned pictures, each with its label, and nothing
+else. The pictures use the same lazy loading as any Markdown image. See ADR 0291.
+
 #### Landing page sections
 
 When `content/landing.json` exists, the home page is built from it instead of the fixed intro, post list and
@@ -266,10 +290,14 @@ before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can 
 
 Each section has a unique `id` (lowercase letters, digits and single hyphens), a `type`, and an optional
 `hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`,
-`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq` and `callout`; the media, hours,
-contact, social, question and call-out types hold the same fields as the
-[pieces](#pieces-buttons-videos-maps-and-more) above. There are at most 40 sections and 256 KiB. The page is
-accepted whole or not at all, and a file from a newer release is never overwritten.
+`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout` and `business-facts`; the
+media, hours, contact, social, question and call-out types hold the same fields as the
+[pieces](#pieces-buttons-videos-maps-and-more) above. The `business-facts` section holds only a `heading`: it
+places the [business facts](configuration.md#business-facts) from `openblog.json` (name, phone, hours, license and
+insurance badge) under that heading, and renders nothing while none are stated. Because it is a new type, a page
+that holds one is stored as `"version": 2` (every other page stays version 1, byte for byte, and a version 1
+file cannot hold it). There are at most 40 sections and 256 KiB. The page is accepted whole or not at all, and
+a file from a newer release is never overwritten.
 
 Landing content never accepts markup. There is no HTML section; a button is a label and an address, a video is
 a provider and an id, a map is coordinates. Only Markdown is rich (the text section, answers, call-out bodies)

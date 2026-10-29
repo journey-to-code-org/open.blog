@@ -39,7 +39,7 @@ immediately.
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
-| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
+| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. Business facts have their own screen. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
 | **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
 
 ## Workspace layout
@@ -470,6 +470,13 @@ the details are checked by the same rules as the build, a problem is explained n
 and nothing is inserted until it is fixed. In Visual mode the piece appears as an editable block;
 in Markdown mode its text is written at the caret. Ctrl+Z or **Undo piece** takes it back out.
 There is no option to write your own HTML. See [Pieces](content.md#pieces-buttons-videos-maps-and-more).
+
+**Before and after** is in the same list. It asks for two pictures and a description of each (required, for
+people who cannot see them), and optionally a caption and a label for each side. For each picture you can type
+an address or choose a file; a chosen file is uploaded the same way as any image and its address is filled in.
+**Insert** checks the pair with the build's rules and says what is missing inside the dialog, for example that the
+after picture needs a description. In Visual mode the pair is an editable block (**Edit before and after**); in
+Markdown mode the `compare` fence is written at the caret. See [Before and after](content.md#before-and-after).
 
 ### Cite a source while writing
 
@@ -941,6 +948,22 @@ takes back the last change. Only the controls your theme honors are shown, with 
 ([Look controls](themes.md#look-controls)). The choices are saved under `appearance` in `openblog.json`
 ([configuration](configuration.md#site)).
 
+### Business facts
+
+Open **Business facts** (`#/business`) to state your name, trade, phone, email, opening hours, license, insurance,
+accepted payments and the year you started, once. The footer of every page, the home page's **Business facts**
+section and the `LocalBusiness` search data all read it ([configuration](configuration.md#business-facts)).
+Type a phone number the way you say it; it is saved with its country code. Each day of the week has its own
+choice (Not shown, Open with an opening and closing time, Open 24 hours, or Closed), and **Copy Monday to
+Tuesday through Friday** saves typing. A problem is said in words beside the field it is about, and a save that
+finds a mistake changes nothing. The screen is one column from 320px with 44px controls.
+
+The screen reads and saves `GET`/`PUT /admin/api/business` (session and CSRF as for every write, bounded to
+8 KiB). A save is checked against the revision of the block you loaded, so an edit made elsewhere in the file
+does not conflict with it, and it changes only the `business` key of `openblog.json`: every other key keeps its
+place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
+to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
+
 ### A short phone walkthrough
 
 On a 375px phone: open Admin and choose **Landing page**; tap **Edit** on the welcome banner, change the
@@ -972,6 +995,30 @@ date: 2026-12-25T09:00:00Z      # offsets work too: 2026-12-25T09:00:00-05:00
 
 `openblog build --drafts` and `serve --drafts` include drafts and scheduled posts, for
 previewing.
+
+## Announce a post on social media (optional)
+
+If your site has [scheduled social publishing](social-publishing.md) set up, Admin shows an **Announcements** tab; without it
+there is no tab and nothing changes. The screen has two parts.
+
+**Announce a post.** Choose a **Destination** (a connected LinkedIn profile or Facebook Page), a **Post to announce**,
+write a **Caption** and pick a **Date and time**. Only published posts can be chosen; a draft, or a post dated in the
+future, is listed as not available with the reason. The count under the caption shows how many characters are left,
+and the **Preview** shows the caption, the link to your post and when it will go out, before you tap **Schedule
+announcement**. Times are in your own time zone and stored in UTC; on the day the clocks change, a time that does not
+exist is refused, and a time that happens twice uses the earlier one (the preview says so). If something is wrong, the
+form lists what to fix, each a link to its field, and says it beside the field too. Tapping the button twice, or again
+after a slow connection, schedules it once.
+
+**Announcements.** Every announcement shows its status in words (Scheduled, Sending, Published, Failed, Needs checking,
+Canceled), its time in your zone, its destination and caption. While it is **Scheduled**, **Edit** changes the caption
+or time and **Cancel announcement** asks "Yes, cancel it / Keep it" before it cancels. Once a sender has picked it up it
+cannot be changed, and the row says why. If it was picked up while you were looking at it, the screen refreshes and
+tells you instead of failing. Use **Show** to filter by status.
+
+It works with a keyboard alone (Tab through the fields, Enter on **Schedule announcement**), every field has a visible
+label, and on a phone it is one column with buttons at least 44px tall. Nothing is posted by this screen yet: delivery
+arrives in a later story.
 
 ## Running it for real
 
@@ -1064,6 +1111,27 @@ native providers; only **Custom HTTPS** accepts an endpoint entered by the autho
 The model field remains editable because provider model catalogs change. OpenRouter restricts
 routing to upstream endpoints that accept the requested structured-output parameters, but the
 upstream service still determines exact schema support.
+
+### Transcribing a voice note
+
+The Capture view can turn a recorded voice note into words, only when you ask and only after it shows what is
+sent and where ([ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)).
+Only the recording is sent: no notes, photos, title or voice guide. Two providers take audio: OpenAI
+(transcribed with `gpt-4o-mini-transcribe`) and Google Gemini (your configured model). Any other provider is
+never sent audio, and Capture says to type your notes instead.
+
+To keep audio on your own machine, set `OPENBLOG_TRANSCRIBE_COMMAND` in the server's environment to a JSON array:
+the program and its fixed arguments. Admin appends the voice note's file path and reads the transcript from the
+program's output.
+
+```sh
+export OPENBLOG_TRANSCRIBE_COMMAND='["whisper-cli", "--model", "/models/base.bin", "--no-timestamps", "--file"]'
+```
+
+It runs without a shell, with a stripped environment (your API keys are not passed), no input, a time limit and a
+bounded output. It is an environment setting, not part of `openblog.json`, so shared site files cannot name a
+program to run. When it is set it is used instead of a provider. The transcript is kept privately beside the
+note (`.openblog/captures/`) and is untrusted text: it goes into the Notes box, made plain, for you to edit.
 
 ```sh
 export ANTHROPIC_API_KEY="your Anthropic key"

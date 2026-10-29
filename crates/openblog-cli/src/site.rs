@@ -131,6 +131,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-quiz.js"),
     ),
     (
+        "components/ob-compare.js",
+        include_str!("../../../web/components/ob-compare.js"),
+    ),
+    (
+        "components/ob-compare-model.js",
+        include_str!("../../../web/components/ob-compare-model.js"),
+    ),
+    (
         "components/ob-reading-modes.js",
         include_str!("../../../web/components/ob-reading-modes.js"),
     ),
@@ -280,6 +288,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     ("admin.css", include_str!("../../../web/admin/admin.css")),
     ("landing.js", include_str!("../../../web/admin/landing.js")),
     ("look.js", include_str!("../../../web/admin/look.js")),
+    (
+        "business.js",
+        include_str!("../../../web/admin/business.js"),
+    ),
     ("paste.js", include_str!("../../../web/admin/paste.js")),
     (
         "landing-history.js",
@@ -291,9 +303,14 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         "voice-session.js",
         include_str!("../../../web/admin/voice-session.js"),
     ),
+    ("social.js", include_str!("../../../web/admin/social.js")),
     (
         "voice-library.js",
         include_str!("../../../web/admin/voice-library.js"),
+    ),
+    (
+        "announcements.js",
+        include_str!("../../../web/admin/announcements.js"),
     ),
     (
         "voice-polished.js",
@@ -306,6 +323,22 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     (
         "job-form.js",
         include_str!("../../../web/admin/job-form.js"),
+    ),
+    (
+        "job-capture.js",
+        include_str!("../../../web/admin/job-capture.js"),
+    ),
+    (
+        "capture-queue.js",
+        include_str!("../../../web/admin/capture-queue.js"),
+    ),
+    (
+        "capture-recorder.js",
+        include_str!("../../../web/admin/capture-recorder.js"),
+    ),
+    (
+        "capture-assistant.js",
+        include_str!("../../../web/admin/capture-assistant.js"),
     ),
 ];
 
