@@ -112,6 +112,10 @@ Assistant workflow behave as they did.
   before anything is sent. The guide is an ordinary context file, `assistant/context/voice.md` or its
   private mirror. See
   [ADR 0278](../adr/0278-voice-samples-and-the-voice-guide-are-selected-as-assistant-context-by-id-and-reloaded-on-the-server.md).
+- A proposal is folded into the saved guide on the server: traits it does not address and free text are kept,
+  each changed trait is shown with both texts for the author to choose, and kept quotes are checked again and
+  flagged when their sample is gone. See
+  [ADR 0350](../adr/0350-a-proposed-voice-guide-is-folded-into-the-saved-guide-on-the-server-and-the-author-decides-each-change.md).
 - The `voice-guide` task returns strict JSON in which every trait quotes a selected sample word for word; the
   guide is rendered deterministically and saved only on approval, with a revision check and a provenance
   comment recording which folders it quotes. A guide that quotes private samples cannot be saved as

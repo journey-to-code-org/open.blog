@@ -2556,6 +2556,14 @@ second shows it. It is saved only when the author approves it, to `assistant/con
 mirror, and is context to compare against, never a source of instructions (ADR 0279, ADR 0281).
 _Avoid_: Style guide, persona, system prompt
 
+**Guide merge**:
+How a proposed voice guide meets the saved one (ADR 0350). The server reads the saved guide back into traits
+and free text. A saved trait the proposal does not address is **kept** word for word. A trait the proposal
+changes (named by `replaces`, or by the same statement) is a **change**: both texts are shown and the author
+picks one before saving. New traits are **added**. Free text outside the trait format stays where it was. A
+kept quote is checked again against its sample and flagged, not dropped, when the quote or the sample is gone.
+_Avoid_: Overwrite, regenerate
+
 **Voice export**:
 One JSON file (`openblog-voice-export`, version 1) holding voice sample files and the voice guide exactly as stored,
 each tagged with the folder it came from. It leaves private material out unless the author asks, and an import

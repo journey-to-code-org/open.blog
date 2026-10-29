@@ -1559,9 +1559,10 @@ fn anthropic_output_schema(request: &AssistantRequest) -> Json {
                                             "statement": { "type": "string" },
                                             "quote": { "type": "string" },
                                             "sample": { "type": "string", "enum": files },
-                                            "oneSample": { "type": "boolean" }
+                                            "oneSample": { "type": "boolean" },
+                                            "replaces": { "type": ["string", "null"] }
                                         },
-                                        "required": ["statement", "quote", "sample", "oneSample"],
+                                        "required": ["statement", "quote", "sample", "oneSample", "replaces"],
                                         "additionalProperties": false
                                     }
                                 }
@@ -1877,7 +1878,8 @@ pub fn provider_payload(request: &AssistantRequest) -> Result<Json, AssistantErr
                             "statement": "short description of one habit of the author's writing",
                             "quote": "short passage that occurs word for word in the named sample",
                             "sample": "a supplied sample name",
-                            "oneSample": "true until a second sample shows the same habit"
+                            "oneSample": "true until a second sample shows the same habit",
+                            "replaces": "the exact statement of the current guide's trait in this section that this trait changes, or null for a new trait"
                         }]
                     }],
                     "unknown": ["what the samples cannot yet tell you, one short sentence each"]
@@ -1943,7 +1945,12 @@ pub fn validate_voice_guide(
     value: &Json,
     request: &AssistantRequest,
 ) -> Result<VoiceGuide, AssistantError> {
-    let AssistantTask::VoiceGuide { samples, .. } = &request.task else {
+    let AssistantTask::VoiceGuide {
+        samples,
+        current_guide,
+        ..
+    } = &request.task
+    else {
         return Err(AssistantError::new(
             AssistantErrorKind::InvalidConfiguration,
             "A voice guide requires a voice-guide request",
@@ -1956,7 +1963,8 @@ pub fn validate_voice_guide(
             text: sample.content(),
         })
         .collect();
-    VoiceGuide::from_json(value, &texts).map_err(|reason| {
+    let saved = guide::SavedGuide::parse(current_guide.as_deref().unwrap_or(""));
+    VoiceGuide::from_json_against(value, &texts, &saved).map_err(|reason| {
         AssistantError::new(
             AssistantErrorKind::InvalidResult,
             format!("The provider's voice guide was rejected because {reason}. Nothing was shown."),

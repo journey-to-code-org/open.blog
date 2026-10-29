@@ -176,3 +176,69 @@ test("an over-budget voice selection is refused before any request", async ({ pa
   await expect(page.getByText(/Document review did not run. 2 voice samples are selected/)).toBeVisible();
   expect(posts).toEqual([]);
 });
+
+test("a proposal folded into the saved guide keeps what it does not address and waits for a choice on each change", async ({ page }) => {
+  const saved = readFileSync(guidePath(), "utf8");
+  const changeLine = { change: 0, current: "- Says plainly: \"plain words\" (2026-01-01-gone-rough.md) (one sample)", proposed: "- Says plainly, all lower case: \"so i delted\" (2026-10-28-a-mistake-i-made-rough.md) (one sample)" };
+  const lines = ["# Voice guide", "", "My own note at the top.", "", "## Word choice", "", changeLine, "- Likes lists: \"a list\" (2026-01-02-lists-rough.md)", "", "## What is not yet known", "", "- Endings"];
+  const proposal = {
+    guide: { sections: [], unknown: [] },
+    markdown: null,
+    portableAllowed: true,
+    current: { visibility: "portable", exists: true, content: saved },
+    diff: "--- voice.md (saved)\n+++ voice.md (proposed)\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+    targets: { portable: { exists: true, valid: true, etag: null, characters: saved.length }, private: { exists: false, valid: true, etag: null, characters: 0 } },
+    merge: {
+      changes: 1,
+      freeText: true,
+      ownSections: [],
+      sections: [{ id: "diction", heading: "Word choice", traits: [
+        { status: "changed", change: 0, check: "sample-missing", current: { statement: "Says plainly", quote: "plain words", sample: "2026-01-01-gone-rough.md", oneSample: true }, proposed: { statement: "Says plainly, all lower case", quote: "so i delted", sample: "2026-10-28-a-mistake-i-made-rough.md", oneSample: true } },
+        { status: "kept", check: "verified", current: { statement: "Likes lists", quote: "a list", sample: "2026-01-02-lists-rough.md", oneSample: false } },
+      ] }],
+      unknown: [{ text: "Endings", status: "kept" }],
+      lines,
+    },
+  };
+  await page.route("**/admin/api/assistant/status", (route) =>
+    route.fulfill({ json: { providerType: "generic-https", model: "test", destination: "https://assistant.example", configured: true, capabilities: { review: true }, message: "ready" } }),
+  );
+  await page.route("**/admin/api/assistant/voice-guide", (route) => route.fulfill({ json: proposal }));
+  await page.setViewportSize({ width: 360, height: 800 });
+  await openContext(page);
+  const samples = readdirSync(privateDir());
+  const mistake = samples.find((name) => name.includes("a-mistake-i-made"));
+  await page.locator(`[data-voice-sample="${mistake}"]`).getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Propose a voice guide from selected samples" }).click();
+  const result = page.getByRole("region", { name: "Proposed voice guide" });
+  const merged = result.getByRole("region", { name: /Your guide, trait by trait/ });
+  await expect(merged).toBeVisible();
+  await expect(merged.locator("[data-merge='kept']").first()).toContainText("Kept from your current guide");
+  await expect(merged.getByText("Your own text outside the traits is kept where it is.")).toBeVisible();
+  const change = merged.getByRole("group", { name: /Says plainly/ });
+  await expect(change).toContainText("Keep current");
+  await expect(change).toContainText("Take proposed");
+  await expect(change.locator("[data-check='sample-missing']")).toBeVisible();
+
+  // Nothing can be saved until the change is decided.
+  const savePrivate = result.getByRole("button", { name: "Save as private" });
+  await expect(savePrivate).toBeDisabled();
+  await expect(result.locator("[data-voice-guide-pending]")).toContainText("1 changed trait");
+
+  // Keeping the current text joins the server's lines with the old trait, from the keyboard.
+  await change.getByRole("radio", { name: /Keep current/ }).focus();
+  await page.keyboard.press("Space");
+  await expect(savePrivate).toBeEnabled();
+  const editor = result.getByRole("textbox", { name: /Proposed voice guide Markdown/ });
+  await expect(editor).toHaveValue(`${lines.map((line) => (typeof line === "string" ? line : line.current)).join("\n")}\n`);
+  await change.getByRole("radio", { name: /Take proposed/ }).check();
+  await expect(editor).toHaveValue(/Says plainly, all lower case/);
+
+  // The merged view fits a phone without sideways scrolling.
+  const overflow = await merged.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+
+  await result.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByText("Proposal discarded. Nothing was saved.")).toBeVisible();
+  expect(readFileSync(guidePath(), "utf8")).toBe(saved);
+});

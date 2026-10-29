@@ -355,11 +355,18 @@ Nothing is sent unless you select it and run a request, and nothing here changes
 - **Propose a guide.** Select samples and choose **Propose a voice guide from selected samples**. The provider
   returns a guide in which every line quotes your own words word for word and names its sample (a result with
   a quote that is not in the sample is rejected, and nothing is shown). A line that rests on one sample is
-  marked `(one sample)`, and the guide always ends with *What is not yet known*. You see the proposal as
+  marked `(one sample)`, and the guide always ends with *What is not yet known*. The proposal is folded into
+  your saved guide ([ADR 0350](adr/0350-a-proposed-voice-guide-is-folded-into-the-saved-guide-on-the-server-and-the-author-decides-each-change.md)).
+  Traits it does not address are kept word for word and labelled **Kept from your current guide**. Your own
+  text outside the traits, such as an introduction, notes or sections under your own headings, stays where it
+  is. A trait the proposal changes is shown with both texts, and you choose **Keep current** or **Take proposed**
+  for each one before you can save. A kept quote is checked again against its sample and flagged, not dropped,
+  when that sample no longer exists or no longer contains it. You see the proposal as
   changes against your saved guide, can edit it, and it is written only when you choose **Save as portable**
   (`assistant/context/voice.md`) or **Save as private** (`.openblog/private/context/voice.md`, the default).
   **Discard** leaves your files as they were. A guide changed elsewhere since you opened it is a conflict, not
-  an overwrite. A guide built from any private sample, or from a saved guide that is private, records that on a
+  an overwrite. A guide built from any private sample, from a saved guide that is private, or from a saved guide
+  whose traits quote a sample that is private now, records that on a
   provenance line under its title (`<!-- openblog:voice-provenance sources=... -->`) and can only be saved as
   private: **Save as portable** is disabled with the reason. Keep that line if you edit the guide; the
   portable rule relies on it.

@@ -8859,6 +8859,46 @@ export function voiceGuidePortableNote(proposal = {}) {
   return proposal.portableAllowed === false ? "Quotes private samples; save as private" : "";
 }
 
+/**
+ * Join a merged guide's lines (ADR 0350). The server wrote every line: each is fixed text, or a
+ * changed trait with both texts. This only picks one per change, so the result is the server's
+ * rendering byte for byte. Null until every change has a choice.
+ */
+export function voiceGuideAssemble(lines = [], choices = {}) {
+  const out = [];
+  for (const line of lines) {
+    if (typeof line === "string") {
+      out.push(line);
+      continue;
+    }
+    const choice = choices[line?.change];
+    if (choice !== "current" && choice !== "proposed") return null;
+    out.push(choice === "current" ? line.current : line.proposed);
+  }
+  return `${out.join("\n")}\n`;
+}
+
+/** How many changes in a merged guide still need the author's choice. */
+export function voiceGuidePendingChanges(merge = {}, choices = {}) {
+  let pending = 0;
+  for (let change = 0; change < (merge.changes || 0); change += 1) {
+    if (choices[change] !== "current" && choices[change] !== "proposed") pending += 1;
+  }
+  return pending;
+}
+
+/** A trait as one line of plain text, the way the guide writes it. */
+export function voiceGuideTraitText(item = {}) {
+  return `${item.statement}: "${item.quote}" (${item.sample})${item.oneSample ? " (one sample)" : ""}`;
+}
+
+/** What a saved trait's quote check means, or nothing when the quote was found again. */
+export function voiceGuideCheckNote(check) {
+  if (check === "sample-missing") return "Its sample no longer exists, so this quote could not be checked. It is kept.";
+  if (check === "not-in-sample") return "This quote is no longer word for word in its sample. It is kept; check it.";
+  return "";
+}
+
 export function voiceGuideSaveRequest(proposal = {}, visibility, content) {
   const target = proposal.targets?.[visibility];
   if (!target || !["portable", "private"].includes(visibility)) return null;
@@ -22982,21 +23022,103 @@ export class Editor {
       return;
     }
     const lines = voiceGuideDiffLines(proposal.diff);
+    const merge = proposal.merge || null;
+    const choices = {};
     const editor = h("textarea", { rows: 18, "aria-label": "Proposed voice guide Markdown (editable)", spellcheck: false }, proposal.markdown || "");
+    // Hand edits win: once the author types in the box, a later choice no longer replaces the text.
+    let edited = false;
+    editor.addEventListener("input", () => {
+      edited = true;
+    });
     const compared = proposal.current?.exists ? `the saved ${proposal.current.visibility} guide` : "no saved guide yet";
     const portableBlocked = proposal.portableAllowed === false;
-    const save = (visibility) =>
+    const pendingNote = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-guide-pending": "" });
+    const saveButtons = [];
+    const refresh = () => {
+      const pending = voiceGuidePendingChanges(merge || {}, choices);
+      if (merge?.changes && pending === 0) {
+        const assembled = voiceGuideAssemble(merge.lines, choices);
+        if (!edited) editor.value = assembled;
+        pendingNote.textContent = edited ? "Your edits to the text are kept. Change that line by hand if you want the other choice." : "Every change is decided. Edit the text below if you want, then save.";
+      } else {
+        pendingNote.textContent = pending ? `Choose Keep current or Take proposed for ${pending} changed trait${pending === 1 ? "" : "s"} before saving.` : "";
+      }
+      editor.readOnly = pending > 0;
+      for (const button of saveButtons) button.disabled = button.dataset.blocked === "true" || pending > 0;
+    };
+    const save = (visibility) => {
+      const blocked = proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked);
       // Private is the default (ADR 0282): it comes first and is the primary button; portable is a choice.
-      h("button", { class: visibility === "private" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "data-voice-guide-save": visibility, disabled: proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked), onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+      const button = h("button", { class: visibility === "private" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "data-voice-guide-save": visibility, "data-blocked": String(blocked), disabled: blocked, onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+      saveButtons.push(button);
+      return button;
+    };
+    const toolbar = h("div", { class: "oba-toolbar" }, save("private"), save("portable"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard"));
     this.ui.voiceGuideResult.replaceChildren(
-      h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
-      h("h5", {}, "Changes"),
+      h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every new line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
+      ...(merge ? [this.voiceGuideMergeView(merge, choices, refresh)] : []),
+      h("h5", {}, merge?.changes ? "Changes if you take every proposed change" : "Changes"),
       lines.length
         ? h("pre", { class: "oba-voice-diff", "aria-label": "Changes to the voice guide" }, lines.map((line) => h("span", { class: `oba-voice-diff-${line.kind}`, "data-diff": line.kind }, `${line.text}\n`)))
         : h("p", { class: "oba-small" }, "The proposal matches the saved guide."),
       this.field("oba-voice-guide-markdown", "Edit before saving", editor),
-      h("div", { class: "oba-toolbar" }, save("private"), save("portable"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
+      pendingNote,
+      toolbar,
       ...(portableBlocked ? [h("p", { class: "oba-small", "data-voice-guide-note": "portable-blocked" }, voiceGuidePortableNote(proposal))] : []),
+    );
+    refresh();
+  }
+
+  /**
+   * The merged guide, trait by trait (ADR 0350): what is kept from the saved guide, what is new, and
+   * each changed trait with both texts and a choice the author must make before saving.
+   */
+  voiceGuideMergeView(merge, choices, onChoice) {
+    const tag = (text, kind) => h("span", { class: `oba-voice-merge-tag is-${kind}` }, text);
+    const flag = (check) => {
+      const note = voiceGuideCheckNote(check);
+      return note ? h("span", { class: "oba-voice-merge-flag", "data-check": check }, note) : null;
+    };
+    const item = (entry) => {
+      if (entry.status === "changed") {
+        const name = `oba-voice-change-${entry.change}`;
+        const option = (value, label, trait, check) => {
+          const id = `${name}-${value}`;
+          return h(
+            "div",
+            { class: "oba-voice-merge-option" },
+            h("input", { type: "radio", id, name, value, onChange: () => { choices[entry.change] = value; onChoice(); } }),
+            h("label", { for: id }, h("strong", {}, label), h("span", { class: "oba-voice-merge-text" }, voiceGuideTraitText(trait)), flag(check)),
+          );
+        };
+        return h(
+          "li",
+          { "data-merge": "changed" },
+          h(
+            "fieldset",
+            { class: "oba-voice-merge-change" },
+            h("legend", {}, tag("Changed", "changed"), ` ${entry.current.statement}`),
+            h("div", { class: "oba-voice-merge-pair" }, option("current", "Keep current", entry.current, entry.check), option("proposed", "Take proposed", entry.proposed, null)),
+          ),
+        );
+      }
+      const [label, trait] = entry.status === "added" ? ["New", entry.proposed] : entry.status === "unchanged" ? ["Unchanged", entry.current] : ["Kept from your current guide", entry.current];
+      return h("li", { "data-merge": entry.status }, tag(label, entry.status), " ", h("span", { class: "oba-voice-merge-text" }, voiceGuideTraitText(trait)), flag(entry.check));
+    };
+    const free = [
+      ...(merge.freeText ? ["Your own text outside the traits is kept where it is."] : []),
+      ...(merge.ownSections?.length ? [`Your own sections are kept: ${merge.ownSections.join(", ")}.`] : []),
+    ];
+    const unknown = merge.unknown?.length
+      ? [h("div", { class: "oba-voice-merge-section" }, h("h6", {}, "What is not yet known"), h("ul", { class: "oba-voice-merge-list" }, merge.unknown.map((entry) => h("li", { "data-merge": entry.status }, tag(entry.status === "added" ? "New" : "Kept from your current guide", entry.status), " ", h("span", { class: "oba-voice-merge-text" }, entry.text)))))]
+      : [];
+    return h(
+      "section",
+      { class: "oba-voice-merge", "aria-labelledby": "oba-voice-merge-title" },
+      h("h5", { id: "oba-voice-merge-title" }, merge.changes ? `Your guide, trait by trait (${merge.changes} change${merge.changes === 1 ? "" : "s"} to decide)` : "Your guide, trait by trait"),
+      ...free.map((text) => h("p", { class: "oba-small", "data-voice-guide-free": "" }, text)),
+      ...(merge.sections || []).map((section) => h("div", { class: "oba-voice-merge-section" }, h("h6", {}, section.heading), h("ul", { class: "oba-voice-merge-list" }, section.traits.map(item)))),
+      ...unknown,
     );
   }
 

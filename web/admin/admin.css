@@ -5824,3 +5824,68 @@ ob-voice-library {
 .oba-voice-diff-header {
   font-weight: 600;
 }
+
+/* The merged voice guide (ADR 0350): one column on a phone, the two texts of a change side by side
+   when there is room. No width depends on font metrics; long words wrap. */
+.oba-voice-merge-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.oba-voice-merge-list li,
+.oba-voice-merge-text,
+.oba-voice-merge-flag {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.oba-voice-merge-tag {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0 0.35rem;
+  border: 1px solid var(--oba-panel-border);
+  border-radius: 0.25rem;
+}
+
+.oba-voice-merge-flag {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--oba-danger);
+}
+
+.oba-voice-merge-change {
+  margin: 0;
+  min-width: 0;
+  border: 1px solid var(--oba-panel-border);
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+}
+
+.oba-voice-merge-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+@media (min-width: 40rem) {
+  .oba-voice-merge-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.oba-voice-merge-option {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.oba-voice-merge-option label {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}

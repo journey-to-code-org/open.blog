@@ -1,6 +1,6 @@
-//! The voice-guide route (ADR 0279, #456): propose a guide from selected samples, show it as a
-//! diff against the saved guide, and write nothing. Saving is the ordinary context save the
-//! author triggers afterwards.
+//! The voice-guide route (ADR 0279, #456): propose a guide from selected samples, fold it into the
+//! saved guide (ADR 0350, #423), show it as a diff against the saved guide, and write nothing.
+//! Saving is the ordinary context save the author triggers afterwards.
 
 use super::*;
 
@@ -43,22 +43,40 @@ fn guide_target(doc: &Json) -> Json {
 }
 
 use openblog_core::voice::guide::PROVENANCE_MARKER;
+use openblog_core::voice::merge::{merge, Choice, QuoteCheck, SavedGuide};
 
-/// Record which visibilities the guide was folded from, on the line after the title, so a later
-/// save can tell that a guide quotes private samples.
-fn with_provenance(markdown: &str, samples: &[ReviewContext], private_guide: bool) -> String {
+/// The provenance line a proposed guide carries under its title: which visibilities it was folded
+/// from, so a later save can tell that a guide quotes private samples.
+fn provenance_line(samples: &[ReviewContext], private_sources: bool) -> String {
     let mut sources: Vec<&str> = samples.iter().map(|s| s.visibility().as_str()).collect();
-    // The saved guide the Assistant was told to keep claims from counts as a source too.
-    if private_guide {
+    // The saved guide the proposal is folded into counts as a source too.
+    if private_sources {
         sources.push("private");
     }
     sources.sort_unstable();
     sources.dedup();
-    let line = format!("{PROVENANCE_MARKER} sources={} -->", sources.join(","));
-    match markdown.split_once('\n') {
-        Some((title, rest)) if title.starts_with('#') => format!("{title}\n{line}\n{rest}"),
-        _ => format!("{line}\n{markdown}"),
+    format!("{PROVENANCE_MARKER} sources={} -->", sources.join(","))
+}
+
+/// The samples a saved guide's traits cite, read again from the store: each file's visibility and
+/// text, or nothing when the sample no longer exists (or no longer parses).
+fn carried_samples(
+    root: &Path,
+    saved: &SavedGuide,
+) -> std::collections::BTreeMap<String, (crate::voice_store::Visibility, String)> {
+    use crate::voice_store::{self, Visibility};
+    let mut found = std::collections::BTreeMap::new();
+    for file in saved.cited_samples() {
+        for visibility in [Visibility::Portable, Visibility::Private] {
+            if let Ok(loaded) = voice_store::read(root, visibility, file) {
+                if let Some(sample) = loaded.sample {
+                    found.insert(file.to_string(), (visibility, sample.body));
+                    break;
+                }
+            }
+        }
     }
+    found
 }
 
 /// Whether a voice guide's provenance line says it quotes a private sample.
@@ -155,23 +173,37 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         Ok(_) => return Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => return review_error(error),
     };
-    // The saved guide goes to the Assistant with the instruction to keep its claims, and a
-    // statement is free text that no quote check covers. So a private guide, or one that quotes
-    // private samples, makes the proposal private-derived whatever samples were selected.
-    let private_guide = current.is_some_and(|doc| doc["visibility"] == "private")
+    // The proposal is folded into the saved guide (ADR 0350): saved traits it does not address and
+    // the free text around them are kept, and a changed trait waits for the author's choice.
+    let saved = SavedGuide::parse(current_text.as_deref().unwrap_or(""));
+    let merged = merge(&saved, &guide);
+    let carried = carried_samples(&state.root, &saved);
+    // The merged guide carries the saved guide's text, and a statement is free text that no quote
+    // check covers. So a private guide, one that quotes private samples, or one whose traits cite a
+    // sample that is private now makes the result private-derived whatever samples were selected.
+    let private_sources = current.is_some_and(|doc| doc["visibility"] == "private")
         || current_text
             .as_deref()
-            .is_some_and(guide_quotes_private_samples);
-    let markdown = with_provenance(&guide.render(), &samples, private_guide);
-    let portable_allowed = !private_guide
-        && !samples
-            .iter()
-            .any(|sample| sample.visibility().as_str() == "private");
+            .is_some_and(guide_quotes_private_samples)
+        || carried
+            .values()
+            .any(|(visibility, _)| *visibility == crate::voice_store::Visibility::Private);
+    let provenance = provenance_line(&samples, private_sources);
+    let portable_allowed = !provenance.contains("private");
+    let check = |item: &openblog_core::voice::guide::Trait| {
+        QuoteCheck::of(
+            item,
+            carried.get(&item.sample).map(|(_, text)| text.as_str()),
+        )
+    };
+    // With every proposed change taken: the diff shows the whole of what the proposal would do.
+    let proposed = merged.render(Some(&provenance), |_| Choice::Proposed);
+    let markdown = (merged.changes == 0).then(|| proposed.clone());
     let diff = crate::voice_diff::unified(
         "voice.md (saved)",
         "voice.md (proposed)",
         current_text.as_deref().unwrap_or(""),
-        &markdown,
+        &proposed,
     );
     Response::json(
         200,
@@ -179,6 +211,7 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
             "schemaVersion": ASSISTANT_SCHEMA_VERSION,
             "guide": guide.to_json(),
             "markdown": markdown,
+            "merge": merged.to_json(Some(&provenance), check),
             "portableAllowed": portable_allowed,
             "current": {
                 "visibility": current.map(|doc| doc["visibility"].clone()),

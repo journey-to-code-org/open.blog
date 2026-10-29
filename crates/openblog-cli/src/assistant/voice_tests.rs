@@ -370,6 +370,7 @@ fn the_built_in_voice_guide_skill_validates_with_the_loader_and_carries_the_fold
         "oneSample: true",
         "second sample",
         "Keep every existing claim unless a sample contradicts it",
+        "set `replaces` to the current claim's statement",
         "Never rewrite",
         "never propose changes to a rough draft",
         "Keep the \"unknown\" list honest",
