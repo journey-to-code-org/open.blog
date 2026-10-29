@@ -1,4 +1,4 @@
-# ADR 0351: The voice guide moves between portable and private in one locked copy, verify, remove step
+# ADR 0289: The voice guide moves between portable and private in one locked copy, verify, remove step
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -39,7 +39,7 @@ on their own.
   - The guide is moving to portable and is not UTF-8 text.
   - The guide is moving to portable and it is private-derived: its provenance line names `private`
     (ADR 0279), or one of its traits cites a sample that is private now. Portable context is tracked by Git.
-    `voice_store::guide_is_private_derived` is the one rule; the guide merge (ADR 0350) and a context save as
+    `voice_store::guide_is_private_derived` is the one rule; the guide merge (ADR 0288) and a context save as
     portable use it too, so a guide made from portable samples cannot reach Git after one of those samples was
     moved to private.
 

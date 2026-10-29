@@ -1,4 +1,4 @@
-//! Folding a validated voice-guide proposal into the saved guide (ADR 0350, #423).
+//! Folding a validated voice-guide proposal into the saved guide (ADR 0288, #423).
 //!
 //! Pure and deterministic. The saved guide is read back into its traits and the free text around
 //! them; the proposal only adds traits or changes saved ones. A saved trait the proposal does not

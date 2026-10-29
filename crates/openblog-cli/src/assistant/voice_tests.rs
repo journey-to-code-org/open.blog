@@ -584,7 +584,7 @@ fn match_finding(evidence: &str, suggestion: Json) -> Json {
 fn the_built_in_voice_match_skill_validates_and_forbids_full_rewrites() {
     let skill = builtin_skill("voice-match");
     assert_eq!(skill.output, SkillOutputKind::Review);
-    // A passage, never the whole document (ADR 0352).
+    // A passage, never the whole document (ADR 0290).
     assert_eq!(
         skill.scopes,
         vec![SkillScope::Selection, SkillScope::Section]
@@ -865,7 +865,7 @@ fn at_most_five_voice_match_suggestions_are_applicable_per_review() {
     assert!(set.findings[6].explanation.contains("shown as advice only"));
 }
 
-// ---- passage reviews: a selection or a section (#424, #459, ADR 0352) ------------------------
+// ---- passage reviews: a selection or a section (#424, #459, ADR 0290) ------------------------
 
 fn passage_request(markdown: &str, start: usize, end: usize) -> AssistantRequest {
     let skill = builtin_skill("voice-match");

@@ -492,7 +492,7 @@ fn erase(root: &Path, yes: bool) -> Result<(), String> {
 }
 
 /// `openblog voice guide --move portable|private`: say what moving the voice guide would do, and
-/// with `--yes` move it in one step (ADR 0351).
+/// with `--yes` move it in one step (ADR 0289).
 fn guide(root: &Path, to: Option<&str>, yes: bool) -> Result<(), String> {
     let usage = "usage: openblog voice guide --move portable|private [--yes]";
     let to = match to {

@@ -278,7 +278,7 @@ test("controlled provider response renders through the mounted Review UI without
   }
 });
 
-test("a selection or section review sends a bounded passage in code points (ADR 0352)", async () => {
+test("a selection or section review sends a bounded passage in code points (ADR 0290)", async () => {
   const { assistantReviewPassage, assistantSkillSupportsScope, ASSISTANT_REVIEW_MAX_PASSAGE } = await import("../../web/admin/admin.js");
   const markdown = "Intro words.\n\n## One\n\nBody one.\n\n### Deeper\n\nMore.\n\n## Two\n\nBody two.";
   // A selection is trimmed of the whitespace around it.

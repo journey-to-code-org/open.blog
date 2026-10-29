@@ -751,7 +751,7 @@ pub fn guide_path(root: &Path, visibility: Visibility) -> String {
         .expect("both visibilities are named")
 }
 
-/// What a voice guide move would do, or did (ADR 0351).
+/// What a voice guide move would do, or did (ADR 0289).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GuideMove {
     pub from: Visibility,
@@ -785,7 +785,7 @@ pub fn carried_samples(
     found
 }
 
-/// Whether a guide's text is private-derived (ADR 0350, ADR 0351): its provenance line names a
+/// Whether a guide's text is private-derived (ADR 0288, ADR 0289): its provenance line names a
 /// private sample, or one of its traits cites a sample that is private now. Such a guide never
 /// goes to portable context, which Git tracks. The guide merge and the guide move share this rule.
 pub fn guide_is_private_derived(root: &Path, text: &str) -> bool {
@@ -881,7 +881,7 @@ pub fn plan_guide_move(root: &Path, to: Visibility) -> Result<GuideMove> {
     check_guide_move(root, to).map(|(planned, _)| planned)
 }
 
-/// Move the voice guide to the other folder in one step (ADR 0351). The bytes are copied unchanged
+/// Move the voice guide to the other folder in one step (ADR 0289). The bytes are copied unchanged
 /// and read back before the original is removed, so a failure never loses the guide: a copy that
 /// does not match is removed and the original stays, and an original that cannot be removed leaves
 /// two identical copies and a move that can be run again. Nothing is overwritten. The caller holds

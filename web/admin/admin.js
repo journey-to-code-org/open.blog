@@ -8743,7 +8743,7 @@ export function selectableAssistantSkillIds(skills = [], requested = []) {
   return [...new Set(requested)].filter((id) => available.has(id));
 }
 
-/** What a review covers, as the author chooses it (ADR 0352). */
+/** What a review covers, as the author chooses it (ADR 0290). */
 export const ASSISTANT_REVIEW_SCOPES = [
   { id: "document", label: "Complete document", run: "Run document review" },
   { id: "selection", label: "Selected text", run: "Review selected text" },
@@ -8923,7 +8923,7 @@ export function voiceGuidePortableNote(proposal = {}) {
 }
 
 /**
- * Join a merged guide's lines (ADR 0350). The server wrote every line: each is fixed text, or a
+ * Join a merged guide's lines (ADR 0288). The server wrote every line: each is fixed text, or a
  * changed trait with both texts. This only picks one per change, so the result is the server's
  * rendering byte for byte. Null until every change has a choice.
  */
@@ -23090,7 +23090,7 @@ export class Editor {
   }
 
   /**
-   * Move the voice guide to the other folder (ADR 0351): the server says what would move, or why it
+   * Move the voice guide to the other folder (ADR 0289): the server says what would move, or why it
    * will not, and nothing moves until the author confirms. Moving to portable is refused for a guide
    * that quotes private samples or cannot be read.
    */
@@ -23235,7 +23235,7 @@ export class Editor {
   }
 
   /**
-   * The merged guide, trait by trait (ADR 0350): what is kept from the saved guide, what is new, and
+   * The merged guide, trait by trait (ADR 0288): what is kept from the saved guide, what is new, and
    * each changed trait with both texts and a choice the author must make before saving.
    */
   voiceGuideMergeView(merge, choices, onChoice) {
@@ -23574,7 +23574,7 @@ export class Editor {
     return true;
   }
 
-  /** Choose what a review covers: the document, the selected text or the current section (ADR 0352). */
+  /** Choose what a review covers: the document, the selected text or the current section (ADR 0290). */
   setAssistantReviewScope(scope) {
     const choice = ASSISTANT_REVIEW_SCOPES.find((candidate) => candidate.id === scope) || ASSISTANT_REVIEW_SCOPES[0];
     this.assistantReviewScope = choice.id;

@@ -63,7 +63,7 @@ pub struct Trait {
     /// True until a second sample shows the same habit.
     pub one_sample: bool,
     /// The statement of the saved guide's trait, in the same section, that this one changes. Only
-    /// a proposal sets it; a trait read from a saved guide never does (ADR 0350).
+    /// a proposal sets it; a trait read from a saved guide never does (ADR 0288).
     pub replaces: Option<String>,
 }
 
@@ -138,7 +138,7 @@ impl VoiceGuide {
     }
 
     /// Validate a provider result against the selected samples and the saved guide it was asked to
-    /// keep (ADR 0350). A new or changed trait must quote a selected sample word for word. A trait
+    /// keep (ADR 0288). A new or changed trait must quote a selected sample word for word. A trait
     /// that repeats a saved claim exactly may cite a sample that was not selected, since the merge
     /// keeps it anyway. `replaces` must name a saved trait in the same section, at most once; a
     /// trait whose statement matches a saved one in its section changes that trait even without it.

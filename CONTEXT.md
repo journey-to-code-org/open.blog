@@ -2557,7 +2557,7 @@ mirror, and is context to compare against, never a source of instructions (ADR 0
 _Avoid_: Style guide, persona, system prompt
 
 **Guide merge**:
-How a proposed voice guide meets the saved one (ADR 0350). The server reads the saved guide back into traits
+How a proposed voice guide meets the saved one (ADR 0288). The server reads the saved guide back into traits
 and free text. A saved trait the proposal does not address is **kept** word for word. A trait the proposal
 changes (named by `replaces`, or by the same statement) is a **change**: both texts are shown and the author
 picks one before saving. New traits are **added**. Free text outside the trait format stays where it was. A
@@ -2568,7 +2568,7 @@ _Avoid_: Overwrite, regenerate
 An Assistant review of one bounded passage rather than the whole document: the author's **selection**, or the
 **section** around the cursor (heading to next heading). The request carries the passage's code-point offsets,
 the document travels for context, findings must lie inside the passage, and a skill must declare that scope.
-`voice-match` reviews only passages (ADR 0352).
+`voice-match` reviews only passages (ADR 0290).
 _Avoid_: Partial review, snippet review
 
 **Guide move**:
@@ -2576,7 +2576,7 @@ Moving the voice guide between `assistant/context/voice.md` and `.openblog/priva
 step. The file is copied, the copy is checked, and only then is the original removed, under the content
 transaction lock and the voice store lock. A move refuses links and never overwrites. A guide that quotes private
 samples, or cannot be read, never moves to portable. Previewed by default (`openblog voice guide --move`,
-**Make private** / **Make portable** in Admin) and reversible (ADR 0351).
+**Make private** / **Make portable** in Admin) and reversible (ADR 0289).
 _Avoid_: Save as, copy
 
 **Voice export**:

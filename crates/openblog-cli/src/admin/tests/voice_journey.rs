@@ -740,7 +740,7 @@ fn a_guide_quoting_private_samples_never_reaches_a_portable_file_by_any_route() 
             );
         }
     }
-    // Saved as private, the guide cannot be moved to portable either (ADR 0351).
+    // Saved as private, the guide cannot be moved to portable either (ADR 0289).
     let saved = handle(
         &f.state,
         &authed(

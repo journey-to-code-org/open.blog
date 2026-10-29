@@ -5903,7 +5903,7 @@ ob-voice-library {
   font-weight: 600;
 }
 
-/* The merged voice guide (ADR 0350): one column on a phone, the two texts of a change side by side
+/* The merged voice guide (ADR 0288): one column on a phone, the two texts of a change side by side
    when there is room. No width depends on font metrics; long words wrap. */
 .oba-voice-merge-list {
   list-style: none;

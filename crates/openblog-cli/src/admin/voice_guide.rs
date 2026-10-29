@@ -1,5 +1,5 @@
 //! The voice-guide route (ADR 0279, #456): propose a guide from selected samples, fold it into the
-//! saved guide (ADR 0350, #423), show it as a diff against the saved guide, and write nothing.
+//! saved guide (ADR 0288, #423), show it as a diff against the saved guide, and write nothing.
 //! Saving is the ordinary context save the author triggers afterwards.
 
 use super::*;
@@ -152,7 +152,7 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         Ok(_) => return Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => return review_error(error),
     };
-    // The proposal is folded into the saved guide (ADR 0350): saved traits it does not address and
+    // The proposal is folded into the saved guide (ADR 0288): saved traits it does not address and
     // the free text around them are kept, and a changed trait waits for the author's choice.
     let saved = SavedGuide::parse(current_text.as_deref().unwrap_or(""));
     let merged = merge(&saved, &guide);

@@ -1,4 +1,4 @@
-# ADR 0352: A review can cover a selection or a section, and voice match reviews only a passage
+# ADR 0290: A review can cover a selection or a section, and voice match reviews only a passage
 
 - Status: Accepted
 - Date: 2026-10-29

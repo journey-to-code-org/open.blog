@@ -124,7 +124,7 @@ Open **Assistant → Review** to review the current unsaved title, metadata, and
 saving first. Under **What to review**, keep **Complete document** or choose **Selected text** (the text
 selected in the draft) or **Current section** (from the heading before the cursor to the next heading; a `#` line inside fenced code is code, not a heading).
 Findings then stay inside that passage, and a skill that cannot review it is shown as unavailable
-([ADR 0352](adr/0352-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md)).
+([ADR 0290](adr/0290-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md)).
 Select one or more review skills and any context the provider should receive, then
 inspect the disclosure: it lists the scope, approximate source size, every skill
 and context item, provider model and safe destination origin, and confirms external research is off.
@@ -338,7 +338,7 @@ restores the same bytes. The voice guide moves the same way. Use **Make private*
 card in the Assistant Context view, or run `openblog voice guide --move private` (it shows what would move;
 add `--yes` to move it). The file is copied, checked and only then removed, so a failed move never loses the
 guide. A guide that quotes private samples, or cannot be read, stays private
-([ADR 0351](adr/0351-the-voice-guide-moves-between-portable-and-private-in-one-locked-copy-verify-remove-step.md)). Private samples are never published, built, fed or exported as content (a voice
+([ADR 0289](adr/0289-the-voice-guide-moves-between-portable-and-private-in-one-locked-copy-verify-remove-step.md)). Private samples are never published, built, fed or exported as content (a voice
 export carries them only with `--include-private`; see below).
 
 `openblog voice erase` lists everything the voice feature stored: samples in both folders, the session
@@ -365,7 +365,7 @@ Nothing is sent unless you select it and run a request, and nothing here changes
   returns a guide in which every line quotes your own words word for word and names its sample (a result with
   a quote that is not in the sample is rejected, and nothing is shown). A line that rests on one sample is
   marked `(one sample)`, and the guide always ends with *What is not yet known*. The proposal is folded into
-  your saved guide ([ADR 0350](adr/0350-a-proposed-voice-guide-is-folded-into-the-saved-guide-on-the-server-and-the-author-decides-each-change.md)).
+  your saved guide ([ADR 0288](adr/0288-a-proposed-voice-guide-is-folded-into-the-saved-guide-on-the-server-and-the-author-decides-each-change.md)).
   Traits it does not address are kept word for word and labelled **Kept from your current guide**. Your own
   text outside the traits, such as an introduction, notes or sections under your own headings, stays where it
   is. A trait the proposal changes is shown with both texts, and you choose **Keep current** or **Take proposed**

@@ -538,7 +538,7 @@ fn the_proposal_is_shown_as_a_diff_against_the_saved_guide_and_saved_only_with_t
     assert_eq!(result["current"]["content"], saved);
     assert_eq!(result["current"]["visibility"], "portable");
     let diff = result["diff"].as_str().unwrap();
-    // A hand-written line outside the trait format is kept where it was (ADR 0350).
+    // A hand-written line outside the trait format is kept where it was (ADR 0288).
     assert!(!diff.contains("-- Likes lists"), "{diff}");
     assert!(result["markdown"].as_str().unwrap().contains(
         "## Habits and quirks
@@ -780,7 +780,7 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
             "passage": passage,
         })
     };
-    // Voice match works on a passage, never on the whole document (ADR 0352).
+    // Voice match works on a passage, never on the whole document (ADR 0290).
     let whole = post(
         &f,
         &session,
@@ -1143,7 +1143,7 @@ fn a_proposal_that_keeps_claims_from_a_private_guide_is_never_portable() {
         .contains("sources=portable,private -->"));
 }
 
-// ---- folding a proposal into the saved guide (#423, ADR 0350) ---------------------------------
+// ---- folding a proposal into the saved guide (#423, ADR 0288) ---------------------------------
 
 #[test]
 fn a_proposal_keeps_unaddressed_traits_shows_changes_side_by_side_and_flags_missing_samples() {
@@ -1352,7 +1352,7 @@ fn a_saved_trait_quoting_a_sample_that_is_private_now_keeps_the_merge_off_portab
         ),
     );
     assert_eq!(put.status, 422); // So does a hand edit with no provenance line that still quotes the sample that is private now:
-                                 // the save shares the guide move's rule (ADR 0351).
+                                 // the save shares the guide move's rule (ADR 0289).
     let saved = fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap();
     let put = handle(
         &f.state,

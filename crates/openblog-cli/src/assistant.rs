@@ -74,7 +74,7 @@ pub enum SkillScope {
     Document,
 }
 
-/// The part of a document a passage review covers (ADR 0352).
+/// The part of a document a passage review covers (ADR 0290).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PassageKind {
     /// Text the author selected.
@@ -109,7 +109,7 @@ impl PassageKind {
 }
 
 /// A bounded passage of the reviewed document, in zero-based Unicode code-point offsets into its
-/// Markdown. Findings of a passage review must fall inside it (ADR 0352).
+/// Markdown. Findings of a passage review must fall inside it (ADR 0290).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReviewPassage {
     pub kind: PassageKind,
@@ -542,7 +542,7 @@ impl AssistantRequest {
         }
     }
 
-    /// Review one bounded passage of a document: a selection or a section (ADR 0352). The whole
+    /// Review one bounded passage of a document: a selection or a section (ADR 0290). The whole
     /// document still travels as untrusted data, so the provider sees the passage in place, but the
     /// findings must fall inside the passage.
     pub fn passage_review(
@@ -2579,7 +2579,7 @@ pub fn validate_review_findings(
             .ok_or_else(|| invalid_review(format!("finding {number} has invalid evidence")))?
             .to_string();
         let character_count = markdown_characters.len();
-        // A passage review looks for the evidence inside the passage only (ADR 0352).
+        // A passage review looks for the evidence inside the passage only (ADR 0290).
         let (window_start, window_end) = passage.map_or((0, character_count), |p| (p.start, p.end));
         let supplied_range_matches = start < end
             && window_start <= start

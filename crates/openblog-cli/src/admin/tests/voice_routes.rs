@@ -1083,7 +1083,7 @@ fn a_project_served_from_the_current_folder_keeps_its_sentences_and_hides_its_pa
     }
 }
 
-// ---- moving the voice guide (ADR 0351) ---------------------------------------------------------
+// ---- moving the voice guide (ADR 0289) ---------------------------------------------------------
 
 #[test]
 fn the_guide_move_is_previewed_then_done_in_one_step_and_reversed() {

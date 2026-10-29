@@ -1317,7 +1317,7 @@ fn a_voice_folder_linked_inside_the_project_is_never_written_to() {
     assert_eq!(snapshot(&project.0), before);
 }
 
-// ---- moving the voice guide (ADR 0351) ---------------------------------------------------------
+// ---- moving the voice guide (ADR 0289) ---------------------------------------------------------
 
 const PORTABLE_GUIDE: &str = "assistant/context/voice.md";
 const PRIVATE_GUIDE: &str = ".openblog/private/context/voice.md";

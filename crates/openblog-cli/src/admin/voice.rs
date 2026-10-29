@@ -1155,7 +1155,7 @@ pub(super) fn promote(state: &AppState, req: &Request, id: &str) -> Response {
 }
 
 // ---------------------------------------------------------------------------
-// Moving the voice guide (ADR 0351)
+// Moving the voice guide (ADR 0289)
 // ---------------------------------------------------------------------------
 
 fn guide_move_json(planned: &voice_store::GuideMove) -> Json {

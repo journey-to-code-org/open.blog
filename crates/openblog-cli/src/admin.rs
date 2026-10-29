@@ -10934,7 +10934,7 @@ fn create_assistant_reference(state: &AppState, req: &Request) -> Response {
 }
 
 /// Resolve the selected review skills for a review of `scope`: the whole document, a selection or a
-/// section. A skill must declare the scope it is used for (ADR 0352).
+/// section. A skill must declare the scope it is used for (ADR 0290).
 fn resolve_review_skills(
     root: &Path,
     ids: &[String],
@@ -11129,7 +11129,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         }
         _ => return Response::error(400, "Review Markdown is too large or invalid"),
     };
-    // An optional bounded passage: a selection or a section, in code-point offsets (ADR 0352).
+    // An optional bounded passage: a selection or a section, in code-point offsets (ADR 0290).
     let passage = match &body["passage"] {
         Json::Null => None,
         Json::Object(object) => {

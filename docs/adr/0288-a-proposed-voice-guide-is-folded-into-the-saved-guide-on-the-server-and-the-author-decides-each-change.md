@@ -1,4 +1,4 @@
-# ADR 0350: A proposed voice guide is folded into the saved guide on the server, and the author decides each change
+# ADR 0288: A proposed voice guide is folded into the saved guide on the server, and the author decides each change
 
 - Status: Accepted
 - Date: 2026-10-29
