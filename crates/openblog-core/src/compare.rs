@@ -268,6 +268,130 @@ fn figure(side: &Side, class: &str, label_span: bool) -> String {
     )
 }
 
+const KEYS: [&str; 8] = [
+    "before",
+    "before-alt",
+    "before-caption",
+    "before-label",
+    "after",
+    "after-alt",
+    "after-caption",
+    "after-label",
+];
+
+/// The form for a pair, in the same shape as a piece's (`piece::schema_json`), so the Admin's
+/// Add something dialog can show it. It is kept apart from the pieces: a pair has no landing section.
+pub fn schema_json() -> serde_json::Value {
+    let field = |name: &str, label: &str, hint: &str, input: &str, required: bool, max: usize| {
+        serde_json::json!({
+            "name": name, "label": label, "hint": hint, "input": input,
+            "required": required, "max": max,
+        })
+    };
+    let side = |key: &str, title: &str, default_label: &str| {
+        [
+            field(
+                key,
+                &format!("{title} picture"),
+                "Choose a file to upload, or type an https:// address or a file on this site such as /images/floor.jpg.",
+                "image",
+                true,
+                MAX_URL_BYTES,
+            ),
+            field(
+                &format!("{key}-alt"),
+                &format!("{title} description"),
+                "Describe the picture for someone who cannot see it. Required.",
+                "text",
+                true,
+                MAX_ALT_CHARS,
+            ),
+            field(
+                &format!("{key}-caption"),
+                &format!("{title} caption"),
+                "Optional text shown after the label.",
+                "text",
+                false,
+                MAX_LINE_CHARS,
+            ),
+            field(
+                &format!("{key}-label"),
+                &format!("{title} label"),
+                &format!("Leave empty for “{default_label}”."),
+                "text",
+                false,
+                MAX_LABEL,
+            ),
+        ]
+    };
+    let mut fields = Vec::new();
+    fields.extend(side("before", "Before", "Before"));
+    fields.extend(side("after", "After", "After"));
+    // Pictures and descriptions first, then captions and labels, as the dialog reads best that way.
+    fields.sort_by_key(|f| {
+        let name = f["name"].as_str().unwrap_or("");
+        let rank = if name.ends_with("-caption") {
+            2
+        } else if name.ends_with("-label") {
+            3
+        } else {
+            0
+        };
+        (rank, name.starts_with("after"))
+    });
+    serde_json::json!({
+        "kind": FENCE, "section": null, "label": "Before and after",
+        "summary": "Two pictures of the same thing, with a slider to compare them.",
+        "fields": fields, "markdown": "directive",
+    })
+}
+
+/// Build a pair from form values and validate it; every problem is reported.
+pub fn from_values(values: &[(String, String)]) -> Result<Comparison, Vec<String>> {
+    let mut problems = Vec::new();
+    let mut source = String::new();
+    for (name, value) in values {
+        if !KEYS.contains(&name.as_str()) {
+            problems.push(format!(
+                "`{name}` is not a field of a before and after pair"
+            ));
+        } else if value.contains(['\n', '\r']) {
+            problems.push(format!("`{name}` must be on one line"));
+        } else {
+            source.push_str(&format!("{name}: {value}\n"));
+        }
+    }
+    match parse(&source) {
+        Ok(pair) if problems.is_empty() => Ok(pair),
+        Ok(_) => Err(problems),
+        Err(found) => {
+            problems.extend(found);
+            Err(problems)
+        }
+    }
+}
+
+impl Comparison {
+    /// The fence an author would write, with a label only where it is not the default.
+    pub fn to_markdown(&self) -> String {
+        let mut out = format!("```{FENCE}\n");
+        for (key, side, default_label) in [
+            ("before", &self.before, "Before"),
+            ("after", &self.after, "After"),
+        ] {
+            out.push_str(&format!("{key}: {}\n{key}-alt: {}\n", side.src, side.alt));
+            if !side.caption.is_empty() {
+                out.push_str(&format!("{key}-caption: {}\n", side.caption));
+            }
+            if side.label != default_label {
+                out.push_str(&format!("{key}-label: {}\n", side.label));
+            }
+        }
+        out.push_str("```\n");
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,4 +478,81 @@ mod tests {
         assert!(out.contains("before: https://x.test/images/a.jpg\n"));
         assert!(out.contains("before-alt: A stained floor\n"));
     }
+
+    fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
+        items
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn the_form_writes_a_fence_that_reads_back_the_same() {
+        let pair = parse(FULL).unwrap();
+        let markdown = pair.to_markdown();
+        assert_eq!(
+            markdown,
+            "```compare\nbefore: /images/a.jpg\nbefore-alt: A stained floor\nbefore-caption: Day one\nafter: https://example.com/b.jpg\nafter-alt: A sealed floor\nafter-label: Finished\n```\n"
+        );
+        let body = markdown
+            .trim_start_matches("```compare\n")
+            .trim_end_matches("```\n");
+        assert_eq!(parse(body).unwrap(), pair);
+    }
+
+    #[test]
+    fn form_values_are_checked_and_every_problem_is_reported() {
+        let ok = from_values(&pairs(&[
+            ("before", "/a.jpg"),
+            ("before-alt", "A"),
+            ("after", "/b.jpg"),
+            ("after-alt", "B"),
+        ]))
+        .unwrap();
+        assert_eq!(ok.before.label, "Before");
+        let problems = from_values(&pairs(&[
+            ("before", "/a.jpg"),
+            ("before-alt", ""),
+            ("after", ""),
+            ("after-alt", "B\nafter: /x.jpg"),
+            ("shade", "dark"),
+        ]))
+        .unwrap_err();
+        assert!(problems.iter().any(|p| p.contains("`shade`")));
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("`after-alt` must be on one line")));
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("before picture needs a description")));
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("after picture is missing")));
+    }
+
+    #[test]
+    fn the_schema_asks_for_both_pictures_and_descriptions_first() {
+        let schema = schema_json();
+        let names: Vec<_> = schema["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, KEYS_IN_FORM_ORDER);
+        assert_eq!(schema["fields"][0]["input"], "image");
+        assert_eq!(schema["fields"][0]["required"], true);
+        assert_eq!(schema["fields"][4]["required"], false);
+    }
+
+    const KEYS_IN_FORM_ORDER: [&str; 8] = [
+        "before",
+        "before-alt",
+        "after",
+        "after-alt",
+        "before-caption",
+        "after-caption",
+        "before-label",
+        "after-label",
+    ];
 }

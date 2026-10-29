@@ -9281,6 +9281,7 @@ function visualProtectedLabel(lines, index) {
   const fence = visualFence(lines[index]);
   if (fence && fence[2].trim().toLowerCase() === "quiz") return "Knowledge check";
   if (fence && /^piece(?:\s|$)/.test(fence[2].trim())) return "Piece";
+  if (fence && fence[2].trim() === "compare") return "Before and after";
   if (visualQuote(lines[index]) && /^ {0,3}>\s*\[![A-Z]+\]/.test(text)) return "Callout";
   if (visualRawHtml(lines[index]) || /<\/?[a-z][^>]*>/i.test(text)) return "Raw HTML";
   if (/~~|<(?:https?:|mailto:)[^>]+>|\[[^\]]+\]\[[^\]]*\]|^\s*\[[^\]]+\]:| {2,}$/.test(text)) return "Advanced formatting";
@@ -21949,7 +21950,7 @@ export class Editor {
   /** The visual-editor element for one parsed Markdown block (not a space). */
   visualBlockElement(block) {
     if (block.type === "protected") {
-      const formKind = editableBlockKind(block.label, block.source, this.app?.meta?.pieces || []);
+      const formKind = editableBlockKind(block.label, block.source, this.pieceSchemas());
       const card = h(
         "section",
         {
@@ -22041,6 +22042,12 @@ export class Editor {
     }
   }
 
+  /** What Add something offers in a post: the pieces, then the before and after pair (it has no landing page form). */
+  pieceSchemas() {
+    const meta = this.app?.meta || {};
+    return [...(meta.pieces || []), ...(meta.compare ? [meta.compare] : [])];
+  }
+
   /**
    * Edit a callout, table, task list, embed or piece with a form inside its card (ADR 0254).
    * Apply writes the same Markdown the block uses today; Cancel and an unchanged Apply leave
@@ -22048,7 +22055,7 @@ export class Editor {
    */
   editBlockWithForm(card, label, kind) {
     const source = card.dataset.markdown || "";
-    const editor = blockEditor(kind, source, { pieces: this.app.meta?.pieces || [], build: (pieceKind, values) => this.buildPiece(pieceKind, values) });
+    const editor = blockEditor(kind, source, { pieces: this.pieceSchemas(), build: (pieceKind, values) => this.buildPiece(pieceKind, values), upload: (file) => this.upload(file) });
     if (!editor) return;
     const original = [...card.childNodes];
     const status = h("p", { class: "oba-error", role: "alert", hidden: true });
@@ -22099,7 +22106,7 @@ export class Editor {
   /** The Add something dialog: a piece's details in plain words, written as Markdown at the caret in either mode. */
   openAddSomething() {
     this.captureVisualSelection();
-    const pieces = this.app.meta?.pieces || [];
+    const pieces = this.pieceSchemas();
     if (!pieces.length) {
       this.sayCitation("The pieces could not be loaded. Reload the page and try again. Your draft is unchanged.");
       return;
@@ -22109,6 +22116,7 @@ export class Editor {
     openPieceDialog({
       pieces,
       build: (kind, values) => this.buildPiece(kind, values),
+      upload: (file) => this.upload(file),
       onInsert: (markdown) => {
         const refusal = this.insertFromResearch({ kind: "block", markdown: String(markdown).replace(/\n+$/, ""), label: "piece" });
         if (!refusal) inserted = true;

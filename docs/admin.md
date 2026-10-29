@@ -454,6 +454,13 @@ and nothing is inserted until it is fixed. In Visual mode the piece appears as a
 in Markdown mode its text is written at the caret. Ctrl+Z or **Undo piece** takes it back out.
 There is no option to write your own HTML. See [Pieces](content.md#pieces-buttons-videos-maps-and-more).
 
+**Before and after** is in the same list. It asks for two pictures and a description of each (required, for
+people who cannot see them), and optionally a caption and a label for each side. For each picture you can type
+an address or choose a file; a chosen file is uploaded the same way as any image and its address is filled in.
+**Insert** checks the pair with the build's rules and says what is missing inside the dialog, for example that the
+after picture needs a description. In Visual mode the pair is an editable block (**Edit before and after**); in
+Markdown mode the `compare` fence is written at the caret. See [Before and after](content.md#before-and-after).
+
 ### Cite a source while writing
 
 In a post, choose **Cite** in the Write toolbar to insert a citation at the caret in either mode.
