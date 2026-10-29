@@ -1,4 +1,4 @@
-//! The contract of the `job-draft` Assistant task (ADR 0421): what a provider may return when asked to turn a
+//! The contract of the `job-draft` Assistant task (ADR 0300): what a provider may return when asked to turn a
 //! job's notes into words, and the one deterministic check that stands between that result and the author's
 //! editor. Pure: no file, clock or network.
 //!

@@ -670,7 +670,7 @@ pub enum AssistantSource {
     Completion(AssistantCompletionSource),
     /// The voice-guide task reads only its selected samples; the request carries them.
     Samples,
-    /// The job-draft task carries the author's notes in its task (ADR 0421).
+    /// The job-draft task carries the author's notes in its task (ADR 0300).
     JobNotes,
 }
 

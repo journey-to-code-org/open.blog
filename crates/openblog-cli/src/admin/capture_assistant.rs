@@ -1,5 +1,5 @@
-//! The Assistant routes of the Capture view: turning a voice note into words (ADR 0420, #502) and the notes into a
-//! job-draft proposal (ADR 0421, #503). For transcription: disclose what would be sent, send it only after
+//! The Assistant routes of the Capture view: turning a voice note into words (ADR 0299, #502) and the notes into a
+//! job-draft proposal (ADR 0300, #503). For transcription: disclose what would be sent, send it only after
 //! the author confirmed, and keep the transcript privately beside the note as untrusted text. The audio goes
 //! out only through the Assistant provider boundary (or a local engine the server's owner configured), and
 //! every failure leaves the typed notes as the way forward.
@@ -232,7 +232,7 @@ fn bounded_line(body: &Json, field: &str, max: usize) -> Result<String, Response
     }
 }
 
-/// `POST assistant/job-draft` (ADR 0421): the author's notes become a title, a description and the four
+/// `POST assistant/job-draft` (ADR 0300): the author's notes become a title, a description and the four
 /// scaffold sections. The selected context, including the voice guide, is read again on the server from the
 /// ids alone (ADR 0278). The result is checked against the strict schema and returned as a proposal; nothing
 /// is written.

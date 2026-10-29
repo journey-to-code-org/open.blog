@@ -85,7 +85,7 @@ pub fn transcript_file_name(id: &str) -> Option<String> {
     valid_id(id).then(|| format!("{id}.transcript.txt"))
 }
 
-/// A transcript made safe to keep and show (ADR 0420). It is untrusted words: control characters and
+/// A transcript made safe to keep and show (ADR 0299). It is untrusted words: control characters and
 /// byte-order marks go, line endings are normalized, runs of blank lines collapse, and the text is bounded.
 /// Nothing is interpreted: markup stays text, and the author's editor escapes it like any typed note.
 /// `truncated` says the text was cut at the bound.

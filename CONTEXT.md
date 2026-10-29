@@ -2635,20 +2635,20 @@ _Avoid_: Outbox, sync
 **Voice note**:
 A recording of at most three minutes and 8 MB made in the Capture view with the browser's recorder, started only
 by a tap, kept on the author's server as private media beside the capture and never published. It is sent to a
-provider only when the author asks to transcribe it and has seen the disclosure (ADR 0298, ADR 0420).
+provider only when the author asks to transcribe it and has seen the disclosure (ADR 0298, ADR 0299).
 _Avoid_: Dictation
 
 **Transcript**:
 The words of a voice note, made by a provider that takes audio or by a local engine, on the author's request. It is
 untrusted text: kept privately beside the note, cleaned and bounded by the core, and put into the Notes box made
-plain for the author to edit. It is never a draft, never published and never treated as instructions (ADR 0420).
+plain for the author to edit. It is never a draft, never published and never treated as instructions (ADR 0299).
 _Avoid_: Caption, dictation
 
 **Job draft**:
 A title, a one-sentence description and the four scaffold sections written by the Assistant (`job-draft` task)
 from the author's notes and, if selected, their voice guide. It is plain text under a strict schema with no place
 for any `job` field, checked whole by the core, and only ever a proposal: nothing is saved or published until the
-author applies it and saves (ADR 0421).
+author applies it and saves (ADR 0300).
 _Avoid_: AI post, generated post
 
 **Service**:

@@ -1,10 +1,10 @@
-# ADR 0421: The job-draft task returns a strict, plain-text draft that can never fill a job field, and the core checks it
+# ADR 0300: The job-draft task returns a strict, plain-text draft that can never fill a job field, and the core checks it
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#480](https://github.com/journey-to-code-org/open.blog/issues/480)
 - Task: [#503](https://github.com/journey-to-code-org/open.blog/issues/503)
-- Builds on: [ADR 0279](0279-the-voice-guide-task-has-a-strict-validated-result-that-is-rendered-deterministically-and-saved-only-on-approval.md), [ADR 0278](0278-voice-samples-and-the-voice-guide-are-selected-as-assistant-context-by-id-and-reloaded-on-the-server.md), [ADR 0287](0287-the-job-form-and-its-scaffold-are-written-once-in-core-and-produce-a-normal-post.md), [ADR 0420](0420-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)
+- Builds on: [ADR 0279](0279-the-voice-guide-task-has-a-strict-validated-result-that-is-rendered-deterministically-and-saved-only-on-approval.md), [ADR 0278](0278-voice-samples-and-the-voice-guide-are-selected-as-assistant-context-by-id-and-reloaded-on-the-server.md), [ADR 0287](0287-the-job-form-and-its-scaffold-are-written-once-in-core-and-produce-a-normal-post.md), [ADR 0299](0299-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)
 
 ## Context
 
