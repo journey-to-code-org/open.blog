@@ -44,6 +44,25 @@ Anything you write here is the long description on the service's page, as ordina
 Every text value is plain text on one line. Keys you add that this version does not know are kept untouched.
 Each problem is a sentence naming the field, and every problem in a file is listed at once.
 
+## What the build makes
+
+A site with at least one service gets:
+
+- `/services/`: every service with its summary, price band and timeline, and its three newest jobs.
+- `/services/<id>/`: one page per service with what is included, your body text, the price band and timeline,
+  the questions and answers, and the five newest jobs done for it, with links to the archives
+  (`/jobs/<trade>/<id>/`) that list them all.
+- `Service` structured data on each page, and `FAQPage` data beside it **only when the service has questions**.
+  The provider is your business facts when you have set them ([Configuration](configuration.md#business-facts)),
+  otherwise the site title. Everything comes from the file, the same files always build to the same pages, and
+  text is escaped so nothing in a question can break the page.
+- The index and each page in `sitemap.xml` and `llms.txt`, and a **Services** link in the header navigation
+  (unless your own `nav` already links to `/services/`). `services` can no longer be a page or post address.
+
+The price band is shown in words (`$2,000 to $10,000`) with the note that it is a guide, not a quote. Change
+one band, rebuild, and the page, the index and the structured data all change. A site with no services builds
+exactly as it did before. See [ADR 0401](adr/0401-service-pages-the-index-and-their-structured-data-are-rendered-from-the-collection-alone-deterministically-and-only-for-a-site-that-has-services.md).
+
 ## Jobs and services
 
 A job names its service in `job.service` ([Jobs](jobs.md)). Once your site has at least one service, that id has

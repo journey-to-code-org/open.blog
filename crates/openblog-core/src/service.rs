@@ -11,6 +11,9 @@ use std::collections::BTreeMap;
 
 use crate::frontmatter::{FrontMatter, Value};
 use crate::job::CostBand;
+use crate::job_archive::{JobArchive, JobArchiveKind};
+use crate::model::{Service, Site};
+use serde_json::{json, Map, Value as Json};
 
 /// The content folder a service lives in, and the first segment of its address.
 pub const SERVICES_DIR: &str = "services";
@@ -236,4 +239,90 @@ fn faq_entries(fm: &FrontMatter, problems: &mut Vec<String>) -> Vec<FaqEntry> {
         }
     }
     entries
+}
+
+/// The jobs archives that cover one service, one per trade that has done it,
+/// in the archive plan's order (ADR 0286).
+pub fn job_archives<'a>(plan: &'a [JobArchive], id: &str) -> Vec<&'a JobArchive> {
+    plan.iter()
+        .filter(|archive| {
+            archive.kind == JobArchiveKind::Service && archive.service.as_deref() == Some(id)
+        })
+        .collect()
+}
+
+/// Indices into `Site::posts` of the newest jobs done for a service, newest
+/// first, at most `limit`. A smaller index is a newer post.
+pub fn recent_jobs(plan: &[JobArchive], id: &str, limit: usize) -> Vec<usize> {
+    let mut all: Vec<usize> = job_archives(plan, id)
+        .into_iter()
+        .flat_map(|archive| archive.posts.iter().copied())
+        .collect();
+    all.sort_unstable();
+    all.dedup();
+    all.truncate(limit);
+    all
+}
+
+/// `Service` structured data for a service's page, with a `FAQPage` beside it
+/// only when it has questions (ADR 0401). Built from what the service file
+/// says and nothing else; the keys are written in a fixed order, so the same
+/// site always gives the same text. The caller escapes it for a `<script>`.
+pub fn json_ld(site: &Site, service: &Service) -> String {
+    let c = &site.config;
+    let url = c.absolute(&service.url);
+    let provider = if c.business.has_public_facts() {
+        let name = if c.business.name().is_empty() {
+            c.title.as_str()
+        } else {
+            c.business.name()
+        };
+        json!({ "@type": c.business.schema_type(), "@id": c.absolute("/#business"), "name": name })
+    } else {
+        json!({ "@type": "Organization", "name": c.title })
+    };
+    let mut node = Map::new();
+    node.insert("@type".into(), "Service".into());
+    node.insert("@id".into(), format!("{url}#service").into());
+    node.insert("name".into(), service.name.clone().into());
+    node.insert("description".into(), service.summary.clone().into());
+    node.insert("url".into(), url.clone().into());
+    node.insert("provider".into(), provider);
+    if !service.includes.is_empty() {
+        let items: Vec<Json> = service
+            .includes
+            .iter()
+            .map(|item| json!({ "@type": "Offer", "itemOffered": { "@type": "Service", "name": item } }))
+            .collect();
+        node.insert(
+            "hasOfferCatalog".into(),
+            json!({ "@type": "OfferCatalog", "name": "What is included", "itemListElement": items }),
+        );
+    }
+    if let Some(band) = service.price_band {
+        node.insert(
+            "offers".into(),
+            json!({ "@type": "Offer", "description": format!("Price band: {}", band.label()) }),
+        );
+    }
+    let mut graph = vec![Json::Object(node)];
+    if !service.faq.is_empty() {
+        let questions: Vec<Json> = service
+            .faq
+            .iter()
+            .map(|entry| {
+                json!({
+                    "@type": "Question",
+                    "name": entry.question,
+                    "acceptedAnswer": { "@type": "Answer", "text": entry.answer },
+                })
+            })
+            .collect();
+        graph.push(json!({
+            "@type": "FAQPage",
+            "@id": format!("{url}#faq"),
+            "mainEntity": questions,
+        }));
+    }
+    json!({ "@context": "https://schema.org", "@graph": graph }).to_string()
 }
