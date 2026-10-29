@@ -128,6 +128,8 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
         if rest.is_empty() && key == NESTED_KEY && next_is_mapping(lines, i) {
             let indent = indent_of(lines[next_significant(lines, i)])?;
             parse_nested(lines, &mut i, indent, &key, 1, &mut fields)?;
+        } else if rest.is_empty() && key == FAQ_KEY && next_is_faq_entry(lines, i) {
+            parse_faq(lines, &mut i, &mut fields)?;
         } else if rest.is_empty() {
             // A block list (or an empty scalar) follows.
             let mut items = Vec::new();
@@ -171,6 +173,111 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
 /// `Value` shape and every other key are exactly as before.
 const NESTED_KEY: &str = "job";
 const MAX_NESTING: usize = 3;
+
+/// The one key whose value may be a list of mappings (a service's questions
+/// and answers, ADR 0400). Entry `n` (counting from 1) is stored flattened as
+/// `faq.<n>.question` and `faq.<n>.answer`, so the `Value` shape is unchanged.
+/// A list whose first entry does not start `- question:` is an ordinary list.
+const FAQ_KEY: &str = "faq";
+const FAQ_PREFIX: &str = "faq.";
+const MAX_FAQ_ENTRIES: usize = 100;
+
+fn next_is_faq_entry(lines: &[&str], from: usize) -> bool {
+    lines
+        .get(next_significant(lines, from))
+        .is_some_and(|line| line.starts_with(' ') && line.trim().starts_with("- question:"))
+}
+
+fn parse_faq(
+    lines: &[&str],
+    i: &mut usize,
+    fields: &mut BTreeMap<String, Value>,
+) -> Result<(), String> {
+    let mut entry = 0;
+    while *i < lines.len() {
+        let line = lines[*i].trim_end();
+        if is_skipped(line) {
+            *i += 1;
+            continue;
+        }
+        if !line.starts_with(' ') {
+            break;
+        }
+        let dash = indent_of(line)?;
+        let Some(first) = line.trim_start().strip_prefix("- ") else {
+            return Err(format!(
+                "each `faq` entry starts with `- question:`, found `{}`",
+                line.trim()
+            ));
+        };
+        entry += 1;
+        if entry > MAX_FAQ_ENTRIES {
+            return Err(format!("`faq` has more than {MAX_FAQ_ENTRIES} entries"));
+        }
+        *i += 1;
+        let mut pending = Some(first.trim().to_string());
+        loop {
+            let text = match pending.take() {
+                Some(text) => text,
+                None => {
+                    let Some(next) = lines.get(*i).map(|l| l.trim_end()) else {
+                        break;
+                    };
+                    if is_skipped(next) {
+                        *i += 1;
+                        continue;
+                    }
+                    if !next.starts_with(' ') || indent_of(next)? != dash + 2 {
+                        break;
+                    }
+                    *i += 1;
+                    next.trim().to_string()
+                }
+            };
+            let Some(colon) = find_key_colon(&text) else {
+                return Err(format!(
+                    "expected `key: value` in a `faq` entry, found `{text}`"
+                ));
+            };
+            let name = text[..colon].trim();
+            fields.insert(
+                format!("{FAQ_PREFIX}{entry}.{name}"),
+                Value::Scalar(unquote(text[colon + 1..].trim())),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Write the flattened `faq.*` keys back as one block list, entry by entry in
+/// numeric order, `question` then `answer` then any other key.
+fn serialize_faq(fields: &[(&str, Value)], out: &mut String) {
+    let mut entries: BTreeMap<usize, Vec<(&str, &str)>> = BTreeMap::new();
+    for (key, value) in fields {
+        let Some(rest) = key.strip_prefix(FAQ_PREFIX) else {
+            continue;
+        };
+        let (Some((number, name)), Value::Scalar(text)) = (rest.split_once('.'), value) else {
+            continue;
+        };
+        if let Ok(number) = number.parse::<usize>() {
+            entries.entry(number).or_default().push((name, text));
+        }
+    }
+    out.push_str(FAQ_KEY);
+    out.push_str(":\n");
+    for (_, mut keys) in entries {
+        keys.sort_by_key(|(name, _)| match *name {
+            "question" => (0, String::new()),
+            "answer" => (1, String::new()),
+            other => (2, other.to_string()),
+        });
+        for (position, (name, text)) in keys.into_iter().enumerate() {
+            let lead = if position == 0 { "  - " } else { "    " };
+            out.push_str(&format!("{lead}{name}: {}\n", quote_scalar(text)));
+        }
+    }
+}
 
 fn is_skipped(line: &str) -> bool {
     line.trim().is_empty() || line.trim_start().starts_with('#')
@@ -381,7 +488,15 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
     let mut out = String::from("---\n");
     let nested_prefix = format!("{NESTED_KEY}.");
     let mut nested_written = false;
+    let mut faq_written = false;
     for (key, value) in fields {
+        if key.starts_with(FAQ_PREFIX) {
+            if !faq_written {
+                faq_written = true;
+                serialize_faq(fields, &mut out);
+            }
+            continue;
+        }
         if key.starts_with(&nested_prefix) {
             if !nested_written {
                 nested_written = true;
@@ -605,6 +720,37 @@ mod tests {
         fields.insert("title".to_string(), Value::Scalar("T".into()));
         let text = compose(&fields, "body");
         assert!(text.starts_with("---\ntitle: T\nsubtitle: S\n"), "{text}");
+    }
+
+    #[test]
+    fn faq_entries_are_flattened_and_written_back_in_order() {
+        let text = "---\nid: a\nfaq:\n  - question: How long?\n    answer: \"Two days: maybe three.\"\n  - question: Cost?\n    answer: Ask.\nnext: x\n---\nbody";
+        let doc = parse(text).unwrap();
+        let fm = &doc.front_matter;
+        assert_eq!(fm.get("faq.1.question"), Some("How long?"));
+        assert_eq!(fm.get("faq.1.answer"), Some("Two days: maybe three."));
+        assert_eq!(fm.get("faq.2.answer"), Some("Ask."));
+        assert_eq!(fm.get("next"), Some("x"));
+        let mut fields = fm.fields.clone();
+        for n in 3..=10 {
+            fields.insert(format!("faq.{n}.question"), Value::Scalar(format!("Q{n}")));
+            fields.insert(format!("faq.{n}.answer"), Value::Scalar(format!("A{n}")));
+        }
+        let written = compose(&fields, "body");
+        let again = parse(&written).unwrap();
+        assert_eq!(again.front_matter.fields, fields);
+        let order: Vec<&str> = written
+            .lines()
+            .filter(|line| line.contains("question:"))
+            .collect();
+        assert_eq!(order[1], "  - question: Cost?");
+        assert_eq!(order[9], "  - question: Q10");
+    }
+
+    #[test]
+    fn a_plain_faq_list_stays_a_list() {
+        let doc = parse("---\nfaq:\n  - one\n  - two\n---\n").unwrap();
+        assert_eq!(doc.front_matter.get_list("faq"), vec!["one", "two"]);
     }
 
     #[test]

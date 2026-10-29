@@ -2660,8 +2660,10 @@ author applies it and saves (ADR 0303).
 _Avoid_: AI post, generated post
 
 **Service**:
-One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
-typical timeline, and FAQs. A job's `service` names one of them.
+One offering a business sells, kept as a Markdown file in the `services/` collection with an `id`, a name, a
+one-sentence summary, what is included, a starting price band, a typical timeline, and FAQs. A job's `service`
+names one of them by id; once a site has any service, a job naming an unknown id is refused with the known ids
+listed. The price band is the jobs' cost band, a label and never a quote (ADR 0400).
 _Avoid_: Product, category
 
 **Service area**:

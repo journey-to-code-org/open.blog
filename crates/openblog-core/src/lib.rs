@@ -140,6 +140,7 @@ pub mod research_search;
 pub mod scholarly_comparison;
 pub mod scholarly_feedback;
 pub mod search;
+pub mod service;
 pub mod shared_series;
 pub mod shared_source;
 pub mod shingles;
@@ -182,6 +183,7 @@ pub fn classify_source(relative_path: &str) -> Option<SourceKind> {
         "posts" => Some(SourceKind::Post),
         "series" => Some(SourceKind::Series),
         "pages" => Some(SourceKind::Page),
+        "services" => Some(SourceKind::Service),
         // Loose Markdown files at the content root are posts, so a folder of
         // exported articles works with no restructuring.
         _ if !normalized.contains('/') => Some(SourceKind::Post),
@@ -195,6 +197,7 @@ pub enum SourceKind {
     PostCredits,
     Series,
     Page,
+    Service,
 }
 
 impl Sources {
@@ -206,6 +209,7 @@ impl Sources {
             Some(SourceKind::PostCredits) => self.credits.push(file),
             Some(SourceKind::Series) => self.series.push(file),
             Some(SourceKind::Page) => self.pages.push(file),
+            Some(SourceKind::Service) => self.services.push(file),
             None => return false,
         }
         true
@@ -226,6 +230,11 @@ mod tests {
             Some(SourceKind::Page)
         );
         assert_eq!(classify_source("loose.md"), Some(SourceKind::Post));
+        assert_eq!(
+            classify_source("services/hardwood.md"),
+            Some(SourceKind::Service)
+        );
+        assert_eq!(classify_source("services/a.credits.json"), None);
         assert_eq!(
             classify_source("posts/a.credits.json"),
             Some(SourceKind::PostCredits)
