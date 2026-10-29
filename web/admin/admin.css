@@ -6513,3 +6513,139 @@ ob-voice-library {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Social announcements (ADR 0310). One column, wrapping text, no fixed widths: the screen reads the
+   same on a phone and does not depend on a font's metrics. */
+.oba-announce {
+  display: grid;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.oba-announce > *,
+.oba-announce-composer > *,
+.oba-announce-row > * {
+  min-width: 0;
+}
+
+.oba-announce-status:empty {
+  display: none;
+}
+
+.oba-announce-status {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  overflow-wrap: anywhere;
+}
+
+.oba-announce-composer {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.oba-announce-composer h2,
+.oba-announce-queue h2 {
+  margin: 0 0 0.25rem;
+}
+
+.oba-announce-count[data-over="true"] {
+  color: var(--oba-danger);
+  font-weight: 700;
+}
+
+.oba-announce-problems ul {
+  margin: 0.25rem 0 0;
+  padding-inline-start: 1.25rem;
+}
+
+.oba-announce-preview {
+  margin: 0 0 1rem;
+}
+
+.oba-announce-preview h3 {
+  margin: 0 0 0.5rem;
+}
+
+.oba-announce-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  overflow-wrap: anywhere;
+}
+
+.oba-announce-card > p {
+  margin: 0;
+}
+
+.oba-announce-card-caption,
+.oba-announce-caption {
+  white-space: pre-wrap;
+}
+
+.oba-announce-url {
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+}
+
+.oba-announce-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-announce-row {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  overflow-wrap: anywhere;
+}
+
+.oba-announce-row p {
+  margin: 0;
+}
+
+.oba-announce-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.oba-announce-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.oba-announce-badge-published,
+.oba-announce-badge-failed {
+  border-width: 2px;
+  font-weight: 700;
+}
+
+.oba-announce-row-actions .oba-btn,
+.oba-announce-actions .oba-btn,
+.oba-announce-row-panel .oba-btn {
+  min-height: 44px;
+}
+
+.oba-announce-row-panel {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}

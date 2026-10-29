@@ -85,6 +85,7 @@ use crate::assistant::{
     BUILTIN_SKILL_SOURCES,
 };
 use crate::assistant::{PassageKind, ReviewPassage};
+mod announcements;
 mod business;
 mod capture_assistant;
 mod comparisons;
@@ -515,9 +516,6 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "pieces" {
             return Ok(MAX_PIECE_REQUEST_BYTES);
         }
-        if name.starts_with("social/") {
-            return Ok(social::MAX_SOCIAL_REQUEST_BYTES);
-        }
         if name == "job/check" {
             return Ok(MAX_JOB_CHECK_BYTES);
         }
@@ -526,6 +524,13 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         }
         if name.starts_with("voice/") {
             return Ok(voice::request_limit(req, name));
+        }
+        if let Some(rest) = name.strip_prefix("social/") {
+            return Ok(if announcements::owns(rest) {
+                announcements::MAX_REQUEST_BYTES
+            } else {
+                social::MAX_SOCIAL_REQUEST_BYTES
+            });
         }
         return Ok(MAX_JSON_BODY);
     }
@@ -575,8 +580,9 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/voice.js" => "voice.js",
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
-        "/admin/voice-library.js" => "voice-library.js",
         "/admin/social.js" => "social.js",
+        "/admin/announcements.js" => "announcements.js",
+        "/admin/voice-library.js" => "voice-library.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
@@ -634,8 +640,9 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         return authenticated_api(state, req, name, &session);
     }
     let mut workspace = lock(&state.workspace);
-    let _filesystem_transaction = if workspace.is_some() && !req.is_read_only() && name != "logout"
-    {
+    // Social routes change nothing on disk, so they never open a workspace transaction.
+    let local_write = !req.is_read_only() && name != "logout" && !name.starts_with("social/");
+    let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
             Ok(transaction) => Some(transaction),
             Err(error) => return Response::error(409, &error),
@@ -647,7 +654,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         DURABLE_TRANSACTION.with(|active| active.set(true));
         DurableTransaction
     });
-    if !req.is_read_only() && name != "logout" {
+    if local_write {
         if let Some(store) = workspace.as_mut() {
             if let Err(error) = store.begin() {
                 return Response::error(503, &format!("Workspace save NOT acknowledged: {error}"));
@@ -655,7 +662,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         }
     }
     let response = authenticated_api(state, req, name, &session);
-    if !req.is_read_only() && name != "logout" {
+    if local_write {
         if let Some(store) = workspace.as_mut() {
             // Even an unsuccessful handler may have completed part of a local
             // operation. Never acknowledge any result until the bundle is durable.
@@ -691,6 +698,9 @@ fn authenticated_api(
         }
     }
     if let Some(rest) = name.strip_prefix("social/") {
+        if announcements::owns(rest) {
+            return announcements::handle(state, req, session, rest);
+        }
         return social::route(req, &session.user, rest);
     }
     if let Some(route) = voice::sample_route(name) {
@@ -18389,6 +18399,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
+    mod announcement_routes;
     mod business_routes;
     mod capture_transcribe_routes;
     mod comparison_routes;

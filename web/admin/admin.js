@@ -11,6 +11,7 @@ import { buildHistory } from "./landing-history.js";
 import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
+import { createAnnouncementsPanel } from "./announcements.js";
 import { createBusinessFacts } from "./business.js";
 import { createServices } from "./services.js";
 import { createSocialAccounts } from "./social.js";
@@ -11029,6 +11030,12 @@ export class ObAdmin extends AdminElement {
 
   async enter() {
     this.meta = await this.api.call("GET", "meta");
+    // Social publishing is optional: its tab exists only when Admin says it is set up (ADR 0310).
+    try {
+      this.social = await this.api.call("GET", "social/status");
+    } catch {
+      this.social = { enabled: false };
+    }
     try {
       const snapshot = await this.loadWorkspacePreferences();
       const storage = browserStorage();
@@ -11445,6 +11452,7 @@ export class ObAdmin extends AdminElement {
       h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
       h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
+      ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
       h("a", { class: "oba-tab", "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
     ];
     const activeInfo = active === "analytics"
@@ -11467,6 +11475,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Social accounts", detail: "Connect LinkedIn or Facebook, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
       : active === "voice"
         ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
+      : active === "announcements"
+        ? { title: "Announcements", detail: "Announce a published post on LinkedIn or a Facebook Page at a time you choose, and manage what is scheduled." }
       : active === "landing"
         ? { title: "Landing page", detail: "Build the first page your visitors see from sections you add, order and preview, without writing any code." }
       : active === "paths"
@@ -11736,6 +11746,7 @@ export class ObAdmin extends AdminElement {
       ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook connect accounts share announce oauth", run: () => go("#/social") }] : []),
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
+      ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/announcements") }] : []),
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
       { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
       { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
@@ -11966,6 +11977,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "social") await this.showSocial();
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
+      else if (head === "announcements") await this.showAnnouncements();
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "appearance") await this.showAppearance();
@@ -14110,6 +14122,17 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => view.isBusy();
     // Its window focus listener must not outlive the page.
     this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- social announcements (ADR 0310, #369)
+
+  /** `#/announcements`: compose, preview and schedule an announcement, and manage the queue. */
+  async showAnnouncements() {
+    const view = createAnnouncementsPanel({ api: this.api });
+    this.mount(this.shell("announcements", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
     await view.load();
   }
 

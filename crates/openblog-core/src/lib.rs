@@ -146,6 +146,7 @@ pub mod shared_source;
 pub mod shingles;
 pub mod slug;
 pub mod social_publishing;
+pub mod social_schedule;
 pub mod source_interchange;
 pub mod source_library;
 pub mod source_review;

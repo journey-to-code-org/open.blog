@@ -4,8 +4,8 @@ Social publishing announces an already-published post on a connected LinkedIn id
 time you choose. It is off by default. Your site, its exports and cross-posting work exactly the same without it,
 and nothing in this guide is needed to read, build or publish a blog.
 
-This page covers the identity and storage foundation (epic #353, story #354). Provider setup, scheduling and the
-Admin screens arrive in later stories.
+This page covers the identity and storage foundation (epic #353, story #354) and scheduling announcements (story
+#356). Provider setup and delivery arrive in later stories.
 
 ## Who is allowed to do what
 
@@ -162,3 +162,52 @@ Each account shows its status as words (Connected, Expiring soon, Needs reconnec
 connected it, its provider id and the permissions the provider granted. Admin never receives a token: the page is
 rebuilt from known fields on the Admin server, so even a faulty function reply cannot put one in front of you.
 The page works with the keyboard and a screen reader and has no sideways scroll at 320 px.
+
+## Scheduling announcements
+
+An announcement is a caption and a time for one connected account, linking one of your public posts
+([ADR 0308](adr/0308-an-announcement-links-a-public-canonical-post-at-a-utc-instant-and-only-a-scheduled-one-can-change.md),
+[ADR 0309](adr/0309-announcement-routes-are-called-by-the-rust-admin-with-the-admin-key-and-change-a-row-only-by-version.md)).
+
+What can be announced:
+
+- Only a published post: not a draft, not dated in the future. The link is your site's own address for it, built from
+  `url` in `openblog.json`, which must be a public `https` address. A cross-post whose `canonical` points to another
+  site is not announced from here.
+- A caption of 1 to 3,000 characters. The link is added when the post is sent, so it does not count. Control
+  characters (other than a new line) and text-direction overrides are refused.
+- A time at least a minute ahead and no more than a year ahead, written with its zone. It is stored in UTC; Admin
+  shows it in your own zone. Your zone is not stored.
+
+Until a delivery worker exists (a later story) a scheduled announcement waits in the queue and is not sent.
+
+Only a **scheduled** announcement can be changed, rescheduled or canceled. Once a worker has claimed it, it cannot be.
+Saving names the version you were looking at; if it changed meanwhile you are asked to reload. Creating is
+idempotent: submitting the same composer twice (a double click, a retry after a timeout) gives one announcement.
+
+### Settings
+
+Scheduling uses the same settings as connected accounts (`OPENBLOG_SOCIAL_ENDPOINT`, `OPENBLOG_SOCIAL_ADMIN_KEY`, above)
+on the machine that runs Admin, and the same hosted function: `netlify/functions/social.mjs` serves the announcement
+routes beside the account routes, behind the same admin key, and answers 404 to everything unless the hosted settings
+(including `OPENBLOG_SOCIAL_ENABLED=true`) are valid. A rejected key shows in Admin as a setup problem, not as a sign-out.
+
+### Routes
+
+Admin (`/admin/api/social/`, session and CSRF like every Admin route): `posts`, `preview`, `destinations`,
+`announcements` (`GET` list, `POST` create, `PATCH ?id=` edit), `announcements/reschedule?id=`,
+`announcements/cancel?id=`. Hosted (the same names under the endpoint, admin key only): the same set except
+`posts` and `preview`, which Admin answers itself.
+
+### The Social screen
+
+With the settings above in place, Admin shows an **Announcements** tab
+([ADR 0310](adr/0310-the-social-screen-is-a-labelled-form-with-a-server-checked-preview-and-times-in-the-authors-zone.md)):
+a composer (destination, post, caption, date and time, preview) and the list of announcements with edit and cancel.
+See [Admin](admin.md#announce-a-post-on-social-media-optional) for how it is used. It only offers connected accounts,
+so connecting one is a separate step. Check it in a browser at 320px wide before you rely on it: it should never scroll
+sideways.
+
+Before you enable it for real, confirm in each provider's current documentation the API version, the permissions
+(scopes) and any app review the posting API needs; none of that is part of this screen, and nothing here posts until
+delivery is set up.

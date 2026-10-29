@@ -30,6 +30,16 @@ pub(super) struct SocialConfig {
     key: String,
 }
 
+impl SocialConfig {
+    pub(super) fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    pub(super) fn key(&self) -> &str {
+        &self.key
+    }
+}
+
 pub(super) enum Configured {
     /// Neither setting is present: the feature does not exist here.
     Off,

@@ -7,12 +7,14 @@
 // The author's browser, coming back from LinkedIn or Facebook, reaches only GET /callback/<provider>,
 // which holds no key: the single-use `state` in its query is the proof, and it answers a fixed page.
 //
+// Scheduled announcements are served by the same function (netlify/lib/social-announcements.mjs).
 // The function is bundled by Netlify and reached at /api/social/* (netlify.toml). Provider calls
 // and Supabase both go through `fetchImpl`, so tests run against fakes.
 
 import { SocialScopeError, authorizeSocial, refuseClientScope, socialSettings } from "../lib/social-scope.mjs";
 import { SocialCredentialError } from "../lib/social-credentials.mjs";
 import { SocialOAuthError, createConnector, OUTCOMES } from "../lib/social-oauth.mjs";
+import { createAnnouncements } from "../lib/social-announcements.mjs";
 import { createAccounts } from "../lib/social-accounts.mjs";
 import { ProviderError, describeProvider, socialProviders, validProvider } from "../lib/social-providers.mjs";
 
@@ -97,6 +99,15 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         if (method !== "GET" || segments.length !== 2 || !validProvider(segments[1])) return failure(404, "not-found", "Not found.");
         const outcome = await connector.callback({ provider: segments[1], params: query });
         return resultPage(outcome.ok, outcome.text);
+      }
+
+      // Scheduled announcements (ADR 0309) have their own, larger body and their own storage; the
+      // announcements module authorizes the same admin key and bounds its own body.
+      if (segments[0] === "announcements" || segments[0] === "destinations") {
+        const raw = event.isBase64Encoded && event.body ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
+        const scheduled = createAnnouncements({ settings, fetchImpl, now });
+        const result = await scheduled({ method, route: segments.join("/"), query, headers: event.headers || {}, body: raw });
+        return json(result.status, result.body);
       }
 
       const identity = await authorizeSocial(event.headers, settings, { allow: ["admin"] });
