@@ -2714,3 +2714,31 @@ _Avoid_: Vault secret, encrypted token column
 A short claim on one account's credential that lets exactly one caller exchange its refresh token, so concurrent
 refreshes cannot burn a rotating refresh token.
 _Avoid_: Lock
+
+**Social connection**:
+One author's OAuth handshake with one provider, from the authorization URL to a finished or failed outcome. It
+holds a hash of a single-use state, never the state, and keeps the provider's tokens sealed only until the
+author chooses a destination or the attempt ends.
+_Avoid_: Login, session
+
+**OAuth state**:
+The unguessable single-use value that ties a provider's redirect back to the connection an authorized Admin
+started. It is the callback's only proof, since the callback carries no key.
+_Avoid_: Nonce, CSRF token (the Admin CSRF token is a different thing)
+
+**Destination**:
+Where a connected account may actually post: a LinkedIn member or organization, or a Facebook Page. It is offered
+only when the provider confirmed the permission and the person's role; otherwise it is listed with the reason and
+cannot be chosen.
+_Avoid_: Channel, target (a cross-posting target is a different thing)
+
+**Reconnect**:
+A new handshake for an existing social account that can finish only for the same provider identity, replacing its
+credential and clearing its needs-reauth flag.
+_Avoid_: Refresh (a silent token renewal), re-add
+
+**Connected accounts screen**:
+The Admin page (`#/social`) where an author connects, reviews, reconnects and disconnects social accounts. It shows
+only what the Admin server rebuilt from the hosted function's reply, and appears in the navigation only when the
+Admin server has social settings.
+_Avoid_: Integrations, social settings

@@ -90,6 +90,7 @@ mod comparisons;
 mod landing;
 mod look;
 mod reading_paths;
+mod social;
 mod voice;
 mod voice_guide;
 
@@ -510,6 +511,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "pieces" {
             return Ok(MAX_PIECE_REQUEST_BYTES);
         }
+        if name.starts_with("social/") {
+            return Ok(social::MAX_SOCIAL_REQUEST_BYTES);
+        }
         if name == "job/check" {
             return Ok(MAX_JOB_CHECK_BYTES);
         }
@@ -566,6 +570,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
         "/admin/voice-library.js" => "voice-library.js",
+        "/admin/social.js" => "social.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
@@ -678,6 +683,9 @@ fn authenticated_api(
         if let Some(token) = name.strip_prefix("preview/") {
             return preview_document(state, token);
         }
+    }
+    if let Some(rest) = name.strip_prefix("social/") {
+        return social::route(req, &session.user, rest);
     }
     if let Some(route) = voice::sample_route(name) {
         return match (req.method.as_str(), route) {
@@ -3994,6 +4002,7 @@ fn meta(state: &AppState) -> Response {
             "quizGeneration": assistant_ready,
             "codeInteractionGeneration": assistant_ready,
             "codeRunnerLanguages": code_runner_languages,
+            "social": social::is_configured(),
             "now": clock::now().rfc3339(),
         }),
     )
@@ -18322,6 +18331,7 @@ mod tests {
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod social_routes;
     mod voice_assistant_routes;
     mod voice_journey;
     mod voice_routes;

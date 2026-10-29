@@ -6185,3 +6185,138 @@ ob-voice-library {
   gap: 0.15rem;
   min-width: 0;
 }
+
+/* Connected social accounts (ADR 0301). One column on a phone; cards wrap long ids and never push the page
+   sideways, whatever the font. Status is a word and a symbol, never a colour alone. */
+.oba-social {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.oba-social ul {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.oba-social-providers,
+.oba-social-attempts,
+.oba-social-accounts {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.oba-social-provider,
+.oba-social-pending,
+.oba-social-failed,
+.oba-social-account {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-social-provider h4,
+.oba-social-pending h4,
+.oba-social-account h4 {
+  margin: 0 0 0.25rem;
+}
+
+.oba-social-account-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.oba-social-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.oba-social-badge-needs-reauth,
+.oba-social-badge-expiring {
+  border-width: 2px;
+  font-weight: 700;
+}
+
+.oba-social-wrap {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.oba-social-facts {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.5rem 0;
+}
+
+.oba-social-facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  min-width: 0;
+}
+
+.oba-social-facts dt {
+  font-weight: 600;
+}
+
+.oba-social-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-social-scopes li,
+.oba-social-notes li {
+  margin: 0.15rem 0;
+}
+
+.oba-social-destinations li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.5rem;
+  align-items: start;
+  padding: 0.5rem 0;
+  min-width: 0;
+}
+
+.oba-social-destinations input {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0.1rem 0 0;
+}
+
+.oba-social-destinations label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-social-why {
+  grid-column: 2;
+  margin: 0;
+}
+
+.oba-social .oba-btn {
+  min-height: 44px;
+}
+
+.oba-social fieldset {
+  min-width: 0;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 0.5rem;
+}
+
+@media (min-width: 720px) {
+  .oba-social-providers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

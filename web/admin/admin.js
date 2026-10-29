@@ -11,6 +11,7 @@ import { buildHistory } from "./landing-history.js";
 import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
+import { createSocialAccounts } from "./social.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
@@ -10953,6 +10954,8 @@ export class ObAdmin extends AdminElement {
   viewDirty = null;
   // Whether the open view's own save is in flight, for views that save outside the editor.
   viewBusy = null;
+  // Tears down the open view's outside listeners; run before the next view mounts.
+  viewCleanup = null;
   // The user whose session kept the workspace's panels, so only they ever get them back.
   keptOwner = "";
   // Set while the sign-in form is showing, from the moment a session ends or the writer signs out
@@ -11165,6 +11168,12 @@ export class ObAdmin extends AdminElement {
   // ---- views
 
   mount(...nodes) {
+    try {
+      this.viewCleanup?.();
+    } catch {
+      // A view's teardown must never stop the next one from opening.
+    }
+    this.viewCleanup = null;
     this.editor?.dispose();
     this.editor = null;
     this.viewDirty = null;
@@ -11446,6 +11455,8 @@ export class ObAdmin extends AdminElement {
         ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
+      : active === "social"
+        ? { title: "Social accounts", detail: "Connect LinkedIn or Facebook, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
       : active === "voice"
         ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
       : active === "landing"
@@ -11501,6 +11512,8 @@ export class ObAdmin extends AdminElement {
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
           h("a", { class: "oba-tab", "data-admin-module": "public-site", hidden: !visibleModules.has("public-site"), href: "/", target: "_blank", rel: "noopener" }, "View site ↗"),
         )),
+        // Optional social publishing (ADR 0301): no navigation entry unless the server has social settings.
+        this.meta?.social || active === "social" ? h("div", { class: "oba-progressive-tools", "data-social-nav": "true" }, toolGroup("Social", h("a", { class: "oba-tab", "aria-current": active === "social" ? "page" : null, href: "#/social" }, "Social accounts"))) : null,
       ),
       h(
         "section",
@@ -11712,6 +11725,7 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook connect accounts share announce oauth", run: () => go("#/social") }] : []),
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
@@ -11938,6 +11952,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
       else if (head === "voice") await this.showVoice(tail, params);
+      else if (head === "social") await this.showSocial();
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "paths") await this.showReadingPaths(tail);
@@ -14033,6 +14048,20 @@ export class ObAdmin extends AdminElement {
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
+  }
+
+  /**
+   * `#/social`: connected social accounts (ADR 0301). Optional: when the server has no social settings
+   * the page says so and offers nothing. It holds no draft, so leaving it never asks to keep changes.
+   */
+  async showSocial() {
+    const view = createSocialAccounts({ api: this.api });
+    this.mount(this.shell("social", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    // Its window focus listener must not outlive the page.
+    this.viewCleanup = () => view.destroy();
+    await view.load();
   }
 
   // ---- customize look (ADR 0256, #350)
