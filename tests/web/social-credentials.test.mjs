@@ -216,6 +216,31 @@ test("a transient refresh failure is retryable and counted; a permanent one eras
   await assert.rejects(store.accessToken(ACCOUNT), (error) => error.code === "needs-reauth");
 });
 
+test("accessToken without a refresh callback keeps a refreshable credential", async () => {
+  const { db, clock, store } = setup();
+  await saved(store);
+  clock.t += HOUR;
+  await assert.rejects(store.accessToken(ACCOUNT), (error) => error.code === "refresh-unavailable" && error.retryable);
+  await assert.rejects(store.accessToken(ACCOUNT, { refresh: undefined }), (error) => error.code === "refresh-unavailable");
+  assert.equal(row(db).status, "active");
+  assert.ok(row(db).envelope);
+  assert.equal(db.tables.openblog_social_accounts[0].status, "connected");
+});
+
+test("a reconnect that lands during a permanent refresh failure keeps the account connected", async () => {
+  const { db, clock, store } = setup();
+  await saved(store);
+  clock.t += HOUR;
+  const refresh = async () => {
+    await store.save(ACCOUNT, { accessToken: "AQX-new-access-0010", refreshToken: "AQX-new-refresh-0011", expiresIn: 3600 });
+    throw new ProviderTokenError(true);
+  };
+  await assert.rejects(store.accessToken(ACCOUNT, { refresh }), (error) => error.code === "conflict" && error.retryable);
+  assert.equal(row(db).status, "active");
+  assert.ok(row(db).envelope);
+  assert.equal(db.tables.openblog_social_accounts[0].status, "connected");
+});
+
 test("a provider error that echoes a token never reaches the error", async () => {
   const { clock, store } = setup();
   await saved(store);

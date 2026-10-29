@@ -103,8 +103,17 @@ export function createCredentialStore({ settings, keyring = settings?.tokenKeys,
 
   const markReauth = async (accountId, version) => {
     // Tokens that the provider no longer honours are erased, not kept: the author connects again.
-    await write(accountId, version, { status: "revoked", key_id: null, envelope: null, refresh_lease_until: null, revoked_at: iso(now()) });
+    const erased = await write(accountId, version, { status: "revoked", key_id: null, envelope: null, refresh_lease_until: null, revoked_at: iso(now()) });
+    // The write is conditional on the version read. If it lost (a reconnect landed), the new tokens
+    // stand and the account must not be flagged.
+    if (!erased) return false;
     await rest("PATCH", ACCOUNTS, scopedQuery(settings, { id: `eq.${accountId}`, status: "eq.connected" }).toString(), { status: "needs-reauth", updated_at: iso(now()) });
+    return true;
+  };
+
+  const reauth = async (accountId, version) => {
+    if (!(await markReauth(accountId, version))) throw new SocialCredentialError("conflict", "The credential changed; try again.", { retryable: true });
+    throw new SocialCredentialError("needs-reauth", "This account must be connected again.");
   };
 
   return {
@@ -139,10 +148,15 @@ export function createCredentialStore({ settings, keyring = settings?.tokenKeys,
         const secrets = await openCredential(keyring, scope, row.key_id, row.envelope);
         const expires = row.access_expires_at ? Date.parse(row.access_expires_at) : Infinity;
         if (expires - now() > REFRESH_SKEW_MS) return secrets.accessToken;
-        if (typeof refresh !== "function" || !secrets.refreshToken) {
+        const refreshable = Boolean(secrets.refreshToken) && !(row.refresh_expires_at && Date.parse(row.refresh_expires_at) <= now());
+        if (!refreshable) {
           if (expires > now()) return secrets.accessToken;
-          await markReauth(accountId, row.version);
-          throw new SocialCredentialError("needs-reauth", "This account must be connected again.");
+          await reauth(accountId, row.version);
+        }
+        if (typeof refresh !== "function") {
+          // A caller that cannot refresh must not destroy a grant that still can be.
+          if (expires > now()) return secrets.accessToken;
+          throw new SocialCredentialError("refresh-unavailable", "This access token needs a refresh and no refresh was supplied.", { retryable: true });
         }
         // Take the refresh lease. Only one caller gets it; the rest wait for the result.
         const leased = await write(accountId, row.version, { refresh_lease_until: iso(now() + REFRESH_LEASE_MS) }, { or: `(refresh_lease_until.is.null,refresh_lease_until.lt.${iso(now())})` });
@@ -152,8 +166,7 @@ export function createCredentialStore({ settings, keyring = settings?.tokenKeys,
           fresh = await refresh(secrets.refreshToken);
         } catch (error) {
           if (error instanceof ProviderTokenError && error.permanent) {
-            await markReauth(accountId, leased.version);
-            throw new SocialCredentialError("needs-reauth", "This account must be connected again.");
+            await reauth(accountId, leased.version);
           }
           await write(accountId, leased.version, { refresh_lease_until: null, refresh_failures: (row.refresh_failures || 0) + 1 });
           throw new SocialCredentialError("refresh-failed", "The access token could not be refreshed; it will be tried again.", { retryable: true });
