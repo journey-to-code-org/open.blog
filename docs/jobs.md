@@ -64,6 +64,19 @@ Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `aut
 { "extraTrades": ["fencing"] }
 ```
 
+## Archives
+
+Jobs are browsable the way customers look for them. When a site has jobs, the build adds:
+
+- `/jobs/`: every job, newest first, with links to each trade.
+- `/jobs/<trade>/`: one trade's jobs, with links to its services.
+- `/jobs/<trade>/<service>/`: one service within a trade.
+
+They page like the home page (`postsPerPage`; later pages are `/jobs/page/2/` and so on), appear in `sitemap.xml`, and are
+built in a fixed order. A trade or service with no jobs gets no page, and a site with no jobs gets no `/jobs/` at all. Feeds
+are unchanged: jobs are posts, so they are in them as posts. `page` cannot be a trade or service id. See
+[ADR 0401](adr/0401-jobs-archives-are-derived-from-job-posts-and-page-like-the-home-page.md).
+
 ## Checks
 
 A published job with a problem stops the build with a sentence naming the field, for example

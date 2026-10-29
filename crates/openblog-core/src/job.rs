@@ -28,6 +28,8 @@ pub const TRADES: &[&str] = &[
 ];
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "avif", "svg"];
+/// page is the archive's pagination path, so it cannot name a trade or service.
+const RESERVED: &str = "page";
 const MAX_TEXT: usize = 80;
 const MAX_MATERIALS: usize = 50;
 const MAX_MATERIAL: usize = 120;
@@ -98,7 +100,7 @@ pub fn known_trades(extra: &[String]) -> Vec<String> {
     let mut all: Vec<String> = TRADES.iter().map(|trade| trade.to_string()).collect();
     for trade in extra {
         let trade = trade.trim().to_ascii_lowercase();
-        if is_slug(&trade) && !all.contains(&trade) {
+        if is_slug(&trade) && trade != RESERVED && !all.contains(&trade) {
             all.push(trade);
         }
     }
@@ -107,7 +109,8 @@ pub fn known_trades(extra: &[String]) -> Vec<String> {
 
 /// Whether a `extraTrades` entry is usable, with the plain reason when not.
 pub fn check_extra_trade(trade: &str) -> Result<(), String> {
-    if is_slug(&trade.trim().to_ascii_lowercase()) {
+    let trade = trade.trim().to_ascii_lowercase();
+    if is_slug(&trade) && trade != RESERVED {
         Ok(())
     } else {
         Err(format!(
@@ -166,7 +169,7 @@ pub fn from_front_matter(
         }
         Some(value) => {
             let normalized = value.to_ascii_lowercase();
-            if !is_slug(&normalized) {
+            if !is_slug(&normalized) || normalized == RESERVED {
                 problems.push(format!(
                     "job.service: `{value}` is not a service id; use lowercase letters, digits and hyphens"
                 ));
