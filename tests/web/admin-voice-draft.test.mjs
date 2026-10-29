@@ -317,3 +317,69 @@ test("a rough copy whose deadline and grace are past is recognised as dead", () 
   assert.equal(copyIsPastGrace({ deadline }, 1_000_001 + VOICE_LIMITS.graceSeconds * 1000), true);
   assert.equal(copyIsPastGrace(null), false);
 });
+
+test("a copy that was due when the author signed out is never written back to the device", async () => {
+  await withDom(async () => {
+    const s = site();
+    const page = await s.open();
+    await begin(page);
+    await write(page, "private words typed just before signing out");
+    // Signing out clears the copies and replaces the view before the copy timer fires.
+    clearVoiceCopies(() => s.storage);
+    page.element.remove();
+    await s.clock.advance(VOICE_LIMITS.localSaveMs + 10);
+    assert.equal(s.storage.values.has(s.key), false);
+  })();
+});
+
+test("signing in again keeps only that author's voice copies", () => {
+  const storage = fakeStorage();
+  storage.setItem("ob-voice-draft:a", "1");
+  storage.setItem("ob-voice-polished:a:f.md", "1");
+  storage.setItem("ob-voice-draft:b", "1");
+  storage.setItem("ob-voice-polished:b:f.md", "1");
+  storage.setItem("ob-voice-polished:ab:f.md", "1");
+  clearVoiceCopies(() => storage, { keepUser: "a" });
+  assert.deepEqual([...storage.values.keys()].sort(), ["ob-voice-draft:a", "ob-voice-polished:a:f.md"]);
+});
+
+test("Start over in a page left on an earlier session never throws away the newer one", async () => {
+  await withDom(async () => {
+    const s = site();
+    const page = await s.open();
+    await begin(page);
+    await write(page, "first session");
+    // Elsewhere the session was locked and a new one started and written in.
+    s.api.state.session = { ...s.api.state.session, startedAt: "later", draft: "newer words" };
+    await button(page.element, "voice-over").click();
+    await button(page.element, "voice-over-confirm").click();
+    await flush();
+    assert.equal(s.api.state.session?.draft, "newer words");
+  })();
+});
+
+test("when the lock never reaches the server, the latest words are kept on the device and the page says so", async () => {
+  await withDom(async () => {
+    const s = site();
+    const page = await s.open();
+    await begin(page);
+    await write(page, "saved");
+    await s.clock.advance(VOICE_LIMITS.autosaveMs * 2 + 10);
+    const call = s.api.call;
+    s.api.call = async (method, path, options) => {
+      if (method !== "GET") throw Object.assign(new Error("offline"), { status: 0 });
+      return call(method, path, options);
+    };
+    await write(page, "saved and the last words");
+    const finishing = button(page.element, "voice-finish").click();
+    for (let i = 0; i < 9; i += 1) {
+      await flush();
+      await s.clock.advance(3100);
+    }
+    await finishing;
+    await flush();
+    assert.equal(stored(s).text, "saved and the last words");
+    assert.match(text(one(page.element, "[data-voice-status]")), /server does not have your latest words.*kept on this device/);
+    s.api.call = call;
+  })();
+});

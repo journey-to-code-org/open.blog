@@ -154,7 +154,7 @@ fn resuming_after_the_deadline_locks_the_rough_draft_from_the_saved_text() {
     )
     .unwrap();
     // The text on screen never arrived; the saved text is what gets locked, byte for byte.
-    let resumed = resume(&project.0, &catalog(), at(180)).unwrap();
+    let resumed = resume(&project.0, &catalog(), at(180 + LOCK_GRACE_SECONDS + 1)).unwrap();
     let Resume::Locked(locked) = resumed else {
         panic!("{resumed:?}")
     };
@@ -303,11 +303,11 @@ fn the_record_is_removed_on_lock_and_on_scrap_and_nothing_is_written_by_a_scrap(
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
     save_draft(&project.0, None, "words", at(5)).unwrap();
-    scrap(&project.0).unwrap();
+    scrap(&project.0, None).unwrap();
     assert!(!record(&project).exists());
     assert!(voice_store::list(&project.0).is_empty());
     assert_eq!(status(&project.0, at(6)).unwrap(), Status::None);
-    scrap(&project.0).unwrap();
+    scrap(&project.0, None).unwrap();
 
     begin(&project, "a-mistake-i-made", Visibility::Private);
     lock(&project.0, None, &catalog(), Some("words"), None, at(20)).unwrap();
@@ -404,7 +404,7 @@ fn a_damaged_record_is_reported_and_can_be_scrapped_but_a_newer_one_is_never_rem
     let error = status(&project.0, at(1)).unwrap_err();
     assert!(error.to_string().contains("damaged"), "{error}");
     assert!(save_draft(&project.0, None, "x", at(1)).is_err());
-    scrap(&project.0).unwrap();
+    scrap(&project.0, None).unwrap();
     assert!(!record(&project).exists());
 
     let newer = format!(
@@ -414,7 +414,7 @@ fn a_damaged_record_is_reported_and_can_be_scrapped_but_a_newer_one_is_never_rem
     fs::write(record(&project), &newer).unwrap();
     let error = status(&project.0, at(1)).unwrap_err();
     assert!(error.to_string().contains("newer release"), "{error}");
-    assert!(scrap(&project.0).is_err());
+    assert!(scrap(&project.0, None).is_err());
     assert_eq!(fs::read_to_string(record(&project)).unwrap(), newer);
 }
 
@@ -454,4 +454,109 @@ fn a_save_or_lock_naming_another_session_is_refused_under_the_store_lock() {
     save_draft(&project.0, Some(&id), "mine", at(4)).unwrap();
     lock(&project.0, Some(&id), &catalog(), None, None, at(5)).unwrap();
     assert!(!record(&project).exists());
+}
+
+#[test]
+fn a_scrap_naming_an_earlier_session_leaves_the_newer_one_alone() {
+    let project = Project::new();
+    let first = begin(&project, "a-mistake-i-made", Visibility::Private);
+    scrap(&project.0, Some(&first.id())).unwrap();
+    let second = start(
+        &project.0,
+        &catalog(),
+        "a-mistake-i-made",
+        "cli",
+        Visibility::Private,
+        180,
+        at(5),
+    )
+    .unwrap();
+    save_draft(&project.0, None, "newer words", at(6)).unwrap();
+    let error = scrap(&project.0, Some(&first.id())).unwrap_err();
+    assert_eq!(error.to_string(), SCRAP_OTHER_SESSION);
+    match status(&project.0, at(7)).unwrap() {
+        Status::Active { session, .. } => {
+            assert_eq!(session.id(), second.id());
+            assert_eq!(session.draft, "newer words");
+        }
+        other => panic!("{other:?}"),
+    }
+    scrap(&project.0, Some(&second.id())).unwrap();
+    assert_eq!(status(&project.0, at(8)).unwrap(), Status::None);
+}
+
+#[test]
+fn a_rough_draft_is_never_written_for_a_session_that_was_scrapped_and_started_again() {
+    let project = Project::new();
+    begin(&project, "a-mistake-i-made", Visibility::Private);
+    save_draft(&project.0, None, "first words", at(10)).unwrap();
+    // The lock read session 1; before it writes, session 1 is scrapped and session 2 starts.
+    let old = match status(&project.0, at(11)).unwrap() {
+        Status::Active { session, .. } => session,
+        other => panic!("{other:?}"),
+    };
+    scrap(&project.0, None).unwrap();
+    start(
+        &project.0,
+        &catalog(),
+        "a-mistake-i-made",
+        "cli",
+        Visibility::Private,
+        180,
+        at(12),
+    )
+    .unwrap();
+    let sample = VoiceSample {
+        title: "A mistake I made".into(),
+        subtitle: None,
+        slug: old.prompt_id.clone(),
+        date: old.started_at.clone(),
+        description: None,
+        tags: Vec::new(),
+        voice: VoiceMeta {
+            catalog: old.catalog_version,
+            pack: old.pack.clone(),
+            prompt: old.prompt_id.clone(),
+            stage: VoiceStage::Rough,
+            time_limit_seconds: old.time_limit_seconds,
+            words: 2,
+            rough_of: None,
+        },
+        body: "first words".into(),
+        extra: std::collections::BTreeMap::new(),
+    };
+    assert!(voice_store::write_rough(&project.0, Visibility::Private, &sample).is_err());
+    assert!(voice_store::list(&project.0).is_empty());
+    // Session 2 still locks its own text.
+    save_draft(&project.0, None, "second words", at(20)).unwrap();
+    let locked = lock(&project.0, None, &catalog(), None, None, at(21)).unwrap();
+    assert!(locked.written.created);
+}
+
+#[test]
+fn a_resume_within_the_lock_grace_leaves_the_session_for_the_surface_that_was_writing() {
+    let project = Project::new();
+    let session = begin(&project, "a-mistake-i-made", Visibility::Private);
+    save_draft(&project.0, None, "saved so far", at(170)).unwrap();
+    assert_eq!(
+        resume(&project.0, &catalog(), at(180 + LOCK_GRACE_SECONDS)).unwrap(),
+        Resume::Finishing {
+            session: Session {
+                draft: "saved so far".into(),
+                ..session
+            }
+        }
+    );
+    // The writing surface still hands over its final text.
+    let locked = lock(
+        &project.0,
+        None,
+        &catalog(),
+        Some("saved so far and the last line"),
+        None,
+        at(185),
+    )
+    .unwrap();
+    let file = voice_store::read(&project.0, Visibility::Private, &locked.written.file).unwrap();
+    assert_eq!(file.sample.unwrap().body, "saved so far and the last line");
 }

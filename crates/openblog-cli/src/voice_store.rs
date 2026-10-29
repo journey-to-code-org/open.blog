@@ -370,13 +370,22 @@ pub fn read(root: &Path, visibility: Visibility, file: &str) -> Result<Loaded> {
 
 /// The prompt id of the open session, if a valid session record exists.
 pub fn open_session_prompt(root: &Path) -> Option<String> {
+    open_session_key(root).map(|(prompt, _)| prompt)
+}
+
+/// The prompt and start time of the open session, which name it. (A real record always has its
+/// start time; a test fixture may leave it out.)
+fn open_session_key(root: &Path) -> Option<(String, Option<String>)> {
     let path = contained_target(root, Path::new(SESSION_PATH)).ok()?;
     let bytes = read_bounded(&path).ok()??;
     let value: Value = serde_json::from_slice(&bytes).ok()?;
     if value["format"] != SESSION_FORMAT || value["version"].as_u64() != Some(1) {
         return None;
     }
-    value["promptId"].as_str().map(str::to_string)
+    Some((
+        value["promptId"].as_str()?.to_string(),
+        value["startedAt"].as_str().map(str::to_string),
+    ))
 }
 
 fn write_text(sample: &VoiceSample) -> Result<Vec<u8>> {
@@ -393,16 +402,29 @@ pub(crate) fn keep_private_out_of_git(root: &Path, visibility: Visibility) {
     }
 }
 
-/// Create the rough draft. Allowed only while a session is open for `sample.voice.prompt`, and
-/// only once: the file is created without replacing anything. Writing the identical bytes again
-/// (a lock repeated after a crash) succeeds without touching the file; anything else for an
-/// existing rough draft is refused.
+/// Create the rough draft. Allowed only while the session that began at `sample.date` is open
+/// for `sample.voice.prompt`, and only once: the file is created without replacing anything.
+/// Writing the identical bytes again (a lock repeated after a crash) succeeds without touching
+/// the file; anything else for an existing rough draft is refused. The session is checked while
+/// the store lock is held, so a session scrapped (and perhaps started again) meanwhile is never
+/// turned into a rough draft.
 pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) -> Result<Written> {
     if sample.voice.stage != VoiceStage::Rough {
         return refused("Only a rough draft is written this way.");
     }
-    match open_session_prompt(root) {
-        Some(prompt) if prompt == sample.voice.prompt => {}
+    let bytes = write_text(sample)?;
+    let file = sample.file_name().map_err(StoreError::Refused)?;
+    let path = path_of(root, visibility, &file)?;
+    let _lock = lock(root)?;
+    match open_session_key(root) {
+        Some((prompt, started))
+            if prompt == sample.voice.prompt
+                && started
+                    .as_deref()
+                    .is_none_or(|started| started == sample.date) => {}
+        Some((prompt, _)) if prompt == sample.voice.prompt => {
+            return refused("That session was given up, so its text was not locked.")
+        }
         Some(_) => return refused("The open session is for a different prompt."),
         None => {
             return refused(
@@ -410,10 +432,6 @@ pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) ->
             )
         }
     }
-    let bytes = write_text(sample)?;
-    let file = sample.file_name().map_err(StoreError::Refused)?;
-    let path = path_of(root, visibility, &file)?;
-    let _lock = lock(root)?;
     match read_bounded(&path)? {
         Some(existing) if existing == bytes => {
             keep_private_out_of_git(root, visibility);

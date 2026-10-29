@@ -11188,7 +11188,8 @@ export class ObAdmin extends AdminElement {
    * signed in. Signing in again as that user returns to them; anyone else discards them.
    */
   showSessionEnded(message = "Your session ended. Sign in again.") {
-    clearVoiceCopies();
+    // Voice copies stay on this device: signing in again as the same author gives them back, and
+    // signing in as anyone else removes them (see the sign-in form).
     const key = workspacePanelKey(this.currentHash);
     if (key && key !== "overview" && this.hasUnsavedView() && !this.isSavingView()) this.keepCurrentView(key);
     this.keptOwner = this.kept.size ? this.user : "";
@@ -11246,6 +11247,8 @@ export class ObAdmin extends AdminElement {
             this.user = res.user;
             // Kept panels belong to the user whose session ended; nobody else ever sees them.
             if (this.keptOwner !== res.user) this.forgetWorkspace();
+            // So are voice copies left by an ended session: only their own author gets them back.
+            clearVoiceCopies(undefined, { keepUser: res.user });
             this.signedOut = false;
             pass.value = "";
             await this.enter();

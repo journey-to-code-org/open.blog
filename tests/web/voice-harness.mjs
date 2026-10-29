@@ -173,7 +173,7 @@ export function fakeServer(clock, { seconds = 180 } = {}) {
       return sessionView();
     }
     if (method === "POST" && route === "voice/session/start") {
-      if (state.session) throw refuse(409, { error: `A writing session for "${state.session.promptId}" is already open.`, alreadyOpen: true, expired: clock.now() >= state.session.deadlineMs });
+      if (state.session) throw refuse(409, { error: `A writing session for "${state.session.promptId}" is already open.`, alreadyOpen: true, expired: clock.now() >= state.session.deadlineMs, sessionId: sessionView().sessionId });
       const prompt = PROMPT_LIST.find((p) => p.id === body.promptId);
       const now = clock.now();
       state.session = { promptId: prompt.id, pack: prompt.pack, title: prompt.title, invitation: prompt.invitation, startedAt: `T${now}`, deadlineMs: now + seconds * 1000, deadline: iso(now + seconds * 1000), draft: "", visibility: body.visibility || "private" };
@@ -198,6 +198,8 @@ export function fakeServer(clock, { seconds = 180 } = {}) {
       return { state: "locked", expired, words: 0, sample: sampleView(lockNow(text)) };
     }
     if (method === "DELETE" && route === "voice/session") {
+      // Like the server: only the session the page names is thrown away.
+      if (state.session && body?.sessionId !== sessionView().sessionId) throw refuse(409, { error: "A newer writing session is open now, so nothing was thrown away.", otherSession: true });
       state.session = null;
       return { state: "none" };
     }

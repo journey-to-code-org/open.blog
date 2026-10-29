@@ -150,6 +150,8 @@ export function createPolishedEditor({ api, user, rough, polished = null, storag
     clearTimer(timer);
     timer = setTimer(() => {
       timer = null;
+      // An editor that was taken off the page (signing out, another view) writes nothing back.
+      if (body.isConnected === false) return;
       if (isDirty()) drafts.save({ base: revision, ...current() });
       else drafts.clear();
     }, VOICE_LIMITS.localSaveMs);

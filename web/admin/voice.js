@@ -17,7 +17,7 @@ export const VOICE_LIMITS = Object.freeze({
   /** How long typing pauses before the copy on this device is refreshed. */
   localSaveMs: 300,
   /** No timer announcement comes sooner than this after the last one. */
-  announceGapMs: 30000,
+  announceGapMs: 25000,
 });
 
 /** The words that explain why a rough draft cannot be edited (ADR 0266). */
@@ -104,7 +104,8 @@ export function createCountdown(now = () => (typeof performance !== "undefined" 
 
 /**
  * What the polite live region says, and when. Thresholds are one minute and thirty seconds; each is said once
- * as the clock passes it, no timer announcement comes within 30 seconds of the last, and the lock is said once
+ * as the clock passes it, no timer announcement comes within 25 seconds of the last (the two marks are 30 seconds apart, and
+ * a save that restates the clock can bring them a little closer, so both are always said), and the lock is said once
  * when it happens (it is an event, not a tick). The first update of a resumed session says where it stands.
  */
 export function createAnnouncer(gapMs = VOICE_LIMITS.announceGapMs) {
@@ -262,21 +263,26 @@ export const ROUGH_COPY_TTL_MS = 24 * 60 * 60 * 1000;
 export const POLISHED_COPY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const stale = (record, ttl, now) => !Number.isFinite(record.savedAt) || now - record.savedAt > ttl;
 
-/** Remove every voice copy on this device (sign-out, ended session). Never throws. */
-export function clearVoiceCopies(storage = () => globalThis.localStorage) {
+/**
+ * Remove voice copies on this device. Signing out removes every one. Signing in removes every
+ * copy except `keepUser`'s, so a session that ended without signing out gives the same author their
+ * unsaved writing back, and nobody else ever sees it. Never throws.
+ */
+export function clearVoiceCopies(storage = () => globalThis.localStorage, { keepUser = null } = {}) {
+  const kept = (key) => keepUser !== null && (key === `ob-voice-draft:${keepUser}` || key.startsWith(`ob-voice-polished:${keepUser}:`));
+  const voice = (key) => typeof key === "string" && (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:")) && !kept(key);
   try {
     const store = storage();
-    if (!store) return;
-    const keys = [];
-    for (let i = 0; i < store.length; i += 1) keys.push(store.key(i));
-    for (const key of keys) {
-      if (typeof key === "string" && (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:"))) store.removeItem(key);
+    if (store) {
+      const keys = [];
+      for (let i = 0; i < store.length; i += 1) keys.push(store.key(i));
+      for (const key of keys) if (voice(key)) store.removeItem(key);
     }
   } catch {
     // Blocked storage holds nothing to clear.
   }
   for (const key of [...memory.keys()]) {
-    if (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:")) memory.delete(key);
+    if (voice(key)) memory.delete(key);
   }
 }
 

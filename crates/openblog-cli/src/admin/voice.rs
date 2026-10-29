@@ -395,6 +395,17 @@ pub(super) fn get_session(state: &AppState) -> Response {
         Ok(Resume::Discarded { prompt_id }) => {
             Response::json(200, &json!({ "state": "discarded", "promptId": prompt_id }))
         }
+        // The time has just run out and the surface that was writing may still hand over its
+        // last words; this page neither locks nor discards anything yet.
+        Ok(Resume::Finishing { session }) => Response::json(
+            200,
+            &json!({
+                "state": "finishing",
+                "sessionId": session_id(&session),
+                "promptId": session.prompt_id,
+                "retryAfterSeconds": voice_session::LOCK_GRACE_SECONDS,
+            }),
+        ),
         // Another tab locked it between the check and the lock: nothing is open now.
         Err(StoreError::Refused(message)) if message == voice_session::NO_SESSION_TO_LOCK => {
             Response::json(200, &json!({ "state": "none" }))
@@ -440,15 +451,25 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
             let remaining = session.remaining_seconds(now);
             Response::json(201, &session_json(&catalog, &session, remaining))
         }
-        Err(StartError::AlreadyOpen { prompt_id, expired }) => Response::json(
-            409,
-            &json!({
-                "error": StartError::AlreadyOpen { prompt_id: prompt_id.clone(), expired }.to_string(),
-                "alreadyOpen": true,
-                "promptId": prompt_id,
-                "expired": expired,
-            }),
-        ),
+        Err(StartError::AlreadyOpen { prompt_id, expired }) => {
+            // The page names this session if the author chooses to scrap it.
+            let open_id = match voice_session::status(&state.root, now) {
+                Ok(Status::Active { session, .. } | Status::Expired { session }) => {
+                    Some(session_id(&session))
+                }
+                _ => None,
+            };
+            Response::json(
+                409,
+                &json!({
+                    "error": StartError::AlreadyOpen { prompt_id: prompt_id.clone(), expired }.to_string(),
+                    "alreadyOpen": true,
+                    "promptId": prompt_id,
+                    "expired": expired,
+                    "sessionId": open_id,
+                }),
+            )
+        }
         Err(StartError::Refused(message)) => Response::json(
             409,
             &json!({ "error": scrub(state, &message), "refused": true }),
@@ -581,10 +602,34 @@ pub(super) fn lock_session(state: &AppState, req: &Request) -> Response {
     }
 }
 
-/// `DELETE voice/session`: give up on the session and write nothing.
-pub(super) fn scrap(state: &AppState) -> Response {
-    match voice_session::scrap(&state.root) {
+/// `DELETE voice/session`: give up on the session and write nothing. The body names the session
+/// as `{ sessionId }`, so a page left open on an earlier session cannot throw away a newer one.
+/// Only a record that cannot be read at all may be scrapped without naming it.
+pub(super) fn scrap(state: &AppState, req: &Request) -> Response {
+    let body = match body_object(req, MAX_SMALL_REQUEST_BYTES) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let other =
+        |message: &str| Response::json(409, &json!({ "error": message, "otherSession": true }));
+    let wanted = match &body["sessionId"] {
+        Json::String(id) => Some(id.as_str()),
+        Json::Null => None,
+        _ => return Response::error(400, "Name the session as `sessionId`"),
+    };
+    if wanted.is_none() {
+        match voice_session::status(&state.root, clock::now()) {
+            Ok(Status::None) => return Response::json(200, &json!({ "state": "none" })),
+            Ok(_) => return other(voice_session::SCRAP_OTHER_SESSION),
+            // A damaged record can be scrapped without a name; a newer one is refused below.
+            Err(_) => {}
+        }
+    }
+    match voice_session::scrap(&state.root, wanted) {
         Ok(()) => Response::json(200, &json!({ "state": "none" })),
+        Err(StoreError::Refused(message)) if message == voice_session::SCRAP_OTHER_SESSION => {
+            other(&message)
+        }
         Err(error) => store_error(state, error),
     }
 }

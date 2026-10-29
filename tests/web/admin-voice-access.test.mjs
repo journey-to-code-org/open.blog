@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { createVoiceLibrary } from "../../web/admin/voice-library.js";
 import { createVoiceSession } from "../../web/admin/voice-session.js";
-import { VOICE_LIMITS, createAnnouncer, timerLabel } from "../../web/admin/voice.js";
+import { VOICE_LIMITS, createAnnouncer, createCountdown, timerLabel } from "../../web/admin/voice.js";
 import { choose, type, withDom } from "./dom-shim.mjs";
 import { accessibilityProblems, all, button, fakeClock, fakeServer, fakeStorage, flush, one, tabStops, text } from "./voice-harness.mjs";
 
@@ -243,4 +243,19 @@ test("reduced motion is honoured: the only animation is behind no-preference and
   const uses = [...css.matchAll(/animation: oba-voice-pulse/g)].length;
   assert.equal(uses, 1);
   for (const forbidden of [/requestAnimationFrame/, /\.animate\(/, /behavior: ["']smooth["']/]) assert.doesNotMatch(source, forbidden);
+});
+
+test("a save that restates the clock between the marks never silences the thirty second mark", () => {
+  let now = 0;
+  const countdown = createCountdown(() => now);
+  const announcer = createAnnouncer();
+  countdown.sync(180);
+  const heard = [];
+  for (now = 0; now <= 180000; now += 250) {
+    // The server rounds down, so an autosave reply between the marks moves the end a little sooner.
+    if (now === 135750) countdown.sync(44);
+    const message = announcer.update(countdown.remaining(), now);
+    if (message) heard.push(message);
+  }
+  assert.deepEqual(heard, ["1 minute left.", "30 seconds left."]);
 });
