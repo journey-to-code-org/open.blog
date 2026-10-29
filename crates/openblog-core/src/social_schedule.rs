@@ -32,6 +32,9 @@ pub enum Provider {
 }
 
 impl Provider {
+    /// Every supported destination.
+    pub const ALL: [Provider; 2] = [Self::LinkedIn, Self::Facebook];
+
     pub fn parse(value: &str) -> Result<Self, ScheduleError> {
         match value {
             "linkedin" => Ok(Self::LinkedIn),
@@ -154,6 +157,17 @@ pub fn check_caption(provider: Provider, caption: &str) -> Result<String, Schedu
         return Err(ScheduleError::CaptionTooLong);
     }
     Ok(text.to_string())
+}
+
+/// A caption that every supported destination accepts: the Admin checks this before it knows
+/// which destination the hosted function will resolve, and the hosted function then applies the
+/// destination's own bound. Returns the text to send, and the tightest limit.
+pub fn check_caption_for_all(caption: &str) -> Result<String, ScheduleError> {
+    let mut stored = None;
+    for provider in Provider::ALL {
+        stored = Some(check_caption(provider, caption)?);
+    }
+    stored.ok_or(ScheduleError::UnsupportedProvider)
 }
 
 /// An idempotency key is 16 to 128 of `A-Z a-z 0-9 _ -` (the schema's check).

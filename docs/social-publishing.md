@@ -4,8 +4,8 @@ Social publishing announces an already-published post on a connected LinkedIn id
 time you choose. It is off by default. Your site, its exports and cross-posting work exactly the same without it,
 and nothing in this guide is needed to read, build or publish a blog.
 
-This page covers the identity and storage foundation (epic #353, story #354). Provider setup, scheduling and the
-Admin screens arrive in later stories.
+This page covers the identity and storage foundation (epic #353, story #354) and scheduling announcements (story
+#356). Provider setup and delivery arrive in later stories.
 
 ## Who is allowed to do what
 
@@ -69,3 +69,47 @@ Tokens are refreshed once at a time, shortly before they expire. If a provider s
 or you disconnect an account, its stored tokens are erased and the account asks to be connected again. Admin only ever
 sees a connection's status and dates, never a token. Tokens never appear in errors or logs, and are never written to
 `openblog.json`, the repository, a page or an export.
+
+## Scheduling announcements
+
+An announcement is a caption and a time for one connected account, linking one of your public posts
+([ADR 0470](adr/0470-an-announcement-links-a-public-canonical-post-at-a-utc-instant-and-only-a-scheduled-one-can-change.md),
+[ADR 0471](adr/0471-announcement-routes-are-called-by-the-rust-admin-with-the-admin-key-and-change-a-row-only-by-version.md)).
+
+What can be announced:
+
+- Only a published post: not a draft, not dated in the future. The link is your site's own address for it, built from
+  `url` in `openblog.json`, which must be a public `https` address. A cross-post whose `canonical` points to another
+  site is not announced from here.
+- A caption of 1 to 3,000 characters. The link is added when the post is sent, so it does not count. Control
+  characters (other than a new line) and text-direction overrides are refused.
+- A time at least a minute ahead and no more than a year ahead, written with its zone. It is stored in UTC; Admin
+  shows it in your own zone. Your zone is not stored.
+
+Until a delivery worker exists (a later story) a scheduled announcement waits in the queue and is not sent.
+
+Only a **scheduled** announcement can be changed, rescheduled or canceled. Once a worker has claimed it, it cannot be.
+Saving names the version you were looking at; if it changed meanwhile you are asked to reload. Creating is
+idempotent: submitting the same composer twice (a double click, a retry after a timeout) gives one announcement.
+
+### Settings on the machine that runs Admin
+
+The Admin process, not the hosted function, needs these. They are environment variables only; they are never read from
+`openblog.json` and never returned by Admin.
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENBLOG_SOCIAL_ENABLED` | Must be exactly `true`. Anything else and the **Social** section does not appear. |
+| `OPENBLOG_SOCIAL_ENDPOINT` | `https://your-site.example/.netlify/functions/social-schedule` (plain `http` is accepted only for `localhost`). |
+| `OPENBLOG_SOCIAL_ADMIN_KEY` | The same value as the hosted function's `OPENBLOG_SOCIAL_ADMIN_KEY`; 32 characters or more. |
+
+The function lives at `netlify/functions/social-schedule.mjs`. It has no redirect and nothing public links to it; it
+answers 404 to everything unless the hosted settings above are valid, and only accepts the admin key. A rejected key
+shows in Admin as a setup problem ("did not accept this Admin's key"), not as a sign-out.
+
+### Routes
+
+Admin (`/admin/api/social/`, session and CSRF like every Admin route): `status`, `posts`, `preview`, `destinations`,
+`announcements` (`GET` list, `POST` create, `PATCH ?id=` edit), `announcements/reschedule?id=`,
+`announcements/cancel?id=`. Hosted (the same names under the endpoint, admin key only): the same set except `status`,
+`posts` and `preview`, which Admin answers itself.

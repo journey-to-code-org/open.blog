@@ -85,7 +85,8 @@ const utf8Length = (value) => new TextEncoder().encode(value).length;
 
 // A full RFC 3339 date and time that names its zone (Z or +hh:mm), as an exact UTC instant at
 // least a minute after `now` (a Date or milliseconds) and no later than a year and a day.
-export function parseSchedule(input, now) {
+// `bounds: false` skips the lead and horizon checks, for recognizing a retried request whose time has since passed.
+export function parseSchedule(input, now, { bounds = true } = {}) {
   const text = typeof input === "string" ? input : "";
   const nowMs = now instanceof Date ? now.getTime() : Number(now);
   const shape = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(text);
@@ -128,6 +129,7 @@ export function parseSchedule(input, now) {
   if (!real) throw new ScheduleError("time-invalid");
   const ms = probe.getTime() - offsetMinutes * 60000;
   const ahead = Math.floor(ms / 1000) - Math.floor(nowMs / 1000);
+  if (!bounds) return new Date(ms);
   if (ahead < MIN_LEAD_SECONDS) throw new ScheduleError("time-too-soon");
   if (ahead > MAX_HORIZON_SECONDS) throw new ScheduleError("time-too-far");
   return new Date(ms);

@@ -89,6 +89,7 @@ mod comparisons;
 mod landing;
 mod look;
 mod reading_paths;
+mod social;
 mod voice;
 mod voice_guide;
 
@@ -515,6 +516,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name.starts_with("voice/") {
             return Ok(voice::request_limit(req, name));
         }
+        if name.starts_with("social/") {
+            return Ok(social::MAX_REQUEST_BYTES);
+        }
         return Ok(MAX_JSON_BODY);
     }
     Ok(0)
@@ -615,8 +619,9 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         return authenticated_api(state, req, name, &session);
     }
     let mut workspace = lock(&state.workspace);
-    let _filesystem_transaction = if workspace.is_some() && !req.is_read_only() && name != "logout"
-    {
+    // Social routes change nothing on disk, so they never open a workspace transaction.
+    let local_write = !req.is_read_only() && name != "logout" && !name.starts_with("social/");
+    let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
             Ok(transaction) => Some(transaction),
             Err(error) => return Response::error(409, &error),
@@ -628,7 +633,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         DURABLE_TRANSACTION.with(|active| active.set(true));
         DurableTransaction
     });
-    if !req.is_read_only() && name != "logout" {
+    if local_write {
         if let Some(store) = workspace.as_mut() {
             if let Err(error) = store.begin() {
                 return Response::error(503, &format!("Workspace save NOT acknowledged: {error}"));
@@ -636,7 +641,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         }
     }
     let response = authenticated_api(state, req, name, &session);
-    if !req.is_read_only() && name != "logout" {
+    if local_write {
         if let Some(store) = workspace.as_mut() {
             // Even an unsuccessful handler may have completed part of a local
             // operation. Never acknowledge any result until the bundle is durable.
@@ -679,6 +684,9 @@ fn authenticated_api(
             ("POST", voice::SampleRoute::Promote(id)) => voice::promote(state, req, id),
             _ => Response::error(404, "Unknown API route"),
         };
+    }
+    if let Some(rest) = name.strip_prefix("social/") {
+        return social::handle(state, req, session, rest);
     }
     match (req.method.as_str(), name) {
         ("POST", "logout") => logout(state, req),
@@ -18161,6 +18169,7 @@ mod tests {
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod social_routes;
     mod voice_assistant_routes;
     mod voice_journey;
     mod voice_routes;
