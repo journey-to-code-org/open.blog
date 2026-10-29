@@ -1,3 +1,4 @@
+import { commentCaptcha } from "./comment-captcha.js";
 // Progressive comments for a hosted open.blog engagement endpoint. Untrusted
 // comment content is assigned only through textContent. With the `reports`
 // attribute (abuse reports open on the post, ADR 0107), each comment offers a
@@ -38,6 +39,9 @@ export class ObComments extends HTMLElement {
       this.append(form);
     }
 
+    const captcha = !locked && this.getAttribute("captcha-provider") === "turnstile"
+      ? commentCaptcha(this, form, status) : null;
+    this.captcha = captcha;
     const render = (comments) => {
       list.replaceChildren();
       for (const comment of comments) {
@@ -74,23 +78,32 @@ export class ObComments extends HTMLElement {
       controls.forEach((control) => { control.disabled = true; });
       status.textContent = "Submitting…";
       try {
+        const verification = captcha ? await captcha.submission() : {};
         const response = await fetch(`${endpoint}/comments`, {
           method: "POST",
           credentials: "omit",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path, authorName: form.elements.authorName.value, body: form.elements.body.value }),
+          body: JSON.stringify({ path, authorName: form.elements.authorName.value, body: form.elements.body.value, ...verification }),
         });
         const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "The comment could not be submitted.");
+        if (!response.ok) {
+          if (captcha && result.code === "captcha_required") captcha.rejected();
+          else if (captcha) captcha.failed();
+          throw new Error(result.error || "The comment could not be submitted.");
+        }
+        captcha?.accepted(result.captchaSession);
         form.reset();
         status.textContent = result.status === "approved" ? "Comment published." : "Comment submitted for moderation.";
       } catch (error) {
+        if (captcha) captcha.failed();
         status.textContent = error.message;
       } finally {
         controls.forEach((control) => { control.disabled = false; });
       }
     });
   }
+
+  disconnectedCallback() { this.captcha?.destroy(); }
 
   field(labelText, kind, maximum) {
     const label = document.createElement("label");

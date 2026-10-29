@@ -2619,7 +2619,7 @@ _Avoid_: Template, form body
 Two pictures of the same thing, written as a `compare` fence with a required description for each, an optional
 caption and a label ("Before" and "After" by default). Any post may hold one. The page shows a comparison
 control; feeds, syndicated copies and exports show two captioned figures. Reported as the `before-after`
-capability (ADR 0291).
+capability (ADR 0311).
 _Avoid_: Slider, image diff, gallery
 
 **Capture**:
