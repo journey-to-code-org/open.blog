@@ -76,6 +76,59 @@ workflow: remote draft by default, remote draft only, or manual import. The CLI 
 same policy for the public-write gate; Admin disables destination output and acknowledgements
 for unknown policy versions rather than guessing.
 
+### Preview and approve before sending
+
+To see exactly what each destination would receive, and whether it can take it, write a
+preview into a new folder. Like the dry run, it reads no credential and sends nothing:
+
+```sh
+openblog syndicate your-post-slug --preview previews/your-post
+```
+
+The folder holds `plan.json`, one file per destination with the exact Markdown or HTML that
+destination would receive (`01-dev.md`, `02-ghost.html`, ...), and `index.html`, a static page
+you can open in any browser, with a keyboard or a screen reader. For each destination it says
+whether it is **ready** (open.blog can send it), **by hand** (Medium: you import the copy
+yourself) or **blocked**, and why: a capability the destination's
+[provider manifest](provider-capabilities.md) does not cover, a missing endpoint, publishing not
+allowed for that target, or a blocking tag, content or request-size finding. A preview never
+replaces an existing folder and cannot be combined with `--write` or `--json`. Beside each copy the
+page lists everything else that destination's request carries (its title, description or excerpt,
+subtitle, slug and tags), and an approval covers those too.
+
+If no destination is configured or enabled, the preview still works: it holds your post's
+portable Markdown as `portable.md` to import anywhere by hand, and your site, feeds and builds
+are unaffected.
+
+The preview prints a plan digest. Approve exactly that plan (this also sends nothing):
+
+```sh
+openblog syndicate your-post-slug --approve 68e45836c088d82769023771eab58ab9
+```
+
+Use the same `--target` and `--publish` options you previewed with; the page shows the exact
+command. To make `--write` send only what you approved, opt in:
+
+```json
+{ "syndication": { "requireApproval": true, "targets": { "dev": { "provider": "dev" } } } }
+```
+
+Then a write refuses a target, before any credential or request, when there is no approval,
+the post or its canonical address changed, you switched between draft and publish, the target
+was not in the approved plan, its copy or any other field it sends (such as the tags) changed, or its provider policy changed in a breaking
+way. Preview and approve again. Approvals are private, kept in
+`.openblog/distribution-approvals.json` (`syndication.approvalFile`). With `requireApproval`
+off (the default), every existing command behaves exactly as before
+(ADRs [0328](adr/0328-a-destination-preview-is-the-runs-own-portable-projection-checked-against-its-manifest.md),
+[0329](adr/0329-an-approval-binds-one-previewed-plan-and-a-write-that-requires-one-sends-only-what-it-covers.md),
+[0330](adr/0330-with-no-destination-the-preview-is-the-portable-copy-and-the-preview-page-is-static-accessible-html.md)).
+
+Provider behaviour the preview relies on was re-checked on 2026-10-29: DEV's
+[`POST /api/articles`](https://developers.forem.com/api/v1) saves a draft unless
+`published` is true, takes `canonical_url` and up to four tags, and has no scheduling field;
+Ghost's [Admin API](https://docs.ghost.org/admin-api/posts/creating-a-post) takes HTML with
+`?source=html` and creates draft or published posts.
+
 ### Destination tag conversion
 
 Destination tag metadata uses the same core plan in Admin and CLI dry runs; DEV and

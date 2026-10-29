@@ -372,7 +372,11 @@ keeps drafts out of public history unless set, `auto` publishes after every save
 
 `syndication.targets` is a map of user-chosen destination names to DEV, Hashnode, Ghost,
 WordPress, or manual Medium settings. `stateFile` points to private remote-ID state and
-defaults to `.openblog/syndication.json`. Credentials are environment-only and never belong
+defaults to `.openblog/syndication.json`. `requireApproval` (off by default) makes
+`openblog syndicate --write` send only a copy you previewed and approved with `--approve`;
+approvals are private, in `approvalFile` (default `.openblog/distribution-approvals.json`). See
+[Preview and approve before sending](cross-posting.md#preview-and-approve-before-sending).
+Credentials are environment-only and never belong
 in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup and the
 [automated syndication specification](specs/automated-syndication.md) for the exact fields,
 credential names, and safety behavior.

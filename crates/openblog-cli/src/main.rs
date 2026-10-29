@@ -114,6 +114,10 @@ syndicate OPTIONS
     --write                    Send remote create/update requests and save private state
     --publish                  Request publication (also requires target allowPublish: true)
     --json                     Print a deterministic dry-run plan with before/after artifacts
+    --preview <new folder>     Write each destination's exact copy, plan.json and an accessible
+                               index.html preview with eligibility errors; sends nothing
+    --approve <digest>         Approve exactly the previewed plan (sends nothing); with
+                               syndication.requireApproval, --write sends only what is approved
 
 export OPTIONS
     --format markdown|csl-json|bibtex
@@ -440,7 +444,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "syndicate" => {
             let slug = args.positional.first().ok_or(
-                "usage: openblog syndicate <slug> [--target a,b] [--json] [--write] [--publish]",
+                "usage: openblog syndicate <slug> [--target a,b] [--json] [--write] [--publish] [--preview <new folder>] [--approve <digest>]",
             )?;
             let target_names = args
                 .options
@@ -462,6 +466,8 @@ fn run(raw: &[String]) -> Result<(), String> {
                     write: args.switches.contains("write"),
                     publish: args.switches.contains("publish"),
                     json: args.switches.contains("json"),
+                    preview: args.options.get("preview").cloned(),
+                    approve: args.options.get("approve").cloned(),
                 },
             )
         }

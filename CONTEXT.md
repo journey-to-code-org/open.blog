@@ -2883,3 +2883,52 @@ An automated check that must pass before a release touching social publishing: b
 plans and offline authoring unchanged by the settings; every hosted route a 404 when off; no Supabase or hosted social
 address in a browser file; and the guide, settings, SQL and provider versions in agreement (ADRs 0740 and 0741).
 _Avoid_: Readiness check (that is the publication readiness report), smoke test
+
+## Distribution
+
+**Provider manifest**:
+The versioned statement of what this release's adapter does at one destination (a cross-posting target or a social
+provider): each capability's support, the login method and scopes, the verified provider limits, how the canonical
+address travels, what makes something public, and the policy version and sources it was checked against. It is code,
+never a credential, and anything unknown in it refuses the whole manifest (ADR 0325).
+_Avoid_: Provider config (the deployer's settings), integration, capability flags
+
+**Distribution capability**:
+One of the closed list of things a distribution can ask of a destination: link, text, article, image, video, draft,
+schedule. A name outside the list refuses the request it appears in.
+_Avoid_: Feature, content type
+
+**Capability support**:
+How far this release goes for one capability at one destination: `adapter` (done through the provider's API),
+`manual` (the provider can, but only the author can, by hand) or `unsupported`.
+_Avoid_: Partial support, best effort
+
+**Policy version**:
+The day a provider manifest's facts were checked against the provider's documentation (`YYYY-MM-DD`, optionally
+`.N`). Any change to a manifest raises it, so a provider and policy version always mean one set of facts.
+_Avoid_: API version (the provider's own, such as LinkedIn's `YYYYMM`), manifest version (the format)
+
+**Destination eligibility**:
+Whether a destination can take a distribution request through its adapter. An ineligible destination is reported
+with destination-specific reasons (a manual or unsupported capability, a limit), never sent a part of the request.
+_Avoid_: Validation error, warning
+
+**Manifest compatibility**:
+How a newer manifest of a provider relates to the older one: same, compatible (only widened, loosened or
+documentation changes; approvals stand) or breaking (anything narrowed, tightened or changed in login, canonical or
+publishing; approvals under the old policy version are void) (ADR 0327).
+_Avoid_: Semver, upgrade safety
+
+**Distribution plan**:
+For one published post and the destinations the author chose, a preview per destination: exactly the portable
+copy the run would send (or the author would import), the intent (draft, published or manual), the capabilities that
+asks for, and its status: ready, manual (the guided workflow) or blocked, with every destination-specific reason.
+It is identified by a plan digest and written as dry-run artifacts by `openblog syndicate --preview`; with no
+destination it holds the portable copy as a fallback (ADRs 0328, 0330).
+_Avoid_: Campaign, schedule, dry-run output (the existing text and JSON plans)
+
+**Distribution approval**:
+The author's explicit consent to one distribution plan, given by its digest: bound to the source revision, the
+canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
+under. Private; with `requireApproval` a write sends only what it covers (ADR 0329).
+_Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)

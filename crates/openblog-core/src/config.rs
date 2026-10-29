@@ -623,6 +623,11 @@ pub struct SyndicationConfig {
     pub state_file: String,
     /// User-chosen target names permit multiple sites using the same provider.
     pub targets: BTreeMap<String, SyndicationTargetConfig>,
+    /// When true, `--write` sends only what the author approved with `--approve` (ADR 0329).
+    /// Off by default, so existing runs are unchanged.
+    pub require_approval: bool,
+    /// Private approvals, relative to the project root.
+    pub approval_file: String,
 }
 
 impl Default for SyndicationConfig {
@@ -630,6 +635,8 @@ impl Default for SyndicationConfig {
         Self {
             state_file: ".openblog/syndication.json".into(),
             targets: BTreeMap::new(),
+            require_approval: false,
+            approval_file: ".openblog/distribution-approvals.json".into(),
         }
     }
 }
