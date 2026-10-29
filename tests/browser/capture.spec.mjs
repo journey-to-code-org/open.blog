@@ -321,3 +321,70 @@ test("without a recorder or with the microphone blocked, typing still works and 
   await expect(view.getByRole("button", { name: "Record a voice note" })).toBeEnabled();
   expect(await page.evaluate(() => window.__mic.open)).toBe(0);
 });
+
+const TRANSCRIBE = /\/admin\/api\/assistant\/transcribe(\?.*)?$/;
+const DISCLOSURE = {
+  available: true, engine: "provider", provider: "open-ai", destination: "https://api.openai.com", model: "gpt-4o-mini-transcribe", leavesServer: true,
+  sends: ["Your voice note (1 KB, webm). Nothing else: no notes, photos, title or voice guide."], keeps: "The transcript is kept privately on your server, beside the note.",
+};
+
+async function recordNote(page, voice) {
+  await voice.getByRole("button", { name: "Record a voice note" }).click();
+  await voice.getByRole("button", { name: "Stop recording" }).click();
+  await expect(voice.locator("audio")).toBeVisible();
+}
+
+test("without a provider the voice note still works and typing is the way forward", async ({ page }) => {
+  await page.addInitScript(fakeMicrophone, { denied: "", supported: true });
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  const voice = view.locator("[data-capture-voice]");
+  await recordNote(page, voice);
+  await expect(voice.locator("[data-capture-transcribe-off]")).toContainText("Type your notes instead");
+  await expect(voice.getByRole("button", { name: "Transcribe with AI" })).toHaveCount(0);
+  await expectNoOverflow(page, "[data-job-capture]");
+  await view.getByLabel("Notes", { exact: true }).fill("Typed because there is no provider.");
+  await view.getByLabel("Town", { exact: true }).fill("Typedtown");
+  await view.getByRole("button", { name: "Save draft" }).click();
+  await expect(view.locator("[data-capture-saved]")).toContainText("Saved as a draft");
+  await expect.poll(() => draftsIn("typedtown").length).toBe(1);
+});
+
+test("transcription shows what is sent, waits for a confirmation, and adds an undoable transcript", async ({ page }) => {
+  await page.addInitScript(fakeMicrophone, { denied: "", supported: true });
+  const posts = [];
+  await page.route(TRANSCRIBE, (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: DISCLOSURE });
+    posts.push(route.request().postDataJSON());
+    return route.fulfill({ json: { transcript: "Replaced the valve. <img src=x onerror=alert(1)>", truncated: false, untrusted: true } });
+  });
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  const voice = view.locator("[data-capture-voice]");
+  await view.getByLabel("Notes", { exact: true }).fill("Typed first.");
+  await recordNote(page, voice);
+  const start = voice.getByRole("button", { name: "Transcribe with AI" });
+  await expect(start).toBeVisible();
+  expect((await start.boundingBox()).height).toBeGreaterThanOrEqual(43);
+  await start.click();
+  const disclosure = voice.locator("[data-capture-disclosure]");
+  await expect(disclosure).toContainText("https://api.openai.com");
+  await expect(disclosure).toContainText("Nothing else");
+  await expect(disclosure).toContainText("leaves your server");
+  await expectNoOverflow(page, "[data-job-capture]");
+  await voice.getByRole("button", { name: "Cancel" }).click();
+  expect(posts).toEqual([]);
+  await expect(start).toBeFocused();
+
+  await start.click();
+  await voice.getByRole("button", { name: "Send the recording" }).click();
+  const notes = view.getByLabel("Notes", { exact: true });
+  await expect(notes).toHaveValue(/Typed first\.\n\nReplaced the valve\. &lt;img src=x onerror=alert\(1\)>/);
+  expect(posts).toHaveLength(1);
+  expect(posts[0].confirmed).toBe(true);
+  await expect(view.locator("[data-capture-status]")).toContainText("written by a machine");
+  await expectNoOverflow(page, "[data-job-capture]");
+  await voice.getByRole("button", { name: "Undo the transcript" }).click();
+  await expect(notes).toHaveValue("Typed first.");
+  expect(await page.locator("[data-job-capture] img[src=x]").count()).toBe(0);
+});

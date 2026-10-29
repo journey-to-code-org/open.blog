@@ -1,10 +1,11 @@
 // <ob-job-capture>: the Capture view (ADR 0296). A phone-first way to start a job on site: add photos,
 // pick trade, service and town (remembered from last time), type a few lines, and save an unpublished job
 // draft. The first half of this file is plain functions (tested in tests/web/admin-job-capture.test.mjs);
-// the second builds the view. No provider is contacted: a capture only ever talks to this site's own Admin.
+// the second builds the view. A capture only ever talks to this site's own Admin; the Assistant is used only when the author asks (capture-assistant.js).
 
 import { el } from "./block-forms.js";
 import { audioLimits, clock, createRecorder, START_PROBLEMS } from "./capture-recorder.js";
+import { createTranscribeBox } from "./capture-assistant.js";
 import { createCaptureQueue, openIndexedStore, queueLimits } from "./capture-queue.js";
 import { localDay } from "./job-form.js";
 
@@ -246,6 +247,8 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
   let audioPreview = "";
   const voiceBody = el("div", { class: "oba-capture-voice-body" });
   const voice = el("fieldset", { class: "oba-fieldset oba-capture-voice", "data-capture-voice": "true" }, el("legend", { class: "oba-legend" }, "Voice note"), voiceBody);
+  const transcribeBox = createTranscribeBox({ api, notes, limits, announce: (message) => { status.textContent = message; } });
+  voice.append(transcribeBox.element);
   const dropAudio = () => {
     if (audioPreview) URL.revokeObjectURL(audioPreview);
     audioPreview = "";
@@ -273,6 +276,10 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     },
   });
   const renderVoice = () => {
+    paintVoice();
+    transcribeBox.update(recorder.state === "recorded" && audio ? { captureId, blob: audio.blob, size: audio.size } : null);
+  };
+  const paintVoice = () => {
     const state = recorder.state;
     const maxMinutes = Math.round(audioLimits(meta).maxAudioSeconds / 60);
     if (!recorder.support.supported) {
@@ -295,7 +302,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     } else {
       voiceBody.replaceChildren(
         el("button", { type: "button", class: "oba-btn oba-capture-record", "data-capture-record": "true", disabled: state === "starting", onClick: startRecording }, state === "starting" ? "Starting…" : "Record a voice note"),
-        el("p", { class: "oba-help" }, `Up to ${maxMinutes} minutes. It stays on your own server; nothing is transcribed or sent to an AI.`),
+        el("p", { class: "oba-help" }, `Up to ${maxMinutes} minutes. It stays on your own server. Nothing is sent to an AI unless you choose to transcribe it.`),
       );
     }
   };

@@ -2634,9 +2634,15 @@ _Avoid_: Outbox, sync
 
 **Voice note**:
 A recording of at most three minutes and 8 MB made in the Capture view with the browser's recorder, started only
-by a tap, kept on the author's server as private media beside the capture and never published, sent to a
-provider or transcribed by this feature (ADR 0298).
-_Avoid_: Dictation, transcript
+by a tap, kept on the author's server as private media beside the capture and never published. It is sent to a
+provider only when the author asks to transcribe it and has seen the disclosure (ADR 0298, ADR 0420).
+_Avoid_: Dictation
+
+**Transcript**:
+The words of a voice note, made by a provider that takes audio or by a local engine, on the author's request. It is
+untrusted text: kept privately beside the note, cleaned and bounded by the core, and put into the Notes box made
+plain for the author to edit. It is never a draft, never published and never treated as instructions (ADR 0420).
+_Avoid_: Caption, dictation
 
 **Service**:
 One offering a business sells, kept in a site-level collection with what is included, a starting price band, a

@@ -323,6 +323,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         "capture-recorder.js",
         include_str!("../../../web/admin/capture-recorder.js"),
     ),
+    (
+        "capture-assistant.js",
+        include_str!("../../../web/admin/capture-assistant.js"),
+    ),
 ];
 
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");

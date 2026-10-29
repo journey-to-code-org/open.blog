@@ -15,6 +15,8 @@ use openblog_core::voice::guide::{self, SampleText, VoiceGuide};
 use serde::Serialize;
 use serde_json::{json, Value as Json};
 
+pub mod transcribe;
+
 pub const ASSISTANT_SCHEMA_VERSION: u32 = 1;
 pub const ANTHROPIC_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 pub const ANTHROPIC_API_VERSION: &str = "2023-06-01";

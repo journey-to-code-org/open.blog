@@ -85,6 +85,7 @@ use crate::assistant::{
     BUILTIN_SKILL_SOURCES,
 };
 use crate::assistant::{PassageKind, ReviewPassage};
+mod capture_assistant;
 mod comparisons;
 mod landing;
 mod look;
@@ -560,6 +561,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/job-capture.js" => "job-capture.js",
         "/admin/capture-queue.js" => "capture-queue.js",
         "/admin/capture-recorder.js" => "capture-recorder.js",
+        "/admin/capture-assistant.js" => "capture-assistant.js",
         "/admin/voice.js" => "voice.js",
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
@@ -835,6 +837,8 @@ fn authenticated_api(
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("POST", "assistant/complete") => generate_inline_completion(state, req),
         ("POST", "assistant/voice-guide") => voice_guide::generate_voice_guide(state, req),
+        ("GET", "assistant/transcribe") => capture_assistant::preview(state, req),
+        ("POST", "assistant/transcribe") => capture_assistant::transcribe(state, req),
         ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
@@ -18304,6 +18308,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
+    mod capture_transcribe_routes;
     mod comparison_routes;
     mod landing_history_routes;
     mod landing_routes;

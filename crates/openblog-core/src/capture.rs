@@ -76,6 +76,46 @@ pub fn audio_file_name(id: &str, extension: &str) -> Option<String> {
         .then(|| format!("{id}.audio.{extension}"))
 }
 
+/// Most characters a transcript keeps. It is the notes bound's neighbour: a ninety second description is a few
+/// hundred words, and anything longer is cut rather than refused.
+pub const MAX_TRANSCRIPT_CHARS: usize = 20_000;
+
+/// The stored name of a capture's transcript, beside its voice note.
+pub fn transcript_file_name(id: &str) -> Option<String> {
+    valid_id(id).then(|| format!("{id}.transcript.txt"))
+}
+
+/// A transcript made safe to keep and show (ADR 0420). It is untrusted words: control characters and
+/// byte-order marks go, line endings are normalized, runs of blank lines collapse, and the text is bounded.
+/// Nothing is interpreted: markup stays text, and the author's editor escapes it like any typed note.
+/// `truncated` says the text was cut at the bound.
+pub fn clean_transcript(raw: &str) -> (String, bool) {
+    let mut text = String::new();
+    let mut blank_run = 0;
+    for line in raw.replace("\r\n", "\n").replace('\r', "\n").split('\n') {
+        let line: String = line
+            .chars()
+            .filter(|c| !c.is_control() && *c != '\u{feff}' && *c != '\u{2028}' && *c != '\u{2029}')
+            .collect();
+        let line = line.trim();
+        if line.is_empty() {
+            blank_run += 1;
+            continue;
+        }
+        if !text.is_empty() {
+            text.push_str(if blank_run > 0 { "\n\n" } else { "\n" });
+        }
+        blank_run = 0;
+        text.push_str(line);
+    }
+    let truncated = text.chars().count() > MAX_TRANSCRIPT_CHARS;
+    if truncated {
+        text = text.chars().take(MAX_TRANSCRIPT_CHARS).collect();
+        text.truncate(text.trim_end().len());
+    }
+    (text, truncated)
+}
+
 /// The draft path a ledger entry names. An entry written by a newer version is an error, never guessed at.
 pub fn parse_ledger(text: &str) -> Result<String, String> {
     let value: Value = serde_json::from_str(text)
@@ -98,6 +138,7 @@ pub fn limits_json(max_photo_mb: u32) -> Value {
         "maxPhotoBytes": max_photo_mb as u64 * 1024 * 1024,
         "maxAudioSeconds": MAX_AUDIO_SECONDS,
         "maxAudioBytes": MAX_AUDIO_BYTES,
+        "maxTranscriptChars": MAX_TRANSCRIPT_CHARS,
         "storedVersion": STORED_VERSION,
         "maxQueued": MAX_QUEUED,
         "maxCaptureBytes": MAX_CAPTURE_BYTES,

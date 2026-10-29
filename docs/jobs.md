@@ -90,11 +90,17 @@ Where the browser allows it, **Record a voice note** talks instead of types: it 
 (the browser then asks for the microphone), shows the time, and stops with **Stop recording**, at three minutes
 or at 8 MB, whichever comes first. **Discard** throws a recording away. A finished note plays back in the view
 and is sent with the capture, then kept privately on your own server (in `.openblog/captures/`, never in your
-site's files or the post). Nothing is transcribed and nothing is sent to an AI. A browser that cannot record
-simply shows no Record control.
+site's files or the post). Nothing is transcribed and nothing is sent to an AI unless you choose it: under a
+finished note, **Transcribe with AI** (shown only when your site has an Assistant provider that takes audio, or a
+local engine) first shows where the recording would go and what is sent (the recording only), and sends it only
+when you tap **Send the recording**. The words come back into **Notes** under what you typed, as plain text for you
+to correct, and **Undo the transcript** takes them out again. With no provider, Capture says so and you type your
+notes. A browser that cannot record simply shows no Record control. Setting up a provider or a local engine is in
+[the admin guide](admin.md#transcribing-a-voice-note).
 See [ADR 0296](adr/0296-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md),
-[ADR 0297](adr/0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
-and [ADR 0298](adr/0298-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md).
+[ADR 0297](adr/0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md),
+[ADR 0298](adr/0298-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md)
+and [ADR 0420](adr/0420-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md).
 
 ## Trades
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,
