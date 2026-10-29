@@ -2674,6 +2674,11 @@ The time of an announcement: a full RFC 3339 date and time that names its zone, 
 author's time zone says how it was chosen and is not stored.
 _Avoid_: Local time, publish date (a post's own date)
 
+**Social screen**:
+The Admin tab (`#/social`) where an author composes, previews, schedules, edits and cancels announcements. It exists
+only when social publishing is set up, talks only to Admin's own routes, and shows times in the author's zone.
+_Avoid_: Social dashboard, composer (the form is one part of the screen)
+
 **Delivery attempt**:
 One recorded try to deliver a scheduled social post, with its outcome (`published`, `failed` or `unknown`) and a
 redacted error. Attempts are added and finished, never deleted.

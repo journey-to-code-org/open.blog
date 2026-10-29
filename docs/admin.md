@@ -980,6 +980,30 @@ date: 2026-12-25T09:00:00Z      # offsets work too: 2026-12-25T09:00:00-05:00
 `openblog build --drafts` and `serve --drafts` include drafts and scheduled posts, for
 previewing.
 
+## Announce a post on social media (optional)
+
+If your site has [scheduled social publishing](social-publishing.md) set up, Admin shows a **Social** tab; without it
+there is no tab and nothing changes. The screen has two parts.
+
+**Announce a post.** Choose a **Destination** (a connected LinkedIn profile or Facebook Page), a **Post to announce**,
+write a **Caption** and pick a **Date and time**. Only published posts can be chosen; a draft, or a post dated in the
+future, is listed as not available with the reason. The count under the caption shows how many characters are left,
+and the **Preview** shows the caption, the link to your post and when it will go out, before you tap **Schedule
+announcement**. Times are in your own time zone and stored in UTC; on the day the clocks change, a time that does not
+exist is refused, and a time that happens twice uses the earlier one (the preview says so). If something is wrong, the
+form lists what to fix, each a link to its field, and says it beside the field too. Tapping the button twice, or again
+after a slow connection, schedules it once.
+
+**Announcements.** Every announcement shows its status in words (Scheduled, Sending, Published, Failed, Needs checking,
+Canceled), its time in your zone, its destination and caption. While it is **Scheduled**, **Edit** changes the caption
+or time and **Cancel announcement** asks "Yes, cancel it / Keep it" before it cancels. Once a sender has picked it up it
+cannot be changed, and the row says why. If it was picked up while you were looking at it, the screen refreshes and
+tells you instead of failing. Use **Show** to filter by status.
+
+It works with a keyboard alone (Tab through the fields, Enter on **Schedule announcement**), every field has a visible
+label, and on a phone it is one column with buttons at least 44px tall. Nothing is posted by this screen yet: delivery
+arrives in a later story.
+
 ## Running it for real
 
 By default the server listens on `127.0.0.1` only. To use the admin from anywhere, run it on

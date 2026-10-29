@@ -561,6 +561,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/voice.js" => "voice.js",
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
+        "/admin/social.js" => "social.js",
         "/admin/voice-library.js" => "voice-library.js",
         _ => return Response::error(404, "Not found"),
     };

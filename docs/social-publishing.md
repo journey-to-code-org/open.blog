@@ -113,3 +113,16 @@ Admin (`/admin/api/social/`, session and CSRF like every Admin route): `status`,
 `announcements` (`GET` list, `POST` create, `PATCH ?id=` edit), `announcements/reschedule?id=`,
 `announcements/cancel?id=`. Hosted (the same names under the endpoint, admin key only): the same set except `status`,
 `posts` and `preview`, which Admin answers itself.
+
+### The Social screen
+
+With the settings above in place, Admin shows a **Social** tab
+([ADR 0472](adr/0472-the-social-screen-is-a-labelled-form-with-a-server-checked-preview-and-times-in-the-authors-zone.md)):
+a composer (destination, post, caption, date and time, preview) and the list of announcements with edit and cancel.
+See [Admin](admin.md#announce-a-post-on-social-media-optional) for how it is used. It only offers connected accounts,
+so connecting one is a separate step. Check it in a browser at 320px wide before you rely on it: it should never scroll
+sideways.
+
+Before you enable it for real, confirm in each provider's current documentation the API version, the permissions
+(scopes) and any app review the posting API needs; none of that is part of this screen, and nothing here posts until
+delivery is set up.
