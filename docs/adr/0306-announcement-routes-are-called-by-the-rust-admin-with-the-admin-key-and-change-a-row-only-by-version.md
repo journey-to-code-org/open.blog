@@ -1,4 +1,4 @@
-# ADR 0471: Announcement routes are called by the Rust Admin with the admin key and change a row only by version
+# ADR 0306: Announcement routes are called by the Rust Admin with the admin key and change a row only by version
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -8,7 +8,7 @@
 ## Context
 
 ADR 0293 fixed who may act (the Rust Admin, with a server-held key, naming the signed-in user) and for which site
-(the server's `OPENBLOG_SITE_ID`). ADR 0470 fixed what a valid announcement is. This ADR is the routes between
+(the server's `OPENBLOG_SITE_ID`). ADR 0305 fixed what a valid announcement is. This ADR is the routes between
 them: create, list, edit, reschedule and cancel, plus the destinations an announcement can go to.
 
 ## Decision
@@ -17,11 +17,11 @@ them: create, list, edit, reschedule and cancel, plus the destinations an announ
   Admin route and is bounded by a 32 KiB preflight limit. It does the checks that need the site: the post must be
   public, and **the link is computed from the site, never taken from the browser** (a request that carries
   `canonicalUrl`, a site, a status or any other unknown field is a 400). It then calls the hosted function
-  (`netlify/functions/social-schedule.mjs`, logic in `netlify/lib/social-announcements.mjs`) with
+  (`netlify/functions/social.mjs`, logic in `netlify/lib/social-announcements.mjs`) with
   `Authorization: Bearer <OPENBLOG_SOCIAL_ADMIN_KEY>` and `X-OpenBlog-Actor: <user>`. The hosted function accepts only
-  the admin role (a worker key is a 403), refuses a body or query that names a site, and applies the ADR 0470 rules
+  the admin role (a worker key is a 403), refuses a body or query that names a site, and applies the ADR 0305 rules
   again before it writes.
-- **Off unless configured, on both sides.** The Admin needs `OPENBLOG_SOCIAL_ENABLED=true`, `OPENBLOG_SOCIAL_ENDPOINT`
+- **Off unless configured, on both sides.** The Admin needs the connected-accounts settings, `OPENBLOG_SOCIAL_ENDPOINT`
   (`https`, or `http` to this machine for development; no credentials, query or fragment) and
   `OPENBLOG_SOCIAL_ADMIN_KEY` (32 characters or more) in **its own process environment**. Missing or invalid, every
   route but `social/status` is a 404 and nothing is read or called. The key is never read from `openblog.json` or the

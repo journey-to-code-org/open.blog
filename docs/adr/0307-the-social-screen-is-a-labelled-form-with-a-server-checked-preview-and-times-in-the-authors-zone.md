@@ -1,4 +1,4 @@
-# ADR 0472: The Social screen is a labelled form with a server-checked preview and times in the author's zone
+# ADR 0307: The Social screen is a labelled form with a server-checked preview and times in the author's zone
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -14,11 +14,11 @@ reader, must not depend on how wide a font is, and must not put any credential o
 
 ## Decision
 
-- **A native module, not a framework.** `web/admin/social.js` builds the screen with the shared `el()` helper and
+- **A native module, not a framework.** `web/admin/announcements.js` builds the screen with the shared `el()` helper and
   text nodes only (nothing from the server is ever written as markup). Its rules for the person typing (the time in
   their zone, the caption count, the words for a status or an error) are pure functions with their own tests. The
-  screen is the route `#/social` and a **Social** tab that exists only when Admin says social publishing is set up
-  (`GET social/status`, which reads no social state and answers `enabled: false` unless `OPENBLOG_SOCIAL_ENABLED`,
+  screen is the route `#/announcements` and an **Announcements** tab that exists only when Admin says social publishing is set up
+  (`GET social/status`, which answers `enabled: false` unless
   the endpoint and the key are valid). Opening the route on a site without it shows "not configured", with no form.
 - **Labelled fields, one column.** Destination, post, caption and date-time are each a visible `<label>` bound to a
   control, with a hint and an error paragraph tied by `aria-describedby`; the form has `novalidate` and does its own
@@ -37,7 +37,7 @@ reader, must not depend on how wide a font is, and must not put any credential o
 - **Local time, stored as UTC.** The author picks a date and time in their own zone (`datetime-local`, labelled with
   the zone name). `localToInstant` turns it into the UTC instant using `Intl`, refuses a time the clocks skip
   (spring forward) with its own sentence, and uses the earlier of a time the clocks repeat (fall back), saying so in
-  the preview. The zone name is sent for display only and is not stored (ADR 0470). Times are shown back in the
+  the preview. The zone name is sent for display only and is not stored (ADR 0305). Times are shown back in the
   viewer's zone.
 - **Safe repeats.** One idempotency key is made per composed announcement and reused if the same one is sent again
   after a failure, so a retry, a double click or a slow connection cannot post twice; changing anything makes a new
@@ -47,7 +47,7 @@ reader, must not depend on how wide a font is, and must not put any credential o
   change uses the reschedule route. Cancel asks first, focuses the safe choice ("Keep it"), and names the version.
   There are no browser dialogs. If a worker claimed the row or another edit landed first, the screen refreshes the
   queue and says so instead of showing a failure that cannot be acted on.
-- **Nothing sensitive in the page.** The screen only ever receives the allow-listed fields of ADR 0471; a browser
+- **Nothing sensitive in the page.** The screen only ever receives the allow-listed fields of ADR 0306; a browser
   test checks the page and every social response for the admin, worker and service keys, the lease owner and the
   idempotency key.
 

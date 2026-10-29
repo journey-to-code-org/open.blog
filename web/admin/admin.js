@@ -8,9 +8,11 @@ import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.j
 import { buildChecksPanel } from "./checks-panel.js";
 import { applyJobDraft, bodyTakesScaffold, buildJobForm, JOB_PROFILE } from "./job-form.js";
 import { buildHistory } from "./landing-history.js";
+import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
-import { createSocialPanel } from "./social.js";
+import { createAnnouncementsPanel } from "./announcements.js";
+import { createSocialAccounts } from "./social.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
@@ -10953,6 +10955,8 @@ export class ObAdmin extends AdminElement {
   viewDirty = null;
   // Whether the open view's own save is in flight, for views that save outside the editor.
   viewBusy = null;
+  // Tears down the open view's outside listeners; run before the next view mounts.
+  viewCleanup = null;
   // The user whose session kept the workspace's panels, so only they ever get them back.
   keptOwner = "";
   // Set while the sign-in form is showing, from the moment a session ends or the writer signs out
@@ -11024,7 +11028,7 @@ export class ObAdmin extends AdminElement {
 
   async enter() {
     this.meta = await this.api.call("GET", "meta");
-    // Social publishing is optional: its tab exists only when Admin says it is set up (ADR 0472).
+    // Social publishing is optional: its tab exists only when Admin says it is set up (ADR 0307).
     try {
       this.social = await this.api.call("GET", "social/status");
     } catch {
@@ -11171,6 +11175,12 @@ export class ObAdmin extends AdminElement {
   // ---- views
 
   mount(...nodes) {
+    try {
+      this.viewCleanup?.();
+    } catch {
+      // A view's teardown must never stop the next one from opening.
+    }
+    this.viewCleanup = null;
     this.editor?.dispose();
     this.editor = null;
     this.viewDirty = null;
@@ -11433,12 +11443,13 @@ export class ObAdmin extends AdminElement {
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
       h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
+      h("a", { class: "oba-tab", "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
       h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
       h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
       h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
-      ...(this.social?.enabled || active === "social" ? [h("a", { class: "oba-tab", "aria-current": active === "social" ? "page" : null, href: "#/social" }, "Social")] : []),
+      ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
@@ -11452,10 +11463,12 @@ export class ObAdmin extends AdminElement {
         ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
+      : active === "social"
+        ? { title: "Social accounts", detail: "Connect LinkedIn or Facebook, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
       : active === "voice"
         ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
-      : active === "social"
-        ? { title: "Social", detail: "Announce a published post on LinkedIn or a Facebook Page at a time you choose, and manage what is scheduled." }
+      : active === "announcements"
+        ? { title: "Announcements", detail: "Announce a published post on LinkedIn or a Facebook Page at a time you choose, and manage what is scheduled." }
       : active === "landing"
         ? { title: "Landing page", detail: "Build the first page your visitors see from sections you add, order and preview, without writing any code." }
       : active === "paths"
@@ -11464,6 +11477,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Interpretation comparisons", detail: "Set attributed readings side by side and approve audience-level explanations, with your own approval for any AI-drafted text." }
       : active === "shared"
         ? { title: "Shared reflections", detail: "Start a private draft with other writers from a video, article, podcast, book, or other source." }
+      : active === "capture"
+        ? { title: "Capture a job", detail: "Add photos and a few lines from the job site and save an unpublished draft." }
       : active === "overview"
         ? { title: "Overview", detail: "See what is live, what needs attention, and what to work on next." }
         : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
@@ -11507,6 +11522,8 @@ export class ObAdmin extends AdminElement {
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
           h("a", { class: "oba-tab", "data-admin-module": "public-site", hidden: !visibleModules.has("public-site"), href: "/", target: "_blank", rel: "noopener" }, "View site ↗"),
         )),
+        // Optional social publishing (ADR 0301): no navigation entry unless the server has social settings.
+        this.meta?.social || active === "social" ? h("div", { class: "oba-progressive-tools", "data-social-nav": "true" }, toolGroup("Social", h("a", { class: "oba-tab", "aria-current": active === "social" ? "page" : null, href: "#/social" }, "Social accounts"))) : null,
       ),
       h(
         "section",
@@ -11718,9 +11735,10 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook connect accounts share announce oauth", run: () => go("#/social") }] : []),
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
-      ...(this.social?.enabled ? [{ label: "Social announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/social") }] : []),
+      ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/announcements") }] : []),
       { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
@@ -11945,8 +11963,10 @@ export class ObAdmin extends AdminElement {
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
       else if (head === "voice") await this.showVoice(tail, params);
-      else if (head === "landing") await this.showLanding();
       else if (head === "social") await this.showSocial();
+      else if (head === "capture") await this.showCapture();
+      else if (head === "landing") await this.showLanding();
+      else if (head === "announcements") await this.showAnnouncements();
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "appearance") await this.showAppearance();
@@ -14000,6 +14020,17 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy || publishing;
   }
 
+  // ---- job capture (ADR 0296)
+
+  /** `#/capture`: photos, remembered picks and notes from a phone on site, saved as an unpublished job draft. */
+  async showCapture() {
+    const view = createJobCapture({ api: this.api, meta: this.meta });
+    this.mount(this.shell("capture", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    await view.load();
+  }
+
   // ---- voice sessions (ADR 0272)
 
   /**
@@ -14031,12 +14062,26 @@ export class ObAdmin extends AdminElement {
     await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
   }
 
-  // ---- social announcements (ADR 0472, #369)
-
-  /** `#/social`: compose, preview and schedule an announcement, and manage the queue. */
+  /**
+   * `#/social`: connected social accounts (ADR 0301). Optional: when the server has no social settings
+   * the page says so and offers nothing. It holds no draft, so leaving it never asks to keep changes.
+   */
   async showSocial() {
-    const view = createSocialPanel({ api: this.api });
+    const view = createSocialAccounts({ api: this.api });
     this.mount(this.shell("social", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    // Its window focus listener must not outlive the page.
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- social announcements (ADR 0307, #369)
+
+  /** `#/announcements`: compose, preview and schedule an announcement, and manage the queue. */
+  async showAnnouncements() {
+    const view = createAnnouncementsPanel({ api: this.api });
+    this.mount(this.shell("announcements", view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     await view.load();

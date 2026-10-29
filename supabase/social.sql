@@ -193,17 +193,68 @@ create table if not exists public.openblog_social_credentials (
   )
 );
 
+-- A connection in progress or just finished (ADR 0299): the OAuth handshake of
+-- one author connecting one provider. `state_hash` is the SHA-256 of the
+-- single-use `state` value (the value itself is never stored); `envelope`
+-- holds the PKCE verifier while the handshake is pending and the provider's
+-- tokens once it is authorized, encrypted like a credential (ADR 0295).
+-- `destinations` lists the member, organizations or Pages the grant can reach
+-- and why each is or is not usable; it holds no token. A finished or failed
+-- row keeps no envelope. Nothing is deleted: rows only change state.
+create table if not exists public.openblog_social_connections (
+  id uuid primary key default gen_random_uuid(),
+  site_id text not null check (site_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$'),
+  provider text not null check (provider ~ '^[a-z][a-z0-9-]{0,31}$'),
+  status text not null default 'pending'
+    check (status in ('pending', 'exchanging', 'authorized', 'completed', 'failed', 'expired', 'canceled')),
+  state_hash text not null check (state_hash ~ '^[0-9a-f]{64}$'),
+  redirect_uri text not null check (redirect_uri ~ '^https://' and char_length(redirect_uri) <= 500),
+  requested_scopes text not null check (char_length(requested_scopes) <= 1000),
+  granted_scopes text check (char_length(granted_scopes) <= 1000),
+  pkce boolean not null default false,
+  -- Set when the author is reconnecting an existing account.
+  reauth_account_id uuid,
+  created_by text not null check (created_by ~ '^[a-z0-9_.-]{1,32}$'),
+  expires_at timestamptz not null,
+  key_id text check (key_id ~ '^[A-Za-z0-9_-]{1,32}$'),
+  envelope jsonb check (jsonb_typeof(envelope) = 'object' and octet_length(envelope::text) <= 32768),
+  access_expires_at timestamptz,
+  refresh_expires_at timestamptz,
+  destinations jsonb check (jsonb_typeof(destinations) = 'array' and octet_length(destinations::text) <= 65536),
+  -- Fixed note codes about what the provider could not confirm (ADR 0300).
+  notes text check (char_length(notes) <= 500),
+  error_code text check (error_code ~ '^[a-z][a-z0-9-]{0,39}$'),
+  version integer not null default 1 check (version >= 1),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz,
+  constraint openblog_social_connections_state unique (state_hash),
+  constraint openblog_social_connections_reauth
+    foreign key (reauth_account_id, site_id)
+    references public.openblog_social_accounts (id, site_id) on delete restrict,
+  constraint openblog_social_connections_sealed check ((envelope is null) = (key_id is null)),
+  -- Tokens never outlive the handshake: only a pending (verifier), exchanging
+  -- or authorized row may hold an envelope.
+  constraint openblog_social_connections_erased check (
+    envelope is null or status in ('pending', 'exchanging', 'authorized')
+  )
+);
+create index if not exists openblog_social_connections_site
+  on public.openblog_social_connections (site_id, status, expires_at);
+
 alter table public.openblog_social_schema enable row level security;
 alter table public.openblog_social_accounts enable row level security;
 alter table public.openblog_social_posts enable row level security;
 alter table public.openblog_social_attempts enable row level security;
 alter table public.openblog_social_credentials enable row level security;
+alter table public.openblog_social_connections enable row level security;
 
 revoke all on public.openblog_social_schema from public, anon, authenticated;
 revoke all on public.openblog_social_accounts from public, anon, authenticated;
 revoke all on public.openblog_social_posts from public, anon, authenticated;
 revoke all on public.openblog_social_attempts from public, anon, authenticated;
 revoke all on public.openblog_social_credentials from public, anon, authenticated;
+revoke all on public.openblog_social_connections from public, anon, authenticated;
 
 -- Least privilege for the hosted function. It never deletes: cancel and
 -- disconnect are updates, and attempts are append-and-finish.
@@ -214,3 +265,4 @@ grant select, insert, update on public.openblog_social_attempts to service_role;
 grant select, insert, update on public.openblog_social_credentials to service_role;
 
 commit;
+grant select, insert, update on public.openblog_social_connections to service_role;

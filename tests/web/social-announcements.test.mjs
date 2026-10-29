@@ -1,11 +1,11 @@
-// Optional social publishing, authorized scheduling routes (epic #353, ADR 0471): who may call,
+// Optional social publishing, authorized scheduling routes (epic #353, ADR 0306): who may call,
 // what a destination must be, idempotent creation, versioned edits, cancel, and that nothing secret
 // or foreign comes back. Storage is an in-memory PostgREST fake; no real network is used.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createAnnouncements, MAX_BODY_BYTES } from "../../netlify/lib/social-announcements.mjs";
 import { socialSettings } from "../../netlify/lib/social-scope.mjs";
-import { createHandler } from "../../netlify/functions/social-schedule.mjs";
+import { createHandler } from "../../netlify/functions/social.mjs";
 import { FACEBOOK, FUTURE, GONE, LINKEDIN, OTHER_SITE, REAUTH, SITE, fakeStorage } from "./social-fake-storage.mjs";
 
 const ADMIN_KEY = "adm_".padEnd(48, "a1");
@@ -59,7 +59,7 @@ test("the feature is absent unless configured", async () => {
   const warn = console.warn;
   console.warn = () => {};
   try {
-    const r = await handler({ httpMethod: "GET", path: "/.netlify/functions/social-schedule/announcements", headers: { authorization: `Bearer ${ADMIN_KEY}` } });
+    const r = await handler({ httpMethod: "GET", path: "/.netlify/functions/social/announcements", headers: { authorization: `Bearer ${ADMIN_KEY}` } });
     assert.equal(r.statusCode, 404);
     assert.ok(!r.body.includes("SUPABASE"), "the response does not name settings");
   } finally {
@@ -349,12 +349,12 @@ test("the Netlify function routes by path, decodes a base64 body, and answers JS
   const storage = fakeStorage();
   const handler = createHandler({ env: env(), fetchImpl: storage.fetchImpl, now: () => NOW });
   const headers = { Authorization: `Bearer ${ADMIN_KEY}`, "X-OpenBlog-Actor": "mikey" };
-  const r = await handler({ httpMethod: "POST", path: "/.netlify/functions/social-schedule/announcements", headers, queryStringParameters: null, body: Buffer.from(JSON.stringify(draft())).toString("base64"), isBase64Encoded: true });
+  const r = await handler({ httpMethod: "POST", path: "/.netlify/functions/social/announcements", headers, queryStringParameters: null, body: Buffer.from(JSON.stringify(draft())).toString("base64"), isBase64Encoded: true });
   assert.equal(r.statusCode, 201);
-  assert.match(r.headers["Cache-Control"], /no-store/);
+  assert.match(r.headers["cache-control"], /no-store/);
   assert.equal(JSON.parse(r.body).announcement.status, "scheduled");
-  const list = await handler({ httpMethod: "GET", path: "/.netlify/functions/social-schedule/announcements", headers, queryStringParameters: { status: "scheduled" } });
+  const list = await handler({ httpMethod: "GET", path: "/.netlify/functions/social/announcements", headers, queryStringParameters: { status: "scheduled" } });
   assert.equal(JSON.parse(list.body).announcements.length, 1);
-  const none = await handler({ httpMethod: "GET", path: "/.netlify/functions/social-schedule/announcements", headers: {} });
+  const none = await handler({ httpMethod: "GET", path: "/.netlify/functions/social/announcements", headers: {} });
   assert.equal(none.statusCode, 401);
 });

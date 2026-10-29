@@ -1,422 +1,330 @@
-// The Admin "Social" screen (epic #353, story #356, ADR 0472): the time in the author's own zone as
-// a UTC instant (with the days the clocks change), the caption count, the words for statuses and
-// errors, and the panel's behavior against a fake Admin: labelled fields, problems beside them,
-// idempotent retries, versioned edits, a confirmed cancel, and a refreshed queue after a lost race.
+// The Connected accounts screen (ADR 0301, #366): off and honest when social publishing is not set up,
+// permissions reviewed before connecting, a provider link that only ever points at the provider, a
+// destination choice with reasons, reconnect and disconnect with a confirmation, status as words, and
+// nothing secret ever drawn.
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  CAPTION_LIMIT,
-  STATUS_BADGES,
-  captionCount,
-  createSocialPanel,
-  destinationLabel,
-  errorText,
-  fieldForCode,
-  formatWhen,
-  instantToLocalInput,
-  localToInstant,
-  lockedReason,
-  newKey,
-} from "../../web/admin/social.js";
+import { HEALTH, OFF_TEXT, SCOPE_WORDS, createSocialAccounts, safeAuthorizeUrl } from "../../web/admin/social.js";
 import { ApiError, withDom } from "./dom-shim.mjs";
-// Importing the Voice harness makes the shared DOM refuse what a real browser would turn into text
-// (null, false and arrays passed to append/replaceChildren), which a forgiving shim hid once before.
-import "./voice-harness.mjs";
+import { all, button, flush, link, one, text } from "./voice-harness.mjs";
 
-const NY = "America/New_York";
+const later = (ms = 10 * 60 * 1000) => new Date(Date.now() + ms).toISOString();
+const ID = (n) => `${String(n).repeat(8)}-1111-4111-8111-${String(n).repeat(12)}`;
+const SECRET = "AQX-secret-token-must-never-show";
 
-test("a time in the author's zone is the UTC instant it names", () => {
-  assert.deepEqual(localToInstant("2026-11-02T09:30", NY), { ok: true, iso: "2026-11-02T14:30:00Z", ambiguous: false }, "standard time");
-  assert.deepEqual(localToInstant("2026-07-01T09:30", NY), { ok: true, iso: "2026-07-01T13:30:00Z", ambiguous: false }, "daylight time");
-  assert.equal(localToInstant("2026-11-02T09:30", "Asia/Kolkata").iso, "2026-11-02T04:00:00Z");
-  assert.equal(localToInstant("2026-11-02T09:30", "UTC").iso, "2026-11-02T09:30:00Z");
-  assert.equal(localToInstant("2026-10-26T01:30", "Europe/London").iso, "2026-10-26T01:30:00Z", "after the clocks went back in London");
+const linkedin = { provider: "linkedin", label: "LinkedIn", redirectUri: "https://blog.example.com/api/social/callback/linkedin", version: "202510", scopes: ["openid", "profile", "w_member_social", "r_organization_admin"], requiredScopes: ["openid", "profile", "w_member_social"], organizations: true, pkce: false };
+const facebook = { provider: "facebook", label: "Facebook", redirectUri: "https://blog.example.com/api/social/callback/facebook", version: "v23.0", scopes: ["pages_show_list", "pages_manage_posts"], requiredScopes: ["pages_show_list", "pages_manage_posts"], organizations: false, pkce: false };
+const on = (providers = [linkedin, facebook], problems = []) => ({ enabled: true, state: "on", providers, problems });
+const account = (over = {}) => ({
+  id: ID(1), provider: "linkedin", kind: "member", externalId: "urn:li:person:abc", displayName: "Ada Lovelace", status: "connected", health: "ok", connectedBy: "mikey",
+  createdAt: "2026-10-01T10:00:00Z", updatedAt: "2026-10-01T10:00:00Z", disconnectedAt: null,
+  credential: { status: "active", accessExpiresAt: "2026-12-01T00:00:00Z", refreshExpiresAt: "2027-10-01T00:00:00Z", scopes: ["openid", "w_member_social"], lastRefreshedAt: null }, ...over,
 });
+const connection = (over = {}) => ({ id: ID(2), provider: "linkedin", status: "pending", expiresAt: later(), createdAt: "2026-10-29T10:00:00Z", createdBy: "mikey", reauthAccountId: null, requestedScopes: [], grantedScopes: [], errorCode: null, message: null, destinations: [], notes: [], ...over });
 
-test("the days the clocks change: a skipped time does not exist, a repeated time uses the earlier", () => {
-  assert.deepEqual(localToInstant("2026-03-08T02:30", NY), { ok: false, code: "nonexistent" });
-  assert.equal(localToInstant("2026-03-08T03:30", NY).iso, "2026-03-08T07:30:00Z");
-  const repeated = localToInstant("2026-11-01T01:30", NY);
-  assert.deepEqual(repeated, { ok: true, iso: "2026-11-01T05:30:00Z", ambiguous: true });
-  assert.equal(localToInstant("2026-11-01T02:30", NY).ambiguous, false);
-});
-
-test("input that is not a time is refused with a reason", () => {
-  assert.deepEqual(localToInstant("", NY), { ok: false, code: "missing" });
-  for (const bad of ["garbage", "2026-02-30T10:00", "2026-13-01T10:00", "2026-11-02T25:00", "2026-11-02", "2026-11-02T09:30:00"]) {
-    assert.deepEqual(localToInstant(bad, NY), { ok: false, code: "invalid" }, bad);
-  }
-  assert.equal(localToInstant("2026-11-02T09:30", "Not/AZone").code, "zone");
-});
-
-test("an instant round-trips into a datetime-local value and reads in plain words", () => {
-  assert.equal(instantToLocalInput("2026-11-02T14:30:00Z", NY), "2026-11-02T09:30");
-  assert.equal(localToInstant(instantToLocalInput("2026-07-01T13:30:00Z", NY), NY).iso, "2026-07-01T13:30:00Z");
-  assert.equal(instantToLocalInput("nope", NY), "");
-  const words = formatWhen("2026-11-02T14:30:00Z", NY);
-  assert.match(words, /Mon/);
-  assert.match(words, /09:30/);
-  assert.equal(formatWhen("not a time", NY), "not a time");
-});
-
-test("the caption count follows the server: code points of the trimmed text", () => {
-  assert.deepEqual(captionCount("  hello  "), { count: 5, limit: CAPTION_LIMIT, over: false, text: "5 of 3000 characters" });
-  assert.equal(captionCount("😀😀").count, 2);
-  assert.equal(captionCount("a\r\nb").count, 3);
-  const over = captionCount("a".repeat(CAPTION_LIMIT + 2));
-  assert.equal(over.over, true);
-  assert.match(over.text, /^2 characters too many/);
-});
-
-test("an idempotency key has the shape the server accepts, and is fresh each time", () => {
-  const a = newKey();
-  assert.match(a, /^[A-Za-z0-9_-]{16,128}$/);
-  assert.notEqual(a, newKey());
-  assert.match(newKey({ getRandomValues: (bytes) => bytes.fill(7) }), /^ob-0707/);
-});
-
-test("statuses and errors have words, and a locked announcement says why", () => {
-  for (const status of ["scheduled", "claimed", "published", "failed", "canceled", "unknown"]) {
-    assert.ok(STATUS_BADGES[status].text && STATUS_BADGES[status].symbol, status);
-  }
-  assert.match(lockedReason("claimed"), /no longer be changed/);
-  assert.equal(lockedReason("scheduled"), "");
-  assert.equal(fieldForCode("caption-too-long"), "caption");
-  assert.equal(fieldForCode("time-too-soon"), "time");
-  assert.equal(fieldForCode("post-not-published"), "post");
-  assert.equal(fieldForCode("canonical-elsewhere"), "post");
-  assert.equal(fieldForCode("destination-not-connected"), "destination");
-  assert.equal(fieldForCode("unsupported-provider"), "destination");
-  assert.equal(fieldForCode("hosted-failed"), "general");
-  assert.equal(errorText(new ApiError("x", 422, { error: "Write a caption.", code: "caption-empty" })), "Write a caption.");
-  assert.match(errorText(new ApiError("x", 409, { error: "Changed.", code: "stale" })), /refreshed/);
-  assert.match(errorText(new ApiError("x", 409, { error: "Only a scheduled one.", code: "not-editable" })), /refreshed/);
-  assert.match(errorText(new TypeError("Failed to fetch")), /could not be reached/);
-  assert.equal(destinationLabel({ displayName: "Lantern", provider: "facebook", kind: "page" }), "Lantern (Facebook Page)");
-});
-
-// ------------------------------------------------------------------ the panel
-
-const flush = async () => {
-  for (let index = 0; index < 8; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
-};
-const all = (root, selector) => root.querySelectorAll(selector);
-const byData = (root, name, value) => all(root, `[${name}]`).filter((node) => (value === undefined ? true : node.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] === value));
-const button = (root, action) => byData(root, "data-action", action)[0];
-const text = (node) => node.textContent;
-
-const dest = [
-  { id: "d-1", provider: "linkedin", kind: "member", displayName: "Mikey Nichols", status: "connected" },
-  { id: "d-2", provider: "facebook", kind: "page", displayName: "Lantern Page", status: "connected" },
-];
-const found = [
-  { work: "/posts/hello/", title: "Hello", eligible: true, canonicalUrl: "https://blog.example.org/posts/hello/", reason: null },
-  { work: "/posts/draft/", title: "Secret draft", eligible: false, canonicalUrl: null, reason: { code: "post-not-published", message: "Only a published post can be announced." } },
-];
-const row = (over = {}) => ({
-  id: "a-1",
-  accountId: "d-1",
-  destination: dest[0],
-  work: "/posts/hello/",
-  canonicalUrl: "https://blog.example.org/posts/hello/",
-  caption: "A new post is live.",
-  scheduledFor: "2099-01-01T15:00:00Z",
-  status: "scheduled",
-  version: 1,
-  lastErrorCode: null,
-  editable: true,
-  ...over,
-});
-
-function fakeAdmin({ queue = [row()], fail = {} } = {}) {
-  const calls = [];
-  let current = queue;
-  const api = {
-    calls,
+// A server stand-in with state, so a click is followed by the list the real server would give.
+function server(initial = {}) {
+  const state = { overview: on(), accounts: [], connections: [], ...initial };
+  const fake = {
+    state,
+    calls: [],
+    failWith: null,
     async call(method, path, options = {}) {
-      calls.push({ method, path, json: options.json });
-      const route = `${method} ${path.split("?")[0]}`;
-      if (fail[route]) {
-        const failure = fail[route];
-        if (failure.once) delete fail[route];
-        throw failure.error;
+      this.calls.push({ method, path, body: options.json });
+      if (this.failWith) {
+        const error = this.failWith;
+        this.failWith = null;
+        throw error;
       }
-      if (route === "GET social/destinations") return { destinations: dest };
-      if (route === "GET social/posts") return { posts: found, now: "2026-11-01T12:00:00Z" };
-      if (route === "GET social/announcements") return { announcements: current };
-      if (route === "POST social/preview") return { ok: true, caption: options.json.caption.trim(), link: "https://blog.example.org/posts/hello/", scheduledFor: options.json.scheduledFor || null, problems: [] };
-      if (route === "POST social/announcements") {
-        const made = row({ id: "a-2", caption: options.json.caption, scheduledFor: options.json.scheduledFor });
-        current = [made, ...current];
-        return { announcement: made, replayed: false };
+      if (method === "GET" && path === "social/status") return structuredClone(state.overview);
+      if (method === "GET" && path === "social/accounts") return structuredClone({ accounts: state.accounts, leak: SECRET });
+      if (method === "GET" && path === "social/connections") return structuredClone({ connections: state.connections });
+      if (method === "POST" && path === "social/connections") {
+        const started = connection({ id: ID(3), provider: options.json.provider });
+        state.connections = [started, ...state.connections];
+        return { connection: started, authorizeUrl: `https://www.${options.json.provider}.com/oauth/authorize?state=abc` };
       }
-      if (route === "PATCH social/announcements" || route === "POST social/announcements/reschedule") {
-        const made = row({ ...current[0], version: 2, caption: options.json.caption ?? current[0].caption, scheduledFor: options.json.scheduledFor ?? current[0].scheduledFor });
-        current = [made];
-        return { announcement: made };
+      const select = /^social\/connections\/(.+)\/select$/.exec(path);
+      if (select) {
+        const chosen = state.connections.find((c) => c.id === select[1]);
+        const picked = chosen.destinations.find((d) => d.id === options.json.destination);
+        chosen.status = "completed";
+        state.accounts = [account({ id: ID(4), displayName: picked.name, externalId: picked.id }), ...state.accounts];
+        return { account: state.accounts[0], accessToken: SECRET };
       }
-      if (route === "POST social/announcements/cancel") {
-        const made = row({ ...current[0], status: "canceled", editable: false, version: 2 });
-        current = [made];
-        return { announcement: made };
+      const cancel = /^social\/connections\/(.+)\/cancel$/.exec(path);
+      if (cancel) {
+        state.connections.find((c) => c.id === cancel[1]).status = "canceled";
+        return {};
       }
-      throw new Error(`unexpected ${route}`);
+      const disconnect = /^social\/accounts\/(.+)\/disconnect$/.exec(path);
+      if (disconnect) {
+        Object.assign(state.accounts.find((a) => a.id === disconnect[1]), { status: "disconnected", health: "disconnected", disconnectedAt: "2026-10-29T12:00:00Z" });
+        return {};
+      }
+      const reconnect = /^social\/accounts\/(.+)\/reconnect$/.exec(path);
+      if (reconnect) {
+        const started = connection({ id: ID(5), reauthAccountId: reconnect[1] });
+        state.connections = [started, ...state.connections];
+        return { connection: started, authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization?state=def" };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
     },
   };
-  return api;
+  return fake;
 }
 
-const timers = () => ({ setTimeout: (run) => { timers.last = run; return 1; }, clearTimeout: () => {} });
-
-async function open(options) {
-  const api = fakeAdmin(options);
-  const panel = createSocialPanel({ api, zone: NY, timers: timers(), random: (() => { let n = 0; return () => `key-${String(++n).padStart(14, "0")}`; })() });
-  await panel.load();
-  return { api, panel, root: panel.element };
+async function mount(api, win) {
+  const view = createSocialAccounts({ api, win });
+  document.body.append(view.element);
+  await view.load();
+  await flush();
+  return { view, root: view.element, api };
 }
-
-const fill = (root, id, value) => {
-  const node = all(root, "select, textarea, input").find((item) => item.id.endsWith(`-${id}`));
-  node.value = value;
-  return node;
+const click = async (node) => {
+  await node.dispatch("click");
+  await flush();
 };
+const buttons = (root, action) => all(root, "button").filter((b) => b.dataset.action === action);
 
-async function compose(root, { caption = "A new post is live.", when = "2026-11-02T09:30" } = {}) {
-  fill(root, "destination", "d-1");
-  fill(root, "post", "/posts/hello/");
-  fill(root, "caption", caption);
-  fill(root, "when", when);
-}
-const submit = (root) => byData(root, "data-social-composer")[0].dispatch("submit");
-
-test("the screen loads destinations and posts into labelled fields and explains posts it cannot offer", withDom(async () => {
-  const { root } = await open();
-  const labels = all(root, "label").map(text);
-  assert.deepEqual(labels.slice(0, 4), ["Destination", "Post to announce", "Caption", "Date and time (America/New_York)"]);
-  for (const control of all(root, "select, textarea, input")) assert.ok(control.id, "every control has an id its label points at");
-  const destination = all(root, "select")[0];
-  assert.deepEqual(destination.children.map(text), ["Choose where to post", "Mikey Nichols (LinkedIn profile)", "Lantern Page (Facebook Page)"]);
-  const options = all(root, "option").filter((node) => node.parentNode.tagName === "OPTGROUP" || node.disabled);
-  assert.match(text(options[0]), /Secret draft - Only a published post can be announced\./);
-  assert.equal(options[0].disabled, true, "an unavailable post cannot be chosen");
-}));
-
-test("with nothing connected the screen says so and offers no destination", withDom(async () => {
-  const api = fakeAdmin();
-  api.call = ((original) => async (method, path, options) => (path === "social/destinations" ? { destinations: [] } : original(method, path, options)))(api.call);
-  const panel = createSocialPanel({ api, zone: NY, timers: timers() });
-  await panel.load();
-  assert.match(text(byData(panel.element, "data-social-status")[0]), /No account is connected yet/);
-  assert.equal(all(panel.element, "select")[0].disabled, true);
-}));
-
-test("a load that fails says so with a way to try again", withDom(async () => {
-  const api = fakeAdmin({ fail: { "GET social/posts": { error: new ApiError("Social publishing is not configured", 404, { error: "Social publishing is not configured" }), once: true } } });
-  const panel = createSocialPanel({ api, zone: NY, timers: timers() });
-  await panel.load();
-  const error = byData(panel.element, "data-social-load-error")[0];
-  assert.equal(error.hidden, false);
-  assert.match(text(error), /not configured/);
-  await button(error, "social-retry").dispatch("click");
-  await flush();
-  assert.equal(error.hidden, true);
-  assert.equal(all(panel.element, "select")[0].children.length, 3);
-}));
-
-test("typing a caption shows the count, and too long is said in words beside the field", withDom(async () => {
-  const { root } = await open();
-  const caption = fill(root, "caption", "hello");
-  await caption.dispatch("input");
-  assert.equal(text(byData(root, "data-social-count")[0]), "5 of 3000 characters");
-  fill(root, "caption", "a".repeat(3005));
-  await caption.dispatch("input");
-  assert.match(text(byData(root, "data-social-count")[0]), /5 characters too many/);
-  assert.equal(caption.getAttribute("aria-invalid"), "true");
-  assert.match(text(byData(root, "data-error-for", "caption")[0]), /5 characters too long/);
-}));
-
-test("the preview shows the caption, the link and the time in the author's zone", withDom(async () => {
-  const { root, api } = await open();
-  await compose(root);
-  await fill(root, "caption", "A new post is live.").dispatch("input");
-  await timers.last();
-  await flush();
-  const preview = byData(root, "data-social-preview")[0];
-  assert.match(text(byData(preview, "data-preview-to")[0]), /To Mikey Nichols \(LinkedIn profile\)/);
-  assert.equal(text(byData(preview, "data-preview-caption")[0]), "A new post is live.");
-  assert.equal(text(byData(preview, "data-preview-link")[0]), "https://blog.example.org/posts/hello/");
-  assert.match(text(byData(preview, "data-preview-when")[0]), /09:30.*2026-11-02 14:30 UTC/);
-  const sent = api.calls.find((call) => call.path === "social/preview").json;
-  assert.deepEqual(sent, { provider: "linkedin", caption: "A new post is live.", work: "/posts/hello/", scheduledFor: "2026-11-02T14:30:00Z", timeZone: NY });
-}));
-
-test("a clock-change time is explained in the preview before anything is sent", withDom(async () => {
-  const { root } = await open();
-  await compose(root, { when: "2026-11-01T01:30" });
-  await fill(root, "when", "2026-11-01T01:30").dispatch("input");
-  await timers.last();
-  await flush();
-  assert.match(text(byData(root, "data-preview-notes")[0]), /happens twice/);
-}));
-
-test("submitting an incomplete form lists what to fix, beside the fields, and sends nothing", withDom(async () => {
-  const { root, api } = await open();
-  await submit(root);
-  const box = byData(root, "data-social-problems")[0];
-  assert.equal(box.hidden, false);
-  assert.match(text(box), /There are 4 things to fix/);
-  for (const name of ["destination", "post", "caption", "time"]) {
-    assert.equal(byData(root, "data-error-for", name)[0].hidden, false, name);
-    assert.equal(all(root, "select, textarea, input").find((item) => item.id.endsWith(name === "time" ? "-when" : `-${name}`)).getAttribute("aria-invalid"), "true");
+test("not set up: the page says so, offers nothing, and names an invalid setting without its value", withDom(async () => {
+  for (const [overview, expected] of [
+    [{ enabled: false, state: "off" }, OFF_TEXT.off],
+    [{ enabled: false, state: "invalid", problems: ["OPENBLOG_SOCIAL_ENDPOINT"] }, OFF_TEXT.invalid],
+    [{ enabled: false, state: "unavailable", message: "The social function says social publishing is not enabled." }, "The social function says social publishing is not enabled."],
+  ]) {
+    const api = server({ overview });
+    const { root } = await mount(api);
+    assert.ok(text(one(root, "[data-social-off]") || all(root, "p").find((p) => p.dataset.socialOff)).includes(expected.slice(0, 40)));
+    assert.equal(all(root, "button").filter((b) => b.dataset.action === "social-connect").length, 0);
+    assert.deepEqual(api.calls.map((c) => c.path), ["social/status"], "no accounts or connections are requested when it is off");
+    if (overview.problems) assert.ok(text(root).includes("OPENBLOG_SOCIAL_ENDPOINT"));
   }
-  assert.equal(api.calls.some((call) => call.method === "POST" && call.path === "social/announcements"), false);
-  assert.equal(root.ownerDocument?.activeElement ?? globalThis.document.activeElement, box, "focus moves to the list of problems");
 }));
 
-test("a skipped clock time is refused with its own explanation", withDom(async () => {
-  const { root, api } = await open();
-  await compose(root, { when: "2026-03-08T02:30" });
-  await submit(root);
-  assert.match(text(byData(root, "data-error-for", "time")[0]), /does not exist in your time zone/);
-  assert.equal(api.calls.some((call) => call.path === "social/announcements" && call.method === "POST"), false);
+test("connect: each provider shows the permissions it asks for in plain words, the exact redirect, and its version", withDom(async () => {
+  const { root } = await mount(server());
+  const cards = all(root, "li").filter((li) => li.dataset.provider);
+  assert.deepEqual(cards.map((c) => c.dataset.provider), ["linkedin", "facebook"]);
+  const card = cards[0];
+  const summary = text(all(card, "summary")[0]);
+  assert.match(summary, /Review the permissions LinkedIn will be asked for/);
+  const scopes = all(card, "li").map(text);
+  assert.ok(scopes.some((line) => line.startsWith(SCOPE_WORDS.w_member_social) && line.includes("w_member_social") && !line.includes("(optional)")));
+  assert.ok(scopes.some((line) => line.includes("r_organization_admin") && line.includes("(optional)")), "an optional scope is labelled");
+  assert.equal(text(one(card, "code") && all(card, "code").find((c) => c.dataset.socialRedirect)), linkedin.redirectUri);
+  assert.match(text(card), /API version 202510\. Verify it is still current/);
+  const connect = buttons(card, "social-connect")[0];
+  assert.equal(text(connect), "Connect LinkedIn");
+  assert.ok(connect.attributes["aria-describedby"], "the button is described by the note that nothing is connected yet");
 }));
 
-test("a valid submit sends UTC, the zone and a key; then says what happened and clears the form", withDom(async () => {
-  const { root, api } = await open();
-  await compose(root);
-  await submit(root);
-  await flush();
-  const create = api.calls.find((call) => call.method === "POST" && call.path === "social/announcements");
-  assert.deepEqual(create.json, { accountId: "d-1", work: "/posts/hello/", caption: "A new post is live.", scheduledFor: "2026-11-02T14:30:00Z", timeZone: NY, idempotencyKey: "key-00000000000001" });
-  assert.match(text(byData(root, "data-social-status")[0]), /^Scheduled for .*Mikey Nichols \(LinkedIn profile\)\.$/);
-  assert.equal(all(root, "textarea")[0].value, "", "the form is cleared");
-  assert.equal(byData(root, "data-social-problems")[0].hidden, true);
-  assert.equal(all(root, "li").filter((node) => node.dataset.announcement).length, 2, "the queue was refreshed");
+test("no provider configured, and a skipped provider setting, are both said plainly", withDom(async () => {
+  const { root } = await mount(server({ overview: on([], ["OPENBLOG_SOCIAL_LINKEDIN_API_VERSION"]) }));
+  assert.ok(all(root, "p").some((p) => p.dataset.socialNoProviders));
+  assert.ok(text(root).includes("OPENBLOG_SOCIAL_LINKEDIN_API_VERSION"));
 }));
 
-test("a retry of the same announcement keeps its key, and a changed one gets a new key", withDom(async () => {
-  const lost = new TypeError("Failed to fetch");
-  const { root, api } = await open({ fail: { "POST social/announcements": { error: lost, once: true } } });
-  await compose(root);
-  await submit(root);
-  await flush();
-  assert.match(text(byData(root, "data-social-problems")[0]), /could not be reached/);
-  await submit(root);
-  await flush();
-  const keys = api.calls.filter((call) => call.path === "social/announcements" && call.method === "POST").map((call) => call.json.idempotencyKey);
-  assert.deepEqual(keys, ["key-00000000000001", "key-00000000000001"], "the same composed announcement is the same request");
-
-  const second = await open({ fail: { "POST social/announcements": { error: lost, once: true } } });
-  await compose(second.root);
-  await submit(second.root);
-  await flush();
-  await compose(second.root, { caption: "Different words." });
-  await submit(second.root);
-  await flush();
-  const different = second.api.calls.filter((call) => call.path === "social/announcements" && call.method === "POST").map((call) => call.json.idempotencyKey);
-  assert.notEqual(different[0], different[1]);
+test("connecting posts only the provider, then offers a link that opens the provider in a new tab and takes focus", withDom(async (dom) => {
+  const api = server();
+  const { root } = await mount(api);
+  await click(buttons(root, "social-connect")[0]);
+  assert.deepEqual(api.calls.find((c) => c.method === "POST"), { method: "POST", path: "social/connections", body: { provider: "linkedin" } });
+  const continueLink = link(root, "social-continue");
+  assert.equal(continueLink.attributes.href, "https://www.linkedin.com/oauth/authorize?state=abc");
+  assert.equal(continueLink.attributes.target, "_blank");
+  assert.equal(continueLink.attributes.rel, "noopener noreferrer");
+  assert.equal(dom.document.activeElement, continueLink);
+  assert.match(text(one(root, "[data-social-status]") || all(root, "p").find((p) => p.dataset.socialStatus)), /Continue to LinkedIn to approve access/);
+  assert.match(text(root), /Waiting for LinkedIn/);
+  assert.ok(buttons(root, "social-cancel").length === 1 && buttons(root, "social-check").length === 1);
+  await click(buttons(root, "social-cancel")[0]);
+  assert.equal(link(root, "social-continue"), null, "a canceled attempt is gone");
+  assert.ok(api.calls.some((c) => c.path === `social/connections/${ID(3)}/cancel` && c.method === "POST"));
 }));
 
-test("a create whose outcome is unknown reloads the queue and warns the announcement may exist", withDom(async () => {
-  const lost = new TypeError("Failed to fetch");
-  const { root, api } = await open({ fail: { "POST social/announcements": { error: lost, once: true } } });
-  await compose(root);
-  await submit(root);
-  await flush();
-  const after = api.calls.slice(api.calls.findIndex((call) => call.method === "POST" && call.path === "social/announcements") + 1);
-  assert.ok(after.some((call) => call.method === "GET" && call.path.startsWith("social/announcements")), "the queue is reloaded");
-  assert.match(text(root), /may already be scheduled/);
+test("a provider address that is not the provider's own is never rendered as a link", withDom(async () => {
+  for (const bad of ["https://evil.example/oauth", "http://www.linkedin.com/x", "https://www.linkedin.com.evil.example/", "https://u:p@www.linkedin.com/", "javascript:alert(1)", "https://www.linkedin.com:8443/x", null, ""]) {
+    assert.equal(safeAuthorizeUrl(bad), null, String(bad));
+  }
+  assert.equal(safeAuthorizeUrl("https://www.facebook.com/v23.0/dialog/oauth?x=1"), "https://www.facebook.com/v23.0/dialog/oauth?x=1");
+  const api = server();
+  api.call = new Proxy(api.call, {
+    apply: async (target, self, args) => {
+      const reply = await Reflect.apply(target, self, args);
+      return reply.authorizeUrl ? { ...reply, authorizeUrl: "https://evil.example/phish" } : reply;
+    },
+  });
+  const { root } = await mount(api);
+  await click(buttons(root, "social-connect")[0]);
+  assert.equal(link(root, "social-continue"), null);
+  assert.ok(all(root, "p").some((p) => p.dataset.socialNoLink), "the author is told to start again");
+  assert.ok(!text(root).includes("evil.example"));
 }));
 
-test("a refusal from the server appears beside the field it is about", withDom(async () => {
-  const refusal = new ApiError("x", 422, { error: "The caption is longer than this destination allows.", code: "caption-too-long" });
-  const { root } = await open({ fail: { "POST social/announcements": { error: refusal } } });
-  await compose(root);
-  await submit(root);
-  await flush();
-  assert.match(text(byData(root, "data-error-for", "caption")[0]), /longer than this destination allows/);
+test("after a reload an attempt still waits, but its provider link is gone and the page says to start again", withDom(async () => {
+  const { root } = await mount(server({ connections: [connection({ id: ID(6) })] }));
+  assert.match(text(root), /Waiting for LinkedIn/);
+  assert.equal(link(root, "social-continue"), null);
+  assert.ok(all(root, "p").some((p) => p.dataset.socialNoLink));
 }));
 
-test("the queue lists each announcement with its status in words, and says why a locked one cannot change", withDom(async () => {
-  const { root } = await open({ queue: [row(), row({ id: "a-9", status: "claimed", editable: false }), row({ id: "a-8", status: "failed", editable: false, lastErrorCode: "provider-rejected" })] });
-  const rows = all(root, "li").filter((node) => node.dataset.announcement);
-  assert.equal(rows.length, 3);
-  assert.match(text(byData(rows[0], "data-status-badge")[0]), /Scheduled/);
-  assert.ok(button(rows[0], "social-edit") && button(rows[0], "social-cancel"));
-  assert.equal(button(rows[1], "social-edit"), undefined, "a claimed announcement has no edit");
-  assert.match(text(byData(rows[1], "data-row-locked")[0]), /no longer be changed/);
-  assert.match(text(byData(rows[2], "data-row-error")[0]), /provider-rejected/);
-  assert.match(button(rows[0], "social-cancel").getAttribute("aria-label"), /Cancel the announcement of \/posts\/hello\//);
+test("choosing a destination: ineligible ones are shown disabled with the reason, nothing is sent without a choice, and the choice is posted once", withDom(async () => {
+  const destinations = [
+    { id: "urn:li:person:abc", kind: "member", name: "Ada Lovelace", eligible: true, reason: null },
+    { id: "urn:li:organization:7", kind: "organization", name: "Lantern Studios", eligible: false, reason: "missing-scope" },
+  ];
+  const api = server({ connections: [connection({ id: ID(7), status: "authorized", grantedScopes: ["openid", "w_member_social"], destinations, notes: [{ code: "organizations-not-approved", text: "LinkedIn refused the organization lookup." }] })] });
+  const { root } = await mount(api);
+  const form = all(root, "form")[0];
+  assert.match(text(all(form, "legend")[0]), /Choose where LinkedIn posts may go/);
+  const radios = all(form, "input");
+  assert.deepEqual(radios.map((r) => r.disabled), [false, true]);
+  for (const radio of radios) assert.ok(all(form, "label").some((label) => label.attributes.for === radio.id), "every radio has a label");
+  assert.ok(radios[1].attributes["aria-describedby"] && text(all(form, "p").find((p) => p.id === radios[1].attributes["aria-describedby"])).includes("A permission needed to post here was not granted."));
+  assert.match(text(root), /LinkedIn refused the organization lookup\./);
+  assert.match(text(root), /Post as you/);
+  // No choice: an inline message and no request.
+  const before = api.calls.length;
+  await form.dispatch("submit");
+  assert.match(text(all(form, "p").find((p) => p.attributes.role === "alert")), /Choose where posts may go first/);
+  assert.equal(api.calls.length, before);
+  radios[0].checked = true;
+  await form.dispatch("submit");
+  await flush();
+  assert.deepEqual(api.calls.find((c) => c.path.endsWith("/select")), { method: "POST", path: `social/connections/${ID(7)}/select`, body: { destination: "urn:li:person:abc" } });
+  assert.match(text(all(root, "p").find((p) => p.dataset.socialStatus)), /Ada Lovelace is connected\./);
+  assert.equal(all(root, "li").filter((li) => li.dataset.account).length, 1);
+  assert.equal(all(root, "form").length, 0, "the choice is gone once made");
 }));
 
-test("cancel asks first, keeps by default, and names the version it cancels", withDom(async () => {
-  const { root, api } = await open();
-  const list = () => all(root, "li").filter((node) => node.dataset.announcement)[0];
-  await button(list(), "social-cancel").dispatch("click");
-  assert.equal(button(list(), "social-cancel").getAttribute("aria-expanded"), "true");
-  await button(list(), "social-keep").dispatch("click");
-  assert.equal(api.calls.some((call) => call.path.startsWith("social/announcements/cancel")), false);
-  await button(list(), "social-cancel").dispatch("click");
-  await button(list(), "social-confirm-cancel").dispatch("click");
-  await flush();
-  const cancel = api.calls.find((call) => call.path.startsWith("social/announcements/cancel"));
-  assert.equal(cancel.path, "social/announcements/cancel?id=a-1");
-  assert.deepEqual(cancel.json, { version: 1 });
-  assert.equal(text(byData(root, "data-social-status")[0]), "Canceled. It will not be posted.");
-  assert.equal(list().dataset.status, "canceled");
+test("accounts show their status as words, dates, ids and granted permissions, and never a token", withDom(async () => {
+  const api = server({
+    accounts: [
+      account({ id: ID(1) }),
+      account({ id: ID(2), displayName: "Expiring Page", provider: "facebook", kind: "page", externalId: "123", health: "expiring" }),
+      account({ id: ID(3), displayName: "Lost Access", health: "needs-reauth", status: "needs-reauth" }),
+      account({ id: ID(4), displayName: "Old One", health: "disconnected", status: "disconnected", disconnectedAt: "2026-09-01T00:00:00Z", credential: null }),
+    ],
+  });
+  api.state.accounts[0].accessToken = SECRET;
+  const { root } = await mount(api);
+  const cards = all(root, "li").filter((li) => li.dataset.account);
+  assert.deepEqual(cards.map((c) => c.dataset.health), ["ok", "expiring", "needs-reauth", "disconnected"]);
+  assert.deepEqual(cards.map((c) => text(all(c, "span").find((s) => s.dataset.health))), [`${HEALTH.ok.symbol} Connected`, "! Expiring soon", "! Needs reconnecting", "– Disconnected"]);
+  assert.match(text(cards[0]), /Access valid until\s*2026-12-01/);
+  assert.match(text(cards[0]), /Connected by\s*mikey, 2026-10-01/);
+  assert.match(text(cards[0]), /urn:li:person:abc/);
+  assert.match(text(cards[0]), /Permissions granted/);
+  assert.match(text(cards[2]), /Access to this account ran out or was withdrawn\. Reconnect it, signing in as the same account/);
+  assert.ok(all(cards[2], "button").find((b) => b.dataset.action === "social-reconnect").className.includes("oba-btn-primary"), "expired access leads with Reconnect");
+  assert.ok(!all(cards[0], "button").find((b) => b.dataset.action === "social-reconnect").className.includes("oba-btn-primary"));
+  assert.equal(all(cards[3], "button").length, 0, "a disconnected account has no actions");
+  assert.match(text(cards[3]), /Disconnected\s*2026-09-01/);
+  assert.ok(!text(root).includes(SECRET));
+  for (const control of all(root, "button")) assert.ok(text(control) && (control.attributes["aria-label"] || text(control)).length > 3);
 }));
 
-test("an edit sends the caption with its version, a time-only change reschedules, and no change is said so", withDom(async () => {
-  const { root, api } = await open();
-  const rowOf = () => all(root, "li").filter((node) => node.dataset.announcement)[0];
-  await button(rowOf(), "social-edit").dispatch("click");
-  const panel = () => all(rowOf(), "div").find((node) => node.dataset.mode === "edit");
-  await button(panel(), "social-save").dispatch("click");
-  assert.match(text(all(panel(), "p").find((node) => node.getAttribute("role") === "alert")), /Nothing has changed/);
-  assert.equal(api.calls.some((call) => call.method !== "GET"), false);
-
-  const when = all(panel(), "input")[0];
-  when.value = "2099-02-03T10:15";
-  await button(panel(), "social-save").dispatch("click");
-  await flush();
-  const move = api.calls.find((call) => call.path.startsWith("social/announcements/reschedule"));
-  assert.deepEqual(move.json, { version: 1, scheduledFor: "2099-02-03T15:15:00Z", timeZone: NY });
-
-  await button(rowOf(), "social-edit").dispatch("click");
-  const words = all(panel(), "textarea")[0];
-  words.value = "Better words.";
-  await button(panel(), "social-save").dispatch("click");
-  await flush();
-  const edit = api.calls.find((call) => call.method === "PATCH");
-  assert.equal(edit.path, "social/announcements?id=a-1");
-  assert.deepEqual(edit.json, { version: 2, caption: "Better words." });
+test("disconnect asks first, says what it does, can be backed out of, and then reports and moves focus", withDom(async (dom) => {
+  const api = server({ accounts: [account({ id: ID(1) })] });
+  const { root } = await mount(api);
+  const open = buttons(root, "social-disconnect")[0];
+  assert.equal(open.attributes["aria-label"], "Disconnect Ada Lovelace");
+  await click(open);
+  assert.equal(api.calls.filter((c) => c.path.includes("disconnect")).length, 0, "opening the question changes nothing");
+  assert.equal(buttons(root, "social-disconnect")[0].attributes["aria-expanded"], "true");
+  const confirm = all(root, "div").find((d) => d.dataset.socialConfirm);
+  assert.match(text(confirm), /Its stored tokens are erased/);
+  assert.match(text(confirm), /stays in your history/);
+  assert.equal(dom.document.activeElement.dataset.confirmText, ID(1), "focus moves to the question");
+  await click(buttons(root, "social-disconnect-cancel")[0]);
+  assert.equal(all(root, "div").find((d) => d.dataset.socialConfirm), undefined);
+  assert.equal(api.calls.filter((c) => c.path.includes("disconnect")).length, 0);
+  await click(buttons(root, "social-disconnect")[0]);
+  await click(buttons(root, "social-disconnect-confirm")[0]);
+  assert.deepEqual(api.calls.find((c) => c.path.includes("disconnect")), { method: "POST", path: `social/accounts/${ID(1)}/disconnect`, body: {} });
+  assert.match(text(all(root, "p").find((p) => p.dataset.socialStatus)), /Ada Lovelace is disconnected\. Its stored tokens were erased\./);
+  assert.equal(all(root, "li").find((li) => li.dataset.account).dataset.health, "disconnected");
+  assert.equal(dom.document.activeElement.id.endsWith("-accounts"), true, "focus returns to the accounts heading");
 }));
 
-test("a lost race refreshes the queue and says the announcement changed", withDom(async () => {
-  const stale = new ApiError("x", 409, { error: "This announcement changed or was claimed just now.", code: "conflict" });
-  const { root, api } = await open({ fail: { "POST social/announcements/cancel": { error: stale, once: true } } });
-  const rowOf = () => all(root, "li").filter((node) => node.dataset.announcement)[0];
-  await button(rowOf(), "social-cancel").dispatch("click");
-  const before = api.calls.filter((call) => call.method === "GET" && call.path.startsWith("social/announcements")).length;
-  await button(rowOf(), "social-confirm-cancel").dispatch("click");
-  await flush();
-  assert.match(text(byData(root, "data-social-status")[0]), /changed or was claimed just now.*refreshed/);
-  assert.equal(api.calls.filter((call) => call.method === "GET" && call.path.startsWith("social/announcements")).length, before + 1);
+test("reconnect starts a fresh attempt for that account and offers the provider link", withDom(async () => {
+  const api = server({ accounts: [account({ id: ID(1), health: "needs-reauth", status: "needs-reauth" })] });
+  const { root } = await mount(api);
+  await click(buttons(root, "social-reconnect")[0]);
+  assert.deepEqual(api.calls.find((c) => c.path.endsWith("/reconnect")), { method: "POST", path: `social/accounts/${ID(1)}/reconnect`, body: {} });
+  assert.equal(link(root, "social-continue").attributes.href, "https://www.linkedin.com/oauth/v2/authorization?state=def");
+  assert.match(text(root), /Reconnecting LinkedIn/);
+  assert.match(text(all(root, "p").find((p) => p.dataset.socialStatus)), /sign in as the same account to reconnect Ada Lovelace/);
 }));
 
-test("the status filter asks for just that status", withDom(async () => {
-  const { root, api } = await open();
-  const filter = all(root, "select").find((node) => node.id.endsWith("-filter"));
-  filter.value = "published";
-  await filter.dispatch("change");
-  await flush();
-  assert.ok(api.calls.some((call) => call.path === "social/announcements?status=published"));
+test("a failed attempt is explained with its reasons; an error is announced and the controls come back", withDom(async () => {
+  const failed = connection({ id: ID(8), status: "failed", errorCode: "no-destination", message: "Nothing this app may post to was found for that account.", destinations: [{ id: "9", kind: "page", name: "Read Only Page", eligible: false, reason: "no-posting-role" }] });
+  const api = server({ connections: [failed], accounts: [account()] });
+  const { root } = await mount(api);
+  assert.match(text(all(root, "li").find((li) => li.dataset.status === "failed")), /Nothing this app may post to was found/);
+  assert.match(text(root), /Read Only Page: Your role on this Page does not let you create posts\./);
+  api.failWith = new ApiError("Too many connection attempts are open.", 429, {});
+  await click(buttons(root, "social-connect")[0]);
+  const alert = all(root, "p").find((p) => p.dataset.socialStatus);
+  assert.equal(alert.attributes.role, "alert");
+  assert.match(text(alert), /Too many connection attempts are open\./);
+  assert.ok(buttons(root, "social-connect").every((b) => !b.disabled), "controls are usable again");
 }));
 
-test("unsaved words count as unsaved work, and a scheduled form does not", withDom(async () => {
-  const { root, panel } = await open();
-  assert.equal(panel.isDirty(), false);
-  fill(root, "caption", "half written");
-  assert.equal(panel.isDirty(), true);
+test("a load error offers Try again; only one request runs at a time", withDom(async () => {
+  const api = server();
+  api.failWith = new ApiError("The social function could not be reached", 502, {});
+  const { view, root } = await mount(api);
+  assert.match(text(one(root, "[data-social-error]") || all(root, "p").find((p) => p.dataset.socialError)), /could not be reached/);
+  await click(buttons(root, "social-retry")[0]);
+  assert.ok(buttons(root, "social-connect").length === 2);
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const real = api.call.bind(api);
+  api.call = async (...args) => (args[1] === "social/connections" && args[0] === "POST" ? (await gate, real(...args)) : real(...args));
+  const first = buttons(root, "social-connect")[0].dispatch("click");
+  const second = buttons(root, "social-connect")[0].dispatch("click");
+  assert.equal(view.isBusy(), true);
+  release();
+  await Promise.all([first, second]);
+  await flush();
+  assert.equal(api.calls.filter((c) => c.method === "POST" && c.path === "social/connections").length, 1);
+  assert.equal(view.isBusy(), false);
+  assert.equal(view.isDirty(), false);
+}));
+
+test("coming back to the tab refreshes only while an attempt is waiting, and destroy stops listening", withDom(async () => {
+  const listeners = new Map();
+  const win = { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: (name) => listeners.delete(name) };
+  const idle = server();
+  const { view: first } = await mount(idle, win);
+  const loads = () => idle.calls.filter((c) => c.path === "social/status").length;
+  const before = loads();
+  await listeners.get("focus")();
+  await flush();
+  assert.equal(loads(), before, "nothing is waiting, so nothing is fetched");
+  first.destroy();
+  assert.equal(listeners.has("focus"), false);
+
+  const waiting = server({ connections: [connection({ id: ID(6) })] });
+  await mount(waiting, win);
+  const count = waiting.calls.filter((c) => c.path === "social/status").length;
+  await listeners.get("focus")();
+  await flush();
+  assert.equal(waiting.calls.filter((c) => c.path === "social/status").length, count + 1);
+}));
+
+test("a view that left the page stops polling on the next focus, even if destroy was never called", withDom(async () => {
+  const listeners = new Map();
+  const win = { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: (name) => listeners.delete(name) };
+  const api = server({ connections: [connection()] });
+  const { view } = await mount(api, win);
+  Object.defineProperty(view.element, "isConnected", { value: false });
+  const before = api.calls.length;
+  await listeners.get("focus")();
+  await flush();
+  assert.equal(api.calls.length, before, "no social request once the view is detached");
+  assert.equal(listeners.has("focus"), false);
 }));

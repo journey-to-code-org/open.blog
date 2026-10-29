@@ -5794,6 +5794,212 @@ ob-voice-library {
   overflow-wrap: anywhere;
 }
 
+/* The Capture view (ADR 0296): designed at 400px first. One column, 44px or larger targets, every name wraps. */
+.oba-capture {
+  display: grid;
+  gap: 1rem;
+  max-width: 36rem;
+  min-width: 0;
+}
+.oba-capture-lead {
+  margin: 0;
+  color: var(--ob-color-muted);
+}
+.oba-capture-photo-row {
+  position: relative;
+  min-width: 0;
+}
+.oba-capture-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+.oba-capture-file:focus-visible + .oba-capture-add {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
+}
+.oba-capture-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  box-sizing: border-box;
+  font-size: 1.15rem;
+  text-align: center;
+}
+.oba-capture-photos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.oba-capture-photos[hidden],
+.oba-capture-chips[hidden] {
+  display: none;
+}
+.oba-capture-photo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.oba-capture-photo img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--ob-radius-sm);
+}
+.oba-capture-photo-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-capture .oba-field input[type="text"],
+.oba-capture .oba-field select,
+.oba-capture .oba-field textarea {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  font-size: 1rem;
+}
+.oba-capture-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.oba-capture-chip {
+  min-height: 44px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.oba-capture-save {
+  min-height: 56px;
+  font-size: 1.05rem;
+}
+.oba-capture-status,
+.oba-capture-saved {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.oba-capture-status:empty,
+.oba-capture-saved:empty {
+  display: none;
+}
+.oba-capture-voice {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.oba-capture-voice-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.oba-capture-voice .oba-btn {
+  min-height: 56px;
+  font-size: 1.05rem;
+}
+.oba-capture-voice audio {
+  width: 100%;
+  max-width: 100%;
+}
+.oba-capture-voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.oba-capture-voice-actions .oba-btn {
+  flex: 1 1 8rem;
+}
+.oba-capture-timer {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.oba-capture-ai {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.oba-capture-ai[hidden] {
+  display: none;
+}
+.oba-capture-ai .oba-btn {
+  min-height: 48px;
+  max-width: 100%;
+}
+.oba-capture-ai-heading,
+.oba-capture-ai-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.oba-capture-ai-sends {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.2rem;
+  overflow-wrap: anywhere;
+}
+.oba-capture-ai .oba-help,
+.oba-capture-ai p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.oba-capture-draft-form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.oba-capture-ai .oba-capture-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 44px;
+}
+.oba-capture-pending {
+  min-width: 0;
+  padding-top: 0.75rem;
+  border-top: var(--ob-border-width) solid var(--ob-color-border);
+}
+.oba-capture-pending[hidden] {
+  display: none;
+}
+.oba-capture-pending h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.oba-capture-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.oba-capture-pending-item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-capture-pending-state {
+  color: var(--ob-color-muted);
+  font-size: 0.9rem;
+}
+.oba-capture-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.oba-capture-pending-actions .oba-btn {
+  min-height: 44px;
+}
+
 /* Earlier versions of the landing page (ADR 0264). Everything wraps; nothing depends on a font's width. */
 .oba-history-wrap {
   margin: 16px 0;
@@ -5980,110 +6186,47 @@ ob-voice-library {
   min-width: 0;
 }
 
-/* Social announcements (ADR 0472). One column, wrapping text, no fixed widths: the screen reads the
-   same on a phone and does not depend on a font's metrics. */
+/* Connected social accounts (ADR 0301). One column on a phone; cards wrap long ids and never push the page
+   sideways, whatever the font. Status is a word and a symbol, never a colour alone. */
 .oba-social {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.oba-social ul {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.oba-social-providers,
+.oba-social-attempts,
+.oba-social-accounts {
   display: grid;
-  gap: 1.5rem;
+  gap: 0.75rem;
+}
+
+.oba-social-provider,
+.oba-social-pending,
+.oba-social-failed,
+.oba-social-account {
   min-width: 0;
-}
-
-.oba-social > *,
-.oba-social-composer > *,
-.oba-social-row > * {
-  min-width: 0;
-}
-
-.oba-social-status:empty {
-  display: none;
-}
-
-.oba-social-status {
-  margin: 0;
-  padding: 0.5rem 0.75rem;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
+  padding: 0.75rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 0.5rem;
   overflow-wrap: anywhere;
 }
 
-.oba-social-composer {
-  display: grid;
-  gap: 0.25rem;
-}
-
-.oba-social-composer h2,
-.oba-social-queue h2 {
+.oba-social-provider h4,
+.oba-social-pending h4,
+.oba-social-account h4 {
   margin: 0 0 0.25rem;
 }
 
-.oba-social-count[data-over="true"] {
-  color: var(--oba-danger);
-  font-weight: 700;
-}
-
-.oba-social-problems ul {
-  margin: 0.25rem 0 0;
-  padding-inline-start: 1.25rem;
-}
-
-.oba-social-preview {
-  margin: 0 0 1rem;
-}
-
-.oba-social-preview h3 {
-  margin: 0 0 0.5rem;
-}
-
-.oba-social-card {
-  display: grid;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
-  background: var(--ob-color-surface);
-  overflow-wrap: anywhere;
-}
-
-.oba-social-card > p {
-  margin: 0;
-}
-
-.oba-social-card-caption,
-.oba-social-caption {
-  white-space: pre-wrap;
-}
-
-.oba-social-url {
-  overflow-wrap: anywhere;
-  text-decoration: underline;
-}
-
-.oba-social-list {
-  display: grid;
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.oba-social-row {
-  display: grid;
-  gap: 0.35rem;
-  padding: 0.75rem;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
-  background: var(--ob-color-surface);
-  overflow-wrap: anywhere;
-}
-
-.oba-social-row p {
-  margin: 0;
-}
-
-.oba-social-row-head {
+.oba-social-account-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.25rem 0.75rem;
 }
@@ -6094,22 +6237,220 @@ ob-voice-library {
   border: 1px solid var(--ob-color-border);
   border-radius: 999px;
   font-size: 0.85rem;
-  white-space: nowrap;
 }
 
-.oba-social-badge-published,
-.oba-social-badge-failed {
+.oba-social-badge-needs-reauth,
+.oba-social-badge-expiring {
   border-width: 2px;
   font-weight: 700;
 }
 
-.oba-social-row-actions .oba-btn,
-.oba-social-actions .oba-btn,
-.oba-social-row-panel .oba-btn {
+.oba-social-wrap {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.oba-social-facts {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.5rem 0;
+}
+
+.oba-social-facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  min-width: 0;
+}
+
+.oba-social-facts dt {
+  font-weight: 600;
+}
+
+.oba-social-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-social-scopes li,
+.oba-social-notes li {
+  margin: 0.15rem 0;
+}
+
+.oba-social-destinations li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.5rem;
+  align-items: start;
+  padding: 0.5rem 0;
+  min-width: 0;
+}
+
+.oba-social-destinations input {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0.1rem 0 0;
+}
+
+.oba-social-destinations label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-social-why {
+  grid-column: 2;
+  margin: 0;
+}
+
+.oba-social .oba-btn {
   min-height: 44px;
 }
 
-.oba-social-row-panel {
+.oba-social fieldset {
+  min-width: 0;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 0.5rem;
+}
+
+@media (min-width: 720px) {
+  .oba-social-providers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Social announcements (ADR 0307). One column, wrapping text, no fixed widths: the screen reads the
+   same on a phone and does not depend on a font's metrics. */
+.oba-announce {
+  display: grid;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.oba-announce > *,
+.oba-announce-composer > *,
+.oba-announce-row > * {
+  min-width: 0;
+}
+
+.oba-announce-status:empty {
+  display: none;
+}
+
+.oba-announce-status {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  overflow-wrap: anywhere;
+}
+
+.oba-announce-composer {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.oba-announce-composer h2,
+.oba-announce-queue h2 {
+  margin: 0 0 0.25rem;
+}
+
+.oba-announce-count[data-over="true"] {
+  color: var(--oba-danger);
+  font-weight: 700;
+}
+
+.oba-announce-problems ul {
+  margin: 0.25rem 0 0;
+  padding-inline-start: 1.25rem;
+}
+
+.oba-announce-preview {
+  margin: 0 0 1rem;
+}
+
+.oba-announce-preview h3 {
+  margin: 0 0 0.5rem;
+}
+
+.oba-announce-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  overflow-wrap: anywhere;
+}
+
+.oba-announce-card > p {
+  margin: 0;
+}
+
+.oba-announce-card-caption,
+.oba-announce-caption {
+  white-space: pre-wrap;
+}
+
+.oba-announce-url {
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+}
+
+.oba-announce-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-announce-row {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  overflow-wrap: anywhere;
+}
+
+.oba-announce-row p {
+  margin: 0;
+}
+
+.oba-announce-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.oba-announce-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.oba-announce-badge-published,
+.oba-announce-badge-failed {
+  border-width: 2px;
+  font-weight: 700;
+}
+
+.oba-announce-row-actions .oba-btn,
+.oba-announce-actions .oba-btn,
+.oba-announce-row-panel .oba-btn {
+  min-height: 44px;
+}
+
+.oba-announce-row-panel {
   display: grid;
   gap: 0.5rem;
   padding-top: 0.5rem;

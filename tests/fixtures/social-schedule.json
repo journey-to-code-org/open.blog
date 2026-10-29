@@ -1,5 +1,5 @@
 {
-  "about": "Announcement rules for optional social publishing (ADR 0470). crates/openblog-core/src/social_schedule.rs and netlify/lib/social-schedule.mjs must accept and refuse exactly these.",
+  "about": "Announcement rules for optional social publishing (ADR 0305). crates/openblog-core/src/social_schedule.rs and netlify/lib/social-schedule.mjs must accept and refuse exactly these.",
   "now": "2026-11-01T12:00:00Z",
   "captionLimit": 3000,
   "providers": { "accepted": ["linkedin", "facebook"], "refused": ["", "LinkedIn", "twitter", "x", "threads", "instagram", "linkedin ", "facebook\n"] },

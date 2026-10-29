@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// The Social screen in Admin (ADR 0472, #369), from the real binary and the real Admin Studio, with
+// The Social screen in Admin (ADR 0307, #369), from the real binary and the real Admin Studio, with
 // the real hosted routes (netlify/lib/social-announcements.mjs) behind a local HTTP server over an
 // in-memory stand-in for Supabase. No real network and no real provider: nothing is ever posted.
 // It proves the whole path: the browser talks only to Admin, Admin checks the post and builds the
@@ -92,7 +92,8 @@ test.beforeAll(async () => {
     for await (const chunk of request) chunks.push(chunk);
     const url = new URL(request.url, "http://127.0.0.1");
     sawKey.push(request.headers.authorization === `Bearer ${ADMIN_KEY}` && request.headers["x-openblog-actor"] === "writer");
-    const result = await handle({ method: request.method, route: url.pathname.replace(/^\/social-schedule\//, ""), query: url.searchParams, headers: request.headers, body: chunks.length ? Buffer.concat(chunks).toString("utf8") : undefined });
+    const route = url.pathname.replace(/^\/social\//, "");
+    const result = route === "status" ? { status: 200, body: { enabled: true, providers: [], problems: [] } } : await handle({ method: request.method, route,query: url.searchParams, headers: request.headers, body: chunks.length ? Buffer.concat(chunks).toString("utf8") : undefined });
     response.writeHead(result.status, { "content-type": "application/json" });
     response.end(JSON.stringify(result.body));
   });
@@ -100,7 +101,7 @@ test.beforeAll(async () => {
   await once(hosted, "listening");
   const hostedPort = hosted.address().port;
 
-  on = await startAdmin({ OPENBLOG_SOCIAL_ENABLED: "true", OPENBLOG_SOCIAL_ENDPOINT: `http://127.0.0.1:${hostedPort}/social-schedule`, OPENBLOG_SOCIAL_ADMIN_KEY: ADMIN_KEY });
+  on = await startAdmin({ OPENBLOG_SOCIAL_ENABLED: "true", OPENBLOG_SOCIAL_ENDPOINT: `http://127.0.0.1:${hostedPort}/social`, OPENBLOG_SOCIAL_ADMIN_KEY: ADMIN_KEY });
   const cleared = { OPENBLOG_SOCIAL_ENABLED: "", OPENBLOG_SOCIAL_ENDPOINT: "", OPENBLOG_SOCIAL_ADMIN_KEY: "" };
   off = await startAdmin(cleared);
 });
@@ -135,7 +136,7 @@ async function signIn(page, origin) {
 
 async function openSocial(page) {
   await signIn(page, on.origin);
-  await page.getByRole("link", { name: "Social", exact: true }).click();
+  await page.getByRole("link", { name: "Announcements", exact: true }).click();
   await expect(page.locator("[data-social-screen]")).toBeVisible();
   await expect(page.getByLabel("Destination", { exact: true })).toBeEnabled();
 }
@@ -157,10 +158,10 @@ async function compose(page, { caption = "Lanterns are lit: a new post is up.", 
 test("the Social tab exists only where social publishing is set up", async ({ page }) => {
   await signIn(page, off.origin);
   await expect(page.locator('[data-action="logout"]')).toBeVisible();
-  await expect(page.getByRole("link", { name: "Social", exact: true })).toHaveCount(0);
-  await page.goto(`${off.origin}/admin/#/social`);
+  await expect(page.getByRole("link", { name: "Announcements", exact: true })).toHaveCount(0);
+  await page.goto(`${off.origin}/admin/#/announcements`);
   await expect(page.locator("[data-social-load-error]")).toContainText("not configured");
-  await expect(page.getByRole("link", { name: "Social", exact: true })).toHaveCount(1); // open on the route, so it is marked
+  await expect(page.getByRole("link", { name: "Announcements", exact: true })).toHaveCount(1); // open on the route, so it is marked
 });
 
 test("an announcement is composed, previewed in the author's zone, scheduled, edited and canceled", async ({ page }) => {

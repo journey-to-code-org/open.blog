@@ -1,629 +1,408 @@
-// Admin "Social" screen (epic #353, story #356, ADR 0472): compose an announcement of a published
-// post for a connected account, see how it will look, choose a time in the author's own zone, and
-// manage the queue (edit, reschedule, cancel). Everything here talks to Admin's own
-// /admin/api/social/* routes; the browser never sees a key, a token or Supabase.
+// <ob-social-accounts>: the Connected accounts screen of optional social publishing (ADR 0301).
+// An author connects LinkedIn or Facebook, reviews the permissions asked for, chooses where posts
+// may go, and reconnects or disconnects an account. Everything here is a request to the Admin
+// server, which holds the key to the hosted function: this page never sees a token, a client
+// secret or a database, and it shows only what the server rebuilt for it.
 //
-// The pure helpers at the top carry the rules a person needs while typing (the time in their zone
-// as a UTC instant, the caption count, the words for a status or an error) and are tested without
-// a DOM. The panel below builds labelled, keyboard-operable controls with the shared `el()`; it
-// never writes markup from data, only text nodes.
+// Status is spoken as words plus a symbol (never colour alone), every control is a native button,
+// link, fieldset or radio, focus goes somewhere sensible after each change, and the layout is one
+// column that wraps long ids, so it does not depend on any font's width.
 
 import { el } from "./block-forms.js";
 
-export const CAPTION_LIMIT = 3000;
-const PREVIEW_DELAY_MS = 350;
-
-// ---------------------------------------------------------------------- time
-
-/** The browser's own IANA zone name, or "UTC" where it cannot say. */
-export function browserZone() {
-  try {
-    return new Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-const PARTS = { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" };
-
-/** Minutes the zone is ahead of UTC at the instant `ms` (negative west of Greenwich). */
-export function zoneOffsetMinutes(ms, zone) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { ...PARTS, timeZone: zone }).formatToParts(new Date(ms)).map((part) => [part.type, part.value]));
-  const asUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour) % 24, Number(parts.minute), Number(parts.second));
-  return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / 60000);
-}
-
-const LOCAL_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
-
-/**
- * A wall-clock time in `zone` ("2026-11-02T09:30", what a datetime-local field holds) as the UTC
- * instant it names. A time the clocks skip over does not exist (`nonexistent`); a time they repeat
- * happens twice, and the earlier one is used (`ambiguous`).
- */
-export function localToInstant(value, zone) {
-  const match = LOCAL_INPUT.exec(String(value ?? ""));
-  if (!match) return { ok: false, code: value ? "invalid" : "missing" };
-  const [year, month, day, hour, minute] = match.slice(1).map(Number);
-  const wall = Date.UTC(year, month - 1, day, hour, minute);
-  const real = new Date(wall);
-  if (real.getUTCFullYear() !== year || real.getUTCMonth() !== month - 1 || real.getUTCDate() !== day || real.getUTCHours() !== hour || real.getUTCMinutes() !== minute) {
-    return { ok: false, code: "invalid" };
-  }
-  try {
-    const offsets = new Set([zoneOffsetMinutes(wall - 86400000, zone), zoneOffsetMinutes(wall + 86400000, zone), zoneOffsetMinutes(wall, zone)]);
-    const found = [...offsets].map((offset) => wall - offset * 60000).filter((candidate) => zoneOffsetMinutes(candidate, zone) === (wall - candidate) / 60000);
-    const unique = [...new Set(found)].sort((a, b) => a - b);
-    if (!unique.length) return { ok: false, code: "nonexistent" };
-    return { ok: true, iso: `${new Date(unique[0]).toISOString().slice(0, 16)}:00Z`, ambiguous: unique.length > 1 };
-  } catch {
-    return { ok: false, code: "zone" };
-  }
-}
-
-/** A UTC instant as the value for a datetime-local field in `zone`. */
-export function instantToLocalInput(iso, zone) {
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return "";
-  const shifted = new Date(ms + zoneOffsetMinutes(ms, zone) * 60000);
-  return shifted.toISOString().slice(0, 16);
-}
-
-/** "Mon, 2 Nov 2026, 09:30 GMT" for an instant in `zone`; the ISO text if it cannot be read. */
-export function formatWhen(iso, zone) {
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return String(iso ?? "");
-  try {
-    return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: zone, timeZoneName: "short" }).format(new Date(ms));
-  } catch {
-    return new Date(ms).toISOString();
-  }
-}
-
-// ------------------------------------------------------------------- caption
-
-/** Characters as the server counts them (code points of the trimmed text), against the limit. */
-export function captionCount(text, limit = CAPTION_LIMIT) {
-  const count = Array.from(String(text ?? "").replace(/\r\n?/g, "\n").trim()).length;
-  const over = count > limit;
-  return { count, limit, over, text: over ? `${count - limit} characters too many (${count} of ${limit})` : `${count} of ${limit} characters` };
-}
-
-/** A fresh idempotency key: one per composed announcement, kept across retries of the same one. */
-export function newKey(cryptoSource = globalThis.crypto) {
-  const bytes = new Uint8Array(16);
-  if (cryptoSource?.getRandomValues) cryptoSource.getRandomValues(bytes);
-  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
-  return `ob-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-}
-
-// -------------------------------------------------------------------- words
-
-/** A status as a word and a shape, never a color alone. */
-export const STATUS_BADGES = Object.freeze({
-  scheduled: { symbol: "◷", text: "Scheduled" },
-  claimed: { symbol: "…", text: "Sending" },
-  published: { symbol: "✓", text: "Published" },
-  failed: { symbol: "✕", text: "Failed" },
-  canceled: { symbol: "⊘", text: "Canceled" },
-  unknown: { symbol: "?", text: "Needs checking" },
-});
-
-const WHY_LOCKED = Object.freeze({
-  claimed: "A sender has picked this up, so it can no longer be changed.",
-  published: "This was posted, so it can no longer be changed.",
-  failed: "This failed. Schedule a new announcement to try again.",
-  canceled: "This was canceled.",
-  unknown: "The result is not known yet; it will not be sent again until it is checked.",
-});
-
-export const lockedReason = (status) => WHY_LOCKED[status] || "";
-
-/** Which field a server error code belongs to: destination, post, caption, time, or general. */
-export function fieldForCode(code) {
-  if (/^caption-/.test(code || "")) return "caption";
-  if (/^time-/.test(code || "")) return "time";
-  if (/^(post-|canonical-|url-)/.test(code || "")) return "post";
-  if (/^(destination-|unsupported-provider|invalid-account)/.test(code || "")) return "destination";
-  return "general";
-}
-
-/** The sentence to show for a failed call. A server message is already plain text with no secrets. */
-export function errorText(error) {
-  const message = error?.data?.error || (error?.status ? error.message : "");
-  if (["stale", "conflict", "not-editable"].includes(error?.data?.code)) return `${message} The list has been refreshed.`;
-  if (message) return message;
-  return "Admin could not be reached. Check your connection and try again.";
-}
-
-const providerName = (provider) => ({ linkedin: "LinkedIn", facebook: "Facebook" })[provider] || String(provider || "");
-const kindName = (kind) => ({ member: "profile", page: "Page" })[kind] || String(kind || "");
-
-/** "Mikey Nichols (LinkedIn profile)". */
-export const destinationLabel = (destination) => (destination ? `${destination.displayName} (${providerName(destination.provider)} ${kindName(destination.kind)})` : "Unknown destination");
-
-// --------------------------------------------------------------------- panel
-
 let uid = 0;
-const nextId = (prefix) => `${prefix}-${++uid}`;
 
-function field({ id, label, control, hint, error }) {
-  return el("div", { class: "oba-field oba-social-field", "data-field": id }, el("label", { for: control.id }, label), control, hint || null, error || null);
+/** Only these two hosts may be the target of "Continue to the provider"; the server checks too. */
+export const AUTHORIZE_HOSTS = Object.freeze(["www.linkedin.com", "www.facebook.com"]);
+
+export function safeAuthorizeUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return url.protocol === "https:" && !url.username && !url.password && !url.port && AUTHORIZE_HOSTS.includes(url.hostname) ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
-/**
- * The Social screen. `api.call(method, path, { json })` is Admin's client; its errors carry `status`
- * and `data` (`{ error, code, version }`). Resolves nothing itself: `load()` fills it.
- */
-export function createSocialPanel({ api, zone = browserZone(), timers = globalThis, random = newKey } = {}) {
-  const ids = nextId("oba-social");
-  let destinations = [];
-  let posts = [];
-  let announcements = [];
-  let busy = 0;
-  let key = null;
-  let keyFor = "";
-  let previewTicket = 0;
-  let previewTimer = null;
-  let filter = "";
+export const SCOPE_WORDS = Object.freeze({
+  openid: "Know who you are (sign in)",
+  profile: "Read your name",
+  w_member_social: "Post as you",
+  r_organization_admin: "See the organizations you administer",
+  w_organization_social: "Post as an organization",
+  pages_show_list: "See the Pages you manage",
+  pages_manage_posts: "Create posts on your Pages",
+  pages_read_engagement: "Read basic Page details (optional)",
+});
 
-  const status = el("p", { class: "oba-social-status", role: "status", "aria-live": "polite", tabindex: "-1", "data-social-status": "true" });
-  const loadError = el("div", { class: "oba-error", role: "alert", hidden: true, "data-social-load-error": "true" });
+export const HEALTH = Object.freeze({
+  ok: { symbol: "✓", text: "Connected" },
+  expiring: { symbol: "!", text: "Expiring soon" },
+  "needs-reauth": { symbol: "!", text: "Needs reconnecting" },
+  disconnected: { symbol: "–", text: "Disconnected" },
+});
 
-  // ---- composer
-  const destination = el("select", { id: `${ids}-destination`, name: "destination", required: true, "aria-describedby": `${ids}-destination-hint ${ids}-destination-error` });
-  const post = el("select", { id: `${ids}-post`, name: "post", required: true, "aria-describedby": `${ids}-post-hint ${ids}-post-error` });
-  const caption = el("textarea", { id: `${ids}-caption`, name: "caption", rows: "6", required: true, "aria-describedby": `${ids}-caption-count ${ids}-caption-error`, autocomplete: "off" });
-  const count = el("p", { class: "oba-small oba-social-count", id: `${ids}-caption-count`, "data-social-count": "true" });
-  const when = el("input", { id: `${ids}-when`, name: "when", type: "datetime-local", required: true, "aria-describedby": `${ids}-when-hint ${ids}-when-error` });
-  const errors = {};
-  const errorNode = (name) => (errors[name] = el("p", { class: "oba-field-error", id: `${ids}-${name}-error`, hidden: true, "data-error-for": name }));
-  const problemsBox = el("div", { class: "oba-error oba-social-problems", role: "alert", tabindex: "-1", hidden: true, "data-social-problems": "true" });
-  const submit = el("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-action": "social-schedule" }, "Schedule announcement");
-  const clear = el("button", { class: "oba-btn", type: "button", "data-action": "social-clear" }, "Clear");
-  const previewBox = el("section", { class: "oba-social-preview", "aria-labelledby": `${ids}-preview-title`, "data-social-preview": "true" });
-  const form = el("form", { class: "oba-social-composer", novalidate: true, "aria-labelledby": `${ids}-compose-title`, "data-social-composer": "true" });
+const KIND_WORDS = Object.freeze({ member: "Member", organization: "Organization", page: "Page" });
 
-  const controls = { destination, post, caption, time: when };
+export const OFF_TEXT = Object.freeze({
+  off: "Social publishing is not set up. It is optional and off by default; your blog, exports and cross-posting work the same without it. To turn it on, follow docs/social-publishing.md, then set OPENBLOG_SOCIAL_ENDPOINT and OPENBLOG_SOCIAL_ADMIN_KEY where Admin runs.",
+  invalid: "Admin's social settings are not valid, so the feature stays off. Fix these settings, then reload:",
+  unavailable: "Admin reached the social function, but it says social publishing is not enabled there. Set OPENBLOG_SOCIAL_ENABLED=true in its environment.",
+});
 
-  function setError(name, message) {
-    const node = errors[name];
-    if (node) {
-      node.textContent = message || "";
-      node.hidden = !message;
-    }
-    const control = controls[name];
-    if (control) {
-      if (message) control.setAttribute("aria-invalid", "true");
-      else control.removeAttribute("aria-invalid");
-    }
-  }
-  const clearErrors = () => {
-    for (const name of Object.keys(controls)) setError(name, "");
-    problemsBox.hidden = true;
-    problemsBox.replaceChildren();
+const day = (stamp) => (stamp ? String(stamp).slice(0, 10) : "");
+const providerName = (provider) => (provider === "linkedin" ? "LinkedIn" : provider === "facebook" ? "Facebook" : "Provider");
+const errorText = (error) => String(error?.message || "That did not work. Try again.");
+
+const badge = (health) => {
+  const info = HEALTH[health] || HEALTH["needs-reauth"];
+  return el("span", { class: `oba-social-badge oba-social-badge-${HEALTH[health] ? health : "needs-reauth"}`, "data-health": health }, el("span", { "aria-hidden": "true" }, `${info.symbol} `), info.text);
+};
+
+const scopeList = (scopes, required = null) =>
+  el(
+    "ul",
+    { class: "oba-social-scopes" },
+    scopes.map((scope) => el("li", {}, SCOPE_WORDS[scope] || "Permission", " ", el("code", {}, scope), required && !required.includes(scope) ? " (optional)" : null)),
+  );
+
+/** Returns `{ element, load, isDirty, isBusy, destroy }`. */
+export function createSocialAccounts({ api, win = globalThis.window }) {
+  const root = el("ob-social-accounts", { class: "oba-social", "data-social-accounts": "true" });
+  const ids = `oba-social-${++uid}`;
+  let generation = 0;
+  let busy = false;
+  let state = null;
+  let focusTarget = null;
+  let confirming = null;
+  // The provider address of an attempt started in this page. The server never returns it again, so a
+  // reload loses it and the author starts the attempt again.
+  const links = new Map();
+
+  const status = el("p", { class: "oba-small oba-social-status", role: "status", "aria-live": "polite", "data-social-status": "true", tabindex: "-1" });
+  const say = (text, error = false) => {
+    status.className = `oba-small oba-social-status${error ? " oba-error" : ""}`;
+    status.setAttribute("role", error ? "alert" : "status");
+    status.textContent = text;
   };
 
-  /** Shows problems beside their fields and in one list at the top, and moves focus to the first. */
-  function showProblems(list) {
-    clearErrors();
-    const lines = [];
-    for (const problem of list) {
-      const name = problem.field && controls[problem.field] ? problem.field : controls[fieldForCode(problem.code)] ? fieldForCode(problem.code) : null;
-      if (name && !errors[name].textContent) setError(name, problem.message);
-      lines.push(el("li", {}, name ? el("a", { href: `#${controls[name].id}`, onClick: (event) => { event.preventDefault?.(); controls[name].focus(); } }, problem.message) : problem.message));
-    }
-    if (!lines.length) return;
-    problemsBox.replaceChildren(el("p", {}, lines.length === 1 ? "There is 1 thing to fix before this can be scheduled:" : `There are ${lines.length} things to fix before this can be scheduled:`), el("ul", {}, lines));
-    problemsBox.hidden = false;
-    problemsBox.focus();
-  }
-
-  const selectedDestination = () => destinations.find((item) => item.id === destination.value) || null;
-  const selectedPost = () => posts.find((item) => item.work === post.value) || null;
-
-  function fillDestinations() {
-    destination.replaceChildren(
-      el("option", { value: "" }, destinations.length ? "Choose where to post" : "No connected accounts"),
-      ...destinations.map((item) => el("option", { value: item.id }, destinationLabel(item))),
-    );
-    destination.disabled = !destinations.length;
-  }
-
-  function fillPosts() {
-    const eligible = posts.filter((item) => item.eligible);
-    const blocked = posts.filter((item) => !item.eligible);
-    post.replaceChildren(
-      el("option", { value: "" }, eligible.length ? "Choose a published post" : "No published posts yet"),
-      ...eligible.map((item) => el("option", { value: item.work }, item.title)),
-      ...(blocked.length ? [el("optgroup", { label: "Not available to announce" }, blocked.map((item) => el("option", { value: item.work, disabled: true }, `${item.title} - ${item.reason?.message || "not available"}`)))] : []),
-    );
-    post.disabled = !eligible.length;
-  }
-
-  // ---- preview
-  function renderPreview(model) {
-    const chosen = selectedDestination();
-    const body = [el("h3", { id: `${ids}-preview-title` }, "Preview")];
-    if (!model) {
-      body.push(el("p", { class: "oba-small", "data-preview-empty": "true" }, "Choose a destination, a post and write a caption to see the announcement here."));
-      previewBox.replaceChildren(...body);
+  async function load() {
+    const mine = ++generation;
+    root.replaceChildren(el("h2", { id: `${ids}-title`, tabindex: "-1" }, "Social accounts"), el("p", { class: "oba-small", role: "status", "data-social-loading": "true" }, "Loading connected accounts…"));
+    try {
+      const overview = await api.call("GET", "social/status");
+      let accounts = [];
+      let connections = [];
+      if (overview.enabled) {
+        [accounts, connections] = await Promise.all([api.call("GET", "social/accounts").then((r) => r.accounts || []), api.call("GET", "social/connections").then((r) => r.connections || [])]);
+      }
+      if (mine !== generation) return;
+      state = { overview, accounts, connections };
+    } catch (error) {
+      if (mine !== generation) return;
+      state = null;
+      root.replaceChildren(
+        el("h2", { id: `${ids}-title`, tabindex: "-1" }, "Social accounts"),
+        el("p", { class: "oba-error", role: "alert", "data-social-error": "true" }, errorText(error)),
+        el("button", { class: "oba-btn", type: "button", "data-action": "social-retry", onClick: () => load() }, "Try again"),
+      );
       return;
     }
-    body.push(
-      el(
-        "article",
-        { class: "oba-social-card", "aria-label": "How the announcement will look" },
-        el("p", { class: "oba-small oba-social-card-to", "data-preview-to": "true" }, chosen ? `To ${destinationLabel(chosen)}` : "No destination chosen"),
-        el("p", { class: "oba-social-card-caption", "data-preview-caption": "true" }, model.caption ?? caption.value.trim()),
-        model.link ? el("p", { class: "oba-social-card-link" }, el("span", { class: "oba-small" }, "Links to "), el("span", { class: "oba-social-url", "data-preview-link": "true" }, model.link)) : null,
-        el("p", { class: "oba-small oba-social-card-when", "data-preview-when": "true" }, model.scheduledFor ? `Posts ${formatWhen(model.scheduledFor, zone)} (${model.scheduledFor.replace("T", " ").replace(":00Z", " UTC")})` : "No time chosen yet."),
-      ),
-    );
-    if (model.notes?.length) body.push(el("ul", { class: "oba-small", "data-preview-notes": "true" }, model.notes.map((note) => el("li", {}, note))));
-    if (model.problems?.length) body.push(el("ul", { class: "oba-small oba-social-preview-problems", "data-preview-problems": "true" }, model.problems.map((problem) => el("li", {}, problem.message))));
-    previewBox.replaceChildren(...body);
+    render();
   }
 
-  function updateCount() {
-    const result = captionCount(caption.value);
-    count.textContent = result.text;
-    count.setAttribute("data-over", result.over ? "true" : "false");
-    if (result.over) setError("caption", `The caption is ${result.count - result.limit} characters too long.`);
-    else if (errors.caption.textContent.startsWith("The caption is ")) setError("caption", "");
-  }
-
-  async function refreshPreview() {
-    const ticket = ++previewTicket;
-    const chosen = selectedDestination();
-    const picked = selectedPost();
-    const converted = localToInstant(when.value, zone);
-    if (!chosen || !caption.value.trim()) return renderPreview(null);
-    const notes = [];
-    if (converted.ok && converted.ambiguous) notes.push("This time happens twice when the clocks change. The earlier one is used.");
-    if (!converted.ok && converted.code === "nonexistent") notes.push("This time does not exist in your time zone because the clocks skip it. Choose another.");
-    try {
-      const answer = await api.call("POST", "social/preview", {
-        json: { provider: chosen.provider, caption: caption.value, ...(picked ? { work: picked.work } : {}), ...(converted.ok ? { scheduledFor: converted.iso, timeZone: zone } : {}) },
-      });
-      if (ticket !== previewTicket) return;
-      renderPreview({ ...answer, caption: answer.caption ?? caption.value.trim(), notes });
-    } catch (error) {
-      if (ticket !== previewTicket) return;
-      renderPreview({ caption: caption.value.trim(), link: picked?.canonicalUrl || null, scheduledFor: converted.ok ? converted.iso : null, notes, problems: [{ message: errorText(error) }] });
-    }
-  }
-
-  function schedulePreview() {
-    updateCount();
-    timers.clearTimeout?.(previewTimer);
-    previewTimer = timers.setTimeout(() => {
-      refreshPreview();
-    }, PREVIEW_DELAY_MS);
-  }
-
-  // ---- create
-  const draftSignature = () => JSON.stringify([destination.value, post.value, caption.value.trim(), when.value]);
-
-  async function onSubmit(event) {
-    event.preventDefault?.();
+  /** Runs one request with the controls locked, then draws the page again. */
+  async function act(label, run, after) {
     if (busy) return;
-    clearErrors();
-    const chosen = selectedDestination();
-    const picked = selectedPost();
-    const converted = localToInstant(when.value, zone);
-    const problems = [];
-    if (!chosen) problems.push({ field: "destination", code: "destination-missing", message: "Choose where to post." });
-    if (!picked) problems.push({ field: "post", code: "post-missing", message: "Choose a published post." });
-    if (!caption.value.trim()) problems.push({ field: "caption", code: "caption-empty", message: "Write a caption." });
-    else if (captionCount(caption.value).over) problems.push({ field: "caption", code: "caption-too-long", message: `The caption is ${captionCount(caption.value).count - CAPTION_LIMIT} characters too long.` });
-    if (!converted.ok) {
-      problems.push({ field: "time", code: "time-invalid", message: converted.code === "nonexistent" ? "That time does not exist in your time zone because the clocks skip it. Choose another." : when.value ? "Choose a valid date and time." : "Choose a date and time." });
-    }
-    if (problems.length) return showProblems(problems);
-    // The same composed announcement keeps its key, so a retry after a timeout cannot post twice.
-    const signature = draftSignature();
-    if (!key || keyFor !== signature) {
-      key = random();
-      keyFor = signature;
-    }
-    busy += 1;
-    submit.disabled = true;
-    status.textContent = "Scheduling...";
+    busy = true;
+    root.setAttribute("aria-busy", "true");
+    for (const control of root.querySelectorAll?.("button") || []) control.disabled = true;
+    say(label);
     try {
-      const answer = await api.call("POST", "social/announcements", {
-        json: { accountId: chosen.id, work: picked.work, caption: caption.value, scheduledFor: converted.iso, timeZone: zone, idempotencyKey: key },
-      });
-      const made = answer.announcement;
-      status.textContent = `${answer.replayed ? "Already scheduled" : "Scheduled"} for ${formatWhen(made.scheduledFor, zone)} on ${destinationLabel(chosen)}.`;
-      key = null;
-      keyFor = "";
-      resetComposer();
-      await loadAnnouncements();
-      status.focus();
+      const result = await run();
+      busy = false;
+      root.removeAttribute("aria-busy");
+      await after(result);
     } catch (error) {
-      status.textContent = "";
-      const code = error?.data?.code;
-      if (error?.status === 422 || code) showProblems([{ field: fieldForCode(code) === "general" ? null : fieldForCode(code), code, message: errorText(error) }]);
-      else {
-        showProblems([{ message: errorText(error) }]);
-        // The outcome is unknown: the announcement may exist. Show the queue and keep the key, so
-        // sending the same draft again is recognized rather than posted twice.
-        status.textContent = "The announcement may already be scheduled. Check the list below before trying again.";
-        try {
-          await loadAnnouncements();
-        } catch {
-          // The list is shown again on the next successful load.
-        }
-      }
-    } finally {
-      busy -= 1;
-      submit.disabled = false;
+      busy = false;
+      root.removeAttribute("aria-busy");
+      render();
+      say(errorText(error), true);
     }
   }
 
-  function resetComposer() {
-    caption.value = "";
-    when.value = "";
-    post.value = "";
-    clearErrors();
-    updateCount();
-    renderPreview(null);
+  function connect(provider, label) {
+    return act(`Starting the ${label} connection…`, () => api.call("POST", "social/connections", { json: { provider } }), async (reply) => {
+      links.set(reply.connection?.id, reply.authorizeUrl);
+      await load();
+      focusTarget = "continue";
+      render();
+      say(`Continue to ${label} to approve access. Nothing is connected until you choose where to post.`);
+    });
   }
 
-  form.addEventListener("submit", onSubmit);
-  clear.addEventListener("click", () => {
-    resetComposer();
-    destination.focus();
-  });
-  for (const control of [destination, post, caption, when]) {
-    control.addEventListener("input", schedulePreview);
-    control.addEventListener("change", schedulePreview);
+  function reconnect(account) {
+    return act(`Starting reconnection of ${account.displayName}…`, () => api.call("POST", `social/accounts/${account.id}/reconnect`, { json: {} }), async (reply) => {
+      links.set(reply.connection?.id, reply.authorizeUrl);
+      await load();
+      focusTarget = "continue";
+      render();
+      say(`Continue to ${providerName(account.provider)} and sign in as the same account to reconnect ${account.displayName}.`);
+    });
   }
 
-  form.append(
-    el("h2", { id: `${ids}-compose-title` }, "Announce a post"),
-    el("p", { class: "oba-small" }, "Write a short caption for one of your published posts and choose when it goes out. The link to the post is added for you."),
-    problemsBox,
-    field({
-      id: "destination",
-      label: "Destination",
-      control: destination,
-      hint: el("p", { class: "oba-small oba-landing-hint", id: `${ids}-destination-hint` }, "The LinkedIn profile or Facebook Page that will post it."),
-      error: errorNode("destination"),
-    }),
-    field({
-      id: "post",
-      label: "Post to announce",
-      control: post,
-      hint: el("p", { class: "oba-small oba-landing-hint", id: `${ids}-post-hint` }, "Only published posts can be announced. A draft or a post dated in the future is listed as not available."),
-      error: errorNode("post"),
-    }),
-    field({ id: "caption", label: "Caption", control: caption, hint: count, error: errorNode("caption") }),
-    field({
-      id: "time",
-      label: `Date and time (${zone})`,
-      control: when,
-      hint: el("p", { class: "oba-small oba-landing-hint", id: `${ids}-when-hint` }, `In your time zone, ${zone}. It must be at least a minute from now and within a year.`),
-      error: errorNode("time"),
-    }),
-    previewBox,
-    el("div", { class: "oba-landing-actions oba-social-actions" }, submit, clear),
-  );
+  function disconnect(account) {
+    return act(`Disconnecting ${account.displayName}…`, () => api.call("POST", `social/accounts/${account.id}/disconnect`, { json: {} }), async () => {
+      confirming = null;
+      await load();
+      focusTarget = "accounts";
+      render();
+      say(`${account.displayName} is disconnected. Its stored tokens were erased.`);
+    });
+  }
 
-  // ---- list
-  const list = el("div", { class: "oba-social-list-wrap" });
-  const filterSelect = el(
-    "select",
-    { id: `${ids}-filter`, "aria-describedby": `${ids}-filter-hint` },
-    [["", "All announcements"], ["scheduled", "Scheduled"], ["published", "Published"], ["failed", "Failed"], ["unknown", "Needs checking"], ["canceled", "Canceled"]].map(([value, text]) => el("option", { value }, text)),
-  );
-  filterSelect.addEventListener("change", () => {
-    filter = filterSelect.value;
-    loadAnnouncements();
-  });
+  function cancel(connection) {
+    return act("Canceling…", () => api.call("POST", `social/connections/${connection.id}/cancel`, { json: {} }), async () => {
+      await load();
+      focusTarget = "providers";
+      render();
+      say("The connection attempt was canceled.");
+    });
+  }
 
-  function rowNode(item) {
-    const badge = STATUS_BADGES[item.status] || { symbol: "?", text: item.status };
-    const heading = nextId(`${ids}-row`);
-    const meta = el("p", { class: "oba-small oba-social-meta" }, `${formatWhen(item.scheduledFor, zone)} - ${destinationLabel(item.destination)}`);
-    const row = el(
+  function choose(connection, destination) {
+    return act(`Connecting ${destination.name}…`, () => api.call("POST", `social/connections/${connection.id}/select`, { json: { destination: destination.id } }), async (reply) => {
+      await load();
+      focusTarget = "accounts";
+      render();
+      say(`${reply.account?.displayName || destination.name} is connected.`);
+    });
+  }
+
+  // ---- pieces of the page
+
+  function providerCard(provider) {
+    const open = (state.connections || []).some((c) => c.provider === provider.provider && ["pending", "exchanging"].includes(c.status));
+    const button = el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "social-connect", "data-provider": provider.provider, "aria-describedby": `${ids}-${provider.provider}-hint`, onClick: () => connect(provider.provider, provider.label) }, `Connect ${provider.label}`);
+    return el(
       "li",
-      { class: "oba-social-row", "data-announcement": item.id, "data-status": item.status, "aria-labelledby": heading },
+      { class: "oba-social-provider", "data-provider": provider.provider },
+      el("h4", {}, provider.label),
+      el("p", { class: "oba-small", id: `${ids}-${provider.provider}-hint` }, open ? "An attempt is already waiting below." : "You will sign in at the provider and approve access; nothing is connected until you choose where to post."),
+      el(
+        "details",
+        { class: "oba-social-review" },
+        el("summary", {}, `Review the permissions ${provider.label} will be asked for`),
+        scopeList(provider.scopes, provider.requiredScopes),
+        el("p", { class: "oba-small" }, "Redirect address to register in the provider's app, exactly:"),
+        el("p", { class: "oba-small oba-social-wrap" }, el("code", { "data-social-redirect": provider.provider }, provider.redirectUri)),
+        el("p", { class: "oba-small" }, `API version ${provider.version}. Verify it is still current when you set up.`),
+      ),
+      button,
+    );
+  }
+
+  function waitingPanel(connection) {
+    const label = providerName(connection.provider);
+    // The link is built only if the server's address is one of the two providers' own hosts.
+    const link = safeAuthorizeUrl(links.get(connection.id));
+    return el(
+      "li",
+      { class: "oba-social-pending", "data-connection": connection.id },
+      el("h4", {}, connection.reauthAccountId ? `Reconnecting ${label}` : `Waiting for ${label}`),
+      el("p", {}, `Approve access in the ${label} tab, then come back here. This attempt expires at ${connection.expiresAt ? String(connection.expiresAt).slice(11, 16) + " UTC" : "soon"} and works once.`),
+      link
+        ? el("p", {}, el("a", { class: "oba-btn oba-btn-primary", href: link, target: "_blank", rel: "noopener noreferrer", "data-action": "social-continue" }, `Continue to ${label} (opens a new tab)`))
+        : el("p", { class: "oba-small", "data-social-no-link": "true" }, "The link to the provider is not kept after the page is reloaded. Cancel this attempt and start again."),
       el(
         "div",
-        { class: "oba-social-row-head" },
-        el("strong", { id: heading, class: "oba-social-row-title" }, el("a", { href: item.canonicalUrl, target: "_blank", rel: "noopener" }, item.work)),
-        el("span", { class: `oba-social-badge oba-social-badge-${item.status}`, "data-status-badge": item.status }, el("span", { "aria-hidden": "true" }, `${badge.symbol} `), badge.text),
+        { class: "oba-landing-actions" },
+        el("button", { class: "oba-btn", type: "button", "data-action": "social-check", onClick: () => load().then(() => say("Checked for the latest result.")) }, "I have finished, check now"),
+        el("button", { class: "oba-btn", type: "button", "data-action": "social-cancel", onClick: () => cancel(connection) }, "Cancel this attempt"),
       ),
-      meta,
-      el("p", { class: "oba-social-caption", "data-row-caption": "true" }, item.caption),
-      item.lastErrorCode ? el("p", { class: "oba-small oba-social-error-code", "data-row-error": "true" }, `Last problem: ${item.lastErrorCode}`) : null,
     );
-    const actions = el("div", { class: "oba-landing-actions oba-social-row-actions" });
-    if (item.editable) {
-      const edit = el("button", { class: "oba-btn", type: "button", "data-action": "social-edit", "aria-label": `Edit the announcement of ${item.work}`, "aria-expanded": "false" }, "Edit");
-      const cancel = el("button", { class: "oba-btn", type: "button", "data-action": "social-cancel", "aria-label": `Cancel the announcement of ${item.work}`, "aria-expanded": "false" }, "Cancel announcement");
-      const panel = el("div", { class: "oba-social-row-panel", hidden: true });
-      edit.addEventListener("click", () => openEditor(item, panel, edit, cancel));
-      cancel.addEventListener("click", () => openCancel(item, panel, edit, cancel));
-      actions.append(edit, cancel);
-      row.append(actions, panel);
-    } else {
-      row.append(el("p", { class: "oba-small oba-social-locked", "data-row-locked": "true" }, lockedReason(item.status)));
-    }
-    return row;
   }
 
-  function closePanel(panel, edit, cancel, focus) {
-    panel.hidden = true;
-    panel.replaceChildren();
-    edit.setAttribute("aria-expanded", "false");
-    cancel.setAttribute("aria-expanded", "false");
-    focus?.focus();
-  }
-
-  function openEditor(item, panel, edit, cancel) {
-    if (!panel.hidden && panel.dataset.mode === "edit") return closePanel(panel, edit, cancel, edit);
-    const id = nextId(`${ids}-edit`);
-    const text = el("textarea", { id: `${id}-caption`, rows: "5", "aria-describedby": `${id}-count ${id}-error` });
-    text.value = item.caption;
-    const at = el("input", { id: `${id}-when`, type: "datetime-local", "aria-describedby": `${id}-error` });
-    at.value = instantToLocalInput(item.scheduledFor, zone);
-    const counter = el("p", { class: "oba-small oba-social-count", id: `${id}-count` }, captionCount(item.caption).text);
-    text.addEventListener("input", () => {
-      counter.textContent = captionCount(text.value).text;
-    });
-    const problem = el("p", { class: "oba-field-error", id: `${id}-error`, role: "alert", hidden: true });
-    const save = el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "social-save" }, "Save changes");
-    const discard = el("button", { class: "oba-btn", type: "button", "data-action": "social-discard" }, "Discard");
-    discard.addEventListener("click", () => closePanel(panel, edit, cancel, edit));
-    save.addEventListener("click", async () => {
-      problem.hidden = true;
-      const converted = localToInstant(at.value, zone);
-      if (!converted.ok) {
-        problem.textContent = converted.code === "nonexistent" ? "That time does not exist in your time zone because the clocks skip it." : "Choose a valid date and time.";
-        problem.hidden = false;
-        return at.focus();
-      }
-      const captionChanged = text.value.trim() !== item.caption;
-      const timeChanged = converted.iso !== item.scheduledFor;
-      if (!captionChanged && !timeChanged) {
-        problem.textContent = "Nothing has changed.";
-        problem.hidden = false;
-        return text.focus();
-      }
-      if (captionCount(text.value).over || !text.value.trim()) {
-        problem.textContent = text.value.trim() ? "The caption is too long." : "Write a caption.";
-        problem.hidden = false;
-        return text.focus();
-      }
-      await change(
-        () => (captionChanged ? api.call("PATCH", `social/announcements?id=${encodeURIComponent(item.id)}`, { json: { version: item.version, caption: text.value, ...(timeChanged ? { scheduledFor: converted.iso, timeZone: zone } : {}) } }) : api.call("POST", `social/announcements/reschedule?id=${encodeURIComponent(item.id)}`, { json: { version: item.version, scheduledFor: converted.iso, timeZone: zone } })),
-        (made) => `Saved. It is scheduled for ${formatWhen(made.scheduledFor, zone)}.`,
-        problem,
-        save,
+  function choosePanel(connection) {
+    const label = providerName(connection.provider);
+    const group = `${ids}-choice-${connection.id}`;
+    const radios = connection.destinations.map((destination, index) => {
+      const id = `${group}-${index}`;
+      const input = el("input", { type: "radio", name: group, id, value: destination.id, disabled: !destination.eligible, "aria-describedby": destination.eligible ? null : `${id}-why`, "data-destination": destination.id });
+      return el(
+        "li",
+        { class: "oba-social-destination", "data-eligible": String(destination.eligible) },
+        input,
+        el("label", { for: id }, el("strong", {}, destination.name), " ", el("span", { class: "oba-small" }, `${KIND_WORDS[destination.kind] || "Destination"}`)),
+        destination.eligible ? null : el("p", { class: "oba-small oba-social-why", id: `${id}-why` }, "Not available: ", destination.reasonText || reasonText(destination.reason)),
       );
     });
-    panel.dataset.mode = "edit";
-    panel.replaceChildren(
-      el("div", { class: "oba-field oba-social-field" }, el("label", { for: text.id }, "Caption"), text, counter),
-      el("div", { class: "oba-field oba-social-field" }, el("label", { for: at.id }, `Date and time (${zone})`), at),
+    const submit = el("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-action": "social-choose" }, "Connect this destination");
+    const problem = el("p", { class: "oba-small oba-error", role: "alert", hidden: true });
+    const form = el(
+      "form",
+      {
+        class: "oba-social-choice",
+        onSubmit: (event) => {
+          event.preventDefault();
+          const picked = Array.from(form.querySelectorAll("input")).find((input) => input.checked);
+          const destination = picked && connection.destinations.find((d) => d.id === picked.value);
+          if (!destination) {
+            problem.hidden = false;
+            problem.textContent = "Choose where posts may go first.";
+            return;
+          }
+          problem.hidden = true;
+          choose(connection, destination);
+        },
+      },
+      el("fieldset", {}, el("legend", {}, `Choose where ${label} posts may go`), el("ul", { class: "oba-social-destinations" }, radios)),
       problem,
-      el("div", { class: "oba-landing-actions" }, save, discard),
+      el("div", { class: "oba-landing-actions" }, submit, el("button", { class: "oba-btn", type: "button", "data-action": "social-cancel", onClick: () => cancel(connection) }, "Cancel")),
     );
-    panel.setAttribute("data-mode", "edit");
-    panel.hidden = false;
-    edit.setAttribute("aria-expanded", "true");
-    cancel.setAttribute("aria-expanded", "false");
-    text.focus();
+    return el(
+      "li",
+      { class: "oba-social-pending", "data-connection": connection.id, "data-status": "authorized" },
+      el("h4", { tabindex: "-1", "data-social-choose-title": "true" }, `${label} approved. Choose a destination.`),
+      el("p", { class: "oba-small" }, "Permissions actually granted:"),
+      scopeList(connection.grantedScopes),
+      connection.notes.length ? el("ul", { class: "oba-social-notes" }, connection.notes.map((note) => el("li", { class: "oba-small", "data-note": note.code }, note.text))) : null,
+      form,
+    );
   }
 
-  function openCancel(item, panel, edit, cancel) {
-    if (!panel.hidden && panel.dataset.mode === "cancel") return closePanel(panel, edit, cancel, cancel);
-    const problem = el("p", { class: "oba-field-error", role: "alert", hidden: true });
-    const confirm = el("button", { class: "oba-btn oba-btn-danger", type: "button", "data-action": "social-confirm-cancel" }, "Yes, cancel it");
-    const keep = el("button", { class: "oba-btn", type: "button", "data-action": "social-keep" }, "Keep it");
-    keep.addEventListener("click", () => closePanel(panel, edit, cancel, cancel));
-    confirm.addEventListener("click", () =>
-      change(() => api.call("POST", `social/announcements/cancel?id=${encodeURIComponent(item.id)}`, { json: { version: item.version } }), () => "Canceled. It will not be posted.", problem, confirm),
+  const REASONS = {
+    "missing-scope": "A permission needed to post here was not granted.",
+    "not-administrator": "LinkedIn did not list you as an administrator of this organization.",
+    "no-posting-role": "Your role on this Page does not let you create posts.",
+    "role-unverified": "Facebook did not say what you may do on this Page, so it cannot be offered.",
+    "no-page-token": "Facebook gave no access for this Page.",
+  };
+  const reasonText = (reason) => REASONS[reason] || "It cannot be used.";
+
+  function failedPanel(connection) {
+    return el(
+      "li",
+      { class: "oba-social-failed", "data-connection": connection.id, "data-status": connection.status },
+      el("p", { role: "group", "aria-label": `${providerName(connection.provider)} attempt` }, el("strong", {}, `${providerName(connection.provider)}: `), connection.message || "The attempt did not finish."),
+      connection.destinations.length
+        ? el("ul", { class: "oba-small" }, connection.destinations.map((d) => el("li", {}, `${d.name}: ${d.eligible ? "available" : reasonText(d.reason)}`)))
+        : null,
     );
-    panel.dataset.mode = "cancel";
-    panel.setAttribute("data-mode", "cancel");
-    panel.replaceChildren(el("p", {}, `Cancel the announcement of ${item.work}? It will not be posted. You can schedule a new one later.`), problem, el("div", { class: "oba-landing-actions" }, confirm, keep));
-    panel.hidden = false;
-    cancel.setAttribute("aria-expanded", "true");
-    edit.setAttribute("aria-expanded", "false");
-    keep.focus();
   }
 
-  /** Runs a change, then refreshes the queue and says what happened. A lost race refreshes it and says so. */
-  async function change(run, done, problem, button) {
-    if (busy) return;
-    busy += 1;
-    button.disabled = true;
-    problem.hidden = true;
-    try {
-      const answer = await run();
-      status.textContent = done(answer.announcement);
-      await loadAnnouncements();
-      status.focus();
-    } catch (error) {
-      const message = errorText(error);
-      if (["stale", "conflict", "not-editable"].includes(error?.data?.code)) {
-        status.textContent = message;
-        await loadAnnouncements();
-        status.focus();
-      } else {
-        problem.textContent = message;
-        problem.hidden = false;
-        button.disabled = false;
-      }
-    } finally {
-      busy -= 1;
+  function accountCard(account) {
+    const reauth = account.health === "needs-reauth" || account.health === "expiring";
+    const heading = `${ids}-account-${account.id}`;
+    const facts = [
+      ["Provider", `${providerName(account.provider)} · ${KIND_WORDS[account.kind] || account.kind}`],
+      ["Provider id", el("span", { class: "oba-social-wrap" }, account.externalId)],
+      ["Connected by", account.connectedBy ? `${account.connectedBy}, ${day(account.createdAt)}` : day(account.createdAt)],
+      account.credential?.accessExpiresAt ? ["Access valid until", day(account.credential.accessExpiresAt)] : null,
+      account.credential?.refreshExpiresAt ? ["Can renew until", day(account.credential.refreshExpiresAt)] : null,
+      account.disconnectedAt ? ["Disconnected", day(account.disconnectedAt)] : null,
+    ].filter(Boolean);
+    const actions = [];
+    if (account.status !== "disconnected") {
+      actions.push(el("button", { class: `oba-btn${reauth ? " oba-btn-primary" : ""}`, type: "button", "data-action": "social-reconnect", "aria-label": `Reconnect ${account.displayName}`, onClick: () => reconnect(account) }, "Reconnect"));
+      actions.push(el("button", { class: "oba-btn", type: "button", "data-action": "social-disconnect", "aria-label": `Disconnect ${account.displayName}`, "aria-expanded": String(confirming === account.id), onClick: () => { confirming = confirming === account.id ? null : account.id; focusTarget = confirming ? `confirm-${account.id}` : null; render(); } }, "Disconnect…"));
     }
-  }
-
-  function renderList() {
-    list.replaceChildren(
-      announcements.length
-        ? el("ul", { class: "oba-social-list", "aria-label": "Announcements" }, announcements.map((item) => rowNode(item)))
-        : el("p", { class: "oba-notice", "data-social-empty": "true" }, filter ? "No announcements with that status." : "Nothing is scheduled yet. Announce a post above."),
+    const confirm = confirming === account.id
+      ? el(
+          "div",
+          { class: "oba-notice oba-social-confirm", role: "group", "aria-label": `Confirm disconnecting ${account.displayName}`, "data-social-confirm": account.id },
+          el("p", { tabindex: "-1", "data-confirm-text": account.id }, `Disconnect ${account.displayName}? Its stored tokens are erased and posts cannot be sent to it until you connect it again. The account stays in your history.`),
+          el(
+            "div",
+            { class: "oba-landing-actions" },
+            el("button", { class: "oba-btn oba-btn-danger", type: "button", "data-action": "social-disconnect-confirm", onClick: () => disconnect(account) }, `Disconnect ${account.displayName}`),
+            el("button", { class: "oba-btn", type: "button", "data-action": "social-disconnect-cancel", onClick: () => { confirming = null; focusTarget = null; render(); } }, "Keep it connected"),
+          ),
+        )
+      : null;
+    return el(
+      "li",
+      { class: "oba-social-account", "data-account": account.id, "data-health": account.health, "aria-labelledby": heading },
+      el("div", { class: "oba-social-account-head" }, el("h4", { id: heading }, account.displayName), badge(account.health)),
+      account.health === "needs-reauth" && account.status !== "disconnected" ? el("p", { class: "oba-notice", "data-social-reauth": "true" }, "Access to this account ran out or was withdrawn. Reconnect it, signing in as the same account, so posts can be sent again.") : null,
+      account.health === "expiring" ? el("p", { class: "oba-notice", "data-social-reauth": "true" }, "Access to this account runs out soon. Reconnect it before then.") : null,
+      el("dl", { class: "oba-social-facts" }, facts.map(([name, value]) => el("div", {}, el("dt", {}, name), el("dd", {}, value)))),
+      account.credential?.scopes?.length
+        ? el("details", { class: "oba-social-review" }, el("summary", {}, "Permissions granted"), scopeList(account.credential.scopes))
+        : null,
+      el("div", { class: "oba-landing-actions" }, actions),
+      confirm,
     );
   }
 
-  async function loadAnnouncements() {
-    const query = filter ? `?status=${encodeURIComponent(filter)}` : "";
-    const answer = await api.call("GET", `social/announcements${query}`);
-    announcements = answer.announcements || [];
-    renderList();
-  }
-
-  async function load() {
-    loadError.hidden = true;
-    try {
-      const [dest, found, queue] = await Promise.all([api.call("GET", "social/destinations"), api.call("GET", "social/posts"), api.call("GET", "social/announcements")]);
-      destinations = dest.destinations || [];
-      posts = found.posts || [];
-      announcements = queue.announcements || [];
-    } catch (error) {
-      if (error?.status === 401) throw error;
-      const retry = el("button", { class: "oba-btn", type: "button", "data-action": "social-retry" }, "Try again");
-      retry.addEventListener("click", () => load());
-      loadError.replaceChildren(el("p", {}, errorText(error)), retry);
-      loadError.hidden = false;
+  function render() {
+    const { overview, accounts, connections } = state;
+    const children = [el("h2", { id: `${ids}-title`, tabindex: "-1" }, "Social accounts")];
+    children.push(el("p", {}, "Connect LinkedIn or Facebook so a published post can be announced there. Your blog works the same without this. Access tokens stay on the server and are never shown here."));
+    children.push(status);
+    if (!overview.enabled) {
+      children.push(el("p", { class: "oba-notice", "data-social-off": overview.state }, overview.message || OFF_TEXT[overview.state] || OFF_TEXT.off));
+      if (overview.problems?.length) children.push(el("ul", {}, overview.problems.map((name) => el("li", {}, el("code", {}, name)))));
+      root.replaceChildren(...children);
       return;
     }
-    fillDestinations();
-    fillPosts();
-    updateCount();
-    renderPreview(null);
-    renderList();
-    if (!destinations.length) {
-      status.textContent = "No account is connected yet, so there is nowhere to post. Connect a LinkedIn profile or Facebook Page first.";
+    const providers = overview.providers || [];
+    children.push(el("h3", { id: `${ids}-providers`, tabindex: "-1" }, "Connect an account"));
+    children.push(
+      providers.length
+        ? el("ul", { class: "oba-social-providers", "aria-labelledby": `${ids}-providers` }, providers.map(providerCard))
+        : el("p", { class: "oba-notice", "data-social-no-providers": "true" }, "No provider is set up on the server yet. Add a LinkedIn or Facebook app's client id and secret (see docs/social-publishing.md)."),
+    );
+    if (overview.problems?.length) {
+      children.push(el("p", { class: "oba-small" }, "These provider settings are not valid and were skipped:"));
+      children.push(el("ul", { class: "oba-small" }, overview.problems.map((name) => el("li", {}, el("code", {}, name)))));
     }
+    const live = connections.filter((c) => ["pending", "exchanging", "authorized"].includes(c.status) && Date.parse(c.expiresAt || 0) > Date.now());
+    const waiting = live.filter((c) => c.status !== "authorized" || c.reauthAccountId);
+    const choosing = live.filter((c) => c.status === "authorized" && !c.reauthAccountId);
+    const failed = connections.filter((c) => c.status === "failed").slice(0, 2);
+    if (waiting.length || choosing.length || failed.length) {
+      children.push(el("h3", { id: `${ids}-attempts`, tabindex: "-1" }, "Connections in progress"));
+      children.push(el("ul", { class: "oba-social-attempts", "aria-labelledby": `${ids}-attempts` }, [...choosing.map(choosePanel), ...waiting.map(waitingPanel), ...failed.map(failedPanel)]));
+    }
+    children.push(el("h3", { id: `${ids}-accounts`, tabindex: "-1" }, "Connected accounts"));
+    children.push(
+      accounts.length
+        ? el("ul", { class: "oba-social-accounts", "aria-labelledby": `${ids}-accounts` }, accounts.map(accountCard))
+        : el("p", { class: "oba-small", "data-social-empty": "true" }, "No account is connected yet."),
+    );
+    root.replaceChildren(...children);
+    placeFocus();
   }
 
-  const element = el(
-    "div",
-    { class: "oba-social", "data-social-screen": "true" },
-    status,
-    loadError,
-    form,
-    el(
-      "section",
-      { class: "oba-social-queue", "aria-labelledby": `${ids}-queue-title` },
-      el("h2", { id: `${ids}-queue-title` }, "Announcements"),
-      el("div", { class: "oba-field oba-social-field" }, el("label", { for: `${ids}-filter` }, "Show"), filterSelect, el("p", { class: "oba-small oba-landing-hint", id: `${ids}-filter-hint` }, `Times are shown in your time zone, ${zone}.`)),
-      list,
-    ),
-  );
-  renderPreview(null);
-  updateCount();
+  function placeFocus() {
+    const target = focusTarget;
+    focusTarget = null;
+    if (!target) return;
+    const within = (tag, test) => Array.from(root.querySelectorAll(tag)).find(test);
+    let node = null;
+    if (target === "continue") node = within("a", (a) => a.dataset.action === "social-continue") || within("h4", () => true);
+    else if (target === "accounts" || target === "providers") node = within("h3", (h) => h.id === `${ids}-${target}`);
+    else if (target.startsWith("confirm-")) node = within("p", (p) => p.dataset.confirmText === target.slice(8));
+    (node || root.querySelector("h2"))?.focus?.();
+  }
+
+  // A tab the author comes back from: look again, but only while an attempt is waiting.
+  const onFocus = () => {
+    // Detached from the page (the author went elsewhere): stop listening instead of polling.
+    if (root.isConnected === false) {
+      win?.removeEventListener?.("focus", onFocus);
+      return;
+    }
+    if (!busy && state?.connections?.some((c) => ["pending", "exchanging"].includes(c.status))) load();
+  };
+  win?.addEventListener?.("focus", onFocus);
 
   return {
-    element,
+    element: root,
     load,
-    isDirty: () => Boolean(caption.value.trim()),
-    isBusy: () => busy > 0,
+    isDirty: () => false,
+    isBusy: () => busy,
+    destroy: () => win?.removeEventListener?.("focus", onFocus),
   };
 }

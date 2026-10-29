@@ -1,10 +1,10 @@
-// Authorized scheduling routes for optional social publishing (epic #353, story #356, ADR 0471):
+// Authorized scheduling routes for optional social publishing (epic #353, story #356, ADR 0306):
 // list the connected destinations, and create, list, edit, reschedule and cancel announcements.
 //
 // Server to server only. The Rust Admin has already checked its own session and CSRF token; this
 // module checks that the caller holds the admin key (a worker key is refused), takes the site from
 // the server's settings (a request naming one is refused), checks the destination belongs to this
-// site and is connected, and applies the announcement rules of ADR 0470 again before any row is
+// site and is connected, and applies the announcement rules of ADR 0305 again before any row is
 // written. Storage is PostgREST over `fetchImpl`, the same fake-fetch seam as the credential store.
 //
 // Every write names the version it read and the status it expects, so two writers, or an author

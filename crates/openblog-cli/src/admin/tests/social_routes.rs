@@ -1,714 +1,447 @@
-//! Admin social announcement routes (ADR 0471, story #356): deny by default, the session and CSRF
-//! seams, off unless configured, the site (not the browser) decides what is announced and where it
-//! links, the hosted function is called with the admin key and the signed-in user, and nothing
-//! secret or foreign reaches the browser. The hosted function is a fake here, plus one real
-//! loopback server that proves the wire request.
+//! Admin routes for connected social accounts (ADR 0301): off and invisible unless configured,
+//! the session, CSRF and body bounds of every Admin route, the actor and key sent to the hosted
+//! function, and replies rebuilt from known fields so no token, key or foreign address gets through.
 
 use super::*;
-use crate::admin::social::{self, Call, Hosted};
-use std::sync::Mutex as StdMutex;
+use crate::admin::social::route_with;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 
-const KEY: &str = "adm_socialroutes11111111111111111111111111";
-const ACCOUNT: &str = "11111111-1111-4111-8111-111111111111";
-const ANNOUNCEMENT: &str = "aaaaaaaa-aaaa-4aaa-8aaa-000000000001";
+const KEY: &str = "adm_social_admin_key_0000000000000000000000";
+const ACCESS: &str = "AQX-access-token-value-0001";
+const ID: &str = "11111111-1111-4111-8111-111111111111";
 
-fn social_site(tag: &str) -> Fixture {
-    let f = fixture(&format!("social-{tag}"));
-    fs::write(
-        f.dir.join("openblog.json"),
-        r#"{"title":"Lantern","url":"https://blog.example.org"}"#,
-    )
-    .unwrap();
-    let posts = [
-        ("2026-01-02-hello", "title: Hello\ndate: 2026-01-02\n"),
-        (
-            "2026-01-03-secret",
-            "title: SECRET-DRAFT-TITLE\ndate: 2026-01-03\ndraft: true\n",
-        ),
-        ("2099-01-01-later", "title: Later\ndate: 2099-01-01\n"),
-        (
-            "2026-01-04-away",
-            "title: Away\ndate: 2026-01-04\ncanonical: https://dev.to/me/away\n",
-        ),
-    ];
-    for (name, front) in posts {
-        fs::write(
-            f.dir.join("content/posts").join(format!("{name}.md")),
-            format!("---\n{front}---\nBody.\n"),
-        )
-        .unwrap();
-    }
-    f
-}
-
-fn hosted() -> Hosted {
-    Hosted::new(
-        "https://blog.example.org/.netlify/functions/social-schedule",
-        KEY,
-    )
-    .unwrap()
-}
-
-type Calls = StdMutex<Vec<(String, String, Vec<(String, String)>, String, Option<Json>)>>;
-
-/// A fake hosted function that records what it was asked and answers `reply`.
-fn fake(
-    calls: &Calls,
-    status: u16,
-    reply: Json,
-) -> impl Fn(&Call) -> Result<(u16, Json), &'static str> + '_ {
-    move |call: &Call| {
-        calls.lock().unwrap().push((
-            call.method.to_string(),
-            call.route.clone(),
-            call.query.clone(),
-            call.actor.clone(),
-            call.body.clone(),
-        ));
-        Ok((status, reply.clone()))
-    }
-}
-
-fn call(
-    f: &Fixture,
-    transport: &dyn social::Transport,
-    method: &str,
-    path: &str,
-    body: Option<Json>,
-) -> (u16, Json) {
-    let name = path
-        .strip_prefix("/admin/api/social/")
-        .unwrap()
-        .split('?')
-        .next()
-        .unwrap();
-    let request = match body {
-        Some(body) => json_req(method, path, body),
-        None => req(method, path),
-    };
-    let response = social::route(
-        &f.state,
-        &request,
-        "mikey",
-        name,
-        Some(&hosted()),
-        transport,
-    );
-    (response.status, body_json(&response))
-}
-
-/// A moment `days` ahead of the Admin's clock, written in a zone `offset` hours from UTC, and the
-/// same instant in UTC.
-fn when(days: i64, offset: i64) -> (String, String) {
-    let at = clock::now().unix() + days * 86_400;
-    let utc = DateTime::from_unix(at).rfc3339();
-    let shifted = DateTime::from_unix(at + offset * 3600).rfc3339();
-    let local = format!(
-        "{}{}{:02}:00",
-        shifted.trim_end_matches('Z'),
-        if offset < 0 { "-" } else { "+" },
-        offset.abs()
-    );
-    (local, utc)
-}
-
-fn draft(overrides: Json) -> Json {
-    let mut body = json!({
-        "accountId": ACCOUNT,
-        "work": "/posts/hello/",
-        "caption": "A new post is live.",
-        "scheduledFor": when(3, 2).0,
-        "timeZone": "Europe/Athens",
-        "idempotencyKey": "composer-key-0000001",
-    });
-    for (name, value) in overrides.as_object().unwrap() {
-        body[name] = value.clone();
-    }
-    body
-}
-
-fn announcement() -> Json {
-    json!({"id": ANNOUNCEMENT, "status": "scheduled", "version": 1, "caption": "A new post is live."})
-}
-
-#[test]
-fn every_route_needs_a_session_and_every_write_a_csrf_token() {
-    let f = social_site("auth");
-    let routes = [
-        ("GET", "status"),
-        ("GET", "posts"),
-        ("POST", "preview"),
-        ("GET", "destinations"),
-        ("GET", "announcements"),
-        ("POST", "announcements"),
-        ("PATCH", "announcements"),
-        ("POST", "announcements/reschedule"),
-        ("POST", "announcements/cancel"),
-    ];
-    for (method, name) in routes {
-        let path = format!("/admin/api/social/{name}");
-        assert_eq!(
-            handle(&f.state, &req(method, &path)).status,
-            401,
-            "{method} {path}"
-        );
-    }
-    let session = login_ok(&f);
-    for (method, name) in routes.iter().filter(|(method, _)| *method != "GET") {
-        let path = format!("/admin/api/social/{name}");
-        let without = handle(
-            &f.state,
-            &authed(json_req(method, &path, json!({})), &session, false),
-        );
-        assert_eq!(without.status, 403, "{method} {path} without a CSRF token");
-    }
-}
-
-#[test]
-fn the_feature_does_not_exist_until_it_is_configured() {
-    let f = social_site("off");
-    let session = login_ok(&f);
-    // The environment of a test process sets none of the social settings.
-    let status = handle(
-        &f.state,
-        &authed(req("GET", "/admin/api/social/status"), &session, false),
-    );
-    assert_eq!(status.status, 200);
-    assert_eq!(body_json(&status)["enabled"], false);
-    for (method, name) in [
-        ("GET", "posts"),
-        ("GET", "destinations"),
-        ("GET", "announcements"),
-        ("POST", "announcements"),
-    ] {
-        let response = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    method,
-                    &format!("/admin/api/social/{name}"),
-                    draft(json!({})),
-                ),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(response.status, 404, "{method} {name}");
-        assert!(!String::from_utf8_lossy(&response.body).contains(KEY));
-    }
-    // Half set is off: a short key, an insecure remote endpoint, a credentialed endpoint.
-    assert!(Hosted::new("https://x.example.org/f", "short").is_none());
-    assert!(Hosted::new("http://x.example.org/f", KEY).is_none());
-    assert!(Hosted::new("https://user:pw@x.example.org/f", KEY).is_none());
-    assert!(Hosted::new("https://x.example.org/f?key=1", KEY).is_none());
-    assert!(Hosted::new("http://127.0.0.1:8888/f", KEY).is_some());
-}
-
-#[test]
-fn the_composer_lists_posts_with_the_reason_a_post_cannot_be_announced() {
-    let f = social_site("posts");
-    let calls = Calls::default();
-    let (status, body) = call(
-        &f,
-        &fake(&calls, 200, json!({})),
-        "GET",
-        "/admin/api/social/posts",
-        None,
-    );
-    assert_eq!(status, 200);
-    let posts = body["posts"].as_array().unwrap();
-    let find = |title: &str| posts.iter().find(|p| p["title"] == title).unwrap();
-    assert_eq!(find("Hello")["eligible"], true);
-    assert_eq!(
-        find("Hello")["canonicalUrl"],
-        "https://blog.example.org/posts/hello/"
-    );
-    assert_eq!(
-        find("SECRET-DRAFT-TITLE")["reason"]["code"],
-        "post-not-published"
-    );
-    assert_eq!(find("Later")["reason"]["code"], "post-not-yet-public");
-    assert_eq!(find("Away")["reason"]["code"], "canonical-elsewhere");
-    assert!(
-        calls.lock().unwrap().is_empty(),
-        "listing posts never calls the hosted function"
-    );
-}
-
-#[test]
-fn a_preview_reports_every_problem_at_once_and_stores_nothing() {
-    let f = social_site("preview");
-    let calls = Calls::default();
-    let (local, utc) = when(3, 2);
-    let ok = call(
-        &f,
-        &fake(&calls, 200, json!({})),
+const ROUTES: &[(&str, &str, bool)] = &[
+    ("GET", "/admin/api/social/status", false),
+    ("GET", "/admin/api/social/accounts", false),
+    ("GET", "/admin/api/social/connections", false),
+    ("POST", "/admin/api/social/connections", true),
+    (
         "POST",
-        "/admin/api/social/preview",
-        Some(
-            json!({"provider": "linkedin", "caption": "  Hello  ", "work": "/posts/hello/",
-            "scheduledFor": local, "timeZone": "Europe/Athens"}),
-        ),
-    );
-    assert_eq!(ok.0, 200);
-    assert_eq!(ok.1["ok"], true);
-    assert_eq!(ok.1["caption"], "Hello");
-    assert_eq!(ok.1["characters"], 5);
-    assert_eq!(ok.1["limit"], 3000);
-    assert_eq!(ok.1["scheduledFor"], utc.as_str());
-    assert_eq!(ok.1["link"], "https://blog.example.org/posts/hello/");
-    let bad = call(
-        &f,
-        &fake(&calls, 200, json!({})),
+        "/admin/api/social/connections/11111111-1111-4111-8111-111111111111/select",
+        true,
+    ),
+    (
         "POST",
-        "/admin/api/social/preview",
-        Some(
-            json!({"provider": "threads", "caption": "x", "work": "/posts/2099/",
-            "scheduledFor": "2020-01-01T00:00:00Z", "timeZone": "../x"}),
-        ),
-    );
-    assert_eq!(bad.1["ok"], false);
-    let fields: Vec<&str> = bad.1["problems"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|p| p["field"].as_str().unwrap())
-        .collect();
-    assert_eq!(fields, ["destination", "scheduledFor", "timeZone", "work"]);
-    let long = call(
-        &f,
-        &fake(&calls, 200, json!({})),
+        "/admin/api/social/connections/11111111-1111-4111-8111-111111111111/cancel",
+        true,
+    ),
+    (
         "POST",
-        "/admin/api/social/preview",
-        Some(json!({"provider": "facebook", "caption": "a".repeat(3001)})),
-    );
-    assert_eq!(long.1["problems"][0]["code"], "caption-too-long");
-    assert_eq!(long.1["characters"], 3001);
-    assert!(calls.lock().unwrap().is_empty());
-}
+        "/admin/api/social/accounts/11111111-1111-4111-8111-111111111111/reconnect",
+        true,
+    ),
+    (
+        "POST",
+        "/admin/api/social/accounts/11111111-1111-4111-8111-111111111111/disconnect",
+        true,
+    ),
+];
 
-#[test]
-fn a_create_is_checked_against_the_site_then_sent_with_the_actor_and_the_sites_own_address() {
-    let f = social_site("create");
-    let calls = Calls::default();
-    let transport = fake(
-        &calls,
-        201,
-        json!({"announcement": announcement(), "replayed": false, "leak": KEY}),
-    );
-    let (local, utc) = when(3, 2);
-    let (status, body) = call(
-        &f,
-        &transport,
-        "POST",
-        "/admin/api/social/announcements",
-        Some(draft(json!({"scheduledFor": local}))),
-    );
-    assert_eq!(status, 201, "{body}");
-    assert_eq!(body["announcement"]["id"], ANNOUNCEMENT);
-    assert!(
-        body.get("leak").is_none(),
-        "only the allow-listed fields reach the browser"
-    );
-    let recorded = calls.lock().unwrap();
-    assert_eq!(recorded.len(), 1);
-    let (method, route, _, actor, sent) = &recorded[0];
-    assert_eq!(
-        (method.as_str(), route.as_str(), actor.as_str()),
-        ("POST", "announcements", "mikey")
-    );
-    let sent = sent.as_ref().unwrap();
-    assert_eq!(
-        sent["canonicalUrl"],
-        "https://blog.example.org/posts/hello/"
-    );
-    assert_eq!(sent["scheduledFor"], utc.as_str(), "sent as UTC");
-    assert_eq!(sent["accountId"], ACCOUNT);
-    assert!(sent.get("site_id").is_none() && sent.get("siteId").is_none());
-}
-
-#[test]
-fn a_site_under_a_folder_lists_previews_and_creates_by_the_site_relative_path() {
-    let f = social_site("folder");
-    fs::write(
-        f.dir.join("openblog.json"),
-        r#"{"title":"Lantern","url":"https://user.github.io/blog"}"#,
-    )
-    .unwrap();
-    let calls = Calls::default();
-    let transport = fake(&calls, 201, json!({"announcement": announcement()}));
-    let (_, listed) = call(&f, &transport, "GET", "/admin/api/social/posts", None);
-    let hello = listed["posts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|p| p["title"] == "Hello")
-        .unwrap();
-    assert_eq!(hello["work"], "/posts/hello/");
-    assert_eq!(
-        hello["canonicalUrl"],
-        "https://user.github.io/blog/posts/hello/"
-    );
-    let (status, body) = call(
-        &f,
-        &transport,
-        "POST",
-        "/admin/api/social/announcements",
-        Some(draft(json!({"work": hello["work"]}))),
-    );
-    assert_eq!(status, 201, "{body}");
-    let recorded = calls.lock().unwrap();
-    let sent = recorded[0].4.as_ref().unwrap();
-    assert_eq!(sent["work"], "/posts/hello/");
-    assert_eq!(
-        sent["canonicalUrl"],
-        "https://user.github.io/blog/posts/hello/"
-    );
-}
-
-#[test]
-fn a_retry_whose_time_has_come_close_still_reaches_the_hosted_function() {
-    let f = social_site("retry");
-    let calls = Calls::default();
-    let transport = fake(
-        &calls,
-        200,
-        json!({"announcement": announcement(), "replayed": true}),
-    );
-    let soon = DateTime::from_unix(clock::now().unix() + 10).rfc3339();
-    let (status, body) = call(
-        &f,
-        &transport,
-        "POST",
-        "/admin/api/social/announcements",
-        Some(draft(json!({"scheduledFor": soon}))),
-    );
-    assert_eq!(status, 200, "{body}");
-    assert_eq!(
-        calls.lock().unwrap().len(),
-        1,
-        "the hosted function decides"
-    );
-    // A time that is not a time at all is still refused here.
-    let (status, _) = call(
-        &f,
-        &transport,
-        "POST",
-        "/admin/api/social/announcements",
-        Some(draft(json!({"scheduledFor": "tomorrow"}))),
-    );
-    assert_eq!(status, 422);
-}
-
-#[test]
-fn a_create_the_site_cannot_stand_behind_never_reaches_the_hosted_function() {
-    let f = social_site("refuse");
-    let calls = Calls::default();
-    let transport = fake(&calls, 201, json!({"announcement": announcement()}));
-    let code = |overrides: Json| {
-        let (status, body) = call(
-            &f,
-            &transport,
-            "POST",
-            "/admin/api/social/announcements",
-            Some(draft(overrides)),
-        );
-        (status, body["code"].as_str().unwrap_or("").to_string())
-    };
-    assert_eq!(
-        code(json!({"work": "/posts/secret/"})),
-        (422, "post-not-published".into())
-    );
-    assert_eq!(
-        code(json!({"work": "/posts/later/"})),
-        (422, "post-not-yet-public".into())
-    );
-    assert_eq!(
-        code(json!({"work": "/posts/away/"})),
-        (422, "canonical-elsewhere".into())
-    );
-    assert_eq!(
-        code(json!({"work": "/posts/missing/"})),
-        (422, "post-not-published".into())
-    );
-    assert_eq!(code(json!({"caption": " "})), (422, "caption-empty".into()));
-    assert_eq!(
-        code(json!({"caption": "a".repeat(3001)})),
-        (422, "caption-too-long".into())
-    );
-    assert_eq!(
-        code(json!({"scheduledFor": "2099-01-01T10:00:00"})),
-        (422, "time-needs-zone".into())
-    );
-    assert_eq!(
-        code(json!({"idempotencyKey": "x"})),
-        (422, "key-invalid".into())
-    );
-    assert_eq!(
-        code(json!({"timeZone": "a b"})),
-        (422, "time-zone-invalid".into())
-    );
-    // A browser may not choose the link, the site, the status or any other field.
-    for field in ["canonicalUrl", "siteId", "site_id", "status", "createdBy"] {
-        assert_eq!(
-            code(json!({ field: "https://evil.example/" })).0,
-            400,
-            "{field}"
-        );
+fn env_for(endpoint: &str) -> impl Fn(&str) -> Option<String> {
+    let endpoint = endpoint.to_string();
+    move |name| match name {
+        "OPENBLOG_SOCIAL_ENDPOINT" => Some(endpoint.clone()),
+        "OPENBLOG_SOCIAL_ADMIN_KEY" => Some(KEY.to_string()),
+        _ => None,
     }
-    assert!(calls.lock().unwrap().is_empty());
 }
 
-#[test]
-fn edits_reschedules_and_cancels_name_the_version_and_the_announcement() {
-    let f = social_site("change");
-    let calls = Calls::default();
-    let transport = fake(&calls, 200, json!({"announcement": announcement()}));
-    let id_path = |tail: &str| format!("/admin/api/social/{tail}?id={ANNOUNCEMENT}");
-    let (edit_local, edit_utc) = when(5, 0);
-    let (move_local, move_utc) = when(6, -5);
-
-    let (s, _) = call(
-        &f,
-        &transport,
-        "PATCH",
-        &id_path("announcements"),
-        Some(json!({"version": 1, "caption": " New words ", "scheduledFor": edit_local})),
-    );
-    assert_eq!(s, 200);
-    let (s, _) = call(
-        &f,
-        &transport,
-        "POST",
-        &id_path("announcements/reschedule"),
-        Some(json!({"version": 2, "scheduledFor": move_local})),
-    );
-    assert_eq!(s, 200);
-    let (s, _) = call(
-        &f,
-        &transport,
-        "POST",
-        &id_path("announcements/cancel"),
-        Some(json!({"version": 3})),
-    );
-    assert_eq!(s, 200);
-
-    let recorded = calls.lock().unwrap();
-    assert_eq!(recorded[0].0, "PATCH");
-    assert_eq!(
-        recorded[0].2,
-        vec![("id".to_string(), ANNOUNCEMENT.to_string())]
-    );
-    assert_eq!(recorded[0].4.as_ref().unwrap()["caption"], "New words");
-    assert_eq!(recorded[0].4.as_ref().unwrap()["version"], 1);
-    assert_eq!(
-        recorded[0].4.as_ref().unwrap()["scheduledFor"],
-        edit_utc.as_str()
-    );
-    assert_eq!(recorded[1].1, "announcements/reschedule");
-    assert_eq!(
-        recorded[1].4.as_ref().unwrap()["scheduledFor"],
-        move_utc.as_str()
-    );
-    assert_eq!(recorded[2].1, "announcements/cancel");
-    assert_eq!(recorded[2].4, Some(json!({"version": 3})));
-    drop(recorded);
-
-    let n = calls.lock().unwrap().len();
-    for (method, tail, body) in [
-        ("PATCH", "announcements", json!({"version": 1})),
-        (
-            "PATCH",
-            "announcements",
-            json!({"version": 1, "caption": "x", "status": "published"}),
-        ),
-        ("PATCH", "announcements", json!({"caption": "x"})),
-        (
-            "POST",
-            "announcements/reschedule",
-            json!({"version": 1, "scheduledFor": "tomorrow"}),
-        ),
-        (
-            "POST",
-            "announcements/reschedule",
-            json!({"version": 1, "scheduledFor": when(4, 0).0, "caption": "x"}),
-        ),
-        ("POST", "announcements/cancel", json!({"version": "1"})),
-        (
-            "POST",
-            "announcements/cancel",
-            json!({"version": 1, "siteId": "other"}),
-        ),
-    ] {
-        let (s, _) = call(&f, &transport, method, &id_path(tail), Some(body.clone()));
-        assert!(s == 400 || s == 422, "{method} {tail} {body}: {s}");
-    }
-    for bad in ["x", "AAAAAAAA-AAAA-4AAA-8AAA-000000000001", "../../etc"] {
-        let path = format!("/admin/api/social/announcements/cancel?id={bad}");
-        let (s, b) = call(&f, &transport, "POST", &path, Some(json!({"version": 1})));
-        assert_eq!((s, b["code"].as_str()), (400, Some("invalid-id")), "{bad}");
-    }
-    assert_eq!(calls.lock().unwrap().len(), n, "nothing refused was sent");
-}
-
-#[test]
-fn the_list_passes_only_known_filters() {
-    let f = social_site("list");
-    let calls = Calls::default();
-    let transport = fake(&calls, 200, json!({"announcements": []}));
-    let (s, b) = call(
-        &f,
-        &transport,
-        "GET",
-        "/admin/api/social/announcements?status=scheduled&limit=20&site_id=other&x=1",
-        None,
-    );
-    assert_eq!((s, b["announcements"].clone()), (200, json!([])));
-    let recorded = calls.lock().unwrap();
-    let mut query = recorded[0].2.clone();
-    query.sort();
-    assert_eq!(
-        query,
-        vec![
-            ("limit".into(), "20".into()),
-            ("status".into(), "scheduled".into())
-        ]
-    );
-}
-
-#[test]
-fn hosted_answers_become_useful_errors_and_never_a_session_or_secret_problem() {
-    let f = social_site("answers");
-    let calls = Calls::default();
-    let post = |status: u16, reply: Json| {
-        call(
-            &f,
-            &fake(&calls, status, reply),
-            "POST",
-            "/admin/api/social/announcements",
-            Some(draft(json!({}))),
-        )
-    };
-    // The function's own refusals keep their code and message, and the version to reload from.
-    let (s, b) = post(
-        409,
-        json!({"error": "This announcement changed since you opened it.", "code": "stale", "version": 4, "claimed_by": "@worker"}),
-    );
-    assert_eq!(
-        (s, b["code"].clone(), b["version"].clone()),
-        (409, json!("stale"), json!(4))
-    );
-    assert!(b.get("claimed_by").is_none());
-    let (s, b) = post(
-        404,
-        json!({"error": "That destination is not connected to this site.", "code": "destination-not-found"}),
-    );
-    assert_eq!(
-        (s, b["code"].clone()),
-        (404, json!("destination-not-found"))
-    );
-    // A rejected key is a setup problem, shown as a 502: a 401 would look like an expired session.
-    for rejected in [401, 403] {
-        let (s, b) = post(rejected, json!({"error": "Not authorized."}));
-        assert_eq!((s, b["code"].clone()), (502, json!("hosted-key-rejected")));
-        assert!(!b.to_string().contains(KEY));
-    }
-    // A disabled function answers a bare 404.
-    let (s, b) = post(404, json!({"error": "Not found."}));
-    assert_eq!((s, b["code"].clone()), (502, json!("hosted-unavailable")));
-    // A failure keeps what the function said to itself, including anything that looks like a secret.
-    let (s, b) = post(
-        500,
-        json!({"error": format!("boom {KEY}"), "code": "internal"}),
-    );
-    assert_eq!((s, b["code"].clone()), (502, json!("hosted-failed")));
-    assert!(!b.to_string().contains(KEY));
-    let (s, b) = post(
-        409,
-        json!({"error": format!("<script>{KEY}"), "code": "conflict"}),
-    );
-    assert_eq!(
-        (s, b["error"].clone()),
-        (409, json!("The request was refused."))
-    );
-    // An unexpected success is not passed on as one.
-    let (s, _) = post(200, json!({"surprise": true}));
-    assert_eq!(s, 502);
-    // An unreachable function is a fixed message.
-    let down = |_: &Call| {
-        Err::<(u16, Json), &'static str>("The hosted social function could not be reached.")
-    };
-    let (s, b) = call(&f, &down, "GET", "/admin/api/social/destinations", None);
-    assert_eq!(
-        (s, b["error"].as_str()),
-        (
-            502,
-            Some("The hosted social function could not be reached.")
-        )
-    );
-}
-
-/// One real HTTP exchange on the loopback interface, to prove the wire request: the admin key as a
-/// bearer, the signed-in user as the actor, the route, the query and a JSON body.
-#[test]
-fn the_wire_request_carries_the_admin_key_and_the_actor_and_nothing_else_secret() {
+/// A fake hosted function: answers each connection with the next canned reply and hands back the
+/// raw requests it saw. It panics its thread (never hangs a test) if it is not called.
+fn hosted(replies: Vec<(u16, String)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
-    let server = std::thread::spawn(move || {
-        let mut stream = accept_provider_call(&listener);
-        stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
-        let mut request = Vec::new();
-        let mut chunk = [0u8; 4096];
-        loop {
-            let read = stream.read(&mut chunk).unwrap_or(0);
-            if read == 0 {
-                break;
-            }
-            request.extend_from_slice(&chunk[..read]);
-            if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
-                let head = String::from_utf8_lossy(&request[..end]).to_lowercase();
+    let handle = std::thread::spawn(move || {
+        let mut seen = Vec::new();
+        for (status, body) in replies {
+            let mut stream = accept_provider_call(&listener);
+            stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let read = stream.read(&mut chunk).unwrap_or(0);
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+                let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") else {
+                    continue;
+                };
+                let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
                 let length = head
                     .lines()
-                    .find_map(|l| {
-                        l.strip_prefix("content-length:")
-                            .map(|v| v.trim().parse::<usize>().unwrap())
+                    .find_map(|line| {
+                        line.strip_prefix("content-length:")
+                            .and_then(|v| v.trim().parse::<usize>().ok())
                     })
                     .unwrap_or(0);
                 if request.len() >= end + 4 + length {
                     break;
                 }
             }
+            seen.push(String::from_utf8_lossy(&request).to_string());
+            let reply = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(reply.as_bytes());
         }
-        let body = r#"{"announcement":{"id":"x"},"replayed":false}"#;
-        let response = format!(
-            "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        stream.write_all(response.as_bytes()).unwrap();
-        String::from_utf8_lossy(&request).to_string()
+        seen
     });
-    let f = social_site("wire");
-    let endpoint = format!("http://{address}/social-schedule");
-    let hosted = Hosted::new(&endpoint, KEY).unwrap();
-    let request = json_req("POST", "/admin/api/social/announcements", draft(json!({})));
-    let response = social::route_with_hosted(&f.state, &request, "mikey", "announcements", &hosted);
+    (format!("http://{address}/api/social"), handle)
+}
+
+fn account(extra: Json) -> Json {
+    let mut value = json!({
+        "id": ID, "provider": "linkedin", "kind": "member", "externalId": "urn:li:person:abc",
+        "displayName": "Ada Lovelace", "status": "connected", "health": "ok", "connectedBy": "mikey",
+        "createdAt": "2026-10-29T12:00:00Z", "updatedAt": "2026-10-29T12:00:00Z", "disconnectedAt": null,
+        "credential": { "status": "active", "accessExpiresAt": "2026-12-01T00:00:00Z", "refreshExpiresAt": null, "scopes": ["openid", "w_member_social"], "lastRefreshedAt": null },
+    });
+    for (key, field) in extra.as_object().unwrap() {
+        value[key] = field.clone();
+    }
+    value
+}
+
+#[test]
+fn unconfigured_it_is_off_and_every_other_route_is_not_there() {
+    let f = fixture("social-off");
+    let session = login_ok(&f);
+    let status = handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/social/status"), &session, false),
+    );
+    assert_eq!(status.status, 200);
     assert_eq!(
-        response.status,
+        body_json(&status),
+        json!({ "enabled": false, "state": "off" })
+    );
+    for &(method, path, _) in ROUTES.iter().skip(1) {
+        let r = handle(
+            &f.state,
+            &authed(json_req(method, path, json!({})), &session, true),
+        );
+        assert_eq!(r.status, 404, "{method} {path}");
+    }
+}
+
+#[test]
+fn every_route_denies_by_default_and_a_write_needs_a_session_the_csrf_token_and_json() {
+    let f = fixture("social-auth");
+    let session = login_ok(&f);
+    for &(method, path, writes) in ROUTES {
+        assert_eq!(
+            handle(&f.state, &json_req(method, path, json!({}))).status,
+            401,
+            "{method} {path} unauthenticated"
+        );
+        assert!(
+            preflight(&f.state, &req(method, path)).is_err(),
+            "{method} {path} refused before its body is buffered"
+        );
+        let allowed = preflight(&f.state, &authed(req(method, path), &session, true)).unwrap();
+        assert_eq!(allowed, 4096, "{method} {path} is bounded");
+        if !writes {
+            continue;
+        }
+        let no_token = authed(json_req(method, path, json!({})), &session, false);
+        assert_eq!(
+            handle(&f.state, &no_token).status,
+            403,
+            "{method} {path} no token"
+        );
+        let mut cross = authed(json_req(method, path, json!({})), &session, true);
+        cross
+            .headers
+            .insert("origin".into(), "https://evil.example".into());
+        assert_eq!(
+            handle(&f.state, &cross).status,
+            403,
+            "{method} {path} cross-origin"
+        );
+    }
+    // Configured, a write must still say it is JSON, and unknown shapes are not routes.
+    let (endpoint, _server) = hosted(vec![]);
+    let env = env_for(&endpoint);
+    let plain = route_with(&env, &req("POST", "/x"), "mikey", "connections");
+    assert_eq!(plain.status, 415);
+    for name in [
+        "accounts/not-an-id/disconnect",
+        "connections/x/select",
+        "nothing",
+        "accounts/11111111-1111-4111-8111-111111111111/delete",
+    ] {
+        let r = route_with(&env, &json_req("POST", "/x", json!({})), "mikey", name);
+        assert_eq!(r.status, 404, "{name}");
+    }
+    assert_eq!(
+        route_with(
+            &env,
+            &json_req("DELETE", "/x", json!({})),
+            "mikey",
+            "accounts"
+        )
+        .status,
+        404
+    );
+}
+
+#[test]
+fn a_bad_setting_is_reported_by_name_and_nothing_is_sent() {
+    for (endpoint, key, problems) in [
+        (
+            "http://blog.example.com/api/social",
+            KEY,
+            vec!["OPENBLOG_SOCIAL_ENDPOINT"],
+        ),
+        (
+            "https://user:pw@blog.example.com/api/social",
+            KEY,
+            vec!["OPENBLOG_SOCIAL_ENDPOINT"],
+        ),
+        (
+            "https://blog.example.com/api/social?x=1",
+            KEY,
+            vec!["OPENBLOG_SOCIAL_ENDPOINT"],
+        ),
+        (
+            "https://blog.example.com/api/social",
+            "short",
+            vec!["OPENBLOG_SOCIAL_ADMIN_KEY"],
+        ),
+        ("", KEY, vec!["OPENBLOG_SOCIAL_ENDPOINT"]),
+    ] {
+        let env = |name: &str| match name {
+            "OPENBLOG_SOCIAL_ENDPOINT" => Some(endpoint.to_string()),
+            "OPENBLOG_SOCIAL_ADMIN_KEY" => Some(key.to_string()),
+            _ => None,
+        };
+        let status = route_with(&env, &req("GET", "/x"), "mikey", "status");
+        let body = body_json(&status);
+        assert_eq!(body["state"], "invalid", "{endpoint}");
+        assert_eq!(body["problems"], json!(problems));
+        assert!(!String::from_utf8_lossy(&status.body).contains(KEY));
+        assert_eq!(
+            route_with(&env, &req("GET", "/x"), "mikey", "accounts").status,
+            404
+        );
+    }
+}
+
+#[test]
+fn accounts_are_fetched_with_the_key_and_actor_and_rebuilt_from_known_fields() {
+    let leaky = account(json!({
+        "accessToken": ACCESS, "envelope": {"body": "x"}, "refreshToken": ACCESS,
+        "credential": { "status": "active", "accessExpiresAt": null, "refreshExpiresAt": null, "scopes": ["w_member_social"], "lastRefreshedAt": null, "token": ACCESS },
+    }));
+    let junk = json!({ "id": "not-a-uuid", "provider": "linkedin" });
+    let (endpoint, server) = hosted(vec![(
+        200,
+        json!({ "accounts": [leaky, junk] }).to_string(),
+    )]);
+    let r = route_with(&env_for(&endpoint), &req("GET", "/x"), "mikey", "accounts");
+    assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    let body = String::from_utf8_lossy(&r.body).to_string();
+    assert!(!body.contains(ACCESS) && !body.contains("envelope") && !body.contains("refreshToken"));
+    let value = body_json(&r);
+    assert_eq!(
+        value["accounts"].as_array().unwrap().len(),
+        1,
+        "an unusable row is dropped"
+    );
+    assert_eq!(value["accounts"][0]["displayName"], "Ada Lovelace");
+    assert_eq!(
+        value["accounts"][0]["credential"]["scopes"],
+        json!(["w_member_social"])
+    );
+    let seen = server.join().unwrap().remove(0).to_ascii_lowercase();
+    assert!(seen.starts_with("get /api/social/accounts "), "{seen}");
+    assert!(seen.contains(&format!(
+        "authorization: bearer {}",
+        KEY.to_ascii_lowercase()
+    )));
+    assert!(seen.contains("x-openblog-actor: mikey"));
+}
+
+#[test]
+fn starting_a_connection_returns_only_a_provider_address_and_validates_what_it_sends() {
+    let connection = json!({ "id": ID, "provider": "facebook", "status": "pending", "expiresAt": "2026-10-29T12:10:00Z", "requestedScopes": ["pages_show_list"], "grantedScopes": [], "createdBy": "mikey", "createdAt": "2026-10-29T12:00:00Z", "reauthAccountId": null, "errorCode": null, "message": null, "destinations": [], "notes": [] });
+    let url = "https://www.facebook.com/v23.0/dialog/oauth?client_id=1&state=abc";
+    let (endpoint, server) = hosted(vec![(
         201,
-        "{}",
-        String::from_utf8_lossy(&response.body)
+        json!({ "connection": connection, "authorizeUrl": url }).to_string(),
+    )]);
+    let env = env_for(&endpoint);
+    let ok = route_with(
+        &env,
+        &json_req("POST", "/x", json!({ "provider": "facebook" })),
+        "mikey",
+        "connections",
     );
-    let seen = server.join().unwrap();
-    let lower = seen.to_lowercase();
+    assert_eq!(ok.status, 200);
+    assert_eq!(body_json(&ok)["authorizeUrl"], url);
+    let sent = server.join().unwrap().remove(0);
+    assert!(sent.ends_with(r#"{"provider":"facebook"}"#), "{sent}");
+
+    // Bad requests never reach the function (the fake would panic on an unexpected call).
+    for body in [
+        json!({}),
+        json!({ "provider": "myspace" }),
+        json!({ "provider": "facebook", "siteId": "x" }),
+        json!({ "provider": "facebook", "redirect_uri": "https://evil.example" }),
+    ] {
+        let r = route_with(
+            &env,
+            &json_req("POST", "/x", body.clone()),
+            "mikey",
+            "connections",
+        );
+        assert_eq!(r.status, 400, "{body}");
+    }
+    let mut garbled = json_req("POST", "/x", json!({}));
+    garbled.body = b"{not json".to_vec();
+    assert_eq!(
+        route_with(&env, &garbled, "mikey", "connections").status,
+        400
+    );
+
+    // An address that is not a provider's own is never passed on.
+    for bad in [
+        "https://evil.example/oauth",
+        "http://www.linkedin.com/oauth",
+        "https://www.linkedin.com.evil.example/",
+        "https://user:pw@www.linkedin.com/x",
+        "javascript:alert(1)",
+    ] {
+        let (endpoint, server) = hosted(vec![(
+            201,
+            json!({ "connection": connection, "authorizeUrl": bad }).to_string(),
+        )]);
+        let r = route_with(
+            &env_for(&endpoint),
+            &json_req("POST", "/x", json!({ "provider": "linkedin" })),
+            "mikey",
+            "connections",
+        );
+        assert_eq!(r.status, 502, "{bad}");
+        assert!(!String::from_utf8_lossy(&r.body).contains("evil"));
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn choosing_a_destination_sends_only_the_choice_and_returns_only_the_account() {
+    let (endpoint, server) = hosted(vec![(
+        201,
+        json!({ "account": account(json!({})), "credential": { "accessToken": ACCESS } })
+            .to_string(),
+    )]);
+    let env = env_for(&endpoint);
+    let path = format!("connections/{ID}/select");
+    let r = route_with(
+        &env,
+        &json_req("POST", "/x", json!({ "destination": "urn:li:person:abc" })),
+        "mikey",
+        &path,
+    );
+    assert_eq!(r.status, 200);
+    assert!(!String::from_utf8_lossy(&r.body).contains(ACCESS));
+    assert_eq!(body_json(&r)["account"]["externalId"], "urn:li:person:abc");
+    let sent = server.join().unwrap().remove(0);
     assert!(
-        seen.starts_with("POST /social-schedule/announcements HTTP/1.1"),
-        "{seen}"
+        sent.starts_with(&format!("POST /api/social/{path} ")),
+        "{sent}"
     );
-    assert!(lower.contains(&format!("authorization: bearer {}", KEY.to_lowercase())));
-    assert!(lower.contains("x-openblog-actor: mikey"));
-    assert!(seen.contains("\"canonicalUrl\":\"https://blog.example.org/posts/hello/\""));
-    assert!(
-        !seen.contains("csrf") && !lower.contains("cookie"),
-        "the browser's session never travels on"
+    assert!(sent.ends_with(r#"{"destination":"urn:li:person:abc"}"#));
+    for body in [
+        json!({}),
+        json!({ "destination": "" }),
+        json!({ "destination": 4 }),
+        json!({ "destination": "x", "accountId": ID }),
+        json!({ "destination": "x".repeat(300) }),
+    ] {
+        assert_eq!(
+            route_with(&env, &json_req("POST", "/x", body), "mikey", &path).status,
+            400
+        );
+    }
+}
+
+#[test]
+fn the_functions_refusals_are_passed_on_plainly_and_its_failures_are_not_trusted() {
+    let cases: Vec<(u16, String, u16, &str)> = vec![
+        (409, json!({ "error": "already-connected", "message": "That account is already connected." }).to_string(), 409, "already connected"),
+        (429, json!({ "error": "too-many-attempts", "message": "Too many connection attempts are open." }).to_string(), 429, "Too many"),
+        (401, json!({ "error": "unauthorized", "message": "Not authorized." }).to_string(), 502, "OPENBLOG_SOCIAL_ADMIN_KEY"),
+        (500, json!({ "error": "internal", "message": format!("leaked {ACCESS}") }).to_string(), 502, ""),
+        (200, "<html>not json</html>".to_string(), 502, ""),
+        (200, json!({ "accounts": "nope" }).to_string(), 200, ""),
+    ];
+    for (status, body, expected, needle) in cases {
+        let (endpoint, server) = hosted(vec![(status, body.clone())]);
+        let r = route_with(
+            &env_for(&endpoint),
+            &json_req("POST", "/x", json!({})),
+            "mikey",
+            &format!("accounts/{ID}/disconnect"),
+        );
+        let text = String::from_utf8_lossy(&r.body).to_string();
+        assert!(
+            !text.contains("leaked"),
+            "a 5xx message is not forwarded: {text}"
+        );
+        assert_eq!(
+            r.status,
+            if status == 200 { 502 } else { expected },
+            "{status} {text}"
+        );
+        if !needle.is_empty() {
+            assert!(
+                text.to_lowercase().contains(&needle.to_lowercase()),
+                "{text}"
+            );
+        }
+        server.join().unwrap();
+    }
+    // A function that is not there is a plain failure, not a hang or a panic.
+    let env = env_for("http://127.0.0.1:9/api/social");
+    let r = route_with(&env, &req("GET", "/x"), "mikey", "accounts");
+    assert_eq!(r.status, 502);
+}
+
+#[test]
+fn a_function_that_says_social_is_not_enabled_is_reported_as_unavailable_not_as_an_error() {
+    let (endpoint, server) = hosted(vec![(
+        404,
+        json!({ "error": "not-enabled", "message": "Social publishing is not enabled." })
+            .to_string(),
+    )]);
+    let r = route_with(&env_for(&endpoint), &req("GET", "/x"), "mikey", "status");
+    assert_eq!(r.status, 200);
+    let body = body_json(&r);
+    assert_eq!(body["enabled"], false);
+    assert_eq!(body["state"], "unavailable");
+    server.join().unwrap();
+}
+
+#[test]
+fn the_status_shows_the_redirect_to_register_and_drops_unknown_fields() {
+    let reply = json!({ "enabled": true, "problems": ["OPENBLOG_SOCIAL_FACEBOOK_API_VERSION"], "providers": [
+        { "provider": "linkedin", "label": "LinkedIn", "redirectUri": "https://blog.example.com/api/social/callback/linkedin", "version": "202510", "scopes": ["openid", "profile", "w_member_social"], "requiredScopes": ["openid", "profile", "w_member_social"], "organizations": false, "pkce": false, "clientSecret": ACCESS },
+        { "provider": "myspace", "label": "No", "redirectUri": "https://x", "version": "1", "scopes": [], "requiredScopes": [] },
+    ] });
+    let (endpoint, server) = hosted(vec![(200, reply.to_string())]);
+    let r = route_with(&env_for(&endpoint), &req("GET", "/x"), "mikey", "status");
+    let text = String::from_utf8_lossy(&r.body).to_string();
+    assert!(!text.contains(ACCESS) && !text.contains(KEY) && !text.contains("myspace"));
+    let body = body_json(&r);
+    assert_eq!(body["enabled"], true);
+    assert_eq!(body["providers"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        body["providers"][0]["redirectUri"],
+        "https://blog.example.com/api/social/callback/linkedin"
     );
+    server.join().unwrap();
 }

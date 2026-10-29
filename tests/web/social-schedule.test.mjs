@@ -1,4 +1,4 @@
-// Optional social publishing, the announcement model (epic #353, ADR 0470): the hosted half must
+// Optional social publishing, the announcement model (epic #353, ADR 0305): the hosted half must
 // accept and refuse exactly what crates/openblog-core/src/social_schedule.rs does.
 import test from "node:test";
 import assert from "node:assert/strict";

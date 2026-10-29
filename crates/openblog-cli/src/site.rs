@@ -301,6 +301,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/voice-library.js"),
     ),
     (
+        "announcements.js",
+        include_str!("../../../web/admin/announcements.js"),
+    ),
+    (
         "voice-polished.js",
         include_str!("../../../web/admin/voice-polished.js"),
     ),
@@ -311,6 +315,22 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     (
         "job-form.js",
         include_str!("../../../web/admin/job-form.js"),
+    ),
+    (
+        "job-capture.js",
+        include_str!("../../../web/admin/job-capture.js"),
+    ),
+    (
+        "capture-queue.js",
+        include_str!("../../../web/admin/capture-queue.js"),
+    ),
+    (
+        "capture-recorder.js",
+        include_str!("../../../web/admin/capture-recorder.js"),
+    ),
+    (
+        "capture-assistant.js",
+        include_str!("../../../web/admin/capture-assistant.js"),
     ),
 ];
 

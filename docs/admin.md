@@ -982,7 +982,7 @@ previewing.
 
 ## Announce a post on social media (optional)
 
-If your site has [scheduled social publishing](social-publishing.md) set up, Admin shows a **Social** tab; without it
+If your site has [scheduled social publishing](social-publishing.md) set up, Admin shows an **Announcements** tab; without it
 there is no tab and nothing changes. The screen has two parts.
 
 **Announce a post.** Choose a **Destination** (a connected LinkedIn profile or Facebook Page), a **Post to announce**,
@@ -1095,6 +1095,27 @@ native providers; only **Custom HTTPS** accepts an endpoint entered by the autho
 The model field remains editable because provider model catalogs change. OpenRouter restricts
 routing to upstream endpoints that accept the requested structured-output parameters, but the
 upstream service still determines exact schema support.
+
+### Transcribing a voice note
+
+The Capture view can turn a recorded voice note into words, only when you ask and only after it shows what is
+sent and where ([ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)).
+Only the recording is sent: no notes, photos, title or voice guide. Two providers take audio: OpenAI
+(transcribed with `gpt-4o-mini-transcribe`) and Google Gemini (your configured model). Any other provider is
+never sent audio, and Capture says to type your notes instead.
+
+To keep audio on your own machine, set `OPENBLOG_TRANSCRIBE_COMMAND` in the server's environment to a JSON array:
+the program and its fixed arguments. Admin appends the voice note's file path and reads the transcript from the
+program's output.
+
+```sh
+export OPENBLOG_TRANSCRIBE_COMMAND='["whisper-cli", "--model", "/models/base.bin", "--no-timestamps", "--file"]'
+```
+
+It runs without a shell, with a stripped environment (your API keys are not passed), no input, a time limit and a
+bounded output. It is an environment setting, not part of `openblog.json`, so shared site files cannot name a
+program to run. When it is set it is used instead of a provider. The transcript is kept privately beside the
+note (`.openblog/captures/`) and is untrusted text: it goes into the Notes box, made plain, for you to edit.
 
 ```sh
 export ANTHROPIC_API_KEY="your Anthropic key"
