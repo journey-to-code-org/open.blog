@@ -2766,3 +2766,20 @@ The Admin page (`#/social`) where an author connects, reviews, reconnects and di
 only what the Admin server rebuilt from the hosted function's reply, and appears in the navigation only when the
 Admin server has social settings.
 _Avoid_: Integrations, social settings
+
+**Claim**:
+The atomic step in which a worker takes a due scheduled social post: one database function moves it to `claimed`
+under a lease, raises its attempt count and version, and opens the attempt row, skipping any row another claim has
+locked. A claim and an author's edit or cancel exclude each other.
+_Avoid_: Pick up, dequeue
+
+**Lease**:
+The time until which one worker may deliver a claimed post. When it runs out, the post is reaped: back to the queue if
+the provider was never called, `unknown` if it might have been.
+_Avoid_: Lock, timeout
+
+**Sending mark**:
+The stamp on a delivery attempt (`sending_at`) made just before the provider call, and only while the lease is valid.
+It separates "nothing was sent" from "it may have been sent", which decides whether an expired lease is retried or
+becomes an unknown outcome.
+_Avoid_: Heartbeat

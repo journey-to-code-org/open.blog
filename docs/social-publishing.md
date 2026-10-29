@@ -211,3 +211,25 @@ sideways.
 Before you enable it for real, confirm in each provider's current documentation the API version, the permissions
 (scopes) and any app review the posting API needs; none of that is part of this screen, and nothing here posts until
 delivery is set up.
+
+## Delivery queue
+
+Delivery has three parts, each opt-in on top of the last. This section is the queue; the worker that calls it and the
+schedule that wakes the worker are below it.
+
+Run `supabase/social-queue.sql` in the Supabase SQL editor after `social.sql`
+([ADR 0480](adr/0480-due-announcements-are-claimed-by-database-functions-under-a-lease-and-an-expired-lease-after-sending-is-unknown.md)).
+It is additive and re-runnable: five columns, one index and four functions, no existing row changed. Undo it with
+`supabase/social-queue-rollback.sql`; `social-rollback.sql` removes the functions before it drops the tables.
+
+- A **claim** takes due, scheduled announcements of this site, a bounded batch at a time, under a lease (5 minutes by
+  default). Two workers at once get different announcements; one an author just canceled is not claimed.
+- Each claim counts an **attempt** and opens an attempt row. The **sending mark** is made just before the provider is
+  called, and only while the lease is valid.
+- A lease that runs out **before** the sending mark returns the announcement to the queue. One that runs out
+  **after** it becomes `unknown`: the provider may have posted, so it is never sent again, only looked up or reviewed.
+- An outcome is recorded against the version the worker read, so a worker that lost its lease cannot overwrite the one
+  that holds it. `published` is recorded only with the provider's own post id.
+- Only `service_role` may execute the functions; the browser and the public keys cannot.
+
+Without this file announcements wait in the queue exactly as before.
