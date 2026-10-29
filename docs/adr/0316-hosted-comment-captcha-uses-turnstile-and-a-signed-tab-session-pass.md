@@ -1,4 +1,4 @@
-# ADR 0314: Hosted comment captcha uses Turnstile and a signed tab-session pass
+# ADR 0316: Hosted comment captcha uses Turnstile and a signed tab-session pass
 
 - Status: Accepted
 - Date: 2026-10-29
