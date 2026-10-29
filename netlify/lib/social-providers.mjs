@@ -42,7 +42,9 @@ const DEFINITIONS = Object.freeze({
     revokeUrl: "https://www.linkedin.com/oauth/v2/revoke",
     apiBase: "https://api.linkedin.com",
     versionPattern: /^\d{6}$/,
-    defaultVersion: "202510",
+    // Checked 2026-10-29 against LinkedIn's migration table: 202510 was sunset on 2026-10-15, so the
+    // default moved to 202610 (Active, sunset 2027-10-15). See SUPPORT below and ADR 0741.
+    defaultVersion: "202610",
     // The member scopes every connection needs. `openid profile` name the member; `w_member_social` posts as them.
     baseScopes: Object.freeze(["openid", "profile", "w_member_social"]),
     // Only requested when OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS=true: they need the Community
@@ -64,6 +66,25 @@ const DEFINITIONS = Object.freeze({
     optionalScopes: Object.freeze(["pages_read_engagement"]),
     extraScopes: Object.freeze(["pages_read_engagement"]),
     scopeSeparator: ",",
+  }),
+});
+
+// When each default API version stops being served, as the provider's own documentation said on the
+// date it was checked (ADR 0741). A release gate test fails once a default's date has passed, so the
+// default is re-verified instead of silently breaking every post. A deployer's own
+// OPENBLOG_SOCIAL_<PROVIDER>_API_VERSION is not checked against this: it is theirs to keep current.
+export const VERSION_SUPPORT = Object.freeze({
+  linkedin: Object.freeze({
+    version: "202610",
+    supportedUntil: "2027-10-15",
+    checkedOn: "2026-10-29",
+    source: "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/migrations",
+  }),
+  facebook: Object.freeze({
+    version: "v23.0",
+    supportedUntil: "2027-10-08",
+    checkedOn: "2026-10-29",
+    source: "https://developers.facebook.com/docs/graph-api/changelog/versions/",
   }),
 });
 
