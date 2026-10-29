@@ -488,6 +488,12 @@ fn full_project() -> Project {
     fs::write(dir.join(".openblog/private/voice/editing-1-2.md"), "ed").unwrap();
     fs::write(dir.join(".openblog/private/voice/polishing.md"), "ed").unwrap();
     fs::write(dir.join(PRIVATE_DIR).join(".voice-x.tmp"), "half").unwrap();
+    // A session record a crash left half-written holds the timed draft.
+    fs::write(
+        dir.join(".openblog/private/voice/.session-x.tmp"),
+        "{\"draft\": \"timed words\"}",
+    )
+    .unwrap();
     // Not voice data: must survive.
     fs::create_dir_all(dir.join("assistant/context")).unwrap();
     fs::write(dir.join("assistant/context/author.md"), "keep me").unwrap();
@@ -504,7 +510,7 @@ fn the_erase_plan_names_every_kind_and_reads_only() {
     assert_eq!(kinds(EraseKind::Session), 1);
     assert_eq!(kinds(EraseKind::Guide), 2);
     assert_eq!(kinds(EraseKind::EditorFile), 2);
-    assert_eq!(kinds(EraseKind::Leftover), 1);
+    assert_eq!(kinds(EraseKind::Leftover), 2);
     assert!(plan.iter().all(|i| !i.path.contains("words")));
     assert_eq!(snapshot(&project.0), before);
     // A project without voice data has nothing to erase and gets no folder.
@@ -517,7 +523,7 @@ fn the_erase_plan_names_every_kind_and_reads_only() {
 fn erasing_everything_removes_all_of_it_and_the_post_check_finds_nothing() {
     let project = full_project();
     let report = erase_all(&project.0).unwrap();
-    assert_eq!(report.erased.len(), 9);
+    assert_eq!(report.erased.len(), 10);
     assert!(report.remaining.is_empty(), "{:?}", report.remaining);
     assert!(erase_plan(&project.0).unwrap().is_empty());
     assert!(list(&project.0).is_empty());

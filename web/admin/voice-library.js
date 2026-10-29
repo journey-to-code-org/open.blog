@@ -233,7 +233,7 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
         }
       });
       body.replaceChildren(
-        el("p", {}, `This permanently erases ${plan.items.length} ${plan.items.length === 1 ? "file" : "files"}, from both the portable and the private folders. It cannot be undone.`),
+        el("p", {}, `This permanently erases ${plan.items.length} ${plan.items.length === 1 ? "file" : "files"}, from both the portable and the private folders. It cannot be undone. Voice export files you wrote yourself are not included; delete those by hand.`),
         el("ul", { class: "oba-voice-erase-list", "data-voice-erase-list": "true" }, plan.items.map((item) => el("li", {}, el("code", {}, item.path), ` (${item.kind})`))),
         el("label", { for: `${id}-word` }, `Type "${word}" to confirm`),
         input,

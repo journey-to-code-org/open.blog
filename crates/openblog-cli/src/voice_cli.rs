@@ -449,6 +449,9 @@ fn scrap(root: &Path, yes: bool) -> Result<(), String> {
     }
 }
 
+/// Export files are wherever the author wrote them, so an erase cannot find them.
+const EXPORTS_NOT_ERASED: &str = "Voice export files you wrote with `openblog voice export --write` (such as .openblog/private/voice-library.json) are not erased; delete them yourself.";
+
 /// `openblog voice erase`: list everything the voice feature stored, and with `--yes` erase it all
 /// or nothing, then say what the post-check found.
 fn erase(root: &Path, yes: bool) -> Result<(), String> {
@@ -473,6 +476,7 @@ fn erase(root: &Path, yes: bool) -> Result<(), String> {
             report.erased.len(),
             if report.erased.len() == 1 { "" } else { "s" }
         );
+        println!("{EXPORTS_NOT_ERASED}");
         Ok(())
     } else {
         for path in &report.remaining {

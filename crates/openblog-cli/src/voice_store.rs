@@ -893,12 +893,18 @@ fn collect(root: &Path) -> Result<Vec<EraseItem>> {
         }
     }
     for name in file_names(&contained(root, PRIVATE_VOICE_DIR)?) {
-        if is_editor_file(&name) {
-            items.push(EraseItem {
-                path: format!("{PRIVATE_VOICE_DIR}/{name}"),
-                kind: EraseKind::EditorFile,
-            });
-        }
+        let kind = if is_editor_file(&name) {
+            EraseKind::EditorFile
+        } else if name.starts_with(".session-") && name.ends_with(".tmp") {
+            // A session record a crash left half-written: it holds the timed draft.
+            EraseKind::Leftover
+        } else {
+            continue;
+        };
+        items.push(EraseItem {
+            path: format!("{PRIVATE_VOICE_DIR}/{name}"),
+            kind,
+        });
     }
     Ok(items)
 }
