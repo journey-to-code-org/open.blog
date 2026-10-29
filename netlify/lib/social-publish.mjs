@@ -168,14 +168,17 @@ export function linkedinAdapter(settings, { fetchImpl = globalThis.fetch, now = 
 
 // Facebook's own error codes, which arrive with a 400 as often as with the matching HTTP status.
 const FACEBOOK_AUTH = new Set([102, 190]);
+// 80000-80014 are Meta's business-use-case rate limits (80001 is the Pages one, "too many calls to this Page
+// account"); they arrive as a 4xx and, like the others, are a temporary throttle, not a refusal.
 const FACEBOOK_THROTTLE = new Set([4, 17, 32, 341, 613]);
+const isFacebookThrottle = (code) => FACEBOOK_THROTTLE.has(code) || (code >= 80000 && code <= 80014);
 const FACEBOOK_MAYBE = new Set([1, 2]);
 
 function facebookError(status, body, response, now) {
   const code = Number(body?.error?.code);
   if (FACEBOOK_AUTH.has(code)) return new DeliveryError("auth", { status });
   if (code === 10 || (code >= 200 && code <= 299)) return new DeliveryError("rejected", { status });
-  if (FACEBOOK_THROTTLE.has(code)) return new DeliveryError("rate-limited", { status, retryAfterMs: parseRetryAfter(header(response, "retry-after"), now()) });
+  if (isFacebookThrottle(code)) return new DeliveryError("rate-limited", { status, retryAfterMs: parseRetryAfter(header(response, "retry-after"), now()) });
   // "An unknown error occurred" can follow a post that was in fact created.
   if (FACEBOOK_MAYBE.has(code)) return new DeliveryError("uncertain", { status });
   return statusError(status, response, now);

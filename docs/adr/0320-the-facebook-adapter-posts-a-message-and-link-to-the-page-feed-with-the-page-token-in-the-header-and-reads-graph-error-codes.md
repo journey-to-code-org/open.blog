@@ -25,8 +25,9 @@ that would explain them, and its answer to a successful post is a JSON object wi
 - **Success.** Only HTTP 200 with an `id` shaped `<pageId>_<postId>` for the same Page. Anything else that is 2xx
   is `uncertain`.
 - **Errors are read by Graph code, then by status.** `190` and `102` are `auth`; `10` and `200`-`299` are
-  `rejected`; `4`, `17`, `32`, `341` and `613` are `rate-limited` (with `Retry-After` when Graph sent one, otherwise
-  the worker's back-off); `1` and `2` ("an unknown error occurred") are `uncertain`, because Graph can say that after
+  `rejected`; `4`, `17`, `32`, `341`, `613` and Meta's business-use-case limits `80000`-`80014` (`80001` is the
+  Pages one, "too many calls to this Page account") are `rate-limited` (with `Retry-After` when Graph sent one,
+  otherwise the worker's back-off), so a throttled Page is paused and retried rather than failed; `1` and `2` ("an unknown error occurred") are `uncertain`, because Graph can say that after
   creating the post. Other codes fall back to the status rules of ADR 0319. The message, type, subcode and trace id
   are never copied.
 - **Reconcile is a read-only look at the Page's own posts.** `reconcile({ post, account, accessToken, attemptedAt,

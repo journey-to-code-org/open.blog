@@ -58,10 +58,12 @@ test("a permission or role problem is a final refusal", async () => {
 });
 
 test("rate limits are rate-limited, with the provider's Retry-After when it gave one", async () => {
-  for (const reply of [error(4), error(17), error(32), error(613), { status: 429, headers: { "retry-after": "30" } }]) assert.ok(isDelivery((await run(reply)).error, "rate-limited"), JSON.stringify(reply));
+  for (const reply of [error(4), error(17), error(32), error(613), error(80001), error(80000), error(80014), { status: 429, headers: { "retry-after": "30" } }]) assert.ok(isDelivery((await run(reply)).error, "rate-limited"), JSON.stringify(reply));
   assert.equal((await run({ status: 429, headers: { "retry-after": "30" } })).error.retryAfterMs, 30_000);
   assert.equal((await run({ ...error(4), headers: { "retry-after": "90" } })).error.retryAfterMs, 90_000);
   assert.equal((await run(error(4))).error.retryAfterMs, null);
+  // Only Meta's business-use-case range is a throttle; a neighbouring code still falls back to the status rules.
+  for (const code of [79999, 80015]) assert.ok(isDelivery((await run(error(code))).error, "rejected"), String(code));
 });
 
 test("an unknown Graph error, a server error or a lost answer may have posted, so it is uncertain", async () => {

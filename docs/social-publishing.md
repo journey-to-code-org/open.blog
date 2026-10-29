@@ -251,7 +251,8 @@ Posts a message and the post link to the connected Page's feed (`POST /{page-id}
 token ([ADR 0320](adr/0320-the-facebook-adapter-posts-a-message-and-link-to-the-page-feed-with-the-page-token-in-the-header-and-reads-graph-error-codes.md)).
 The token goes in the `Authorization` header, never in the address. Facebook's own error codes decide the result: an
 expired token or a removed app asks you to reconnect, a missing permission or Page role is reported as such, a rate
-limit is tried again later, and an "unknown error" is `unknown` because the post may exist.
+limit (including Meta's Page-level limit, code `80001`, and the other business-use-case codes `80000`-`80014`) pauses
+that Page and is tried again later, and an "unknown error" is `unknown` because the post may exist.
 
 Verify at setup, because Meta changes them: the Graph version (`OPENBLOG_SOCIAL_FACEBOOK_API_VERSION`, for example
 `v23.0`; old versions are retired), that your app has `pages_manage_posts` (and `pages_show_list`), and App Review:
