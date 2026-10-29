@@ -1048,3 +1048,43 @@ fn a_sample_saying_ignore_previous_instructions_stays_untrusted_data() {
         "sample text must never appear outside untrustedData"
     );
 }
+
+#[test]
+fn a_proposal_that_keeps_claims_from_a_private_guide_is_never_portable() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-private-current");
+    let session = login_ok(&f);
+    write_guide_skill(&f);
+    let file = write_rough(
+        &f.dir,
+        Visibility::Portable,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    // The only saved guide is private and was built from private samples.
+    fs::create_dir_all(f.dir.join(".openblog/private/context")).unwrap();
+    fs::write(
+        f.dir.join(".openblog/private/context/voice.md"),
+        "# Voice guide\n<!-- openblog:voice-provenance sources=private -->\n\n## Habits and quirks\n\n- Says lol a lot\n",
+    )
+    .unwrap();
+    let (endpoint, _captured, provider) = capturing_provider(provider_guide(&file));
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let response = post(
+        &f,
+        &session,
+        GUIDE_PATH,
+        json!({ "sampleIds": [format!("voice:portable:{file}")] }),
+    );
+    provider.join().unwrap();
+    let result = body_json(&response);
+    assert_eq!(result["portableAllowed"], false, "{result}");
+    assert!(result["markdown"]
+        .as_str()
+        .unwrap()
+        .contains("sources=portable,private -->"));
+}
