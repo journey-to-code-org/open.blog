@@ -2568,3 +2568,34 @@ Removing every voice sample (both folders), the session record, the guide and le
 all-or-nothing step, after a listed confirmation, and then checking again that nothing remains. The guide's
 location is named in one place, `voice_store::guide_paths` (ADR 0283).
 _Avoid_: Reset, wipe, delete account
+
+## Trades
+
+**Job**:
+A dated Post using the `job` content profile that records one piece of completed work: trade, service, place,
+problem, what was found, what was done, result, media. A job is a post, so feeds, tags, series and export treat
+it like any other (ADR 0400).
+_Avoid_: Project, case study, ticket
+
+**Service**:
+One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
+typical timeline, and FAQs. A job's `service` names one of them.
+_Avoid_: Product, category
+
+**Service area**:
+A town or region the business serves, kept in a site-level list and rendered as pages and structured data.
+_Avoid_: Location (ambiguous with a job's place)
+
+**Before/after pair**:
+A publishing capability that shows two images of the same subject with captions, rendered as a comparison on
+the canonical page and as two captioned images everywhere else.
+_Avoid_: Slider, gallery
+
+**Quote request**:
+A bounded inbound message from a prospective customer, stored server-side with explicit export and erase. It
+is not a lead pipeline, a booking or an estimate.
+_Avoid_: Lead, booking, ticket
+
+**Proof**:
+A review or testimonial saved as a provenance-tracked snapshot and optionally linked to a job.
+_Avoid_: Rating (the number alone), social proof
