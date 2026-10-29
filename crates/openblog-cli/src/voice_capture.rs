@@ -120,7 +120,82 @@ pub fn session_file_name(stem: &str) -> String {
     format!("{stem}-{}-{nanos}.md", std::process::id())
 }
 
-/// Delete leftover editor files `<stem>.md` and `<stem>-*.md` in `dir`, best effort.
+/// The process id a [`session_file_name`] carries, if `name` is one for `stem`.
+fn owner_pid(name: &str, stem: &str) -> Option<u32> {
+    let rest = name
+        .strip_prefix(stem)?
+        .strip_prefix('-')?
+        .strip_suffix(".md")?;
+    let (pid, nanos) = rest.split_once('-')?;
+    nanos.parse::<u128>().ok()?;
+    pid.parse().ok()
+}
+
+/// Whether `pid` names a process that is still running. When that cannot be told, it is taken to
+/// be running, so a file another window may still be writing is never deleted.
+pub fn process_alive(pid: u32) -> bool {
+    if pid == std::process::id() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, STILL_ACTIVE,
+        };
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        // SAFETY: plain Win32 calls on a handle this function opens and closes itself.
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle == 0 {
+                return GetLastError() != ERROR_INVALID_PARAMETER;
+            }
+            let mut code = 0u32;
+            let known = GetExitCodeProcess(handle, &mut code) != 0;
+            CloseHandle(handle);
+            !known || code == STILL_ACTIVE as u32
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        match Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+        {
+            Ok(status) if status.success() => true,
+            // `kill -0` also fails for a process owned by someone else; `ps` tells the two apart.
+            Ok(_) => Command::new("ps")
+                .args(["-p", &pid.to_string()])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map_or(true, |status| status.success()),
+            Err(_) => true,
+        }
+    }
+}
+
+fn held_by_another_window(name: &str, stem: &str) -> bool {
+    owner_pid(name, stem).is_some_and(|pid| pid != std::process::id() && process_alive(pid))
+}
+
+/// Whether another running `openblog` process has an editor file `<stem>-<pid>-*.md` open in
+/// `dir`, that is, another window is writing or polishing right now.
+pub fn other_window_editing(dir: &Path, stem: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .any(|entry| held_by_another_window(&entry.file_name().to_string_lossy(), stem))
+}
+
+/// Delete leftover editor files `<stem>.md` and `<stem>-*.md` in `dir`, best effort. A file that
+/// belongs to another `openblog` process still running is left alone: that window is still using
+/// it.
 pub fn remove_stale(dir: &Path, stem: &str) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -129,7 +204,9 @@ pub fn remove_stale(dir: &Path, stem: &str) {
     let exact = format!("{stem}.md");
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name == exact || (name.starts_with(&dashed) && name.ends_with(".md")) {
+        if (name == exact || (name.starts_with(&dashed) && name.ends_with(".md")))
+            && !held_by_another_window(&name, stem)
+        {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -149,14 +226,25 @@ pub fn edit_file(editor: &str, path: &Path) -> Result<(), String> {
     }
 }
 
+/// The file as text, waiting out a moment's hold by the editor or a virus scanner (Windows).
 fn read_lossy(path: &Path) -> Option<String> {
-    std::fs::read(path)
+    crate::fsutil::retry_transient(|| std::fs::read(path))
         .ok()
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// An editor that returns sooner than this with the file untouched did not wait for its window.
+const NOT_WAITING_WITHIN: Duration = Duration::from_secs(3);
+
+/// What to say when the editor returned without waiting for its window to close.
+pub fn not_waiting(editor: &str) -> String {
+    format!(
+        "The editor `{editor}` returned straight away without any change, so it did not wait for its window to close. Nothing was locked or thrown away, and the clock keeps running. Close that window without saving, set $VISUAL or $EDITOR to a command that waits (such as `code --wait` or `subl -w`), then run `openblog voice --resume`."
+    )
 }
 
 /// Write `file_content` (header, marker, any text so far) to `path`, open it in the editor, and
@@ -184,6 +272,8 @@ pub fn capture_in_editor(
     let deadline_at = SystemTime::UNIX_EPOCH + Duration::from_secs(deadline_unix.max(0) as u64);
     let saved_late = |stamp: Option<SystemTime>| stamp.is_some_and(|at| at >= deadline_at);
     let mut seen = modified(path);
+    let first_stamp = seen;
+    let started = std::time::Instant::now();
     // The last text accepted before the deadline.
     let mut accepted = text_below_marker(file_content, header);
     let result = loop {
@@ -191,9 +281,10 @@ pub fn capture_in_editor(
             let text = if saved_late(modified(path)) {
                 accepted.clone()
             } else {
+                // A file that cannot be read keeps the last text seen, never nothing.
                 read_lossy(path)
                     .map(|c| text_below_marker(&c, header))
-                    .unwrap_or_default()
+                    .unwrap_or_else(|| accepted.clone())
             };
             kill_tree(&mut child);
             break Ok(Captured {
@@ -204,12 +295,25 @@ pub fn capture_in_editor(
         match child.try_wait() {
             Ok(Some(status)) => {
                 let late = saved_late(modified(path));
+                let content = read_lossy(path);
+                // An editor that hands the file to a window already open returns at once, before
+                // the author has typed anything. Its window would save where nothing reads, so
+                // that is not the end of the writing: the session stays open.
+                if status.success()
+                    && !late
+                    && now_unix() < deadline_unix
+                    && started.elapsed() < NOT_WAITING_WITHIN
+                    && modified(path) == first_stamp
+                    && content.as_deref() == Some(file_content)
+                {
+                    break Err(not_waiting(editor));
+                }
                 let text = if late {
                     accepted.clone()
                 } else {
-                    read_lossy(path)
+                    content
                         .map(|c| text_below_marker(&c, header))
-                        .unwrap_or_default()
+                        .unwrap_or_else(|| accepted.clone())
                 };
                 if !status.success() && now_unix() < deadline_unix {
                     progress(&text);
