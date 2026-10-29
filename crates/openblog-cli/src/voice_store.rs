@@ -765,6 +765,36 @@ pub struct GuideMove {
     pub finishing: bool,
 }
 
+/// The samples a saved guide's traits cite, read again from the store: each file's visibility and
+/// text. A sample that no longer exists (or no longer parses) is left out. Read only.
+pub fn carried_samples(
+    root: &Path,
+    saved: &openblog_core::voice::merge::SavedGuide,
+) -> std::collections::BTreeMap<String, (Visibility, String)> {
+    let mut found = std::collections::BTreeMap::new();
+    for file in saved.cited_samples() {
+        for visibility in [Visibility::Portable, Visibility::Private] {
+            if let Ok(loaded) = read(root, visibility, file) {
+                if let Some(sample) = loaded.sample {
+                    found.insert(file.to_string(), (visibility, sample.body));
+                    break;
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Whether a guide's text is private-derived (ADR 0350, ADR 0351): its provenance line names a
+/// private sample, or one of its traits cites a sample that is private now. Such a guide never
+/// goes to portable context, which Git tracks. The guide merge and the guide move share this rule.
+pub fn guide_is_private_derived(root: &Path, text: &str) -> bool {
+    openblog_core::voice::guide::quotes_private_samples(text)
+        || carried_samples(root, &openblog_core::voice::merge::SavedGuide::parse(text))
+            .values()
+            .any(|(visibility, _)| *visibility == Visibility::Private)
+}
+
 /// Check a guide move and read the guide. Read only.
 fn check_guide_move(root: &Path, to: Visibility) -> Result<(GuideMove, Vec<u8>)> {
     let from = to.other();
@@ -807,7 +837,7 @@ fn check_guide_move(root: &Path, to: Visibility) -> Result<(GuideMove, Vec<u8>)>
         // Portable context is tracked by Git: only a guide that can be read, and whose provenance
         // does not name a private sample, goes there.
         let text = std::str::from_utf8(&bytes).map_err(|_| unreadable("is not readable text"))?;
-        if openblog_core::voice::guide::quotes_private_samples(text) {
+        if guide_is_private_derived(root, text) {
             return refused(
                 "This guide quotes private samples, so it stays private. Portable context is tracked by Git.",
             );

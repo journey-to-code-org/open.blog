@@ -10717,7 +10717,7 @@ fn save_assistant_context(state: &AppState, req: &Request) -> Response {
     }
     if context_type == "voice"
         && visibility == "portable"
-        && voice_guide::guide_quotes_private_samples(&content)
+        && crate::voice_store::guide_is_private_derived(&state.root, &content)
     {
         return Response::error(
             422,

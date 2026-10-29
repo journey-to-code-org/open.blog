@@ -1351,5 +1351,22 @@ fn a_saved_trait_quoting_a_sample_that_is_private_now_keeps_the_merge_off_portab
             true,
         ),
     );
+    assert_eq!(put.status, 422); // So does a hand edit with no provenance line that still quotes the sample that is private now:
+                                 // the save shares the guide move's rule (ADR 0351).
+    let saved = fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap();
+    let put = handle(
+        &f.state,
+        &authed(
+            json_req(
+                "PUT",
+                "/admin/api/assistant/context",
+                json!({ "contextType": "voice", "visibility": "portable", "content": format!("{saved}
+Edited.
+"), "etag": etag }),
+            ),
+            &session,
+            true,
+        ),
+    );
     assert_eq!(put.status, 422);
 }

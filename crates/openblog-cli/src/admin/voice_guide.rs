@@ -58,27 +58,6 @@ fn provenance_line(samples: &[ReviewContext], private_sources: bool) -> String {
     format!("{PROVENANCE_MARKER} sources={} -->", sources.join(","))
 }
 
-/// The samples a saved guide's traits cite, read again from the store: each file's visibility and
-/// text, or nothing when the sample no longer exists (or no longer parses).
-fn carried_samples(
-    root: &Path,
-    saved: &SavedGuide,
-) -> std::collections::BTreeMap<String, (crate::voice_store::Visibility, String)> {
-    use crate::voice_store::{self, Visibility};
-    let mut found = std::collections::BTreeMap::new();
-    for file in saved.cited_samples() {
-        for visibility in [Visibility::Portable, Visibility::Private] {
-            if let Ok(loaded) = voice_store::read(root, visibility, file) {
-                if let Some(sample) = loaded.sample {
-                    found.insert(file.to_string(), (visibility, sample.body));
-                    break;
-                }
-            }
-        }
-    }
-    found
-}
-
 /// Whether a voice guide's provenance line says it quotes a private sample.
 pub(super) fn guide_quotes_private_samples(content: &str) -> bool {
     openblog_core::voice::guide::quotes_private_samples(content)
@@ -177,7 +156,7 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
     // the free text around them are kept, and a changed trait waits for the author's choice.
     let saved = SavedGuide::parse(current_text.as_deref().unwrap_or(""));
     let merged = merge(&saved, &guide);
-    let carried = carried_samples(&state.root, &saved);
+    let carried = crate::voice_store::carried_samples(&state.root, &saved);
     // The merged guide carries the saved guide's text, and a statement is free text that no quote
     // check covers. So a private guide, one that quotes private samples, or one whose traits cite a
     // sample that is private now makes the result private-derived whatever samples were selected.

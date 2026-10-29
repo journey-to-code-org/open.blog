@@ -1392,6 +1392,44 @@ fn a_guide_that_quotes_private_samples_or_cannot_be_read_never_moves_to_portable
 }
 
 #[test]
+fn a_guide_whose_traits_cite_a_sample_that_is_private_now_never_moves_to_portable() {
+    // The guide was made from portable samples, so its provenance says portable; then the sample
+    // it quotes was moved to private. Its quote is private text now.
+    let project = Project::with_session("a-mistake-i-made");
+    lock_rough(&project, Visibility::Private);
+    let guide = format!(
+        "# Voice guide
+<!-- openblog:voice-provenance sources=portable -->
+
+## Word choice
+
+- Casual: \"panicked\" ({ROUGH})
+"
+    );
+    put(&project, PRIVATE_GUIDE, guide.as_bytes());
+    assert!(guide_is_private_derived(&project.0, &guide));
+    let before = snapshot(&project.0);
+    assert!(matches!(
+        plan_guide_move(&project.0, Visibility::Portable),
+        Err(StoreError::Refused(message)) if message.contains("private samples")
+    ));
+    assert!(matches!(
+        move_guide(&project.0, Visibility::Portable),
+        Err(StoreError::Refused(_))
+    ));
+    assert_eq!(snapshot(&project.0), before);
+
+    // Once the sample is portable again, the guide may follow it.
+    move_visibility(&project.0, Visibility::Private, ROUGH, Visibility::Portable).unwrap();
+    assert!(!guide_is_private_derived(&project.0, &guide));
+    move_guide(&project.0, Visibility::Portable).unwrap();
+    assert_eq!(
+        fs::read_to_string(project.0.join(PORTABLE_GUIDE)).unwrap(),
+        guide
+    );
+}
+
+#[test]
 fn a_guide_move_never_overwrites_and_finishes_an_interrupted_move() {
     let project = Project::new();
     assert!(matches!(
