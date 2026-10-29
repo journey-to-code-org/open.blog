@@ -1,10 +1,10 @@
-# ADR 0401: Add something offers Before and after from a schema beside the pieces, checked and written by core
+# ADR 0292: Add something offers Before and after from a schema beside the pieces, checked and written by core
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#478](https://github.com/journey-to-code-org/open.blog/issues/478)
 - Task: [#498](https://github.com/journey-to-code-org/open.blog/issues/498)
-- Builds on: [ADR 0400](0400-a-before-and-after-pair-is-a-compare-fence-the-engine-validates-with-two-figures-as-its-portable-form.md), [ADR 0253](0253-pieces-are-validated-data-with-one-form-schema-and-embeds-are-privacy-enhanced-lazy-frames-that-degrade-to-a-link.md)
+- Builds on: [ADR 0291](0291-a-before-and-after-pair-is-a-compare-fence-the-engine-validates-with-two-figures-as-its-portable-form.md), [ADR 0253](0253-pieces-are-validated-data-with-one-form-schema-and-embeds-are-privacy-enhanced-lazy-frames-that-degrade-to-a-link.md)
 
 ## Context
 

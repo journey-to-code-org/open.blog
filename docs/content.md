@@ -272,7 +272,7 @@ is an `https` address or a file on this site. A missing picture or description, 
 field are refused with a plain message; the post shows the error in place and the build reports it. On the page the
 pair is a comparison control (`ob-compare`) where JavaScript runs and motion is welcome. Without JavaScript, in
 feeds, in syndicated copies and in portable export it is two captioned pictures, each with its label, and nothing
-else. The pictures use the same lazy loading as any Markdown image. See ADR 0400.
+else. The pictures use the same lazy loading as any Markdown image. See ADR 0291.
 
 #### Landing page sections
 

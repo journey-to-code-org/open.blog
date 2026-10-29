@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { removeTree } from "./teardown.mjs";
 
 // The real site: a `compare` fence renders the comparison control, falls back to two captioned
-// pictures without JavaScript or with reduced motion, and is two plain figures in the feed (ADR 0400).
+// pictures without JavaScript or with reduced motion, and is two plain figures in the feed (ADR 0291).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");

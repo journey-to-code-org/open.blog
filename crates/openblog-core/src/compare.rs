@@ -1,4 +1,4 @@
-//! The `compare` fence: a before and after pair as data the engine understands (ADR 0400).
+//! The `compare` fence: a before and after pair as data the engine understands (ADR 0291).
 //!
 //! ````text
 //! ```compare

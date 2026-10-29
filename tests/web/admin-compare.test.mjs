@@ -1,5 +1,5 @@
 // The Before and after entry of Add something: the form, the picture picker, the engine's refusals
-// shown inline, and the Visual editor's block for a `compare` fence (#498, ADR 0400).
+// shown inline, and the Visual editor's block for a `compare` fence (#498, ADR 0291).
 import assert from "node:assert/strict";
 import test from "node:test";
 

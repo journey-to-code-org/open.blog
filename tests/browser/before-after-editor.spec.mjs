@@ -11,7 +11,7 @@ import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio: Add something offers Before and after, takes two pictures (typed or chosen) with
 // their descriptions, shows the engine's refusals inside the dialog, and writes the `compare` fence in both
-// editor modes, at 400px and on a desktop (ADR 0400, #498).
+// editor modes, at 400px and on a desktop (ADR 0291, #498).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");

@@ -1,4 +1,4 @@
-//! The `compare` fence on the page, in a portable copy, and as a validation error (ADR 0400).
+//! The `compare` fence on the page, in a portable copy, and as a validation error (ADR 0291).
 
 use openblog_core::{
     markdown::{render, RenderOptions},

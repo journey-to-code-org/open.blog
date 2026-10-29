@@ -1,4 +1,4 @@
-# ADR 0400: A before and after pair is a `compare` fence the engine validates, with two figures as its portable form
+# ADR 0291: A before and after pair is a `compare` fence the engine validates, with two figures as its portable form
 
 - Status: Accepted
 - Date: 2026-10-29
