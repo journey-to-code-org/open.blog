@@ -111,7 +111,10 @@ test("sending uploads each photo, skips one the server refuses for good, and cre
     async call(method, path, options) {
       calls.push({ method, path, options });
       if (path.startsWith("upload?name=bad.jpg")) throw Object.assign(new Error("Only images"), { status: 415 });
-      if (path.startsWith("upload")) return { url: `/images/uploads/2026/${decodeURIComponent(path.split("=")[1]).replace(/ /g, "-")}` };
+      if (path.startsWith("upload")) {
+        const query = new URLSearchParams(path.split("?")[1]);
+        return { url: `/images/uploads/captures/${query.get("name").replace(/ /g, "-")}` };
+      }
       return { path: "posts/2026-10-29-flooring-in-springfield-ab12cd.md" };
     },
   };
@@ -125,8 +128,12 @@ test("sending uploads each photo, skips one the server refuses for good, and cre
   });
   assert.deepEqual(result, { path: "posts/2026-10-29-flooring-in-springfield-ab12cd.md", skipped: ["bad.jpg"] });
   assert.equal(calls.filter((call) => call.path.startsWith("upload")).length, 3);
+  const slots = calls.filter((call) => call.path.startsWith("upload")).map((call) => new URLSearchParams(call.path.split("?")[1]));
+  assert.deepEqual(slots.map((query) => query.get("slot")), ["0", "1", "2"]);
+  assert.ok(slots.every((query) => query.get("capture") === id));
   const document = calls.at(-1);
   assert.equal(document.path, "document");
+  assert.equal(document.options.json.captureId, id);
   assert.equal(document.options.json.kind, "posts");
   assert.equal(document.options.json.fields.draft, "true");
   assert.match(document.options.json.body, /a-b\.jpg/);

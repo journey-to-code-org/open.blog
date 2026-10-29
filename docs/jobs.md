@@ -78,7 +78,15 @@ large **Add photos** button (your phone offers the camera or the photo library),
 device only. **Save draft** makes an unpublished job draft you can find in Write: the Job form's keys, the four
 headings, your notes under the first and the photos after them. Nothing is published, and no AI provider is
 contacted. A capture holds at most twelve photos (each within your upload limit) and 8,000 characters of notes.
-See [ADR 0400](adr/0400-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md).
+
+If the connection drops, nothing is lost: **Save draft** keeps the capture on the phone (in the browser's
+IndexedDB) and sends it when you are back online, or when you open Capture again, or when you tap **Send now**.
+Waiting captures are listed under **Waiting to send**, and each can be discarded. Sending twice never makes a
+second draft, because every capture carries its own id. The phone keeps at most five waiting captures, 60 MB
+each and 120 MB in all, and says so when one does not fit; it never deletes a capture on its own. A browser
+without IndexedDB sends straight away instead.
+See [ADR 0400](adr/0400-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md)
+and [ADR 0401](adr/0401-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md).
 
 ## Trades
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,

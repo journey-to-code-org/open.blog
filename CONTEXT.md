@@ -2621,6 +2621,17 @@ under its first heading and the photos after it. A capture is not a new kind of 
 a job post. The view remembers the last trade, service and eight towns on the device (ADR 0400).
 _Avoid_: Quick post, field note
 
+**Capture id**:
+A random 128-bit id, 32 lowercase hex digits, made when a capture is started. It is the idempotency key: the
+server saves the draft and each photo at most once per id, so a replay never makes a second draft (ADR 0401).
+_Avoid_: Draft id, session id
+
+**Capture queue**:
+The captures a device has saved locally, in IndexedDB, while they wait to be sent. Each record is a versioned
+format (`v: 1`) with fixed bounds on captures, photos, notes and bytes; nothing is dropped silently and nothing
+outside the bounds is stored (ADR 0401).
+_Avoid_: Outbox, sync
+
 **Service**:
 One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
 typical timeline, and FAQs. A job's `service` names one of them.

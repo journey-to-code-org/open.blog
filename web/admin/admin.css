@@ -5890,6 +5890,43 @@ ob-voice-library {
 .oba-capture-saved:empty {
   display: none;
 }
+.oba-capture-pending {
+  min-width: 0;
+  padding-top: 0.75rem;
+  border-top: var(--ob-border-width) solid var(--ob-color-border);
+}
+.oba-capture-pending[hidden] {
+  display: none;
+}
+.oba-capture-pending h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.oba-capture-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.oba-capture-pending-item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-capture-pending-state {
+  color: var(--ob-color-muted);
+  font-size: 0.9rem;
+}
+.oba-capture-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.oba-capture-pending-actions .oba-btn {
+  min-height: 44px;
+}
 
 /* Earlier versions of the landing page (ADR 0264). Everything wraps; nothing depends on a font's width. */
 .oba-history-wrap {

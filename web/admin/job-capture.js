@@ -4,6 +4,7 @@
 // the second builds the view. No provider is contacted: a capture only ever talks to this site's own Admin.
 
 import { el } from "./block-forms.js";
+import { createCaptureQueue, openIndexedStore, queueLimits } from "./capture-queue.js";
 import { localDay } from "./job-form.js";
 
 export const PREFS_KEY = "openblog.capture.prefs.v1";
@@ -154,9 +155,10 @@ export const isPermanentPhotoError = (error) => [400, 413, 415, 422].includes(er
 export async function sendCapture({ api, capture, scaffold, now = new Date() }) {
   const photoUrls = [];
   const skipped = [];
-  for (const photo of capture.photos) {
+  for (const [slot, photo] of capture.photos.entries()) {
     try {
-      const sent = await api.call("POST", `upload?name=${encodeURIComponent(photo.name)}`, {
+      const query = new URLSearchParams({ name: photo.name, capture: capture.id, slot: String(slot) });
+      const sent = await api.call("POST", `upload?${query}`, {
         body: photo.blob,
         headers: { "Content-Type": "application/octet-stream" },
       });
@@ -169,6 +171,7 @@ export async function sendCapture({ api, capture, scaffold, now = new Date() }) 
   const saved = await api.call("POST", "document", {
     json: {
       kind: "posts",
+      captureId: capture.id,
       fields: captureFields(capture, now),
       body: captureBody({ scaffold, notes: capture.fields.notes, photoUrls }),
     },
@@ -184,18 +187,21 @@ const sizeText = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).t
  * Returns `{ element, load, isDirty, isBusy, destroy }`. `api.call(method, path, { json, body, headers })` is
  * the Admin API; `meta` is the Admin meta (`job`, `capture`); `storage` holds the remembered picks.
  */
-export function createJobCapture({ api, meta = {}, storage = globalThis.localStorage, now = () => new Date() }) {
+export function createJobCapture({ api, meta = {}, storage = globalThis.localStorage, store: store_, now = () => new Date() }) {
   const id = `oba-capture-${++uid}`;
-  const limits = captureLimits(meta);
+  const limits = queueLimits(meta);
   const job = meta.job || {};
   const root = el("ob-job-capture", { class: "oba-capture", "data-job-capture": "true" });
   let prefs = readPrefs(storage);
   let captureId = newCaptureId();
   let photos = [];
   let busy = false;
+  let queue = null;
 
   const status = el("p", { class: "oba-capture-status", role: "status", "aria-live": "polite", "data-capture-status": "true" });
   const saved = el("p", { class: "oba-capture-saved", role: "status", "aria-live": "polite", "data-capture-saved": "true" });
+  const pendingList = el("ul", { class: "oba-capture-pending-list" });
+  const pending = el("section", { class: "oba-capture-pending", "aria-labelledby": `${id}-pending`, hidden: true, "data-capture-pending-list": "true" }, el("h3", { id: `${id}-pending`, tabindex: "-1" }, "Waiting to send"), pendingList);
 
   const photoInput = el("input", { id: `${id}-photos`, class: "oba-capture-file", type: "file", accept: "image/*", multiple: true, "data-capture-photos": "true" });
   const photoLabel = el("label", { for: `${id}-photos`, class: "oba-btn oba-btn-primary oba-capture-add" }, "Add photos");
@@ -285,6 +291,69 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     renderTowns();
   };
 
+  const openInWrite = (path) => el("a", { href: `#/edit/${encodeURIComponent(path).replaceAll("%2F", "/")}` }, "Open it in Write");
+  const skippedText = (count) => (count ? ` ${count} photo${count === 1 ? " was" : "s were"} not an accepted image and ${count === 1 ? "was" : "were"} left out.` : "");
+
+  const finish = (capture) => {
+    prefs = rememberPicks(prefs, capture.fields);
+    writePrefs(storage, prefs);
+    reset();
+  };
+
+  const sendRecord = (record) => sendCapture({ api, capture: record, scaffold: job.scaffold || "", now: new Date(record.createdAt) });
+
+  const report = ({ sent, blocked }) => {
+    const last = sent.at(-1);
+    saved.replaceChildren();
+    if (last) {
+      const skipped = sent.reduce((sum, item) => sum + item.skipped.length, 0);
+      saved.append(sent.length > 1 ? `${sent.length} captures were saved as drafts. The latest: ` : "Saved as a draft. ", openInWrite(last.path), skippedText(skipped));
+    }
+    if (blocked === "offline") status.textContent = "No connection yet. Your capture is kept on this device and sends when you are back online.";
+    else if (blocked === "signin") status.textContent = "Sign in again to send what is waiting.";
+    else if (last) status.textContent = "";
+  };
+
+  const runFlush = async () => {
+    if (!queue) return;
+    try {
+      report(await queue.flush());
+    } catch {
+      status.textContent = "Could not read what is waiting on this device.";
+    }
+  };
+
+  const renderPending = () => {
+    const entries = queue ? queue.entries() : [];
+    pending.hidden = entries.length === 0;
+    pendingList.replaceChildren(
+      ...entries.map((entry) => {
+        const record = entry.record;
+        const label = record ? `${captureTitle(record.fields, new Date(record.createdAt))}, ${record.photos.length} photo${record.photos.length === 1 ? "" : "s"}` : "Saved capture";
+        const state = !record
+          ? entry.state === "newer" ? "Saved by a newer version of open.blog. It is kept exactly as it is." : "This saved capture could not be read."
+          : entry.sending ? "Sending…" : record.failed ? `Not sent: ${record.lastError}` : record.attempts ? "Waiting for a connection." : "Waiting to send.";
+        const actions = [];
+        if (record && !entry.sending) {
+          actions.push(el("button", { type: "button", class: "oba-btn", "aria-label": `${record.failed ? "Try again" : "Send now"}: ${label}`, onClick: () => (record.failed ? queue.retry(entry.id).then(report) : runFlush()) }, record.failed ? "Try again" : "Send now"));
+        }
+        if (!entry.sending) {
+          actions.push(el("button", {
+            type: "button",
+            class: "oba-btn",
+            "aria-label": `Discard: ${label}`,
+            onClick: async () => {
+              if (globalThis.confirm?.("Discard this capture from this device? Its photos and notes cannot be recovered.") === false) return;
+              await queue.discard(entry.id);
+              pendingList.closest("section")?.querySelector("h3")?.focus();
+            },
+          }, "Discard"));
+        }
+        return el("li", { class: "oba-capture-pending-item", "data-capture-pending": entry.id }, el("span", { class: "oba-capture-pending-label" }, label), el("span", { class: "oba-capture-pending-state" }, state), el("span", { class: "oba-capture-pending-actions" }, actions));
+      }),
+    );
+  };
+
   const save = async () => {
     if (busy) return;
     const capture = read();
@@ -298,16 +367,23 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     saveButton.disabled = true;
     status.textContent = "Saving…";
     try {
-      const result = await sendCapture({ api, capture, scaffold: job.scaffold || "", now: now() });
-      prefs = rememberPicks(prefs, capture.fields);
-      writePrefs(storage, prefs);
-      reset();
-      status.textContent = "";
-      saved.append(
-        "Saved as a draft. ",
-        el("a", { href: `#/edit/${encodeURIComponent(result.path).replaceAll("%2F", "/")}` }, "Open it in Write"),
-        result.skipped.length ? ` ${result.skipped.length} photo${result.skipped.length === 1 ? " was" : "s were"} not an accepted image and ${result.skipped.length === 1 ? "was" : "were"} left out.` : "",
-      );
+      if (queue) {
+        // Keep it on the device first, so nothing is lost if the connection or the tab goes mid-send.
+        const kept = await queue.add(capture, now());
+        if (!kept.ok) {
+          status.textContent = kept.reason;
+          return;
+        }
+        finish(capture);
+        status.textContent = "Kept on this device. Sending…";
+        busy = false;
+        await runFlush();
+      } else {
+        const result = await sendCapture({ api, capture, scaffold: job.scaffold || "", now: now() });
+        finish(capture);
+        status.textContent = "";
+        saved.append("Saved as a draft. ", openInWrite(result.path), skippedText(result.skipped.length));
+      }
     } catch (error) {
       status.textContent = error?.message || "Could not save. Your photos and notes are still here.";
     } finally {
@@ -316,6 +392,14 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     }
   };
   saveButton.addEventListener("click", save);
+
+  const onOnline = () => {
+    if (!root.isConnected) {
+      globalThis.removeEventListener?.("online", onOnline);
+      return;
+    }
+    runFlush();
+  };
 
   root.append(
     el("p", { class: "oba-capture-lead" }, "Add photos and a few lines now. Name and tidy the job later in Write; nothing is published."),
@@ -331,16 +415,31 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     saveButton,
     status,
     saved,
+    pending,
   );
   renderTowns();
   renderPhotos();
 
   return {
     element: root,
-    async load() {},
+    /** Open the device's queue (when the browser has one) and send whatever is waiting. */
+    async load() {
+      const store = store_ !== undefined ? store_ : await openIndexedStore();
+      if (!store) return;
+      queue = createCaptureQueue({ store, limits, send: sendRecord, onChange: renderPending });
+      try {
+        await queue.refresh();
+      } catch {
+        queue = null;
+        return;
+      }
+      globalThis.addEventListener?.("online", onOnline);
+      await runFlush();
+    },
     isDirty: () => photos.length > 0 || text(notes.value) !== "",
     isBusy: () => busy,
     destroy() {
+      globalThis.removeEventListener?.("online", onOnline);
       for (const photo of photos) URL.revokeObjectURL(photo.preview);
     },
   };

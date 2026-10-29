@@ -555,6 +555,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/checks-panel.js" => "checks-panel.js",
         "/admin/job-form.js" => "job-form.js",
         "/admin/job-capture.js" => "job-capture.js",
+        "/admin/capture-queue.js" => "capture-queue.js",
         "/admin/voice.js" => "voice.js",
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
@@ -16319,6 +16320,16 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
         return Response::error(413, "The post body is too large");
     }
+    // A capture id makes creation idempotent: the same id never creates a second draft (ADR 0401).
+    let capture_id = match body.get("captureId") {
+        None | Some(Json::Null) => None,
+        Some(Json::String(id))
+            if existing_path.is_none() && openblog_core::capture::valid_id(id) =>
+        {
+            Some(id.clone())
+        }
+        Some(_) => return Response::error(422, "That capture id is not valid"),
+    };
     let mut status = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
         Ok(lock) => lock,
@@ -16328,6 +16339,16 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
     };
+    let capture_ledger = capture_id
+        .as_ref()
+        .map(|id| state.root.join(".openblog/captures").join(format!("{id}.json")));
+    if let Some(ledger) = &capture_ledger {
+        match read_optional_bytes(ledger) {
+            Ok(Some(bytes)) => return replayed_capture(state, &config, &bytes),
+            Ok(None) => {}
+            Err(error) => return Response::error(500, &error),
+        }
+    }
     let field_journal = field_scalar(&fields, "profile") == Some("field-journal");
     let exact_location = field_journal && field_scalar(&fields, "locationPrivacy") == Some("exact");
     if field_journal && !exact_location {
@@ -16513,6 +16534,15 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if let Some(track) = &track_upload {
         let _ = fs::remove_file(&track.pending);
     }
+    if let Some(ledger) = &capture_ledger {
+        // Best effort: the draft exists either way, and its slug carries the capture id.
+        if let Err(error) = fsutil::write_file(
+            ledger,
+            openblog_core::capture::ledger_text(&rel).as_bytes(),
+        ) {
+            eprintln!("admin: cannot record capture: {error}");
+        }
+    }
 
     let now = clock::now();
     let build = state.rebuild_locked(&mut status);
@@ -16543,6 +16573,28 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     Response::json(
         if created { 201 } else { 200 },
         &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json, "trackUrl": track_upload.as_ref().map(|track| &track.url) }),
+    )
+}
+
+/// The answer to a capture id the server has already turned into a draft: the same draft, nothing written.
+fn replayed_capture(state: &AppState, config: &SiteConfig, ledger: &[u8]) -> Response {
+    let rel = match openblog_core::capture::parse_ledger(&String::from_utf8_lossy(ledger)) {
+        Ok(rel) => rel,
+        Err(error) => return Response::error(409, &error),
+    };
+    let source = resolve_content_path(&state.root, config, &rel)
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok());
+    let (post_status, url, current_etag) = match &source {
+        Some(source) => {
+            let (status, url) = describe(&rel, source, config, clock::now());
+            (status, url, Some(etag(source)))
+        }
+        None => ("removed", None, None),
+    };
+    Response::json(
+        200,
+        &json!({ "path": rel, "etag": current_etag, "status": post_status, "url": url, "duplicate": true }),
     )
 }
 
@@ -17937,9 +17989,29 @@ fn upload(state: &AppState, req: &Request) -> Response {
         );
     };
     let name = req.query.get("name").map(String::as_str).unwrap_or("image");
+    // A capture's photo has a fixed name per capture id and slot, so sending it again lands on the same
+    // file instead of a second copy (ADR 0401).
+    let capture_stem = match (req.query.get("capture"), req.query.get("slot")) {
+        (None, None) => None,
+        (Some(id), Some(slot)) => {
+            match slot
+                .parse::<usize>()
+                .ok()
+                .and_then(|slot| openblog_core::capture::photo_stem(id, slot))
+            {
+                Some(stem) => Some(stem),
+                None => return Response::error(400, "That capture id or photo slot is not valid"),
+            }
+        }
+        _ => return Response::error(400, "A capture upload needs both capture and slot"),
+    };
     let stem = sanitize_upload_stem(name);
     let year = clock::now().civil().year;
-    let dir_rel = format!("images/uploads/{year}");
+    let dir_rel = if capture_stem.is_some() {
+        "images/uploads/captures".to_string()
+    } else {
+        format!("images/uploads/{year}")
+    };
     let static_dir = state.root.join(&config.paths.static_dir);
 
     let _guard = lock(&state.build);
@@ -17947,9 +18019,19 @@ fn upload(state: &AppState, req: &Request) -> Response {
         Ok(lock) => lock,
         Err(response) => return response,
     };
-    let mut file_name = format!("{stem}.{ext}");
+    if let Some(stem) = &capture_stem {
+        let rel = format!("{dir_rel}/{stem}.{ext}");
+        if static_dir.join(&rel).is_file() {
+            let url = format!("/{rel}");
+            return Response::json(
+                200,
+                &json!({ "url": url, "markdown": format!("![]({url})"), "duplicate": true }),
+            );
+        }
+    }
+    let mut file_name = format!("{}.{ext}", capture_stem.as_deref().unwrap_or(&stem));
     let mut n = 2;
-    while static_dir.join(&dir_rel).join(&file_name).exists() {
+    while capture_stem.is_none() && static_dir.join(&dir_rel).join(&file_name).exists() {
         file_name = format!("{stem}-{n}.{ext}");
         n += 1;
     }
@@ -33601,6 +33683,113 @@ href: /about/
         let mut big = authed(req("POST", "/admin/api/upload?name=x.png"), &session, true);
         big.body = vec![0u8; 11 * 1024 * 1024];
         assert_eq!(handle(&f.state, &big).status, 413);
+    }
+
+    #[test]
+    fn a_capture_replayed_makes_one_draft_and_one_copy_of_each_photo() {
+        let f = fixture("capture-replay");
+        let session = login_ok(&f);
+        let id = "0123456789abcdef0123456789abcdef";
+        let png: Vec<u8> = [
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A][..],
+            &[0u8; 32],
+        ]
+        .concat();
+        let photo = |query: &str| {
+            let mut r = authed(
+                req("POST", &format!("/admin/api/upload?name=a.png{query}")),
+                &session,
+                true,
+            );
+            r.body = png.clone();
+            handle(&f.state, &r)
+        };
+        let first = photo(&format!("&capture={id}&slot=0"));
+        assert_eq!(first.status, 201, "{}", String::from_utf8_lossy(&first.body));
+        let url = body_json(&first)["url"].as_str().unwrap().to_string();
+        assert_eq!(url, "/images/uploads/captures/capture-0123456789ab-0.png");
+        let again = photo(&format!("&capture={id}&slot=0"));
+        assert_eq!(again.status, 200);
+        assert_eq!(body_json(&again)["url"], url.as_str());
+        assert_eq!(body_json(&again)["duplicate"], true);
+        let other = photo(&format!("&capture={id}&slot=1"));
+        assert_eq!(other.status, 201);
+        assert_ne!(body_json(&other)["url"], url.as_str());
+        for bad in ["&capture=nope&slot=0", &format!("&capture={id}&slot=99"), &format!("&capture={id}"), "&slot=0"] {
+            assert_eq!(photo(bad).status, 400, "{bad}");
+        }
+        let captures = f.dir.join("static/images/uploads/captures");
+        assert_eq!(fs::read_dir(captures).unwrap().count(), 2);
+
+        let save = |id: &str| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({
+                            "kind": "posts",
+                            "captureId": id,
+                            "fields": { "title": "Capture Test", "slug": "capture-test", "draft": "true" },
+                            "body": "Notes"
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let posts = || {
+            fs::read_dir(f.dir.join("content/posts"))
+                .unwrap()
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().contains("capture-test"))
+                .count()
+        };
+        let created = save(id);
+        assert_eq!(created.status, 201, "{}", String::from_utf8_lossy(&created.body));
+        let path = body_json(&created)["path"].as_str().unwrap().to_string();
+        let replay = save(id);
+        assert_eq!(replay.status, 200, "{}", String::from_utf8_lossy(&replay.body));
+        let replayed = body_json(&replay);
+        assert_eq!(replayed["path"], path.as_str());
+        assert_eq!(replayed["status"], "draft");
+        assert_eq!(replayed["duplicate"], true);
+        assert_eq!(posts(), 1);
+
+        // Without the id, the same title is a collision, never a silent second draft.
+        let plain = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({ "kind": "posts", "fields": { "title": "Capture Test", "slug": "capture-test", "draft": "true" }, "body": "Notes" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert!(plain.status == 409 || posts() == 1, "{}", plain.status);
+
+        assert_eq!(save("../../etc").status, 422);
+        assert_eq!(save("ABCDEF0123456789abcdef0123456789").status, 422);
+
+        // A draft the author has since deleted is not resurrected by a replay.
+        fs::remove_file(f.dir.join("content").join(&path)).unwrap();
+        let gone = save(id);
+        assert_eq!(gone.status, 200);
+        assert_eq!(body_json(&gone)["status"], "removed");
+        assert_eq!(posts(), 0);
+
+        // An entry from a newer version is refused, not guessed at.
+        fs::write(
+            f.dir.join(".openblog/captures").join(format!("{id}.json")),
+            r#"{"v":2,"path":"x"}"#,
+        )
+        .unwrap();
+        assert_eq!(save(id).status, 409);
     }
 
     #[test]

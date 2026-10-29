@@ -79,7 +79,7 @@ async function expectNoOverflow(page, selector) {
 const photo = (name) => ({ name, mimeType: "image/png", buffer: PNG });
 const drafts = () => {
   const dir = join(root, "content", "posts");
-  return readdirSync(dir).filter((name) => /^\d{4}-\d{2}-\d{2}-(flooring|job)-.*-[0-9a-f]{6}\.md$/.test(name)).map((name) => join(dir, name));
+  return readdirSync(dir).filter((name) => /^\d{4}-\d{2}-\d{2}-(flooring|job|roofing)-.*-[0-9a-f]{6}\.md$/.test(name)).map((name) => join(dir, name));
 };
 
 test("three photos and notes become one unpublished job draft, and the picks are remembered", async ({ page }) => {
@@ -132,4 +132,69 @@ test("an empty capture is refused with a sentence and nothing is saved", async (
   await page.locator("[data-job-capture]").getByRole("button", { name: "Save draft" }).click();
   await expect(page.locator("[data-capture-status]")).toContainText("Add a photo or a few words first.");
   expect(drafts().length).toBe(before);
+});
+
+const draftsIn = (town) => drafts().filter((file) => file.toLowerCase().includes(town));
+
+async function fillCapture(view, town) {
+  await view.getByLabel("Add photos", { exact: true }).setInputFiles([photo("one.png"), photo("two.png")]);
+  await view.getByLabel("Trade", { exact: true }).selectOption("roofing");
+  await view.getByLabel("Town", { exact: true }).fill(town);
+  await view.getByLabel("Notes", { exact: true }).fill("Flashing lifted at the valley.");
+}
+
+test("offline, a capture is kept on the device and sends once when the connection returns", async ({ page, context }) => {
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  await fillCapture(view, "Offlinetown");
+  await context.setOffline(true);
+  await view.getByRole("button", { name: "Save draft" }).click();
+  const pending = view.locator("[data-capture-pending-list]");
+  await expect(pending).toBeVisible();
+  await expect(pending).toContainText("Waiting for a connection.");
+  await expect(view.locator("[data-capture-status]")).toContainText("kept on this device");
+  await expect(view.getByLabel("Notes", { exact: true })).toHaveValue("");
+  await expectNoOverflow(page, "[data-job-capture]");
+  expect(draftsIn("offlinetown")).toHaveLength(0);
+
+  await context.setOffline(false);
+  await expect(view.locator("[data-capture-saved]")).toContainText("Saved as a draft");
+  await expect(pending).toBeHidden();
+  await expect.poll(() => draftsIn("offlinetown").length).toBe(1);
+  const source = readFileSync(draftsIn("offlinetown")[0], "utf8");
+  expect(source.match(/!\[Photo \d from the job\]\(\/images\/uploads\/captures\/capture-[0-9a-f]{12}-[01]\.png\)/g)).toHaveLength(2);
+});
+
+test("a kept capture survives a reload, sends on request without a second draft, and can be discarded", async ({ page }) => {
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  await page.route(/\/admin\/api\/(upload|document)/, (route) => route.abort("connectionrefused"));
+  await fillCapture(view, "Reloadville");
+  await view.getByRole("button", { name: "Save draft" }).click();
+  const pending = view.locator("[data-capture-pending-list]");
+  await expect(pending).toContainText("Waiting for a connection.");
+
+  await page.reload();
+  const again = page.locator("[data-job-capture]");
+  await expect(again.locator("[data-capture-pending-list]")).toContainText("Waiting for a connection.");
+  expect(draftsIn("reloadville")).toHaveLength(0);
+
+  await page.unroute(/\/admin\/api\/(upload|document)/);
+  await again.getByRole("button", { name: /^Send now/ }).click();
+  await expect(again.locator("[data-capture-saved]")).toContainText("Saved as a draft");
+  await expect.poll(() => draftsIn("reloadville").length).toBe(1);
+
+  // Sending again after a reload finds nothing waiting and makes no second draft.
+  await page.reload();
+  await expect(page.locator("[data-job-capture]")).toBeVisible();
+  await expect(page.locator("[data-capture-pending-list]")).toBeHidden();
+  expect(draftsIn("reloadville")).toHaveLength(1);
+
+  await page.route(/\/admin\/api\/(upload|document)/, (route) => route.abort("connectionrefused"));
+  await fillCapture(page.locator("[data-job-capture]"), "Binton");
+  await page.locator("[data-job-capture]").getByRole("button", { name: "Save draft" }).click();
+  await expect(page.locator("[data-capture-pending-list]")).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: /^Discard/ }).click();
+  await expect(page.locator("[data-capture-pending-list]")).toBeHidden();
 });
