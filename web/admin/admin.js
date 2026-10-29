@@ -12,6 +12,7 @@ import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createBusinessFacts } from "./business.js";
+import { createServices } from "./services.js";
 import { createSocialAccounts } from "./social.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
@@ -11436,6 +11437,7 @@ export class ObAdmin extends AdminElement {
       ...Object.entries(KINDS).map(([kind, info]) =>
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
+      h("a", { class: "oba-tab", "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
       h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
       h("a", { class: "oba-tab", "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
@@ -11451,6 +11453,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
       : active === "business"
         ? { title: "Business facts", detail: "Set your name, phone, hours, license and insurance once, and see them everywhere on your site." }
+      : active === "services"
+        ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
       : active === "look"
         ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
@@ -11733,6 +11737,8 @@ export class ObAdmin extends AdminElement {
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
+      { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
+      { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
@@ -11965,6 +11971,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "appearance") await this.showAppearance();
       else if (head === "look") await this.showLook();
       else if (head === "business") await this.showBusiness();
+      else if (head === "services") await this.showServices(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -14020,6 +14027,30 @@ export class ObAdmin extends AdminElement {
   async showBusiness() {
     const view = createBusinessFacts({ api: this.api });
     this.mount(this.shell("business", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- services (ADR 0402)
+
+  /** `#/services`: the list; `#/services/new` and `#/services/edit/<path>`: one service, edited through the document routes. */
+  async showServices(tail) {
+    const view = createServices({
+      api: this.api,
+      route: tail || "",
+      onSaved: (path) => {
+        this.skipRoute = true;
+        location.hash = `#/services/edit/${encodeURIComponent(path)}`;
+      },
+      onLeave: (hash) => {
+        this.dirty = false;
+        this.viewDirty = null;
+        location.hash = hash;
+      },
+    });
+    this.mount(this.shell("services", view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     this.viewCleanup = () => view.destroy();

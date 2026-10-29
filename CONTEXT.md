@@ -2665,7 +2665,7 @@ one-sentence summary, what is included, a starting price band, a typical timelin
 names one of them by id; once a site has any service, a job naming an unknown id is refused with the known ids
 listed. The price band is the jobs' cost band, a label and never a quote (ADR 0400). A site with services gets a
 `/services/` index and a page per service with `Service` structured data, and `FAQPage` data only for a service
-that has questions (ADR 0401).
+that has questions (ADR 0401). `openblog new --profile service` and Admin's Services screen write them (ADR 0402).
 _Avoid_: Product, category
 
 **Service area**:

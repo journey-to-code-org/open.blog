@@ -542,6 +542,8 @@ pub struct Service {
     pub price_band: Option<crate::job::CostBand>,
     pub typical_timeline: Option<String>,
     pub faq: Vec<crate::service::FaqEntry>,
+    /// Not published: only a load that includes drafts holds it.
+    pub draft: bool,
     pub url: String,
     /// The rendered body.
     pub html: String,
@@ -947,7 +949,15 @@ impl Site {
         pages.sort_by(|a, b| a.title.cmp(&b.title));
         let mut services: Vec<Service> = Vec::new();
         for file in &sources.services {
+            // A draft service is not published, and its problems are warnings,
+            // so a freshly scaffolded one never stops a build.
+            let draft = frontmatter::parse(&file.contents)
+                .is_ok_and(|document| is_draft(&document.front_matter));
+            let shown = !draft
+                || options.include_drafts
+                || options.preview_source.as_deref() == Some(file.path.as_str());
             match load_service(file, concept_options(render_options)) {
+                Ok(_) if !shown => {}
                 Ok(mut service) => {
                     let (html, notes) = crate::concept_links::plain_outside_post(
                         &service.html,
@@ -965,6 +975,9 @@ impl Site {
                         accessibility.extend(service.accessibility.iter().cloned());
                         services.push(service);
                     }
+                }
+                Err(e) if draft => {
+                    warnings.push(format!("{}: service not ready to publish: {e}", file.path))
                 }
                 Err(e) => errors.push(format!("{}: {e}", file.path)),
             }
@@ -2433,6 +2446,7 @@ fn load_service(file: &SourceFile, options: RenderOptions<'_>) -> Result<Service
         price_band: metadata.price_band,
         typical_timeline: metadata.typical_timeline,
         faq: metadata.faq,
+        draft: is_draft(&doc.front_matter),
         html: rendered.html,
         text: rendered.text,
         source: file.path.clone(),

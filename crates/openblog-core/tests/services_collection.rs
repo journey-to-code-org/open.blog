@@ -203,3 +203,54 @@ fn a_site_without_services_checks_no_job_service() {
         .iter()
         .all(|warning| !warning.contains("service")));
 }
+
+#[test]
+fn a_draft_service_is_unpublished_and_only_warns_while_unfinished() {
+    let unfinished = "---\nid: gutters\nname: Gutters\nsummary: \"\"\ndraft: true\n---\n";
+    let finished_draft = "---\nid: decks\nname: Decks\nsummary: Built to last.\ndraft: true\n---\n";
+    let live = with_services(
+        vec![
+            file("services/hardwood.md", HARDWOOD),
+            file("services/gutters.md", unfinished),
+            file("services/decks.md", finished_draft),
+        ],
+        vec![job("oak", "decks", false)],
+    )
+    .unwrap_err();
+    assert!(
+        live[0].contains("`decks` is not one of this site's services")
+            && live[0].ends_with("known service ids are hardwood-install"),
+        "{live:?}"
+    );
+
+    let config = SiteConfig::from_json(r#"{"title":"Crew","url":"https://crew.example"}"#).unwrap();
+    let sources = Sources {
+        services: vec![
+            file("services/hardwood.md", HARDWOOD),
+            file("services/gutters.md", unfinished),
+            file("services/decks.md", finished_draft),
+        ],
+        ..Default::default()
+    };
+    let published = Site::load(config.clone(), sources.clone(), LoadOptions::default()).unwrap();
+    assert_eq!(published.services.len(), 1);
+    assert!(published
+        .warnings
+        .iter()
+        .any(|warning| warning
+            .contains("services/gutters.md: service not ready to publish: summary:")));
+    let preview = Site::load(
+        config,
+        sources,
+        LoadOptions {
+            include_drafts: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(preview.services.len(), 2);
+    assert!(preview
+        .services
+        .iter()
+        .any(|service| service.id == "decks" && service.draft));
+}

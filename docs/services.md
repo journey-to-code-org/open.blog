@@ -40,9 +40,32 @@ Anything you write here is the long description on the service's page, as ordina
 | `priceBand` | no | The same set a job's `costBand` uses: `under-500`, `500-2k`, `2k-10k`, `10k-50k`, `over-50k` or `ask`. Never free text. |
 | `typicalTimeline` | no | A short label up to 80 characters, such as `2 to 4 days`. |
 | `faq` | no | Up to 20 entries, each with a `question` (200 characters) and an `answer` (1,000). Plain text. |
+| `draft` | no | `true` keeps the service off the site while you write it. |
 
 Every text value is plain text on one line. Keys you add that this version does not know are kept untouched.
 Each problem is a sentence naming the field, and every problem in a file is listed at once.
+
+## Writing a service
+
+In Admin open **Services** (`#/services`, under the Content tabs and in the command palette). **Add a service**
+asks for a name (the id is made from it, and you can change it before the first save), a summary, what is
+included, a price band, a typical timeline, the questions customers ask and, if you like, text for the page. The
+questions are a list: **Add a question** puts the cursor in the new one, and each has **Up**, **Down** and
+**Remove**. Tick **Keep this as a draft** to save it unfinished; a draft is not on your site. Problems are said in
+words beside the field they are about, and nothing is saved until the build would accept it. The screen is one
+column from 320px with 44px controls. It uses the same document routes as posts, pages and series (session,
+CSRF and the revision check included), so there is nothing new to secure; see
+[ADR 0402](adr/0402-services-are-edited-in-admin-through-the-document-routes-with-a-screen-of-their-own-scaffolded-as-drafts-from-the-command-line.md).
+The job form's service box suggests the ids of your published services.
+
+From the command line, `openblog new "Hardwood installation" --profile service` writes
+`content/services/hardwood-installation.md` as a draft, with `version: 1`, the id (from the name, or
+`--id hardwood-install`), the name, an empty summary and, with `--price-band 2k-10k`, the band. Each answer is
+checked the way the build checks it, and nothing is written when one is refused. Fill in the summary, remove
+`draft`, and `openblog check` stops listing it as `service not ready to publish`.
+
+A service with `draft: true` is not built and is not one of the ids jobs are checked against; while it is
+unfinished its problems are warnings, not errors.
 
 ## What the build makes
 
