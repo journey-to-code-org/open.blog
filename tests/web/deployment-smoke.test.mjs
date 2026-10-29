@@ -70,3 +70,12 @@ test("rejects credential-bearing origins before making requests", async () => {
   await assert.rejects(smoke({ ...options, origin: "https://user:secret@blog.example" }));
   assert.equal(calls.length, 0);
 });
+
+test("optional captcha smoke requires a machine-readable rejection", async () => {
+  const { options, calls } = fixture({ "https://blog.example/api/comments": [403, "application/json", '{"code":"captcha_required"}'] });
+  await smoke({ ...options, captcha: true });
+  assert.equal(calls.at(-1)[1].method, "POST");
+  assert.equal(JSON.parse(calls.at(-1)[1].body).path, "/posts/test/");
+  const accepted = fixture({ "https://blog.example/api/comments": [202, "application/json", '{}'] });
+  await assert.rejects(smoke({ ...accepted.options, captcha: true }));
+});

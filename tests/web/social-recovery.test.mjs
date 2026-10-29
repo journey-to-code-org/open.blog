@@ -1,4 +1,4 @@
-// Optional social publishing, manual recovery (epic #353, story #357, ADR 0316): retrying a failed
+// Optional social publishing, manual recovery (epic #353, story #357, ADR 0318): retrying a failed
 // announcement, resolving an unknown outcome by hand, and reading the attempt history. Routes of the
 // hosted function, called by the Rust Admin with the admin key; storage is an in-memory fake.
 import test from "node:test";

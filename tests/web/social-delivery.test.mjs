@@ -1,4 +1,4 @@
-// The delivery contract of optional social publishing (epic #353, ADR 0316): how a provider's answer
+// The delivery contract of optional social publishing (epic #353, ADR 0318): how a provider's answer
 // is classified, the Retry-After and back-off arithmetic, and the optional delivery settings. Pure.
 import test from "node:test";
 import assert from "node:assert/strict";

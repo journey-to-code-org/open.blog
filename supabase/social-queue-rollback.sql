@@ -1,4 +1,4 @@
--- Roll back the social delivery queue (ADRs 0314 to 0316): the claim, lease and settle functions and
+-- Roll back the social delivery queue (ADRs 0316 to 0318): the claim, lease and settle functions and
 -- the columns social-queue.sql added. Run in the Supabase SQL editor, after removing the scheduled
 -- worker (social-cron-rollback.sql) so nothing calls the functions while you undo.
 --

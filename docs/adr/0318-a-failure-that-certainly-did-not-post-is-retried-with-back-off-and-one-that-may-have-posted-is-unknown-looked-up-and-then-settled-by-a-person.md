@@ -1,4 +1,4 @@
-# ADR 0316: A failure that certainly did not post is retried with back-off, and one that may have posted is unknown, looked up, and then settled by a person
+# ADR 0318: A failure that certainly did not post is retried with back-off, and one that may have posted is unknown, looked up, and then settled by a person
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -10,7 +10,7 @@
 A provider call can end in four ways that matter: it clearly posted, it clearly did not, the provider said slow
 down, or nobody knows (a timeout, a dropped connection, a 5xx, an unreadable answer, a crash between the call and the
 record). The epic's rule is that the last one never silently duplicates a post. ADR 0308 already fixed the statuses
-and said an unknown outcome resolves only to published or failed; ADR 0314 made a crash after sending `unknown`.
+and said an unknown outcome resolves only to published or failed; ADR 0316 made a crash after sending `unknown`.
 This ADR decides what each outcome does next.
 
 ## Decision

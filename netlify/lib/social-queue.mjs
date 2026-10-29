@@ -1,4 +1,4 @@
-// The hosted delivery queue (epic #353, story #357, ADR 0314): claim due announcements, mark the
+// The hosted delivery queue (epic #353, story #357, ADR 0316): claim due announcements, mark the
 // moment before a provider call, and settle the outcome, through the functions of
 // supabase/social-queue.sql. Server-only, behind the site scope of ADR 0293.
 //

@@ -1,4 +1,4 @@
-# ADR 0314: Due announcements are claimed by database functions under a lease, and an expired lease after sending is unknown
+# ADR 0316: Due announcements are claimed by database functions under a lease, and an expired lease after sending is unknown
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -33,7 +33,7 @@ adds four functions and a few columns, all re-runnable, and changes no existing 
 - **`openblog_social_reap_leases`**, which every claim runs first, finishes claims whose lease ran out. A claim whose
   attempt never reached `sending_at` goes back to `scheduled` (or to `failed`, `attempts-exhausted`, when its attempts
   are used up). A claim that did reach it becomes **`unknown`**: the request may have reached the provider, so it is
-  never claimed again, only looked up (ADR 0316).
+  never claimed again, only looked up (ADR 0318).
 - **`openblog_social_settle`** records an outcome (`published`, `retry`, `failed`, `unknown`) and finishes the attempt
   in one transaction. It is **fenced by the version** the caller read: if the row has moved on (the lease was reaped
   and another worker holds it) nothing changes and no row comes back, so a stale holder cannot overwrite the current
@@ -64,7 +64,7 @@ adds four functions and a few columns, all re-runnable, and changes no existing 
 ## Consequences
 
 - Delivery is opt-in a second time: without `social-queue.sql` announcements still wait, as before.
-- An unknown outcome is a real state with a real cost: someone (the reconciliation of ADR 0316, then a person) must
+- An unknown outcome is a real state with a real cost: someone (the reconciliation of ADR 0318, then a person) must
   settle it. That cost is chosen over a duplicate post.
 - The per-account cap is a politeness limit, not a guarantee: two simultaneous claims may each take the cap. The
-  rate-limit pause of ADR 0316 is what protects an account.
+  rate-limit pause of ADR 0318 is what protects an account.

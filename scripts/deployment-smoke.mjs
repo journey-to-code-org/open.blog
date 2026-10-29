@@ -5,6 +5,7 @@ export async function smoke({
   origin,
   adminOrigin,
   postPath,
+  captcha = false,
   fetchImpl = fetch,
   log = console.log,
 }) {
@@ -69,6 +70,17 @@ export async function smoke({
   await get(new URL("/api/admin/analytics?days=7", site), 401);
   await get(new URL("/api/admin/comments?status=pending", site), 401);
   log("PASS public engagement reads and protected moderation endpoints");
+  if (captcha) {
+    const response = await fetchImpl(new URL("/api/comments", site), {
+      method: "POST", redirect: "manual", signal: AbortSignal.timeout(30_000),
+      headers: { "Content-Type": "application/json", Origin: site.origin },
+      body: JSON.stringify({ path: post.pathname, authorName: "Deployment smoke", body: "Unverified captcha deployment check" }),
+    });
+    assert.equal(response.status, 403, "Unverified comments must be refused");
+    assert.equal((await response.json()).code, "captcha_required");
+    log("PASS unverified captcha submission refused");
+  }
+
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -78,7 +90,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exitCode = 1;
   } else {
     try {
-      await smoke({ origin, adminOrigin, postPath });
+      await smoke({ origin, adminOrigin, postPath, captcha: process.argv.includes("--captcha") });
     } catch (error) {
       console.error(`Deployment smoke test failed: ${error.message}`);
       process.exitCode = 1;

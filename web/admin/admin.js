@@ -19978,6 +19978,9 @@ export class ObAdmin extends AdminElement {
       const enabled = h("input", { type: "checkbox", checked: engagement.enabled });
       const comments = h("input", { type: "checkbox", checked: engagement.comments });
       const hostedAnalytics = h("input", { type: "checkbox", checked: engagement.analytics });
+      const captchaEnabled = h("input", { type: "checkbox", checked: engagement.captcha?.enabled });
+      const captchaKey = h("input", { type: "text", value: engagement.captcha?.siteKey || "", maxlength: 256 });
+      const captchaSettings = () => ({ enabled: captchaEnabled.checked, provider: "turnstile", siteKey: captchaKey.value.trim() });
       const endpoint = h("input", { type: "url", value: engagement.endpoint || `${String(this.meta.siteUrl || "").replace(/\/$/, "")}/api`, placeholder: "https://your-site.example/api" });
       const credential = h("input", { type: "password", value: "", autocomplete: "new-password", placeholder: "Leave blank to keep the saved token" });
       const credentialStatus = () => {
@@ -20002,6 +20005,7 @@ export class ObAdmin extends AdminElement {
               enabled: enabled.checked,
               comments: comments.checked,
               analytics: hostedAnalytics.checked,
+              captcha: captchaSettings(),
               endpoint: endpoint.value.trim(),
               etag: engagement.etag,
               credentialAction: credential.value.trim() ? "replace" : "keep",
@@ -20027,7 +20031,7 @@ export class ObAdmin extends AdminElement {
           if (!confirm("Remove the saved moderation token? A server environment token, if present, will remain active.")) return;
           const result = await this.api.call("PUT", "engagement/settings", { json: {
             enabled: enabled.checked, comments: comments.checked, analytics: hostedAnalytics.checked,
-            endpoint: endpoint.value.trim(), etag: engagement.etag, credentialAction: "clear",
+            endpoint: endpoint.value.trim(), etag: engagement.etag, credentialAction: "clear", captcha: captchaSettings(),
           } });
           engagement = result;
           clear.disabled = true;
@@ -20042,6 +20046,9 @@ export class ObAdmin extends AdminElement {
         h("p", { class: "oba-notice" }, "Required Netlify variables: SUPABASE_URL, SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY), OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ADMIN_API_KEY, and OPENBLOG_ANALYTICS_SALT."),
         h("label", {}, enabled, " Enable hosted engagement"),
         h("label", {}, comments, " Enable moderated comments"),
+        h("label", {}, captchaEnabled, " Verify comments with Cloudflare Turnstile"),
+        h("label", {}, "Turnstile public site key", captchaKey),
+        h("p", { class: "oba-small" }, "In Netlify set OPENBLOG_CAPTCHA_ENABLED=true, OPENBLOG_TURNSTILE_SECRET, and a separate random OPENBLOG_CAPTCHA_PASS_SECRET of at least 32 characters. Enter only the public site key here. Rebuild and redeploy; readers verify once per tab for 30 minutes. Local comments are unchanged."),
         h("label", {}, hostedAnalytics, " Store analytics in Supabase"),
         h("div", { class: "oba-field" }, h("label", {}, "Public function endpoint"), endpoint),
         h("div", { class: "oba-field" }, h("label", {}, "Moderation API token (write-only)"), credential),

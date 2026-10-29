@@ -1,5 +1,5 @@
 // Optional social publishing, retries, rate limits and uncertain outcomes (epic #353, story #357,
-// ADR 0316): a failure that certainly did not post is retried with back-off, a rate limit pauses
+// ADR 0318): a failure that certainly did not post is retried with back-off, a rate limit pauses
 // the account, a refusal is final, and anything that may have posted is never sent again, only
 // looked up. Providers are fake adapters; no network is used.
 import test from "node:test";

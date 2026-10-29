@@ -1,4 +1,4 @@
--- Optional scheduled social publishing, the schedule that wakes the delivery worker (ADR 0315).
+-- Optional scheduled social publishing, the schedule that wakes the delivery worker (ADR 0317).
 -- Run once in the Supabase SQL editor, after social.sql and social-queue.sql, only if the site opts
 -- in to delivery. It makes Supabase call the hosted worker (netlify/functions/social-worker.mjs)
 -- once a minute with pg_cron and pg_net. Until it runs, announcements wait and nothing is sent.

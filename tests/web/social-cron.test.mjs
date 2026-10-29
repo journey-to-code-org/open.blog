@@ -1,4 +1,4 @@
-// The schedule that wakes the delivery worker (ADR 0315): its secrets live in Vault, its function is
+// The schedule that wakes the delivery worker (ADR 0317): its secrets live in Vault, its function is
 // private to the database owner, and re-running it leaves one job.
 import test from "node:test";
 import assert from "node:assert/strict";
