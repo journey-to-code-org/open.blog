@@ -1946,6 +1946,12 @@ ob-comments {
 .ob-comments-form input,
 .ob-comments-form textarea { font: inherit; padding: .65rem; border: 1px solid var(--ob-color-border); border-radius: .35rem; background: var(--ob-color-surface); color: inherit; }
 .ob-comments-form button { justify-self: start; }
+/* Optional captcha (ADR 0322). No motion, no fixed widths: the provider's widget may be
+   wider than a 320px screen, so its box scrolls instead of the page. */
+.ob-comments-captcha-note { margin: 0; font-size: .875rem; overflow-wrap: anywhere; opacity: .85; }
+.ob-comments-captcha { max-width: 100%; overflow-x: auto; min-height: 1px; }
+.ob-comments-captcha[hidden],
+.ob-comments-captcha-retry[hidden] { display: none; }
 
 /* Passage feedback (ADR 0082): a single-column form that fits 320px, a
    status line outside the form, a copy-and-send fallback, and a button

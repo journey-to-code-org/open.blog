@@ -185,6 +185,13 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   hosted elsewhere, `branch` names the git branch that backs the counts up, and
   `bakeCounts` writes the known counts into static builds. See
   [Publishing from home](publishing.md).
+- `engagement.captcha` (optional, off by default, omitted from `openblog.json` until set) protects hosted
+  comments with a Cloudflare Turnstile challenge: `provider` is `off` or `turnstile`, `siteKey` is the
+  public site key (required for `turnstile`; letters, numbers, `_` and `-`; never a secret) and `scope` is
+  `session` (one challenge per tab session, the default) or `every-comment`. The server enforces the same
+  scope through `OPENBLOG_CAPTCHA_SCOPE`, so the two must match. Secrets are Netlify environment variables;
+  see the [function setup guide](../netlify/functions/README.md#comment-captcha-optional). Readers pass
+  the challenge when they first write in the form; locked and hidden discussions never show it.
 - `engagement.enabled` adds hosted comments and analytics to static deployments;
   `engagement.endpoint` is the public function URL. Database and moderation secrets stay in server
   environment variables or Admin's write-only private credential store. `engagement.feedback`

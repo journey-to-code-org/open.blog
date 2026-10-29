@@ -19978,9 +19978,25 @@ export class ObAdmin extends AdminElement {
       const enabled = h("input", { type: "checkbox", checked: engagement.enabled });
       const comments = h("input", { type: "checkbox", checked: engagement.comments });
       const hostedAnalytics = h("input", { type: "checkbox", checked: engagement.analytics });
-      const captchaEnabled = h("input", { type: "checkbox", checked: engagement.captcha?.enabled });
-      const captchaKey = h("input", { type: "text", value: engagement.captcha?.siteKey || "", maxlength: 256 });
-      const captchaSettings = () => ({ enabled: captchaEnabled.checked, provider: "turnstile", siteKey: captchaKey.value.trim() });
+      const captchaProvider = h("select", { "data-captcha": "provider" },
+        h("option", { value: "off" }, "Off"),
+        h("option", { value: "turnstile" }, "Cloudflare Turnstile"));
+      captchaProvider.value = engagement.captcha?.provider === "turnstile" ? "turnstile" : "off";
+      const captchaKey = h("input", { type: "text", value: engagement.captcha?.siteKey || "", maxlength: 256, autocomplete: "off", spellcheck: false, "data-captcha": "site-key" });
+      const captchaScope = h("select", { "data-captcha": "scope" },
+        h("option", { value: "session" }, "Once per tab session (recommended)"),
+        h("option", { value: "every-comment" }, "Before every comment"));
+      captchaScope.value = engagement.captcha?.scope === "every-comment" ? "every-comment" : "session";
+      const captchaSettings = () => ({ provider: captchaProvider.value, siteKey: captchaKey.value.trim(), scope: captchaScope.value });
+      const captchaPanel = h("details", { class: "oba-captcha-settings", "data-captcha": "panel", hidden: !enabled.checked && captchaProvider.value === "off", open: captchaProvider.value !== "off" },
+        h("summary", {}, "Comment captcha (advanced)"),
+        h("p", { class: "oba-small" }, "Readers solve one privacy-friendly challenge before their first comment of a visit. Choose Off to keep comments exactly as they are."),
+        h("label", {}, "Provider", captchaProvider),
+        h("label", {}, "Turnstile public site key", captchaKey),
+        h("label", {}, "How often to verify", captchaScope),
+        h("p", { class: "oba-notice" }, "Secrets are never entered here. Set these in Netlify, then redeploy: OPENBLOG_CAPTCHA_PROVIDER=turnstile and OPENBLOG_TURNSTILE_SECRET (from the Turnstile dashboard), plus OPENBLOG_CAPTCHA_SESSION_SECRET (a separate random value of at least 32 characters) unless you verify before every comment. For \"Before every comment\", also set OPENBLOG_CAPTCHA_SCOPE=every-comment so the server matches this setting. Without them the server refuses comments instead of accepting them unverified."),
+      );
+      enabled.addEventListener("change", () => { captchaPanel.hidden = !enabled.checked && captchaProvider.value === "off"; });
       const endpoint = h("input", { type: "url", value: engagement.endpoint || `${String(this.meta.siteUrl || "").replace(/\/$/, "")}/api`, placeholder: "https://your-site.example/api" });
       const credential = h("input", { type: "password", value: "", autocomplete: "new-password", placeholder: "Leave blank to keep the saved token" });
       const credentialStatus = () => {
@@ -20046,10 +20062,8 @@ export class ObAdmin extends AdminElement {
         h("p", { class: "oba-notice" }, "Required Netlify variables: SUPABASE_URL, SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY), OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ADMIN_API_KEY, and OPENBLOG_ANALYTICS_SALT."),
         h("label", {}, enabled, " Enable hosted engagement"),
         h("label", {}, comments, " Enable moderated comments"),
-        h("label", {}, captchaEnabled, " Verify comments with Cloudflare Turnstile"),
-        h("label", {}, "Turnstile public site key", captchaKey),
-        h("p", { class: "oba-small" }, "In Netlify set OPENBLOG_CAPTCHA_ENABLED=true, OPENBLOG_TURNSTILE_SECRET, and a separate random OPENBLOG_CAPTCHA_PASS_SECRET of at least 32 characters. Enter only the public site key here. Rebuild and redeploy; readers verify once per tab for 30 minutes. Local comments are unchanged."),
         h("label", {}, hostedAnalytics, " Store analytics in Supabase"),
+        captchaPanel,
         h("div", { class: "oba-field" }, h("label", {}, "Public function endpoint"), endpoint),
         h("div", { class: "oba-field" }, h("label", {}, "Moderation API token (write-only)"), credential),
         status,

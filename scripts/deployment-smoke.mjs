@@ -71,16 +71,23 @@ export async function smoke({
   await get(new URL("/api/admin/comments?status=pending", site), 401);
   log("PASS public engagement reads and protected moderation endpoints");
   if (captcha) {
-    const response = await fetchImpl(new URL("/api/comments", site), {
-      method: "POST", redirect: "manual", signal: AbortSignal.timeout(30_000),
-      headers: { "Content-Type": "application/json", Origin: site.origin },
-      body: JSON.stringify({ path: post.pathname, authorName: "Deployment smoke", body: "Unverified captcha deployment check" }),
-    });
-    assert.equal(response.status, 403, "Unverified comments must be refused");
-    assert.equal((await response.json()).code, "captcha_required");
-    log("PASS unverified captcha submission refused");
+    assert.match(articleHtml, /<ob-comments\b[^>]*\bcaptcha-provider="turnstile"[^>]*\bcaptcha-site-key="[^"]+"/, "The post must carry the public captcha attributes; enable engagement.captcha and rebuild");
+    const refused = async (extra, what) => {
+      const response = await fetchImpl(new URL("/api/comments", site), {
+        method: "POST", redirect: "manual", signal: AbortSignal.timeout(30_000),
+        headers: { "Content-Type": "application/json", Origin: site.origin },
+        body: JSON.stringify({ path: post.pathname, authorName: "Deployment smoke", body: "Unverified captcha deployment check", ...extra }),
+      });
+      const result = await response.json().catch(() => ({}));
+      assert.notEqual(response.status, 503, `Captcha is enabled but the function is misconfigured (${result.code || "no code"}): ${result.error || "no message"}`);
+      assert.ok(response.status !== 202 && response.status !== 200, `A captcha-enabled site accepted ${what}; check OPENBLOG_CAPTCHA_PROVIDER on the function`);
+      assert.equal(response.status, 403, `${what}: expected HTTP 403, got ${response.status}`);
+      assert.equal(result.code, "captcha_required", `${what}: expected code captcha_required`);
+    };
+    await refused({}, "an unverified comment");
+    await refused({ captchaPass: "forged.pass" }, "a forged pass");
+    log("PASS unverified and forged captcha submissions refused");
   }
-
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
