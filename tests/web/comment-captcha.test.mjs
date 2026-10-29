@@ -177,8 +177,11 @@ test("failed verifications are rate limited in their own bucket, without touchin
   assert.equal(tooMany.statusCode, 429);
   assert.equal(JSON.parse(tooMany.body).code, "captcha_rate_limited");
   assert.equal(limited.stored(), false);
-  const isolated = harness({}, { deny: ["captcha"] });
-  assert.equal((await isolated.handler(event({ captchaToken: "good" }))).statusCode, 202, "captcha bucket only counts failures");
+  let providerCalls = 0;
+  const counted = harness({}, { deny: ["captcha"], provider: async () => { providerCalls += 1; return { ok: true, json: async () => ({ success: true }) }; } });
+  assert.equal((await counted.handler(event({ captchaToken: "good" }))).statusCode, 429, "a full bucket refuses even a valid token");
+  assert.equal(providerCalls, 0, "a full bucket never reaches the provider");
+  assert.equal(counted.stored(), false);
   const commentsFull = harness({}, { deny: ["comments"] });
   assert.equal((await commentsFull.handler(event({ captchaToken: "good" }))).statusCode, 429);
 });

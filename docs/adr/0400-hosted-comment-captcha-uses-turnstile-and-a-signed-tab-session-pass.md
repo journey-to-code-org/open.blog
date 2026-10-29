@@ -36,7 +36,7 @@ pass causes exactly one fresh challenge and one automatic retry with the same te
 script (one allowlisted origin) loads only when the reader first focuses or types in the form.
 
 **Order and quotas.** origin, policy, field validation, captcha, rate limit, insert, so spam
-never reaches Supabase. Failed verifications (and forged passes) spend a new `captcha` bucket
+never reaches Supabase. Every verification attempt (a token or a bad pass) spends a new `captcha` bucket before the provider is called
 through the existing `openblog_consume_rate_limit` (10 per client, 1,000 per site per hour); the
 bucket name is data, so `supabase/openblog.sql` is unchanged. Successful comments are counted by
 the `comments` bucket as before.

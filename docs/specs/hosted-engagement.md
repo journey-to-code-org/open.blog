@@ -208,7 +208,7 @@ Contract (`POST /comments`, checks in this order: origin, policy, field validati
   (`captchaPass`, `captchaPassExpiresAt`); `captchaPass` is validated locally with HMAC-SHA256 and a
   constant-time compare. Neither, or an invalid one: `403 {code: "captcha_required"}`; an expired pass:
   `403 {code: "captcha_expired"}`. Both happen before any database write.
-- Failed verifications (and forged passes) spend the `captcha` rate-limit bucket through the existing
+- Every verification attempt (a token or a bad pass) spends the `captcha` rate-limit bucket, before the provider is called, through the existing
   `openblog_consume_rate_limit` function (10 per client and 1,000 per site per hour, no SQL migration);
   over the limit answers `429 {code: "captcha_rate_limited"}`. Successful comments are counted by the
   `comments` bucket as before.

@@ -710,14 +710,15 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           if (!pass?.ok) {
             const hasToken = typeof body.captchaToken === "string" && body.captchaToken !== "";
             let failed = Boolean(pass);
+            // Every verification attempt spends the captcha bucket before the provider is called, so the
+            // bucket also bounds outbound verifier traffic. A request with no token and no pass is not an attempt.
+            if ((hasToken || pass) && !await consumeQuota(settings, event, "captcha", 10, 1000)) {
+              return json(429, { code: "captcha_rate_limited", error: "Too many verification attempts. Please wait a while and try again." }, corsOrigin);
+            }
             if (hasToken) {
               const outcome = await verifyCaptcha({ provider: captcha.provider, token: body.captchaToken, secret: captcha.turnstileSecret, remoteIp: String(event.headers?.["x-nf-client-connection-ip"] || "").trim(), fetchImpl });
               failed = !outcome.ok;
               if (outcome.ok && captcha.scope === "session") captchaPass = issuePass(settings.siteId, captcha.sessionSecret, moment, captcha.ttl);
-            }
-            // Only failed attempts spend the captcha bucket; successful comments are counted by the comments bucket.
-            if (failed && !await consumeQuota(settings, event, "captcha", 10, 1000)) {
-              return json(429, { code: "captcha_rate_limited", error: "Too many verification attempts. Please wait a while and try again." }, corsOrigin);
             }
             if (failed || !hasToken) {
               return json(403, { code: "captcha_required", error: "Please complete the comment verification and try again. Your comment has not been sent." }, corsOrigin);

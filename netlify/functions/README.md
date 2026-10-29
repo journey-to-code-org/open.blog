@@ -83,7 +83,7 @@ How it behaves:
   A valid `captchaToken` is verified with Cloudflare (5 second limit) and answered with
   `captchaPass` and `captchaPassExpiresAt`. The browser keeps the pass in `sessionStorage`, so it
   ends with the tab, and sends it with later comments. Existing comment quotas still apply to every comment.
-- Failed verifications spend a separate `captcha` bucket in the existing rate-limit function (10 per
+- Every verification attempt spends a separate `captcha` bucket, before the provider is called, in the existing rate-limit function (10 per
   client and 1,000 per site per hour) and then answer `429 captcha_rate_limited`. The bucket name is
   data, so **no SQL migration** is needed.
 - Enabled with a missing or invalid variable, the function refuses comments with
