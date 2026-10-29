@@ -1,4 +1,4 @@
-# ADR 0723: A destination preview is the run's own portable projection, checked against its manifest
+# ADR 0328: A destination preview is the run's own portable projection, checked against its manifest
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -10,7 +10,7 @@
 Epic #381 asks for a deterministic portable projection per destination, with the exact canonical address and
 destination-specific errors, before anything is sent. The pieces already exist but are scattered:
 `PortableProjection` (ADR 0004) produces the portable Markdown and HTML; the destination policies, content, tag and
-payload plans say how a cross-posting target converts it; the provider manifests (ADRs 0720 to 0722) say what each
+payload plans say how a cross-posting target converts it; the provider manifests (ADRs 0325 to 0327) say what each
 destination's adapter can do. `openblog syndicate` prints parts of this, and `--json` prints the before and after,
 but neither says, per destination, "this is exactly what goes there, and this is why it can or cannot".
 
@@ -23,7 +23,7 @@ but neither says, per destination, "this is exactly what goes there, and this is
 - **What a destination is asked comes from the run.** The intent is `draft`, `published` (both `--publish` and the
   target's `allowPublish`) or `manual` (Medium). It asks for `article`, plus `draft` for a draft and `image` when the
   content plan keeps images, and carries the selected tag count, the longest tag and, for Hashnode, the request size.
-  `ProviderManifest::check` turns that into the destination's ineligibilities (ADR 0721).
+  `ProviderManifest::check` turns that into the destination's ineligibilities (ADR 0326).
 - **Destination-specific reasons, all at once.** Besides the manifest's codes, a preview lists the reasons a run
   would already refuse before any request: `target-not-ready` (the same sentence `validate_plan` uses: a missing
   endpoint, publishing not allowed, a draft-only destination) and `conversion-blocked` (a blocking content, tag or
@@ -34,12 +34,12 @@ but neither says, per destination, "this is exactly what goes there, and this is
   request carries (title, description or excerpt, subtitle, slug, tags, each list item by item, under the request's
   own field names), so an approval covers everything a write sends. The preview shows those fields beside the
   content, and a test holds each provider's previewed fields to its request builder. It leaves out the policy
-  version on purpose: whether a newer manifest keeps an approval is the compatibility policy's question (ADR 0722).
+  version on purpose: whether a newer manifest keeps an approval is the compatibility policy's question (ADR 0327).
   The plan digest covers the source id, revision, canonical address, draft or publish, and each destination's name,
   digest and status.
 - **The social composer keeps its own preview.** An announcement's preview (`POST /admin/api/social/preview`, ADR
   0309) already shows its exact caption, link and time, and creating it is the author's explicit act; its adapter
-  is admitted under its manifest (ADR 0721). It is not folded into this plan in this story.
+  is admitted under its manifest (ADR 0326). It is not folded into this plan in this story.
 
 ## Considered options
 
@@ -47,7 +47,7 @@ but neither says, per destination, "this is exactly what goes there, and this is
   text and has no target configuration, so it cannot say what a configured run would send. It keeps its
   per-destination mode and acknowledgements.
 - **Include the policy version in the destination digest.** Rejected: every compatible provider upgrade would then
-  void approvals that ADR 0722 says stand.
+  void approvals that ADR 0327 says stand.
 
 ## Consequences
 

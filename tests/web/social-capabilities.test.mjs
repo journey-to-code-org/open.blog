@@ -1,4 +1,4 @@
-// The provider capability contract on the hosted side (epic #381, story #389, ADRs 0720 to 0722):
+// The provider capability contract on the hosted side (epic #381, story #389, ADRs 0325 to 0327):
 // an adapter is registered only under a manifest that reads and does every announcement need, and
 // anything unknown or narrowed fails closed. Fakes only; no provider is called.
 import test from "node:test";

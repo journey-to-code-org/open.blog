@@ -7,9 +7,9 @@ until you set them up, and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
 there. You do not edit it; it is part of the code, and it decides what open.blog will and will not attempt
-(ADRs [0720](adr/0720-a-provider-manifest-declares-per-destination-what-the-adapter-does-by-hand-or-not-at-all-at-a-dated-policy-version.md),
-[0721](adr/0721-an-adapter-is-used-only-under-a-manifest-that-reads-and-does-the-request-and-anything-unknown-fails-closed.md),
-[0722](adr/0722-a-provider-upgrade-raises-the-policy-version-and-a-narrowing-change-voids-approvals-made-under-the-old-one.md)).
+(ADRs [0325](adr/0325-a-provider-manifest-declares-per-destination-what-the-adapter-does-by-hand-or-not-at-all-at-a-dated-policy-version.md),
+[0326](adr/0326-an-adapter-is-used-only-under-a-manifest-that-reads-and-does-the-request-and-anything-unknown-fails-closed.md),
+[0327](adr/0327-a-provider-upgrade-raises-the-policy-version-and-a-narrowing-change-voids-approvals-made-under-the-old-one.md)).
 
 ## What each word means
 

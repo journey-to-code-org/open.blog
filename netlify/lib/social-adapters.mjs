@@ -1,4 +1,4 @@
-// The provider adapters this deployment delivers through (epic #353, ADRs 0316, 0319 and 0721). The
+// The provider adapters this deployment delivers through (epic #353, ADRs 0316, 0319 and 0326). The
 // worker (social-worker.mjs) calls a provider only through the interface in social-delivery.mjs and
 // asks this module which providers it has an adapter for. An adapter is registered only for a
 // provider that socialProviders(env) reports as configured (client id, secret and a valid API
@@ -6,7 +6,7 @@
 // here is not guessed at: its announcements wait in the queue (ADR 0317).
 //
 // An adapter is also registered only under a provider manifest that reads and says the adapter
-// does everything an announcement needs (social-capabilities.mjs, ADR 0721); the manifest travels
+// does everything an announcement needs (social-capabilities.mjs, ADR 0326); the manifest travels
 // on the adapter as `manifest`. A manifest that is missing, unknown or narrowed fails closed: the
 // provider gets no adapter.
 //

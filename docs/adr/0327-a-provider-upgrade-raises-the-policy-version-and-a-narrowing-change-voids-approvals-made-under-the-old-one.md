@@ -1,4 +1,4 @@
-# ADR 0722: A provider upgrade raises the policy version, and a narrowing change voids approvals made under the old one
+# ADR 0327: A provider upgrade raises the policy version, and a narrowing change voids approvals made under the old one
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -9,7 +9,7 @@
 
 Providers change their APIs, permissions and limits (LinkedIn retires a dated API version roughly a year after it
 ships; Meta versions the Graph API). When a manifest changes, an author's earlier preview or approval of a
-distribution may rest on facts that are no longer true. The two halves of the contract (ADR 0721) must also never
+distribution may rest on facts that are no longer true. The two halves of the contract (ADR 0326) must also never
 drift apart.
 
 ## Decision

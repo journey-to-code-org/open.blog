@@ -1,4 +1,4 @@
-//! The provider capability contract (ADRs 0720 to 0722), held to
+//! The provider capability contract (ADRs 0325 to 0327), held to
 //! `tests/fixtures/provider-manifests.json`, which the hosted function's tests read too.
 
 use openblog_core::provider_manifest::*;

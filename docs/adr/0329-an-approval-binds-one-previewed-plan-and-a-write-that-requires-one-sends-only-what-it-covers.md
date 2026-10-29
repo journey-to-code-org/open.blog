@@ -1,4 +1,4 @@
-# ADR 0724: An approval binds one previewed plan, and a write that requires one sends only what it covers
+# ADR 0329: An approval binds one previewed plan, and a write that requires one sends only what it covers
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -9,7 +9,7 @@
 
 `openblog syndicate --write` is already an explicit act, but it sends whatever the post is at that moment, which may
 differ from what the author reviewed. The epic asks for dry-run artifacts and explicit consent to what was previewed,
-and ADR 0722 left "pin each approval to a provider and policy version" to this story. Existing runs must not change
+and ADR 0327 left "pin each approval to a provider and policy version" to this story. Existing runs must not change
 for anyone who does not opt in.
 
 ## Decision
@@ -20,7 +20,7 @@ for anyone who does not opt in.
     content and the file holding it, and `remoteRequestSent: false`;
   - one file per destination, named `NN-<provider>.<md|html>` (never from the author's target names), holding
     exactly what that destination would receive;
-  - `index.html`, the accessible preview (ADR 0725).
+  - `index.html`, the accessible preview (ADR 0330).
   The folder must not exist (a preview never replaces one), must not contain `..` or a symlink, and the run refuses
   `--write` or `--json` with it.
 - **Explicit approval of a digest.** `--approve <digest>` rebuilds the plan with the same targets and draft or

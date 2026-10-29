@@ -1,16 +1,16 @@
-//! Source-to-destination preview and approval (epic #381, story #390, ADRs 0723 to 0725).
+//! Source-to-destination preview and approval (epic #381, story #390, ADRs 0328 to 0330).
 //!
 //! A **distribution plan** shows, for one published post and the destinations the author chose,
 //! exactly what each destination would receive: the portable projection the existing destination
 //! policy names (ADR 0004), the publication intent, the capabilities that asks of the destination,
 //! and every destination-specific reason it cannot take them (the provider manifest's own
-//! ineligibilities, ADR 0721, plus the conversion checks the cross-posting adapters already run).
+//! ineligibilities, ADR 0326, plus the conversion checks the cross-posting adapters already run).
 //! Nothing here sends, reads a credential or touches the network.
 //!
 //! An **approval** is the author's explicit consent to one plan, bound to the source revision,
 //! the canonical address, the publication intent, each destination's preview digest and the
 //! manifest each destination was previewed under. It covers a later run only while all of those
-//! still hold; a breaking provider upgrade voids it (ADR 0722).
+//! still hold; a breaking provider upgrade voids it (ADR 0327).
 //!
 //! Errors are fixed text and never repeat the author's content.
 
@@ -215,7 +215,7 @@ pub struct DestinationPreview {
     pub bytes: usize,
     /// Binds the name, provider, format, intent, canonical address, capabilities, content and
     /// every other request field, so an approval covers everything a write sends. The policy version is left out on purpose: whether a newer manifest keeps an approval is the
-    /// compatibility policy's question (ADR 0722), not a byte comparison.
+    /// compatibility policy's question (ADR 0327), not a byte comparison.
     pub digest: String,
     pub content: String,
     pub fields: Vec<RequestField>,

@@ -10,7 +10,7 @@
 //
 //   adapter = {
 //     provider: "linkedin",
-//     // The provider manifest the adapter was admitted under (social-capabilities.mjs, ADR 0721):
+//     // The provider manifest the adapter was admitted under (social-capabilities.mjs, ADR 0326):
 //     // set by socialAdapters, which registers no adapter whose manifest does not read or does not
 //     // do every announcement need ("link", "text", "schedule") through the adapter.
 //     manifest,

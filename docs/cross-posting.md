@@ -119,9 +119,9 @@ was not in the approved plan, its copy or any other field it sends (such as the 
 way. Preview and approve again. Approvals are private, kept in
 `.openblog/distribution-approvals.json` (`syndication.approvalFile`). With `requireApproval`
 off (the default), every existing command behaves exactly as before
-(ADRs [0723](adr/0723-a-destination-preview-is-the-runs-own-portable-projection-checked-against-its-manifest.md),
-[0724](adr/0724-an-approval-binds-one-previewed-plan-and-a-write-that-requires-one-sends-only-what-it-covers.md),
-[0725](adr/0725-with-no-destination-the-preview-is-the-portable-copy-and-the-preview-page-is-static-accessible-html.md)).
+(ADRs [0328](adr/0328-a-destination-preview-is-the-runs-own-portable-projection-checked-against-its-manifest.md),
+[0329](adr/0329-an-approval-binds-one-previewed-plan-and-a-write-that-requires-one-sends-only-what-it-covers.md),
+[0330](adr/0330-with-no-destination-the-preview-is-the-portable-copy-and-the-preview-page-is-static-accessible-html.md)).
 
 Provider behaviour the preview relies on was re-checked on 2026-10-29: DEV's
 [`POST /api/articles`](https://developers.forem.com/api/v1) saves a draft unless

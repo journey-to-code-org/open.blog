@@ -1,4 +1,4 @@
-# ADR 0721: An adapter is used only under a manifest that reads and does the request, and anything unknown fails closed
+# ADR 0326: An adapter is used only under a manifest that reads and does the request, and anything unknown fails closed
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -7,7 +7,7 @@
 
 ## Context
 
-A manifest (ADR 0720) is only useful if the code that sends something consults it, and only safe if an unknown or
+A manifest (ADR 0325) is only useful if the code that sends something consults it, and only safe if an unknown or
 unsupported capability can never be guessed at. Two adapter seams exist already and must not gain a parallel one: the
 hosted delivery worker's adapter interface (`netlify/lib/social-delivery.mjs`, ADRs 0317 and 0319), and the
 cross-posting adapters behind `openblog syndicate` (`crates/openblog-cli/src/syndication.rs`).

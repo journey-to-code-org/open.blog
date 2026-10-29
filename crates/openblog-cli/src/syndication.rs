@@ -47,9 +47,9 @@ pub struct Options {
     pub publish: bool,
     pub json: bool,
     /// Write the dry-run artifacts (the plan, each destination's copy and a preview page) into
-    /// this new folder, and send nothing (ADR 0723).
+    /// this new folder, and send nothing (ADR 0328).
     pub preview: Option<String>,
-    /// Approve the plan whose digest the author was shown, and send nothing (ADR 0724).
+    /// Approve the plan whose digest the author was shown, and send nothing (ADR 0329).
     pub approve: Option<String>,
 }
 
@@ -500,7 +500,7 @@ fn validate_plan(
         }
         // The adapter must declare, in the provider manifest it implements, that it sends the
         // article (and a draft, unless publishing) itself; anything else fails closed before a
-        // request (ADR 0721). The manual Medium workflow sends nothing, so it is not checked.
+        // request (ADR 0326). The manual Medium workflow sends nothing, so it is not checked.
         if matches!(adapter, DestinationAdapter::Remote(_)) {
             let mut needs = vec![Capability::Article];
             if !publish {
@@ -524,7 +524,7 @@ fn target_problem(name: &str, target: &SyndicationTargetConfig, publish: bool) -
     validate_plan(&[(&name.to_string(), target)], publish).err()
 }
 
-/// One destination's preview, from the same projection, plans and manifest a run uses (ADR 0723).
+/// One destination's preview, from the same projection, plans and manifest a run uses (ADR 0328).
 fn destination_preview(
     name: &str,
     target: &SyndicationTargetConfig,
@@ -611,7 +611,7 @@ fn destination_preview(
 
 /// Every value the destination's request carries besides its content and canonical address,
 /// under the request's own field names, so the preview shows and its digest binds all of it
-/// (ADR 0724). Each must match what the request builder below sends; a test holds them together.
+/// (ADR 0329). Each must match what the request builder below sends; a test holds them together.
 fn request_fields(provider: SyndicationProvider, post: &SyndicationPost) -> Vec<RequestField> {
     let tags = || {
         RequestField::list(
@@ -715,7 +715,7 @@ fn distribute(
     options: &Options,
 ) -> Result<(), String> {
     // No destination configured or enabled: the preview falls back to the portable copy, and
-    // there is nothing to approve (ADR 0725). An unknown --target name is still an error.
+    // there is nothing to approve (ADR 0330). An unknown --target name is still an error.
     let known = options
         .target_names
         .iter()
@@ -2830,7 +2830,7 @@ Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series
     #[test]
     fn every_remote_adapter_is_admitted_by_its_provider_manifest() {
         // The plan check passes for each shipped adapter, as a draft and (where its target allows
-        // it) in public, so the manifest gate changes no existing run (ADR 0721).
+        // it) in public, so the manifest gate changes no existing run (ADR 0326).
         let name = "target".to_string();
         for provider in [
             SyndicationProvider::Dev,

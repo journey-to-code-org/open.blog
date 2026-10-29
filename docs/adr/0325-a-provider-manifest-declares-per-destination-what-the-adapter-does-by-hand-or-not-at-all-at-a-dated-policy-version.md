@@ -1,4 +1,4 @@
-# ADR 0720: A provider manifest declares, per destination, what the adapter does, what is by hand and what is not possible, at a dated policy version
+# ADR 0325: A provider manifest declares, per destination, what the adapter does, what is by hand and what is not possible, at a dated policy version
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -72,5 +72,5 @@ where an API does not allow something. Neither existing seam can answer "can thi
 ## Consequences
 
 - Distribution planning (story #390) can ask one question of any destination and get a destination-specific answer.
-- Adding a provider or a capability is a code change in both halves and the fixture (ADR 0722), on purpose.
+- Adding a provider or a capability is a code change in both halves and the fixture (ADR 0327), on purpose.
 - Static builds, feeds, exports and existing cross-posting output are unchanged: nothing in the build reads a manifest.

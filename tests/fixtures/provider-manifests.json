@@ -1,5 +1,5 @@
 {
-  "about": "The versioned provider capability contract (ADRs 0720 to 0722). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0722).",
+  "about": "The versioned provider capability contract (ADRs 0325 to 0327). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0327).",
   "manifestVersion": 1,
   "capabilities": [
     "link",

@@ -1,4 +1,4 @@
-//! The versioned provider capability contract of distribution (epic #381, ADRs 0720 to 0722).
+//! The versioned provider capability contract of distribution (epic #381, ADRs 0325 to 0327).
 //!
 //! A **provider manifest** says, for one destination open.blog can reach (the cross-posting
 //! targets of `openblog syndicate` and the social accounts of scheduled publishing), what this
@@ -986,7 +986,7 @@ pub fn builtin_manifests() -> Vec<ProviderManifest> {
     ProviderId::ALL.into_iter().map(builtin_manifest).collect()
 }
 
-/// How a newer manifest of a provider relates to an older one (ADR 0722).
+/// How a newer manifest of a provider relates to an older one (ADR 0327).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Compatibility {

@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { removeTree } from "./teardown.mjs";
 
-// The distribution preview (story #390, ADRs 0723 to 0725) is a static page written by
+// The distribution preview (story #390, ADRs 0328 to 0330) is a static page written by
 // `openblog syndicate --preview`: no server, no provider, no credential, no script.
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");

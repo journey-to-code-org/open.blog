@@ -1,4 +1,4 @@
-// The versioned provider capability contract, hosted half (epic #381, ADRs 0720 to 0722). The Rust
+// The versioned provider capability contract, hosted half (epic #381, ADRs 0325 to 0327). The Rust
 // half is crates/openblog-core/src/provider_manifest.rs; both read, refuse and check exactly what
 // tests/fixtures/provider-manifests.json says.
 //
@@ -196,7 +196,7 @@ export function checkRequest(manifest, request = {}) {
 
 // The manifests the social adapters of this release implement, identical to the Rust half's
 // built-in ones (the fixture holds both to the same JSON). Changing one is a provider policy
-// change: raise its policyVersion (ADR 0722).
+// change: raise its policyVersion (ADR 0327).
 const SCHEDULE = { scheduleMinLeadSeconds: 60, scheduleMaxHorizonSeconds: 366 * 86400 };
 const SOCIAL_CAPABILITIES = { article: "unsupported", draft: "unsupported", image: "manual", link: "adapter", schedule: "adapter", text: "adapter", video: "manual" };
 const none = { maxRequestBodyBytes: null, maxTagNameChars: null, maxTags: null, maxTextChars: null };

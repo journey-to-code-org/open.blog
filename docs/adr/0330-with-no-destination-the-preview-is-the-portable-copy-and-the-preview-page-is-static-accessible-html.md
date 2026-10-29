@@ -1,4 +1,4 @@
-# ADR 0725: With no destination the preview is the portable copy, and the preview page is static, accessible HTML
+# ADR 0330: With no destination the preview is the portable copy, and the preview page is static, accessible HTML
 
 - Status: Accepted
 - Date: 2026-10-29
