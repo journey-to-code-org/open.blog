@@ -944,3 +944,83 @@ test("the workspace reflows at 320 pixels and tells visibility apart without col
   assert.match(styles, /@media \(max-width: 44rem\) \{\s*\.oba-shell \{[^}]*\}\s*\.oba-app-header \{\s*flex-wrap: wrap;/, "the header wraps instead of overflowing on a phone");
   assert.doesNotMatch(styles.slice(styles.indexOf("/* Research workspace (ADR 0120)")), /animation|transition/, "the workspace adds no motion");
 });
+
+/** A Map-backed stand-in for localStorage, installed for one test. */
+function installStorage(entries = {}) {
+  const map = new Map(Object.entries(entries));
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const storage = {
+    get length() {
+      return map.size;
+    },
+    key: (index) => [...map.keys()][index] ?? null,
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: (key) => map.delete(key),
+  };
+  Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true, writable: true });
+  return {
+    keys: () => [...map.keys()].sort(),
+    restore: () => (previous ? Object.defineProperty(globalThis, "localStorage", previous) : delete globalThis.localStorage),
+  };
+}
+
+/** The real Admin API client over a fake `fetch`: a 401 is the client's own ApiError, as in the page. */
+function fetchApi(respond) {
+  const previous = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const [status, body] = respond(init.method, String(url).replace("/admin/api/", ""), init.body ? JSON.parse(init.body) : undefined);
+    return { ok: status < 400, status, statusText: "", json: async () => body };
+  };
+  return () => {
+    globalThis.fetch = previous;
+  };
+}
+
+test("a 401 while writing keeps the author's voice copies through navigation and sign-in, and nobody else's", withDom(async () => {
+  const COPIES = {
+    "ob-voice-draft:writer": "rough words",
+    "ob-voice-polished:writer:2026-10-28-a-rough.md": "polished words",
+    "ob-voice-draft:writer2": "someone else's rough words",
+    "ob-voice-polished:other:2026-10-28-b-rough.md": "someone else's polished words",
+    "unrelated": "kept",
+  };
+  const storage = installStorage(COPIES);
+  const { app, root } = mountApp(fakeApi(), "guided");
+  let signedIn = false;
+  app.api = new (new ObAdmin().api.constructor)();
+  const restoreFetch = fetchApi((method, path, body) => {
+    if (method === "POST" && path === "login") {
+      signedIn = true;
+      return [200, { csrf: "fresh", user: body.username }];
+    }
+    if (!signedIn) return [401, { error: "signed out" }];
+    if (path === "sources") return [200, LIBRARY()];
+    return [200, {}];
+  });
+  try {
+    app.user = "writer";
+    // The session ends behind the Voice view; the author goes to another view, which gets the 401.
+    await go(app, "#/research/sources");
+    assert.equal(app.signedOut, true, "the 401 on navigation asks for sign-in");
+    assert.deepEqual(storage.keys(), Object.keys(COPIES).sort(), "an ended session erases no voice copy");
+
+    await signIn(app, root, "writer");
+    assert.equal(app.signedOut, false);
+    assert.deepEqual(
+      storage.keys(),
+      ["ob-voice-draft:writer", "ob-voice-polished:writer:2026-10-28-a-rough.md", "unrelated"],
+      "signing in again as the same author keeps that author's copies and only theirs",
+    );
+
+    // An ended session followed by someone else signing in removes the first author's copies.
+    signedIn = false;
+    await go(app, "#/research/sources");
+    assert.equal(app.signedOut, true);
+    await signIn(app, root, "someone-else");
+    assert.deepEqual(storage.keys(), ["unrelated"]);
+  } finally {
+    restoreFetch();
+    storage.restore();
+  }
+}));
