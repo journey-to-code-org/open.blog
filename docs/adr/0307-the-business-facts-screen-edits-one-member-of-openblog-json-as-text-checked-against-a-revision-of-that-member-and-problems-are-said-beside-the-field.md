@@ -1,11 +1,11 @@
-# ADR 0402: The Business facts screen edits one member of openblog.json as text, checked against a revision of that member, and problems are said beside the field
+# ADR 0307: The Business facts screen edits one member of openblog.json as text, checked against a revision of that member, and problems are said beside the field
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#482](https://github.com/journey-to-code-org/open.blog/issues/482)
 - Task: [#508](https://github.com/journey-to-code-org/open.blog/issues/508)
 - Parent epic: [#473](https://github.com/journey-to-code-org/open.blog/issues/473)
-- Builds on: [ADR 0400](0400-business-facts-are-one-versioned-block-in-openblog-json-that-pages-the-footer-and-structured-data-all-read.md), [ADR 0248](0248-the-owner-s-look-is-a-small-versioned-set-of-typed-presets-stored-under-appearance-and-compiled-only-into-allowlisted-tokens.md), [ADR 0251](0251-the-landing-builder-is-one-column-from-320px-with-a-bar-that-stays-reachable-above-the-keyboard-and-never-covers-the-field.md)
+- Builds on: [ADR 0305](0305-business-facts-are-one-versioned-block-in-openblog-json-that-pages-the-footer-and-structured-data-all-read.md), [ADR 0248](0248-the-owner-s-look-is-a-small-versioned-set-of-typed-presets-stored-under-appearance-and-compiled-only-into-allowlisted-tokens.md), [ADR 0251](0251-the-landing-builder-is-one-column-from-320px-with-a-bar-that-stays-reachable-above-the-keyboard-and-never-covers-the-field.md)
 
 ## Context
 
@@ -48,7 +48,7 @@ have happen.
 - **Leaving with unsaved changes** uses the Admin's existing view hooks (`viewDirty`, `viewBusy`): the screen
   states "You have unsaved changes", and the shell's own unsaved-change guard applies. No draft copy is kept on
   the device: these are a dozen short facts, and a draft copy of a published phone number is more than needed.
-- **The Landing builder only places it.** The Business facts section (ADR 0401) edits a heading; the facts are
+- **The Landing builder only places it.** The Business facts section (ADR 0306) edits a heading; the facts are
   edited here, once. The section's hint says so.
 
 ## Considered options
@@ -63,5 +63,5 @@ have happen.
 
 - Other settings that want to keep the owner's layout can use `config_text::set_member`; the existing routes
   are not changed here.
-- The block's version rule (ADR 0400) holds on both sides of the screen: a newer block is refused with a message
+- The block's version rule (ADR 0305) holds on both sides of the screen: a newer block is refused with a message
   and never rewritten.

@@ -1,15 +1,15 @@
-# ADR 0401: Business facts render as one engine block in the footer and a Landing section, with LocalBusiness data on the home page
+# ADR 0306: Business facts render as one engine block in the footer and a Landing section, with LocalBusiness data on the home page
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#482](https://github.com/journey-to-code-org/open.blog/issues/482)
 - Task: [#507](https://github.com/journey-to-code-org/open.blog/issues/507)
 - Parent epic: [#473](https://github.com/journey-to-code-org/open.blog/issues/473)
-- Builds on: [ADR 0400](0400-business-facts-are-one-versioned-block-in-openblog-json-that-pages-the-footer-and-structured-data-all-read.md), [ADR 0245](0245-the-landing-page-is-a-versioned-list-of-typed-data-sections-with-no-html-section-and-no-markup-from-content.md), [ADR 0253](0253-pieces-are-validated-data-with-one-form-schema-and-embeds-are-privacy-enhanced-lazy-frames-that-degrade-to-a-link.md)
+- Builds on: [ADR 0305](0305-business-facts-are-one-versioned-block-in-openblog-json-that-pages-the-footer-and-structured-data-all-read.md), [ADR 0245](0245-the-landing-page-is-a-versioned-list-of-typed-data-sections-with-no-html-section-and-no-markup-from-content.md), [ADR 0253](0253-pieces-are-validated-data-with-one-form-schema-and-embeds-are-privacy-enhanced-lazy-frames-that-degrade-to-a-link.md)
 
 ## Context
 
-The facts of ADR 0400 must appear identically wherever they matter, in every theme, without each theme
+The facts of ADR 0305 must appear identically wherever they matter, in every theme, without each theme
 re-implementing them, and as structured data that search engines can read. The Landing builder already has a
 closed set of sections, nine of them structured pieces, and a rule for adding one.
 
@@ -37,7 +37,7 @@ closed set of sections, nine of them structured pieces, and a rule for adding on
   own places, story #484), no `aggregateRating`, nothing about customers, and `insured` is not emitted because
   schema.org has no property for it. The name falls back to the site title. The text is escaped for HTML-in-script
   like the existing JSON-LD (`<`, `>`, `&`).
-- **The type is a trade subtype where schema.org has one** (ADR 0400's map). Tests check the emitted shape and
+- **The type is a trade subtype where schema.org has one** (ADR 0305's map). Tests check the emitted shape and
   type against the schema.org `LocalBusiness` subtypes the map can produce, every property against the set this
   feature emits, day names against schema.org's day URLs, and times as `HH:MM`.
 - **Landing: a tenth piece, `business-facts`, and the version rule is followed.** ADR 0245 says a new section

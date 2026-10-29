@@ -10,7 +10,7 @@
 //! ([`render_inert_markdown`]).
 //!
 //! The stored file is `<content>/landing.json` (`openblog-landing`, version
-//! 1, or 2 for a page that holds a Business facts section: ADR 0401). The
+//! 1, or 2 for a page that holds a Business facts section: ADR 0306). The
 //! format is a one-way door, so it is versioned and conservative:
 //!
 //! - [`LandingPage::parse`] refuses another version, and a newer one with a
@@ -42,7 +42,7 @@ use crate::config::HomeConfig;
 pub const LANDING_FORMAT: &str = "openblog-landing";
 /// The version every page is written as unless it uses a type that needs a newer one.
 pub const LANDING_VERSION: u64 = 1;
-/// The version a page that holds a Business facts section is written as (ADR 0401). A page
+/// The version a page that holds a Business facts section is written as (ADR 0306). A page
 /// without one is still written as version 1, byte for byte as before.
 pub const LANDING_VERSION_BUSINESS: u64 = 2;
 /// The newest version this release reads.
@@ -173,7 +173,7 @@ pub enum SectionKind {
     SocialLinks(SocialLinks),
     Faq(Faq),
     Callout(Callout),
-    /// The business facts from `openblog.json`, placed on the page (ADR 0401). Needs landing
+    /// The business facts from `openblog.json`, placed on the page (ADR 0306). Needs landing
     /// version 2.
     BusinessFacts(BusinessFacts),
 }
@@ -700,7 +700,7 @@ impl LandingPage {
         text
     }
 
-    /// The stored version this page is written as (ADR 0401).
+    /// The stored version this page is written as (ADR 0306).
     pub fn stored_version(&self) -> u64 {
         if self
             .sections

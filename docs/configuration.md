@@ -115,7 +115,7 @@ default, so you can edit values in place and delete the ones you do not need.
 ## Business facts
 
 `business` states who you are once, and every page, the footer, the Landing page's **Business facts** section
-and the `LocalBusiness` structured data read it ([ADR 0400](adr/0400-business-facts-are-one-versioned-block-in-openblog-json-that-pages-the-footer-and-structured-data-all-read.md)).
+and the `LocalBusiness` structured data read it ([ADR 0305](adr/0305-business-facts-are-one-versioned-block-in-openblog-json-that-pages-the-footer-and-structured-data-all-read.md)).
 It is optional: a site without it builds exactly as before. Edit it under **Admin → Settings → Business facts**,
 or by hand:
 

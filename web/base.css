@@ -2980,7 +2980,7 @@ ob-future-suggestion [hidden] {
   font-size: 0.8rem;
 }
 
-/* ---------- Business facts (ADR 0401) ----------
+/* ---------- Business facts (ADR 0306) ----------
    One block for every theme: the footer on each page and the Landing page's Business facts
    section both write `.ob-business`. Tokens only, so a theme restyles it by changing tokens. */
 

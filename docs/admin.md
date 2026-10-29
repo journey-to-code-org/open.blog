@@ -962,7 +962,7 @@ The screen reads and saves `GET`/`PUT /admin/api/business` (session and CSRF as 
 8 KiB). A save is checked against the revision of the block you loaded, so an edit made elsewhere in the file
 does not conflict with it, and it changes only the `business` key of `openblog.json`: every other key keeps its
 place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
-to the block are kept. See [ADR 0402](adr/0402-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
+to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
 ### A short phone walkthrough
 

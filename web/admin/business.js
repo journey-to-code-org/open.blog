@@ -1,4 +1,4 @@
-// The Business facts screen (ADR 0402, #508): your name, phone, hours, license and insurance, set once
+// The Business facts screen (ADR 0307, #508): your name, phone, hours, license and insurance, set once
 // under Site and used by the footer, the home page and search engines. One column from 320px, every
 // control at least 44px tall, a native control for every choice (a select for each day, real time
 // inputs, checkboxes), and every problem said beside the field it is about in plain words. The server

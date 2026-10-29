@@ -1,4 +1,4 @@
-// The Business facts screen (ADR 0402, #508): the pure contract (phone, hours, validation, the stored
+// The Business facts screen (ADR 0307, #508): the pure contract (phone, hours, validation, the stored
 // shape) and the screen against a fake server, so every rule here is the rule the server applies.
 import assert from "node:assert/strict";
 import test from "node:test";

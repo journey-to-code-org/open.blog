@@ -133,7 +133,7 @@ pub struct SiteConfig {
     /// 0285). Omitted from the written file while empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra_trades: Vec<String>,
-    /// The business facts stated once for every page (ADR 0400). Omitted from the
+    /// The business facts stated once for every page (ADR 0305). Omitted from the
     /// written file while nothing is stated, so a site that never sets it builds
     /// exactly as before.
     #[serde(skip_serializing_if = "BusinessConfig::is_default")]

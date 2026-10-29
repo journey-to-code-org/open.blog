@@ -5794,7 +5794,7 @@ ob-voice-library {
   overflow-wrap: anywhere;
 }
 
-/* The Business facts screen (ADR 0402): designed at 400px first. One column, 44px targets, every label and message wraps. */
+/* The Business facts screen (ADR 0307): designed at 400px first. One column, 44px targets, every label and message wraps. */
 .oba-business {
   display: grid;
   gap: 1rem;

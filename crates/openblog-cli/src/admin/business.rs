@@ -1,4 +1,4 @@
-//! Admin routes for the business facts (ADR 0402, #508): `GET` and `PUT /admin/api/business`.
+//! Admin routes for the business facts (ADR 0307, #508): `GET` and `PUT /admin/api/business`.
 //!
 //! Both sit behind the session and, for the write, the CSRF and same-origin checks in `api`; the
 //! body is bounded before it is read. A save is validated by the core, compared with the revision

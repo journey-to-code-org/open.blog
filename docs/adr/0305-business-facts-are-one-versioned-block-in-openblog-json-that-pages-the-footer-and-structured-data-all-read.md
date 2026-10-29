@@ -1,4 +1,4 @@
-# ADR 0400: Business facts are one versioned block in openblog.json that pages, the footer and structured data all read
+# ADR 0305: Business facts are one versioned block in openblog.json that pages, the footer and structured data all read
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -18,7 +18,7 @@ door once owners write them into `openblog.json`, so the shape must be small, ve
 
 - **One object, `business`, in `openblog.json`**, owned by `openblog_core::business::BusinessConfig` and read
   by everything else. It is *settings*, not content: the same file and the same save route as the rest of the
-  configuration (ADR 0402), unlike the landing page, which is a document of its own.
+  configuration (ADR 0307), unlike the landing page, which is a document of its own.
 - **Versioned like `appearance`.** `version: 1` is the only version read or written. A newer one is refused
   with a message that says to update, and the file is not changed. Fields this release does not define are kept
   as written and written back, so a newer engine's settings survive an older one. Every field is optional; an
@@ -58,7 +58,7 @@ door once owners write them into `openblog.json`, so the shape must be small, ve
 
 - **A `business.json` or `content/business.md` beside the content.** Rejected: these are site-wide settings
   like `author`, `appearance` and `seo`, and the Settings save route already has revisions, validation and
-  key-order preservation (ADR 0402).
+  key-order preservation (ADR 0307).
 - **Free-text hours ("Mon to Fri 8 to 5").** Rejected: it cannot be formatted consistently or turned into
   `openingHoursSpecification`.
 - **Accepting formatted phones in the file.** Rejected: the file would hold several spellings of one number.
@@ -69,7 +69,7 @@ door once owners write them into `openblog.json`, so the shape must be small, ve
 
 ## Consequences
 
-- Rendering and structured data (ADR 0401) and the Settings panel (ADR 0402) read this value and never keep
+- Rendering and structured data (ADR 0306) and the Settings panel (ADR 0307) read this value and never keep
   their own copy.
 - Adding a field is an optional field in version 1; changing the meaning of one is version 2 with a
   documented upgrade.

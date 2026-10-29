@@ -2600,7 +2600,7 @@ The one `business` block in `openblog.json`: legal and display name, trade, phon
 weekday with closed days, license number and issuer, an insured flag, accepted kinds of payment and the founding
 year. Every page, the footer, the Landing page's Business facts section and the `LocalBusiness` structured data
 read it, so nothing contradicts itself. Unset means nothing changes; it never holds anything about customers
-(ADR 0400).
+(ADR 0305).
 _Avoid_: Company profile, contact details (they are one part)
 
 **Job**:

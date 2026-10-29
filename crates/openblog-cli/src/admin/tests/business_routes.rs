@@ -1,4 +1,4 @@
-//! Admin business facts routes (ADR 0402, #508): deny by default, CSRF, validation in plain words,
+//! Admin business facts routes (ADR 0307, #508): deny by default, CSRF, validation in plain words,
 //! stale writes, bounded bodies, and a write that changes only the `business` member of
 //! `openblog.json` without reordering anything else.
 

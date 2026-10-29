@@ -1,5 +1,5 @@
 //! The business facts a site states about itself, stored once under `business` in `openblog.json`
-//! (ADR 0400).
+//! (ADR 0305).
 //!
 //! The block is data, never markup: every field is a bounded line of text, a strict phone number,
 //! a strict clock time, a flag, or one choice from a closed list. Pages, the footer, the Landing

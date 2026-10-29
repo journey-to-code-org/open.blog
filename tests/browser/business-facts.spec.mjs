@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
-// The real Admin Business facts screen at 400px (ADR 0402): every control is reachable and at least 44px tall,
+// The real Admin Business facts screen at 400px (ADR 0307): every control is reachable and at least 44px tall,
 // the hours editor has no sideways scroll, problems are said beside the field, and a save changes only the
 // `business` member of openblog.json (every other key stays where it was) and reaches the built site.
 

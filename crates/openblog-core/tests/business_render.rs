@@ -1,4 +1,4 @@
-//! Business facts on the built site (ADR 0400, ADR 0401, #507).
+//! Business facts on the built site (ADR 0305, ADR 0306, #507).
 //!
 //! The invariant: a site that never states business facts builds exactly as it did before. When it
 //! does, one block appears identically on every page and the home page carries `LocalBusiness`

@@ -14014,7 +14014,7 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy || publishing;
   }
 
-  // ---- business facts (ADR 0402)
+  // ---- business facts (ADR 0307)
 
   /** `#/business`: the one place the business facts are edited; the footer, the home page and structured data all read them. */
   async showBusiness() {
