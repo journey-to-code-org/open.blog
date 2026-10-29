@@ -71,4 +71,5 @@ jobs:
       - name: Test the social queue SQL against Postgres
         env:
           OPENBLOG_TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/postgres
-        run: node --test tests/web/social-queue-sql.test.mjs
+        # One file at a time: each creates and removes the same tables in the one database.
+        run: node --test --test-concurrency=1 tests/web/social-queue-sql.test.mjs tests/web/social-history-sql.test.mjs tests/web/social-ops-sql.test.mjs

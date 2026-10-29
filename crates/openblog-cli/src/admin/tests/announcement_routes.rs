@@ -143,6 +143,7 @@ fn every_route_needs_a_session_and_every_write_a_csrf_token() {
         ("POST", "announcements/retry"),
         ("POST", "announcements/resolve"),
         ("GET", "announcements/attempts"),
+        ("GET", "announcements/health"),
     ];
     for (method, name) in routes {
         let path = format!("/admin/api/social/{name}");
@@ -833,4 +834,105 @@ fn recovery_routes_relay_only_what_they_check() {
     assert_eq!((s, b["code"].as_str()), (409, Some("needs-resolution")));
     assert_eq!(b["status"], "unknown");
     assert!(b.get("secret").is_none());
+}
+
+#[test]
+fn the_status_history_is_rebuilt_from_known_fields_only() {
+    let f = social_site("history");
+    let calls: Calls = StdMutex::new(Vec::new());
+    let hostile = fake(
+        &calls,
+        200,
+        json!({
+            "attempts": [],
+            "delivery": "retrying",
+            "timelineExact": "yes",
+            "timeline": [
+                {"at": "2026-11-01T12:00:00Z", "change": "created", "state": "pending", "attemptNo": 0, "code": null, "token": "li_secret"},
+                {"at": "2026-11-01T12:01:00Z", "change": "status", "state": "retrying", "attemptNo": 1, "code": "rate-limited", "scheduledFor": "2026-11-01T12:00:00Z"},
+                {"at": "<script>alert(1)</script>", "change": "status", "state": "failed"},
+                {"at": "2026-11-01T12:02:00Z", "change": "status", "state": "Bad State"},
+                {"at": "2026-11-01T12:03:00Z", "change": "note", "state": "unknown", "code": "Bearer abc def"}
+            ],
+        }),
+    );
+    let (s, b) = call(
+        &f,
+        &hostile,
+        "GET",
+        &format!("/admin/api/social/announcements/attempts?id={ANNOUNCEMENT}"),
+        None,
+    );
+    assert_eq!(s, 200);
+    assert_eq!(b["delivery"], "retrying");
+    assert_eq!(b["timelineExact"], false, "only a real true is exact");
+    let timeline = b["timeline"].as_array().unwrap();
+    assert_eq!(
+        timeline.len(),
+        3,
+        "events without a readable time or state are left out"
+    );
+    assert_eq!(timeline[1]["code"], "rate-limited");
+    assert_eq!(timeline[1]["attemptNo"], 1);
+    assert_eq!(
+        timeline[2]["code"],
+        Json::Null,
+        "a code that is not a short code is dropped"
+    );
+    let text = b.to_string();
+    for hidden in ["li_secret", "token", "<script>", "Bearer"] {
+        assert!(!text.contains(hidden), "{hidden}");
+    }
+}
+
+#[test]
+fn delivery_health_is_counts_and_alert_codes_only() {
+    let f = social_site("health");
+    let calls: Calls = StdMutex::new(Vec::new());
+    let hostile = fake(
+        &calls,
+        200,
+        json!({
+            "health": {
+                "installed": true, "overdue": 2, "needsReview": 1, "overdueMinutes": 15,
+                "waitingOnPause": 4, "waitingOnProvider": 1,
+                "alerts": ["backlog-overdue", "needs-review", "<b>x</b>", 7],
+                "oldestDueAt": "2026-11-01T12:00:00Z",
+                "caption": "SECRET caption", "accountName": "Ada", "due": -3,
+            },
+            "debug": "dropped",
+        }),
+    );
+    let (s, b) = call(
+        &f,
+        &hostile,
+        "GET",
+        "/admin/api/social/announcements/health",
+        None,
+    );
+    assert_eq!(s, 200);
+    assert_eq!(b["health"]["installed"], true);
+    assert_eq!(b["health"]["overdue"], 2);
+    assert_eq!(b["health"]["waitingOnPause"], 4);
+    assert_eq!(b["health"]["waitingOnProvider"], 1);
+    assert_eq!(
+        b["health"]["alerts"],
+        json!(["backlog-overdue", "needs-review"])
+    );
+    assert!(
+        b["health"].get("due").is_none(),
+        "a negative count is not a count"
+    );
+    assert!(b.get("debug").is_none());
+    let text = b.to_string();
+    for hidden in ["SECRET", "Ada", "<b>"] {
+        assert!(!text.contains(hidden), "{hidden}");
+    }
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded[0].0, "GET");
+    assert_eq!(recorded[0].1, "announcements/health");
+    assert!(
+        recorded[0].2.is_empty(),
+        "nothing from the browser is passed on"
+    );
 }

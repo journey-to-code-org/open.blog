@@ -8,7 +8,8 @@
 --   select * from public.openblog_social_posts order by scheduled_for;
 --   select * from public.openblog_social_attempts order by started_at;
 --
--- This drops only what social.sql and social-queue.sql added: the connection, credential, attempt,
+-- This drops only what social.sql, social-queue.sql, social-history.sql and social-ops.sql added (the history
+-- trigger and its event table too): the connection, credential, attempt,
 -- queue and account tables (their rows go with them) and the schema version
 -- table. It touches no comment, feedback, subscription or workspace table, and
 -- no post. Nothing already published to LinkedIn or Facebook is removed there.
@@ -20,7 +21,15 @@
 
 begin;
 
--- The delivery queue functions (social-queue.sql) return the queue table's row type, so they go first.
+-- Operations (social-ops.sql) and the history (social-history.sql) first, then the delivery queue
+-- functions (social-queue.sql), which return the queue table's row type, then the tables.
+drop function if exists public.openblog_social_prune(text, integer, integer);
+drop function if exists public.openblog_social_sweep(text, integer);
+drop function if exists public.openblog_social_health(text, integer, text[]);
+drop trigger if exists openblog_social_posts_history on public.openblog_social_posts;
+drop function if exists public.openblog_social_record_event();
+drop table if exists public.openblog_social_post_events;
+drop function if exists public.openblog_social_delivery_state(text, text);
 drop function if exists public.openblog_social_settle(text, uuid, integer, text, text, integer, text, text, text, timestamptz);
 drop function if exists public.openblog_social_mark_sending(text, uuid, integer);
 drop function if exists public.openblog_social_claim_due(text, text, integer, integer, integer, integer, text[]);

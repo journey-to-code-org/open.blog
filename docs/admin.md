@@ -1031,8 +1031,10 @@ and the provider adapters do the posting (see [social publishing](social-publish
 **Try again** asks first, then puts it back in the queue with a fresh allowance of attempts. A **Needs checking**
 announcement is one where the provider did not say whether the post went out. It is never sent again by itself: look
 at the LinkedIn or Facebook account, then choose **Check the result** and say it was posted (with the post id the
-provider shows) or was not (it then becomes Failed, and you can try it again). A **Scheduled** announcement that is
-waiting to try again says when. **What was tried** under each announcement lists every attempt with its result.
+provider shows) or was not (it then becomes Failed, and you can try it again). An announcement waiting to try again
+shows **Retrying** and says when; **Sending** means a worker holds it now. **History** under each announcement lists
+its status changes and every try with its result, in your time zone (see
+[status and history](social-publishing.md#status-and-history)).
 
 ## Running it for real
 

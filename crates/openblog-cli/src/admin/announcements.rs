@@ -154,6 +154,7 @@ pub(super) fn owns(name: &str) -> bool {
             | "announcements/retry"
             | "announcements/resolve"
             | "announcements/attempts"
+            | "announcements/health"
     )
 }
 
@@ -214,6 +215,14 @@ pub(super) fn route(
         ("POST", "announcements/retry") => retry(transport, user, req),
         ("POST", "announcements/resolve") => resolve(transport, user, req),
         ("GET", "announcements/attempts") => attempts(transport, user, req),
+        ("GET", "announcements/health") => relay(
+            transport,
+            user,
+            "GET",
+            "announcements/health",
+            Vec::new(),
+            None,
+        ),
         _ => Response::error(404, "Unknown API route"),
     }
 }
@@ -652,7 +661,8 @@ fn resolve(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     )
 }
 
-/// The attempts made for one announcement, as the hosted function reports them.
+/// The attempts made for one announcement and its status history (ADR 0323), as the hosted
+/// function reports them.
 fn attempts(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     let id = match announcement_id(req) {
         Ok(id) => id,
@@ -699,9 +709,23 @@ fn relay(
             "destinations",
             "replayed",
             "attempts",
+            "delivery",
+            "timeline",
+            "timelineExact",
+            "health",
         ] {
             if let Some(found) = value.get(name) {
-                kept.insert(name.to_string(), found.clone());
+                let found = match name {
+                    "timeline" => project_timeline(found),
+                    "health" => project_health(found),
+                    "delivery" => found
+                        .as_str()
+                        .filter(|s| plain_code(s))
+                        .map_or(Json::Null, |s| Json::String(s.to_string())),
+                    "timelineExact" => Json::Bool(found.as_bool() == Some(true)),
+                    _ => found.clone(),
+                };
+                kept.insert(name.to_string(), found);
             }
         }
         if kept.is_empty() {
@@ -748,6 +772,98 @@ fn relay(
             }),
         ),
     }
+}
+
+/// The status history rebuilt from known fields only (ADR 0323): a time, what changed, the delivery
+/// state, the attempt number and a short code. Anything else the function sends is dropped, and an
+/// event without a readable time, change or state is left out.
+fn project_timeline(value: &Json) -> Json {
+    let short = |value: &Json| {
+        value
+            .as_str()
+            .filter(|text| text.len() <= 40 && plain_message(text))
+            .map(|text| Json::String(text.to_string()))
+    };
+    let code = |value: &Json| {
+        value
+            .as_str()
+            .filter(|text| plain_code(text))
+            .map(|text| Json::String(text.to_string()))
+    };
+    let events = value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .take(200)
+                .filter_map(|item| {
+                    Some(json!({
+                        "at": short(item.get("at")?)?,
+                        "change": code(item.get("change")?)?,
+                        "state": code(item.get("state")?)?,
+                        "attemptNo": item.get("attemptNo").and_then(Json::as_u64).unwrap_or(0),
+                        "code": item.get("code").and_then(code).unwrap_or(Json::Null),
+                        "scheduledFor": item.get("scheduledFor").and_then(short).unwrap_or(Json::Null),
+                    }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Json::Array(events)
+}
+
+/// Delivery health rebuilt from known fields only (ADR 0324): whole-number counts, alert codes and
+/// one time. Anything else the function sends is dropped.
+fn project_health(value: &Json) -> Json {
+    const COUNTS: [&str; 14] = [
+        "overdueMinutes",
+        "due",
+        "overdue",
+        "processing",
+        "expiredLeases",
+        "retrying",
+        "unknownWaiting",
+        "needsReview",
+        "failedRecently",
+        "accountsNeedReconnect",
+        "accountsPaused",
+        "staleConnections",
+        "waitingOnPause",
+        "waitingOnProvider",
+    ];
+    let mut kept = Map::new();
+    kept.insert(
+        "installed".into(),
+        Json::Bool(value.get("installed").and_then(Json::as_bool) == Some(true)),
+    );
+    for name in COUNTS {
+        if let Some(count) = value.get(name).and_then(Json::as_u64) {
+            kept.insert(name.into(), json!(count));
+        }
+    }
+    let alerts: Vec<Json> = value
+        .get("alerts")
+        .and_then(Json::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Json::as_str)
+                .filter(|code| plain_code(code))
+                .take(20)
+                .map(|code| Json::String(code.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    kept.insert("alerts".into(), Json::Array(alerts));
+    let oldest = value
+        .get("oldestDueAt")
+        .and_then(Json::as_str)
+        .filter(|text| text.len() <= 40 && plain_message(text));
+    kept.insert(
+        "oldestDueAt".into(),
+        oldest.map_or(Json::Null, |text| Json::String(text.to_string())),
+    );
+    Json::Object(kept)
 }
 
 fn plain_code(code: &str) -> bool {

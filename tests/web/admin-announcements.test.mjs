@@ -7,17 +7,22 @@ import test from "node:test";
 
 import {
   CAPTION_LIMIT,
+  DELIVERY_BADGES,
   STATUS_BADGES,
   captionCount,
   createAnnouncementsPanel,
+  deliveryOf,
   destinationLabel,
   errorText,
+  eventText,
   fieldForCode,
   formatWhen,
+  healthLines,
   instantToLocalInput,
   localToInstant,
   lockedReason,
   newKey,
+  nextStepText,
   problemWords,
   REFRESH_CODES,
 } from "../../web/admin/announcements.js";
@@ -131,7 +136,7 @@ const row = (over = {}) => ({
   ...over,
 });
 
-function fakeAdmin({ queue = [row()], fail = {} } = {}) {
+function fakeAdmin({ queue = [row()], fail = {}, history = {}, health } = {}) {
   const calls = [];
   let current = queue;
   const api = {
@@ -174,8 +179,12 @@ function fakeAdmin({ queue = [row()], fail = {} } = {}) {
         current = [made];
         return { announcement: made };
       }
+      if (route === "GET social/announcements/health" && health) {
+        if (health instanceof Error) throw health;
+        return { health };
+      }
       if (route === "GET social/announcements/attempts") {
-        return { attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
+        return { ...history, attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
       }
       throw new Error(`unexpected ${route}`);
     },
@@ -534,7 +543,7 @@ test("a refusal that the queue moved on refreshes the list and says so", withDom
 test("the history of tries loads when asked and reads in words", withDom(async () => {
   const { root, api } = await open({ queue: [failedRow()] });
   const details = byData(root, "data-history")[0];
-  assert.match(text(all(details, "summary")[0]), /What was tried \(3\)/);
+  assert.match(text(all(details, "summary")[0]), /History \(3 tries\)/);
   assert.equal(api.calls.some((call) => call.path.startsWith("social/announcements/attempts")), false, "not loaded until opened");
   details.open = true;
   await details.dispatch("toggle");
@@ -543,12 +552,101 @@ test("the history of tries loads when asked and reads in words", withDom(async (
   assert.equal(items.length, 2);
   assert.match(text(items[0]), /Try 1,.*not posted \(HTTP 503\)\. The provider could not take it just now\./);
   assert.match(text(items[1]), /Try 2,.*in progress/);
+  assert.equal(byData(details, "data-timeline").length, 0, "no timeline from an older server, and nothing invented");
   assert.equal(api.calls.filter((call) => call.path.startsWith("social/announcements/attempts")).length, 1);
   assert.equal(api.calls.find((call) => call.path.startsWith("social/announcements/attempts")).path, "social/announcements/attempts?id=a-5");
 }));
+
+test("the status history reads in words, in the author's zone, and says when it was rebuilt", withDom(async () => {
+  const timeline = [
+    { at: "2026-11-01T12:00:00Z", change: "created", state: "pending", attemptNo: 0, code: null, scheduledFor: null },
+    { at: "2026-11-01T12:01:00Z", change: "rescheduled", state: "pending", attemptNo: 0, code: null, scheduledFor: "2026-11-02T09:00:00Z" },
+    { at: "2026-11-02T09:00:05Z", change: "status", state: "processing", attemptNo: 1, code: null, scheduledFor: null },
+    { at: "2026-11-02T09:00:09Z", change: "status", state: "retrying", attemptNo: 1, code: "rate-limited", scheduledFor: null },
+    { at: "2026-11-02T09:10:00Z", change: "status", state: "failed", attemptNo: 2, code: "<img src=x onerror=alert(1)>", scheduledFor: null },
+  ];
+  for (const exact of [true, false]) {
+    const { root } = await open({ queue: [failedRow()], history: { timeline, timelineExact: exact } });
+    const details = byData(root, "data-history")[0];
+    details.open = true;
+    await details.dispatch("toggle");
+    await flush();
+    const events = all(byData(details, "data-timeline")[0], "li");
+    assert.equal(events.length, 5);
+    assert.match(text(events[0]), /Scheduled$/);
+    assert.match(text(events[1]), /time changed, now /);
+    assert.match(text(events[2]), /Sending, try 1/);
+    assert.match(text(events[3]), /Retrying, try 1\. The provider asked us to slow down\./);
+    assert.match(text(events[4]), /Failed, try 2\. <img src=x onerror=alert\(1\)>/, "a code is only ever text");
+    assert.equal(all(details, "img").length, 0);
+    assert.equal(byData(details, "data-timeline-rebuilt").length, exact ? 0 : 1);
+  }
+}));
+
+test("each delivery state has a word and a shape, and the waiting ones say what happens next", () => {
+  for (const state of ["pending", "processing", "retrying", "published", "failed", "unknown", "canceled"]) {
+    assert.ok(DELIVERY_BADGES[state].text && DELIVERY_BADGES[state].symbol, state);
+  }
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: null }), "pending");
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: "deferred" }), "pending");
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: "rate-limited" }), "retrying");
+  assert.equal(deliveryOf({ status: "claimed" }), "processing");
+  assert.equal(deliveryOf({ status: "scheduled", delivery: "retrying" }), "retrying", "the server's word wins");
+  assert.equal(deliveryOf({ status: "scheduled", delivery: "__proto__" }), "pending", "an unknown word is not trusted");
+  assert.equal(deliveryOf({ status: "bogus" }), "unknown");
+  assert.match(nextStepText("retrying"), /tried again by itself/);
+  assert.match(nextStepText("processing"), /being sent now/);
+  assert.equal(nextStepText("pending"), "");
+  assert.match(eventText({ at: "2026-11-01T12:00:00Z", change: "baseline", state: "unknown" }, NY), /Needs checking, history starts here/);
+});
 
 test("a scheduled announcement waiting to try again says when", withDom(async () => {
   const { root } = await open({ queue: [row({ attemptCount: 1, nextAttemptAt: "2099-01-01T15:05:00Z", lastErrorCode: "provider-unavailable" })] });
   assert.match(text(byData(root, "data-row-next")[0]), /Will try again/);
   assert.match(text(byData(root, "data-row-error")[0]), /could not take it just now/);
+  assert.equal(byData(root, "data-delivery")[0].getAttribute("data-delivery"), "retrying");
+  assert.match(text(byData(root, "data-status-badge")[0]), /Retrying/);
+  assert.match(text(byData(root, "data-row-next-step")[0]), /tried again by itself/);
+}));
+
+test("delivery health reads as sentences, most urgent first, and ignores codes it does not know", () => {
+  const lines = healthLines({ installed: true, overdueMinutes: 15, overdue: 2, needsReview: 1, accountsNeedReconnect: 1, alerts: ["backlog-overdue", "accounts-need-reconnect", "needs-review", "made-up"] });
+  assert.deepEqual(lines.map((line) => line.code), ["backlog-overdue", "accounts-need-reconnect", "needs-review"]);
+  assert.match(lines[0].text, /^2 announcements are more than 15 minutes late\. The delivery worker may not be running/);
+  assert.match(lines[1].text, /^1 account needs to be connected again before it can post/);
+  assert.match(lines[2].text, /^1 announcement needs you to check whether it was posted/);
+  const unset = healthLines({ installed: true, waitingOnProvider: 2, alerts: ["provider-not-configured"] });
+  assert.match(unset[0].text, /^2 announcements wait for a provider this site has not set up for posting\. Add its settings and redeploy, or cancel them\./);
+  assert.deepEqual(healthLines({ installed: false, alerts: ["backlog-overdue"] }), []);
+  assert.deepEqual(healthLines(null), []);
+});
+
+test("the Social screen shows delivery health beside the queue, and stays out of the way when it cannot", withDom(async () => {
+  const healthy = await open({ health: { installed: true, overdueMinutes: 15, alerts: [] } });
+  await flush();
+  const box = byData(healthy.root, "data-social-health")[0];
+  assert.equal(box.hidden, false);
+  assert.match(text(box), /Delivery health.*Nothing is late, stuck or waiting for you\./);
+
+  const late = await open({ health: { installed: true, overdueMinutes: 30, overdue: 3, alerts: ["backlog-overdue", "<script>"] } });
+  await flush();
+  const alerts = byData(late.root, "data-health-alert");
+  assert.equal(alerts.length, 1);
+  assert.match(text(alerts[0]), /3 announcements are more than 30 minutes late/);
+
+  const off = await open({ health: { installed: false, alerts: [] } });
+  await flush();
+  assert.match(text(byData(off.root, "data-health-off")[0]), /supabase\/social-ops\.sql/);
+
+  const broken = await open({ health: new ApiError("x", 502, { error: "down", code: "hosted-failed" }) });
+  await flush();
+  assert.equal(byData(broken.root, "data-social-health")[0].hidden, true, "a health failure never blocks the screen");
+  assert.ok(byData(broken.root, "data-announcement").length > 0);
+}));
+
+test("captions, paths and codes from the queue are only ever text (no markup is built from data)", withDom(async () => {
+  const hostile = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+  const { root } = await open({ queue: [row({ caption: hostile, work: '/posts/"><svg onload=alert(3)>/', lastErrorCode: "<b>x</b>", status: "failed", editable: false, retryable: true, attemptCount: 1 })] });
+  assert.equal(all(root, "img").length + all(root, "script").length + all(root, "svg").length + all(root, "b").length, 0);
+  assert.ok(text(byData(root, "data-row-caption")[0]).includes(hostile));
 }));

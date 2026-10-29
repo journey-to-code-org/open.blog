@@ -108,6 +108,81 @@ export const STATUS_BADGES = Object.freeze({
   unknown: { symbol: "?", text: "Needs checking" },
 });
 
+/**
+ * The author's seven delivery states (ADR 0323), as a word and a shape. A scheduled announcement
+ * that has never gone wrong is "Scheduled"; one waiting to be tried again is "Retrying".
+ */
+export const DELIVERY_BADGES = Object.freeze({
+  pending: { symbol: "◷", text: "Scheduled" },
+  processing: { symbol: "…", text: "Sending" },
+  retrying: { symbol: "↻", text: "Retrying" },
+  published: { symbol: "✓", text: "Published" },
+  failed: { symbol: "✕", text: "Failed" },
+  unknown: { symbol: "?", text: "Needs checking" },
+  canceled: { symbol: "⊘", text: "Canceled" },
+});
+
+/**
+ * The delivery state of an announcement: the server's, or the same rule applied here to an older
+ * server's reply (netlify/lib/social-status.mjs).
+ */
+export function deliveryOf(item) {
+  if (Object.hasOwn(DELIVERY_BADGES, item?.delivery || "")) return item.delivery;
+  if (item?.status === "scheduled") return !item.lastErrorCode || item.lastErrorCode === "deferred" ? "pending" : "retrying";
+  if (item?.status === "claimed") return "processing";
+  return Object.hasOwn(DELIVERY_BADGES, item?.status || "") ? item.status : "unknown";
+}
+
+/** What happens next, for the states where nothing is asked of the author. */
+const NEXT_STEP = Object.freeze({
+  processing: "It is being sent now. Reload in a minute to see how it went.",
+  retrying: "Nothing to do: it is tried again by itself. You can still edit or cancel it.",
+});
+export const nextStepText = (state) => NEXT_STEP[state] || "";
+
+const CHANGE_WORDS = Object.freeze({
+  baseline: "history starts here",
+  created: "",
+  status: "",
+  rescheduled: "time changed",
+  edited: "caption changed",
+  note: "new problem noted",
+});
+
+/** One status history event in words, with its time in the author's zone. */
+export function eventText(event, zone) {
+  const badge = DELIVERY_BADGES[event?.state] || { text: "Unknown state" };
+  const parts = [`${formatWhen(event?.at, zone)}: ${badge.text}`];
+  const change = CHANGE_WORDS[event?.change] || "";
+  if (change) parts.push(change);
+  if (event?.attemptNo > 0 && event.change === "status") parts.push(`try ${event.attemptNo}`);
+  if (event?.change === "rescheduled" && event.scheduledFor) parts.push(`now ${formatWhen(event.scheduledFor, zone)}`);
+  let line = parts.join(", ");
+  if (event?.code) line += `. ${problemWords(event.code) || event.code}`;
+  return line;
+}
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Delivery health (ADR 0324) in sentences, most urgent first. Only counts and fixed alert codes
+ * come from the server; an alert this screen does not know is not shown.
+ */
+export function healthLines(health) {
+  if (!health || health.installed !== true) return [];
+  const n = (name) => (Number.isSafeInteger(health[name]) && health[name] > 0 ? health[name] : 0);
+  const lines = {
+    "backlog-overdue": () => `${plural(n("overdue"), "announcement is", "announcements are")} more than ${plural(health.overdueMinutes || 15, "minute", "minutes")} late. The delivery worker may not be running: check its schedule and its log.`,
+    "expired-leases": () => `${plural(n("expiredLeases"), "delivery", "deliveries")} stopped before finishing. The next run picks them up; nothing is sent twice.`,
+    "provider-not-configured": () => `${plural(n("waitingOnProvider"), "announcement waits", "announcements wait")} for a provider this site has not set up for posting. Add its settings and redeploy, or cancel ${n("waitingOnProvider") === 1 ? "it" : "them"}.`,
+    "accounts-need-reconnect": () => `${plural(n("accountsNeedReconnect"), "account needs", "accounts need")} to be connected again before ${n("accountsNeedReconnect") === 1 ? "it" : "they"} can post.`,
+    "needs-review": () => `${plural(n("needsReview"), "announcement needs", "announcements need")} you to check whether ${n("needsReview") === 1 ? "it was" : "they were"} posted.`,
+    "failed-recently": () => `${plural(n("failedRecently"), "announcement", "announcements")} failed in the last day.`,
+    "stale-connections": () => `${plural(n("staleConnections"), "unfinished account connection", "unfinished account connections")} expired and will be cleaned up.`,
+  };
+  return (Array.isArray(health.alerts) ? health.alerts : []).filter((code) => Object.hasOwn(lines, code)).map((code) => ({ code, text: lines[code]() }));
+}
+
 const WHY_LOCKED = Object.freeze({
   claimed: "A sender has picked this up, so it can no longer be changed.",
   published: "This was posted, so it can no longer be changed.",
@@ -135,6 +210,8 @@ const PROBLEM_WORDS = Object.freeze({
   "reviewed-not-posted": "You checked and it was not posted.",
   "needs-review": "It could not be checked automatically. Look at the account.",
   "credential-error": "The saved sign-in could not be used.",
+  "account-disconnected": "Its account was disconnected, so it was canceled.",
+  deferred: "The sender ran out of time and gave it back unused.",
 });
 
 export const problemWords = (code) => PROBLEM_WORDS[code] || "";
@@ -438,7 +515,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
   const filterSelect = el(
     "select",
     { id: `${ids}-filter`, "aria-describedby": `${ids}-filter-hint` },
-    [["", "All announcements"], ["scheduled", "Scheduled"], ["published", "Published"], ["failed", "Failed"], ["unknown", "Needs checking"], ["canceled", "Canceled"]].map(([value, text]) => el("option", { value }, text)),
+    [["", "All announcements"], ["scheduled", "Scheduled or retrying"], ["published", "Published"], ["failed", "Failed"], ["unknown", "Needs checking"], ["canceled", "Canceled"]].map(([value, text]) => el("option", { value }, text)),
   );
   filterSelect.addEventListener("change", () => {
     filter = filterSelect.value;
@@ -446,22 +523,24 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
   });
 
   function rowNode(item) {
-    const badge = STATUS_BADGES[item.status] || { symbol: "?", text: item.status };
+    const state = deliveryOf(item);
+    const badge = DELIVERY_BADGES[state];
     const heading = nextId(`${ids}-row`);
     const meta = el("p", { class: "oba-small oba-announce-meta" }, `${formatWhen(item.scheduledFor, zone)} - ${destinationLabel(item.destination)}`);
     const row = el(
       "li",
-      { class: "oba-announce-row", "data-announcement": item.id, "data-status": item.status, "aria-labelledby": heading },
+      { class: "oba-announce-row", "data-announcement": item.id, "data-status": item.status, "data-delivery": state, "aria-labelledby": heading },
       el(
         "div",
         { class: "oba-announce-row-head" },
         el("strong", { id: heading, class: "oba-announce-row-title" }, el("a", { href: item.canonicalUrl, target: "_blank", rel: "noopener" }, item.work)),
-        el("span", { class: `oba-announce-badge oba-announce-badge-${item.status}`, "data-status-badge": item.status }, el("span", { "aria-hidden": "true" }, `${badge.symbol} `), badge.text),
+        el("span", { class: `oba-announce-badge oba-announce-badge-${item.status}`, "data-status-badge": state }, el("span", { "aria-hidden": "true" }, `${badge.symbol} `), badge.text),
       ),
       meta,
       el("p", { class: "oba-announce-caption", "data-row-caption": "true" }, item.caption),
       item.lastErrorCode ? el("p", { class: "oba-small oba-announce-error-code", "data-row-error": "true" }, `Last problem: ${problemWords(item.lastErrorCode) || item.lastErrorCode} (${item.lastErrorCode})`) : null,
       item.status === "scheduled" && item.nextAttemptAt ? el("p", { class: "oba-small oba-announce-next", "data-row-next": "true" }, `Will try again ${formatWhen(item.nextAttemptAt, zone)}.`) : null,
+      nextStepText(state) ? el("p", { class: "oba-small oba-announce-next-step", "data-row-next-step": state }, nextStepText(state)) : null,
     );
     const actions = el("div", { class: "oba-landing-actions oba-announce-row-actions" });
     if (item.editable) {
@@ -476,7 +555,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
       row.append(el("p", { class: "oba-small oba-announce-locked", "data-row-locked": "true" }, lockedReason(item.status)));
       if (item.retryable || item.resolvable) row.append(recoveryNode(item));
     }
-    if (item.attemptCount > 0) row.append(historyNode(item));
+    row.append(historyNode(item));
     return row;
   }
 
@@ -547,10 +626,11 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     return box;
   }
 
-  // ---- history: what was tried, loaded when the author asks
+  // ---- history: the status timeline and what was tried, loaded when the author asks (ADR 0323)
   function historyNode(item) {
     const body = el("div", { class: "oba-announce-history-body" });
-    const details = el("details", { class: "oba-announce-history", "data-history": item.id }, el("summary", {}, `What was tried (${item.attemptCount})`), body);
+    const tries = item.attemptCount > 0 ? ` (${item.attemptCount} ${item.attemptCount === 1 ? "try" : "tries"})` : "";
+    const details = el("details", { class: "oba-announce-history", "data-history": item.id }, el("summary", {}, `History${tries}`), body);
     let loaded = false;
     details.addEventListener("toggle", async () => {
       if (!details.open || loaded) return;
@@ -558,13 +638,29 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
       body.replaceChildren(el("p", { class: "oba-small" }, "Loading…"));
       try {
         const answer = await api.call("GET", `social/announcements/attempts?id=${encodeURIComponent(item.id)}`);
-        const tries = Array.isArray(answer.attempts) ? answer.attempts : [];
-        body.replaceChildren(
-          tries.length
+        const attempts = Array.isArray(answer.attempts) ? answer.attempts : [];
+        const timeline = Array.isArray(answer.timeline) ? answer.timeline : [];
+        const parts = [];
+        if (timeline.length) {
+          parts.push(
+            el("h3", { class: "oba-announce-history-title" }, "Status"),
+            el(
+              "ol",
+              { class: "oba-announce-timeline", "aria-label": `Status history of ${item.work}`, "data-timeline": item.id },
+              timeline.map((event) => el("li", { "data-event": String(event.state) }, eventText(event, zone))),
+            ),
+          );
+          if (answer.timelineExact !== true) {
+            parts.push(el("p", { class: "oba-small", "data-timeline-rebuilt": "true" }, "This history was rebuilt from the tries, so edits and checks made by hand may be missing."));
+          }
+        }
+        parts.push(el("h3", { class: "oba-announce-history-title" }, "Tries"));
+        parts.push(
+          attempts.length
             ? el(
                 "ol",
                 { class: "oba-announce-attempts", "aria-label": `Attempts for ${item.work}` },
-                tries.map((attempt) =>
+                attempts.map((attempt) =>
                   el(
                     "li",
                     { "data-attempt": String(attempt.attemptNo) },
@@ -574,6 +670,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
               )
             : el("p", { class: "oba-small" }, "Nothing has been tried yet."),
         );
+        body.replaceChildren(...parts);
       } catch (error) {
         loaded = false;
         body.replaceChildren(el("p", { class: "oba-field-error", role: "alert" }, errorText(error)));
@@ -691,6 +788,35 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     }
   }
 
+  // ---- delivery health: loaded beside the list, never in its way
+  const healthBox = el("section", { class: "oba-announce-health", "aria-labelledby": `${ids}-health-title`, "data-social-health": "true", hidden: true });
+  async function loadHealth() {
+    let health;
+    try {
+      health = (await api.call("GET", "social/announcements/health"))?.health;
+    } catch {
+      healthBox.hidden = true;
+      return;
+    }
+    if (!health) {
+      healthBox.hidden = true;
+      return;
+    }
+    const title = el("h2", { id: `${ids}-health-title` }, "Delivery health");
+    if (health.installed !== true) {
+      healthBox.replaceChildren(title, el("p", { class: "oba-small", "data-health-off": "true" }, "Queue health is not available. Run supabase/social-ops.sql to see how late the queue is and what waits for you."));
+    } else {
+      const lines = healthLines(health);
+      healthBox.replaceChildren(
+        title,
+        lines.length
+          ? el("ul", { class: "oba-announce-health-alerts", "aria-label": "Delivery alerts" }, lines.map((line) => el("li", { "data-health-alert": line.code }, line.text)))
+          : el("p", { class: "oba-small", "data-health-ok": "true" }, "Nothing is late, stuck or waiting for you."),
+      );
+    }
+    healthBox.hidden = false;
+  }
+
   function renderList() {
     list.replaceChildren(
       announcements.length
@@ -726,6 +852,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     updateCount();
     renderPreview(null);
     renderList();
+    loadHealth();
     if (!destinations.length) {
       status.textContent = "No account is connected yet, so there is nowhere to post. Connect a LinkedIn profile or Facebook Page first.";
     }
@@ -737,6 +864,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     status,
     loadError,
     form,
+    healthBox,
     el(
       "section",
       { class: "oba-announce-queue", "aria-labelledby": `${ids}-queue-title` },

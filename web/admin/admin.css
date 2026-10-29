@@ -6662,7 +6662,8 @@ ob-voice-library {
   min-height: 44px;
 }
 
-.oba-announce-next {
+.oba-announce-next,
+.oba-announce-next-step {
   margin: 0;
 }
 
@@ -6673,6 +6674,18 @@ ob-voice-library {
   cursor: pointer;
 }
 
+.oba-announce-health-alerts {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-announce-history-title {
+  margin: 0.5rem 0 0;
+  font-size: 1rem;
+}
+
+.oba-announce-timeline,
 .oba-announce-attempts {
   margin: 0.25rem 0 0;
   padding-left: 1.25rem;
