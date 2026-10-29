@@ -16,7 +16,7 @@ use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
 use openblog_core::distribution::{
     self, Approvals, DestinationInput, DistributionPlan, Intent, PlanSource, PreviewFormat,
-    Problem, Status,
+    Problem, RequestField, Status,
 };
 use openblog_core::frontmatter;
 use openblog_core::model::SeriesContext;
@@ -600,12 +600,52 @@ fn destination_preview(
             format,
             intent,
             content,
+            fields: request_fields(target.provider, post),
             request,
             blocking,
             instruction,
         },
         &post.canonical_url,
     )
+}
+
+/// Every value the destination's request carries besides its content and canonical address,
+/// under the request's own field names, so the preview shows and its digest binds all of it
+/// (ADR 0724). Each must match what the request builder below sends; a test holds them together.
+fn request_fields(provider: SyndicationProvider, post: &SyndicationPost) -> Vec<RequestField> {
+    let tags = || {
+        RequestField::list(
+            "tags",
+            &destination_tag_plan(provider, &post.source_path, &post.tags).tags,
+        )
+    };
+    let title = RequestField::one("title", &post.title);
+    let slug = RequestField::one("slug", &post.slug);
+    match provider {
+        SyndicationProvider::Dev => vec![
+            title,
+            RequestField::one("description", &post.description),
+            tags(),
+        ],
+        SyndicationProvider::Hashnode => vec![
+            title,
+            RequestField::one(
+                "subtitle",
+                post.subtitle.as_deref().unwrap_or(&post.description),
+            ),
+            slug,
+            tags(),
+        ],
+        SyndicationProvider::Ghost => vec![
+            title,
+            slug,
+            RequestField::one("custom_excerpt", &post.description),
+        ],
+        SyndicationProvider::Wordpress => {
+            vec![title, RequestField::one("excerpt", &post.description), slug]
+        }
+        SyndicationProvider::Medium => Vec::new(),
+    }
 }
 
 fn distribution_plan(
@@ -2059,6 +2099,88 @@ mod tests {
             portable_diagnostics: Vec::new(),
             content_plans: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_previewed_request_fields_are_exactly_what_each_request_sends() {
+        let mut post = post_fixture();
+        post.tags = vec!["Rust".into(), "webdev".into()];
+        let ghost_key = "abc:00112233445566778899aabbccddeeff";
+        for subtitle in [None, Some("S".to_string())] {
+            post.subtitle = subtitle;
+            let bodies = [
+                (
+                    SyndicationProvider::Dev,
+                    dev_request(&post, None, false, "t").unwrap().body["article"].clone(),
+                ),
+                (
+                    SyndicationProvider::Hashnode,
+                    hashnode_request("publication", &post, None, false, "t")
+                        .unwrap()
+                        .body["variables"]["input"]
+                        .clone(),
+                ),
+                (
+                    SyndicationProvider::Ghost,
+                    ghost_request("https://ghost.example", &post, None, false, ghost_key)
+                        .unwrap()
+                        .body["posts"][0]
+                        .clone(),
+                ),
+                (
+                    SyndicationProvider::Wordpress,
+                    wordpress_request(
+                        "https://wp.example/wp-json/wp/v2",
+                        "",
+                        &post,
+                        None,
+                        false,
+                        "t",
+                    )
+                    .unwrap()
+                    .body,
+                ),
+            ];
+            for (provider, body) in bodies {
+                let fields = request_fields(provider, &post);
+                let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+                // Every author-controlled key the body carries is previewed, apart from the
+                // content, the canonical address and the publish state, which the digest binds.
+                let ignored = [
+                    "body_markdown",
+                    "contentMarkdown",
+                    "html",
+                    "content",
+                    "canonical_url",
+                    "originalArticleURL",
+                    "published",
+                    "status",
+                    "publicationId",
+                ];
+                for key in body.as_object().unwrap().keys() {
+                    assert!(
+                        ignored.contains(&key.as_str()) || names.contains(&key.as_str()),
+                        "{provider:?} sends `{key}` without previewing it"
+                    );
+                }
+                for field in fields {
+                    let sent = &body[field.name.as_str()];
+                    let expected: Vec<String> = match sent {
+                        Json::String(text) if field.name == "tags" => {
+                            text.split(',').map(str::to_string).collect()
+                        }
+                        Json::String(text) => vec![text.clone()],
+                        Json::Array(items) => items
+                            .iter()
+                            .map(|item| item["name"].as_str().unwrap().to_string())
+                            .collect(),
+                        other => panic!("{provider:?} `{}` is {other}", field.name),
+                    };
+                    assert_eq!(field.values, expected, "{provider:?} `{}`", field.name);
+                }
+            }
+        }
+        assert!(request_fields(SyndicationProvider::Medium, &post).is_empty());
     }
 
     #[test]
@@ -3532,6 +3654,68 @@ const attribute = 'href="/script"';
         let damaged = run_with_transport(&root, "post", write, &NoNetwork).unwrap_err();
         assert!(damaged.contains("[invalid-approvals]"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_approval_does_not_cover_tags_or_a_description_edited_after_it() {
+        for edited in [
+            "tags: [go]\n",
+            "tags: [rust]\ndescription: A summary the author never previewed.\n",
+        ] {
+            let root = distribution_site(
+                r#"{"url":"https://blog.openblog.dev","syndication":{"requireApproval":true,
+                    "targets":{"dev":{"provider":"dev"}}}}"#,
+            );
+            let out = root.join("preview");
+            run_with_transport(
+                &root,
+                "post",
+                Options {
+                    preview: Some(out.display().to_string()),
+                    ..Options::default()
+                },
+                &NoNetwork,
+            )
+            .unwrap();
+            let plan = read_plan(&out);
+            // The preview shows the fields the write sends, not only the body.
+            assert_eq!(
+                plan["destinations"][0]["fields"][2],
+                json!({"name": "tags", "values": ["rust"]})
+            );
+            let page = fs::read_to_string(out.join("index.html")).unwrap();
+            assert!(page.contains("Everything else the request to dev carries"));
+            run_with_transport(
+                &root,
+                "post",
+                Options {
+                    approve: Some(plan["digest"].as_str().unwrap().into()),
+                    ..Options::default()
+                },
+                &NoNetwork,
+            )
+            .unwrap();
+            let write = Options {
+                write: true,
+                ..Options::default()
+            };
+            let passed = run_with_transport(&root, "post", write.clone(), &Offline).unwrap_err();
+            assert!(!passed.contains("approv"), "{passed}");
+
+            // Same title, body and canonical address; only the tags or the description change.
+            fs::write(
+                root.join("content/posts/post.md"),
+                format!("---\ntitle: Post <one>\nslug: post\ndate: 2020-01-01\nsyndicationId: durable-post\n{edited}---\n\nBody with <b>bold</b> text.\n"),
+            )
+            .unwrap();
+            let stale = run_with_transport(&root, "post", write, &NoNetwork).unwrap_err();
+            assert!(
+                stale.contains("What this destination would receive changed after the approval."),
+                "{stale}"
+            );
+            assert!(stale.ends_with("No request was sent."));
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

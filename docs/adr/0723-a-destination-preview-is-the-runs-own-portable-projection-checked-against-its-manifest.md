@@ -30,7 +30,10 @@ but neither says, per destination, "this is exactly what goes there, and this is
   payload finding). Its status is `ready` (no reason), `manual` (only manual capabilities: the guided workflow, with
   the step to take) or `blocked`.
 - **Digests bind what the author sees.** A destination digest (BLAKE2b, 128 bits, length-prefixed fields) covers the
-  target name, provider, format, intent, canonical address, capabilities and content. It leaves out the policy
+  target name, provider, format, intent, canonical address, capabilities, content and every other field the
+  request carries (title, description or excerpt, subtitle, slug, tags, each list item by item, under the request's
+  own field names), so an approval covers everything a write sends. The preview shows those fields beside the
+  content, and a test holds each provider's previewed fields to its request builder. It leaves out the policy
   version on purpose: whether a newer manifest keeps an approval is the compatibility policy's question (ADR 0722).
   The plan digest covers the source id, revision, canonical address, draft or publish, and each destination's name,
   digest and status.

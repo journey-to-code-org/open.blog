@@ -162,12 +162,39 @@ pub struct DestinationInput<'a> {
     pub intent: Intent,
     /// Exactly the content the adapter would send, or the author would import.
     pub content: &'a str,
+    /// Every other value the destination's request carries besides the content and the canonical
+    /// address, in the request's own field names: the title, tags, excerpt, slug and so on.
+    pub fields: Vec<RequestField>,
     /// What the run asks of the destination; its capabilities come from the intent.
     pub request: DistributionRequest,
     /// Reasons found outside the manifest, in the caller's order.
     pub blocking: Vec<Problem>,
     /// The step the author takes by hand, for a manual destination.
     pub instruction: Option<String>,
+}
+
+/// One value a destination's request carries besides its content, under the request's own field
+/// name. A list such as the tags keeps one entry per item, so two different lists never read alike.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RequestField {
+    pub name: String,
+    pub values: Vec<String>,
+}
+
+impl RequestField {
+    pub fn one(name: &str, value: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            values: vec![value.to_string()],
+        }
+    }
+
+    pub fn list(name: &str, values: &[String]) -> Self {
+        Self {
+            name: name.to_string(),
+            values: values.to_vec(),
+        }
+    }
 }
 
 /// One destination's preview: what it would receive and whether it can.
@@ -186,11 +213,12 @@ pub struct DestinationPreview {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instruction: Option<String>,
     pub bytes: usize,
-    /// Binds the name, provider, format, intent, canonical address, capabilities and content. The
-    /// policy version is left out on purpose: whether a newer manifest keeps an approval is the
+    /// Binds the name, provider, format, intent, canonical address, capabilities, content and
+    /// every other request field, so an approval covers everything a write sends. The policy version is left out on purpose: whether a newer manifest keeps an approval is the
     /// compatibility policy's question (ADR 0722), not a byte comparison.
     pub digest: String,
     pub content: String,
+    pub fields: Vec<RequestField>,
     pub manifest: ProviderManifest,
 }
 
@@ -214,7 +242,7 @@ pub fn preview_destination(input: DestinationInput<'_>, canonical_url: &str) -> 
     let capabilities: Vec<Capability> = input.request.capabilities.iter().copied().collect();
     let mut hasher = Blake2b512::new();
     for part in [
-        "openblog-distribution-preview/1",
+        "openblog-distribution-preview/2",
         input.name,
         manifest.provider.as_str(),
         input.format.as_str(),
@@ -227,6 +255,14 @@ pub fn preview_destination(input: DestinationInput<'_>, canonical_url: &str) -> 
         field(&mut hasher, capability.as_str());
     }
     field(&mut hasher, input.content);
+    field(&mut hasher, &input.fields.len().to_string());
+    for request_field in &input.fields {
+        field(&mut hasher, &request_field.name);
+        field(&mut hasher, &request_field.values.len().to_string());
+        for value in &request_field.values {
+            field(&mut hasher, value);
+        }
+    }
     DestinationPreview {
         name: input.name.to_string(),
         provider: manifest.provider,
@@ -241,6 +277,7 @@ pub fn preview_destination(input: DestinationInput<'_>, canonical_url: &str) -> 
         bytes: input.content.len(),
         digest: hex(hasher),
         content: input.content.to_string(),
+        fields: input.fields,
         manifest,
     }
 }
@@ -686,6 +723,38 @@ pub fn preview_page(plan: &DistributionPlan, files: &[String], approve_command: 
                 t(instruction)
             ));
         }
+        if !d.fields.is_empty() {
+            out.push_str(&format!(
+                "<table>
+<caption>Everything else the request to {} carries</caption>
+<thead><tr><th scope=\"col\">Field</th><th scope=\"col\">Value</th></tr></thead>
+<tbody>
+",
+                t(&d.name)
+            ));
+            for request_field in &d.fields {
+                let value = if request_field.values.iter().all(|v| v.is_empty()) {
+                    "<em>none</em>".to_string()
+                } else {
+                    request_field
+                        .values
+                        .iter()
+                        .map(|v| format!("<code>{}</code>", t(v)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                out.push_str(&format!(
+                    "<tr><th scope=\"row\"><code>{}</code></th><td>{value}</td></tr>
+",
+                    t(&request_field.name)
+                ));
+            }
+            out.push_str(
+                "</tbody>
+</table>
+",
+            );
+        }
         out.push_str(&format!(
             "<p>{} ({} bytes), checked under the {} provider policy of {}. Saved as <a href=\"{}\">{}</a>.</p>\n",
             d.format.describe(),
@@ -765,6 +834,10 @@ mod tests {
             format: PreviewFormat::PortableMarkdown,
             intent,
             content: "Body <b>",
+            fields: vec![
+                RequestField::one("description", "About <i>"),
+                RequestField::list("tags", &["rust".into(), "web".into()]),
+            ],
             request: DistributionRequest::new(intent.capabilities(false)),
             blocking: Vec::new(),
             instruction: None,
@@ -817,6 +890,16 @@ mod tests {
         assert_ne!(preview_destination(changed, url).digest, a.digest);
         let published = preview_destination(input("dev", ProviderId::Dev, Intent::Published), url);
         assert_ne!(published.digest, a.digest);
+        // Every request field is bound, and a list is bound item by item.
+        let mut described = input("dev", ProviderId::Dev, Intent::Draft);
+        described.fields[0] = RequestField::one("description", "Other");
+        assert_ne!(preview_destination(described, url).digest, a.digest);
+        let mut retagged = input("dev", ProviderId::Dev, Intent::Draft);
+        retagged.fields[1] = RequestField::list("tags", &["rust, web".into()]);
+        assert_ne!(preview_destination(retagged, url).digest, a.digest);
+        let mut untagged = input("dev", ProviderId::Dev, Intent::Draft);
+        untagged.fields.pop();
+        assert_ne!(preview_destination(untagged, url).digest, a.digest);
     }
 
     #[test]
@@ -841,6 +924,15 @@ mod tests {
         let changed = plan(vec![preview_destination(edited, url)]);
         assert_eq!(
             approval.covers(&changed, "dev"),
+            Err(ApprovalError::PreviewChanged)
+        );
+        // The same body under the same revision, with only the tags edited, is not covered.
+        let mut retagged = input("dev", ProviderId::Dev, Intent::Draft);
+        retagged.fields[1] = RequestField::list("tags", &["go".into()]);
+        let retagged = plan(vec![preview_destination(retagged, url)]);
+        assert_eq!(retagged.revision, p.revision);
+        assert_eq!(
+            approval.covers(&retagged, "dev"),
             Err(ApprovalError::PreviewChanged)
         );
         let mut revised = p.clone();
@@ -946,6 +1038,9 @@ mod tests {
         assert!(!page.contains("<script"));
         assert!(!page.contains("<b>") && page.contains("Body &lt;b&gt;"));
         assert!(page.contains("A &lt;title&gt;"));
+        assert!(page.contains("Everything else the request to dev carries"));
+        assert!(page.contains("<code>About &lt;i&gt;</code>"));
+        assert!(page.contains("<code>rust</code>, <code>web</code>"));
         assert_eq!(page.matches("<h1").count(), 1);
         assert!(page.contains("<caption>"));
         assert!(page.contains("Preview, not sent."));

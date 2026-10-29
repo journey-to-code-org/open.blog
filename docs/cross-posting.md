@@ -92,7 +92,9 @@ whether it is **ready** (open.blog can send it), **by hand** (Medium: you import
 yourself) or **blocked**, and why: a capability the destination's
 [provider manifest](provider-capabilities.md) does not cover, a missing endpoint, publishing not
 allowed for that target, or a blocking tag, content or request-size finding. A preview never
-replaces an existing folder and cannot be combined with `--write` or `--json`.
+replaces an existing folder and cannot be combined with `--write` or `--json`. Beside each copy the
+page lists everything else that destination's request carries (its title, description or excerpt,
+subtitle, slug and tags), and an approval covers those too.
 
 If no destination is configured or enabled, the preview still works: it holds your post's
 portable Markdown as `portable.md` to import anywhere by hand, and your site, feeds and builds
@@ -113,7 +115,7 @@ command. To make `--write` send only what you approved, opt in:
 
 Then a write refuses a target, before any credential or request, when there is no approval,
 the post or its canonical address changed, you switched between draft and publish, the target
-was not in the approved plan, its copy changed, or its provider policy changed in a breaking
+was not in the approved plan, its copy or any other field it sends (such as the tags) changed, or its provider policy changed in a breaking
 way. Preview and approve again. Approvals are private, kept in
 `.openblog/distribution-approvals.json` (`syndication.approvalFile`). With `requireApproval`
 off (the default), every existing command behaves exactly as before
