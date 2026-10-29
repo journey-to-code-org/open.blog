@@ -160,8 +160,11 @@ test("reconcile ignores a post made outside the attempt window", async () => {
   assert.deepEqual(earlier.value, { state: "absent", conclusive: true });
 });
 
-test("reconcile says absent conclusively only when the whole window came back", async () => {
-  assert.deepEqual((await look(listed([{ id: `${PAGE}_1`, message: "other" }]))).value, { state: "absent", conclusive: true });
+test("reconcile says absent conclusively only when the whole window came back empty of this Page's posts", async () => {
+  assert.deepEqual((await look(listed([]))).value, { state: "absent", conclusive: true });
+  // An edited caption on a rewritten link matches neither way, yet could still be the announcement.
+  assert.deepEqual((await look(listed([{ id: `${PAGE}_1`, message: "other" }]))).value, { state: "unknown" });
+  assert.deepEqual((await look(listed([pagePost(POST_ID, "Edited on Facebook", "https://blog.example.com/posts/hello/?fbclid=x")]))).value, { state: "unknown" });
   assert.deepEqual((await look(listed([], { next: "https://graph.facebook.com/next" }))).value, { state: "absent", conclusive: false });
 });
 

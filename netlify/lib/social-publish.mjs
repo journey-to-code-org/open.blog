@@ -229,7 +229,7 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
     // only when it is the one such post: two of them, or a post that matches by one of the two alone
     // (a hand-made share of the link, a caption edited on Facebook), is "unknown", because nothing
     // makes either unique to this announcement. "absent" is conclusive only when the whole window
-    // came back in one page of results and nothing in it came close. Any failure, a missing
+    // came back in one page of results holding no post of this Page at all. Any failure, a missing
     // permission included, is "unknown": the worker keeps looking, then asks a person.
     async reconcile({ post, account, accessToken, attemptedAt, finishedAt, signal } = {}) {
       try {
@@ -252,6 +252,7 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
         if (!body || !Array.isArray(body.data)) return { state: "unknown" };
         const found = [];
         let near = false;
+        let other = false;
         for (const item of body.data) {
           const id = item?.id;
           if (typeof id !== "string" || !FACEBOOK_POST_ID.test(id) || !id.startsWith(`${page}_`)) continue;
@@ -263,9 +264,13 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
           const byLink = links.includes(url);
           if (byCaption && byLink) found.push(id);
           else if (byCaption || byLink) near = true;
+          else other = true;
         }
         if (found.length === 1 && !near) return { state: "published", providerPostId: found[0] };
-        if (found.length || near) return { state: "unknown" };
+        // Any other post of this Page in the window could still be the announcement in a form that
+        // no longer compares exactly (an edited caption and a rewritten link), so it rules out
+        // "absent": a wrong "absent" lets a person post the announcement twice.
+        if (found.length || near || other) return { state: "unknown" };
         return { state: "absent", conclusive: !body.paging?.next };
       } catch {
         return { state: "unknown" };

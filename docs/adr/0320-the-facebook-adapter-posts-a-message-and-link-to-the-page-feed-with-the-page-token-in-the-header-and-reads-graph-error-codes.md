@@ -38,9 +38,10 @@ that would explain them, and its answer to a successful post is a JSON object wi
   links the canonical URL is a match. Exactly one match, and no post that matches by only one of the two, is
   `{ state: "published", providerPostId }`. Two matches, or a near match (a hand-made share of the same link, a
   sibling announcement of the same post, a caption edited on Facebook), is `{ state: "unknown" }`: neither a caption
-  nor a link is unique to one announcement, so the look ends with a person rather than a guess. When nothing comes
-  close it is `{ state: "absent", conclusive }`, conclusive only if Graph returned the whole window (no
-  `paging.next`); the worker still waits for its settle time before believing an absence (ADR 0318). If the id found
+  nor a link is unique to one announcement, so the look ends with a person rather than a guess. When the window holds
+  no post of the Page at all it is `{ state: "absent", conclusive }`, conclusive only if Graph returned the whole
+  window (no `paging.next`); any other post of the Page in the window is `{ state: "unknown" }`, because an edited
+  caption on a rewritten link matches neither way and a wrong absence lets a person post the announcement twice; the worker still waits for its settle time before believing an absence (ADR 0318). If the id found
   is already recorded on another announcement of the account (the unique index refuses it), the worker gives the
   announcement `needs-review` at once instead of looking again. Anything else (no start time, a missing `pages_read_engagement` grant, an error, an unreadable answer)
   is `{ state: "unknown" }`; it never throws and never posts.
