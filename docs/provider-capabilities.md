@@ -61,6 +61,12 @@ Checked on 2026-10-29 against the providers' own documentation:
 - Ghost, Hashnode and Medium: as verified for [cross-posting](cross-posting.md). Scheduling there was not
   re-verified, so it is listed as unsupported.
 
+## Seeing what each destination would receive
+
+`openblog syndicate <slug> --preview <new folder>` writes each destination's exact copy and an accessible page
+that checks it against these manifests, and `--approve` records your consent to exactly that plan. See
+[Preview and approve before sending](cross-posting.md#preview-and-approve-before-sending).
+
 ## When a provider changes
 
 A manifest change always raises its policy version. A change that only widens what an adapter does, loosens a limit

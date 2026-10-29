@@ -14,6 +14,10 @@ use html5ever::tendril::TendrilSink;
 use html5ever::{local_name, ns, QualName};
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
+use openblog_core::distribution::{
+    self, Approvals, DestinationInput, DistributionPlan, Intent, PlanSource, PreviewFormat,
+    Problem, Status,
+};
 use openblog_core::frontmatter;
 use openblog_core::model::SeriesContext;
 use openblog_core::portability::{
@@ -36,12 +40,17 @@ const MAX_RESPONSE_BYTES: u64 = 1_048_576;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const HASHNODE_ENDPOINT: &str = "https://gql-beta.hashnode.com";
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Options {
     pub target_names: Vec<String>,
     pub write: bool,
     pub publish: bool,
     pub json: bool,
+    /// Write the dry-run artifacts (the plan, each destination's copy and a preview page) into
+    /// this new folder, and send nothing (ADR 0723).
+    pub preview: Option<String>,
+    /// Approve the plan whose digest the author was shown, and send nothing (ADR 0724).
+    pub approve: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -280,6 +289,13 @@ fn run_with_transport(
     if options.json && options.write {
         return Err("--json is available for dry runs only; no request was sent".into());
     }
+    if (options.preview.is_some() || options.approve.is_some())
+        && (options.write
+            || options.json
+            || (options.preview.is_some() && options.approve.is_some()))
+    {
+        return Err("--preview and --approve each run alone and never send; omit --write and --json. No request was sent.".into());
+    }
     let config = site::load_config(root)?;
     let sources = site::read_sources(root, &config)?;
     let (mut loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
@@ -303,11 +319,33 @@ fn run_with_transport(
         loaded.curated_context_for(post),
     )?;
 
+    if options.preview.is_some() || options.approve.is_some() {
+        return distribute(root, slug, &config, &syndication_post, &options);
+    }
     let selected = select_targets(&config, &options.target_names)?;
     let state_path = private_state_path(root, &config.syndication.state_file)?;
     let mut state = State::load(&state_path)?;
     validate_source_identity(&state, &syndication_post)?;
     validate_plan(&selected, options.publish)?;
+    // Only an author who opted in waits for an approval; everyone else's runs are unchanged.
+    let approval_gate = if config.syndication.require_approval {
+        let plan = distribution_plan(&syndication_post, &selected, &state, options.publish);
+        Some((plan, load_approvals(root, &config)?))
+    } else {
+        None
+    };
+    if let (true, Some((plan, approvals))) = (options.write, &approval_gate) {
+        for (name, target) in &selected {
+            if matches!(provider_adapter(target), DestinationAdapter::Manual(_)) {
+                continue;
+            }
+            approval_for(approvals, plan, name).map_err(|error| {
+                format!(
+                    "target `{name}`: {error} Preview with `openblog syndicate {slug} --preview <new folder>` and approve it again. No request was sent."
+                )
+            })?;
+        }
+    }
     if options.write {
         for (name, target) in &selected {
             for plan in syndication_post
@@ -377,6 +415,12 @@ fn run_with_transport(
         );
         if let Some(warning) = adapter.warning() {
             println!("  warning: {warning}");
+        }
+        if let Some((plan, approvals)) = &approval_gate {
+            match approval_for(approvals, plan, name) {
+                Ok(()) => println!("  approval: this exact copy is approved"),
+                Err(error) => println!("  approval: not approved [{}] {error}", error.code()),
+            }
         }
         print_portable_plan(target.provider, &syndication_post);
         if target.provider == SyndicationProvider::Hashnode {
@@ -472,6 +516,311 @@ fn validate_plan(
         }
     }
     Ok(())
+}
+
+/// The configuration problem that keeps a target out of any run, if there is one: the sentence
+/// `validate_plan` would refuse the run with.
+fn target_problem(name: &str, target: &SyndicationTargetConfig, publish: bool) -> Option<String> {
+    validate_plan(&[(&name.to_string(), target)], publish).err()
+}
+
+/// One destination's preview, from the same projection, plans and manifest a run uses (ADR 0723).
+fn destination_preview(
+    name: &str,
+    target: &SyndicationTargetConfig,
+    post: &SyndicationPost,
+    state: &State,
+    publish: bool,
+) -> distribution::DestinationPreview {
+    let (format, content) = match destination_policy(target.provider).representation {
+        DestinationRepresentation::PortableMarkdown => {
+            (PreviewFormat::PortableMarkdown, post.markdown.as_str())
+        }
+        DestinationRepresentation::PortableHtml => {
+            (PreviewFormat::PortableHtml, post.html.as_str())
+        }
+        DestinationRepresentation::ManualMarkdown => {
+            (PreviewFormat::ManualMarkdown, post.markdown.as_str())
+        }
+    };
+    let instruction = match provider_adapter(target) {
+        DestinationAdapter::Manual(medium) => Some(medium.instruction(post)),
+        DestinationAdapter::Remote(_) => None,
+    };
+    let intent = if instruction.is_some() {
+        Intent::Manual
+    } else if publish && target.allow_publish {
+        Intent::Published
+    } else {
+        Intent::Draft
+    };
+    let content_plan = post
+        .content_plans
+        .iter()
+        .find(|plan| plan.policy.provider == target.provider);
+    let images = content_plan.is_some_and(|plan| !plan.images.is_empty());
+    let tag_plan = destination_tag_plan(target.provider, &post.source_path, &post.tags);
+    let mut request = DistributionRequest::new(intent.capabilities(images));
+    request.tags = tag_plan.tags.len();
+    request.longest_tag_chars = tag_plan
+        .tags
+        .iter()
+        .map(|tag| tag.chars().count())
+        .max()
+        .unwrap_or(0);
+    let mut blocking = Vec::new();
+    if let Some(problem) = target_problem(name, target, publish) {
+        blocking.push(Problem::blocking("target-not-ready", problem));
+    }
+    if let Some(Err(error)) = content_plan.map(|plan| plan.validate()) {
+        blocking.push(Problem::blocking("conversion-blocked", error));
+    }
+    if let Err(error) = tag_plan.validate() {
+        blocking.push(Problem::blocking("conversion-blocked", error));
+    }
+    if target.provider == SyndicationProvider::Hashnode {
+        match hashnode_payload_plan(
+            &target.publication_id,
+            post,
+            state.record(&post.source_id, name),
+        ) {
+            Ok(plan) => {
+                request.body_bytes = Some(plan.body_bytes);
+                if let Err(error) = plan.validate() {
+                    blocking.push(Problem::blocking("conversion-blocked", error));
+                }
+            }
+            Err(error) => blocking.push(Problem::blocking("conversion-blocked", error)),
+        }
+    }
+    distribution::preview_destination(
+        DestinationInput {
+            name,
+            manifest: builtin_manifest(target.provider.into()),
+            format,
+            intent,
+            content,
+            request,
+            blocking,
+            instruction,
+        },
+        &post.canonical_url,
+    )
+}
+
+fn distribution_plan(
+    post: &SyndicationPost,
+    selected: &[(&String, &SyndicationTargetConfig)],
+    state: &State,
+    publish: bool,
+) -> DistributionPlan {
+    let destinations = selected
+        .iter()
+        .map(|(name, target)| destination_preview(name, target, post, state, publish))
+        .collect();
+    DistributionPlan::new(
+        PlanSource {
+            source_id: &post.source_id,
+            source_path: &post.source_path,
+            slug: &post.slug,
+            title: &post.title,
+            canonical_url: &post.canonical_url,
+            revision: &post.revision,
+        },
+        publish,
+        destinations,
+        &post.markdown,
+    )
+}
+
+fn approval_for(
+    approvals: &Approvals,
+    plan: &DistributionPlan,
+    name: &str,
+) -> Result<(), distribution::ApprovalError> {
+    approvals
+        .get(&plan.source_id)
+        .ok_or(distribution::ApprovalError::NotApproved)?
+        .covers(plan, name)
+}
+
+fn approvals_path(root: &Path, config: &SiteConfig) -> Result<std::path::PathBuf, String> {
+    private_state_path(root, &config.syndication.approval_file).map_err(|_| {
+        "syndication.approvalFile must be a project-relative path without `..`".to_string()
+    })
+}
+
+fn load_approvals(root: &Path, config: &SiteConfig) -> Result<Approvals, String> {
+    let path = approvals_path(root, config)?;
+    match fs::read_to_string(&path) {
+        Ok(text) => Approvals::from_json(&text).map_err(|error| {
+            format!(
+                "[{}] {error} Repair or remove {}. No request was sent.",
+                error.code(),
+                path.display()
+            )
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Approvals::default()),
+        Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+    }
+}
+
+/// `--preview` and `--approve`: build the plan, then write its dry-run artifacts or record the
+/// author's approval of it. Neither reads a credential or sends a request.
+fn distribute(
+    root: &Path,
+    slug: &str,
+    config: &SiteConfig,
+    post: &SyndicationPost,
+    options: &Options,
+) -> Result<(), String> {
+    // No destination configured or enabled: the preview falls back to the portable copy, and
+    // there is nothing to approve (ADR 0725). An unknown --target name is still an error.
+    let known = options
+        .target_names
+        .iter()
+        .all(|name| config.syndication.targets.contains_key(name));
+    let selected = match select_targets(config, &options.target_names) {
+        Ok(selected) => selected,
+        Err(_) if options.preview.is_some() && known => Vec::new(),
+        Err(error) => return Err(error),
+    };
+    let state = State::load(&private_state_path(root, &config.syndication.state_file)?)?;
+    validate_source_identity(&state, post)?;
+    let plan = distribution_plan(post, &selected, &state, options.publish);
+    if let Some(digest) = &options.approve {
+        let approval = distribution::approve(&plan, digest, &crate::clock::now().rfc3339())
+            .map_err(|error| format!("[{}] {error} Nothing was approved or sent.", error.code()))?;
+        let path = approvals_path(root, config)?;
+        let mut approvals = load_approvals(root, config)?;
+        let count = approval.destinations.len();
+        approvals.record(approval);
+        fsutil::write_file(&path, approvals.to_json().as_bytes())?;
+        println!(
+            "Approved {count} destination(s) of `{}` for plan {}. Nothing was sent.",
+            post.title, plan.digest
+        );
+        if !config.syndication.require_approval {
+            println!(
+                "syndication.requireApproval is off, so --write does not wait for this approval."
+            );
+        }
+        return Ok(());
+    }
+    let directory = options.preview.as_deref().unwrap_or_default();
+    let written = write_preview(root, slug, &plan, directory, options)?;
+    println!(
+        "Distribution preview of `{}` written to {} ({} destination(s), plan {}). Nothing was sent.",
+        post.title,
+        written.display(),
+        plan.destinations.len(),
+        plan.digest
+    );
+    for destination in &plan.destinations {
+        let codes: Vec<&str> = destination
+            .problems
+            .iter()
+            .map(|problem| problem.code.as_str())
+            .collect();
+        println!(
+            "- {}: {}{}",
+            destination.name,
+            destination.status.as_str(),
+            if codes.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", codes.join(", "))
+            }
+        );
+    }
+    if plan.fallback.is_some() {
+        println!("No destination is configured or enabled; the preview holds the portable Markdown to import by hand.");
+    } else if plan
+        .destinations
+        .iter()
+        .all(|d| d.status != Status::Blocked)
+    {
+        println!(
+            "Approve exactly this plan with: {}",
+            approve_command(slug, &plan, options)
+        );
+    }
+    Ok(())
+}
+
+fn approve_command(slug: &str, plan: &DistributionPlan, options: &Options) -> String {
+    let mut command = format!("openblog syndicate {slug}");
+    if !options.target_names.is_empty() {
+        command.push_str(&format!(" --target {}", options.target_names.join(",")));
+    }
+    if options.publish {
+        command.push_str(" --publish");
+    }
+    command.push_str(&format!(" --approve {}", plan.digest));
+    command
+}
+
+/// Writes the dry-run artifacts into a new folder: `plan.json`, one file per destination holding
+/// exactly what it would receive, and the static `index.html` preview. An existing path is refused.
+fn write_preview(
+    root: &Path,
+    slug: &str,
+    plan: &DistributionPlan,
+    directory: &str,
+    options: &Options,
+) -> Result<std::path::PathBuf, String> {
+    let directory = crate::portable_export::output_path(root, directory).map_err(|_| {
+        "the preview folder must be a path without `..` or symlinks; nothing was written"
+            .to_string()
+    })?;
+    match fs::symlink_metadata(&directory) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(_) => {
+            return Err(format!(
+                "refusing to write a preview into existing {}; choose a new folder",
+                directory.display()
+            ))
+        }
+        Err(error) => return Err(format!("cannot inspect {}: {error}", directory.display())),
+    }
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
+    // File names come from the provider, never from the author's target names.
+    let files: Vec<String> = plan
+        .destinations
+        .iter()
+        .enumerate()
+        .map(|(index, d)| {
+            format!(
+                "{:02}-{}.{}",
+                index + 1,
+                d.provider.as_str(),
+                d.format.extension()
+            )
+        })
+        .collect();
+    let write = |name: &str, bytes: &[u8]| {
+        fsutil::create_new_file(&directory.join(name), bytes)
+            .map_err(|cause| format!("cannot write {name} in {}: {cause}", directory.display()))
+    };
+    for (file, destination) in files.iter().zip(&plan.destinations) {
+        write(file, destination.content.as_bytes())?;
+    }
+    if let Some(fallback) = &plan.fallback {
+        write("portable.md", fallback.content.as_bytes())?;
+    }
+    let mut manifest = plan.to_json_value();
+    if let Some(destinations) = manifest["destinations"].as_array_mut() {
+        for (destination, file) in destinations.iter_mut().zip(&files) {
+            destination["file"] = Json::String(file.clone());
+        }
+    }
+    let manifest = serde_json::to_string_pretty(&manifest)
+        .map_err(|error| format!("could not serialize the plan: {error}"))?;
+    write("plan.json", manifest.as_bytes())?;
+    let page = distribution::preview_page(plan, &files, &approve_command(slug, plan, options));
+    write("index.html", page.as_bytes())?;
+    Ok(directory)
 }
 
 fn unavailable_post_error(root: &Path, slug: &str) -> Result<String, String> {
@@ -2142,6 +2491,8 @@ Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series
                 &root,
                 "portable-lesson",
                 Options {
+                    preview: None,
+                    approve: None,
                     json,
                     target_names: Vec::new(),
                     write: false,
@@ -2515,6 +2866,8 @@ const attribute = 'href="/script"';
             &root,
             "post",
             Options {
+                preview: None,
+                approve: None,
                 target_names: Vec::new(),
                 write: true,
                 publish: false,
@@ -2535,6 +2888,8 @@ const attribute = 'href="/script"';
             &root,
             "post",
             Options {
+                preview: None,
+                approve: None,
                 target_names: Vec::new(),
                 write: true,
                 publish: false,
@@ -2553,6 +2908,8 @@ const attribute = 'href="/script"';
             &root,
             "post",
             Options {
+                preview: None,
+                approve: None,
                 target_names: Vec::new(),
                 write: false,
                 publish: false,
@@ -2566,6 +2923,8 @@ const attribute = 'href="/script"';
             &root,
             "post",
             Options {
+                preview: None,
+                approve: None,
                 target_names: Vec::new(),
                 write: false,
                 publish: false,
@@ -2584,6 +2943,8 @@ const attribute = 'href="/script"';
             &root,
             "post",
             Options {
+                preview: None,
+                approve: None,
                 target_names: Vec::new(),
                 write: true,
                 publish: false,
@@ -2946,6 +3307,8 @@ const attribute = 'href="/script"';
                 &root,
                 slug,
                 Options {
+                    preview: None,
+                    approve: None,
                     target_names: Vec::new(),
                     write: false,
                     publish: false,
@@ -2983,6 +3346,8 @@ const attribute = 'href="/script"';
             &root,
             "post",
             Options {
+                preview: None,
+                approve: None,
                 target_names: Vec::new(),
                 write: false,
                 publish: false,
@@ -2992,5 +3357,259 @@ const attribute = 'href="/script"';
         .unwrap();
         assert!(!root.join(".openblog/syndication.json").exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    struct Offline;
+    impl Transport for Offline {
+        fn send(&self, _: &Request) -> Result<Response, String> {
+            Err("offline test transport".into())
+        }
+    }
+
+    fn distribution_site(config: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-distribution-{}",
+            crate::auth::random_token().unwrap(),
+        ));
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::write(root.join("openblog.json"), config).unwrap();
+        fs::write(
+            root.join("content/posts/post.md"),
+            "---\ntitle: Post <one>\nslug: post\ndate: 2020-01-01\nsyndicationId: durable-post\ntags: [rust]\n---\n\nBody with <b>bold</b> text.\n",
+        )
+        .unwrap();
+        root
+    }
+
+    fn read_plan(out: &Path) -> Json {
+        serde_json::from_str(&fs::read_to_string(out.join("plan.json")).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn a_preview_writes_the_exact_copies_and_an_accessible_page_and_sends_nothing() {
+        let root = distribution_site(
+            r#"{"url":"https://blog.openblog.dev","syndication":{"targets":{
+                "dev":{"provider":"dev"},"ghost":{"provider":"ghost"},"medium":{"provider":"medium"}}}}"#,
+        );
+        let out = root.join("preview");
+        let preview = Options {
+            preview: Some(out.display().to_string()),
+            ..Options::default()
+        };
+        run_with_transport(&root, "post", preview.clone(), &NoNetwork).unwrap();
+        let plan = read_plan(&out);
+        assert_eq!(plan["remoteRequestSent"], false);
+        let json = {
+            let config = site::load_config(&root).unwrap();
+            let (loaded, _) = site::load_site(&root, false, None).unwrap();
+            let source = fs::read_to_string(root.join("content/posts/post.md")).unwrap();
+            let post = syndication_post(&loaded.posts[0], &source, &config, None, None).unwrap();
+            let selected = select_targets(&config, &[]).unwrap();
+            dry_run_json_plan(&post, &selected, &State::default(), false)
+        };
+        // Each copy is the projection the JSON dry run and a write use, byte for byte.
+        for (destination, target) in plan["destinations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(json["targets"].as_array().unwrap())
+        {
+            assert_eq!(destination["name"], target["name"]);
+            let file = destination["file"].as_str().unwrap();
+            assert_eq!(
+                fs::read_to_string(out.join(file)).unwrap(),
+                target["conversion"]["to"]["content"].as_str().unwrap()
+            );
+            assert_eq!(
+                destination["content"],
+                target["conversion"]["to"]["content"]
+            );
+        }
+        let statuses: Vec<_> = plan["destinations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| (d["name"].as_str().unwrap(), d["status"].as_str().unwrap()))
+            .collect();
+        // Ghost without an endpoint is blocked with a destination-specific reason; Medium is manual.
+        assert_eq!(
+            statuses,
+            [("dev", "ready"), ("ghost", "blocked"), ("medium", "manual")]
+        );
+        assert_eq!(
+            plan["destinations"][1]["problems"][0]["code"],
+            "target-not-ready"
+        );
+        let page = fs::read_to_string(out.join("index.html")).unwrap();
+        assert!(page.contains("<html lang=\"en\">") && !page.contains("<script"));
+        assert!(page.contains("Post &lt;one&gt;") && !page.contains("<b>bold</b>"));
+        assert!(page.contains("cannot be approved while a destination is blocked"));
+        // Nothing private was created, and a second preview never replaces the first.
+        assert!(!root.join(".openblog").exists());
+        let again = run_with_transport(&root, "post", preview, &NoNetwork).unwrap_err();
+        assert!(again.contains("refusing to write a preview into existing"));
+        for (write, json) in [(true, false), (false, true)] {
+            let refused = run_with_transport(
+                &root,
+                "post",
+                Options {
+                    preview: Some(root.join("other").display().to_string()),
+                    write,
+                    json,
+                    ..Options::default()
+                },
+                &NoNetwork,
+            )
+            .unwrap_err();
+            assert!(refused.contains("never send"));
+        }
+        assert!(!root.join("other").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn with_require_approval_a_write_sends_only_the_approved_copy() {
+        let root = distribution_site(
+            r#"{"url":"https://blog.openblog.dev","syndication":{"requireApproval":true,
+                "targets":{"dev":{"provider":"dev"},"medium":{"provider":"medium"}}}}"#,
+        );
+        let write = Options {
+            write: true,
+            ..Options::default()
+        };
+        let refused = run_with_transport(&root, "post", write.clone(), &NoNetwork).unwrap_err();
+        assert!(refused.contains("target `dev`: This post has no approved distribution plan."));
+        assert!(refused.ends_with("No request was sent."));
+
+        let out = root.join("preview");
+        run_with_transport(
+            &root,
+            "post",
+            Options {
+                preview: Some(out.display().to_string()),
+                ..Options::default()
+            },
+            &NoNetwork,
+        )
+        .unwrap();
+        let digest = read_plan(&out)["digest"].as_str().unwrap().to_string();
+        assert!(fs::read_to_string(out.join("index.html"))
+            .unwrap()
+            .contains(&format!("openblog syndicate post --approve {digest}")));
+
+        let approve = |digest: &str| {
+            run_with_transport(
+                &root,
+                "post",
+                Options {
+                    approve: Some(digest.into()),
+                    ..Options::default()
+                },
+                &NoNetwork,
+            )
+        };
+        let wrong = approve("0123").unwrap_err();
+        assert!(wrong.contains("[plan-changed]"));
+        assert!(!root.join(".openblog/distribution-approvals.json").exists());
+        approve(&digest).unwrap();
+        assert!(root.join(".openblog/distribution-approvals.json").exists());
+
+        // Approved: the gate passes and the run reaches the canonical preflight.
+        let passed = run_with_transport(&root, "post", write.clone(), &Offline).unwrap_err();
+        assert!(!passed.contains("approv"), "{passed}");
+
+        // An edit after the approval needs a new one.
+        fs::write(
+            root.join("content/posts/post.md"),
+            "---\ntitle: Post <one>\nslug: post\ndate: 2020-01-01\nsyndicationId: durable-post\ntags: [rust]\n---\n\nEdited body.\n",
+        )
+        .unwrap();
+        let stale = run_with_transport(&root, "post", write.clone(), &NoNetwork).unwrap_err();
+        assert!(stale.contains("changed after the approval"), "{stale}");
+
+        // A damaged approvals file refuses the run as a whole.
+        fs::write(root.join(".openblog/distribution-approvals.json"), "{}").unwrap();
+        let damaged = run_with_transport(&root, "post", write, &NoNetwork).unwrap_err();
+        assert!(damaged.contains("[invalid-approvals]"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn without_require_approval_a_write_does_not_wait_for_one() {
+        let root = distribution_site(
+            r#"{"url":"https://blog.openblog.dev","syndication":{"targets":{"dev":{"provider":"dev"}}}}"#,
+        );
+        let error = run_with_transport(
+            &root,
+            "post",
+            Options {
+                write: true,
+                ..Options::default()
+            },
+            &Offline,
+        )
+        .unwrap_err();
+        assert!(!error.contains("approv"), "{error}");
+        assert!(!root.join(".openblog/distribution-approvals.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn with_no_destination_the_preview_falls_back_to_the_portable_copy() {
+        for config in [
+            r#"{"url":"https://blog.openblog.dev"}"#,
+            r#"{"url":"https://blog.openblog.dev","syndication":{"targets":{"dev":{"provider":"dev","enabled":false}}}}"#,
+        ] {
+            let root = distribution_site(config);
+            // The ordinary dry run keeps its existing answer.
+            let plain =
+                run_with_transport(&root, "post", Options::default(), &NoNetwork).unwrap_err();
+            assert!(plain.contains("syndication targets"), "{plain}");
+            let out = root.join("preview");
+            run_with_transport(
+                &root,
+                "post",
+                Options {
+                    preview: Some(out.display().to_string()),
+                    ..Options::default()
+                },
+                &NoNetwork,
+            )
+            .unwrap();
+            let plan = read_plan(&out);
+            assert_eq!(plan["destinations"], json!([]));
+            assert_eq!(plan["fallback"]["reason"], "no-destination");
+            assert_eq!(
+                fs::read_to_string(out.join("portable.md")).unwrap(),
+                plan["fallback"]["content"].as_str().unwrap()
+            );
+            let page = fs::read_to_string(out.join("index.html")).unwrap();
+            assert!(page.contains("No destination is configured"));
+            let unknown = run_with_transport(
+                &root,
+                "post",
+                Options {
+                    preview: Some(root.join("other").display().to_string()),
+                    target_names: vec!["nowhere".into()],
+                    ..Options::default()
+                },
+                &NoNetwork,
+            )
+            .unwrap_err();
+            assert!(unknown.contains("syndication target"), "{unknown}");
+            assert!(!root.join("other").exists());
+            let approve = run_with_transport(
+                &root,
+                "post",
+                Options {
+                    approve: Some(plan["digest"].as_str().unwrap().into()),
+                    ..Options::default()
+                },
+                &NoNetwork,
+            )
+            .unwrap_err();
+            assert!(approve.contains("syndication targets"), "{approve}");
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }
