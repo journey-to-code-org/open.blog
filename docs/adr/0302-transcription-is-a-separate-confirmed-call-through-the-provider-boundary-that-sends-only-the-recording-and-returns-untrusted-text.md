@@ -1,4 +1,4 @@
-# ADR 0299: Transcription is a separate, confirmed call through the provider boundary that sends only the recording and returns untrusted text
+# ADR 0302: Transcription is a separate, confirmed call through the provider boundary that sends only the recording and returns untrusted text
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -16,7 +16,7 @@ a site without a provider still completes the flow with typed notes.
 ## Decision
 
 - **Its own call, not part of drafting.** `POST /admin/api/assistant/transcribe` takes `{ captureId, confirmed: true }`
-  and returns words. Drafting (ADR 0300) is a second call that never sees audio. The author can transcribe and
+  and returns words. Drafting (ADR 0303) is a second call that never sees audio. The author can transcribe and
   not draft, or type and draft.
 - **The audio is the only thing sent.** No notes, photos, title, context or voice guide travel with a recording.
   `GET /admin/api/assistant/transcribe[?capture=<id>]` returns the disclosure: the engine, its destination and

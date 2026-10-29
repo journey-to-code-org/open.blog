@@ -1,4 +1,4 @@
-//! The `job-draft` task (ADR 0300, #503): a provider turns a job's notes into a title, a description and the
+//! The `job-draft` task (ADR 0303, #503): a provider turns a job's notes into a title, a description and the
 //! four scaffold sections, under a strict schema. The request carries the author's words as untrusted data; the
 //! result is checked by `openblog_core::job_draft` and is only ever a proposal the author applies and edits.
 

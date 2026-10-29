@@ -1,4 +1,4 @@
-//! Transcription through the Assistant provider boundary (ADR 0299). A voice note is turned into text by a
+//! Transcription through the Assistant provider boundary (ADR 0302). A voice note is turned into text by a
 //! provider that takes audio (OpenAI or Gemini) or by a local engine the server's owner named in
 //! `OPENBLOG_TRANSCRIBE_COMMAND`. It is a separate call from drafting: the audio goes out only here, only after
 //! the author confirmed what is sent, and what comes back is untrusted text.

@@ -1,4 +1,4 @@
-//! The `job-draft` Assistant route (ADR 0300, #503): bounded input, context reloaded on the server, a strict
+//! The `job-draft` Assistant route (ADR 0303, #503): bounded input, context reloaded on the server, a strict
 //! result, and nothing written. Providers are loopback fakes; no test reaches a network.
 
 use super::*;

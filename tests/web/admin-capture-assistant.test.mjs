@@ -135,7 +135,7 @@ test("a failed transcription says why, changes nothing and offers the control ag
   assert.equal(named(box.element, "Undo the transcript"), undefined);
 }));
 
-// ----- drafting (ADR 0301) ---------------------------------------------------------------------------------
+// ----- drafting (ADR 0304) ---------------------------------------------------------------------------------
 
 const SCAFFOLD = "## Problem\n\n## What we found\n\n## What we did\n\n## Result\n\n";
 const DRAFT = {

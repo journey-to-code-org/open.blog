@@ -6,7 +6,7 @@
 //   { v: 1, id, createdAt, fields: { trade, service, town, notes, draft? },
 //     photos: [{ name, type, size, blob }], audio: null | { type, size, seconds, blob },
 //     attempts, failed, lastError }
-// draft is optional and additive (ADR 0301): an applied, unsaved job draft { title, description, sections }. A build
+// draft is optional and additive (ADR 0304): an applied, unsaved job draft { title, description, sections }. A build
 // that does not know it ignores it and sends the notes; one that does bounds and sends it. Nothing is stored outside the bounds the server advertises (`capture` in Admin's meta); a record with a
 // newer version is never read, changed or sent, only shown, and the author decides whether to discard it.
 

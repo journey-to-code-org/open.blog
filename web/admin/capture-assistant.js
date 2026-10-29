@@ -1,4 +1,4 @@
-// Capture's Assistant helpers (ADRs 0299 and 0301): turn the voice note into words and, after the author has
+// Capture's Assistant helpers (ADRs 0302 and 0304): turn the voice note into words and, after the author has
 // seen what is sent, into a draft. Every call here goes through this site's own Admin, which owns the provider
 // boundary; nothing is sent before the author confirms, nothing is saved or published by this module, and the
 // text that comes back is untrusted, so it is made plain before it reaches the notes. The first half is plain
@@ -171,7 +171,7 @@ export function createTranscribeBox({ api, notes, limits, announce = () => {} })
   };
 }
 
-// ----- drafting (ADR 0301) ---------------------------------------------------------------------------------
+// ----- drafting (ADR 0304) ---------------------------------------------------------------------------------
 
 /** The bounds of a draft, the same as the core's `job_draft` module enforces on the server. */
 export const DRAFT_LIMITS = Object.freeze({ title: 120, description: 300, section: 1500 });

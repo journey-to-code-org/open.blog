@@ -1,14 +1,14 @@
-# ADR 0301: A draft is applied as editable, unsaved fields in Capture with one undo, and the author's save is the only save
+# ADR 0304: A draft is applied as editable, unsaved fields in Capture with one undo, and the author's save is the only save
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#480](https://github.com/journey-to-code-org/open.blog/issues/480)
 - Task: [#504](https://github.com/journey-to-code-org/open.blog/issues/504)
-- Builds on: [ADR 0299](0299-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md), [ADR 0300](0300-the-job-draft-task-returns-a-strict-plain-text-draft-that-can-never-fill-a-job-field-and-the-core-checks-it.md), [ADR 0296](0296-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md), [ADR 0297](0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
+- Builds on: [ADR 0302](0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md), [ADR 0303](0303-the-job-draft-task-returns-a-strict-plain-text-draft-that-can-never-fill-a-job-field-and-the-core-checks-it.md), [ADR 0296](0296-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md), [ADR 0297](0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
 
 ## Context
 
-The draft route returns a proposal (ADR 0300). The author is on a phone, on site, with notes (typed or from a
+The draft route returns a proposal (ADR 0303). The author is on a phone, on site, with notes (typed or from a
 transcript) and perhaps a voice guide. Applying a proposal must feel like help, not like something that happened
 to their post: they see what is sent first, they can change every word, they can take it back, and nothing is
 saved or published until they save.

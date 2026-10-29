@@ -1075,7 +1075,7 @@ upstream service still determines exact schema support.
 ### Transcribing a voice note
 
 The Capture view can turn a recorded voice note into words, only when you ask and only after it shows what is
-sent and where ([ADR 0299](adr/0299-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)).
+sent and where ([ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)).
 Only the recording is sent: no notes, photos, title or voice guide. Two providers take audio: OpenAI
 (transcribed with `gpt-4o-mini-transcribe`) and Google Gemini (your configured model). Any other provider is
 never sent audio, and Capture says to type your notes instead.
