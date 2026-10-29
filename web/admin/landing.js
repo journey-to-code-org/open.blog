@@ -203,6 +203,15 @@ export const SECTION_CATALOG = Object.freeze([
       { kind: "textarea", name: "body", label: "The note", required: true, max: LIMITS.answer, rows: 4 },
     ],
   },
+  {
+    type: "business-facts",
+    label: "Business facts",
+    icon: "\u{1F3E2}",
+    description: "Your name, phone, hours, license and insurance, kept in one place.",
+    sample: "Maple Falls Flooring, (360) 555-0142, open Monday to Friday. Licensed and insured.",
+    blank: () => ({ heading: "Contact and hours" }),
+    fields: [text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "The facts themselves are set once under Settings, then Business facts. Nothing is shown here until you have." })],
+  },
 ]);
 
 const BY_TYPE = new Map(SECTION_CATALOG.map((entry) => [entry.type, entry]));
@@ -257,6 +266,8 @@ export function sectionSummary(section) {
       return summaryList(section.items, (item) => clean(item?.question), "question", "No questions yet");
     case "callout":
       return shorten(first(section.title, section.body)) || "No note yet";
+    case "business-facts":
+      return shorten(first(section.heading)) || "No heading yet";
     default:
       return "";
   }

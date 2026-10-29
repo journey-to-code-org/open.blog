@@ -38,6 +38,8 @@ pub struct Sources {
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
+    /// The `services/` collection (ADR 0311).
+    pub services: Vec<SourceFile>,
     /// Where the private source library comes from, if anywhere. A load
     /// reads it only when a post that opts in to citations cites something,
     /// and publishes only the cited references' public description (ADR 0048).
@@ -529,6 +531,29 @@ pub struct Page {
     pub capabilities: Vec<CapabilityDescriptor>,
 }
 
+/// One offering of the business, from `services/` (ADR 0311). Its address is
+/// `/services/<id>/`.
+#[derive(Clone, Debug)]
+pub struct Service {
+    pub id: String,
+    pub name: String,
+    pub summary: String,
+    pub includes: Vec<String>,
+    pub price_band: Option<crate::job::CostBand>,
+    pub typical_timeline: Option<String>,
+    pub faq: Vec<crate::service::FaqEntry>,
+    /// Not published: only a load that includes drafts holds it.
+    pub draft: bool,
+    pub url: String,
+    /// The rendered body.
+    pub html: String,
+    pub text: String,
+    pub source: String,
+    pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
+    pub(crate) accessibility: Vec<AccessibilityFinding>,
+    pub capabilities: Vec<CapabilityDescriptor>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Site {
     pub config: SiteConfig,
@@ -537,6 +562,9 @@ pub struct Site {
     pub series: Vec<Series>,
     pub tags: Vec<Tag>,
     pub pages: Vec<Page>,
+    /// The `services/` collection (ADR 0311), by name then id. Empty for a
+    /// site without one, which then builds exactly as it always did.
+    pub services: Vec<Service>,
     /// Posts waiting for their publish date, soonest first.
     pub scheduled: Vec<Scheduled>,
     pub warnings: Vec<String>,
@@ -919,6 +947,65 @@ impl Site {
             }
         }
         pages.sort_by(|a, b| a.title.cmp(&b.title));
+        let mut services: Vec<Service> = Vec::new();
+        for file in &sources.services {
+            if !crate::service::declares_service(&file.contents) {
+                continue;
+            }
+            // A draft service is not published, and its problems are warnings,
+            // so a freshly scaffolded one never stops a build.
+            let draft = frontmatter::parse(&file.contents)
+                .is_ok_and(|document| is_draft(&document.front_matter));
+            let shown = !draft
+                || options.include_drafts
+                || options.preview_source.as_deref() == Some(file.path.as_str());
+            match load_service(file, concept_options(render_options)) {
+                Ok(_) if !shown => {}
+                Ok(mut service) => {
+                    let (html, notes) = crate::concept_links::plain_outside_post(
+                        &service.html,
+                        &service.concept_refusals,
+                        &file.path,
+                    );
+                    service.html = html;
+                    warnings.extend(notes);
+                    if let Some(existing) = services.iter().find(|s| s.id == service.id) {
+                        errors.push(format!(
+                            "{}: duplicate service id `{}` (also in {})",
+                            file.path, service.id, existing.source
+                        ));
+                    } else {
+                        accessibility.extend(service.accessibility.iter().cloned());
+                        services.push(service);
+                    }
+                }
+                Err(e) if draft => {
+                    warnings.push(format!("{}: service not ready to publish: {e}", file.path))
+                }
+                Err(e) => errors.push(format!("{}: {e}", file.path)),
+            }
+        }
+        services.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+        // A job names its service by id. Only a site that has a services
+        // collection checks it, so every other site loads as it always did.
+        let mut known_services: Vec<&str> = services.iter().map(|s| s.id.as_str()).collect();
+        known_services.sort_unstable();
+        for post in &posts {
+            let Some(job) = &post.job else { continue };
+            let Some(problem) =
+                crate::service::unknown_service_problem(&known_services, &job.service)
+            else {
+                continue;
+            };
+            if post.draft {
+                warnings.push(format!(
+                    "{}: job not ready to publish: {problem}",
+                    post.source
+                ));
+            } else {
+                errors.push(format!("{}: {problem}", post.source));
+            }
+        }
         if config.home.intro.contains(crate::concept_links::SCHEME) {
             // The home introduction shows an `atlas:` link as its label (the
             // renderer does the same); the author hears about it here.
@@ -1036,6 +1123,7 @@ impl Site {
             series,
             tags,
             pages,
+            services,
             scheduled,
             warnings,
             accessibility,
@@ -2337,6 +2425,40 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
     })
 }
 
+fn load_service(file: &SourceFile, options: RenderOptions<'_>) -> Result<Service, String> {
+    let doc = frontmatter::parse(&file.contents)?;
+    let metadata = crate::service::from_front_matter(&doc.front_matter)
+        .map_err(|problems| problems.join("; "))?;
+    let rendered = markdown::render(&doc.body, options);
+    if !rendered.errors.is_empty() {
+        return Err(rendered.errors.join("; "));
+    }
+    let accessibility = accessibility::audit_document(DocumentAuditInput {
+        path: &file.path,
+        markdown: &doc.body,
+        body_line: doc.body_line,
+        embeds_enabled: options.embeds,
+        cover_alt: None,
+    });
+    Ok(Service {
+        url: format!("{}{}/", crate::service::SERVICES_URL, metadata.id),
+        id: metadata.id,
+        name: metadata.name,
+        summary: metadata.summary,
+        includes: metadata.includes,
+        price_band: metadata.price_band,
+        typical_timeline: metadata.typical_timeline,
+        faq: metadata.faq,
+        draft: is_draft(&doc.front_matter),
+        html: rendered.html,
+        text: rendered.text,
+        source: file.path.clone(),
+        concept_refusals: rendered.concept_refusals,
+        accessibility,
+        capabilities: rendered.capabilities,
+    })
+}
+
 fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
@@ -2464,6 +2586,7 @@ mod tests {
             credits: Vec::new(),
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+            services: Vec::new(),
             source_library: None,
             claim_evidence: None,
             reader_feedback: None,

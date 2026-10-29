@@ -85,10 +85,14 @@ use crate::assistant::{
     BUILTIN_SKILL_SOURCES,
 };
 use crate::assistant::{PassageKind, ReviewPassage};
+mod announcements;
+mod business;
+mod capture_assistant;
 mod comparisons;
 mod landing;
 mod look;
 mod reading_paths;
+mod social;
 mod voice;
 mod voice_guide;
 
@@ -497,6 +501,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
         }
+        if name == "business" {
+            return Ok(business::MAX_REQUEST_BYTES);
+        }
         if name == "look" || name == "look/preview" {
             return Ok(look::MAX_REQUEST_BYTES);
         }
@@ -512,8 +519,18 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "job/check" {
             return Ok(MAX_JOB_CHECK_BYTES);
         }
+        if name == "capture-audio" {
+            return Ok(openblog_core::capture::MAX_AUDIO_BYTES);
+        }
         if name.starts_with("voice/") {
             return Ok(voice::request_limit(req, name));
+        }
+        if let Some(rest) = name.strip_prefix("social/") {
+            return Ok(if announcements::owns(rest) {
+                announcements::MAX_REQUEST_BYTES
+            } else {
+                social::MAX_SOCIAL_REQUEST_BYTES
+            });
         }
         return Ok(MAX_JSON_BODY);
     }
@@ -549,14 +566,22 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/admin.css" => "admin.css",
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
+        "/admin/business.js" => "business.js",
+        "/admin/services.js" => "services.js",
         "/admin/paste.js" => "paste.js",
         "/admin/landing-history.js" => "landing-history.js",
         "/admin/checks.js" => "checks.js",
         "/admin/checks-panel.js" => "checks-panel.js",
         "/admin/job-form.js" => "job-form.js",
+        "/admin/job-capture.js" => "job-capture.js",
+        "/admin/capture-queue.js" => "capture-queue.js",
+        "/admin/capture-recorder.js" => "capture-recorder.js",
+        "/admin/capture-assistant.js" => "capture-assistant.js",
         "/admin/voice.js" => "voice.js",
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
+        "/admin/social.js" => "social.js",
+        "/admin/announcements.js" => "announcements.js",
         "/admin/voice-library.js" => "voice-library.js",
         _ => return Response::error(404, "Not found"),
     };
@@ -615,8 +640,9 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         return authenticated_api(state, req, name, &session);
     }
     let mut workspace = lock(&state.workspace);
-    let _filesystem_transaction = if workspace.is_some() && !req.is_read_only() && name != "logout"
-    {
+    // Social routes change nothing on disk, so they never open a workspace transaction.
+    let local_write = !req.is_read_only() && name != "logout" && !name.starts_with("social/");
+    let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
             Ok(transaction) => Some(transaction),
             Err(error) => return Response::error(409, &error),
@@ -628,7 +654,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         DURABLE_TRANSACTION.with(|active| active.set(true));
         DurableTransaction
     });
-    if !req.is_read_only() && name != "logout" {
+    if local_write {
         if let Some(store) = workspace.as_mut() {
             if let Err(error) = store.begin() {
                 return Response::error(503, &format!("Workspace save NOT acknowledged: {error}"));
@@ -636,7 +662,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         }
     }
     let response = authenticated_api(state, req, name, &session);
-    if !req.is_read_only() && name != "logout" {
+    if local_write {
         if let Some(store) = workspace.as_mut() {
             // Even an unsuccessful handler may have completed part of a local
             // operation. Never acknowledge any result until the bundle is durable.
@@ -671,6 +697,12 @@ fn authenticated_api(
             return preview_document(state, token);
         }
     }
+    if let Some(rest) = name.strip_prefix("social/") {
+        if announcements::owns(rest) {
+            return announcements::handle(state, req, session, rest);
+        }
+        return social::route(req, &session.user, rest);
+    }
     if let Some(route) = voice::sample_route(name) {
         return match (req.method.as_str(), route) {
             ("GET", voice::SampleRoute::One(id)) => voice::get(state, req, id),
@@ -689,6 +721,8 @@ fn authenticated_api(
         ("GET", "meta") => meta(state),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
+        ("GET", "business") => business::get_business(state),
+        ("PUT", "business") => business::save_business(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
         ("POST", "look/preview") => look::preview(state, req),
@@ -829,6 +863,9 @@ fn authenticated_api(
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("POST", "assistant/complete") => generate_inline_completion(state, req),
         ("POST", "assistant/voice-guide") => voice_guide::generate_voice_guide(state, req),
+        ("GET", "assistant/transcribe") => capture_assistant::preview(state, req),
+        ("POST", "assistant/transcribe") => capture_assistant::transcribe(state, req),
+        ("POST", "assistant/job-draft") => capture_assistant::job_draft(state, req),
         ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
@@ -905,6 +942,7 @@ fn authenticated_api(
         ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
+        ("POST", "capture-audio") => upload_capture_audio(state, req),
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
@@ -3532,7 +3570,8 @@ fn check_rel_path(rel: &str) -> Result<&'static str, String> {
         "posts" => Ok("posts"),
         "series" => Ok("series"),
         "pages" => Ok("pages"),
-        _ => Err("path must start with posts/, series/, or pages/".into()),
+        "services" => Ok("services"),
+        _ => Err("path must start with posts/, series/, pages/, or services/".into()),
     }
 }
 
@@ -3781,7 +3820,8 @@ fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
 }
 
 /// A front matter key. The only dotted keys are the flattened `job.*` ones the
-/// job profile uses (ADR 0285); every segment is a plain word.
+/// job profile uses (ADR 0285) and a service's `faq.<n>.<key>` ones (ADR 0311);
+/// every segment is a plain word.
 fn is_field_name(key: &str) -> bool {
     let plain = |part: &str| {
         !part.is_empty()
@@ -3789,6 +3829,14 @@ fn is_field_name(key: &str) -> bool {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     };
+    if let Some(rest) = key.strip_prefix("faq.") {
+        let mut parts = rest.split('.');
+        return matches!(
+            (parts.next(), parts.next(), parts.next()),
+            (Some(number), Some(name), None)
+                if number.len() <= 3 && number.bytes().all(|b| b.is_ascii_digit()) && plain(name)
+        );
+    }
     match key.strip_prefix("job.") {
         Some(rest) => rest.split('.').count() <= 3 && rest.split('.').all(plain),
         None => plain(key),
@@ -3915,6 +3963,19 @@ fn meta(state: &AppState) -> Response {
             }
         }
     }
+    for file in &sources.services {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if let Some(id) = doc.front_matter.get("id").map(str::trim) {
+            if openblog_core::service::check_id(id).is_ok()
+                && !doc.front_matter.get_bool("draft").unwrap_or(false)
+                && !services.iter().any(|known| known == id)
+            {
+                services.push(id.to_string());
+            }
+        }
+    }
     services.sort();
     let job_form = json!({
         "trades": openblog_core::job::known_trades(&config.extra_trades),
@@ -3971,15 +4032,18 @@ fn meta(state: &AppState) -> Response {
             "themes": theme_list,
             "profiles": profiles,
             "job": job_form,
+            "capture": openblog_core::capture::limits_json(config.admin.max_upload_mb),
             "contributors": config.contributors,
             "creditRoles": credit_roles,
             "pieces": openblog_core::piece::schema_json(),
+            "compare": openblog_core::compare::schema_json(),
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
             "quizGeneration": assistant_ready,
             "codeInteractionGeneration": assistant_ready,
             "codeRunnerLanguages": code_runner_languages,
+            "social": social::is_configured(),
             "now": clock::now().rfc3339(),
         }),
     )
@@ -4794,6 +4858,7 @@ fn engagement_settings(state: &AppState) -> Response {
             "analytics": config.engagement.analytics,
             "endpoint": config.engagement.endpoint,
             "feedback": config.engagement.feedback,
+            "captcha": config.engagement.captcha,
             "etag": etag,
             "credential": credential,
         }),
@@ -4884,6 +4949,26 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
     if let Some(feedback) = body["feedback"].as_bool() {
         engagement.insert("feedback".into(), json!(feedback));
     }
+    if let Some(captcha) = body.get("captcha") {
+        let mut parsed =
+            match serde_json::from_value::<openblog_core::config::CaptchaConfig>(captcha.clone()) {
+                Ok(parsed) => parsed,
+                Err(_) => {
+                    return Response::error(
+                        422,
+                        "Captcha accepts only provider, scope, and the public siteKey; secrets are server environment variables",
+                    )
+                }
+            };
+        parsed.provider = parsed.provider.trim().to_lowercase();
+        parsed.scope = parsed.scope.trim().to_lowercase();
+        parsed.site_key = parsed.site_key.trim().to_string();
+        if parsed == openblog_core::config::CaptchaConfig::default() {
+            engagement.remove("captcha");
+        } else {
+            engagement.insert("captcha".into(), json!(parsed));
+        }
+    }
     value["engagement"] = Json::Object(engagement);
     let candidate = match serde_json::to_string_pretty(&value) {
         Ok(value) => format!("{value}\n"),
@@ -4891,9 +4976,10 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
             return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
         }
     };
-    if let Err(error) = SiteConfig::from_json(&candidate) {
-        return Response::error(422, &error);
-    }
+    let validated = match SiteConfig::from_json(&candidate) {
+        Ok(config) => config,
+        Err(error) => return Response::error(422, &error),
+    };
     let credential_path = match engagement_credential_path(&state.root) {
         Ok(path) => path,
         Err(error) => return Response::error(500, &error),
@@ -4938,6 +5024,7 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
         &json!({
             "enabled": enabled, "comments": comments, "analytics": analytics,
             "endpoint": endpoint, "etag": etag, "credential": credential,
+            "captcha": validated.engagement.captcha,
         }),
     )
 }
@@ -11238,9 +11325,11 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::CodeInteraction(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
-        Ok(AssistantResult::Completion(_) | AssistantResult::VoiceGuide(_)) => {
-            return Response::error(502, "Assistant provider returned the wrong result type")
-        }
+        Ok(
+            AssistantResult::Completion(_)
+            | AssistantResult::VoiceGuide(_)
+            | AssistantResult::JobDraft(_),
+        ) => return Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => return review_error(error),
     };
     let review_id = match auth::random_token() {
@@ -11355,6 +11444,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::CodeInteraction(_)
             | AssistantResult::VoiceGuide(_)
+            | AssistantResult::JobDraft(_)
             | AssistantResult::Review(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -11608,7 +11698,8 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         Ok(
             AssistantResult::Review(_)
             | AssistantResult::CodeInteraction(_)
-            | AssistantResult::VoiceGuide(_),
+            | AssistantResult::VoiceGuide(_)
+            | AssistantResult::JobDraft(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
@@ -11695,6 +11786,7 @@ fn code_interaction_response(
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::Review(_)
             | AssistantResult::VoiceGuide(_)
+            | AssistantResult::JobDraft(_)
             | AssistantResult::Completion(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -11718,8 +11810,8 @@ fn status(state: &AppState) -> Response {
 fn list_documents(state: &AppState, req: &Request) -> Response {
     let _content_transaction = lock(&state.build);
     let kind = req.query.get("kind").map(String::as_str).unwrap_or("posts");
-    if !matches!(kind, "posts" | "series" | "pages") {
-        return Response::error(400, "kind must be posts, series, or pages");
+    if !matches!(kind, "posts" | "series" | "pages" | "services") {
+        return Response::error(400, "kind must be posts, series, pages, or services");
     }
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
@@ -11732,6 +11824,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
     let files = match kind {
         "posts" => &sources.posts,
         "series" => &sources.series,
+        "services" => &sources.services,
         _ => &sources.pages,
     };
     let credit_sidecars = openblog_core::model::associate_credit_sidecars(&sources);
@@ -11805,9 +11898,16 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
                         .or_else(|| doc.front_matter.get("title"))
                         .unwrap_or(stem)
                         .to_string();
+                    let status = if kind == "services"
+                        && doc.front_matter.get_bool("draft").unwrap_or(false)
+                    {
+                        "draft"
+                    } else {
+                        "published"
+                    };
                     (
                         0,
-                        json!({ "path": file.path, "title": title, "slug": slugify(stem), "status": "published" }),
+                        json!({ "path": file.path, "title": title, "slug": slugify(stem), "status": status }),
                     )
                 }
                 Err(e) => (
@@ -15987,7 +16087,12 @@ fn validate_candidate(
         .flatten();
     let mut sources = site::read_sources_excluding(root, config, excluded_sidecar.as_deref())
         .map_err(|e| vec![e])?;
-    for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
+    for bucket in [
+        &mut sources.posts,
+        &mut sources.series,
+        &mut sources.pages,
+        &mut sources.services,
+    ] {
         bucket.retain(|f| f.path != rel);
     }
     sources.add(SourceFile {
@@ -16279,6 +16384,15 @@ fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<Strin
         Some(Value::Scalar(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
         _ => None,
     };
+    if kind == "services" {
+        return match get("id").filter(|id| openblog_core::service::check_id(id).is_ok()) {
+            Some(id) => Ok(format!("services/{id}.md")),
+            None => Err(
+                "a service needs an id of lowercase letters, digits and hyphens to name its file"
+                    .into(),
+            ),
+        };
+    }
     let slug = get("slug")
         .map(|s| slugify(&s))
         .or_else(|| get("title").or_else(|| get("name")).map(|t| slugify(&t)))
@@ -16296,7 +16410,7 @@ fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<Strin
         }
         "series" => Ok(format!("series/{slug}.md")),
         "pages" => Ok(format!("pages/{slug}.md")),
-        _ => Err("kind must be posts, series, or pages".into()),
+        _ => Err("kind must be posts, series, pages, or services".into()),
     }
 }
 
@@ -16316,6 +16430,16 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
         return Response::error(413, "The post body is too large");
     }
+    // A capture id makes creation idempotent: the same id never creates a second draft (ADR 0297).
+    let capture_id = match body.get("captureId") {
+        None | Some(Json::Null) => None,
+        Some(Json::String(id))
+            if existing_path.is_none() && openblog_core::capture::valid_id(id) =>
+        {
+            Some(id.clone())
+        }
+        Some(_) => return Response::error(422, "That capture id is not valid"),
+    };
     let mut status = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
         Ok(lock) => lock,
@@ -16325,6 +16449,16 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
     };
+    let capture_ledger = capture_id
+        .as_ref()
+        .map(|id| captures_dir(state).join(format!("{id}.json")));
+    if let Some(ledger) = &capture_ledger {
+        match read_optional_bytes(ledger) {
+            Ok(Some(bytes)) => return replayed_capture(state, &config, &bytes),
+            Ok(None) => {}
+            Err(error) => return Response::error(500, &error),
+        }
+    }
     let field_journal = field_scalar(&fields, "profile") == Some("field-journal");
     let exact_location = field_journal && field_scalar(&fields, "locationPrivacy") == Some("exact");
     if field_journal && !exact_location {
@@ -16510,6 +16644,18 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if let Some(track) = &track_upload {
         let _ = fs::remove_file(&track.pending);
     }
+    if let Some(ledger) = &capture_ledger {
+        // Best effort: the draft exists either way, and its slug carries the capture id.
+        let audio = capture_id
+            .as_deref()
+            .and_then(|id| stored_capture_audio(state, id));
+        if let Err(error) = fsutil::write_file(
+            ledger,
+            openblog_core::capture::ledger_text(&rel, audio.as_deref()).as_bytes(),
+        ) {
+            eprintln!("admin: cannot record capture: {error}");
+        }
+    }
 
     let now = clock::now();
     let build = state.rebuild_locked(&mut status);
@@ -16540,6 +16686,28 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     Response::json(
         if created { 201 } else { 200 },
         &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json, "trackUrl": track_upload.as_ref().map(|track| &track.url) }),
+    )
+}
+
+/// The answer to a capture id the server has already turned into a draft: the same draft, nothing written.
+fn replayed_capture(state: &AppState, config: &SiteConfig, ledger: &[u8]) -> Response {
+    let rel = match openblog_core::capture::parse_ledger(&String::from_utf8_lossy(ledger)) {
+        Ok(rel) => rel,
+        Err(error) => return Response::error(409, &error),
+    };
+    let source = resolve_content_path(&state.root, config, &rel)
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok());
+    let (post_status, url, current_etag) = match &source {
+        Some(source) => {
+            let (status, url) = describe(&rel, source, config, clock::now());
+            (status, url, Some(etag(source)))
+        }
+        None => ("removed", None, None),
+    };
+    Response::json(
+        200,
+        &json!({ "path": rel, "etag": current_etag, "status": post_status, "url": url, "duplicate": true }),
     )
 }
 
@@ -17089,8 +17257,11 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
         Err(e) => return Err(Response::error(422, &e)),
     };
     let kind = body["kind"].as_str().unwrap_or("posts").to_string();
-    if !matches!(kind.as_str(), "posts" | "pages" | "series") {
-        return Err(Response::error(422, "kind must be posts, series, or pages"));
+    if !matches!(kind.as_str(), "posts" | "pages" | "series" | "services") {
+        return Err(Response::error(
+            422,
+            "kind must be posts, series, pages, or services",
+        ));
     }
     let rel = match body["path"].as_str().filter(|path| !path.is_empty()) {
         Some(path) => match check_rel_path(path) {
@@ -17135,7 +17306,12 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
             Ok(sources) => sources,
             Err(e) => return Err(Response::error(500, &e)),
         };
-    for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
+    for bucket in [
+        &mut sources.posts,
+        &mut sources.series,
+        &mut sources.pages,
+        &mut sources.services,
+    ] {
         bucket.retain(|file| file.path != rel);
     }
     sources.add(SourceFile {
@@ -17488,6 +17664,15 @@ fn build_piece(req: &Request) -> Response {
     }) else {
         return Response::error(400, "values must be a list of [field, value] pairs");
     };
+    if kind == openblog_core::compare::FENCE {
+        return match openblog_core::compare::from_values(&values) {
+            Ok(pair) => Response::json(200, &json!({ "markdown": pair.to_markdown() })),
+            Err(problems) => Response::json(
+                422,
+                &json!({ "error": "Check the highlighted details", "problems": problems }),
+            ),
+        };
+    }
     match openblog_core::piece::Piece::from_values(kind, &values) {
         Ok(piece) => Response::json(200, &json!({ "markdown": piece.to_markdown() })),
         Err(problems) => Response::json(
@@ -17572,6 +17757,11 @@ fn preview(state: &AppState, req: &Request) -> Response {
                     preview_site.theme_for_series(series).to_string(),
                 )
             }),
+        "services" => preview_site
+            .services
+            .iter()
+            .find(|service| service.source == rel)
+            .map(|service| (service.url.clone(), preview_site.config.theme.clone())),
         _ => None,
     };
     let Some((url, theme)) = target else {
@@ -17925,9 +18115,29 @@ fn upload(state: &AppState, req: &Request) -> Response {
         );
     };
     let name = req.query.get("name").map(String::as_str).unwrap_or("image");
+    // A capture's photo has a fixed name per capture id and slot, so sending it again lands on the same
+    // file instead of a second copy (ADR 0297).
+    let capture_stem = match (req.query.get("capture"), req.query.get("slot")) {
+        (None, None) => None,
+        (Some(id), Some(slot)) => {
+            match slot
+                .parse::<usize>()
+                .ok()
+                .and_then(|slot| openblog_core::capture::photo_stem(id, slot))
+            {
+                Some(stem) => Some(stem),
+                None => return Response::error(400, "That capture id or photo slot is not valid"),
+            }
+        }
+        _ => return Response::error(400, "A capture upload needs both capture and slot"),
+    };
     let stem = sanitize_upload_stem(name);
     let year = clock::now().civil().year;
-    let dir_rel = format!("images/uploads/{year}");
+    let dir_rel = if capture_stem.is_some() {
+        "images/uploads/captures".to_string()
+    } else {
+        format!("images/uploads/{year}")
+    };
     let static_dir = state.root.join(&config.paths.static_dir);
 
     let _guard = lock(&state.build);
@@ -17935,9 +18145,19 @@ fn upload(state: &AppState, req: &Request) -> Response {
         Ok(lock) => lock,
         Err(response) => return response,
     };
-    let mut file_name = format!("{stem}.{ext}");
+    if let Some(stem) = &capture_stem {
+        let rel = format!("{dir_rel}/{stem}.{ext}");
+        if static_dir.join(&rel).is_file() {
+            let url = format!("/{rel}");
+            return Response::json(
+                200,
+                &json!({ "url": url, "markdown": format!("![]({url})"), "duplicate": true }),
+            );
+        }
+    }
+    let mut file_name = format!("{}.{ext}", capture_stem.as_deref().unwrap_or(&stem));
     let mut n = 2;
-    while static_dir.join(&dir_rel).join(&file_name).exists() {
+    while capture_stem.is_none() && static_dir.join(&dir_rel).join(&file_name).exists() {
         file_name = format!("{stem}-{n}.{ext}");
         n += 1;
     }
@@ -17956,6 +18176,63 @@ fn upload(state: &AppState, req: &Request) -> Response {
         201,
         &json!({ "url": url, "markdown": format!("![]({url})") }),
     )
+}
+
+/// The directory of a site's capture ledger and voice notes: private, never built, never served.
+fn captures_dir(state: &AppState) -> PathBuf {
+    state.root.join(".openblog/captures")
+}
+
+/// The stored voice note of a capture, if one was uploaded.
+fn stored_capture_audio(state: &AppState, id: &str) -> Option<String> {
+    openblog_core::capture::AUDIO_EXTENSIONS
+        .iter()
+        .filter_map(|extension| openblog_core::capture::audio_file_name(id, extension))
+        .find(|name| captures_dir(state).join(name).is_file())
+}
+
+/// A capture's voice note (ADR 0298): checked by its bytes, bounded, and kept privately beside the capture's
+/// ledger entry. It is never written under the static folder, so no build or export can publish it. Sending
+/// the same capture's note again keeps the first and writes nothing.
+fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("capture")
+        .filter(|id| openblog_core::capture::valid_id(id))
+    else {
+        return Response::error(400, "That capture id is not valid");
+    };
+    if req.body.is_empty() {
+        return Response::error(400, "No audio data");
+    }
+    if req.body.len() > openblog_core::capture::MAX_AUDIO_BYTES {
+        return Response::error(
+            413,
+            &format!(
+                "A voice note can be at most {} MB",
+                openblog_core::capture::MAX_AUDIO_BYTES / (1024 * 1024)
+            ),
+        );
+    }
+    let Some(extension) = openblog_core::capture::sniff_audio(&req.body) else {
+        return Response::error(415, "That is not an audio recording this site can keep");
+    };
+    let Some(name) = openblog_core::capture::audio_file_name(id, extension) else {
+        return Response::error(400, "That capture id is not valid");
+    };
+    let _guard = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    if stored_capture_audio(state, id).is_some() {
+        return Response::json(200, &json!({ "stored": true, "duplicate": true }));
+    }
+    if let Err(error) = fsutil::write_file(&captures_dir(state).join(&name), &req.body) {
+        return Response::error(500, &error);
+    }
+    eprintln!("admin: kept a voice note ({} bytes)", req.body.len());
+    Response::json(201, &json!({ "stored": true, "bytes": req.body.len() }))
 }
 
 fn upload_track(state: &AppState, req: &Request) -> Response {
@@ -18145,12 +18422,18 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
+    mod announcement_routes;
+    mod business_routes;
+    mod capture_transcribe_routes;
     mod comparison_routes;
+    mod job_draft_routes;
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod service_routes;
+    mod social_routes;
     mod voice_assistant_routes;
     mod voice_journey;
     mod voice_routes;
@@ -25555,6 +25838,43 @@ What I read:
         assert_eq!(initial.status, 200);
         let initial_json = body_json(&initial);
         assert_eq!(initial_json["enabled"], false);
+        assert_eq!(initial_json["captcha"]["provider"], "off");
+        assert_eq!(initial_json["captcha"]["scope"], "session");
+        let put_captcha = |captcha: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        "/admin/api/engagement/settings",
+                        json!({ "etag": initial_json["etag"], "captcha": captcha }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let secret_attempt = put_captcha(
+            json!({ "provider": "turnstile", "siteKey": "public-key", "secret": "never-persist-this" }),
+        );
+        assert_eq!(secret_attempt.status, 422);
+        assert!(!String::from_utf8_lossy(&secret_attempt.body).contains("never-persist-this"));
+        for (invalid, hint) in [
+            (json!({ "provider": "turnstile" }), "siteKey is required"),
+            (json!({ "provider": "other" }), "turnstile"),
+            (json!({ "scope": "always" }), "every-comment"),
+            (
+                json!({ "provider": "turnstile", "siteKey": "bad key!" }),
+                "never put a secret",
+            ),
+        ] {
+            let refused = put_captcha(invalid);
+            assert_eq!(refused.status, 422);
+            assert!(String::from_utf8_lossy(&refused.body).contains(hint));
+        }
+        assert!(!fs::read_to_string(f.dir.join(site::CONFIG_FILE))
+            .unwrap()
+            .contains("captcha"));
         let save = json!({
             "enabled": true,
             "comments": true,
@@ -25563,6 +25883,7 @@ What I read:
             "etag": initial_json["etag"],
             "credentialAction": "replace",
             "credential": "moderation-secret",
+            "captcha": { "provider": "turnstile", "siteKey": " public-key ", "scope": "every-comment" },
         });
         assert_eq!(
             handle(
@@ -25585,6 +25906,8 @@ What I read:
             ),
         );
         assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["captcha"]["siteKey"], "public-key");
+        assert_eq!(body_json(&saved)["captcha"]["scope"], "every-comment");
         assert_eq!(body_json(&saved)["credential"]["configured"], true);
         assert!(!String::from_utf8_lossy(&saved.body).contains("moderation-secret"));
         let config = site::load_config(&f.dir).unwrap();
@@ -25636,6 +25959,9 @@ What I read:
         assert_eq!(kept.status, 200);
         let config = site::load_config(&f.dir).unwrap();
         assert!(config.engagement.feedback && !config.engagement.comments);
+        assert!(config.engagement.captcha.enabled());
+        assert_eq!(config.engagement.captcha.site_key, "public-key");
+        assert_eq!(config.engagement.captcha.scope, "every-comment");
         let off = handle(
             &f.state,
             &authed(
@@ -25658,7 +25984,37 @@ What I read:
         );
         assert_eq!(off.status, 200);
         assert!(!site::load_config(&f.dir).unwrap().engagement.feedback);
-
+        assert!(site::load_config(&f.dir)
+            .unwrap()
+            .engagement
+            .captcha
+            .enabled());
+        let cleared = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true,
+                        "comments": true,
+                        "analytics": true,
+                        "endpoint": "https://blog.example/api",
+                        "etag": body_json(&off)["etag"],
+                        "credentialAction": "keep",
+                        "captcha": { "provider": "off" },
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(cleared.status, 200);
+        assert_eq!(body_json(&cleared)["captcha"]["provider"], "off");
+        assert!(!fs::read_to_string(f.dir.join(site::CONFIG_FILE))
+            .unwrap()
+            .contains("captcha"));
+        let off = cleared;
         let saved_json = body_json(&off);
         let moved = handle(
             &f.state,
@@ -32494,6 +32850,73 @@ What I read:
     }
 
     #[test]
+    fn a_before_and_after_pair_is_offered_checked_and_written_by_the_engine() {
+        let f = fixture("compare-pair");
+        let session = login_ok(&f);
+        let meta = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/meta"), &session, false),
+        ));
+        assert_eq!(meta["compare"]["kind"], "compare");
+        assert_eq!(meta["compare"]["label"], "Before and after");
+        assert_eq!(meta["pieces"].as_array().unwrap().len(), 9);
+        assert!(!meta["pieces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|piece| piece["kind"] == "compare"));
+        let build = |values: Json, csrf: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/pieces",
+                        json!({"kind": "compare", "values": values}),
+                    ),
+                    &session,
+                    csrf,
+                ),
+            )
+        };
+        let built = build(
+            json!([
+                ["before", "/images/a.jpg"],
+                ["before-alt", "The old floor"],
+                ["after", "/images/b.jpg"],
+                ["after-alt", "The new floor"],
+                ["after-caption", "Done"]
+            ]),
+            true,
+        );
+        assert_eq!(built.status, 200);
+        assert_eq!(
+            body_json(&built)["markdown"],
+            "```compare\nbefore: /images/a.jpg\nbefore-alt: The old floor\nafter: /images/b.jpg\nafter-alt: The new floor\nafter-caption: Done\n```\n"
+        );
+        let refused = build(
+            json!([
+                ["before", "/images/a.jpg"],
+                ["before-alt", ""],
+                ["after", ""],
+                ["after-alt", "x"]
+            ]),
+            true,
+        );
+        assert_eq!(refused.status, 422);
+        let problems = body_json(&refused)["problems"].clone();
+        assert!(problems[0]
+            .as_str()
+            .unwrap()
+            .contains("before picture needs a description"));
+        assert!(problems[1]
+            .as_str()
+            .unwrap()
+            .contains("after picture is missing"));
+        assert_ne!(build(json!([]), false).status, 200);
+    }
+
+    #[test]
     fn credit_sidecars_round_trip_preview_and_follow_post_lifecycle() {
         let f = fixture("credit-lifecycle");
         let config_path = f.dir.join("openblog.json");
@@ -33522,6 +33945,234 @@ href: /about/
         let mut big = authed(req("POST", "/admin/api/upload?name=x.png"), &session, true);
         big.body = vec![0u8; 11 * 1024 * 1024];
         assert_eq!(handle(&f.state, &big).status, 413);
+    }
+
+    #[test]
+    fn a_capture_replayed_makes_one_draft_and_one_copy_of_each_photo() {
+        let f = fixture("capture-replay");
+        let session = login_ok(&f);
+        let id = "0123456789abcdef0123456789abcdef";
+        let png: Vec<u8> = [
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A][..],
+            &[0u8; 32],
+        ]
+        .concat();
+        let photo = |query: &str| {
+            let mut r = authed(
+                req("POST", &format!("/admin/api/upload?name=a.png{query}")),
+                &session,
+                true,
+            );
+            r.body = png.clone();
+            handle(&f.state, &r)
+        };
+        let first = photo(&format!("&capture={id}&slot=0"));
+        assert_eq!(
+            first.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&first.body)
+        );
+        let url = body_json(&first)["url"].as_str().unwrap().to_string();
+        assert_eq!(url, "/images/uploads/captures/capture-0123456789ab-0.png");
+        let again = photo(&format!("&capture={id}&slot=0"));
+        assert_eq!(again.status, 200);
+        assert_eq!(body_json(&again)["url"], url.as_str());
+        assert_eq!(body_json(&again)["duplicate"], true);
+        let other = photo(&format!("&capture={id}&slot=1"));
+        assert_eq!(other.status, 201);
+        assert_ne!(body_json(&other)["url"], url.as_str());
+        for bad in [
+            "&capture=nope&slot=0",
+            &format!("&capture={id}&slot=99"),
+            &format!("&capture={id}"),
+            "&slot=0",
+        ] {
+            assert_eq!(photo(bad).status, 400, "{bad}");
+        }
+        let captures = f.dir.join("static/images/uploads/captures");
+        assert_eq!(fs::read_dir(captures).unwrap().count(), 2);
+
+        let save = |id: &str| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({
+                            "kind": "posts",
+                            "captureId": id,
+                            "fields": { "title": "Capture Test", "slug": "capture-test", "draft": "true" },
+                            "body": "Notes"
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let posts = || {
+            fs::read_dir(f.dir.join("content/posts"))
+                .unwrap()
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().contains("capture-test"))
+                .count()
+        };
+        let created = save(id);
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let path = body_json(&created)["path"].as_str().unwrap().to_string();
+        let replay = save(id);
+        assert_eq!(
+            replay.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&replay.body)
+        );
+        let replayed = body_json(&replay);
+        assert_eq!(replayed["path"], path.as_str());
+        assert_eq!(replayed["status"], "draft");
+        assert_eq!(replayed["duplicate"], true);
+        assert_eq!(posts(), 1);
+
+        // Without the id, the same title is a collision, never a silent second draft.
+        let plain = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({ "kind": "posts", "fields": { "title": "Capture Test", "slug": "capture-test", "draft": "true" }, "body": "Notes" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert!(plain.status == 409 || posts() == 1, "{}", plain.status);
+
+        assert_eq!(save("../../etc").status, 422);
+        assert_eq!(save("ABCDEF0123456789abcdef0123456789").status, 422);
+
+        // A draft the author has since deleted is not resurrected by a replay.
+        fs::remove_file(f.dir.join("content").join(&path)).unwrap();
+        let gone = save(id);
+        assert_eq!(gone.status, 200);
+        assert_eq!(body_json(&gone)["status"], "removed");
+        assert_eq!(posts(), 0);
+
+        // An entry from a newer version is refused, not guessed at.
+        fs::write(
+            f.dir.join(".openblog/captures").join(format!("{id}.json")),
+            r#"{"v":2,"path":"x"}"#,
+        )
+        .unwrap();
+        assert_eq!(save(id).status, 409);
+    }
+
+    #[test]
+    fn a_voice_note_is_checked_bounded_kept_privately_and_noted_in_the_ledger() {
+        let f = fixture("capture-audio");
+        let session = login_ok(&f);
+        let id = "fedcba9876543210fedcba9876543210";
+        let send = |query: &str, bytes: &[u8]| {
+            let mut r = authed(
+                req("POST", &format!("/admin/api/capture-audio?{query}")),
+                &session,
+                true,
+            );
+            r.body = bytes.to_vec();
+            handle(&f.state, &r)
+        };
+        let webm: Vec<u8> = [&[0x1A, 0x45, 0xDF, 0xA3][..], &[0u8; 64]].concat();
+        let png: Vec<u8> = [
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A][..],
+            &[0u8; 32],
+        ]
+        .concat();
+        assert_eq!(send(&format!("capture={id}"), b"").status, 400);
+        assert_eq!(send("capture=nope", &webm).status, 400);
+        assert_eq!(send("", &webm).status, 400);
+        assert_eq!(
+            send(&format!("capture={id}"), b"<script>alert(1)</script>").status,
+            415
+        );
+        assert_eq!(
+            send(&format!("capture={id}"), &png).status,
+            415,
+            "an image is not a voice note"
+        );
+        let big = vec![0x1A; openblog_core::capture::MAX_AUDIO_BYTES + 1];
+        assert_eq!(send(&format!("capture={id}"), &big).status, 413);
+        let private = f.dir.join(".openblog/captures");
+        assert!(
+            !private.join(format!("{id}.audio.webm")).exists(),
+            "nothing was kept for a refusal"
+        );
+
+        let kept = send(&format!("capture={id}"), &webm);
+        assert_eq!(kept.status, 201, "{}", String::from_utf8_lossy(&kept.body));
+        assert_eq!(
+            fs::read(private.join(format!("{id}.audio.webm"))).unwrap(),
+            webm
+        );
+        let again = send(&format!("capture={id}"), &webm);
+        assert_eq!(again.status, 200);
+        assert_eq!(body_json(&again)["duplicate"], true);
+
+        // Bounded at the preflight too, before any body is buffered.
+        let allowed = authed(req("POST", "/admin/api/capture-audio"), &session, true);
+        assert_eq!(
+            preflight(&f.state, &allowed).unwrap(),
+            openblog_core::capture::MAX_AUDIO_BYTES
+        );
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({ "kind": "posts", "captureId": id, "fields": { "title": "Voice Test", "draft": "true" }, "body": "Notes" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let ledger = fs::read_to_string(private.join(format!("{id}.json"))).unwrap();
+        assert!(ledger.contains(&format!("{id}.audio.webm")), "{ledger}");
+
+        // Private: never under the published static folder, the build output or the post.
+        let mut published = Vec::new();
+        for root in ["static", "dist", "content"] {
+            let mut stack = vec![f.dir.join(root)];
+            while let Some(dir) = stack.pop() {
+                for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else if path
+                        .strip_prefix(&f.dir)
+                        .unwrap()
+                        .to_string_lossy()
+                        .contains(id)
+                    {
+                        published.push(path);
+                    }
+                }
+            }
+        }
+        assert!(published.is_empty(), "{published:?}");
     }
 
     #[test]

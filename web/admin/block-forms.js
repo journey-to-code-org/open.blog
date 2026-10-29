@@ -144,10 +144,10 @@ export function embedProblem(provider, url) {
 
 // ----- pieces (the ```piece fence) -----------------------------------------------------
 
-/** Read a `piece` fence into `{ kind, values }` for the form; the engine validates on save. */
+/** Read a `piece` fence, or a `compare` fence, into `{ kind, values }` for the form; the engine validates on save. */
 export function parsePieceFence(source, schema = null) {
   const lines = trimEnd(source).split("\n");
-  const open = /^ {0,3}(`{3,})piece[ \t]+([a-z]+)[ \t]*$/.exec(lines[0] || "");
+  const open = /^ {0,3}(`{3,})(?:piece[ \t]+([a-z]+)|(compare))[ \t]*$/.exec(lines[0] || "");
   if (!open) return null;
   const close = lines[lines.length - 1];
   if (lines.length < 2 || !new RegExp(`^ {0,3}\`{${open[1].length},}[ \\t]*$`).test(close)) return null;
@@ -159,7 +159,7 @@ export function parsePieceFence(source, schema = null) {
     } else if (!line.trim()) {
       if (values.length) values[values.length - 1][1] += "\n";
     } else {
-      const match = /^([a-z]+): ?(.*)$/.exec(line);
+      const match = /^([a-z][a-z-]*): ?(.*)$/.exec(line);
       if (!match) return null;
       values.push([match[1], match[2]]);
     }
@@ -177,7 +177,7 @@ export function parsePieceFence(source, schema = null) {
       seen.add(name);
     }
   }
-  return { kind: open[2], values };
+  return { kind: open[2] || open[3], values };
 }
 
 /** Which form edits a protected block, or "" when none does (it stays protected). */
@@ -186,7 +186,7 @@ export function editableBlockKind(label, source, pieces = []) {
   if (label === "Table") return parseTable(source) ? "table" : "";
   if (label === "Task list") return parseTaskList(source) ? "tasklist" : "";
   if (label === "Embedded media") return parseEmbed(source) ? "embed" : "";
-  if (label === "Piece") {
+  if (label === "Piece" || label === "Before and after") {
     const parsed = parsePieceFence(source);
     if (!parsed) return "";
     if (!pieces.length) return "piece";
@@ -384,8 +384,44 @@ function controlFor(field, value) {
     area.value = value || "";
     return area;
   }
-  const modes = { url: "url", email: "email", tel: "tel", number: "decimal" };
+  const modes = { url: "url", email: "email", tel: "tel", number: "decimal", image: "url" };
   return el("input", { type: "text", inputmode: modes[field.input] || null, autocomplete: "off", maxlength: field.max || null, value: value || "" });
+}
+
+/**
+ * A file picker under a picture's address field: the file is uploaded by the Admin's own upload and its
+ * address is written into the field. `upload(file)` resolves to the address, or null when it failed.
+ */
+function pictureChooser(field, control, upload) {
+  const picker = el("input", { type: "file", accept: "image/*", id: nextId("oba-bf-file"), "data-picture-for": field.name });
+  const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  picker.addEventListener("change", async () => {
+    const file = picker.files?.[0];
+    if (!file) return;
+    status.textContent = `Uploading ${file.name}…`;
+    picker.disabled = true;
+    try {
+      const address = await upload(file);
+      if (address) {
+        control.value = address;
+        status.textContent = `Added ${file.name}.`;
+      } else {
+        status.textContent = `${file.name} could not be uploaded. Type its address instead, or try again.`;
+      }
+    } catch {
+      status.textContent = `${file.name} could not be uploaded. Type its address instead, or try again.`;
+    } finally {
+      picker.disabled = false;
+      picker.value = "";
+    }
+  });
+  return el(
+    "div",
+    { class: "oba-field oba-bf-field oba-bf-picture" },
+    el("label", { for: picker.id }, `Or choose a file for the ${field.label.toLowerCase()}`),
+    picker,
+    status,
+  );
 }
 
 /**
@@ -393,7 +429,7 @@ function controlFor(field, value) {
  * ordered `[field, value]` pairs the engine takes (empty optional fields left out).
  * `showProblems(list)` marks the form with what the engine refused.
  */
-export function buildPieceForm(schema, initialValues = []) {
+export function buildPieceForm(schema, initialValues = [], { upload = null } = {}) {
   const problems = el("div", { class: "oba-error oba-bf-problems", role: "alert", hidden: true });
   const root = el("div", { class: "oba-bf-body" });
   const top = new Map();
@@ -404,6 +440,7 @@ export function buildPieceForm(schema, initialValues = []) {
     if (field.required) control.setAttribute("aria-required", "true");
     top.set(field.name, control);
     root.append(fieldRow(`${field.label}${required(field)}`, control, field.hint));
+    if (field.input === "image" && upload) root.append(pictureChooser(field, control, upload));
   }
   let rows = null;
   let listStatus = null;
@@ -502,7 +539,7 @@ const PIECE_BLURB = { callout: "A highlighted note, tip or warning." };
  *
  * The landing page workspace can call this too: pass its own `onInsert` and `build`.
  */
-export function openPieceDialog({ pieces, build, onInsert, onClose, heading = "Add something" }) {
+export function openPieceDialog({ pieces, build, onInsert, onClose, upload = null, heading = "Add something" }) {
   const dialog = el("dialog", { class: "oba-dialog oba-piece-dialog", "aria-labelledby": "oba-piece-title" });
   const body = el("div", { class: "oba-piece-dialog-body" });
   let closed = false;
@@ -544,7 +581,7 @@ export function openPieceDialog({ pieces, build, onInsert, onClose, heading = "A
   };
   const showForm = (piece) => {
     step.textContent = piece.label;
-    const form = buildPieceForm(piece);
+    const form = buildPieceForm(piece, [], { upload });
     const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     let busy = false;
     const insert = actionButton("Insert", async () => {
@@ -599,7 +636,7 @@ export function openPieceDialog({ pieces, build, onInsert, onClose, heading = "A
  * is the engine's schema list and `build` checks and writes the piece.
  * Returns `{ element, read(), focus() }` where `read()` resolves to `{ markdown }` or `{ problem }`.
  */
-export function blockEditor(kind, source, { pieces = [], build } = {}) {
+export function blockEditor(kind, source, { pieces = [], build, upload = null } = {}) {
   if (kind === "callout") return wrapRead(calloutEditor(source));
   if (kind === "tasklist") return wrapRead(taskListEditor(source));
   if (kind === "table") return wrapRead(tableEditor(source));
@@ -608,7 +645,7 @@ export function blockEditor(kind, source, { pieces = [], build } = {}) {
   const schema = pieces.find((piece) => piece.kind === kindOnly?.kind);
   const parsed = schema ? parsePieceFence(source, schema) : null;
   if (!parsed || !schema) return null;
-  const form = buildPieceForm(schema, parsed.values);
+  const form = buildPieceForm(schema, parsed.values, { upload });
   const snapshot = JSON.stringify(form.values());
   return {
     element: form.element,

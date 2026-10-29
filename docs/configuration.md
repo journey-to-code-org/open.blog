@@ -112,6 +112,68 @@ default, so you can edit values in place and delete the ones you do not need.
   [Landing page sections](content.md#landing-page-sections).
 - **`home.intro`** is Markdown shown above the post list on the first page.
 
+## Business facts
+
+`business` states who you are once, and every page, the footer, the Landing page's **Business facts** section
+and the `LocalBusiness` structured data read it ([ADR 0305](adr/0305-business-facts-are-one-versioned-block-in-openblog-json-that-pages-the-footer-and-structured-data-all-read.md)).
+It is optional: a site without it builds exactly as before. Edit it under **Admin → Settings → Business facts**,
+or by hand:
+
+```json
+"business": {
+  "version": 1,
+  "legalName": "Maple Falls Flooring LLC",
+  "displayName": "Maple Falls Flooring",
+  "trade": "flooring",
+  "phone": "+13605550142",
+  "email": "office@example.com",
+  "hours": {
+    "monday":   { "open": "08:00", "close": "17:00" },
+    "saturday": { "open": "09:00", "close": "12:30" },
+    "sunday":   { "closed": true }
+  },
+  "licenseNumber": "MAPLEF*123",
+  "licenseIssuer": "Washington L&I",
+  "insured": true,
+  "paymentMethods": ["cash", "check", "credit-card"],
+  "foundedYear": 1998
+}
+```
+
+- **Every field is optional**, and only what you state is shown or published.
+- **`phone`** is stored in E.164 (`+`, the country code and digits, 8 to 15 in all) and formatted when a page is
+  built: `+13605550142` shows as `(360) 555-0142`, and the link is `tel:+13605550142`. A number written any
+  other way fails the build with a message that shows the shape. Admin accepts what you would type
+  (`(360) 555-0142`) and stores the E.164 form.
+- **`hours`** lists the days you want to state, `monday` to `sunday`. A day is `{ "open", "close" }` in 24-hour
+  `HH:MM` (close after open; `24:00` closes at midnight) or `{ "closed": true }`. A day you leave out is not
+  stated. Pages group days that share hours ("Mon to Fri 8:00 am to 5:00 pm"). A day cannot run past midnight.
+- **`trade`** is one of the job trades (see [Jobs](jobs.md), including your own `extraTrades`). It picks the
+  schema.org type: `general-contractor` is `GeneralContractor`, `roofing` `RoofingContractor`, `plumbing`
+  `Plumber`, `electrical` `Electrician`, `hvac` `HVACBusiness`, `painting` `HousePainter`, `mobile-mechanic`
+  `AutoRepair`, `auto-body-paint` `AutoBodyShop`, `locksmith` `Locksmith`; `excavation`, `flooring` and
+  `landscaping` use `HomeAndConstructionBusiness`, and anything else is a plain `LocalBusiness`.
+- **`paymentMethods`** is a list from `cash`, `check`, `credit-card`, `debit-card`, `bank-transfer`,
+  `mobile-payment` and `financing`. Only the kind of payment is stored, never an account.
+- **`licenseNumber`** and **`licenseIssuer`** (the issuer needs the number) and **`insured`** earn the
+  "Licensed and insured" badge. `insured` is a claim you make; open.blog does not verify it.
+- **`email`** and **`phone`** are business contact details you chose to publish. Nothing about customers is
+  stored here.
+
+Where it appears:
+
+- **Footer**: a **Business details** block on every page, styled by the engine's `ob-business` rules with
+  `--ob-*` tokens so every theme gets it (see [Theme components](theme-components.md)).
+- **Landing page**: the **Business facts** section places the same block (heading of your choice) wherever you
+  want it on the home page.
+- **Structured data**: the home page carries a `LocalBusiness` (or trade subtype) JSON-LD block with the name,
+  legal name, `url`, `telephone`, `email`, `foundingDate`, `openingHoursSpecification` (closed days are left
+  out, as schema.org expects), `paymentAccepted` and the license as `hasCredential`. A field you did not state is
+  not emitted. No address is emitted (the towns you serve are `serviceAreas`; see [Service areas](service-areas.md)).
+
+The stored object is versioned: a newer version is refused with a message and never rewritten, and fields this
+release does not know are kept when Admin saves.
+
 ## Share, analytics, related posts, snippets, CDN
 
 These are described in [Sharing, views, analytics, and embeds](features.md).
@@ -123,6 +185,13 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   hosted elsewhere, `branch` names the git branch that backs the counts up, and
   `bakeCounts` writes the known counts into static builds. See
   [Publishing from home](publishing.md).
+- `engagement.captcha` (optional, off by default, omitted from `openblog.json` until set) protects hosted
+  comments with a Cloudflare Turnstile challenge: `provider` is `off` or `turnstile`, `siteKey` is the
+  public site key (required for `turnstile`; letters, numbers, `_` and `-`; never a secret) and `scope` is
+  `session` (one challenge per tab session, the default) or `every-comment`. The server enforces the same
+  scope through `OPENBLOG_CAPTCHA_SCOPE`, so the two must match. Secrets are Netlify environment variables;
+  see the [function setup guide](../netlify/functions/README.md#comment-captcha-optional). Readers pass
+  the challenge when they first write in the form; locked and hidden discussions never show it.
 - `engagement.enabled` adds hosted comments and analytics to static deployments;
   `engagement.endpoint` is the public function URL. Database and moderation secrets stay in server
   environment variables or Admin's write-only private credential store. `engagement.feedback`

@@ -279,6 +279,73 @@ pub fn new_job(
     Ok(rel)
 }
 
+/// The answers `openblog new --profile service` can take.
+#[derive(Default)]
+pub struct ServiceStart<'a> {
+    pub id: Option<&'a str>,
+    pub price_band: Option<&'a str>,
+}
+
+/// Create a draft service, `content/services/<id>.md` (ADR 0313): version 1
+/// front matter with the required keys left for the owner to fill in, checked
+/// by the same rules the build uses. A draft never stops a build; `openblog
+/// check` lists what is still missing.
+pub fn new_service(root: &Path, name: &str, start: &ServiceStart) -> Result<String, String> {
+    use openblog_core::{job::CostBand, service};
+    let config = site::load_config(root)?;
+    let name = name.trim();
+    if name.is_empty()
+        || name.chars().any(char::is_control)
+        || name.chars().count() > service::MAX_NAME
+    {
+        return Err(format!(
+            "the name needs 1 to {} characters of plain text",
+            service::MAX_NAME
+        ));
+    }
+    let id = match start.id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => id.to_string(),
+        None => slugify(name),
+    };
+    service::check_id(&id)?;
+    let band = match start
+        .price_band
+        .map(str::trim)
+        .filter(|band| !band.is_empty())
+    {
+        Some(band) => Some(CostBand::parse(band).ok_or_else(|| {
+            format!(
+                "priceBand: `{band}` is not a price band; use one of {}",
+                CostBand::ALL.map(CostBand::as_str).join(", ")
+            )
+        })?),
+        None => None,
+    };
+    let rel = format!("{}/{}/{id}.md", config.paths.content, service::SERVICES_DIR);
+    let path = root.join(&rel);
+    if path.exists() {
+        return Err(format!("{rel} already exists"));
+    }
+    let mut fields: Vec<(&str, Value)> = vec![
+        (
+            "version",
+            Value::Scalar(service::SERVICE_VERSION.to_string()),
+        ),
+        ("id", Value::Scalar(id)),
+        ("name", Value::Scalar(name.to_string())),
+        ("summary", Value::Scalar(String::new())),
+    ];
+    if let Some(band) = band {
+        fields.push(("priceBand", Value::Scalar(band.as_str().into())));
+    }
+    fields.push(("draft", Value::Scalar("true".into())));
+    let mut text = frontmatter::serialize(&fields);
+    text.push_str("\nDescribe the service here. This text appears on its page.\n");
+    fs::create_dir_all(path.parent().unwrap_or(root)).map_err(|e| e.to_string())?;
+    fsutil::write_file(&path, text.as_bytes())?;
+    Ok(rel)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

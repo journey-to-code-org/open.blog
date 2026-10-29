@@ -61,7 +61,9 @@ pub mod atlas_query;
 pub mod attributed_perspective;
 pub mod author_response;
 pub mod bibliography;
+pub mod business;
 pub mod capability;
+pub mod capture;
 pub mod chronology;
 pub mod chronology_index;
 pub mod citation_review;
@@ -71,6 +73,7 @@ pub mod claim_review;
 pub mod claims;
 pub mod collaboration;
 pub mod community_feature;
+pub mod compare;
 pub mod comparison_portable;
 pub mod comparison_publication;
 pub mod concept_links;
@@ -98,6 +101,7 @@ pub mod interpretation_publication;
 pub mod invitation;
 pub mod job;
 pub mod job_archive;
+pub mod job_draft;
 pub mod knowledge_atlas;
 pub mod landing;
 pub mod look;
@@ -136,10 +140,14 @@ pub mod research_search;
 pub mod scholarly_comparison;
 pub mod scholarly_feedback;
 pub mod search;
+pub mod service;
+pub mod service_area;
 pub mod shared_series;
 pub mod shared_source;
 pub mod shingles;
 pub mod slug;
+pub mod social_publishing;
+pub mod social_schedule;
 pub mod source_interchange;
 pub mod source_library;
 pub mod source_review;
@@ -177,6 +185,7 @@ pub fn classify_source(relative_path: &str) -> Option<SourceKind> {
         "posts" => Some(SourceKind::Post),
         "series" => Some(SourceKind::Series),
         "pages" => Some(SourceKind::Page),
+        "services" => Some(SourceKind::Service),
         // Loose Markdown files at the content root are posts, so a folder of
         // exported articles works with no restructuring.
         _ if !normalized.contains('/') => Some(SourceKind::Post),
@@ -190,6 +199,7 @@ pub enum SourceKind {
     PostCredits,
     Series,
     Page,
+    Service,
 }
 
 impl Sources {
@@ -197,10 +207,14 @@ impl Sources {
     /// files that are not content (images, READMEs, nested folders).
     pub fn add(&mut self, file: SourceFile) -> bool {
         match classify_source(&file.path) {
+            Some(SourceKind::Service) if !service::declares_service(&file.contents) => {
+                return false
+            }
             Some(SourceKind::Post) => self.posts.push(file),
             Some(SourceKind::PostCredits) => self.credits.push(file),
             Some(SourceKind::Series) => self.series.push(file),
             Some(SourceKind::Page) => self.pages.push(file),
+            Some(SourceKind::Service) => self.services.push(file),
             None => return false,
         }
         true
@@ -221,6 +235,11 @@ mod tests {
             Some(SourceKind::Page)
         );
         assert_eq!(classify_source("loose.md"), Some(SourceKind::Post));
+        assert_eq!(
+            classify_source("services/hardwood.md"),
+            Some(SourceKind::Service)
+        );
+        assert_eq!(classify_source("services/a.credits.json"), None);
         assert_eq!(
             classify_source("posts/a.credits.json"),
             Some(SourceKind::PostCredits)

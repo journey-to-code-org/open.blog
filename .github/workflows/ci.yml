@@ -46,3 +46,29 @@ jobs:
       - name: Test browser publication and independent feed readers
         working-directory: tests/browser
         run: npm test
+
+  social-queue-sql:
+    # Runs the real plpgsql of the social delivery queue (claim, SKIP LOCKED, leases, settle and the
+    # rollbacks) against a throwaway Postgres, so the SQL is tested and not only matched by regexes.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test the social queue SQL against Postgres
+        env:
+          OPENBLOG_TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: node --test tests/web/social-queue-sql.test.mjs

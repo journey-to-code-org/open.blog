@@ -8,8 +8,13 @@ import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.j
 import { buildChecksPanel } from "./checks-panel.js";
 import { applyJobDraft, bodyTakesScaffold, buildJobForm, JOB_PROFILE } from "./job-form.js";
 import { buildHistory } from "./landing-history.js";
+import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
+import { createAnnouncementsPanel } from "./announcements.js";
+import { createBusinessFacts } from "./business.js";
+import { createServices } from "./services.js";
+import { createSocialAccounts } from "./social.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
@@ -9383,6 +9388,7 @@ function visualProtectedLabel(lines, index) {
   const fence = visualFence(lines[index]);
   if (fence && fence[2].trim().toLowerCase() === "quiz") return "Knowledge check";
   if (fence && /^piece(?:\s|$)/.test(fence[2].trim())) return "Piece";
+  if (fence && fence[2].trim() === "compare") return "Before and after";
   if (visualQuote(lines[index]) && /^ {0,3}>\s*\[![A-Z]+\]/.test(text)) return "Callout";
   if (visualRawHtml(lines[index]) || /<\/?[a-z][^>]*>/i.test(text)) return "Raw HTML";
   if (/~~|<(?:https?:|mailto:)[^>]+>|\[[^\]]+\]\[[^\]]*\]|^\s*\[[^\]]+\]:| {2,}$/.test(text)) return "Advanced formatting";
@@ -10951,6 +10957,8 @@ export class ObAdmin extends AdminElement {
   viewDirty = null;
   // Whether the open view's own save is in flight, for views that save outside the editor.
   viewBusy = null;
+  // Tears down the open view's outside listeners; run before the next view mounts.
+  viewCleanup = null;
   // The user whose session kept the workspace's panels, so only they ever get them back.
   keptOwner = "";
   // Set while the sign-in form is showing, from the moment a session ends or the writer signs out
@@ -11022,6 +11030,12 @@ export class ObAdmin extends AdminElement {
 
   async enter() {
     this.meta = await this.api.call("GET", "meta");
+    // Social publishing is optional: its tab exists only when Admin says it is set up (ADR 0310).
+    try {
+      this.social = await this.api.call("GET", "social/status");
+    } catch {
+      this.social = { enabled: false };
+    }
     try {
       const snapshot = await this.loadWorkspacePreferences();
       const storage = browserStorage();
@@ -11163,6 +11177,12 @@ export class ObAdmin extends AdminElement {
   // ---- views
 
   mount(...nodes) {
+    try {
+      this.viewCleanup?.();
+    } catch {
+      // A view's teardown must never stop the next one from opening.
+    }
+    this.viewCleanup = null;
     this.editor?.dispose();
     this.editor = null;
     this.viewDirty = null;
@@ -11424,17 +11444,25 @@ export class ObAdmin extends AdminElement {
       ...Object.entries(KINDS).map(([kind, info]) =>
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
+      h("a", { class: "oba-tab", "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
       h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
+      h("a", { class: "oba-tab", "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
       h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
       h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
       h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
+      ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
+      h("a", { class: "oba-tab", "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
       : active === "appearance"
         ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
+      : active === "business"
+        ? { title: "Business facts", detail: "Set your name, phone, hours, license and insurance once, and see them everywhere on your site." }
+      : active === "services"
+        ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
       : active === "look"
         ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
@@ -11443,8 +11471,12 @@ export class ObAdmin extends AdminElement {
         ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
+      : active === "social"
+        ? { title: "Social accounts", detail: "Connect LinkedIn or Facebook, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
       : active === "voice"
         ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
+      : active === "announcements"
+        ? { title: "Announcements", detail: "Announce a published post on LinkedIn or a Facebook Page at a time you choose, and manage what is scheduled." }
       : active === "landing"
         ? { title: "Landing page", detail: "Build the first page your visitors see from sections you add, order and preview, without writing any code." }
       : active === "paths"
@@ -11453,6 +11485,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Interpretation comparisons", detail: "Set attributed readings side by side and approve audience-level explanations, with your own approval for any AI-drafted text." }
       : active === "shared"
         ? { title: "Shared reflections", detail: "Start a private draft with other writers from a video, article, podcast, book, or other source." }
+      : active === "capture"
+        ? { title: "Capture a job", detail: "Add photos and a few lines from the job site and save an unpublished draft." }
       : active === "overview"
         ? { title: "Overview", detail: "See what is live, what needs attention, and what to work on next." }
         : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
@@ -11496,6 +11530,8 @@ export class ObAdmin extends AdminElement {
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
           h("a", { class: "oba-tab", "data-admin-module": "public-site", hidden: !visibleModules.has("public-site"), href: "/", target: "_blank", rel: "noopener" }, "View site ↗"),
         )),
+        // Optional social publishing (ADR 0301): no navigation entry unless the server has social settings.
+        this.meta?.social || active === "social" ? h("div", { class: "oba-progressive-tools", "data-social-nav": "true" }, toolGroup("Social", h("a", { class: "oba-tab", "aria-current": active === "social" ? "page" : null, href: "#/social" }, "Social accounts"))) : null,
       ),
       h(
         "section",
@@ -11707,9 +11743,14 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook connect accounts share announce oauth", run: () => go("#/social") }] : []),
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
-      { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
+      ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/announcements") }] : []),
+      { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
+      { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
+      { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
+    { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
@@ -11933,11 +11974,16 @@ export class ObAdmin extends AdminElement {
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
       else if (head === "voice") await this.showVoice(tail, params);
+      else if (head === "social") await this.showSocial();
+      else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
+      else if (head === "announcements") await this.showAnnouncements();
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "appearance") await this.showAppearance();
       else if (head === "look") await this.showLook();
+      else if (head === "business") await this.showBusiness();
+      else if (head === "services") await this.showServices(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -13987,6 +14033,53 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy || publishing;
   }
 
+  // ---- business facts (ADR 0307)
+
+  /** `#/business`: the one place the business facts are edited; the footer, the home page and structured data all read them. */
+  async showBusiness() {
+    const view = createBusinessFacts({ api: this.api });
+    this.mount(this.shell("business", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- services (ADR 0313)
+
+  /** `#/services`: the list; `#/services/new` and `#/services/edit/<path>`: one service, edited through the document routes. */
+  async showServices(tail) {
+    const view = createServices({
+      api: this.api,
+      route: tail || "",
+      onSaved: (path) => {
+        this.skipRoute = true;
+        location.hash = `#/services/edit/${encodeURIComponent(path)}`;
+      },
+      onLeave: (hash) => {
+        this.dirty = false;
+        this.viewDirty = null;
+        location.hash = hash;
+      },
+    });
+    this.mount(this.shell("services", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- job capture (ADR 0296)
+
+  /** `#/capture`: photos, remembered picks and notes from a phone on site, saved as an unpublished job draft. */
+  async showCapture() {
+    const view = createJobCapture({ api: this.api, meta: this.meta });
+    this.mount(this.shell("capture", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    await view.load();
+  }
+
   // ---- voice sessions (ADR 0272)
 
   /**
@@ -14016,6 +14109,31 @@ export class ObAdmin extends AdminElement {
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
+  }
+
+  /**
+   * `#/social`: connected social accounts (ADR 0301). Optional: when the server has no social settings
+   * the page says so and offers nothing. It holds no draft, so leaving it never asks to keep changes.
+   */
+  async showSocial() {
+    const view = createSocialAccounts({ api: this.api });
+    this.mount(this.shell("social", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    // Its window focus listener must not outlive the page.
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- social announcements (ADR 0310, #369)
+
+  /** `#/announcements`: compose, preview and schedule an announcement, and manage the queue. */
+  async showAnnouncements() {
+    const view = createAnnouncementsPanel({ api: this.api });
+    this.mount(this.shell("announcements", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    await view.load();
   }
 
   // ---- customize look (ADR 0256, #350)
@@ -19860,6 +19978,25 @@ export class ObAdmin extends AdminElement {
       const enabled = h("input", { type: "checkbox", checked: engagement.enabled });
       const comments = h("input", { type: "checkbox", checked: engagement.comments });
       const hostedAnalytics = h("input", { type: "checkbox", checked: engagement.analytics });
+      const captchaProvider = h("select", { "data-captcha": "provider" },
+        h("option", { value: "off" }, "Off"),
+        h("option", { value: "turnstile" }, "Cloudflare Turnstile"));
+      captchaProvider.value = engagement.captcha?.provider === "turnstile" ? "turnstile" : "off";
+      const captchaKey = h("input", { type: "text", value: engagement.captcha?.siteKey || "", maxlength: 256, autocomplete: "off", spellcheck: false, "data-captcha": "site-key" });
+      const captchaScope = h("select", { "data-captcha": "scope" },
+        h("option", { value: "session" }, "Once per tab session (recommended)"),
+        h("option", { value: "every-comment" }, "Before every comment"));
+      captchaScope.value = engagement.captcha?.scope === "every-comment" ? "every-comment" : "session";
+      const captchaSettings = () => ({ provider: captchaProvider.value, siteKey: captchaKey.value.trim(), scope: captchaScope.value });
+      const captchaPanel = h("details", { class: "oba-captcha-settings", "data-captcha": "panel", hidden: !enabled.checked && captchaProvider.value === "off", open: captchaProvider.value !== "off" },
+        h("summary", {}, "Comment captcha (advanced)"),
+        h("p", { class: "oba-small" }, "Readers solve one privacy-friendly challenge before their first comment of a visit. Choose Off to keep comments exactly as they are."),
+        h("label", {}, "Provider", captchaProvider),
+        h("label", {}, "Turnstile public site key", captchaKey),
+        h("label", {}, "How often to verify", captchaScope),
+        h("p", { class: "oba-notice" }, "Secrets are never entered here. Set these in Netlify, then redeploy: OPENBLOG_CAPTCHA_PROVIDER=turnstile and OPENBLOG_TURNSTILE_SECRET (from the Turnstile dashboard), plus OPENBLOG_CAPTCHA_SESSION_SECRET (a separate random value of at least 32 characters) unless you verify before every comment. For \"Before every comment\", also set OPENBLOG_CAPTCHA_SCOPE=every-comment so the server matches this setting. Without them the server refuses comments instead of accepting them unverified."),
+      );
+      enabled.addEventListener("change", () => { captchaPanel.hidden = !enabled.checked && captchaProvider.value === "off"; });
       const endpoint = h("input", { type: "url", value: engagement.endpoint || `${String(this.meta.siteUrl || "").replace(/\/$/, "")}/api`, placeholder: "https://your-site.example/api" });
       const credential = h("input", { type: "password", value: "", autocomplete: "new-password", placeholder: "Leave blank to keep the saved token" });
       const credentialStatus = () => {
@@ -19884,6 +20021,7 @@ export class ObAdmin extends AdminElement {
               enabled: enabled.checked,
               comments: comments.checked,
               analytics: hostedAnalytics.checked,
+              captcha: captchaSettings(),
               endpoint: endpoint.value.trim(),
               etag: engagement.etag,
               credentialAction: credential.value.trim() ? "replace" : "keep",
@@ -19909,7 +20047,7 @@ export class ObAdmin extends AdminElement {
           if (!confirm("Remove the saved moderation token? A server environment token, if present, will remain active.")) return;
           const result = await this.api.call("PUT", "engagement/settings", { json: {
             enabled: enabled.checked, comments: comments.checked, analytics: hostedAnalytics.checked,
-            endpoint: endpoint.value.trim(), etag: engagement.etag, credentialAction: "clear",
+            endpoint: endpoint.value.trim(), etag: engagement.etag, credentialAction: "clear", captcha: captchaSettings(),
           } });
           engagement = result;
           clear.disabled = true;
@@ -19925,6 +20063,7 @@ export class ObAdmin extends AdminElement {
         h("label", {}, enabled, " Enable hosted engagement"),
         h("label", {}, comments, " Enable moderated comments"),
         h("label", {}, hostedAnalytics, " Store analytics in Supabase"),
+        captchaPanel,
         h("div", { class: "oba-field" }, h("label", {}, "Public function endpoint"), endpoint),
         h("div", { class: "oba-field" }, h("label", {}, "Moderation API token (write-only)"), credential),
         status,
@@ -22067,7 +22206,7 @@ export class Editor {
   /** The visual-editor element for one parsed Markdown block (not a space). */
   visualBlockElement(block) {
     if (block.type === "protected") {
-      const formKind = editableBlockKind(block.label, block.source, this.app?.meta?.pieces || []);
+      const formKind = editableBlockKind(block.label, block.source, typeof this.pieceSchemas === "function" ? this.pieceSchemas() : []);
       const card = h(
         "section",
         {
@@ -22159,6 +22298,12 @@ export class Editor {
     }
   }
 
+  /** What Add something offers in a post: the pieces, then the before and after pair (it has no landing page form). */
+  pieceSchemas() {
+    const meta = this.app?.meta || {};
+    return [...(meta.pieces || []), ...(meta.compare ? [meta.compare] : [])];
+  }
+
   /**
    * Edit a callout, table, task list, embed or piece with a form inside its card (ADR 0254).
    * Apply writes the same Markdown the block uses today; Cancel and an unchanged Apply leave
@@ -22166,7 +22311,7 @@ export class Editor {
    */
   editBlockWithForm(card, label, kind) {
     const source = card.dataset.markdown || "";
-    const editor = blockEditor(kind, source, { pieces: this.app.meta?.pieces || [], build: (pieceKind, values) => this.buildPiece(pieceKind, values) });
+    const editor = blockEditor(kind, source, { pieces: this.pieceSchemas(), build: (pieceKind, values) => this.buildPiece(pieceKind, values), upload: (file) => this.upload(file) });
     if (!editor) return;
     const original = [...card.childNodes];
     const status = h("p", { class: "oba-error", role: "alert", hidden: true });
@@ -22217,7 +22362,7 @@ export class Editor {
   /** The Add something dialog: a piece's details in plain words, written as Markdown at the caret in either mode. */
   openAddSomething() {
     this.captureVisualSelection();
-    const pieces = this.app.meta?.pieces || [];
+    const pieces = this.pieceSchemas();
     if (!pieces.length) {
       this.sayCitation("The pieces could not be loaded. Reload the page and try again. Your draft is unchanged.");
       return;
@@ -22227,6 +22372,7 @@ export class Editor {
     openPieceDialog({
       pieces,
       build: (kind, values) => this.buildPiece(kind, values),
+      upload: (file) => this.upload(file),
       onInsert: (markdown) => {
         const refusal = this.insertFromResearch({ kind: "block", markdown: String(markdown).replace(/\n+$/, ""), label: "piece" });
         if (!refusal) inserted = true;

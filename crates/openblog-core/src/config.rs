@@ -4,10 +4,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::business::BusinessConfig;
 use crate::contributor::{self, Contributor};
 use crate::look::LookSettings;
 use crate::participation::ParticipationConfig;
 use crate::reading_depth::ReadingMode;
+use crate::service_area::ServiceAreasConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -132,6 +134,15 @@ pub struct SiteConfig {
     /// 0285). Omitted from the written file while empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra_trades: Vec<String>,
+    /// The business facts stated once for every page (ADR 0305). Omitted from the
+    /// written file while nothing is stated, so a site that never sets it builds
+    /// exactly as before.
+    #[serde(skip_serializing_if = "BusinessConfig::is_default")]
+    pub business: BusinessConfig,
+    /// The towns the business serves (ADR 0314). Omitted from the written file
+    /// while none are stated, so a site that never sets it builds exactly as before.
+    #[serde(skip_serializing_if = "ServiceAreasConfig::is_default")]
+    pub service_areas: ServiceAreasConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -564,6 +575,8 @@ impl Default for SiteConfig {
             reading_modes: ReadingModesConfig::default(),
             reader_annotations: ReaderAnnotationsConfig::default(),
             extra_trades: Vec::new(),
+            business: BusinessConfig::default(),
+            service_areas: ServiceAreasConfig::default(),
         }
     }
 }
@@ -728,10 +741,41 @@ impl Default for AnalyticsConfig {
     }
 }
 
+/// Optional captcha for hosted comments. Only public values live here; the
+/// provider secret and the pass-signing secret are server environment variables.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct CaptchaConfig {
+    /// `off` (default) or `turnstile`.
+    pub provider: String,
+    pub site_key: String,
+    /// `session` (default: one challenge per tab session) or `every-comment`.
+    pub scope: String,
+}
+impl Default for CaptchaConfig {
+    fn default() -> Self {
+        Self {
+            provider: "off".into(),
+            site_key: String::new(),
+            scope: "session".into(),
+        }
+    }
+}
+impl CaptchaConfig {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+    pub fn enabled(&self) -> bool {
+        self.provider != "off"
+    }
+}
+
 /// Hosted comments and analytics for static deployments such as Netlify.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct EngagementConfig {
+    #[serde(skip_serializing_if = "CaptchaConfig::is_default")]
+    pub captcha: CaptchaConfig,
     pub enabled: bool,
     pub comments: bool,
     pub analytics: bool,
@@ -766,6 +810,7 @@ pub struct EngagementConfig {
 impl Default for EngagementConfig {
     fn default() -> Self {
         Self {
+            captcha: CaptchaConfig::default(),
             enabled: false,
             comments: true,
             analytics: true,
@@ -1044,6 +1089,33 @@ impl SiteConfig {
         if self.theme.is_empty() {
             self.theme = "base".to_string();
         }
+        self.engagement.captcha.provider = self.engagement.captcha.provider.trim().to_lowercase();
+        self.engagement.captcha.scope = self.engagement.captcha.scope.trim().to_lowercase();
+        self.engagement.captcha.site_key = self.engagement.captcha.site_key.trim().to_string();
+        let captcha = &self.engagement.captcha;
+        if !matches!(captcha.provider.as_str(), "off" | "turnstile") {
+            return Err(format!(
+                "engagement.captcha.provider must be \"off\" or \"turnstile\", not \"{}\"",
+                captcha.provider
+            ));
+        }
+        if !matches!(captcha.scope.as_str(), "session" | "every-comment") {
+            return Err(format!(
+                "engagement.captcha.scope must be \"session\" or \"every-comment\", not \"{}\"",
+                captcha.scope
+            ));
+        }
+        if captcha.provider == "turnstile" && captcha.site_key.is_empty() {
+            return Err("engagement.captcha.siteKey is required when the provider is turnstile (it is the public site key from the Turnstile dashboard)".into());
+        }
+        if captcha.site_key.len() > 256
+            || !captcha
+                .site_key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return Err("engagement.captcha.siteKey may only contain letters, numbers, underscore and hyphen (up to 256 characters); never put a secret key here".into());
+        }
         if self.engagement.enabled {
             let endpoint = self
                 .engagement
@@ -1130,6 +1202,11 @@ impl SiteConfig {
             }
         }
         contributor::normalize_registry(&mut self.contributors)?;
+        if !self.business.trade.is_empty() {
+            self.business.trade =
+                crate::job::normalize_trade(&self.business.trade, &self.extra_trades)
+                    .map_err(|error| error.replacen("job.trade", "business.trade", 1))?;
+        }
         Ok(())
     }
 
@@ -1251,6 +1328,57 @@ mod tests {
         assert!(
             bad.contains("invalid openblog.json") && bad.contains("accent"),
             "{bad}"
+        );
+    }
+
+    #[test]
+    fn business_is_validated_with_the_config_and_absent_by_default() {
+        let plain = SiteConfig::from_json("{}").unwrap();
+        assert!(plain.business.is_default());
+        assert!(!plain.to_json().contains("business"));
+        let set = SiteConfig::from_json(
+            r#"{"extraTrades":["fencing"],"business":{"version":1,"displayName":"Acme","phone":"+13605550142","trade":"Fencing","hours":{"sunday":{"closed":true}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(set.business.trade, "fencing");
+        let json = set.to_json();
+        assert!(json.contains("\"phone\": \"+13605550142\"") && json.contains("\"closed\": true"));
+        let bad_phone =
+            SiteConfig::from_json(r#"{"business":{"phone":"360-555-0142"}}"#).unwrap_err();
+        assert!(
+            bad_phone.contains("invalid openblog.json")
+                && bad_phone.contains("business: phone must include the country code"),
+            "{bad_phone}"
+        );
+        let bad_hours = SiteConfig::from_json(
+            r#"{"business":{"hours":{"monday":{"open":"9","close":"17:00"}}}}"#,
+        )
+        .unwrap_err();
+        assert!(bad_hours.contains("24-hour time like 08:00"), "{bad_hours}");
+        let bad_trade = SiteConfig::from_json(r#"{"business":{"trade":"wizardry"}}"#).unwrap_err();
+        assert!(bad_trade.contains("business.trade"), "{bad_trade}");
+    }
+
+    #[test]
+    fn service_areas_are_validated_with_the_config_and_absent_by_default() {
+        let plain = SiteConfig::from_json("{}").unwrap();
+        assert!(plain.service_areas.is_default());
+        assert!(!plain.to_json().contains("serviceAreas"));
+        let set = SiteConfig::from_json(
+            r#"{"serviceAreas":[{"town":"Bend","region":"Oregon","note":"within 30 miles"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(set.service_areas.areas[0].region, "OR");
+        let json = set.to_json();
+        assert!(json.contains("\"serviceAreas\"") && json.contains("\"version\": 1"));
+        assert_eq!(SiteConfig::from_json(&json).unwrap(), set);
+        let duplicate = SiteConfig::from_json(
+            r#"{"serviceAreas":[{"town":"Bend","region":"OR"},{"town":"bend","region":"or"}]}"#,
+        )
+        .unwrap_err();
+        assert!(
+            duplicate.contains("invalid openblog.json") && duplicate.contains("already listed"),
+            "{duplicate}"
         );
     }
 
@@ -1502,5 +1630,50 @@ mod tests {
             r#"{"syndication":{"targets":{"future":{"provider":"unknown-provider"}}}}"#
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod captcha_tests {
+    use super::*;
+    #[test]
+    fn captcha_defaults_and_validation() {
+        let base = r#"{"title":"T","url":"https://t.dev"}"#;
+        let config = SiteConfig::from_json(base).unwrap();
+        assert!(!config.engagement.captcha.enabled());
+        assert_eq!(config.engagement.captcha, CaptchaConfig::default());
+        assert!(!serde_json::to_string(&config).unwrap().contains("captcha"));
+        for (captcha, hint) in [
+            (r#"{"provider":"turnstile"}"#, "siteKey is required"),
+            (r#"{"provider":"other"}"#, "\"off\" or \"turnstile\""),
+            (
+                r#"{"provider":"hcaptcha","siteKey":"k"}"#,
+                "not \"hcaptcha\"",
+            ),
+            (r#"{"scope":"always"}"#, "\"session\" or \"every-comment\""),
+            (r#"{"siteKey":"<script>"}"#, "never put a secret"),
+            (r#"{"enabled":true}"#, "unknown field"),
+            (r#"{"secret":"do-not-store"}"#, "unknown field"),
+        ] {
+            let text = format!(
+                r#"{{"title":"T","url":"https://t.dev","engagement":{{"captcha":{captcha}}}}}"#
+            );
+            let error = SiteConfig::from_json(&text).unwrap_err().to_string();
+            assert!(error.contains(hint), "{captcha}: {error}");
+            assert!(!error.contains("do-not-store"), "{error}");
+        }
+        let text = r#"{"title":"T","url":"https://t.dev","engagement":{"captcha":{"provider":" Turnstile ","siteKey":"  public-key  ","scope":"every-comment"}}}"#;
+        let config = SiteConfig::from_json(text).unwrap();
+        assert!(config.engagement.captcha.enabled());
+        assert_eq!(config.engagement.captcha.provider, "turnstile");
+        assert_eq!(config.engagement.captcha.site_key, "public-key");
+        assert_eq!(config.engagement.captcha.scope, "every-comment");
+        let again = SiteConfig::from_json(&serde_json::to_string(&config).unwrap()).unwrap();
+        assert_eq!(again.engagement.captcha, config.engagement.captcha);
+        let off = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","engagement":{"captcha":{"provider":"off"}}}"#,
+        )
+        .unwrap();
+        assert!(!off.engagement.captcha.enabled());
     }
 }

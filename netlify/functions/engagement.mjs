@@ -1,3 +1,4 @@
+import { captchaSettings, checkPass, issuePass, verifyCaptcha } from "../lib/comment-captcha.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { AUTHOR_RESPONSE_KIND, PARENT_UNAVAILABLE, checkAnswerParent, mayDecideResponse, parentFactsOfRow, readAuthorResponseRequest, receiveAuthorResponse } from "../lib/author-response.mjs";
@@ -694,6 +695,36 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (policy !== "open") {
           return json(403, { error: policy === "locked" ? "This discussion is read-only." : "Comments are not available for this post." }, corsOrigin);
         }
+        let captchaPass;
+        const captcha = captchaSettings(env);
+        if (captcha.enabled) {
+          if (captcha.missing.length) {
+            return json(503, { code: "captcha_unconfigured", error: `Comment verification is enabled but ${captcha.missing.join(", ")} is not set correctly. Ask the site owner to configure it.` }, corsOrigin);
+          }
+          const moment = now();
+          const usePass = captcha.scope === "session" && typeof body.captchaPass === "string" && body.captchaPass !== "";
+          const pass = usePass ? checkPass(body.captchaPass, settings.siteId, captcha.sessionSecret, moment) : null;
+          if (pass?.reason === "expired") {
+            return json(403, { code: "captcha_expired", error: "Your verification expired. Please verify again. Your comment has not been sent." }, corsOrigin);
+          }
+          if (!pass?.ok) {
+            const hasToken = typeof body.captchaToken === "string" && body.captchaToken !== "";
+            let failed = Boolean(pass);
+            // Every verification attempt spends the captcha bucket before the provider is called, so the
+            // bucket also bounds outbound verifier traffic. A request with no token and no pass is not an attempt.
+            if ((hasToken || pass) && !await consumeQuota(settings, event, "captcha", 10, 1000)) {
+              return json(429, { code: "captcha_rate_limited", error: "Too many verification attempts. Please wait a while and try again." }, corsOrigin);
+            }
+            if (hasToken) {
+              const outcome = await verifyCaptcha({ provider: captcha.provider, token: body.captchaToken, secret: captcha.turnstileSecret, remoteIp: String(event.headers?.["x-nf-client-connection-ip"] || "").trim(), fetchImpl });
+              failed = !outcome.ok;
+              if (outcome.ok && captcha.scope === "session") captchaPass = issuePass(settings.siteId, captcha.sessionSecret, moment, captcha.ttl);
+            }
+            if (failed || !hasToken) {
+              return json(403, { code: "captcha_required", error: "Please complete the comment verification and try again. Your comment has not been sent." }, corsOrigin);
+            }
+          }
+        }
         if (!await consumeQuota(settings, event, "comments", 5, 500)) return json(429, { error: "Too many comments. Please try again later." }, corsOrigin);
         const claim = settings.protection ? await firstTimeThisHour(settings, event, "comments", [path, authorName, commentBody]) : null;
         if (settings.protection && !claim) {
@@ -704,7 +735,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           headers: { Prefer: "return=representation" },
           body: JSON.stringify({ site_id: settings.siteId, path, author_name: authorName, body: commentBody, status: "pending" }),
         }));
-        return json(202, { id: rows[0]?.id, status: "pending" }, corsOrigin);
+        return json(202, { id: rows[0]?.id, status: "pending", ...(captchaPass ? { captchaPass: captchaPass.pass, captchaPassExpiresAt: captchaPass.expiresAt } : {}) }, corsOrigin);
       }
       if (operation === "feedback" || operation === "admin/feedback") {
         if (operation === "admin/feedback" && !admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
