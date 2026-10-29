@@ -46,8 +46,12 @@ use openblog_core::voice::guide::PROVENANCE_MARKER;
 
 /// Record which visibilities the guide was folded from, on the line after the title, so a later
 /// save can tell that a guide quotes private samples.
-fn with_provenance(markdown: &str, samples: &[ReviewContext]) -> String {
+fn with_provenance(markdown: &str, samples: &[ReviewContext], private_guide: bool) -> String {
     let mut sources: Vec<&str> = samples.iter().map(|s| s.visibility().as_str()).collect();
+    // The saved guide the Assistant was told to keep claims from counts as a source too.
+    if private_guide {
+        sources.push("private");
+    }
     sources.sort_unstable();
     sources.dedup();
     let line = format!("{PROVENANCE_MARKER} sources={} -->", sources.join(","));
@@ -151,10 +155,18 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         Ok(_) => return Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => return review_error(error),
     };
-    let markdown = with_provenance(&guide.render(), &samples);
-    let portable_allowed = !samples
-        .iter()
-        .any(|sample| sample.visibility().as_str() == "private");
+    // The saved guide goes to the Assistant with the instruction to keep its claims, and a
+    // statement is free text that no quote check covers. So a private guide, or one that quotes
+    // private samples, makes the proposal private-derived whatever samples were selected.
+    let private_guide = current.is_some_and(|doc| doc["visibility"] == "private")
+        || current_text
+            .as_deref()
+            .is_some_and(guide_quotes_private_samples);
+    let markdown = with_provenance(&guide.render(), &samples, private_guide);
+    let portable_allowed = !private_guide
+        && !samples
+            .iter()
+            .any(|sample| sample.visibility().as_str() == "private");
     let diff = crate::voice_diff::unified(
         "voice.md (saved)",
         "voice.md (proposed)",

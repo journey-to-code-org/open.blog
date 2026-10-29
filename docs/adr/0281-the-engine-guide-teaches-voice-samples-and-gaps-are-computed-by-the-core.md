@@ -60,5 +60,7 @@ provider, to "what is missing from my voice material".
 
 ## Consequences
 
-- Admin screens that show the library read `voiceGaps` and need no logic of their own.
+- Admin screens that show the library read `voiceGaps` and need no logic of their own. (Note, 2026-10-28: the Sample
+  library reads the same `gaps_json` result as `gaps` from `GET voice/samples` and shows it under "What is
+  missing"; the Context view does not show it.)
 - Changing the contract text changes the version; the version is how a cached request is told apart.

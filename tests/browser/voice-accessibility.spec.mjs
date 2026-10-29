@@ -81,6 +81,12 @@ async function signIn(page, hash = "#/voice") {
   await page.goto(`${origin}/admin/${hash}`);
 }
 
+/** Give up whatever session is open; a scrap names the session it means. */
+async function scrapOpen(page) {
+  const standing = await api(page, "GET", "voice/status");
+  return api(page, "DELETE", "voice/session", { sessionId: standing.body?.session?.sessionId ?? null });
+}
+
 async function api(page, method, path, body) {
   return page.evaluate(async ([method, path, body]) => {
     const session = await (await fetch("/admin/api/session")).json();
@@ -284,7 +290,7 @@ test("the clock is not a live region and the view speaks only a few times", asyn
   expect(live.politeness).toBe("polite");
   // A full three minutes starts silent: nothing was said by ticking.
   expect(await page.evaluate(() => window.__said)).toEqual([]);
-  await api(page, "DELETE", "voice/session", {});
+  await scrapOpen(page);
 });
 
 test("a short window is announced at its marks, not every second, and a warning is also written", async ({ page }) => {
@@ -305,13 +311,13 @@ test("a short window is announced at its marks, not every second, and a warning 
   expect(said.length, JSON.stringify(said)).toBeLessThanOrEqual(2);
   for (const line of said) expect(line).toMatch(/minute|second/i);
   await expect(page.locator("[data-voice-timer]")).toHaveAttribute("data-state", /warning|running/);
-  await api(page, "DELETE", "voice/session", {});
+  await scrapOpen(page);
 });
 
 /** Write and lock two samples (one portable) and polish one, so the library and the guide have something to show. */
 async function seed(page) {
   await signIn(page, "#/overview");
-  await api(page, "DELETE", "voice/session", {});
+  await scrapOpen(page);
   const drawn = await api(page, "POST", "voice/draw", {});
   const made = [];
   for (const [index, visibility] of [[0, "private"], [1, "portable"]]) {
@@ -466,7 +472,7 @@ test("at 320px and at 400% zoom every voice view stays inside the screen", async
 
 test("reduced motion stops the warning pulse and every voice transition", async ({ page }) => {
   await signIn(page, "#/overview");
-  await api(page, "DELETE", "voice/session", {});
+  await scrapOpen(page);
   const drawn = await api(page, "POST", "voice/draw", {});
   // A 30 second window is in its warning state from the first frame.
   const started = await api(page, "POST", "voice/session/start", { promptId: drawn.body.prompts[0].id, timeLimitSeconds: 30 });
@@ -495,7 +501,7 @@ test("reduced motion stops the warning pulse and every voice transition", async 
   // The warning is still written in words, not only moved.
   await expect(page.locator("[data-voice-timer-state]")).toContainText("seconds left");
   // The library obeys the same rule.
-  await api(page, "DELETE", "voice/session", {});
+  await scrapOpen(page);
   await page.goto(`${origin}/admin/#/voice/library`);
   await expect(page.getByRole("heading", { level: 2, name: "Your voice samples" })).toBeVisible();
   const library = await page.evaluate(() => [...document.querySelectorAll("ob-voice-library, ob-voice-library *")].filter((node) => {

@@ -272,8 +272,14 @@ openblog voice erase [--yes]       # list, then erase ALL voice data (see below)
 ```
 
 - **Where you write.** If `$VISUAL` or `$EDITOR` is set, your editor opens a file with the prompt and a
-  marker line; only the text below the marker is saved. Otherwise (or with `--stdin`) you type in the
-  terminal and finish with a line holding only `.`, or Ctrl-D. The deadline time is shown first.
+  marker line; only the text below the marker is saved. The editor command must wait until you close its
+  window: use `code --wait` or `subl -w`, not plain `code` or `subl`. An editor that returns at once without a
+  change locks and discards nothing; the session stays open for `--resume`. Otherwise (or with `--stdin`) you
+  type in the terminal and finish with a line holding only `.`, or Ctrl-D. To pipe text in, name the prompt
+  (`openblog voice <prompt-id> --stdin`); piped text without one starts nothing and exits with an error. The
+  deadline time is shown first.
+- **One window at a time.** A session is written in one terminal. `--resume` in a second window while the
+  first is still writing is refused, and nothing is changed.
 - **The clock.** The deadline is stored when the session starts. Text written after it is not saved, and
   if you come back after it the saved text is locked. An empty draft saves nothing.
 - **Options.** `--portable` keeps the sample beside shared Assistant context (the default is private),
@@ -302,14 +308,19 @@ it away for good.
    in this box on purpose. The server owns the clock: it is a display, a reload or a lost connection carries on
    with the original deadline, and text sent after the deadline is refused. Your draft is saved to the server a
    moment after you stop typing, and a bounded copy stays on the device (cleared after a day, and when you sign
-   out). **Finish early** locks it at once.
+   out; if your sign-in ends without signing out, signing in again as the same author gets it back). **Finish
+   early** locks it at once. If the time runs out while another window or the terminal is still handing over
+   its last words, this view waits a few seconds instead of locking older text.
 3. **Polish (optional).** The locked rough draft is shown read-only, exactly as written. Below it is a copy
    to edit: **Reset to rough** starts the copy over and **Save polished draft** saves it, checking that nobody
-   changed it meanwhile. Leaving with unsaved polished edits asks first. **Make portable** or **Make private**
+   changed it meanwhile. Leaving with unsaved polished edits asks first, and unsaved edits are kept on this
+   device for up to 30 days (cleared on sign-out and by an erase) and offered back after a reload with
+   **Restore** or **Discard**. **Make portable** or **Make private**
    moves the pair together (the default is private), and **Make a post draft** creates a draft post from the
    polished draft.
 
-The **Sample library** (`#/voice/library`) groups your samples by prompt pack, newest first, with Rough and
+The **Sample library** (`#/voice/library`) groups your samples by prompt pack, newest first (a prompt you
+answered on several days has a row per answer), with Rough and
 Polished badges, length, visibility and date, a coverage line per pack, and a note for any file that cannot
 be read and what to do about it. A rough sample opens read-only. The view works on a phone and from the
 keyboard; the timer is not announced every second, only at its marks and when it locks.
@@ -318,14 +329,16 @@ keyboard; the timer is not announced every second, only at its marks and when it
 
 Samples are private unless you choose portable (`--portable`, or "Portable" when you start a session in
 Admin); "Make private" and "Make portable" on a sample move it, with its partner, and moving it back
-restores the same bytes. Private samples are never published, built, fed or exported.
+restores the same bytes. Private samples are never published, built, fed or exported as content (a voice
+export carries them only with `--include-private`; see below).
 
 `openblog voice erase` lists everything the voice feature stored: samples in both folders, the session
 record, the voice guide and leftover editor files. It stops there; add `--yes` to erase. In Admin, **Your
 voice samples** has **Erase all voice data…**: it shows the same list and enables **Erase everything**
 only after you type `erase`. The erase is all or nothing (if one file cannot be removed, everything is put
 back) and ends with a second look that says "nothing is left" or names what is. Admin also clears the
-copies of drafts kept on that device. Copies in Git history or backups are not touched.
+copies of drafts kept on that device. Copies in Git history or backups are not touched, and neither are voice
+export files you wrote yourself (for example `.openblog/private/voice-library.json`): delete those by hand.
 
 ### Use voice samples and a voice guide with the Assistant
 
@@ -344,8 +357,12 @@ Nothing is sent unless you select it and run a request, and nothing here changes
   a quote that is not in the sample is rejected, and nothing is shown). A line that rests on one sample is
   marked `(one sample)`, and the guide always ends with *What is not yet known*. You see the proposal as
   changes against your saved guide, can edit it, and it is written only when you choose **Save as portable**
-  (`assistant/context/voice.md`) or **Save as private** (`.openblog/private/context/voice.md`). **Discard**
-  leaves your files as they were. A guide changed elsewhere since you opened it is a conflict, not an overwrite.
+  (`assistant/context/voice.md`) or **Save as private** (`.openblog/private/context/voice.md`, the default).
+  **Discard** leaves your files as they were. A guide changed elsewhere since you opened it is a conflict, not
+  an overwrite. A guide built from any private sample, or from a saved guide that is private, records that on a
+  provenance line under its title (`<!-- openblog:voice-provenance sources=... -->`) and can only be saved as
+  private: **Save as portable** is disabled with the reason. Keep that line if you edit the guide; the
+  portable rule relies on it.
 - **Use the guide.** Select the guide like any context. The `voice-review` skill compares your draft with it and
   with your samples, and names the sample or guide section behind each finding (a finding that names none is
   marked unverified advice). The `voice-match` skill suggests small replacements for specific passages; one
@@ -354,8 +371,9 @@ Nothing is sent unless you select it and run a request, and nothing here changes
   autocomplete on names the selected context first.
 - **Never your rough text.** The Assistant never edits a rough draft and never applies a change to a polished
   draft: it proposes, you decide.
-- **What is missing.** `openblog voice --list` also shows prompts with a rough draft and no polished draft, and
-  guide traits that still rest on one sample; the Context view and the guide request use the same list.
+- **What is missing.** `openblog voice --list` also shows packs with no sample yet, prompts with a rough draft and
+  no polished draft, and guide traits that still rest on one sample; the Sample library shows the same list under
+  **What is missing**, and the guide request carries it.
 
 ### Move your voice library between projects
 
@@ -373,6 +391,9 @@ openblog voice import voice-library.json --write       # apply, all or nothing
 
 - **Private stays private.** An export holds only the portable folder unless you pass `--include-private`, and
   a file with private material is refused inside the project except under `.openblog/private/`.
+- **Limits.** One guide travels: with both a portable and a private guide, the portable one is exported and
+  the export warns that the private one was left out. One export holds at most 100 samples and 8 MiB; a larger
+  library is refused whole, and nothing is written.
 - **Previewed.** Import is a dry run unless `--write`. It lists `create`, `replace` or `unchanged` for each file
   and the folder it goes to, and it writes nothing at all if any item is invalid, too large, in a newer format
   or in conflict.

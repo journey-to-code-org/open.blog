@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // Approved Third Perspectives and a reader's status (#222, ADR 0115), in the real site with the
 // hosted function mocked at its routes: approved reflections listed on the canonical page as
@@ -75,7 +76,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 const json = (route, status, body) => route.fulfill({

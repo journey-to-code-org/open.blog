@@ -248,7 +248,7 @@ fn start(root: &Path, prompt_id: Option<&str>, opts: &Options) -> Result<(), Str
             }
             id.to_string()
         }
-        None => match choose(root, &catalog) {
+        None => match choose(root, &catalog)? {
             Some(id) => id,
             None => {
                 println!("Nothing started.");
@@ -274,9 +274,16 @@ fn start(root: &Path, prompt_id: Option<&str>, opts: &Options) -> Result<(), Str
     drive(root, &catalog, &session, opts)
 }
 
-fn choose(root: &Path, catalog: &Catalog) -> Option<String> {
+/// What a script hears when the text it piped in was taken as picks for the card picker.
+const PIPED_WITHOUT_PROMPT: &str = "No prompt was picked from what came in on standard input, so nothing was started. To pipe your text, name the prompt: `openblog voice <prompt-id> --stdin` (see `openblog voice --list`).";
+
+/// Draw cards and read a pick. `Ok(None)` is a plain quit. Input that is not a terminal and ends
+/// after answers that were not picks is an error, so a script that piped its text in without
+/// naming a prompt hears that nothing was saved.
+fn choose(root: &Path, catalog: &Catalog) -> Result<Option<String>, String> {
     let library = voice_store::library(root);
     let mut shown: Vec<String> = Vec::new();
+    let mut rejected = false;
     loop {
         let drawn = if shown.is_empty() {
             draw_three(catalog, &library, seed())
@@ -286,7 +293,7 @@ fn choose(root: &Path, catalog: &Catalog) -> Option<String> {
         };
         if drawn.is_empty() {
             println!("There are no prompts to draw from.");
-            return None;
+            return Ok(None);
         }
         println!("Three prompts. {}\n", catalog.rule);
         for (index, prompt) in drawn.iter().enumerate() {
@@ -298,11 +305,14 @@ fn choose(root: &Path, catalog: &Catalog) -> Option<String> {
             let _ = io::stdout().flush();
             let Some(line) = read_line() else {
                 println!();
-                return None;
+                if rejected && !io::stdin().is_terminal() {
+                    return Err(PIPED_WITHOUT_PROMPT.to_string());
+                }
+                return Ok(None);
             };
             let answer = line.trim().to_lowercase();
             match answer.as_str() {
-                "q" | "quit" => return None,
+                "q" | "quit" => return Ok(None),
                 "r" => break,
                 other => {
                     if let Some(prompt) = other
@@ -311,8 +321,9 @@ fn choose(root: &Path, catalog: &Catalog) -> Option<String> {
                         .filter(|n| (1..=drawn.len()).contains(n))
                         .map(|n| drawn[n - 1])
                     {
-                        return Some(prompt.id.clone());
+                        return Ok(Some(prompt.id.clone()));
                     }
+                    rejected = true;
                     println!("Please type a number from 1 to {}, r or q.", drawn.len());
                 }
             }
@@ -380,6 +391,10 @@ fn resume(root: &Path, opts: &Options) -> Result<(), String> {
             );
             Ok(())
         }
+        Resume::Finishing { session } => Err(format!(
+            "The time for \"{}\" has just run out, and the window that was writing may still be handing over its last words. Run `openblog voice --resume` again in a few seconds.",
+            session.prompt_id
+        )),
         Resume::Active { session, .. } => {
             println!(
                 "Resuming \"{}\". The clock was not restarted.",
@@ -424,7 +439,7 @@ fn scrap(root: &Path, yes: bool) -> Result<(), String> {
                     session.prompt_id
                 ));
             }
-            voice_session::scrap(root).map_err(store_error)?;
+            voice_session::scrap(root, Some(&session.id())).map_err(store_error)?;
             println!(
                 "Gave up the session for \"{}\". Nothing was saved.",
                 session.prompt_id
@@ -433,6 +448,9 @@ fn scrap(root: &Path, yes: bool) -> Result<(), String> {
         }
     }
 }
+
+/// Export files are wherever the author wrote them, so an erase cannot find them.
+const EXPORTS_NOT_ERASED: &str = "Voice export files you wrote with `openblog voice export --write` (such as .openblog/private/voice-library.json) are not erased; delete them yourself.";
 
 /// `openblog voice erase`: list everything the voice feature stored, and with `--yes` erase it all
 /// or nothing, then say what the post-check found.
@@ -458,6 +476,7 @@ fn erase(root: &Path, yes: bool) -> Result<(), String> {
             report.erased.len(),
             if report.erased.len() == 1 { "" } else { "s" }
         );
+        println!("{EXPORTS_NOT_ERASED}");
         Ok(())
     } else {
         for path in &report.remaining {
@@ -505,6 +524,9 @@ fn header_for(prompt: Option<&Prompt>, catalog: &Catalog, session: &Session) -> 
     header
 }
 
+/// What a second window is told while another one is writing the session.
+const ANOTHER_WINDOW: &str = "Another `openblog voice` window is writing this session right now. Finish there; nothing was changed here.";
+
 fn drive(root: &Path, catalog: &Catalog, session: &Session, opts: &Options) -> Result<(), String> {
     let prompt = catalog.prompt(&session.prompt_id);
     let deadline = DateTime::parse(&session.deadline)
@@ -536,9 +558,13 @@ fn drive(root: &Path, catalog: &Catalog, session: &Session, opts: &Options) -> R
         length_phrase(session.time_limit_seconds)
     );
 
+    let dir = contained_target(root, Path::new(".openblog/private/voice"))?;
+    // One window writes a session at a time: a second one would race the first to lock it.
+    if voice_capture::other_window_editing(&dir, "editing") {
+        return Err(ANOTHER_WINDOW.to_string());
+    }
     let captured: Captured = if let Some(editor) = editor {
         let header = header_for(prompt, catalog, session);
-        let dir = contained_target(root, Path::new(".openblog/private/voice"))?;
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("Cannot create the voice folder: {e}"))?;
         voice_capture::remove_stale(&dir, "editing");
@@ -558,7 +584,6 @@ fn drive(root: &Path, catalog: &Catalog, session: &Session, opts: &Options) -> R
             &now_unix,
             &mut |text| save(text),
         );
-        voice_capture::remove_stale(&dir, "editing");
         captured?
     } else {
         println!(
@@ -593,22 +618,31 @@ fn finish(
             clock_time(&session.deadline)
         );
     }
-    if captured.text.trim().is_empty() {
-        voice_session::scrap(root).map_err(store_error)?;
+    let id = session.id();
+    // What the session saved along the way. An empty capture never throws that away: the editor
+    // file may have been unreadable at the last moment.
+    let stored = match voice_session::status(root, clock::now()) {
+        Ok(Status::Active { session: open, .. } | Status::Expired { session: open })
+            if open.id() == id =>
+        {
+            Some(open.draft)
+        }
+        _ => None,
+    };
+    let text = if captured.text.trim().is_empty() {
+        stored.unwrap_or_default()
+    } else {
+        captured.text.clone()
+    };
+    if text.trim().is_empty() {
+        voice_session::scrap(root, Some(&id)).map_err(store_error)?;
         println!("Nothing was written, so nothing was saved.");
         return Ok(());
     }
     // Keep what was written even if the lock below is refused.
-    let _ = voice_session::save_draft(root, None, &captured.text, clock::now());
-    let locked = voice_session::lock(
-        root,
-        None,
-        catalog,
-        Some(&captured.text),
-        None,
-        clock::now(),
-    )
-    .map_err(store_error)?;
+    let _ = voice_session::save_draft(root, Some(&id), &text, clock::now());
+    let locked = voice_session::lock(root, Some(&id), catalog, Some(&text), None, clock::now())
+        .map_err(store_error)?;
     println!();
     print_saved(
         &locked.written.visibility,

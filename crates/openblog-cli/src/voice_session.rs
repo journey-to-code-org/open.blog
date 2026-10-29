@@ -115,6 +115,11 @@ pub enum Resume {
     Discarded {
         prompt_id: String,
     },
+    /// The time has just run out and the surface that was writing may still hand over its final
+    /// text (within [`LOCK_GRACE_SECONDS`]), so nothing was locked or discarded yet.
+    Finishing {
+        session: Session,
+    },
 }
 
 /// Why a session could not be started.
@@ -496,21 +501,32 @@ pub fn lock(
     })
 }
 
-/// Give up on the session and write nothing. Removes the record.
-pub fn scrap(root: &Path) -> Result<()> {
+/// The message for a scrap that names a session which is no longer the open one.
+pub const SCRAP_OTHER_SESSION: &str =
+    "A newer writing session is open now, so nothing was thrown away.";
+
+/// Give up on the session and write nothing. Removes the record. With `expected_id`, only that
+/// session is given up, checked while the store lock is held: a page left open on an earlier
+/// session can never throw away a newer one.
+pub fn scrap(root: &Path, expected_id: Option<&str>) -> Result<()> {
     let _lock = voice_store::lock(root)?;
-    // A record from a newer release is left alone; a damaged one can be scrapped.
-    if let Err(StoreError::Refused(message)) = read(root) {
-        if message.contains("newer release") {
+    match read(root) {
+        // A record from a newer release is left alone; a damaged one can be scrapped.
+        Err(StoreError::Refused(message)) if message.contains("newer release") => {
             return Err(StoreError::Refused(message));
         }
+        Ok(Some(session)) if expected_id.is_some_and(|id| id != session.id()) => {
+            return refused(SCRAP_OTHER_SESSION);
+        }
+        _ => {}
     }
     remove(root)
 }
 
 /// Pick up where a surface left off. With time left, the session carries on with its original
 /// deadline. If the time ran out, the rough draft is locked from the saved text (a session with
-/// nothing saved is discarded).
+/// nothing saved is discarded), but not within [`LOCK_GRACE_SECONDS`] of the deadline, while the
+/// surface that was writing may still hand over its final text.
 pub fn resume(root: &Path, catalog: &Catalog, now: DateTime) -> Result<Resume> {
     match status(root, now)? {
         Status::None => Ok(Resume::NoSession),
@@ -521,9 +537,14 @@ pub fn resume(root: &Path, catalog: &Catalog, now: DateTime) -> Result<Resume> {
             session,
             remaining_seconds,
         }),
+        Status::Expired { session }
+            if now.unix() <= session.deadline_unix() + LOCK_GRACE_SECONDS =>
+        {
+            Ok(Resume::Finishing { session })
+        }
         Status::Expired { session } => {
             if session.draft.trim().is_empty() {
-                scrap(root)?;
+                scrap(root, Some(&session.id()))?;
                 Ok(Resume::Discarded {
                     prompt_id: session.prompt_id,
                 })

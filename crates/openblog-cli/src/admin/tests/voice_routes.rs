@@ -460,7 +460,25 @@ fn locking_nothing_is_a_plain_refusal_and_a_scrap_writes_nothing() {
     let session = start(&f, &s, &prompt);
     let (status, body) = lock(&f, &s, &session, "   \n  ");
     assert_eq!((status, body["empty"].clone()), (409, json!(true)));
-    let (status, _) = call(&f, &s, "DELETE", "/admin/api/voice/session", json!({}));
+    // A scrap must name the session: an unnamed one leaves it alone.
+    let (status, body) = call(&f, &s, "DELETE", "/admin/api/voice/session", json!({}));
+    assert_eq!((status, body["otherSession"].clone()), (409, json!(true)));
+    let (status, body) = call(
+        &f,
+        &s,
+        "DELETE",
+        "/admin/api/voice/session",
+        json!({ "sessionId": "a-mistake-i-made@2000-01-01T00:00:00Z" }),
+    );
+    assert_eq!((status, body["otherSession"].clone()), (409, json!(true)));
+    assert_ne!(get(&f, &s, "/admin/api/voice/session").1["state"], "none");
+    let (status, _) = call(
+        &f,
+        &s,
+        "DELETE",
+        "/admin/api/voice/session",
+        json!({ "sessionId": session["sessionId"] }),
+    );
     assert_eq!(status, 200);
     assert_eq!(get(&f, &s, "/admin/api/voice/session").1["state"], "none");
     assert!(get(&f, &s, "/admin/api/voice/samples").1["samples"]
@@ -1033,4 +1051,32 @@ fn erase_lists_first_needs_the_typed_word_and_removes_everything_with_a_post_che
         "keep"
     );
     assert!(!f.dir.join(SESSION_PATH).exists());
+}
+
+#[test]
+fn a_project_served_from_the_current_folder_keeps_its_sentences_and_hides_its_path() {
+    let root = std::path::Path::new(".");
+    let refusal = "Only a polished draft can be saved this way. A rough draft is never rewritten.";
+    assert_eq!(super::voice::scrub_root(root, refusal), refusal);
+    let canonical = std::fs::canonicalize(root).unwrap();
+    let plain = canonical.display().to_string();
+    let plain = plain.strip_prefix(r"\\?\").unwrap_or(&plain).to_string();
+    for spelling in [
+        canonical.display().to_string(),
+        plain.clone(),
+        plain.replace('\\', "/"),
+    ] {
+        let failure = format!(
+            "cannot create {spelling}{}private{}voice: denied.",
+            std::path::MAIN_SEPARATOR,
+            std::path::MAIN_SEPARATOR
+        );
+        let scrubbed = super::voice::scrub_root(root, &failure);
+        assert!(
+            scrubbed.starts_with("cannot create the project"),
+            "{scrubbed}"
+        );
+        assert!(!scrubbed.contains(&plain), "{scrubbed}");
+        assert!(scrubbed.ends_with(": denied."), "{scrubbed}");
+    }
 }

@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio: the Add something dialog writes a piece's Markdown at the caret in both editor modes, at phone
 // and desktop sizes, and the Visual editor shows the piece as an editable block (ADR 0254, #333).
@@ -46,7 +47,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+  removeTree(root);
 });
 
 async function openNewPost(page) {

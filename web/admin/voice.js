@@ -17,7 +17,7 @@ export const VOICE_LIMITS = Object.freeze({
   /** How long typing pauses before the copy on this device is refreshed. */
   localSaveMs: 300,
   /** No timer announcement comes sooner than this after the last one. */
-  announceGapMs: 30000,
+  announceGapMs: 25000,
 });
 
 /** The words that explain why a rough draft cannot be edited (ADR 0266). */
@@ -104,7 +104,8 @@ export function createCountdown(now = () => (typeof performance !== "undefined" 
 
 /**
  * What the polite live region says, and when. Thresholds are one minute and thirty seconds; each is said once
- * as the clock passes it, no timer announcement comes within 30 seconds of the last, and the lock is said once
+ * as the clock passes it, no timer announcement comes within 25 seconds of the last (the two marks are 30 seconds apart, and
+ * a save that restates the clock can bring them a little closer, so both are always said), and the lock is said once
  * when it happens (it is an event, not a tick). The first update of a resumed session says where it stands.
  */
 export function createAnnouncer(gapMs = VOICE_LIMITS.announceGapMs) {
@@ -262,21 +263,26 @@ export const ROUGH_COPY_TTL_MS = 24 * 60 * 60 * 1000;
 export const POLISHED_COPY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const stale = (record, ttl, now) => !Number.isFinite(record.savedAt) || now - record.savedAt > ttl;
 
-/** Remove every voice copy on this device (sign-out, ended session). Never throws. */
-export function clearVoiceCopies(storage = () => globalThis.localStorage) {
+/**
+ * Remove voice copies on this device. Signing out removes every one. Signing in removes every
+ * copy except `keepUser`'s, so a session that ended without signing out gives the same author their
+ * unsaved writing back, and nobody else ever sees it. Never throws.
+ */
+export function clearVoiceCopies(storage = () => globalThis.localStorage, { keepUser = null } = {}) {
+  const kept = (key) => keepUser !== null && (key === `ob-voice-draft:${keepUser}` || key.startsWith(`ob-voice-polished:${keepUser}:`));
+  const voice = (key) => typeof key === "string" && (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:")) && !kept(key);
   try {
     const store = storage();
-    if (!store) return;
-    const keys = [];
-    for (let i = 0; i < store.length; i += 1) keys.push(store.key(i));
-    for (const key of keys) {
-      if (typeof key === "string" && (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:"))) store.removeItem(key);
+    if (store) {
+      const keys = [];
+      for (let i = 0; i < store.length; i += 1) keys.push(store.key(i));
+      for (const key of keys) if (voice(key)) store.removeItem(key);
     }
   } catch {
     // Blocked storage holds nothing to clear.
   }
   for (const key of [...memory.keys()]) {
-    if (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:")) memory.delete(key);
+    if (voice(key)) memory.delete(key);
   }
 }
 
@@ -332,6 +338,24 @@ export function createPolishedDraftStore(key, storage = () => globalThis.localSt
 
 const newest = (a, b) => (b.date || "").localeCompare(a.date || "") || a.file.localeCompare(b.file);
 
+/**
+ * The gap list the core computes (`voice --list` prints the same), in words. Prompt and pack ids become their
+ * titles where the catalog knows them. Returns an empty list when nothing is missing.
+ */
+export function gapLines(gaps, coverage = []) {
+  if (!gaps) return [];
+  const packTitle = new Map(coverage.map((pack) => [pack.id, pack.title]));
+  const promptTitle = new Map(coverage.flatMap((pack) => (pack.prompts || []).map((prompt) => [prompt.id, prompt.title])));
+  const lines = [];
+  const packs = (gaps.unansweredPacks || []).map((id) => packTitle.get(id) || id);
+  if (packs.length) lines.push({ kind: "packs", text: `Packs with no sample yet: ${packs.join(", ")}.` });
+  const rough = (gaps.roughOnlyPrompts || []).map((id) => promptTitle.get(id) || id);
+  if (rough.length) lines.push({ kind: "rough-only", text: `Rough only, no polished draft yet: ${rough.join(", ")}.` });
+  const traits = gaps.oneSampleTraits || [];
+  if (traits.length) lines.push({ kind: "one-sample", text: "Voice guide traits that rest on one sample:", items: traits.map((t) => `${t.statement} (${t.section})`) });
+  return lines;
+}
+
 /** `3 of 4 prompts written, 1 polished`. */
 export function coverageText(pack) {
   const written = `${pack.withRough} of ${pack.total} ${pack.total === 1 ? "prompt" : "prompts"} written`;
@@ -340,20 +364,29 @@ export function coverageText(pack) {
 
 /**
  * The library as groups. Packs come in the catalog's order, and inside a pack the prompts with samples come
- * newest first (by the newest file, then by name), so the same files always give the same page. A prompt that
- * has a rough and a polished draft is one row with both badges. Samples of a pack the catalog no longer offers
+ * newest first (by the newest file, then by name), so the same files always give the same page. Each rough draft
+ * is a row, with its own polished draft (the one whose `roughOf` names it) and both badges, so a prompt answered
+ * on several days lists every answer; a polished draft whose rough draft is missing is a row of its own. Samples
+ * of a pack the catalog no longer offers
  * go in a last group, and files that cannot be read in a group of their own with guidance for repairing them.
  */
 export function groupLibrary({ samples = [], coverage = [] }) {
   const valid = samples.filter((sample) => sample.valid);
   const rowsFor = (items) => {
-    const byPrompt = new Map();
-    for (const sample of items) {
-      const row = byPrompt.get(sample.prompt) || { prompt: sample.prompt, title: sample.promptTitle || sample.title || sample.prompt, rough: null, polished: null };
-      row[sample.stage] = row[sample.stage] && newest(row[sample.stage], sample) <= 0 ? row[sample.stage] : sample;
-      byPrompt.set(sample.prompt, row);
+    const titleOf = (sample) => sample.promptTitle || sample.title || sample.prompt;
+    const roughs = items.filter((sample) => sample.stage === "rough");
+    const roughFiles = new Set(roughs.map((sample) => sample.file));
+    const polishedOf = new Map();
+    const orphans = [];
+    for (const sample of items.filter((s) => s.stage === "polished")) {
+      if (sample.roughOf && roughFiles.has(sample.roughOf) && !polishedOf.has(sample.roughOf)) polishedOf.set(sample.roughOf, sample);
+      else orphans.push(sample);
     }
-    const rows = [...byPrompt.values()].map((row) => {
+    const pairs = [
+      ...roughs.map((sample) => ({ prompt: sample.prompt, title: titleOf(sample), rough: sample, polished: polishedOf.get(sample.file) || null })),
+      ...orphans.map((sample) => ({ prompt: sample.prompt, title: titleOf(sample), rough: null, polished: sample })),
+    ];
+    const rows = pairs.map((row) => {
       const files = [row.rough, row.polished].filter(Boolean);
       const latest = [...files].sort(newest)[0];
       const best = row.polished || row.rough;

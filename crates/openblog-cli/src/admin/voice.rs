@@ -98,12 +98,35 @@ fn visibility_of(body: &Json) -> Result<Option<Visibility>, Response> {
 
 /// A path in an error is the project's own folder: say so instead of showing where it is.
 fn scrub(state: &AppState, message: &str) -> String {
-    let root = state.root.display().to_string();
-    let mut out = message.to_string();
-    for spelling in [root.clone(), root.replace('\\', "/")] {
-        if !spelling.is_empty() {
-            out = out.replace(&spelling, "the project");
+    scrub_root(&state.root, message)
+}
+
+/// [`scrub`] for a project at `root`. The store reports canonical absolute paths, so the root is
+/// matched in its canonical spelling (with and without the Windows `\\?\` prefix, with either
+/// slash), and as given only when that is absolute: a relative root such as `.` (the default for
+/// `openblog serve`) must never be replaced wherever it appears in a sentence.
+pub(super) fn scrub_root(root: &std::path::Path, message: &str) -> String {
+    let mut spellings: Vec<String> = Vec::new();
+    if let Ok(canonical) = std::fs::canonicalize(root) {
+        let canonical = canonical.display().to_string();
+        if let Some(plain) = canonical.strip_prefix(r"\\?\") {
+            spellings.push(plain.to_string());
         }
+        spellings.push(canonical);
+    }
+    if root.is_absolute() {
+        spellings.push(root.display().to_string());
+    }
+    for spelling in spellings.clone() {
+        spellings.push(spelling.replace('\\', "/"));
+    }
+    // Longest first, so a prefixed spelling is replaced whole; a spelling too short to be a
+    // path (a drive or the file-system root) is never used.
+    spellings.sort_by_key(|spelling| std::cmp::Reverse(spelling.len()));
+    spellings.dedup();
+    let mut out = message.to_string();
+    for spelling in spellings.iter().filter(|spelling| spelling.len() > 3) {
+        out = out.replace(spelling.as_str(), "the project");
     }
     out
 }
@@ -395,6 +418,17 @@ pub(super) fn get_session(state: &AppState) -> Response {
         Ok(Resume::Discarded { prompt_id }) => {
             Response::json(200, &json!({ "state": "discarded", "promptId": prompt_id }))
         }
+        // The time has just run out and the surface that was writing may still hand over its
+        // last words; this page neither locks nor discards anything yet.
+        Ok(Resume::Finishing { session }) => Response::json(
+            200,
+            &json!({
+                "state": "finishing",
+                "sessionId": session_id(&session),
+                "promptId": session.prompt_id,
+                "retryAfterSeconds": voice_session::LOCK_GRACE_SECONDS,
+            }),
+        ),
         // Another tab locked it between the check and the lock: nothing is open now.
         Err(StoreError::Refused(message)) if message == voice_session::NO_SESSION_TO_LOCK => {
             Response::json(200, &json!({ "state": "none" }))
@@ -440,15 +474,25 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
             let remaining = session.remaining_seconds(now);
             Response::json(201, &session_json(&catalog, &session, remaining))
         }
-        Err(StartError::AlreadyOpen { prompt_id, expired }) => Response::json(
-            409,
-            &json!({
-                "error": StartError::AlreadyOpen { prompt_id: prompt_id.clone(), expired }.to_string(),
-                "alreadyOpen": true,
-                "promptId": prompt_id,
-                "expired": expired,
-            }),
-        ),
+        Err(StartError::AlreadyOpen { prompt_id, expired }) => {
+            // The page names this session if the author chooses to scrap it.
+            let open_id = match voice_session::status(&state.root, now) {
+                Ok(Status::Active { session, .. } | Status::Expired { session }) => {
+                    Some(session_id(&session))
+                }
+                _ => None,
+            };
+            Response::json(
+                409,
+                &json!({
+                    "error": StartError::AlreadyOpen { prompt_id: prompt_id.clone(), expired }.to_string(),
+                    "alreadyOpen": true,
+                    "promptId": prompt_id,
+                    "expired": expired,
+                    "sessionId": open_id,
+                }),
+            )
+        }
         Err(StartError::Refused(message)) => Response::json(
             409,
             &json!({ "error": scrub(state, &message), "refused": true }),
@@ -581,10 +625,34 @@ pub(super) fn lock_session(state: &AppState, req: &Request) -> Response {
     }
 }
 
-/// `DELETE voice/session`: give up on the session and write nothing.
-pub(super) fn scrap(state: &AppState) -> Response {
-    match voice_session::scrap(&state.root) {
+/// `DELETE voice/session`: give up on the session and write nothing. The body names the session
+/// as `{ sessionId }`, so a page left open on an earlier session cannot throw away a newer one.
+/// Only a record that cannot be read at all may be scrapped without naming it.
+pub(super) fn scrap(state: &AppState, req: &Request) -> Response {
+    let body = match body_object(req, MAX_SMALL_REQUEST_BYTES) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let other =
+        |message: &str| Response::json(409, &json!({ "error": message, "otherSession": true }));
+    let wanted = match &body["sessionId"] {
+        Json::String(id) => Some(id.as_str()),
+        Json::Null => None,
+        _ => return Response::error(400, "Name the session as `sessionId`"),
+    };
+    if wanted.is_none() {
+        match voice_session::status(&state.root, clock::now()) {
+            Ok(Status::None) => return Response::json(200, &json!({ "state": "none" })),
+            Ok(_) => return other(voice_session::SCRAP_OTHER_SESSION),
+            // A damaged record can be scrapped without a name; a newer one is refused below.
+            Err(_) => {}
+        }
+    }
+    match voice_session::scrap(&state.root, wanted) {
         Ok(()) => Response::json(200, &json!({ "state": "none" })),
+        Err(StoreError::Refused(message)) if message == voice_session::SCRAP_OTHER_SESSION => {
+            other(&message)
+        }
         Err(error) => store_error(state, error),
     }
 }
@@ -738,6 +806,13 @@ pub(super) fn list(state: &AppState) -> Response {
         &json!({
             "samples": items.iter().map(|i| listed_json(&catalog, i)).collect::<Vec<_>>(),
             "coverage": packs,
+            // The same gap list `openblog voice --list` prints and the voice-guide request carries.
+            "gaps": crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
+                &state.root,
+                crate::voice_assistant::read_guide(&state.root)
+                    .as_ref()
+                    .map(|(_, text)| text.as_str()),
+            )),
             "warnings": catalog.warnings,
         }),
     )

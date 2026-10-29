@@ -118,12 +118,26 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   }
 
   function enter(answer) {
+    // The time has just run out and another page may still be handing over its last words.
+    if (answer.state === "finishing") return showFinishing(answer);
     // A session that is over leaves no copy behind: the locked draft is on the server.
     if (answer.state !== "active") drafts.clear();
     if (answer.state === "active") showWrite(answer);
     else if (answer.state === "locked") showRefine(answer.sample, { expired: answer.expired, resumed: true });
     else if (answer.state === "discarded") showDraw({ notice: "Your last session ran out of time with nothing written, so it was discarded." });
     else showDraw();
+  }
+
+  function showFinishing(answer) {
+    const mine = generation;
+    render(
+      heading("Time is up", `${base}-heading`),
+      el("p", { role: "status" }, "The page or window that was writing is handing over its last words. This page will check again in a moment."),
+      el("button", { class: "oba-btn", type: "button", "data-action": "voice-retry", onClick: () => load() }, "Check again"),
+    );
+    clock.setTimeout(() => {
+      if (mine === generation && root.isConnected !== false) load();
+    }, Math.max(1, Number(answer.retryAfterSeconds) || 10) * 1000 + 500);
   }
 
   function showProblem(error) {
@@ -281,14 +295,14 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     confirm.append(
       el("button", { class: "oba-btn oba-btn-danger", type: "button", "data-action": "voice-scrap-confirm", onClick: async () => {
         try {
-          await api.call("DELETE", "voice/session", { json: {} });
+          await api.call("DELETE", "voice/session", { json: { sessionId: info.sessionId } });
           drafts.clear();
           showDraw({ notice: "Scrapped the open session. Nothing was saved.", focus: true });
         } catch (error) {
           box.append(errorBox(voiceErrorText(error)));
         }
       } }, "Yes, scrap it and save nothing"),
-      el("button", { class: "oba-btn", type: "button", onClick: () => { confirm.hidden = true; } }, "No, keep it"),
+      el("button", { class: "oba-btn", type: "button", onClick: () => { confirm.hidden = true; box.querySelector('[data-action="voice-scrap"]')?.focus(); } }, "No, keep it"),
     );
     slot.replaceChildren(box);
     box.querySelector("strong")?.focus();
@@ -333,9 +347,11 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     let timer = null;
     let copyTimer = null;
     const deviceNote = el("span", { class: "oba-small", "data-voice-device": "true" });
-    const keepCopy = () => {
+    const keepCopy = ({ evenWhileFinishing = false } = {}) => {
       clock.clearTimeout(copyTimer);
-      if (finishing || !rough.value) return;
+      // A view that was replaced (signing out, another view) never writes private text back.
+      if (mine !== generation || root.isConnected === false) return;
+      if ((finishing && !evenWhileFinishing) || !rough.value) return;
       drafts.save({ sessionId, deadline: session.deadline, text: rough.value });
       deviceNote.textContent = drafts.inMemoryOnly ? "This device would not keep a copy, so your writing is protected by the server only." : "A copy is kept on this device.";
     };
@@ -401,6 +417,8 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
 
     async function finish(reason) {
       if (finishing || mine !== generation) return;
+      // The latest words go to this device first, in case the lock never reaches the server.
+      if (rough.value !== lastSent) keepCopy();
       finishing = true;
       clock.clearTimeout(timer);
       clock.clearTimeout(copyTimer);
@@ -446,7 +464,11 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
           if (mine !== generation) return;
         }
       }
-      message.textContent = "Your rough draft could not be locked just now. Your writing is on the server; reload this page to finish.";
+      message.textContent = text === lastSent
+        ? "Your rough draft could not be locked just now. Your writing is on the server; reload this page to finish."
+        : drafts.inMemoryOnly
+          ? "Your rough draft could not be locked just now, and the server does not have your latest words. Keep this page open and try again once the connection is back."
+          : "Your rough draft could not be locked just now, and the server does not have your latest words. A copy is kept on this device; reload this page once the connection is back to finish.";
     }
 
     function askScrap() {
@@ -459,11 +481,13 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
           { class: "oba-landing-actions" },
           el("button", { class: "oba-btn oba-btn-danger", type: "button", "data-action": "voice-over-confirm", onClick: async () => {
             try {
-              await api.call("DELETE", "voice/session", { json: {} });
+              await api.call("DELETE", "voice/session", { json: { sessionId } });
               drafts.clear();
               if (mine === generation) showDraw({ notice: "Started over. Nothing was saved.", focus: true });
             } catch (error) {
-              message.textContent = voiceErrorText(error);
+              // A newer session opened elsewhere: this page is out of date and nothing was thrown away.
+              if (error.status === 409 && error.data?.otherSession) load();
+              else message.textContent = voiceErrorText(error);
             }
           } }, "Yes, start over"),
           el("button", { class: "oba-btn", type: "button", onClick: () => { scrapBox.hidden = true; rough.focus(); } }, "No, keep writing"),

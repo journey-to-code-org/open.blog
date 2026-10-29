@@ -115,6 +115,39 @@ pub fn replace_file_if_unchanged(
     Ok(!changed)
 }
 
+/// Whether a failed hard link means the file system has none (rather than, say, that the
+/// destination exists).
+fn hard_links_unsupported(error: &io::Error) -> bool {
+    if error.kind() == io::ErrorKind::Unsupported {
+        return true;
+    }
+    // Windows: ERROR_INVALID_FUNCTION and ERROR_NOT_SUPPORTED. Unix: EPERM (vfat on Linux),
+    // EOPNOTSUPP (Linux) and ENOTSUP (macOS).
+    let codes: &[i32] = if cfg!(windows) {
+        &[1, 50]
+    } else {
+        &[1, 45, 95]
+    };
+    error
+        .raw_os_error()
+        .is_some_and(|code| codes.contains(&code))
+}
+
+/// Create `target` with `contents`, failing if it exists. Not atomic: a crash can leave a short
+/// file, which is removed when the write itself fails. Used only where hard links are missing.
+fn write_exclusive(target: &Path, contents: &[u8]) -> io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(target)?;
+    let written = file.write_all(contents).and_then(|()| file.sync_all());
+    if written.is_err() {
+        drop(file);
+        let _ = fs::remove_file(target);
+    }
+    written
+}
+
 /// Publish a complete new file without replacing an existing destination.
 pub fn write_new_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path
@@ -142,7 +175,13 @@ pub fn write_new_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
         drop(file);
         // A same-directory hard link is an atomic, no-replace publication on
         // supported filesystems. Rename would overwrite on Unix.
-        retry_transient(|| fs::hard_link(&temporary, &target)).map_err(|error| {
+        match retry_transient(|| fs::hard_link(&temporary, &target)) {
+            // FAT, exFAT and some network shares have no hard links: create the file
+            // exclusively instead, which still never replaces one.
+            Err(error) if hard_links_unsupported(&error) => write_exclusive(&target, contents),
+            other => other,
+        }
+        .map_err(|error| {
             format!(
                 "cannot publish export {} without overwriting: {error}",
                 path.display()
@@ -287,6 +326,26 @@ pub fn guard_output_dir(root: &Path, out: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_file_system_without_hard_links_still_gets_a_new_file_that_never_replaces_one() {
+        let dir = std::env::temp_dir().join(format!("ob-exclusive-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("new.md");
+        super::write_exclusive(&target, b"first").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        let error = super::write_exclusive(&target, b"second").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        assert!(super::hard_links_unsupported(&std::io::Error::from(
+            std::io::ErrorKind::Unsupported
+        )));
+        assert!(!super::hard_links_unsupported(&std::io::Error::from(
+            std::io::ErrorKind::AlreadyExists
+        )));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     use super::*;
 
     struct Scratch(PathBuf);

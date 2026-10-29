@@ -11188,7 +11188,8 @@ export class ObAdmin extends AdminElement {
    * signed in. Signing in again as that user returns to them; anyone else discards them.
    */
   showSessionEnded(message = "Your session ended. Sign in again.") {
-    clearVoiceCopies();
+    // Voice copies stay on this device: signing in again as the same author gives them back, and
+    // signing in as anyone else removes them (see the sign-in form).
     const key = workspacePanelKey(this.currentHash);
     if (key && key !== "overview" && this.hasUnsavedView() && !this.isSavingView()) this.keepCurrentView(key);
     this.keptOwner = this.kept.size ? this.user : "";
@@ -11246,6 +11247,8 @@ export class ObAdmin extends AdminElement {
             this.user = res.user;
             // Kept panels belong to the user whose session ended; nobody else ever sees them.
             if (this.keptOwner !== res.user) this.forgetWorkspace();
+            // So are voice copies left by an ended session: only their own author gets them back.
+            clearVoiceCopies(undefined, { keepUser: res.user });
             this.signedOut = false;
             pass.value = "";
             await this.enter();
@@ -22983,7 +22986,8 @@ export class Editor {
     const compared = proposal.current?.exists ? `the saved ${proposal.current.visibility} guide` : "no saved guide yet";
     const portableBlocked = proposal.portableAllowed === false;
     const save = (visibility) =>
-      h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked), onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+      // Private is the default (ADR 0282): it comes first and is the primary button; portable is a choice.
+      h("button", { class: visibility === "private" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "data-voice-guide-save": visibility, disabled: proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked), onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
     this.ui.voiceGuideResult.replaceChildren(
       h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
       h("h5", {}, "Changes"),
@@ -22991,7 +22995,7 @@ export class Editor {
         ? h("pre", { class: "oba-voice-diff", "aria-label": "Changes to the voice guide" }, lines.map((line) => h("span", { class: `oba-voice-diff-${line.kind}`, "data-diff": line.kind }, `${line.text}\n`)))
         : h("p", { class: "oba-small" }, "The proposal matches the saved guide."),
       this.field("oba-voice-guide-markdown", "Edit before saving", editor),
-      h("div", { class: "oba-toolbar" }, save("portable"), save("private"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
+      h("div", { class: "oba-toolbar" }, save("private"), save("portable"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
       ...(portableBlocked ? [h("p", { class: "oba-small", "data-voice-guide-note": "portable-blocked" }, voiceGuidePortableNote(proposal))] : []),
     );
   }

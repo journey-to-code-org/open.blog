@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createVoiceLibrary } from "../../web/admin/voice-library.js";
-import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, coverageText, groupLibrary, voiceHash } from "../../web/admin/voice.js";
+import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, coverageText, gapLines, groupLibrary, voiceHash } from "../../web/admin/voice.js";
 import { ApiError, withDom } from "./dom-shim.mjs";
 import { all, flush, link, one, text } from "./voice-harness.mjs";
 
@@ -90,7 +90,7 @@ test("packs are groups with a heading, a coverage line and their prompts", async
     assert.equal(text(one(stories, "h3")), "Stories");
     assert.equal(text(one(stories, "[data-voice-coverage]")), "3 of 3 prompts written, 1 polished");
     assert.deepEqual(rows(stories), ["a-mistake", "a-surprise", "a-journey"]);
-    assert.match(text(one(m.root, "[data-voice-summary]")), /4 prompts written, 1 polished/);
+    assert.match(text(one(m.root, "[data-voice-summary]")), /4 samples written, 1 polished/);
     assert.equal(text(one(packs(m.root)[0], "[data-voice-none]")), "Nothing written in this pack yet.");
     assert.equal(m.api.calls.length, 1);
   })();
@@ -161,5 +161,40 @@ test("a failed load says so in words and offers to try again", async () => {
     const m = await mount(new ApiError("down", 500, null));
     assert.match(text(one(m.root, "[data-voice-error]")), /server could not do that/);
     assert.ok(m.root.querySelectorAll("button").some((b) => b.dataset.action === "voice-retry"));
+  })();
+});
+
+test("a prompt answered on several days lists every answer, each with its own polished draft", () => {
+  const data = listing({
+    samples: [
+      rough("a-mistake", "stories", "2026-10-01", { visibility: "portable" }),
+      polished("a-mistake", "stories", "2026-10-01", { visibility: "portable", words: 90 }),
+      rough("a-mistake", "stories", "2026-10-02", { words: 40 }),
+      rough("a-mistake", "stories", "2026-10-03", { words: 50 }),
+    ],
+  });
+  const rows = groupLibrary(data).groups[1].rows;
+  assert.deepEqual(rows.map((r) => r.rough.file), ["2026-10-03-a-mistake-rough.md", "2026-10-02-a-mistake-rough.md", "2026-10-01-a-mistake-rough.md"]);
+  assert.equal(rows[1].polished, null, "day two's rough draft is not paired with day one's polished draft");
+  assert.equal(rows[1].words, 40);
+  assert.equal(rows[1].visibility, "private");
+  assert.equal(rows[2].polished.file, "2026-10-01-a-mistake-polished.md");
+  assert.equal(rows[2].visibility, "portable");
+});
+
+test("the library shows the same gap list as voice --list, in words", async () => {
+  const gaps = { unansweredPacks: ["teaching"], unansweredPrompts: ["teach-it"], roughOnlyPrompts: ["a-surprise", "a-journey"], oneSampleTraits: [{ section: "Diction", statement: "Starts with so", sample: "x.md" }] };
+  assert.deepEqual(gapLines(gaps, coverage).map((l) => l.text), [
+    "Packs with no sample yet: Teaching.",
+    "Rough only, no polished draft yet: A surprise, A journey.",
+    "Voice guide traits that rest on one sample:",
+  ]);
+  assert.deepEqual(gapLines({ unansweredPacks: [], unansweredPrompts: [], roughOnlyPrompts: [], oneSampleTraits: [] }), []);
+  await withDom(async () => {
+    const m = await mount(listing({ gaps }));
+    const box = one(m.root, "[data-voice-gaps]");
+    assert.match(text(box), /Packs with no sample yet: Teaching\./);
+    assert.match(text(box), /Rough only, no polished draft yet: A surprise, A journey\./);
+    assert.match(text(box), /Starts with so \(Diction\)/);
   })();
 });

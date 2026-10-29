@@ -76,6 +76,12 @@ async function signIn(page, hash = "#/voice") {
   await page.goto(`${origin}/admin/${hash}`);
 }
 
+/** Give up whatever session is open; a scrap names the session it means. */
+async function scrapOpen(page) {
+  const standing = await api(page, "GET", "voice/status");
+  return api(page, "DELETE", "voice/session", { sessionId: standing.body?.session?.sessionId ?? null });
+}
+
 /** A call to the Admin API as the signed-in page makes it. */
 async function api(page, method, path, body) {
   return page.evaluate(async ([method, path, body]) => {
@@ -91,7 +97,7 @@ async function api(page, method, path, body) {
 
 async function clean(page) {
   await signIn(page, "#/overview");
-  await api(page, "DELETE", "voice/session", {});
+  await scrapOpen(page);
 }
 
 const voiceFiles = () => {
@@ -155,7 +161,7 @@ test("the invitation shows once on the Admin home, Start opens Voice, and Dismis
   expect(open.status).toBe(201);
   await reloadHome(page);
   await expect(invitation(page)).toHaveCount(0);
-  await api(page, "DELETE", "voice/session", {});
+  await scrapOpen(page);
   await reloadHome(page);
   await expect(invitation(page)).toBeVisible();
   // Start opens the Voice view.
@@ -351,7 +357,7 @@ test("the library lists what was written, opens a rough draft read-only and a po
   const rows = page.locator("li.oba-voice-row[data-prompt]");
   await expect(rows.first()).toBeVisible();
   expect(await rows.count()).toBeGreaterThan(0);
-  await expect(page.locator("[data-voice-summary]")).toContainText("prompts written");
+  await expect(page.locator("[data-voice-summary]")).toContainText("samples written");
   const LONG = "an_extraordinarily_long_unbroken_word_that_must_wrap_instead_of_overflowing_a_small_screen_at_all_even_at_320";
   let overflow = await sideways(page, "ob-voice-library");
   expect(overflow.region, overflow.culprit).toBeLessThanOrEqual(TOLERANCE);

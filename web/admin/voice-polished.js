@@ -105,9 +105,10 @@ export function buildRoughView({ api, sample }) {
 /**
  * `rough` is `{ file, title, body }`, the locked rough draft. `polished` is the saved polished sample as the
  * server describes it, or null for a draft that has not been saved yet; it then starts as a copy of the rough
- * text. Returns `{ element, isDirty, isBusy, focus, current }`.
+ * text. `heading` sets the section's heading text and `headingLevel` its level, so it fits the page it is on.
+ * Returns `{ element, isDirty, isBusy, focus, current }`.
  */
-export function createPolishedEditor({ api, user, rough, polished = null, storage, onChange = () => {}, onSaved = () => {}, setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout }) {
+export function createPolishedEditor({ api, user, rough, polished = null, storage, onChange = () => {}, onSaved = () => {}, setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout, heading = "Your polished draft", headingLevel = 2 }) {
   const id = `oba-voice-polished-${++uid}`;
   const drafts = createPolishedDraftStore(`ob-voice-polished:${user}:${rough.file}`, storage);
   let saved = polished;
@@ -150,6 +151,8 @@ export function createPolishedEditor({ api, user, rough, polished = null, storag
     clearTimer(timer);
     timer = setTimer(() => {
       timer = null;
+      // An editor that was taken off the page (signing out, another view) writes nothing back.
+      if (body.isConnected === false) return;
       if (isDirty()) drafts.save({ base: revision, ...current() });
       else drafts.clear();
     }, VOICE_LIMITS.localSaveMs);
@@ -321,7 +324,7 @@ export function createPolishedEditor({ api, user, rough, polished = null, storag
   const element = el(
     "section",
     { class: "oba-voice-polished", "aria-labelledby": `${id}-heading`, "data-voice-polished": "true" },
-    el("h2", { id: `${id}-heading` }, "Your polished draft"),
+    el(`h${headingLevel}`, { id: `${id}-heading`, "data-voice-polish-heading": "true" }, heading),
     el("p", { class: "oba-small", id: `${id}-help` }, "This is yours to edit. It starts as a copy of your rough draft; fix typos, cut, reshape and give it a title. Your rough draft stays as it is."),
     restoreBox,
     el("div", { class: "oba-field" }, el("label", { for: `${id}-title` }, "Title"), title),

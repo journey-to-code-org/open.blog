@@ -358,3 +358,91 @@ fn text_saved_after_the_deadline_is_not_captured_when_the_editor_stays_open() {
     assert_eq!(captured.text, "in time");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn an_editor_file_that_cannot_be_read_at_the_end_keeps_the_last_text_seen() {
+    let dir = scratch("vanished");
+    // Saves once, waits long enough to be seen, then the file disappears before it exits.
+    let editor = script(
+        &dir,
+        "vanish",
+        "printf 'seen in time\n' >> \"$1\"\nsleep 2\nrm -f \"$1\"",
+        "echo seen in time>> \"%~1\"\r\nping -n 3 127.0.0.1 >nul\r\ndel /q \"%~1\"",
+    );
+    let header = "# header\n";
+    let file = dir.join("draft.md");
+    let mut seen = Vec::new();
+    let captured = capture_in_editor(
+        &editor,
+        &file,
+        header,
+        &format!("{header}{MARKER}\n"),
+        now() + 60,
+        &now,
+        &mut |text| seen.push(text.to_string()),
+    )
+    .unwrap();
+    assert_eq!(captured.text, "seen in time", "{seen:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_editor_that_returns_at_once_without_a_change_is_not_the_end_of_the_writing() {
+    let dir = scratch("nowait");
+    let editor = script(&dir, "nowait", "exit 0", "exit /b 0");
+    let header = "# header\n";
+    let file = dir.join("draft.md");
+    let result = capture_in_editor(
+        &editor,
+        &file,
+        header,
+        &format!("{header}{MARKER}\nso far\n"),
+        now() + 60,
+        &now,
+        &mut |_| {},
+    );
+    assert!(result.unwrap_err().contains("--wait"));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_running_window_keeps_its_editor_file() {
+    let dir = scratch("live");
+    let mine = format!("editing-{}-1.md", std::process::id());
+    std::fs::write(dir.join(&mine), "x").unwrap();
+    assert!(
+        !other_window_editing(&dir, "editing"),
+        "this process is not another window"
+    );
+    remove_stale(&dir, "editing");
+    assert!(
+        !dir.join(&mine).exists(),
+        "this process's own leftover goes"
+    );
+    // A process that is surely running: this test's parent is not knowable everywhere, so spawn one.
+    let mut child = std::process::Command::new(if cfg!(windows) { "ping" } else { "sleep" })
+        .args(if cfg!(windows) {
+            vec!["-n", "30", "127.0.0.1"]
+        } else {
+            vec!["30"]
+        })
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let theirs = format!("editing-{}-2.md", child.id());
+    std::fs::write(dir.join(&theirs), "x").unwrap();
+    assert!(other_window_editing(&dir, "editing"));
+    remove_stale(&dir, "editing");
+    assert!(
+        dir.join(&theirs).exists(),
+        "a running window's file is left alone"
+    );
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(
+        !process_alive(child.id()),
+        "a stopped process is not running"
+    );
+    remove_stale(&dir, "editing");
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // Reading-path curation in the real Admin Studio (B4.2, ADR 0213): create, edit, reorder without
 // drag, delete; only published targets offered and unpublished steps identified; required
@@ -67,7 +68,7 @@ test.afterAll(async () => {
     await stopped;
   }
   // Windows can hold the stopped server's files for a moment.
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  removeTree(root);
 });
 
 let dialogs;

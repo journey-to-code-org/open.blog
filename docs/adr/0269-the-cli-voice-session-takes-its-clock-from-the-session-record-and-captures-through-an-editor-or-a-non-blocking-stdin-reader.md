@@ -68,3 +68,13 @@ must add no way around them.
 
 - The CLI and Admin write the same files through the same code and cannot disagree about the clock.
 - Tests use a fake editor script and a piped stdin, and set the deadline by writing the session record.
+
+## Notes
+
+- 2026-10-28 (pre-release audit): an empty capture never throws a session away while the record holds saved
+  text; the editor file is read through the transient-hold retry, and a file that cannot be read keeps the last
+  text seen. An editor that returns within three seconds with the file untouched (`code` without `--wait`) is
+  an error that leaves the session open. The editor file name carries the process id, so a second window
+  refuses to drive a session another running window is writing, and leftover files are removed only when
+  their process is gone (the same for `polish`). Piped input with no prompt id that ends without a pick is an
+  error, not "Nothing started".

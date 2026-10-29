@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { removeTree } from "./teardown.mjs";
 
 // Engagement protection (#226, ADRs 0107 and 0108), in the real site and the real Admin, with the
 // hosted function mocked at its routes (the reader's pages) and at the Admin API (the inbox).
@@ -71,7 +72,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 const json = (route, status, body) => route.fulfill({

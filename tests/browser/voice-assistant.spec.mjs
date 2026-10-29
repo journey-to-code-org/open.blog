@@ -2,11 +2,12 @@ import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // Voice samples and the voice guide as Assistant context (epic #409, ADRs 0278 to 0281), in the
 // real Admin: samples written by the real CLI are listed in the Context view with stage, pack,
@@ -64,7 +65,7 @@ test.afterAll(async () => {
     await stopped;
   }
   // Windows can hold the stopped server's files for a moment.
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  removeTree(root);
 });
 
 async function openContext(page) {

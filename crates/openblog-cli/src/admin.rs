@@ -747,7 +747,7 @@ fn authenticated_api(
         ("GET", "voice/status") => voice::status(state),
         ("POST", "voice/draw") => voice::draw(state, req),
         ("GET", "voice/session") => voice::get_session(state),
-        ("DELETE", "voice/session") => voice::scrap(state),
+        ("DELETE", "voice/session") => voice::scrap(state, req),
         ("GET", "voice/erase") => voice::erase_plan(state),
         ("POST", "voice/erase") => voice::erase(state, req),
         ("POST", "voice/session/start") => voice::start(state, req),

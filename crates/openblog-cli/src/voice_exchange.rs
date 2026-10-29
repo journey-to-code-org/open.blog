@@ -123,6 +123,11 @@ fn gather(root: &Path, include_private: bool) -> Result<(String, usize, bool), S
                 // One guide travels: the portable one, as the Assistant prefers it.
                 if guide.is_none() {
                     guide = Some(item);
+                } else {
+                    eprintln!(
+                        "warning: left out of the export: the {} voice guide (one guide travels, and the portable one is preferred)",
+                        visibility.as_str()
+                    );
                 }
             }
             _ => eprintln!(
@@ -443,38 +448,41 @@ fn apply(root: &Path, steps: &[Step]) -> Result<(), String> {
 
 fn apply_with(root: &Path, steps: &[Step], hooks: &Hooks) -> Result<(), String> {
     let mut done: Vec<Undo> = Vec::new();
-    let result =
-        (|| -> Result<(), String> {
-            for step in steps.iter().filter(|s| s.action != Action::Unchanged) {
-                let path = match &step.file {
-                    Some(file) => voice_store::path_of(root, step.visibility, file)
-                        .map_err(|e| e.to_string())?,
-                    None => guide_path(root, step.visibility)?,
-                };
-                let old = match step.action {
-                    Action::Replace => Some(fs::read(&path).map_err(|error| {
-                        format!("cannot read {}: {error}", step.relative(root))
-                    })?),
-                    _ => None,
-                };
-                // Recorded before the write: a write can publish the file and still report an error,
-                // and the undo of a file that is not there is a no-op.
-                done.push(Undo {
-                    path: path.clone(),
-                    old,
-                    label: step.relative(root),
-                });
-                if step.action == Action::Create {
-                    fsutil::write_new_atomic(&path, step.content.as_bytes())?;
-                } else {
-                    voice_store::replace(&path, step.content.as_bytes())
-                        .map_err(|error| error.to_string())?;
+    let result = (|| -> Result<(), String> {
+        for step in steps.iter().filter(|s| s.action != Action::Unchanged) {
+            let path = match &step.file {
+                Some(file) => {
+                    voice_store::refuse_linked_folder(root, step.visibility)
+                        .map_err(|e| e.to_string())?;
+                    voice_store::path_of(root, step.visibility, file).map_err(|e| e.to_string())?
                 }
-                (hooks.after_write)(&path)?;
-                voice_store::keep_private_out_of_git(root, step.visibility);
+                None => guide_path(root, step.visibility)?,
+            };
+            let old = match step.action {
+                Action::Replace => Some(
+                    fs::read(&path)
+                        .map_err(|error| format!("cannot read {}: {error}", step.relative(root)))?,
+                ),
+                _ => None,
+            };
+            // Recorded before the write: a write can publish the file and still report an error,
+            // and the undo of a file that is not there is a no-op.
+            done.push(Undo {
+                path: path.clone(),
+                old,
+                label: step.relative(root),
+            });
+            if step.action == Action::Create {
+                fsutil::write_new_atomic(&path, step.content.as_bytes())?;
+            } else {
+                voice_store::replace(&path, step.content.as_bytes())
+                    .map_err(|error| error.to_string())?;
             }
-            Ok(())
-        })();
+            (hooks.after_write)(&path)?;
+            voice_store::keep_private_out_of_git(root, step.visibility);
+        }
+        Ok(())
+    })();
     if let Err(message) = result {
         let failed: Vec<&str> = done
             .iter()

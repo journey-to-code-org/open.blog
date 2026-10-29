@@ -793,3 +793,80 @@ fn list_names_rough_only_prompts_and_one_sample_traits_from_the_guide() {
     );
     let _ = fs::remove_dir_all(dir);
 }
+
+// ---- losing nothing (pre-release audit) ----------------------------------------------------
+
+#[test]
+fn piping_text_without_naming_a_prompt_fails_and_starts_nothing() {
+    let dir = site("piped");
+    let output = run(&dir, &["voice", "--stdin"], "my answer here\n.\n");
+    let printed = text(&output);
+    assert!(!output.status.success(), "{printed}");
+    assert!(
+        printed.contains("openblog voice <prompt-id> --stdin"),
+        "{printed}"
+    );
+    assert!(!session_path(&dir).exists());
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_editor_that_returns_at_once_locks_nothing_and_keeps_the_session() {
+    let dir = site("nowait");
+    write_session(&dir, 10, 180, "half of my answer");
+    // Like `code` without --wait: hands the file to another window and exits at once.
+    let editor = fake_editor(&dir, "nowait", "exit 0", "exit /b 0");
+    let output = run_with(&dir, &["voice", "--resume"], "", &[("EDITOR", &editor)]);
+    let printed = text(&output);
+    assert!(!output.status.success(), "{printed}");
+    assert!(printed.contains("--wait"), "{printed}");
+    assert!(samples(&dir, PRIVATE).is_empty(), "nothing was locked");
+    let record = fs::read_to_string(session_path(&dir)).unwrap();
+    assert!(record.contains("half of my answer"), "{record}");
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_editor_file_that_vanishes_keeps_the_text_already_saved() {
+    let dir = site("vanish");
+    write_session(&dir, 10, 180, "words saved before the file went away");
+    let editor = fake_editor(&dir, "vanish", "rm -f \"$1\"", "del /q \"%~1\"");
+    let output = run_with(&dir, &["voice", "--resume"], "", &[("EDITOR", &editor)]);
+    let printed = text(&output);
+    assert!(output.status.success(), "{printed}");
+    let files = samples(&dir, PRIVATE);
+    assert_eq!(files.len(), 1, "{printed}");
+    assert_eq!(
+        sample_body(&dir.join(PRIVATE).join(&files[0])),
+        "words saved before the file went away"
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_second_window_cannot_drive_a_session_another_window_is_writing() {
+    let dir = site("second");
+    write_session(&dir, 10, 180, "the first window's words");
+    // The first window's editor file, owned by a process that is running (this test).
+    let editing = dir.join(format!(
+        ".openblog/private/voice/editing-{}-1.md",
+        std::process::id()
+    ));
+    fs::write(&editing, "the first window's words\n").unwrap();
+    let output = run(
+        &dir,
+        &["voice", "--resume", "--stdin"],
+        "second window\n.\n",
+    );
+    let printed = text(&output);
+    assert!(!output.status.success(), "{printed}");
+    assert!(
+        printed.contains("Another `openblog voice` window"),
+        "{printed}"
+    );
+    assert!(editing.exists(), "the first window's file is left alone");
+    assert!(samples(&dir, PRIVATE).is_empty());
+    let record = fs::read_to_string(session_path(&dir)).unwrap();
+    assert!(record.contains("the first window's words"), "{record}");
+    let _ = fs::remove_dir_all(dir);
+}

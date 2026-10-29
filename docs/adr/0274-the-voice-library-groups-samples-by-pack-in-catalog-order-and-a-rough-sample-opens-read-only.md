@@ -18,8 +18,10 @@ the way its stage says: a rough draft to read, a polished draft to edit.
   and for each catalog pack the prompts with whether a rough and a polished draft exist. The page groups them
   (`groupLibrary`, a pure function), so the same files always give the same page.
 - **Deterministic order.** Packs come in the catalog's order. Inside a pack the prompts that have a sample come
-  newest first (by the newest of their files, ties broken by file name). A prompt with a rough and a polished
-  draft is one row with both badges, showing the polished draft's length and the newer date.
+  newest first (by the newest of their files, ties broken by file name). Each rough draft is one row with its
+  own polished draft (the one whose `roughOf` names it) and both badges, showing the polished draft's length and
+  the newer date. A prompt answered on several days has a row per answer (amended 2026-10-28: rows were first
+  one per prompt, which hid every answer but the newest).
 - **Badges say the stage in a word and a shape** (a hollow diamond for rough, a solid one for polished), plus the
   length, where it is kept (Private or Portable) and the date. Color is never the only signal.
 - **Coverage is a sentence per pack** ("3 of 4 prompts written, 1 polished") and a total at the top. A pack with
@@ -47,6 +49,8 @@ the way its stage says: a rough draft to read, a polished draft to edit.
 - A file that cannot be read, or a polished draft whose rough draft is missing, opens as guidance and no editor.
 - **Not here:** promoting a polished draft to a post (`POST samples/{id}/promote` and the Promote button) waits for
   the shared store function that makes the post draft; this change has no promotion logic of its own.
+  (Note, 2026-10-28: promotion was added later by ADR 0270 as `POST samples/{id}/promote` and the library's **Make
+  a post draft** button, and erasing by ADR 0283 as `GET`/`POST voice/erase`.)
 
 ## Considered options
 

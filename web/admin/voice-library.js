@@ -6,7 +6,11 @@
 
 import { el } from "./block-forms.js";
 import { buildRoughView, createPolishedEditor, keepBarReachable } from "./voice-polished.js";
-import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, clearVoiceCopies, dateText, groupLibrary, libraryHash, visibilityText, voiceErrorText, voiceHash, wordsText } from "./voice.js";
+import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, clearVoiceCopies, dateText, gapLines, groupLibrary, libraryHash, visibilityText, voiceErrorText, voiceHash, wordsText } from "./voice.js";
+
+/** The Admin home invitation: what a voice sample is, and that it stays private and unpublished. */
+export const INVITATION_TEXT =
+  "A voice sample is a short piece of your own writing, answered against a three-minute clock, that the Assistant can use to match how you sound. It is private by default and never published.";
 
 let uid = 0;
 
@@ -96,7 +100,7 @@ export function buildVoiceInvitation({ onDismiss, onGone = () => {} }) {
     "section",
     { class: "oba-notice oba-voice-invitation", "aria-labelledby": id, "data-voice-invitation": "true" },
     el("h2", { id }, "Gather your voice"),
-    el("p", {}, "Draw three prompts, pick one and write for three minutes, the way you would say it. Your rough draft stays exactly as you wrote it, you can polish a copy, and nothing is ever published. It is private by default and takes about five minutes."),
+    el("p", {}, INVITATION_TEXT),
     el(
       "div",
       { class: "oba-landing-actions" },
@@ -136,7 +140,14 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
     }
     if (mine !== generation) return;
     show(data);
+    // After an erase the page is drawn again; focus goes to what the erase said.
+    focusAfterShow?.focus();
+    focusAfterShow = null;
   }
+
+  /** What a finished erase said, for the erase block of the page drawn after it. */
+  let eraseNotice = null;
+  let focusAfterShow = null;
 
   // ----- erase everything: list first, confirm in words, one all-or-nothing request, then a check
   function eraseBlock() {
@@ -148,7 +159,15 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
       body.replaceChildren();
       start.hidden = false;
       start.disabled = false;
+      start.focus();
     };
+    if (eraseNotice) {
+      status.className = eraseNotice.className;
+      status.textContent = eraseNotice.text;
+      status.setAttribute("tabindex", "-1");
+      focusAfterShow = status;
+      eraseNotice = null;
+    }
     start.addEventListener("click", async () => {
       start.disabled = true;
       status.className = "oba-small";
@@ -191,15 +210,18 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
           clearVoiceCopies(storage);
           body.replaceChildren();
           if (done.clean) {
-            status.className = "oba-small oba-ok";
-            status.textContent = `Erased ${done.erased.length} ${done.erased.length === 1 ? "file" : "files"}. Checked again: nothing is left, and the copies kept on this device are gone too.`;
-            start.hidden = false;
-            start.disabled = false;
+            // The samples listed above are gone: draw the page again, which is now empty, and say so.
+            eraseNotice = {
+              className: "oba-small oba-ok",
+              text: `Erased ${done.erased.length} ${done.erased.length === 1 ? "file" : "files"}. Checked again: nothing is left, and the copies kept on this device are gone too.`,
+            };
+            await load();
           } else {
             status.className = "oba-small oba-error";
             status.textContent = `Erased ${done.erased.length} files, but these are still there: ${done.remaining.join(", ")}.`;
             start.hidden = false;
             start.disabled = false;
+            start.focus();
           }
         } catch (error) {
           // The server erases all or nothing, so a failure means everything is still in place.
@@ -211,7 +233,7 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
         }
       });
       body.replaceChildren(
-        el("p", {}, `This permanently erases ${plan.items.length} ${plan.items.length === 1 ? "file" : "files"}, from both the portable and the private folders. It cannot be undone.`),
+        el("p", {}, `This permanently erases ${plan.items.length} ${plan.items.length === 1 ? "file" : "files"}, from both the portable and the private folders. It cannot be undone. Voice export files you wrote yourself are not included; delete those by hand.`),
         el("ul", { class: "oba-voice-erase-list", "data-voice-erase-list": "true" }, plan.items.map((item) => el("li", {}, el("code", {}, item.path), ` (${item.kind})`))),
         el("label", { for: `${id}-word` }, `Type "${word}" to confirm`),
         input,
@@ -227,6 +249,22 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
       start,
       body,
       status,
+    );
+  }
+
+  /** What is still missing: the same list `openblog voice --list` prints. */
+  function gapsNode(data) {
+    const lines = gapLines(data.gaps, data.coverage);
+    if (!lines.length) return null;
+    return el(
+      "section",
+      { class: "oba-notice oba-voice-gaps", "aria-labelledby": `${ids}-gaps`, "data-voice-gaps": "true" },
+      el("h3", { id: `${ids}-gaps` }, "What is missing"),
+      lines.map((line) =>
+        line.items
+          ? el("div", { "data-gap": line.kind }, el("p", {}, line.text), el("ul", {}, line.items.map((item) => el("li", {}, item))))
+          : el("p", { "data-gap": line.kind }, line.text),
+      ),
     );
   }
 
@@ -250,7 +288,8 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
     const polished = [...library.groups, library.other].filter(Boolean).reduce((n, g) => n + g.rows.filter((r) => r.polished).length, 0);
     const parts = [
       el("h2", { id: `${ids}-title`, tabindex: "-1", "data-voice-heading": "true" }, "Your voice samples"),
-      el("p", { class: "oba-voice-summary", "data-voice-summary": "true" }, `${sampled} ${sampled === 1 ? "prompt" : "prompts"} written, ${polished} polished. Rough drafts stay as you wrote them; polished drafts are yours to edit.`),
+      el("p", { class: "oba-voice-summary", "data-voice-summary": "true" }, `${sampled} ${sampled === 1 ? "sample" : "samples"} written, ${polished} polished. Rough drafts stay as you wrote them; polished drafts are yours to edit.`),
+      gapsNode(data),
       el("div", { class: "oba-landing-actions" }, el("a", { class: "oba-btn oba-btn-primary", href: voiceHash(), "data-action": "voice-start-session" }, "Start a session")),
       library.groups.map((group) => groupNode(group, ids)),
       library.other ? groupNode(library.other, ids) : null,
@@ -355,15 +394,24 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
       rough: { file: rough.file, title: rough.title, body: rough.body },
       polished,
       onChange: (dirty) => onDirty(dirty),
+      // One heading for the editor, a level under the sample's own.
+      heading: polished ? "Edit your polished draft" : "Polish a copy",
+      headingLevel: 3,
+      // The first save makes a polished draft, which can then become a post draft.
+      onSaved: (result) => {
+        if (mine !== generation || promote) return;
+        promote = promoteBlock(result);
+        editor.element.after(promote);
+      },
     });
+    let promote = polished ? promoteBlock(polished) : null;
     root.replaceChildren(
       back(),
       heading,
       el("p", { class: "oba-small", "data-voice-open-meta": "true" }, `${polished ? "Rough and polished drafts" : "Rough draft only"}. ${dateText(rough.date)}`.trim()),
       roughView.element,
-      el("h3", { class: "oba-voice-polish-heading", "data-voice-polish-heading": "true" }, polished ? "Edit your polished draft" : "Polish a copy"),
       editor.element,
-      ...(polished ? [promoteBlock(polished)] : []),
+      ...(promote ? [promote] : []),
     );
     keepBarReachable(editor.bar(), () => mine === generation);
     // The stage names where the author goes next: a polished draft to its editor, a rough one to its heading.

@@ -19,9 +19,11 @@ a session as comfortably as anyone else.
   are not announced. A separate polite live region (`role="status"`), outside the steps so it outlives them,
   speaks only: "1 minute left." and "30 seconds left." as the clock passes those marks, and the lock ("Time is
   up. Your rough draft is locked.", or "Your rough draft is locked." for Finish early).
-- **No timer announcement comes within 30 seconds of the last.** A new session says nothing until the one-minute
+- **No timer announcement comes within 25 seconds of the last.** A new session says nothing until the one-minute
   mark. A resumed session says where it stands once ("Resumed. 45 seconds left."), and a mark that would follow
-  it within 30 seconds is not repeated. The lock is an event and not a tick, so it is always said once; a test
+  it within 25 seconds is not repeated. The gap is a little under the 30 seconds between the two marks because
+  each autosave restates the time left and can only move the end sooner; with a 30 second gap a save between the
+  marks silenced "30 seconds left." (amended 2026-10-28). The lock is an event and not a tick, so it is always said once; a test
   runs the whole three minutes second by second and checks the messages and the gaps.
 - **Focus goes where the author works next.** Start puts the cursor in the rough box; the lock puts it in the
   polished editor (also when the time runs out); "Draw three more" focuses the first new prompt; starting over

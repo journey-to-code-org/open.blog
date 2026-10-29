@@ -370,13 +370,22 @@ pub fn read(root: &Path, visibility: Visibility, file: &str) -> Result<Loaded> {
 
 /// The prompt id of the open session, if a valid session record exists.
 pub fn open_session_prompt(root: &Path) -> Option<String> {
+    open_session_key(root).map(|(prompt, _)| prompt)
+}
+
+/// The prompt and start time of the open session, which name it. (A real record always has its
+/// start time; a test fixture may leave it out.)
+fn open_session_key(root: &Path) -> Option<(String, Option<String>)> {
     let path = contained_target(root, Path::new(SESSION_PATH)).ok()?;
     let bytes = read_bounded(&path).ok()??;
     let value: Value = serde_json::from_slice(&bytes).ok()?;
     if value["format"] != SESSION_FORMAT || value["version"].as_u64() != Some(1) {
         return None;
     }
-    value["promptId"].as_str().map(str::to_string)
+    Some((
+        value["promptId"].as_str()?.to_string(),
+        value["startedAt"].as_str().map(str::to_string),
+    ))
 }
 
 fn write_text(sample: &VoiceSample) -> Result<Vec<u8>> {
@@ -393,16 +402,45 @@ pub(crate) fn keep_private_out_of_git(root: &Path, visibility: Visibility) {
     }
 }
 
-/// Create the rough draft. Allowed only while a session is open for `sample.voice.prompt`, and
-/// only once: the file is created without replacing anything. Writing the identical bytes again
-/// (a lock repeated after a crash) succeeds without touching the file; anything else for an
-/// existing rough draft is refused.
+/// Create a new file without replacing one, with a sentence that names the file and the cause but
+/// never its absolute path.
+fn create_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    fsutil::write_new_atomic(path, bytes).map_err(|message| {
+        let name = path
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        // The cause is the operating system's own sentence at the end of the message.
+        let cause = message.rsplit(": ").next().unwrap_or("").trim();
+        StoreError::Failed(format!(
+            "Cannot save `{name}`; nothing was replaced ({cause})."
+        ))
+    })
+}
+
+/// Create the rough draft. Allowed only while the session that began at `sample.date` is open
+/// for `sample.voice.prompt`, and only once: the file is created without replacing anything.
+/// Writing the identical bytes again (a lock repeated after a crash) succeeds without touching
+/// the file; anything else for an existing rough draft is refused. The session is checked while
+/// the store lock is held, so a session scrapped (and perhaps started again) meanwhile is never
+/// turned into a rough draft.
 pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) -> Result<Written> {
     if sample.voice.stage != VoiceStage::Rough {
         return refused("Only a rough draft is written this way.");
     }
-    match open_session_prompt(root) {
-        Some(prompt) if prompt == sample.voice.prompt => {}
+    let bytes = write_text(sample)?;
+    let file = sample.file_name().map_err(StoreError::Refused)?;
+    let path = path_of(root, visibility, &file)?;
+    refuse_linked_folder(root, visibility)?;
+    let _lock = lock(root)?;
+    match open_session_key(root) {
+        Some((prompt, started))
+            if prompt == sample.voice.prompt
+                && started
+                    .as_deref()
+                    .is_none_or(|started| started == sample.date) => {}
+        Some((prompt, _)) if prompt == sample.voice.prompt => {
+            return refused("That session was given up, so its text was not locked.")
+        }
         Some(_) => return refused("The open session is for a different prompt."),
         None => {
             return refused(
@@ -410,10 +448,6 @@ pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) ->
             )
         }
     }
-    let bytes = write_text(sample)?;
-    let file = sample.file_name().map_err(StoreError::Refused)?;
-    let path = path_of(root, visibility, &file)?;
-    let _lock = lock(root)?;
     match read_bounded(&path)? {
         Some(existing) if existing == bytes => {
             keep_private_out_of_git(root, visibility);
@@ -432,7 +466,7 @@ pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) ->
                     return refused("A rough draft for this prompt and day already exists in the other folder.");
                 }
             }
-            fsutil::write_new_atomic(&path, &bytes).map_err(StoreError::Failed)?;
+            create_new(&path, &bytes)?;
             keep_private_out_of_git(root, visibility);
             Ok(Written {
                 visibility,
@@ -469,6 +503,7 @@ pub fn write_polished(
     let mut bytes = write_text(sample)?;
     let rough_path = path_of(root, visibility, rough_name)?;
     let path = path_of(root, visibility, &file)?;
+    refuse_linked_folder(root, visibility)?;
     let _lock = lock(root)?;
     let rough = match read_bounded(&rough_path)? {
         Some(rough) => listed_from(visibility, rough_name, &rough),
@@ -485,7 +520,7 @@ pub fn write_polished(
     let current = read_bounded(&path)?;
     match (&current, expected_revision) {
         (None, None) => {
-            fsutil::write_new_atomic(&path, &bytes).map_err(StoreError::Failed)?;
+            create_new(&path, &bytes)?;
         }
         (None, Some(_)) => {
             return Err(StoreError::Stale {
@@ -624,6 +659,8 @@ pub fn move_visibility(
     if from == to {
         return refused("The sample is already there.");
     }
+    refuse_linked_folder(root, from)?;
+    refuse_linked_folder(root, to)?;
     let _lock = lock(root)?;
     let (rough, polished) = pair(root, from, file)?;
     let mut names = vec![rough];
@@ -651,7 +688,7 @@ pub fn move_visibility(
         }
         for (_, target, bytes, present) in &staged {
             if !present {
-                fsutil::write_new_atomic(target, bytes).map_err(StoreError::Failed)?;
+                create_new(target, bytes)?;
                 copies.push(target.clone());
             }
         }
@@ -781,23 +818,42 @@ fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
 /// A voice folder (relative to the project) with every ancestor up to the root checked: if any is
 /// a link or reparse point the erase is refused, because enumerating or deleting through it could
 /// reach another folder of the project (the posts, say). A folder that does not exist is fine.
-fn unlinked_dir(root: &Path, relative: &Path) -> Result<PathBuf> {
+/// Whether `relative` (or a folder on the way to it) is a link or a reparse point.
+fn linked_on_the_way(root: &Path, relative: &Path) -> Result<bool> {
     let mut current = root.to_path_buf();
     for component in relative.components() {
         current.push(component);
         match fs::symlink_metadata(&current) {
-            Ok(metadata) if is_link_or_reparse(&metadata) => {
-                return refused(format!(
-                    "{} is a link, so nothing was erased. Replace it with a real folder or remove the link, then run erase again.",
-                    relative.display()
-                ));
-            }
+            Ok(metadata) if is_link_or_reparse(&metadata) => return Ok(true),
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
             Err(error) => return Err(failed("Cannot inspect a voice folder", error)),
         }
     }
+    Ok(false)
+}
+
+fn unlinked_dir(root: &Path, relative: &Path) -> Result<PathBuf> {
+    if linked_on_the_way(root, relative)? {
+        return refused(format!(
+            "{} is a link, so nothing was erased. Replace it with a real folder or remove the link, then run erase again.",
+            relative.display()
+        ));
+    }
     contained(root, &relative.to_string_lossy())
+}
+
+/// A sample folder reached through a link is never written to, even when the link points inside
+/// the project (for example at `content/posts`, where a build or a commit would pick a sample up).
+/// The erase refuses the same layout.
+pub(crate) fn refuse_linked_folder(root: &Path, visibility: Visibility) -> Result<()> {
+    if linked_on_the_way(root, Path::new(visibility.directory()))? {
+        return refused(format!(
+            "{} is a link, so nothing was saved. Replace it with a real folder or remove the link, then try again.",
+            visibility.directory()
+        ));
+    }
+    Ok(())
 }
 
 /// Every folder an erase reads or deletes from, checked for links. Touches nothing.
@@ -860,12 +916,18 @@ fn collect(root: &Path) -> Result<Vec<EraseItem>> {
         }
     }
     for name in file_names(&contained(root, PRIVATE_VOICE_DIR)?) {
-        if is_editor_file(&name) {
-            items.push(EraseItem {
-                path: format!("{PRIVATE_VOICE_DIR}/{name}"),
-                kind: EraseKind::EditorFile,
-            });
-        }
+        let kind = if is_editor_file(&name) {
+            EraseKind::EditorFile
+        } else if name.starts_with(".session-") && name.ends_with(".tmp") {
+            // A session record a crash left half-written: it holds the timed draft.
+            EraseKind::Leftover
+        } else {
+            continue;
+        };
+        items.push(EraseItem {
+            path: format!("{PRIVATE_VOICE_DIR}/{name}"),
+            kind,
+        });
     }
     Ok(items)
 }
@@ -1118,7 +1180,7 @@ pub fn promote_to_post_draft(
             "{relative} already exists. Nothing was written; choose a different slug first."
         ));
     }
-    fsutil::write_new_atomic(&target, draft.markdown.as_bytes()).map_err(StoreError::Failed)?;
+    create_new(&target, draft.markdown.as_bytes())?;
     Ok(PathBuf::from(relative))
 }
 

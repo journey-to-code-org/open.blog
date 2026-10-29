@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { DEFAULT_ADMIN_PREFERENCES, normalizeAdminPreferences } from "../../web/admin/admin.js";
-import { buildVoiceInvitation } from "../../web/admin/voice-library.js";
+import { INVITATION_TEXT, buildVoiceInvitation } from "../../web/admin/voice-library.js";
 import { invitationVisible } from "../../web/admin/voice.js";
 import { withDom } from "./dom-shim.mjs";
 import { all, flush, link, text } from "./voice-harness.mjs";
@@ -41,9 +41,11 @@ test("the card explains the feature, Start is a link to the Voice view, and Dism
     const card = buildVoiceInvitation({ onDismiss: async () => true });
     document.body.append(card.element);
     assert.equal(text(card.element.querySelector("h2")), "Gather your voice");
-    assert.match(text(card.element), /three minutes/);
-    assert.match(text(card.element), /nothing is ever published/);
-    assert.match(text(card.element), /private by default/);
+    assert.equal(text(card.element.querySelector("p")), INVITATION_TEXT);
+    assert.match(INVITATION_TEXT, /^A voice sample is a short piece of your own writing/, "it says what a sample is");
+    assert.match(INVITATION_TEXT, /the Assistant can use to match how you sound/, "and what it is for");
+    assert.match(INVITATION_TEXT, /private by default and never published\.$/);
+    assert.equal(INVITATION_TEXT.split(". ").length, 2, "two sentences");
     const start = link(card.element, "voice-invitation-start");
     assert.equal(start.attributes.href, "#/voice");
     assert.match(text(start), /voice session/i);
