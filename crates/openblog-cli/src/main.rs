@@ -172,6 +172,12 @@ new OPTIONS
     --tags a,b,c               Comma-separated tags
     --draft                    Mark the post as a draft
     --recipe                   Start from a recipe template (servings, times, ingredients, steps)
+    --profile job              Start a job: the job front matter and the headings Problem, What we
+                               found, What we did, Result. Always a draft until it is filled in
+    --trade <id>               With --profile job: the trade (bundled, or from extraTrades)
+    --service <id>             With --profile job: the service, such as hardwood-install
+    --town <name>              With --profile job: the town (never an address)
+    --region <name>            With --profile job: the region or state
 
 import hashnode OPTIONS
     --source public|graphql    public (default) reads your live site and needs no account;
@@ -320,15 +326,49 @@ fn run(raw: &[String]) -> Result<(), String> {
                 })
                 .unwrap_or_default();
             let _transaction = transaction::ContentTransactionLock::acquire(&root)?;
-            let created = scaffold::new_post(
-                &root,
-                title,
-                args.options.get("series").map(String::as_str),
-                &tags,
-                args.switches.contains("draft"),
-                args.switches.contains("recipe"),
-            )?;
+            let series = args.options.get("series").map(String::as_str);
+            let recipe = args.switches.contains("recipe");
+            let profile = args.options.get("profile").map(|p| p.trim().to_lowercase());
+            let job_option = |name: &str| args.options.get(name).map(String::as_str);
+            let created = match profile.as_deref() {
+                Some("job") if !recipe => {
+                    let start = scaffold::JobStart {
+                        trade: job_option("trade"),
+                        service: job_option("service"),
+                        town: job_option("town"),
+                        region: job_option("region"),
+                    };
+                    scaffold::new_job(&root, title, series, &tags, &start)?
+                }
+                Some("job") => return Err("--recipe and --profile job cannot be combined".into()),
+                None | Some("article") | Some("recipe") => {
+                    if ["trade", "service", "town", "region"]
+                        .iter()
+                        .any(|name| args.options.contains_key(*name))
+                    {
+                        return Err(
+                            "--trade, --service, --town and --region need --profile job".into()
+                        );
+                    }
+                    scaffold::new_post(
+                        &root,
+                        title,
+                        series,
+                        &tags,
+                        args.switches.contains("draft"),
+                        recipe || profile.as_deref() == Some("recipe"),
+                    )?
+                }
+                Some(other) => {
+                    return Err(format!(
+                        "`--profile {other}` is not supported by `new`; use article, recipe or job"
+                    ))
+                }
+            };
             println!("created {created}");
+            if profile.as_deref() == Some("job") {
+                println!("It is a draft until you fill in the job's details; `openblog check` lists what is missing.");
+            }
             Ok(())
         }
         "contributors" => {

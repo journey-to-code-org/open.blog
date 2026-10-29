@@ -173,6 +173,17 @@ pub fn normalize_service(value: &str) -> Result<String, String> {
     }
 }
 
+/// A town or region name for a job, or the sentence saying why it is refused
+/// (a town only, never an address).
+pub fn normalize_place(value: &str, field: &str) -> Result<String, String> {
+    let mut problems = Vec::new();
+    let value = place_part(Some(value.trim()), field, &mut problems);
+    match problems.into_iter().next() {
+        Some(problem) => Err(problem),
+        None => Ok(value),
+    }
+}
+
 /// Read and validate the `job` mapping. Every problem is a sentence naming
 /// the field; all of them are returned, not only the first.
 pub fn from_front_matter(
