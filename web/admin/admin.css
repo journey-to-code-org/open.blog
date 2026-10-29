@@ -5890,6 +5890,38 @@ ob-voice-library {
 .oba-capture-saved:empty {
   display: none;
 }
+.oba-capture-voice {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.oba-capture-voice-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.oba-capture-voice .oba-btn {
+  min-height: 56px;
+  font-size: 1.05rem;
+}
+.oba-capture-voice audio {
+  width: 100%;
+  max-width: 100%;
+}
+.oba-capture-voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.oba-capture-voice-actions .oba-btn {
+  flex: 1 1 8rem;
+}
+.oba-capture-timer {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
 .oba-capture-pending {
   min-width: 0;
   padding-top: 0.75rem;

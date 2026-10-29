@@ -4,6 +4,7 @@
 // the second builds the view. No provider is contacted: a capture only ever talks to this site's own Admin.
 
 import { el } from "./block-forms.js";
+import { audioLimits, clock, createRecorder, START_PROBLEMS } from "./capture-recorder.js";
 import { createCaptureQueue, openIndexedStore, queueLimits } from "./capture-queue.js";
 import { localDay } from "./job-form.js";
 
@@ -168,6 +169,20 @@ export async function sendCapture({ api, capture, scaffold, now = new Date() }) 
       skipped.push(photo.name);
     }
   }
+  // The voice note is kept privately beside the draft, never in its body (ADR 0402).
+  let audio = "none";
+  if (capture.audio) {
+    try {
+      await api.call("POST", `capture-audio?capture=${capture.id}`, {
+        body: capture.audio.blob,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      audio = "kept";
+    } catch (error) {
+      if (!isPermanentPhotoError(error)) throw error;
+      audio = "refused";
+    }
+  }
   const saved = await api.call("POST", "document", {
     json: {
       kind: "posts",
@@ -176,7 +191,7 @@ export async function sendCapture({ api, capture, scaffold, now = new Date() }) 
       body: captureBody({ scaffold, notes: capture.fields.notes, photoUrls }),
     },
   });
-  return { path: saved.path, skipped };
+  return { path: saved.path, skipped, audio };
 }
 
 let uid = 0;
@@ -187,7 +202,7 @@ const sizeText = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).t
  * Returns `{ element, load, isDirty, isBusy, destroy }`. `api.call(method, path, { json, body, headers })` is
  * the Admin API; `meta` is the Admin meta (`job`, `capture`); `storage` holds the remembered picks.
  */
-export function createJobCapture({ api, meta = {}, storage = globalThis.localStorage, store: store_, now = () => new Date() }) {
+export function createJobCapture({ api, meta = {}, storage = globalThis.localStorage, store: store_, now = () => new Date(), recorderOptions = {} }) {
   const id = `oba-capture-${++uid}`;
   const limits = queueLimits(meta);
   const job = meta.job || {};
@@ -225,6 +240,71 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     el("div", { class: "oba-field" }, el("label", { for: `${id}-${name}` }, label), control, help ? el("p", { class: "oba-help" }, help) : null);
 
   const saveButton = el("button", { type: "button", class: "oba-btn oba-btn-primary oba-capture-save", "data-capture-save": "true" }, "Save draft");
+
+  // The voice note (ADR 0402): recorded only after a tap, at most three minutes, kept in memory until sent.
+  let audio = null;
+  let audioPreview = "";
+  const voiceBody = el("div", { class: "oba-capture-voice-body" });
+  const voice = el("fieldset", { class: "oba-fieldset oba-capture-voice", "data-capture-voice": "true" }, el("legend", { class: "oba-legend" }, "Voice note"), voiceBody);
+  const dropAudio = () => {
+    if (audioPreview) URL.revokeObjectURL(audioPreview);
+    audioPreview = "";
+    audio = null;
+  };
+  const stopMessage = { time: "Stopped at the three minute limit.", size: "Stopped at the size limit.", error: "The recording stopped on its own." };
+  const recorder = createRecorder({
+    ...recorderOptions,
+    limits: audioLimits(meta),
+    onChange: (state) => {
+      if (state === "recorded") {
+        dropAudio();
+        const note = recorder.result();
+        audio = { type: note.type, size: note.size, seconds: note.seconds, blob: note.blob };
+        audioPreview = URL.createObjectURL(note.blob);
+        status.textContent = stopMessage[note.reason] || "Voice note recorded.";
+      } else if (state === "idle") dropAudio();
+      renderVoice();
+    },
+    onTick: (seconds) => {
+      const timer = voiceBody.querySelector("[data-capture-timer]");
+      if (timer) timer.textContent = `Recording ${clock(seconds)} of ${clock(audioLimits(meta).maxAudioSeconds)}`;
+      // Leaving the view lets go of the microphone.
+      if (!root.isConnected) recorder.discard();
+    },
+  });
+  const renderVoice = () => {
+    const state = recorder.state;
+    const maxMinutes = Math.round(audioLimits(meta).maxAudioSeconds / 60);
+    if (!recorder.support.supported) {
+      voiceBody.replaceChildren(el("p", { class: "oba-help" }, START_PROBLEMS.unsupported));
+    } else if (state === "recording") {
+      voiceBody.replaceChildren(
+        el("p", { class: "oba-capture-timer", "data-capture-timer": "true" }, `Recording ${clock(0)} of ${clock(audioLimits(meta).maxAudioSeconds)}`),
+        el("div", { class: "oba-capture-voice-actions" },
+          el("button", { type: "button", class: "oba-btn oba-btn-primary", "data-capture-stop": "true", onClick: () => recorder.stop() }, "Stop recording"),
+          el("button", { type: "button", class: "oba-btn", "data-capture-discard-voice": "true", onClick: () => { recorder.discard(); status.textContent = "Recording discarded."; } }, "Discard"),
+        ),
+      );
+    } else if (state === "recorded" && audio) {
+      const player = el("audio", { controls: true, src: audioPreview, "aria-label": "Your voice note" });
+      voiceBody.replaceChildren(
+        player,
+        el("p", { class: "oba-help" }, `Voice note: ${clock(audio.seconds)} (${sizeText(audio.size)}). It is kept on your own server with the draft and is not published.`),
+        el("button", { type: "button", class: "oba-btn", "data-capture-discard-voice": "true", onClick: () => { recorder.discard(); status.textContent = "Voice note discarded."; recordButton().focus?.(); } }, "Discard voice note"),
+      );
+    } else {
+      voiceBody.replaceChildren(
+        el("button", { type: "button", class: "oba-btn oba-capture-record", "data-capture-record": "true", disabled: state === "starting", onClick: startRecording }, state === "starting" ? "Starting…" : "Record a voice note"),
+        el("p", { class: "oba-help" }, `Up to ${maxMinutes} minutes. It stays on your own server; nothing is transcribed or sent to an AI.`),
+      );
+    }
+  };
+  const recordButton = () => voiceBody.querySelector("[data-capture-record]") || saveButton;
+  const startRecording = async (event) => {
+    const started = await recorder.start(event);
+    if (!started.ok) status.textContent = START_PROBLEMS[started.reason] || START_PROBLEMS.unavailable;
+    else status.textContent = "Recording.";
+  };
 
   const renderTowns = () => {
     townList.replaceChildren(...prefs.towns.map((town) => el("option", { value: town })));
@@ -278,12 +358,13 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     id: captureId,
     fields: { trade: tradeSelect.value, service: serviceInput.value, town: townInput.value, notes: notes.value },
     photos: photos.map(({ name, type, size, blob }) => ({ name, type, size, blob })),
-    audio: null,
+    audio: audio ? { ...audio } : null,
   });
 
   const reset = () => {
     for (const photo of photos) URL.revokeObjectURL(photo.preview);
     photos = [];
+    recorder.discard();
     captureId = newCaptureId();
     notes.value = "";
     townInput.value = "";
@@ -292,7 +373,8 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
   };
 
   const openInWrite = (path) => el("a", { href: `#/edit/${encodeURIComponent(path).replaceAll("%2F", "/")}` }, "Open it in Write");
-  const skippedText = (count) => (count ? ` ${count} photo${count === 1 ? " was" : "s were"} not an accepted image and ${count === 1 ? "was" : "were"} left out.` : "");
+  const skippedText = (count, voiceNote = "none") =>
+    `${count ? ` ${count} photo${count === 1 ? " was" : "s were"} not an accepted image and ${count === 1 ? "was" : "were"} left out.` : ""}${voiceNote === "kept" ? " The voice note is kept privately on your server." : voiceNote === "refused" ? " The voice note could not be kept." : ""}`;
 
   const finish = (capture) => {
     prefs = rememberPicks(prefs, capture.fields);
@@ -307,7 +389,8 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     saved.replaceChildren();
     if (last) {
       const skipped = sent.reduce((sum, item) => sum + item.skipped.length, 0);
-      saved.append(sent.length > 1 ? `${sent.length} captures were saved as drafts. The latest: ` : "Saved as a draft. ", openInWrite(last.path), skippedText(skipped));
+      const voiceNote = sent.some((item) => item.audio === "refused") ? "refused" : sent.some((item) => item.audio === "kept") ? "kept" : "none";
+      saved.append(sent.length > 1 ? `${sent.length} captures were saved as drafts. The latest: ` : "Saved as a draft. ", openInWrite(last.path), skippedText(skipped, voiceNote));
     }
     if (blocked === "offline") status.textContent = "No connection yet. Your capture is kept on this device and sends when you are back online.";
     else if (blocked === "signin") status.textContent = "Sign in again to send what is waiting.";
@@ -356,15 +439,19 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
 
   const save = async () => {
     if (busy) return;
+    busy = true;
+    saveButton.disabled = true;
+    // A recording still running is stopped and kept, so Save never leaves it behind.
+    if (recorder.state === "recording") await recorder.stop();
     const capture = read();
     const problem = captureProblem(capture, limits);
     saved.replaceChildren();
     if (problem) {
       status.textContent = problem;
+      busy = false;
+      saveButton.disabled = false;
       return;
     }
-    busy = true;
-    saveButton.disabled = true;
     status.textContent = "Saving…";
     try {
       if (queue) {
@@ -382,7 +469,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
         const result = await sendCapture({ api, capture, scaffold: job.scaffold || "", now: now() });
         finish(capture);
         status.textContent = "";
-        saved.append("Saved as a draft. ", openInWrite(result.path), skippedText(result.skipped.length));
+        saved.append("Saved as a draft. ", openInWrite(result.path), skippedText(result.skipped.length, result.audio));
       }
     } catch (error) {
       status.textContent = error?.message || "Could not save. Your photos and notes are still here.";
@@ -412,6 +499,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     townList,
     serviceList,
     field("notes", "Notes", notes),
+    voice,
     saveButton,
     status,
     saved,
@@ -419,6 +507,9 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
   );
   renderTowns();
   renderPhotos();
+  renderVoice();
+  const onHide = () => recorder.discard();
+  globalThis.addEventListener?.("pagehide", onHide);
 
   return {
     element: root,
@@ -436,10 +527,12 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
       globalThis.addEventListener?.("online", onOnline);
       await runFlush();
     },
-    isDirty: () => photos.length > 0 || text(notes.value) !== "",
+    isDirty: () => photos.length > 0 || text(notes.value) !== "" || recorder.state === "recording" || recorder.state === "recorded",
     isBusy: () => busy,
     destroy() {
       globalThis.removeEventListener?.("online", onOnline);
+      globalThis.removeEventListener?.("pagehide", onHide);
+      recorder.discard();
       for (const photo of photos) URL.revokeObjectURL(photo.preview);
     },
   };

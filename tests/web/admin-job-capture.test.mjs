@@ -126,7 +126,7 @@ test("sending uploads each photo, skips one the server refuses for good, and cre
     scaffold: SCAFFOLD,
     now: NOW,
   });
-  assert.deepEqual(result, { path: "posts/2026-10-29-flooring-in-springfield-ab12cd.md", skipped: ["bad.jpg"] });
+  assert.deepEqual(result, { path: "posts/2026-10-29-flooring-in-springfield-ab12cd.md", skipped: ["bad.jpg"], audio: "none" });
   assert.equal(calls.filter((call) => call.path.startsWith("upload")).length, 3);
   const slots = calls.filter((call) => call.path.startsWith("upload")).map((call) => new URLSearchParams(call.path.split("?")[1]));
   assert.deepEqual(slots.map((query) => query.get("slot")), ["0", "1", "2"]);
@@ -142,4 +142,30 @@ test("sending uploads each photo, skips one the server refuses for good, and cre
 
   const offline = { call: async () => { throw new TypeError("Failed to fetch"); } };
   await assert.rejects(sendCapture({ api: offline, capture: { id, fields: { notes: "x" }, photos: [photo("a.jpg")], audio: null }, scaffold: SCAFFOLD }), TypeError);
+});
+
+test("a voice note is sent privately before the draft, never put in the body, and a refused one does not stop the draft", async () => {
+  const id = "cd34ef".padEnd(32, "1");
+  const note = { type: "audio/webm", size: 4, seconds: 2, blob: new Blob(["abcd"]) };
+  const run = async (audioStatus) => {
+    const calls = [];
+    const api = {
+      async call(method, path, options) {
+        calls.push({ path, options });
+        if (path.startsWith("capture-audio") && audioStatus) throw Object.assign(new Error("no"), { status: audioStatus });
+        return { path: "posts/x.md" };
+      },
+    };
+    const result = await sendCapture({ api, capture: { id, fields: { notes: "" }, photos: [], audio: note }, scaffold: SCAFFOLD, now: NOW });
+    return { calls, result };
+  };
+  const kept = await run(0);
+  assert.deepEqual(kept.calls.map((call) => call.path), [`capture-audio?capture=${id}`, "document"]);
+  assert.equal(kept.calls[0].options.body, note.blob);
+  assert.equal(kept.result.audio, "kept");
+  assert.doesNotMatch(kept.calls[1].options.json.body, /audio|webm/i);
+  assert.equal((await run(415)).result.audio, "refused");
+  assert.equal((await run(413)).calls.at(-1).path, "document");
+  await assert.rejects(run(503));
+  assert.equal(captureProblem({ id, fields: { notes: "" }, photos: [], audio: note }), "", "a voice note alone is a capture");
 });

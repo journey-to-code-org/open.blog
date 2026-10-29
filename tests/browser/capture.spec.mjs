@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -197,4 +197,127 @@ test("a kept capture survives a reload, sends on request without a second draft,
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: /^Discard/ }).click();
   await expect(page.locator("[data-capture-pending-list]")).toBeHidden();
+});
+
+// A stand-in for the browser's recorder and microphone, so the run is deterministic and needs no device.
+const fakeMicrophone = ({ denied, supported }) => {
+  window.__mic = { asked: 0, open: 0, stopped: 0 };
+  navigator.mediaDevices.getUserMedia = async () => {
+    window.__mic.asked += 1;
+    if (denied) throw Object.assign(new Error(denied), { name: denied });
+    window.__mic.open += 1;
+    return { getTracks: () => [{ stop() { window.__mic.stopped += 1; } }] };
+  };
+  class FakeRecorder {
+    static isTypeSupported(type) { return type === "audio/webm;codecs=opus"; }
+    constructor(stream, options) { this.mimeType = options?.mimeType || ""; this.state = "inactive"; this.slices = 0; }
+    start() { this.state = "recording"; this.emit(); }
+    emit() {
+      const bytes = this.slices++ === 0 ? [0x1a, 0x45, 0xdf, 0xa3, ...new Array(300).fill(7)] : new Array(300).fill(7);
+      this.ondataavailable?.({ data: new Blob([new Uint8Array(bytes)], { type: "audio/webm" }) });
+    }
+    stop() { this.state = "inactive"; this.emit(); setTimeout(() => this.onstop?.(), 0); }
+  }
+  if (supported) window.MediaRecorder = FakeRecorder;
+  else delete window.MediaRecorder;
+};
+
+const voiceFiles = () => {
+  const dir = join(root, ".openblog", "captures");
+  return existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith(".audio.webm")) : [];
+};
+
+test("a voice note is recorded only after a tap, kept privately with the draft and never published", async ({ page }) => {
+  await page.addInitScript(fakeMicrophone, { denied: "", supported: true });
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  const voice = view.locator("[data-capture-voice]");
+  await expect(voice.getByRole("button", { name: "Record a voice note" })).toBeVisible();
+  await expect(voice).toContainText("Up to 3 minutes");
+  expect((await voice.getByRole("button", { name: "Record a voice note" }).boundingBox()).height).toBeGreaterThanOrEqual(43);
+
+  // A script cannot start it: only a real tap can.
+  await voice.getByRole("button", { name: "Record a voice note" }).evaluate((button) => button.click());
+  await expect(view.locator("[data-capture-status]")).toContainText("only when you tap Record");
+  expect(await page.evaluate(() => window.__mic.asked)).toBe(0);
+
+  await voice.getByRole("button", { name: "Record a voice note" }).click();
+  await expect(voice.locator("[data-capture-timer]")).toContainText("Recording 0:0");
+  await expect(voice.getByRole("button", { name: "Stop recording" })).toBeVisible();
+  await expect(voice.getByRole("button", { name: "Discard" })).toBeVisible();
+  await expectNoOverflow(page, "[data-job-capture]");
+  await voice.getByRole("button", { name: "Stop recording" }).click();
+  await expect(voice.locator("audio")).toBeVisible();
+  await expect(voice).toContainText("kept on your own server");
+  expect(await page.evaluate(() => window.__mic)).toEqual({ asked: 1, open: 1, stopped: 1 });
+  await expectNoOverflow(page, "[data-job-capture]");
+
+  await view.getByLabel("Town", { exact: true }).fill("Voiceburg");
+  const before = voiceFiles().length;
+  await view.getByRole("button", { name: "Save draft" }).click();
+  await expect(view.locator("[data-capture-saved]")).toContainText("voice note is kept privately");
+  await expect.poll(() => voiceFiles().length).toBe(before + 1);
+  await expect.poll(() => draftsIn("voiceburg").length).toBe(1);
+  const source = readFileSync(draftsIn("voiceburg")[0], "utf8");
+  expect(source).not.toMatch(/audio|webm/i);
+  const files = voiceFiles();
+  const ledger = readdirSync(join(root, ".openblog", "captures")).filter((name) => name.endsWith(".json"));
+  expect(ledger.some((name) => readFileSync(join(root, ".openblog", "captures", name), "utf8").includes(".audio.webm"))).toBe(true);
+  expect(files.every((name) => !existsSync(join(root, "static", name)) && !existsSync(join(root, "dist", name)))).toBe(true);
+});
+
+test("a recording can be stopped and discarded, and a discarded one is never sent", async ({ page }) => {
+  await page.addInitScript(fakeMicrophone, { denied: "", supported: true });
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  const voice = view.locator("[data-capture-voice]");
+  await voice.getByRole("button", { name: "Record a voice note" }).click();
+  await voice.getByRole("button", { name: "Discard" }).click();
+  await expect(view.locator("[data-capture-status]")).toContainText("Recording discarded");
+  await expect(voice.getByRole("button", { name: "Record a voice note" })).toBeVisible();
+  expect(await page.evaluate(() => window.__mic)).toEqual({ asked: 1, open: 1, stopped: 1 });
+
+  await voice.getByRole("button", { name: "Record a voice note" }).click();
+  await voice.getByRole("button", { name: "Stop recording" }).click();
+  await voice.getByRole("button", { name: "Discard voice note" }).click();
+  await expect(voice.locator("audio")).toHaveCount(0);
+  await expect(voice.getByRole("button", { name: "Record a voice note" })).toBeFocused();
+  const before = voiceFiles().length;
+  await view.getByRole("button", { name: "Save draft" }).click();
+  await expect(view.locator("[data-capture-status]")).toContainText("Add a photo or a few words first.");
+  expect(voiceFiles().length).toBe(before);
+});
+
+test("a recording stops at the three minute limit by itself", async ({ page }) => {
+  await page.addInitScript(fakeMicrophone, { denied: "", supported: true });
+  await openCapture(page);
+  await page.clock.install();
+  const view = page.locator("[data-job-capture]");
+  const voice = view.locator("[data-capture-voice]");
+  await voice.getByRole("button", { name: "Record a voice note" }).click();
+  await expect(voice.getByRole("button", { name: "Stop recording" })).toBeVisible();
+  await page.clock.fastForward(181_000);
+  await expect(voice.locator("audio")).toBeVisible();
+  await expect(view.locator("[data-capture-status]")).toContainText("three minute limit");
+  await expect(voice).toContainText("3:00");
+  expect(await page.evaluate(() => window.__mic.stopped)).toBe(1);
+});
+
+test("without a recorder or with the microphone blocked, typing still works and nothing is left recording", async ({ page, browser }) => {
+  const plain = await browser.newPage({ viewport: { width: 400, height: 800 } });
+  await plain.addInitScript(fakeMicrophone, { denied: "", supported: false });
+  await openCapture(plain);
+  const absent = plain.locator("[data-capture-voice]");
+  await expect(absent).toContainText("cannot record audio");
+  await expect(absent.getByRole("button")).toHaveCount(0);
+  await expect(plain.locator("[data-job-capture]").getByLabel("Notes", { exact: true })).toBeVisible();
+  await plain.close();
+
+  await page.addInitScript(fakeMicrophone, { denied: "NotAllowedError", supported: true });
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  await view.getByRole("button", { name: "Record a voice note" }).click();
+  await expect(view.locator("[data-capture-status]")).toContainText("microphone is blocked");
+  await expect(view.getByRole("button", { name: "Record a voice note" })).toBeEnabled();
+  expect(await page.evaluate(() => window.__mic.open)).toBe(0);
 });

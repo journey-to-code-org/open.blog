@@ -24,19 +24,79 @@ fn only_a_32_digit_lowercase_hex_id_is_a_capture_id() {
     ] {
         assert!(!capture::valid_id(bad), "{bad}");
     }
-    assert_eq!(capture::photo_stem(id, 0).unwrap(), "capture-0123456789ab-0");
-    assert_eq!(capture::photo_stem(id, 11).unwrap(), "capture-0123456789ab-11");
+    assert_eq!(
+        capture::photo_stem(id, 0).unwrap(),
+        "capture-0123456789ab-0"
+    );
+    assert_eq!(
+        capture::photo_stem(id, 11).unwrap(),
+        "capture-0123456789ab-11"
+    );
     assert!(capture::photo_stem(id, capture::MAX_PHOTOS).is_none());
     assert!(capture::photo_stem("nope", 0).is_none());
 }
 
 #[test]
 fn a_ledger_entry_is_versioned_and_a_newer_one_is_refused() {
-    let text = capture::ledger_text("posts/2026-10-29-a.md");
-    assert_eq!(capture::parse_ledger(&text).unwrap(), "posts/2026-10-29-a.md");
+    let text = capture::ledger_text("posts/2026-10-29-a.md", None);
+    assert_eq!(
+        capture::parse_ledger(&text).unwrap(),
+        "posts/2026-10-29-a.md"
+    );
+    let with_audio = capture::ledger_text("posts/2026-10-29-a.md", Some("x.audio.webm"));
+    assert_eq!(
+        capture::parse_ledger(&with_audio).unwrap(),
+        "posts/2026-10-29-a.md"
+    );
+    assert!(with_audio.contains("x.audio.webm"));
     assert!(capture::parse_ledger(r#"{"v":2,"path":"x"}"#).is_err());
     assert!(capture::parse_ledger(r#"{"v":1}"#).is_err());
     assert!(capture::parse_ledger("not json").is_err());
+}
+
+#[test]
+fn a_voice_note_is_recognised_by_its_bytes_and_named_beside_its_capture() {
+    let pad = [0u8; 16];
+    assert_eq!(
+        capture::sniff_audio(&[&[0x1A, 0x45, 0xDF, 0xA3][..], &pad].concat()),
+        Some("webm")
+    );
+    assert_eq!(
+        capture::sniff_audio(&[&b"OggS"[..], &pad].concat()),
+        Some("ogg")
+    );
+    assert_eq!(
+        capture::sniff_audio(&[&[0, 0, 0, 0x20][..], b"ftypM4A ", &pad].concat()),
+        Some("m4a")
+    );
+    assert_eq!(
+        capture::sniff_audio(&[&b"RIFF\0\0\0\0WAVE"[..], &pad].concat()),
+        Some("wav")
+    );
+    assert_eq!(
+        capture::sniff_audio(&[&b"ID3"[..], &pad].concat()),
+        Some("mp3")
+    );
+    for not_audio in [
+        &b"<script>alert(1)</script>"[..],
+        b"\x89PNG\r\n\x1a\n\0\0\0\0\0",
+        b"",
+        b"GIF89a.....",
+    ] {
+        assert_eq!(capture::sniff_audio(not_audio), None, "{not_audio:?}");
+    }
+    let id = "0123456789abcdef0123456789abcdef";
+    assert_eq!(
+        capture::audio_file_name(id, "webm").unwrap(),
+        format!("{id}.audio.webm")
+    );
+    assert!(capture::audio_file_name(id, "exe").is_none());
+    assert!(capture::audio_file_name("../x", "webm").is_none());
+    assert_eq!(
+        capture::limits_json(10)["maxAudioBytes"],
+        capture::MAX_AUDIO_BYTES
+    );
+    assert!(capture::MAX_AUDIO_BYTES as u64 <= capture::MAX_CAPTURE_BYTES);
 }
 
 #[test]

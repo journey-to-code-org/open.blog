@@ -85,8 +85,16 @@ Waiting captures are listed under **Waiting to send**, and each can be discarded
 second draft, because every capture carries its own id. The phone keeps at most five waiting captures, 60 MB
 each and 120 MB in all, and says so when one does not fit; it never deletes a capture on its own. A browser
 without IndexedDB sends straight away instead.
-See [ADR 0400](adr/0400-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md)
-and [ADR 0401](adr/0401-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md).
+
+Where the browser allows it, **Record a voice note** talks instead of types: it starts only when you tap it
+(the browser then asks for the microphone), shows the time, and stops with **Stop recording**, at three minutes
+or at 8 MB, whichever comes first. **Discard** throws a recording away. A finished note plays back in the view
+and is sent with the capture, then kept privately on your own server (in `.openblog/captures/`, never in your
+site's files or the post). Nothing is transcribed and nothing is sent to an AI. A browser that cannot record
+simply shows no Record control.
+See [ADR 0400](adr/0400-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md),
+[ADR 0401](adr/0401-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
+and [ADR 0402](adr/0402-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md).
 
 ## Trades
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,

@@ -512,6 +512,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "job/check" {
             return Ok(MAX_JOB_CHECK_BYTES);
         }
+        if name == "capture-audio" {
+            return Ok(openblog_core::capture::MAX_AUDIO_BYTES);
+        }
         if name.starts_with("voice/") {
             return Ok(voice::request_limit(req, name));
         }
@@ -556,6 +559,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/job-form.js" => "job-form.js",
         "/admin/job-capture.js" => "job-capture.js",
         "/admin/capture-queue.js" => "capture-queue.js",
+        "/admin/capture-recorder.js" => "capture-recorder.js",
         "/admin/voice.js" => "voice.js",
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
@@ -907,6 +911,7 @@ fn authenticated_api(
         ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
+        ("POST", "capture-audio") => upload_capture_audio(state, req),
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
@@ -16341,7 +16346,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     };
     let capture_ledger = capture_id
         .as_ref()
-        .map(|id| state.root.join(".openblog/captures").join(format!("{id}.json")));
+        .map(|id| captures_dir(state).join(format!("{id}.json")));
     if let Some(ledger) = &capture_ledger {
         match read_optional_bytes(ledger) {
             Ok(Some(bytes)) => return replayed_capture(state, &config, &bytes),
@@ -16536,9 +16541,12 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     }
     if let Some(ledger) = &capture_ledger {
         // Best effort: the draft exists either way, and its slug carries the capture id.
+        let audio = capture_id
+            .as_deref()
+            .and_then(|id| stored_capture_audio(state, id));
         if let Err(error) = fsutil::write_file(
             ledger,
-            openblog_core::capture::ledger_text(&rel).as_bytes(),
+            openblog_core::capture::ledger_text(&rel, audio.as_deref()).as_bytes(),
         ) {
             eprintln!("admin: cannot record capture: {error}");
         }
@@ -18050,6 +18058,63 @@ fn upload(state: &AppState, req: &Request) -> Response {
         201,
         &json!({ "url": url, "markdown": format!("![]({url})") }),
     )
+}
+
+/// The directory of a site's capture ledger and voice notes: private, never built, never served.
+fn captures_dir(state: &AppState) -> PathBuf {
+    state.root.join(".openblog/captures")
+}
+
+/// The stored voice note of a capture, if one was uploaded.
+fn stored_capture_audio(state: &AppState, id: &str) -> Option<String> {
+    openblog_core::capture::AUDIO_EXTENSIONS
+        .iter()
+        .filter_map(|extension| openblog_core::capture::audio_file_name(id, extension))
+        .find(|name| captures_dir(state).join(name).is_file())
+}
+
+/// A capture's voice note (ADR 0402): checked by its bytes, bounded, and kept privately beside the capture's
+/// ledger entry. It is never written under the static folder, so no build or export can publish it. Sending
+/// the same capture's note again keeps the first and writes nothing.
+fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("capture")
+        .filter(|id| openblog_core::capture::valid_id(id))
+    else {
+        return Response::error(400, "That capture id is not valid");
+    };
+    if req.body.is_empty() {
+        return Response::error(400, "No audio data");
+    }
+    if req.body.len() > openblog_core::capture::MAX_AUDIO_BYTES {
+        return Response::error(
+            413,
+            &format!(
+                "A voice note can be at most {} MB",
+                openblog_core::capture::MAX_AUDIO_BYTES / (1024 * 1024)
+            ),
+        );
+    }
+    let Some(extension) = openblog_core::capture::sniff_audio(&req.body) else {
+        return Response::error(415, "That is not an audio recording this site can keep");
+    };
+    let Some(name) = openblog_core::capture::audio_file_name(id, extension) else {
+        return Response::error(400, "That capture id is not valid");
+    };
+    let _guard = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    if stored_capture_audio(state, id).is_some() {
+        return Response::json(200, &json!({ "stored": true, "duplicate": true }));
+    }
+    if let Err(error) = fsutil::write_file(&captures_dir(state).join(&name), &req.body) {
+        return Response::error(500, &error);
+    }
+    eprintln!("admin: kept a voice note ({} bytes)", req.body.len());
+    Response::json(201, &json!({ "stored": true, "bytes": req.body.len() }))
 }
 
 fn upload_track(state: &AppState, req: &Request) -> Response {
@@ -33705,7 +33770,12 @@ href: /about/
             handle(&f.state, &r)
         };
         let first = photo(&format!("&capture={id}&slot=0"));
-        assert_eq!(first.status, 201, "{}", String::from_utf8_lossy(&first.body));
+        assert_eq!(
+            first.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&first.body)
+        );
         let url = body_json(&first)["url"].as_str().unwrap().to_string();
         assert_eq!(url, "/images/uploads/captures/capture-0123456789ab-0.png");
         let again = photo(&format!("&capture={id}&slot=0"));
@@ -33715,7 +33785,12 @@ href: /about/
         let other = photo(&format!("&capture={id}&slot=1"));
         assert_eq!(other.status, 201);
         assert_ne!(body_json(&other)["url"], url.as_str());
-        for bad in ["&capture=nope&slot=0", &format!("&capture={id}&slot=99"), &format!("&capture={id}"), "&slot=0"] {
+        for bad in [
+            "&capture=nope&slot=0",
+            &format!("&capture={id}&slot=99"),
+            &format!("&capture={id}"),
+            "&slot=0",
+        ] {
             assert_eq!(photo(bad).status, 400, "{bad}");
         }
         let captures = f.dir.join("static/images/uploads/captures");
@@ -33748,10 +33823,20 @@ href: /about/
                 .count()
         };
         let created = save(id);
-        assert_eq!(created.status, 201, "{}", String::from_utf8_lossy(&created.body));
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
         let path = body_json(&created)["path"].as_str().unwrap().to_string();
         let replay = save(id);
-        assert_eq!(replay.status, 200, "{}", String::from_utf8_lossy(&replay.body));
+        assert_eq!(
+            replay.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&replay.body)
+        );
         let replayed = body_json(&replay);
         assert_eq!(replayed["path"], path.as_str());
         assert_eq!(replayed["status"], "draft");
@@ -33790,6 +33875,107 @@ href: /about/
         )
         .unwrap();
         assert_eq!(save(id).status, 409);
+    }
+
+    #[test]
+    fn a_voice_note_is_checked_bounded_kept_privately_and_noted_in_the_ledger() {
+        let f = fixture("capture-audio");
+        let session = login_ok(&f);
+        let id = "fedcba9876543210fedcba9876543210";
+        let send = |query: &str, bytes: &[u8]| {
+            let mut r = authed(
+                req("POST", &format!("/admin/api/capture-audio?{query}")),
+                &session,
+                true,
+            );
+            r.body = bytes.to_vec();
+            handle(&f.state, &r)
+        };
+        let webm: Vec<u8> = [&[0x1A, 0x45, 0xDF, 0xA3][..], &[0u8; 64]].concat();
+        let png: Vec<u8> = [
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A][..],
+            &[0u8; 32],
+        ]
+        .concat();
+        assert_eq!(send(&format!("capture={id}"), b"").status, 400);
+        assert_eq!(send("capture=nope", &webm).status, 400);
+        assert_eq!(send("", &webm).status, 400);
+        assert_eq!(
+            send(&format!("capture={id}"), b"<script>alert(1)</script>").status,
+            415
+        );
+        assert_eq!(
+            send(&format!("capture={id}"), &png).status,
+            415,
+            "an image is not a voice note"
+        );
+        let big = vec![0x1A; openblog_core::capture::MAX_AUDIO_BYTES + 1];
+        assert_eq!(send(&format!("capture={id}"), &big).status, 413);
+        let private = f.dir.join(".openblog/captures");
+        assert!(
+            !private.join(format!("{id}.audio.webm")).exists(),
+            "nothing was kept for a refusal"
+        );
+
+        let kept = send(&format!("capture={id}"), &webm);
+        assert_eq!(kept.status, 201, "{}", String::from_utf8_lossy(&kept.body));
+        assert_eq!(
+            fs::read(private.join(format!("{id}.audio.webm"))).unwrap(),
+            webm
+        );
+        let again = send(&format!("capture={id}"), &webm);
+        assert_eq!(again.status, 200);
+        assert_eq!(body_json(&again)["duplicate"], true);
+
+        // Bounded at the preflight too, before any body is buffered.
+        let allowed = authed(req("POST", "/admin/api/capture-audio"), &session, true);
+        assert_eq!(
+            preflight(&f.state, &allowed).unwrap(),
+            openblog_core::capture::MAX_AUDIO_BYTES
+        );
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({ "kind": "posts", "captureId": id, "fields": { "title": "Voice Test", "draft": "true" }, "body": "Notes" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let ledger = fs::read_to_string(private.join(format!("{id}.json"))).unwrap();
+        assert!(ledger.contains(&format!("{id}.audio.webm")), "{ledger}");
+
+        // Private: never under the published static folder, the build output or the post.
+        let mut published = Vec::new();
+        for root in ["static", "dist", "content"] {
+            let mut stack = vec![f.dir.join(root)];
+            while let Some(dir) = stack.pop() {
+                for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else if path
+                        .strip_prefix(&f.dir)
+                        .unwrap()
+                        .to_string_lossy()
+                        .contains(id)
+                    {
+                        published.push(path);
+                    }
+                }
+            }
+        }
+        assert!(published.is_empty(), "{published:?}");
     }
 
     #[test]

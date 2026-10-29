@@ -2632,6 +2632,12 @@ format (`v: 1`) with fixed bounds on captures, photos, notes and bytes; nothing 
 outside the bounds is stored (ADR 0401).
 _Avoid_: Outbox, sync
 
+**Voice note**:
+A recording of at most three minutes and 8 MB made in the Capture view with the browser's recorder, started only
+by a tap, kept on the author's server as private media beside the capture and never published, sent to a
+provider or transcribed by this feature (ADR 0402).
+_Avoid_: Dictation, transcript
+
 **Service**:
 One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
 typical timeline, and FAQs. A job's `service` names one of them.

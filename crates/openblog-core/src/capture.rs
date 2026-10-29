@@ -12,6 +12,10 @@ pub const MAX_PHOTOS: usize = 12;
 pub const MAX_NOTES_CHARS: usize = 8_000;
 /// Longest a capture's voice note may run, in seconds.
 pub const MAX_AUDIO_SECONDS: u32 = 180;
+/// Most bytes a capture's voice note may hold. A recorder's own clock cannot be trusted, so this is the real bound.
+pub const MAX_AUDIO_BYTES: usize = 8 * 1024 * 1024;
+/// The audio containers a browser's recorder produces, by the extension a stored note gets.
+pub const AUDIO_EXTENSIONS: &[&str] = &["webm", "ogg", "m4a", "wav", "mp3"];
 
 /// Version of the record the phone keeps for a waiting capture, and of the server's ledger entry.
 pub const STORED_VERSION: u32 = 1;
@@ -37,9 +41,39 @@ pub fn photo_stem(id: &str, slot: usize) -> Option<String> {
     (valid_id(id) && slot < MAX_PHOTOS).then(|| format!("capture-{}-{slot}", &id[..12]))
 }
 
-/// What the server keeps once a capture has become a draft, so a replay finds it.
-pub fn ledger_text(path: &str) -> String {
-    json!({ "v": STORED_VERSION, "path": path }).to_string()
+/// What the server keeps once a capture has become a draft, so a replay finds it. `audio` names the private
+/// voice note stored with it, if there is one; readers of version 1 ignore keys they do not know.
+pub fn ledger_text(path: &str, audio: Option<&str>) -> String {
+    match audio {
+        Some(audio) => json!({ "v": STORED_VERSION, "path": path, "audio": audio }),
+        None => json!({ "v": STORED_VERSION, "path": path }),
+    }
+    .to_string()
+}
+
+/// The audio container, judged by the bytes and never by what the client claims.
+pub fn sniff_audio(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        Some("webm")
+    } else if bytes.starts_with(b"OggS") {
+        Some("ogg")
+    } else if bytes.len() > 12 && &bytes[4..8] == b"ftyp" {
+        Some("m4a")
+    } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
+        Some("wav")
+    } else if bytes.starts_with(b"ID3")
+        || (bytes.len() > 2 && bytes[0] == 0xFF && bytes[1] & 0xE0 == 0xE0)
+    {
+        Some("mp3")
+    } else {
+        None
+    }
+}
+
+/// The stored name of a capture's voice note, beside its ledger entry and never under the published static folder.
+pub fn audio_file_name(id: &str, extension: &str) -> Option<String> {
+    (valid_id(id) && AUDIO_EXTENSIONS.contains(&extension))
+        .then(|| format!("{id}.audio.{extension}"))
 }
 
 /// The draft path a ledger entry names. An entry written by a newer version is an error, never guessed at.
@@ -63,6 +97,7 @@ pub fn limits_json(max_photo_mb: u32) -> Value {
         "maxNotesChars": MAX_NOTES_CHARS,
         "maxPhotoBytes": max_photo_mb as u64 * 1024 * 1024,
         "maxAudioSeconds": MAX_AUDIO_SECONDS,
+        "maxAudioBytes": MAX_AUDIO_BYTES,
         "storedVersion": STORED_VERSION,
         "maxQueued": MAX_QUEUED,
         "maxCaptureBytes": MAX_CAPTURE_BYTES,
