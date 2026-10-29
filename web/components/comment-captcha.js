@@ -1,4 +1,4 @@
-// Optional captcha for hosted comments (ADR 0319). The provider script is a
+// Optional captcha for hosted comments (ADR 0322). The provider script is a
 // single allowlisted origin, requested only when the reader first interacts
 // with the comment form. Nothing here is secret: the site key arrives as an
 // attribute and the server alone decides whether a token or pass is valid.

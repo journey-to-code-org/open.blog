@@ -48,7 +48,7 @@ before content is stored.
 
 A Cloudflare Turnstile challenge before the first comment of a visit keeps bots out of the
 moderation queue. It is off unless you turn it on in two places that must agree: the public
-settings (`openblog.json`, Admin) and the Netlify environment. The design is in ADR 0319.
+settings (`openblog.json`, Admin) and the Netlify environment. The design is in ADR 0322.
 
 1. **Create a Turnstile widget** in the Cloudflare dashboard (Turnstile → Add widget), listing your
    public hostname. Use the *Managed* mode. You get a public **site key** and a private **secret**.
