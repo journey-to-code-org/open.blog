@@ -402,6 +402,21 @@ pub(crate) fn keep_private_out_of_git(root: &Path, visibility: Visibility) {
     }
 }
 
+/// Create a new file without replacing one, with a sentence that names the file and the cause but
+/// never its absolute path.
+fn create_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    fsutil::write_new_atomic(path, bytes).map_err(|message| {
+        let name = path
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        // The cause is the operating system's own sentence at the end of the message.
+        let cause = message.rsplit(": ").next().unwrap_or("").trim();
+        StoreError::Failed(format!(
+            "Cannot save `{name}`; nothing was replaced ({cause})."
+        ))
+    })
+}
+
 /// Create the rough draft. Allowed only while the session that began at `sample.date` is open
 /// for `sample.voice.prompt`, and only once: the file is created without replacing anything.
 /// Writing the identical bytes again (a lock repeated after a crash) succeeds without touching
@@ -450,7 +465,7 @@ pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) ->
                     return refused("A rough draft for this prompt and day already exists in the other folder.");
                 }
             }
-            fsutil::write_new_atomic(&path, &bytes).map_err(StoreError::Failed)?;
+            create_new(&path, &bytes)?;
             keep_private_out_of_git(root, visibility);
             Ok(Written {
                 visibility,
@@ -503,7 +518,7 @@ pub fn write_polished(
     let current = read_bounded(&path)?;
     match (&current, expected_revision) {
         (None, None) => {
-            fsutil::write_new_atomic(&path, &bytes).map_err(StoreError::Failed)?;
+            create_new(&path, &bytes)?;
         }
         (None, Some(_)) => {
             return Err(StoreError::Stale {
@@ -669,7 +684,7 @@ pub fn move_visibility(
         }
         for (_, target, bytes, present) in &staged {
             if !present {
-                fsutil::write_new_atomic(target, bytes).map_err(StoreError::Failed)?;
+                create_new(target, bytes)?;
                 copies.push(target.clone());
             }
         }
@@ -1136,7 +1151,7 @@ pub fn promote_to_post_draft(
             "{relative} already exists. Nothing was written; choose a different slug first."
         ));
     }
-    fsutil::write_new_atomic(&target, draft.markdown.as_bytes()).map_err(StoreError::Failed)?;
+    create_new(&target, draft.markdown.as_bytes())?;
     Ok(PathBuf::from(relative))
 }
 
