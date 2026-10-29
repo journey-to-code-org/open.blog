@@ -1,4 +1,4 @@
-//! The bounds and stored formats of a job capture made on a phone (ADRs 0293 to 0295). Pure: no file, clock
+//! The bounds and stored formats of a job capture made on a phone (ADRs 0296 to 0298). Pure: no file, clock
 //! or network.
 //!
 //! Admin's Capture view reads these numbers from `GET /admin/api/meta` (`capture`), so the phone, the queue

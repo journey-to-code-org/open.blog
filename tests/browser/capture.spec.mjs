@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
-// The real Capture view at 400px (ADRs 0293 to 0295): photos, remembered picks and notes become one
+// The real Capture view at 400px (ADRs 0296 to 0298): photos, remembered picks and notes become one
 // unpublished job draft; a dropped connection keeps the capture and sends it once; a voice note is bounded.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");

@@ -16325,7 +16325,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
         return Response::error(413, "The post body is too large");
     }
-    // A capture id makes creation idempotent: the same id never creates a second draft (ADR 0294).
+    // A capture id makes creation idempotent: the same id never creates a second draft (ADR 0297).
     let capture_id = match body.get("captureId") {
         None | Some(Json::Null) => None,
         Some(Json::String(id))
@@ -17998,7 +17998,7 @@ fn upload(state: &AppState, req: &Request) -> Response {
     };
     let name = req.query.get("name").map(String::as_str).unwrap_or("image");
     // A capture's photo has a fixed name per capture id and slot, so sending it again lands on the same
-    // file instead of a second copy (ADR 0294).
+    // file instead of a second copy (ADR 0297).
     let capture_stem = match (req.query.get("capture"), req.query.get("slot")) {
         (None, None) => None,
         (Some(id), Some(slot)) => {
@@ -18073,7 +18073,7 @@ fn stored_capture_audio(state: &AppState, id: &str) -> Option<String> {
         .find(|name| captures_dir(state).join(name).is_file())
 }
 
-/// A capture's voice note (ADR 0295): checked by its bytes, bounded, and kept privately beside the capture's
+/// A capture's voice note (ADR 0298): checked by its bytes, bounded, and kept privately beside the capture's
 /// ledger entry. It is never written under the static folder, so no build or export can publish it. Sending
 /// the same capture's note again keeps the first and writes nothing.
 fn upload_capture_audio(state: &AppState, req: &Request) -> Response {

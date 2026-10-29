@@ -1,4 +1,4 @@
-// <ob-job-capture>: the Capture view (ADR 0293). A phone-first way to start a job on site: add photos,
+// <ob-job-capture>: the Capture view (ADR 0296). A phone-first way to start a job on site: add photos,
 // pick trade, service and town (remembered from last time), type a few lines, and save an unpublished job
 // draft. The first half of this file is plain functions (tested in tests/web/admin-job-capture.test.mjs);
 // the second builds the view. No provider is contacted: a capture only ever talks to this site's own Admin.
@@ -23,7 +23,7 @@ export const DEFAULT_LIMITS = Object.freeze({
 const text = (value) => (value === undefined || value === null ? "" : String(value).trim());
 const short = (value) => text(value).slice(0, MAX_FIELD);
 
-/** A new capture id: 128 random bits as 32 lowercase hex digits. It is the idempotency key (ADR 0294). */
+/** A new capture id: 128 random bits as 32 lowercase hex digits. It is the idempotency key (ADR 0297). */
 export function newCaptureId(random = globalThis.crypto) {
   const bytes = new Uint8Array(16);
   random.getRandomValues(bytes);
@@ -169,7 +169,7 @@ export async function sendCapture({ api, capture, scaffold, now = new Date() }) 
       skipped.push(photo.name);
     }
   }
-  // The voice note is kept privately beside the draft, never in its body (ADR 0295).
+  // The voice note is kept privately beside the draft, never in its body (ADR 0298).
   let audio = "none";
   if (capture.audio) {
     try {
@@ -241,7 +241,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
 
   const saveButton = el("button", { type: "button", class: "oba-btn oba-btn-primary oba-capture-save", "data-capture-save": "true" }, "Save draft");
 
-  // The voice note (ADR 0295): recorded only after a tap, at most three minutes, kept in memory until sent.
+  // The voice note (ADR 0298): recorded only after a tap, at most three minutes, kept in memory until sent.
   let audio = null;
   let audioPreview = "";
   const voiceBody = el("div", { class: "oba-capture-voice-body" });
