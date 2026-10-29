@@ -1,4 +1,4 @@
-// The Capture view's voice note (ADR 0402): the browser's MediaRecorder, feature-detected, permission-gated and
+// The Capture view's voice note (ADR 0295): the browser's MediaRecorder, feature-detected, permission-gated and
 // bounded. It never starts without a tap, stops itself at the time or size limit, and keeps the recording in
 // memory only until the author sends or discards the capture. Nothing here transcribes or uploads anything.
 // Plain logic over injected browser objects, so tests drive it with a mocked recorder

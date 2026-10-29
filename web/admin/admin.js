@@ -13993,7 +13993,7 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy || publishing;
   }
 
-  // ---- job capture (ADR 0400)
+  // ---- job capture (ADR 0293)
 
   /** `#/capture`: photos, remembered picks and notes from a phone on site, saved as an unpublished job draft. */
   async showCapture() {

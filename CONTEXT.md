@@ -2618,24 +2618,24 @@ _Avoid_: Slider, image diff, gallery
 Photos and a few lines gathered on site in Admin's Capture
 view (`#/capture`) and saved as one unpublished job draft: the Job form's own keys, the job scaffold, the notes
 under its first heading and the photos after it. A capture is not a new kind of content; it is a faster way into
-a job post. The view remembers the last trade, service and eight towns on the device (ADR 0400).
+a job post. The view remembers the last trade, service and eight towns on the device (ADR 0293).
 _Avoid_: Quick post, field note
 
 **Capture id**:
 A random 128-bit id, 32 lowercase hex digits, made when a capture is started. It is the idempotency key: the
-server saves the draft and each photo at most once per id, so a replay never makes a second draft (ADR 0401).
+server saves the draft and each photo at most once per id, so a replay never makes a second draft (ADR 0294).
 _Avoid_: Draft id, session id
 
 **Capture queue**:
 The captures a device has saved locally, in IndexedDB, while they wait to be sent. Each record is a versioned
 format (`v: 1`) with fixed bounds on captures, photos, notes and bytes; nothing is dropped silently and nothing
-outside the bounds is stored (ADR 0401).
+outside the bounds is stored (ADR 0294).
 _Avoid_: Outbox, sync
 
 **Voice note**:
 A recording of at most three minutes and 8 MB made in the Capture view with the browser's recorder, started only
 by a tap, kept on the author's server as private media beside the capture and never published, sent to a
-provider or transcribed by this feature (ADR 0402).
+provider or transcribed by this feature (ADR 0295).
 _Avoid_: Dictation, transcript
 
 **Service**:

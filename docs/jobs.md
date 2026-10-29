@@ -92,9 +92,9 @@ or at 8 MB, whichever comes first. **Discard** throws a recording away. A finish
 and is sent with the capture, then kept privately on your own server (in `.openblog/captures/`, never in your
 site's files or the post). Nothing is transcribed and nothing is sent to an AI. A browser that cannot record
 simply shows no Record control.
-See [ADR 0400](adr/0400-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md),
-[ADR 0401](adr/0401-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
-and [ADR 0402](adr/0402-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md).
+See [ADR 0293](adr/0293-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md),
+[ADR 0294](adr/0294-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
+and [ADR 0295](adr/0295-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md).
 
 ## Trades
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,

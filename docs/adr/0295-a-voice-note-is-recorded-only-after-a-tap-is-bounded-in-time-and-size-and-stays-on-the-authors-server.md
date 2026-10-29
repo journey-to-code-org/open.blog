@@ -1,10 +1,10 @@
-# ADR 0402: A voice note is recorded only after a tap, is bounded in time and size, and stays on the author's server
+# ADR 0295: A voice note is recorded only after a tap, is bounded in time and size, and stays on the author's server
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#479](https://github.com/journey-to-code-org/open.blog/issues/479)
 - Task: [#501](https://github.com/journey-to-code-org/open.blog/issues/501)
-- Builds on: [ADR 0400](0400-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md), [ADR 0401](0401-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
+- Builds on: [ADR 0293](0293-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md), [ADR 0294](0294-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md)
 
 ## Context
 
@@ -32,7 +32,7 @@ from a recording is a later story; this one only captures.
   a recording in progress away; **Discard voice note** removes a finished one. Saving while a recording runs
   stops and keeps it. Leaving the view, closing the page or discarding releases the microphone.
 - **Kept in memory until sent.** A recording is a `Blob` in the page until the capture is saved; it is then part
-  of the capture queue record (`audio: { type, size, seconds, blob }`, ADR 0401's format) and counts toward its
+  of the capture queue record (`audio: { type, size, seconds, blob }`, ADR 0294's format) and counts toward its
   byte bounds. Nothing is written to `localStorage`.
 - **Stored privately on the server.** `POST /admin/api/capture-audio?capture=<id>` checks the bytes (not the
   client's claim; WebM, Ogg, MP4/M4A, WAV or MP3) and keeps the note at

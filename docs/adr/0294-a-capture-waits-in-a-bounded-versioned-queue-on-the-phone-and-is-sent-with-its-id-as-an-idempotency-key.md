@@ -1,10 +1,10 @@
-# ADR 0401: A capture waits in a bounded, versioned queue on the phone and is sent with its id as an idempotency key
+# ADR 0294: A capture waits in a bounded, versioned queue on the phone and is sent with its id as an idempotency key
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#479](https://github.com/journey-to-code-org/open.blog/issues/479)
 - Task: [#500](https://github.com/journey-to-code-org/open.blog/issues/500)
-- Builds on: [ADR 0400](0400-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md)
+- Builds on: [ADR 0293](0293-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md)
 
 ## Context
 
@@ -29,7 +29,7 @@ wrote, and this one must survive what a future one writes.
     it back. A ledger entry of another version is refused with `409`, never guessed at.
   - Everything runs under the same locks and size and CSRF checks as the existing routes.
 - **The queue is IndexedDB, bounded.** Database `openblog-capture`, store `captures`, key `id`. Records hold the
-  capture's fields, its photos as blobs and (ADR 0402) a voice note. Bounds, from core and advertised in
+  capture's fields, its photos as blobs and (ADR 0295) a voice note. Bounds, from core and advertised in
   Admin's meta: at most **5** waiting captures, **60 MB** per capture, **120 MB** in all, twelve photos and
   8,000 characters of notes per capture. A capture that does not fit is refused with a sentence and stays on the
   screen; nothing is dropped silently and nothing is evicted.

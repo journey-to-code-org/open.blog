@@ -5794,7 +5794,7 @@ ob-voice-library {
   overflow-wrap: anywhere;
 }
 
-/* The Capture view (ADR 0400): designed at 400px first. One column, 44px or larger targets, every name wraps. */
+/* The Capture view (ADR 0293): designed at 400px first. One column, 44px or larger targets, every name wraps. */
 .oba-capture {
   display: grid;
   gap: 1rem;

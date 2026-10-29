@@ -1,4 +1,4 @@
-// The Capture queue (ADR 0401): captures a phone could not send yet, kept in IndexedDB until they can be.
+// The Capture queue (ADR 0294): captures a phone could not send yet, kept in IndexedDB until they can be.
 // The first half of this file is plain functions and a queue over any store with put/all/remove (tested in
 // tests/web/admin-capture-queue.test.mjs with an in-memory store); `openIndexedStore` is the browser's.
 //
