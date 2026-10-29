@@ -44,7 +44,9 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
   const store = queue || createQueue({ settings, fetchImpl, now });
   const tokens = credentials || createCredentialStore({ settings, fetchImpl, now });
   // Providers this release knows but has no adapter for are left alone, not failed.
-  const waiting = PROVIDERS.filter((provider) => !adapters[provider]);
+  // Own properties only, so a provider named like an Object member is never mistaken for an adapter.
+  const adapterFor = (provider) => (typeof provider === "string" && Object.hasOwn(adapters, provider) ? adapters[provider] : null);
+  const waiting = PROVIDERS.filter((provider) => !adapterFor(provider));
 
   const accessTokenFor = (account) => {
     const configured = providers[account.provider];
@@ -106,6 +108,17 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
     return { result: "retry", errorCode: "credential-error", errorDetail: "The account's credential could not be used yet.", nextAtMs: now() + retryDelay(new DeliveryError("transient"), attempts, policy, random) };
   };
 
+  // The provider refused the token itself: no later post on this account can succeed, so the
+  // account is flagged for a reconnect (Admin's "connect again") and the rest of this batch fails
+  // fast before any send. A flag that could not be written is tried again by the next refusal.
+  const reauthNeeded = async (account) => {
+    try {
+      if (typeof store.markNeedsReauth === "function" && (await store.markNeedsReauth(account.id))) account.status = "needs-reauth";
+    } catch {
+      // Storage could not be reached; the post is still recorded as failed below.
+    }
+  };
+
   const record = (summary, post, outcome) => {
     if (outcome.result === "retry") summary.retried += 1;
     else if (outcome.result === "failed") summary.failed += 1;
@@ -118,7 +131,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
     if (account.status !== "connected") {
       return failed(summary, post, account.status === "needs-reauth" ? "needs-reauth" : "account-not-connected", account.status === "needs-reauth" ? "This account must be connected again before it can post." : "The destination was disconnected.");
     }
-    const adapter = adapters[account.provider];
+    const adapter = adapterFor(account.provider);
     if (!adapter) return failed(summary, post, "unsupported-provider", "This destination is not supported by this deployment.");
     // Not enough time left to finish safely: give the attempt back instead of starting a send that
     // the platform may cut off.
@@ -150,7 +163,11 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
       if (!result || !validProviderPostId(result.providerPostId)) throw new DeliveryError("uncertain");
     } catch (error) {
       const known = error instanceof DeliveryError ? error : new DeliveryError("uncertain");
-      const outcome = outcomeOf(known, post);
+      let outcome = outcomeOf(known, post);
+      if (known.kind === "auth") {
+        await reauthNeeded(account);
+        outcome = { ...outcome, errorCode: "needs-reauth", errorDetail: "The provider refused this account's sign-in. Connect it again, then use Try again." };
+      }
       return record(summary, post, { ...outcome, httpStatus: known.status || undefined, requestId: known.requestId || undefined });
     }
     summary.published += 1;
@@ -166,7 +183,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
       summary.reconciled.stillUnknown += 1;
       return settle(summary, post, { result: "unknown", errorCode: exhausted ? "needs-review" : code, errorDetail: exhausted ? "The provider could not confirm whether this was posted. Check the account and resolve it by hand." : undefined, nextAtMs });
     };
-    const adapter = account && account.status === "connected" ? adapters[account.provider] : null;
+    const adapter = account && account.status === "connected" ? adapterFor(account.provider) : null;
     // No way to look it up: nothing will change by waiting, so it goes to a person now.
     if (!adapter || typeof adapter.reconcile !== "function") {
       summary.reconciled.stillUnknown += 1;
@@ -176,7 +193,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
     try {
       const accessToken = await accessTokenFor(account);
       const attempt = await store.latestAttempt(post.id);
-      found = await adapter.reconcile({ ...view(post, account), accessToken, attemptedAt: attempt?.started_at ?? null, signal: AbortSignal.timeout(policy.providerTimeoutMs) });
+      found = await adapter.reconcile({ ...view(post, account), accessToken, attemptedAt: attempt?.started_at ?? null, finishedAt: attempt?.finished_at ?? null, signal: AbortSignal.timeout(policy.providerTimeoutMs) });
       if (found?.state === "absent") {
         const settled = attempt?.finished_at ? now() - Date.parse(attempt.finished_at) >= policy.absenceSettleMs : false;
         if (found.conclusive === true && settled) {
@@ -189,8 +206,22 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
       return stillUnknown("timeout");
     }
     if (found?.state === "published" && validProviderPostId(found.providerPostId)) {
-      summary.reconciled.published += 1;
-      return settle(summary, post, { result: "published", providerPostId: found.providerPostId });
+      try {
+        const row = await store.settle(post, { result: "published", providerPostId: found.providerPostId });
+        if (row) summary.reconciled.published += 1;
+        else summary.lost += 1;
+        return row;
+      } catch (error) {
+        // Storage refused the id outright (it is already recorded on another announcement of this
+        // account): the lookup found someone else's post. Looking again would find it again, so a
+        // person decides. A storage outage is left for the next run, as any unrecorded outcome.
+        if (!(error instanceof QueueError) || error.retryable) {
+          summary.unrecorded += 1;
+          return null;
+        }
+        summary.reconciled.stillUnknown += 1;
+        return settle(summary, post, { result: "unknown", errorCode: "needs-review", errorDetail: "The post found on the provider belongs to another announcement. Check the account and resolve it by hand.", nextAtMs: null });
+      }
     }
     return stillUnknown("timeout");
   }

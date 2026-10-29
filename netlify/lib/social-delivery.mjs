@@ -26,7 +26,10 @@
 //     //   { state: "absent", conclusive: true }          the provider can say it is not there
 //     //   { state: "unknown" }                           it could not tell (or a lookup is not possible)
 //     // `conclusive` is true only when the lookup covers everything a post of that time could be.
-//     reconcile({ post, account, accessToken, attemptedAt, signal }),
+//     // `attemptedAt` and `finishedAt` (null if the attempt never recorded an end) bound the window
+//     // to look in. "published" must name a post that can only be this announcement's: a match that
+//     // could be another announcement's or a hand-made post is "unknown".
+//     reconcile({ post, account, accessToken, attemptedAt, finishedAt, signal }),
 //   }
 //
 // `post` is { id, idempotencyKey, caption, canonicalUrl, work }; `account` is { provider, kind,

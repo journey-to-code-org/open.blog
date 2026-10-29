@@ -2751,6 +2751,13 @@ One recorded try to deliver a scheduled social post, with its outcome (`publishe
 redacted error. Attempts are added and finished, never deleted.
 _Avoid_: Retry (a later attempt)
 
+**Delivery error**:
+What a provider adapter throws when a delivery try did not end in a confirmed, named post: `transient` (the request
+certainly never left), `rate-limited` (with the provider's wait), `rejected`, `auth`, or `uncertain` (it may have
+posted). Only `transient` and `rate-limited` are retried; `uncertain` is looked up, never re-sent. It carries a fixed
+sentence and the HTTP status, never the provider's words.
+_Avoid_: Publish result (an earlier draft's status object), response (the provider's own reply)
+
 **Credential envelope**:
 The encrypted form of a social account's provider tokens: AES-256-GCM ciphertext plus a wrapped data key, bound to
 one site and account, openable only with a key from `OPENBLOG_SOCIAL_TOKEN_KEYS` that is never in the database.
@@ -2815,8 +2822,9 @@ _Avoid_: Cron job (that only wakes it), publisher
 **Provider adapter**:
 The one narrow interface the delivery worker calls a social provider through: `publish` returns the provider's own post
 id only on confirmed success or throws a typed delivery error; `reconcile` optionally looks a post up. It is given a
-caption, a link, an idempotency key and one access token, nothing else of ours, and is tested against fakes.
-_Avoid_: Driver, integration
+caption, a link, an idempotency key and one access token, nothing else of ours, and is tested against fakes. One is
+registered only for a provider the deployment configured; LinkedIn has no lookup, Facebook looks at the Page's own posts.
+_Avoid_: Driver, integration, publisher
 
 **Unknown outcome**:
 The state of a delivery attempt that may have reached the provider and was not confirmed (a timeout, a dropped
