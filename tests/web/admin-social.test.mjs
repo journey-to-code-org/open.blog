@@ -318,6 +318,17 @@ test("a retry of the same announcement keeps its key, and a changed one gets a n
   assert.notEqual(different[0], different[1]);
 }));
 
+test("a create whose outcome is unknown reloads the queue and warns the announcement may exist", withDom(async () => {
+  const lost = new TypeError("Failed to fetch");
+  const { root, api } = await open({ fail: { "POST social/announcements": { error: lost, once: true } } });
+  await compose(root);
+  await submit(root);
+  await flush();
+  const after = api.calls.slice(api.calls.findIndex((call) => call.method === "POST" && call.path === "social/announcements") + 1);
+  assert.ok(after.some((call) => call.method === "GET" && call.path.startsWith("social/announcements")), "the queue is reloaded");
+  assert.match(text(root), /may already be scheduled/);
+}));
+
 test("a refusal from the server appears beside the field it is about", withDom(async () => {
   const refusal = new ApiError("x", 422, { error: "The caption is longer than this destination allows.", code: "caption-too-long" });
   const { root } = await open({ fail: { "POST social/announcements": { error: refusal } } });

@@ -186,6 +186,18 @@ test("the same key is the same announcement: a retry returns it and never posts 
   assert.equal(t.posts.length, 2);
 });
 
+test("a retry of a key already used is answered even when the destination now needs reconnecting", async () => {
+  const t = setup();
+  const first = await created(t);
+  t.accounts.find((account) => account.id === LINKEDIN).status = "needs-reauth";
+  const retry = await t.call(post(draft()));
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.announcement.id, first.id);
+  // A new request for that destination is still refused.
+  const fresh = await t.call(post(draft({ idempotencyKey: "another-key-000002" })));
+  assert.deepEqual([fresh.status, fresh.body.code], [409, "destination-not-connected"]);
+});
+
 test("two submits that race on one key resolve to one row", async () => {
   const t = setup();
   const original = t.fetchImpl;

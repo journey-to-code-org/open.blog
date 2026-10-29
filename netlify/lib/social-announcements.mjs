@@ -224,7 +224,11 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     }
     optionalZone(body.timeZone);
     checkIdempotencyKey(body.idempotencyKey);
-    const account = await usable(body.accountId);
+    // Look the destination up without judging its state yet: a request this key already made is
+    // answered as it was, even if the destination needs to be connected again since.
+    const account = await accountById(body.accountId);
+    if (!account) throw new RouteError(404, "destination-not-found", "That destination is not connected to this site.");
+    providerOf(account.provider);
     const caption = checkCaption(account.provider, body.caption);
     checkCanonicalUrl(body.canonicalUrl, body.work);
 
@@ -239,6 +243,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     };
     if (existing.rows.length) return replay(existing.rows);
 
+    await usable(account.id);
     const at = parseSchedule(body.scheduledFor, now());
     const stamp = iso(now());
     const inserted = await rest("POST", POSTS, "select=*", {

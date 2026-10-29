@@ -13,7 +13,7 @@
 
 use openblog_core::social_schedule::{
     announceable, check_canonical_url, check_caption, check_caption_for_all, check_idempotency_key,
-    check_time_zone, parse_schedule, utc_instant, Provider, ScheduleError,
+    check_time_zone, parse_schedule, parse_schedule_with, utc_instant, Provider, ScheduleError,
 };
 use openblog_core::LoadOptions;
 
@@ -387,7 +387,9 @@ fn create(state: &AppState, transport: &dyn Transport, user: &str, req: &Request
             check_time_zone(zone)?;
         }
         let caption = check_caption_for_all(&body.caption)?;
-        let at = parse_schedule(&body.scheduled_for, now)?;
+        // Shape only: the hosted function applies the lead and horizon after it has looked for a
+        // request it already holds, so a retry whose time has passed still replays.
+        let at = parse_schedule_with(&body.scheduled_for, now, false)?;
         let url = canonical_for(state, &body.work, now)?;
         check_canonical_url(&url, &body.work)?;
         Ok::<_, ScheduleError>((caption, utc_instant(at), url))

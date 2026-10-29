@@ -367,6 +367,40 @@ fn a_site_under_a_folder_lists_previews_and_creates_by_the_site_relative_path() 
 }
 
 #[test]
+fn a_retry_whose_time_has_come_close_still_reaches_the_hosted_function() {
+    let f = social_site("retry");
+    let calls = Calls::default();
+    let transport = fake(
+        &calls,
+        200,
+        json!({"announcement": announcement(), "replayed": true}),
+    );
+    let soon = DateTime::from_unix(clock::now().unix() + 10).rfc3339();
+    let (status, body) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/announcements",
+        Some(draft(json!({"scheduledFor": soon}))),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        1,
+        "the hosted function decides"
+    );
+    // A time that is not a time at all is still refused here.
+    let (status, _) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/announcements",
+        Some(draft(json!({"scheduledFor": "tomorrow"}))),
+    );
+    assert_eq!(status, 422);
+}
+
+#[test]
 fn a_create_the_site_cannot_stand_behind_never_reaches_the_hosted_function() {
     let f = social_site("refuse");
     let calls = Calls::default();
@@ -405,10 +439,6 @@ fn a_create_the_site_cannot_stand_behind_never_reaches_the_hosted_function() {
     assert_eq!(
         code(json!({"scheduledFor": "2099-01-01T10:00:00"})),
         (422, "time-needs-zone".into())
-    );
-    assert_eq!(
-        code(json!({"scheduledFor": "2020-01-01T10:00:00Z"})),
-        (422, "time-too-soon".into())
     );
     assert_eq!(
         code(json!({"idempotencyKey": "x"})),

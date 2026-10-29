@@ -344,7 +344,17 @@ export function createSocialPanel({ api, zone = browserZone(), timers = globalTh
       status.textContent = "";
       const code = error?.data?.code;
       if (error?.status === 422 || code) showProblems([{ field: fieldForCode(code) === "general" ? null : fieldForCode(code), code, message: errorText(error) }]);
-      else showProblems([{ message: errorText(error) }]);
+      else {
+        showProblems([{ message: errorText(error) }]);
+        // The outcome is unknown: the announcement may exist. Show the queue and keep the key, so
+        // sending the same draft again is recognized rather than posted twice.
+        status.textContent = "The announcement may already be scheduled. Check the list below before trying again.";
+        try {
+          await loadAnnouncements();
+        } catch {
+          // The list is shown again on the next successful load.
+        }
+      }
     } finally {
       busy -= 1;
       submit.disabled = false;
