@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // The research workspace in the real Admin Studio (A8.1, ADR 0120 and ADR 0121): landmarks, the
 // skip link and focus on route change; the earlier research routes redirecting; keyboard-only
@@ -79,7 +80,7 @@ test.afterAll(async () => {
     await stopped;
   }
   // Windows can hold the stopped server's files for a moment.
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  removeTree(root);
 });
 
 let dialogs;
