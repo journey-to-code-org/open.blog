@@ -1,6 +1,8 @@
 title: open.blog Documentation
 description: Technical documentation for open.blog CLI, Admin Panel, and Markdown authoring.
-theme: just-the-docs
+remote_theme: just-the-docs/just-the-docs
+plugins:
+  - jekyll-remote-theme
 color_scheme: light
 url: ""
 aux_links:
