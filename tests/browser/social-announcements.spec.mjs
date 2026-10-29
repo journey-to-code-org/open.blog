@@ -326,6 +326,7 @@ test("a failed announcement says why, asks before trying again, and fits a small
   await retry.focus();
   await page.keyboard.press("Enter");
   await expect(row.getByRole("button", { name: "Yes, try again" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Yes, try again" })).toBeFocused();
   const fit = await page.locator("[data-social-screen]").evaluate((screen) => ({
     screen: screen.scrollWidth <= screen.clientWidth + 1,
     rows: [...screen.querySelectorAll("[data-announcement]")].every((item) => item.scrollWidth <= item.clientWidth + 1),
@@ -338,4 +339,19 @@ test("a failed announcement says why, asks before trying again, and fits a small
   await expect(page.locator("[data-announcement]").first().locator("[data-status-badge]")).toContainText("Scheduled");
   expect(storage.posts[0].status).toBe("scheduled");
   expect(storage.posts[0].attempt_floor).toBe(3);
+});
+
+test("checking an unknown result moves focus into a labelled choice", async ({ page }) => {
+  await openSocial(page);
+  await compose(page);
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-announcement]")).toHaveCount(1);
+  Object.assign(storage.posts[0], { status: "unknown", version: 5, attempt_count: 1, last_error_code: "unknown-outcome" });
+  await page.reload();
+  const row = page.locator("[data-announcement]").first();
+  const check = row.getByRole("button", { name: /^Check the result of the announcement of/ });
+  await check.focus();
+  await page.keyboard.press("Enter");
+  await expect(row.getByRole("radio", { name: "It was posted" })).toBeFocused();
+  await expect(row.getByRole("group", { name: "What did you find?" })).toBeVisible();
 });

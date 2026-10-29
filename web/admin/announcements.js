@@ -494,6 +494,11 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     const problem = el("p", { class: "oba-field-error", role: "alert", hidden: true });
     const keep = el("button", { class: "oba-btn", type: "button", "data-action": "social-keep" }, "Not now");
     keep.addEventListener("click", () => close(true));
+    // Show the panel before focusing into it: a hidden element cannot take focus.
+    const reveal = () => {
+      panel.hidden = false;
+      open.setAttribute("aria-expanded", "true");
+    };
     open.addEventListener("click", () => {
       if (!panel.hidden) return close(true);
       problem.hidden = true;
@@ -503,6 +508,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
         panel.replaceChildren(el("p", {}, `Try the announcement of ${item.work} again? It was not posted, so this will not post it twice.`), problem, el("div", { class: "oba-landing-actions" }, confirm, keep));
         panel.dataset.mode = "retry";
         panel.setAttribute("data-mode", "retry");
+        reveal();
         confirm.focus?.();
       } else {
         const id = nextId(`${ids}-resolve`);
@@ -526,17 +532,16 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
         }
         panel.replaceChildren(
           el("p", {}, `The provider did not say whether ${item.work} was posted. Look at the ${providerName(item.destination?.provider)} account, then say what you found. It will not be sent again until you do.`),
-          el("div", { class: "oba-field" }, el("div", { class: "oba-announce-choice" }, posted, el("label", { for: posted.id }, "It was posted")), el("div", { class: "oba-announce-choice" }, missing, el("label", { for: missing.id }, "It was not posted"))),
+          el("fieldset", { class: "oba-field oba-fieldset" }, el("legend", {}, "What did you find?"), el("div", { class: "oba-announce-choice" }, posted, el("label", { for: posted.id }, "It was posted")), el("div", { class: "oba-announce-choice" }, missing, el("label", { for: missing.id }, "It was not posted"))),
           el("div", { class: "oba-field" }, el("label", { for: postId.id }, "Post id (only if it was posted)"), postId, el("p", { class: "oba-small", id: `${id}-post-id-hint` }, "The id the provider shows for the post, such as the end of its address.")),
           problem,
           el("div", { class: "oba-landing-actions" }, confirm, keep),
         );
         panel.dataset.mode = "resolve";
         panel.setAttribute("data-mode", "resolve");
+        reveal();
         posted.focus?.();
       }
-      panel.hidden = false;
-      open.setAttribute("aria-expanded", "true");
     });
     box.append(el("div", { class: "oba-landing-actions oba-announce-row-actions" }, open), panel);
     return box;
