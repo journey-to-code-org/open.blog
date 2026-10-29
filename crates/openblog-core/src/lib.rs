@@ -141,6 +141,7 @@ pub mod scholarly_comparison;
 pub mod scholarly_feedback;
 pub mod search;
 pub mod service;
+pub mod service_area;
 pub mod shared_series;
 pub mod shared_source;
 pub mod shingles;

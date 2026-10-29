@@ -2669,7 +2669,10 @@ that has questions (ADR 0312). `openblog new --profile service` and Admin's Serv
 _Avoid_: Product, category
 
 **Service area**:
-A town or region the business serves, kept in a site-level list and rendered as pages and structured data.
+A town and region the business serves, kept in the versioned `serviceAreas` list in `openblog.json` (ADR 0400)
+and rendered as pages and structured data. It has a town, a region formatted from a bundled list, and an optional
+one-line note about the reach; nothing finer than a town is ever stored. A job is "in" an area when its
+`place.town` and `place.region` match.
 _Avoid_: Location (ambiguous with a job's place)
 
 **Before/after pair**:

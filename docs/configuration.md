@@ -169,7 +169,7 @@ Where it appears:
 - **Structured data**: the home page carries a `LocalBusiness` (or trade subtype) JSON-LD block with the name,
   legal name, `url`, `telephone`, `email`, `foundingDate`, `openingHoursSpecification` (closed days are left
   out, as schema.org expects), `paymentAccepted` and the license as `hasCredential`. A field you did not state is
-  not emitted. No address is emitted yet (service areas come with the service-area pages).
+  not emitted. No address is emitted (the towns you serve are `serviceAreas`; see [Service areas](service-areas.md)).
 
 The stored object is versioned: a newer version is refused with a message and never rewritten, and fields this
 release does not know are kept when Admin saves.

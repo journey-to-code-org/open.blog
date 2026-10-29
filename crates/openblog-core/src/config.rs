@@ -9,6 +9,7 @@ use crate::contributor::{self, Contributor};
 use crate::look::LookSettings;
 use crate::participation::ParticipationConfig;
 use crate::reading_depth::ReadingMode;
+use crate::service_area::ServiceAreasConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -138,6 +139,10 @@ pub struct SiteConfig {
     /// exactly as before.
     #[serde(skip_serializing_if = "BusinessConfig::is_default")]
     pub business: BusinessConfig,
+    /// The towns the business serves (ADR 0400). Omitted from the written file
+    /// while none are stated, so a site that never sets it builds exactly as before.
+    #[serde(skip_serializing_if = "ServiceAreasConfig::is_default")]
+    pub service_areas: ServiceAreasConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -571,6 +576,7 @@ impl Default for SiteConfig {
             reader_annotations: ReaderAnnotationsConfig::default(),
             extra_trades: Vec::new(),
             business: BusinessConfig::default(),
+            service_areas: ServiceAreasConfig::default(),
         }
     }
 }
@@ -1292,6 +1298,29 @@ mod tests {
         assert!(bad_hours.contains("24-hour time like 08:00"), "{bad_hours}");
         let bad_trade = SiteConfig::from_json(r#"{"business":{"trade":"wizardry"}}"#).unwrap_err();
         assert!(bad_trade.contains("business.trade"), "{bad_trade}");
+    }
+
+    #[test]
+    fn service_areas_are_validated_with_the_config_and_absent_by_default() {
+        let plain = SiteConfig::from_json("{}").unwrap();
+        assert!(plain.service_areas.is_default());
+        assert!(!plain.to_json().contains("serviceAreas"));
+        let set = SiteConfig::from_json(
+            r#"{"serviceAreas":[{"town":"Bend","region":"Oregon","note":"within 30 miles"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(set.service_areas.areas[0].region, "OR");
+        let json = set.to_json();
+        assert!(json.contains("\"serviceAreas\"") && json.contains("\"version\": 1"));
+        assert_eq!(SiteConfig::from_json(&json).unwrap(), set);
+        let duplicate = SiteConfig::from_json(
+            r#"{"serviceAreas":[{"town":"Bend","region":"OR"},{"town":"bend","region":"or"}]}"#,
+        )
+        .unwrap_err();
+        assert!(
+            duplicate.contains("invalid openblog.json") && duplicate.contains("already listed"),
+            "{duplicate}"
+        );
     }
 
     #[test]
