@@ -794,3 +794,89 @@ fn errors_from_every_voice_route_carry_no_sample_text_and_no_absolute_path() {
         }
     }
 }
+
+/// A sample written at the terminal is the Admin's sample too (#428): the session the CLI runs
+/// (surface `cli`, the same session and store calls `openblog voice` makes) is listed, offered as
+/// context and used by the voice-guide proposal, with no Admin session involved.
+#[test]
+fn a_sample_written_at_the_terminal_is_listed_and_used_by_the_admin() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-cli-to-admin");
+    let s = login_ok(&f);
+    write_guide_skill(&f);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "journey-secret");
+
+    // What `openblog voice a-mistake-i-made --stdin` does: start, save as it goes, lock.
+    let catalog = crate::voice_store::load_catalog(&f.dir);
+    let session = crate::voice_session::start(
+        &f.dir,
+        &catalog,
+        "a-mistake-i-made",
+        "cli",
+        Visibility::Private,
+        180,
+        clock::now(),
+    )
+    .unwrap();
+    let text = format!("so i deleted the wrong folder {MARK}");
+    crate::voice_session::save_draft(&f.dir, Some(&session.id()), &text, clock::now()).unwrap();
+    let locked = crate::voice_session::lock(
+        &f.dir,
+        Some(&session.id()),
+        &catalog,
+        Some(&text),
+        None,
+        clock::now(),
+    )
+    .unwrap();
+    let file = locked.written.file;
+
+    assert_eq!(get(&f, &s, "/admin/api/voice/session").1["state"], "none");
+    let (_, list) = get(&f, &s, "/admin/api/voice/samples");
+    let listed = list["samples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["file"] == file.as_str())
+        .cloned()
+        .unwrap_or_else(|| panic!("{list}"));
+    assert_eq!(listed["stage"], "rough");
+    assert_eq!(listed["visibility"], "private");
+    let (status, opened) = get(
+        &f,
+        &s,
+        &format!(
+            "/admin/api/voice/samples/{}",
+            listed["id"].as_str().unwrap()
+        ),
+    );
+    assert_eq!(status, 200, "{opened}");
+    assert_eq!(opened["body"], text.as_str());
+    assert_eq!(opened["readOnly"], true);
+
+    let id = format!("voice:private:{file}");
+    let (_, context) = get(&f, &s, "/admin/api/assistant/context");
+    assert!(context["voiceSamples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["id"] == id.as_str()));
+
+    let (endpoint, captured, provider) = capturing_provider(guide_json(&file));
+    set_quiz_endpoint(&f, &endpoint);
+    let response = post(&f, &s, GUIDE, json!({ "sampleIds": [id] }));
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    provider.join().unwrap();
+    let outbound = captured.recv().unwrap();
+    assert!(outbound["untrustedData"]["context"][0]["content"]
+        .as_str()
+        .unwrap()
+        .contains(MARK));
+    assert_eq!(body_json(&response)["portableAllowed"], false);
+}
