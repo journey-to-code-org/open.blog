@@ -21,6 +21,7 @@ use openblog_core::portability::{
     destination_tag_plan, DestinationContentPlan, DestinationPayloadPlan,
     DestinationRepresentation, PortableProjection,
 };
+use openblog_core::provider_manifest::{builtin_manifest, Capability, DistributionRequest};
 use openblog_core::{Post, SiteConfig};
 use pulldown_cmark::{Event, Options as MarkdownOptions, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
@@ -452,6 +453,22 @@ fn validate_plan(
                 "target `{name}` uses {}, whose adapter is draft-only; omit --publish and publish the saved draft in {}",
                 adapter.name(), adapter.name()
             ));
+        }
+        // The adapter must declare, in the provider manifest it implements, that it sends the
+        // article (and a draft, unless publishing) itself; anything else fails closed before a
+        // request (ADR 0721). The manual Medium workflow sends nothing, so it is not checked.
+        if matches!(adapter, DestinationAdapter::Remote(_)) {
+            let mut needs = vec![Capability::Article];
+            if !publish {
+                needs.push(Capability::Draft);
+            }
+            let manifest = builtin_manifest(target.provider.into());
+            if let Some(problem) = manifest.check(&DistributionRequest::new(needs)).first() {
+                return Err(format!(
+                    "target `{name}`: {} No request was sent.",
+                    problem.message(&manifest.label)
+                ));
+            }
         }
     }
     Ok(())
@@ -2335,6 +2352,32 @@ Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series
         };
         let error = validate_plan(&[(&name, &target)], true).unwrap_err();
         assert!(error.contains("draft-only"));
+    }
+
+    #[test]
+    fn every_remote_adapter_is_admitted_by_its_provider_manifest() {
+        // The plan check passes for each shipped adapter, as a draft and (where its target allows
+        // it) in public, so the manifest gate changes no existing run (ADR 0721).
+        let name = "target".to_string();
+        for provider in [
+            SyndicationProvider::Dev,
+            SyndicationProvider::Ghost,
+            SyndicationProvider::Wordpress,
+            SyndicationProvider::Hashnode,
+            SyndicationProvider::Medium,
+        ] {
+            let target = SyndicationTargetConfig {
+                provider,
+                allow_publish: true,
+                endpoint: "https://blog.example".into(),
+                publication_id: "1234".into(),
+                ..Default::default()
+            };
+            validate_plan(&[(&name, &target)], false).unwrap();
+            if provider != SyndicationProvider::Hashnode {
+                validate_plan(&[(&name, &target)], true).unwrap();
+            }
+        }
     }
 
     #[test]

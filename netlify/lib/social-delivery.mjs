@@ -10,6 +10,10 @@
 //
 //   adapter = {
 //     provider: "linkedin",
+//     // The provider manifest the adapter was admitted under (social-capabilities.mjs, ADR 0721):
+//     // set by socialAdapters, which registers no adapter whose manifest does not read or does not
+//     // do every announcement need ("link", "text", "schedule") through the adapter.
+//     manifest,
 //     // Posts the announcement. Resolves to { providerPostId, requestId? } only when the provider
 //     // CONFIRMED success and named the post. Anything else must throw a DeliveryError:
 //     //   "transient"    definitely not accepted, safe to try again (connection refused, 503 before queuing)
