@@ -1,0 +1,347 @@
+// <ob-job-capture>: the Capture view (ADR 0400). A phone-first way to start a job on site: add photos,
+// pick trade, service and town (remembered from last time), type a few lines, and save an unpublished job
+// draft. The first half of this file is plain functions (tested in tests/web/admin-job-capture.test.mjs);
+// the second builds the view. No provider is contacted: a capture only ever talks to this site's own Admin.
+
+import { el } from "./block-forms.js";
+import { localDay } from "./job-form.js";
+
+export const PREFS_KEY = "openblog.capture.prefs.v1";
+export const PREFS_VERSION = 1;
+export const MAX_RECENT_TOWNS = 8;
+const MAX_FIELD = 80;
+
+export const DEFAULT_LIMITS = Object.freeze({
+  maxPhotos: 12,
+  maxNotesChars: 8000,
+  maxPhotoBytes: 10 * 1024 * 1024,
+  maxAudioSeconds: 180,
+});
+
+const text = (value) => (value === undefined || value === null ? "" : String(value).trim());
+const short = (value) => text(value).slice(0, MAX_FIELD);
+
+/** A new capture id: 128 random bits as 32 lowercase hex digits. It is the idempotency key (ADR 0401). */
+export function newCaptureId(random = globalThis.crypto) {
+  const bytes = new Uint8Array(16);
+  random.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** The limits the server advertised, with the defaults for any it did not. */
+export function captureLimits(meta = {}) {
+  const limits = { ...DEFAULT_LIMITS };
+  for (const key of Object.keys(limits)) {
+    const value = meta?.capture?.[key];
+    if (Number.isFinite(value) && value > 0) limits[key] = value;
+  }
+  return limits;
+}
+
+/** The remembered picks, read defensively: anything unreadable or from another version is an empty memory. */
+export function readPrefs(storage) {
+  const empty = { trade: "", service: "", towns: [] };
+  try {
+    const stored = JSON.parse(storage?.getItem(PREFS_KEY) || "null");
+    if (!stored || stored.v !== PREFS_VERSION) return empty;
+    const towns = [];
+    for (const town of Array.isArray(stored.towns) ? stored.towns : []) {
+      const name = short(town);
+      if (name && !towns.some((known) => known.toLowerCase() === name.toLowerCase())) towns.push(name);
+    }
+    return { trade: short(stored.trade).toLowerCase(), service: short(stored.service), towns: towns.slice(0, MAX_RECENT_TOWNS) };
+  } catch {
+    return empty;
+  }
+}
+
+/** The memory after one more saved capture: its picks first, the town moved to the front of a bounded list. */
+export function rememberPicks(prefs, { trade, service, town }) {
+  const name = short(town);
+  const towns = name
+    ? [name, ...prefs.towns.filter((known) => known.toLowerCase() !== name.toLowerCase())].slice(0, MAX_RECENT_TOWNS)
+    : prefs.towns;
+  return { trade: short(trade).toLowerCase() || prefs.trade, service: short(service) || prefs.service, towns };
+}
+
+export function writePrefs(storage, prefs) {
+  try {
+    storage?.setItem(PREFS_KEY, JSON.stringify({ v: PREFS_VERSION, ...prefs }));
+  } catch {
+    // Storage is optional; the picks are simply not remembered.
+  }
+}
+
+const sentence = (value) => value.charAt(0).toUpperCase() + value.slice(1);
+
+/** A working title for a draft the author has not named yet. */
+export function captureTitle({ trade, town }, now = new Date()) {
+  const kind = text(trade) ? sentence(text(trade).replaceAll("-", " ")) : "Job";
+  if (text(town)) return `${kind} in ${text(town)}`;
+  return text(trade) ? `${kind} job` : `Job notes, ${localDay(now)}`;
+}
+
+/** The file name stem for a capture: the title in plain letters, then the start of the id so two captures never collide. */
+export function captureSlug(title, id) {
+  const stem = String(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/, "");
+  return `${stem || "job"}-${id.slice(0, 6)}`;
+}
+
+const stamp = (now) => now.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+/** The front matter of the draft a capture becomes. Only keys the Job form already writes (ADR 0287). */
+export function captureFields(capture, now = new Date()) {
+  const { trade, service, town } = capture.fields;
+  const title = captureTitle(capture.fields, now);
+  const fields = {
+    title,
+    slug: captureSlug(title, capture.id),
+    date: stamp(now),
+    draft: "true",
+    profile: "job",
+    "job.started": localDay(now),
+    "job.finished": localDay(now),
+  };
+  if (text(trade)) fields["job.trade"] = text(trade).toLowerCase();
+  if (text(service)) fields["job.service"] = text(service);
+  if (text(town)) fields["job.place.town"] = text(town);
+  return fields;
+}
+
+/** The body: the job scaffold, the notes under its first heading, then the photos, each with a plain alt for the author to improve. */
+export function captureBody({ scaffold = "", notes = "", photoUrls = [] }) {
+  const words = text(notes);
+  let body = scaffold;
+  if (words) {
+    const heading = body.match(/^## .*$/m);
+    body = heading ? body.replace(heading[0], `${heading[0]}\n\n${words}`) : `${words}\n\n${body}`;
+  }
+  if (photoUrls.length) {
+    const pictures = photoUrls.map((url, index) => `![Photo ${index + 1} from the job](${url})`).join("\n\n");
+    body = `${body.replace(/\s+$/, "")}\n\n${pictures}\n`;
+  }
+  return body;
+}
+
+/** What is wrong with a capture before it is saved, as a sentence, or an empty string. */
+export function captureProblem(capture, limits = DEFAULT_LIMITS) {
+  const { notes } = capture.fields;
+  if (!capture.photos.length && !text(notes) && !capture.audio) return "Add a photo or a few words first.";
+  if (capture.photos.length > limits.maxPhotos) return `A capture holds at most ${limits.maxPhotos} photos.`;
+  if (text(notes).length > limits.maxNotesChars) return `Notes can be at most ${limits.maxNotesChars} characters.`;
+  return "";
+}
+
+/** Whether a chosen file may be added, as a sentence naming the file, or an empty string. */
+export function photoProblem(file, limits = DEFAULT_LIMITS) {
+  if (file.type && !file.type.startsWith("image/")) return `${file.name} is not a photo.`;
+  if (file.size > limits.maxPhotoBytes) return `${file.name} is larger than ${Math.floor(limits.maxPhotoBytes / (1024 * 1024))} MB.`;
+  return "";
+}
+
+/** A photo the server refused for good (not an image, too large): the draft goes on without it. */
+export const isPermanentPhotoError = (error) => [400, 413, 415, 422].includes(error?.status);
+
+/**
+ * Upload the photos, then create the draft. `api.call` is the Admin API. Photos the server refuses for good
+ * are skipped and named; anything else stops the send and is thrown for the caller to retry or report.
+ */
+export async function sendCapture({ api, capture, scaffold, now = new Date() }) {
+  const photoUrls = [];
+  const skipped = [];
+  for (const photo of capture.photos) {
+    try {
+      const sent = await api.call("POST", `upload?name=${encodeURIComponent(photo.name)}`, {
+        body: photo.blob,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      photoUrls.push(sent.url);
+    } catch (error) {
+      if (!isPermanentPhotoError(error)) throw error;
+      skipped.push(photo.name);
+    }
+  }
+  const saved = await api.call("POST", "document", {
+    json: {
+      kind: "posts",
+      fields: captureFields(capture, now),
+      body: captureBody({ scaffold, notes: capture.fields.notes, photoUrls }),
+    },
+  });
+  return { path: saved.path, skipped };
+}
+
+let uid = 0;
+
+const sizeText = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+
+/**
+ * Returns `{ element, load, isDirty, isBusy, destroy }`. `api.call(method, path, { json, body, headers })` is
+ * the Admin API; `meta` is the Admin meta (`job`, `capture`); `storage` holds the remembered picks.
+ */
+export function createJobCapture({ api, meta = {}, storage = globalThis.localStorage, now = () => new Date() }) {
+  const id = `oba-capture-${++uid}`;
+  const limits = captureLimits(meta);
+  const job = meta.job || {};
+  const root = el("ob-job-capture", { class: "oba-capture", "data-job-capture": "true" });
+  let prefs = readPrefs(storage);
+  let captureId = newCaptureId();
+  let photos = [];
+  let busy = false;
+
+  const status = el("p", { class: "oba-capture-status", role: "status", "aria-live": "polite", "data-capture-status": "true" });
+  const saved = el("p", { class: "oba-capture-saved", role: "status", "aria-live": "polite", "data-capture-saved": "true" });
+
+  const photoInput = el("input", { id: `${id}-photos`, class: "oba-capture-file", type: "file", accept: "image/*", multiple: true, "data-capture-photos": "true" });
+  const photoLabel = el("label", { for: `${id}-photos`, class: "oba-btn oba-btn-primary oba-capture-add" }, "Add photos");
+  const photoList = el("ul", { class: "oba-capture-photos", "aria-label": "Photos in this capture" });
+
+  const trades = [...(job.trades || [])];
+  if (prefs.trade && !trades.includes(prefs.trade)) trades.push(prefs.trade);
+  const tradeSelect = el("select", { id: `${id}-trade`, "data-capture-field": "trade" }, el("option", { value: "" }, "Choose a trade"), trades.map((trade) => el("option", { value: trade }, trade)));
+  tradeSelect.value = prefs.trade;
+
+  const services = [...new Set([prefs.service, ...(job.services || [])].filter(Boolean))];
+  const serviceList = el("datalist", { id: `${id}-services` }, services.map((service) => el("option", { value: service })));
+  const serviceInput = el("input", { id: `${id}-service`, type: "text", list: `${id}-services`, value: prefs.service, autocomplete: "off", autocapitalize: "none", spellcheck: "false", "data-capture-field": "service" });
+
+  const townInput = el("input", { id: `${id}-town`, type: "text", list: `${id}-towns`, autocomplete: "off", "data-capture-field": "town" });
+  const townList = el("datalist", { id: `${id}-towns` });
+  const townChips = el("div", { class: "oba-capture-chips", role: "group", "aria-label": "Recent towns" });
+
+  const notes = el("textarea", { id: `${id}-notes`, rows: 6, maxlength: String(limits.maxNotesChars), "data-capture-field": "notes" });
+  const field = (name, label, control, help) =>
+    el("div", { class: "oba-field" }, el("label", { for: `${id}-${name}` }, label), control, help ? el("p", { class: "oba-help" }, help) : null);
+
+  const saveButton = el("button", { type: "button", class: "oba-btn oba-btn-primary oba-capture-save", "data-capture-save": "true" }, "Save draft");
+
+  const renderTowns = () => {
+    townList.replaceChildren(...prefs.towns.map((town) => el("option", { value: town })));
+    townChips.replaceChildren(
+      ...prefs.towns.slice(0, 5).map((town) =>
+        el("button", { type: "button", class: "oba-btn oba-capture-chip", onClick: () => { townInput.value = town; townInput.focus(); } }, town),
+      ),
+    );
+    townChips.hidden = prefs.towns.length === 0;
+  };
+
+  const renderPhotos = () => {
+    photoList.replaceChildren(
+      ...photos.map((photo, index) =>
+        el(
+          "li",
+          { class: "oba-capture-photo" },
+          el("img", { src: photo.preview, alt: "", width: "56", height: "56" }),
+          el("span", { class: "oba-capture-photo-name" }, `${photo.name} (${sizeText(photo.size)})`),
+          el("button", {
+            type: "button",
+            class: "oba-btn",
+            "aria-label": `Remove photo ${index + 1}: ${photo.name}`,
+            onClick: () => {
+              URL.revokeObjectURL(photo.preview);
+              photos.splice(index, 1);
+              renderPhotos();
+              photoLabel.focus();
+            },
+          }, "Remove"),
+        ),
+      ),
+    );
+    photoList.hidden = photos.length === 0;
+  };
+
+  photoInput.addEventListener("change", () => {
+    const problems = [];
+    for (const file of [...photoInput.files]) {
+      const problem = photoProblem(file, limits);
+      if (problem) problems.push(problem);
+      else if (photos.length >= limits.maxPhotos) problems.push(`A capture holds at most ${limits.maxPhotos} photos.`);
+      else photos.push({ name: file.name || "photo.jpg", type: file.type, size: file.size, blob: file, preview: URL.createObjectURL(file) });
+    }
+    photoInput.value = "";
+    renderPhotos();
+    status.textContent = problems.length ? [...new Set(problems)].join(" ") : "";
+  });
+
+  const read = () => ({
+    id: captureId,
+    fields: { trade: tradeSelect.value, service: serviceInput.value, town: townInput.value, notes: notes.value },
+    photos: photos.map(({ name, type, size, blob }) => ({ name, type, size, blob })),
+    audio: null,
+  });
+
+  const reset = () => {
+    for (const photo of photos) URL.revokeObjectURL(photo.preview);
+    photos = [];
+    captureId = newCaptureId();
+    notes.value = "";
+    townInput.value = "";
+    renderPhotos();
+    renderTowns();
+  };
+
+  const save = async () => {
+    if (busy) return;
+    const capture = read();
+    const problem = captureProblem(capture, limits);
+    saved.replaceChildren();
+    if (problem) {
+      status.textContent = problem;
+      return;
+    }
+    busy = true;
+    saveButton.disabled = true;
+    status.textContent = "Saving…";
+    try {
+      const result = await sendCapture({ api, capture, scaffold: job.scaffold || "", now: now() });
+      prefs = rememberPicks(prefs, capture.fields);
+      writePrefs(storage, prefs);
+      reset();
+      status.textContent = "";
+      saved.append(
+        "Saved as a draft. ",
+        el("a", { href: `#/edit/${encodeURIComponent(result.path).replaceAll("%2F", "/")}` }, "Open it in Write"),
+        result.skipped.length ? ` ${result.skipped.length} photo${result.skipped.length === 1 ? " was" : "s were"} not an accepted image and ${result.skipped.length === 1 ? "was" : "were"} left out.` : "",
+      );
+    } catch (error) {
+      status.textContent = error?.message || "Could not save. Your photos and notes are still here.";
+    } finally {
+      busy = false;
+      saveButton.disabled = false;
+    }
+  };
+  saveButton.addEventListener("click", save);
+
+  root.append(
+    el("p", { class: "oba-capture-lead" }, "Add photos and a few lines now. Name and tidy the job later in Write; nothing is published."),
+    el("div", { class: "oba-capture-photo-row" }, photoInput, photoLabel),
+    photoList,
+    field("trade", "Trade", tradeSelect),
+    field("service", "Service", serviceInput, "A short id such as hardwood-install."),
+    field("town", "Town", townInput, "A town only, never a street address."),
+    townChips,
+    townList,
+    serviceList,
+    field("notes", "Notes", notes),
+    saveButton,
+    status,
+    saved,
+  );
+  renderTowns();
+  renderPhotos();
+
+  return {
+    element: root,
+    async load() {},
+    isDirty: () => photos.length > 0 || text(notes.value) !== "",
+    isBusy: () => busy,
+    destroy() {
+      for (const photo of photos) URL.revokeObjectURL(photo.preview);
+    },
+  };
+}

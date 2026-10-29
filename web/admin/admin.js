@@ -8,6 +8,7 @@ import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.j
 import { buildChecksPanel } from "./checks-panel.js";
 import { applyJobDraft, bodyTakesScaffold, buildJobForm, JOB_PROFILE } from "./job-form.js";
 import { buildHistory } from "./landing-history.js";
+import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createVoiceSession } from "./voice-session.js";
@@ -11426,6 +11427,7 @@ export class ObAdmin extends AdminElement {
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
       h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
+      h("a", { class: "oba-tab", "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
       h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
       h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
@@ -11454,6 +11456,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Interpretation comparisons", detail: "Set attributed readings side by side and approve audience-level explanations, with your own approval for any AI-drafted text." }
       : active === "shared"
         ? { title: "Shared reflections", detail: "Start a private draft with other writers from a video, article, podcast, book, or other source." }
+      : active === "capture"
+        ? { title: "Capture a job", detail: "Add photos and a few lines from the job site and save an unpublished draft." }
       : active === "overview"
         ? { title: "Overview", detail: "See what is live, what needs attention, and what to work on next." }
         : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
@@ -11934,6 +11938,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
       else if (head === "voice") await this.showVoice(tail, params);
+      else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
@@ -13986,6 +13991,17 @@ export class ObAdmin extends AdminElement {
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();
     this.viewBusy = () => busy || publishing;
+  }
+
+  // ---- job capture (ADR 0400)
+
+  /** `#/capture`: photos, remembered picks and notes from a phone on site, saved as an unpublished job draft. */
+  async showCapture() {
+    const view = createJobCapture({ api: this.api, meta: this.meta });
+    this.mount(this.shell("capture", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    await view.load();
   }
 
   // ---- voice sessions (ADR 0272)

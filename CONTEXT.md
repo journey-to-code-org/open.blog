@@ -2614,6 +2614,13 @@ control; feeds, syndicated copies and exports show two captioned figures. Report
 capability (ADR 0291).
 _Avoid_: Slider, image diff, gallery
 
+**Capture**:
+Photos and a few lines gathered on site in Admin's Capture
+view (`#/capture`) and saved as one unpublished job draft: the Job form's own keys, the job scaffold, the notes
+under its first heading and the photos after it. A capture is not a new kind of content; it is a faster way into
+a job post. The view remembers the last trade, service and eight towns on the device (ADR 0400).
+_Avoid_: Quick post, field note
+
 **Service**:
 One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
 typical timeline, and FAQs. A job's `service` names one of them.

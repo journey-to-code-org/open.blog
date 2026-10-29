@@ -70,8 +70,17 @@ build checks it, and an unknown trade is refused with the bundled trades and you
 made this way is always a draft (the dates start as today), so a half-written one never stops a build; it is
 reported as `job not ready to publish` until you finish it and remove `draft`.
 
-## Trades
+## Capturing a job from a phone
 
+On site, open **Capture** in Admin's navigation (`#/capture`). It is one column built for a 400 px screen: a
+large **Add photos** button (your phone offers the camera or the photo library), the trade, a service, a town
+(your last few towns are one tap away) and a **Notes** box. Trade, service and towns are remembered on that
+device only. **Save draft** makes an unpublished job draft you can find in Write: the Job form's keys, the four
+headings, your notes under the first and the photos after them. Nothing is published, and no AI provider is
+contacted. A capture holds at most twelve photos (each within your upload limit) and 8,000 characters of notes.
+See [ADR 0400](adr/0400-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md).
+
+## Trades
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,
 `plumbing`, `electrical`, `landscaping`, `painting`, `hvac`, `other`. Add your own in `openblog.json`:
 

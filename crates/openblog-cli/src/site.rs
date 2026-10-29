@@ -311,6 +311,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         "job-form.js",
         include_str!("../../../web/admin/job-form.js"),
     ),
+    (
+        "job-capture.js",
+        include_str!("../../../web/admin/job-capture.js"),
+    ),
 ];
 
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");

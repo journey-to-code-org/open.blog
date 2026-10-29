@@ -5794,6 +5794,103 @@ ob-voice-library {
   overflow-wrap: anywhere;
 }
 
+/* The Capture view (ADR 0400): designed at 400px first. One column, 44px or larger targets, every name wraps. */
+.oba-capture {
+  display: grid;
+  gap: 1rem;
+  max-width: 36rem;
+  min-width: 0;
+}
+.oba-capture-lead {
+  margin: 0;
+  color: var(--ob-color-muted);
+}
+.oba-capture-photo-row {
+  position: relative;
+  min-width: 0;
+}
+.oba-capture-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+.oba-capture-file:focus-visible + .oba-capture-add {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
+}
+.oba-capture-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  box-sizing: border-box;
+  font-size: 1.15rem;
+  text-align: center;
+}
+.oba-capture-photos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.oba-capture-photos[hidden],
+.oba-capture-chips[hidden] {
+  display: none;
+}
+.oba-capture-photo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.oba-capture-photo img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--ob-radius-sm);
+}
+.oba-capture-photo-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-capture .oba-field input[type="text"],
+.oba-capture .oba-field select,
+.oba-capture .oba-field textarea {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  font-size: 1rem;
+}
+.oba-capture-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.oba-capture-chip {
+  min-height: 44px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.oba-capture-save {
+  min-height: 56px;
+  font-size: 1.05rem;
+}
+.oba-capture-status,
+.oba-capture-saved {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.oba-capture-status:empty,
+.oba-capture-saved:empty {
+  display: none;
+}
+
 /* Earlier versions of the landing page (ADR 0264). Everything wraps; nothing depends on a font's width. */
 .oba-history-wrap {
   margin: 16px 0;
