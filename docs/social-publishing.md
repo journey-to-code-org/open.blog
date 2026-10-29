@@ -522,7 +522,7 @@ announcements per account. If you schedule many announcements to one account, sp
 | LinkedIn announcements are all refused at once | The `Linkedin-Version` was retired, or the app lost the product that grants `w_member_social`. | Set `OPENBLOG_SOCIAL_LINKEDIN_API_VERSION` to a current version and check the app's products. |
 | An account shows **Needs reconnecting** (`accounts-need-reconnect`) | The provider refused its token: expired, revoked, a changed password, or the app removed. | **Reconnect** it, then **Try again** its failed announcements. |
 | **Needs checking** (`needs-review`) | A delivery may have posted and could not be looked up. | Look at the account and choose **Check the result**. |
-| Every account needs reconnecting after a deploy | A token key was removed from `OPENBLOG_SOCIAL_TOKEN_KEYS` while connections used it. | Put the old key back (after the new one) and redeploy. |
+| After a deploy, announcements show **Retrying**, then **Failed**, with "The saved sign-in could not be used." (`credential-error`, then `attempts-exhausted`), while their accounts still show connected | A token key was removed from `OPENBLOG_SOCIAL_TOKEN_KEYS` while connections used it. | Put the old key back (after the new one), redeploy, then **Try again** the failed announcements. |
 | **Retrying** with a time far ahead | The account is paused after a rate limit. | Wait, or see [Rate limits](#rate-limits). |
 
 When you ask for help, paste an announcement's **History** or the `openblog-social-worker` and `openblog-social-ops`
