@@ -131,6 +131,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-quiz.js"),
     ),
     (
+        "components/ob-compare.js",
+        include_str!("../../../web/components/ob-compare.js"),
+    ),
+    (
+        "components/ob-compare-model.js",
+        include_str!("../../../web/components/ob-compare-model.js"),
+    ),
+    (
         "components/ob-reading-modes.js",
         include_str!("../../../web/components/ob-reading-modes.js"),
     ),

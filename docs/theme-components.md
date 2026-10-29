@@ -50,6 +50,40 @@ themes need nothing; a theme may restyle them.
 The classes are a stable hook, not a promise about the markup inside them. Keep text contrast at WCAG AA and
 focus rings visible when you restyle buttons and links.
 
+## Styling before and after pairs
+
+A `compare` fence in a post (see [Content](content.md#before-and-after)) renders as one component:
+
+```html
+<ob-compare class="ob-compare">
+  <figure class="ob-compare-pane ob-compare-before"><img src alt><figcaption><span class="ob-compare-label">Before</span>: caption</figcaption></figure>
+  <figure class="ob-compare-pane ob-compare-after"><img src alt><figcaption>…</figcaption></figure>
+</ob-compare>
+```
+
+Without JavaScript, and for a reader who prefers reduced motion, the two figures sit side by side (one above the other on
+a narrow screen). Where the element runs it adds `data-enhanced`, moves the pictures into a `.ob-compare-stage` with a
+native range input (`.ob-compare-range`, arrow keys, Home and End all work), a `.ob-compare-bar` with a
+`.ob-compare-knob`, and two `.ob-compare-tag` labels; the captions stay below. It keeps nothing and asks for nothing.
+
+Every bundled theme gets this from `web/base.css` through the tokens it already has, so a theme needs nothing. To
+restyle it, set these custom properties on `ob-compare` or on `:root` in a theme stylesheet:
+
+| Token | Default | What it sets |
+| --- | --- | --- |
+| `--ob-compare-radius` | `--ob-radius` | Corners of the pictures and the stage |
+| `--ob-compare-gap` | `--ob-space-4` | Space between the two figures in the side-by-side layout |
+| `--ob-compare-line` | `#fff` | The dividing line and the knob's border |
+| `--ob-compare-line-width` | `2px` | Width of the dividing line |
+| `--ob-compare-handle` | `--ob-color-accent` | The knob's fill |
+| `--ob-compare-handle-ink` | `--ob-color-accent-contrast` | The arrow on the knob |
+| `--ob-compare-handle-size` | `2.75rem` | The knob's diameter; keep it at least 2.75rem for touch |
+| `--ob-compare-focus` | `--ob-color-accent` | The ring around the knob while the control has keyboard focus |
+| `--ob-compare-tag-bg`, `--ob-compare-tag-ink` | translucent black, white | The Before and After labels on the picture |
+
+The component sets `--ob-compare-pos` (the reveal, `0%` to `100%`) and `--ob-compare-ratio` (the first picture's shape);
+leave those alone. Keep the line and knob visible against light and dark pictures, and the focus ring at 3:1 or better.
+
 ## Try the demo
 
 `openblog init` writes the `demo` theme (and `paper`) into your blog's `themes/` folder,
