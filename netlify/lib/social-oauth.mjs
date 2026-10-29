@@ -24,6 +24,7 @@ export const AUTHORIZED_TTL_MS = 30 * 60 * 1000;
 export const MAX_OPEN_CONNECTIONS = 10;
 const CONNECTIONS = "openblog_social_connections";
 const ACCOUNTS = "openblog_social_accounts";
+const EXCHANGE_LEASE_MS = 2 * 60 * 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const STATE = /^[A-Za-z0-9_-]{43}$/;
 const CODE = /^[\x21-\x7e]{1,2048}$/;
@@ -103,8 +104,17 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
 
   // Past-due open rows become expired and lose their sealed material. Version is not raised: a
   // concurrent claim still filters on its status and version, so it cannot win after this.
+  // `exchanging` is a lease: each claim sets a short expires_at, so a claim that died part-way is
+  // erased here instead of keeping its sealed tokens forever.
   const expireDue = () =>
-    rest("PATCH", CONNECTIONS, scopedQuery(settings, { status: "in.(pending,authorized)", expires_at: `lt.${iso(now())}` }).toString(), { status: "expired", error_code: "expired", envelope: null, key_id: null, completed_at: iso(now()), updated_at: iso(now()) });
+    rest("PATCH", CONNECTIONS, scopedQuery(settings, { status: "in.(pending,exchanging,authorized)", expires_at: `lt.${iso(now())}` }).toString(), { status: "expired", error_code: "expired", envelope: null, key_id: null, completed_at: iso(now()), updated_at: iso(now()) });
+
+  // Withdraw a grant after a failed handshake, but never while a live account of the provider could
+  // share it (the same rule as disconnect). A failed attempt must not cut off working accounts.
+  const withdraw = async (provider, tokens) => {
+    const live = owned(await rest("GET", ACCOUNTS, scopedQuery(settings, { provider: `eq.${provider.provider}`, status: "neq.disconnected", select: "id" }).toString()));
+    if (live.length === 0) await revokeAtProvider(provider, tokens, fetchImpl);
+  };
 
   const connectionOf = (row) => {
     const granted = row.granted_scopes ? row.granted_scopes.split(" ").filter(Boolean) : [];
@@ -165,8 +175,8 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
   const reconnect = async ({ connection, provider, tokens, secrets, record, granted, expiry }) => {
     const [account] = owned(await rest("GET", ACCOUNTS, scopedQuery(settings, { id: `eq.${connection.reauth_account_id}`, select: "*" }).toString()));
     const destination = account && record.destinations.find((candidate) => candidate.id === account.external_id);
-    const fail = async (code) => {
-      await revokeAtProvider(provider, tokens, fetchImpl);
+    const fail = async (code, { revoke = true } = {}) => {
+      if (revoke) await withdraw(provider, tokens).catch(() => {});
       await finish(connection, "failed", code, { granted_scopes: granted, ...record });
       return { ok: false, code };
     };
@@ -174,9 +184,15 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
     if (!destination.eligible) return fail("no-destination");
     try {
       await credentials.save(account.id, tokensFor(provider.provider, { ...connection, ...expiry }, secrets, destination), { scope: granted });
-      await rest("PATCH", ACCOUNTS, scopedQuery(settings, { id: `eq.${account.id}`, status: "in.(connected,needs-reauth)" }).toString(), { status: "connected", display_name: destination.name, updated_at: iso(now()) });
     } catch {
       return fail("storage-failed");
+    }
+    // The new tokens are stored now: from here nothing is revoked, whatever else fails.
+    const patch = () => rest("PATCH", ACCOUNTS, scopedQuery(settings, { id: `eq.${account.id}`, status: "in.(connected,needs-reauth)" }).toString(), { status: "connected", display_name: destination.name, updated_at: iso(now()) });
+    try {
+      await patch().catch(patch);
+    } catch {
+      return fail("storage-failed", { revoke: false });
     }
     await finish(connection, "completed", null, { granted_scopes: granted, ...record });
     return { ok: true };
@@ -187,8 +203,8 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
   const authorize = async ({ connection, provider, tokens }) => {
     const granted = tokens.granted.join(" ").slice(0, 1000);
     const stop = async (code, extra = {}) => {
-      // Nothing usable was kept, so withdraw the grant where the provider allows it.
-      await revokeAtProvider(provider, tokens, fetchImpl);
+      // Nothing usable was kept, so withdraw the grant where the provider allows it (and no live account shares it).
+      await withdraw(provider, tokens).catch(() => {});
       await finish(connection, "failed", code, { granted_scopes: granted, ...extra });
       return { ok: false, code };
     };
@@ -283,7 +299,7 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
           return refused("expired");
         }
         // The claim: only one callback can move this row from pending to exchanging.
-        const claimed = await write(row, { status: "exchanging" }, { status: "eq.pending" });
+        const claimed = await write(row, { status: "exchanging", expires_at: iso(now() + EXCHANGE_LEASE_MS) }, { status: "eq.pending" });
         if (!claimed) return refused("invalid-state");
         const error = params.get("error");
         if (error) {
@@ -316,14 +332,14 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
         // The scopes the author actually granted, not the ones we asked for.
         const verdict = checkScopes(provider, tokens.granted);
         if (verdict.missingRequired.length) {
-          await revokeAtProvider(provider, tokens, fetchImpl);
+          await withdraw(provider, tokens).catch(() => {});
           await finish(claimed, "failed", "scopes-missing", { granted_scopes: tokens.granted.join(" ").slice(0, 1000) });
           return refused("scopes-missing");
         }
         const next = await authorize({ connection: claimed, provider, tokens });
         return next.ok ? { ok: true, code: "authorized", text: OUTCOMES.authorized, connectionId: claimed.id } : refused(next.code);
       } catch {
-        // Storage failed part-way. The row stays `exchanging` until it expires; it cannot be reused.
+        // Storage failed part-way. The row stays `exchanging` until its short lease runs out and expireDue erases it; it cannot be reused.
         return refused("storage-failed");
       }
     },
@@ -344,7 +360,7 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
       if (!destination) throw new SocialOAuthError(400, "unknown-destination", "That destination is not in the list for this connection.");
       if (!destination.eligible) throw new SocialOAuthError(409, "destination-not-eligible", REASONS[destination.reason] || "That destination cannot be used.");
       const provider = providerOf(row.provider);
-      const claimed = await write(row, { status: "exchanging" }, { status: "eq.authorized" });
+      const claimed = await write(row, { status: "exchanging", expires_at: iso(now() + EXCHANGE_LEASE_MS) }, { status: "eq.authorized" });
       if (!claimed) throw new SocialOAuthError(409, "conflict", "The connection changed; try again.");
       let account = null;
       try {
@@ -357,12 +373,15 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
           await rest("PATCH", ACCOUNTS, scopedQuery(settings, { id: `eq.${account.id}` }).toString(), { status: "disconnected", disconnected_at: iso(now()), updated_at: iso(now()) }).catch(() => {});
         }
         // Back to authorized, still sealed, so the author can choose again without signing in again.
-        await write(claimed, { status: "authorized" }, { status: "eq.exchanging" }).catch(() => {});
+        const restored = await write(claimed, { status: "authorized", expires_at: row.expires_at }, { status: "eq.exchanging" }).catch(() => null);
+        // If it could not be restored, erase the sealed tokens now rather than leave them to the lease.
+        if (!restored) await finish(claimed, "failed", "storage-failed").catch(() => {});
         if (error instanceof SocialOAuthError && error.code === "conflict") throw new SocialOAuthError(409, "already-connected", "That account is already connected. Use Reconnect on it instead.");
         if (error instanceof SocialOAuthError || error instanceof SocialCredentialError) throw error;
         throw new SocialOAuthError(500, "storage-failed", "The account could not be saved. Try again.");
       }
-      await finish(claimed, "completed", null);
+      // The account and credential are saved. If this erase fails the short lease erases the tokens.
+      await finish(claimed, "completed", null).catch(() => {});
       return { account: accountOf(account), credential: await credentials.describe(account.id) };
     },
 

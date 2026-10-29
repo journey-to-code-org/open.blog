@@ -77,6 +77,8 @@ export function createAccounts({ connector, settings, providers, fetchImpl = glo
         const provider = providers?.[row.provider];
         const withdraw = provider && row.provider === "linkedin" && others === 0 ? (secrets) => revokeAtProvider(provider, secrets, fetchImpl) : undefined;
         await connector.credentials.revoke(row.id, { revokeAtProvider: withdraw });
+        // A stuck handshake of this provider may still hold a sealed copy of these tokens: erase it.
+        await rest("PATCH", "openblog_social_connections", scopedQuery(settings, { provider: `eq.${row.provider}`, status: "in.(exchanging,authorized)" }).toString(), { status: "expired", error_code: "expired", envelope: null, key_id: null, completed_at: new Date(now()).toISOString(), updated_at: new Date(now()).toISOString() });
       }
       return this.get(id);
     },

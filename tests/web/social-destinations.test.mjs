@@ -290,7 +290,7 @@ test("reconnect: the same identity replaces the credential and clears the flag; 
   assert.match(wrong.body, /different account/);
   assert.deepEqual(tables(w).openblog_social_credentials[0].envelope, before.envelope, "the stored credential is untouched");
   assert.equal(tables(w).openblog_social_accounts[0].status, "needs-reauth");
-  assert.ok(w.provider.some((entry) => entry.path === "/oauth/v2/revoke"));
+  assert.ok(!w.provider.some((entry) => entry.path === "/oauth/v2/revoke"), "the account is still live, so a failed attempt never withdraws a grant it may share");
 
   // The right identity signs in again.
   w.handlers[`${LI}/v2/userinfo`] = ok({ sub: "abc123", name: "Ada L." });
@@ -379,4 +379,96 @@ test("hostile provider data: names are cleaned and bounded, ids are validated, a
   assert.ok(!/[\u0000-\u001f‮]/.test(destination.name));
   const chosen = await call(handler, "POST", `/connections/${id}/select`, { destination: "111" });
   assert.equal(chosen.body.account.displayName, destination.name);
+});
+
+// A fetch that fails the PATCHes whose JSON body matches, to model a storage blip at one step.
+const failing = (w, table, matches) => async (url, init = {}) => {
+  if (String(url).includes(table) && init.method === "PATCH" && matches(JSON.parse(init.body))) return { ok: false, status: 500, json: async () => ({}), text: async () => "" };
+  return w.fetchImpl(url, init);
+};
+const flaky = (w, clock, table, matches) => createHandler({ env: env({ OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS: "true" }), fetchImpl: failing(w, table, matches), now: () => clock.t });
+
+test("a claim that dies before it finishes keeps its sealed tokens only for the short lease; list erases them", async () => {
+  const { w, clock, handler } = make();
+  const { id } = await connect(handler);
+  const broken = flaky(w, clock, "openblog_social_connections", (patch) => patch.status === "completed");
+  const chosen = await call(broken, "POST", `/connections/${id}/select`, { destination: "urn:li:person:abc123" });
+  assert.equal(chosen.status, 201, "the account and credential were saved, so the choice stands");
+  const row = () => tables(w).openblog_social_connections.find((entry) => entry.id === id);
+  assert.equal(row().status, "exchanging");
+  assert.ok(row().envelope, "still sealed inside the lease");
+  clock.t += 3 * 60 * 1000;
+  await call(handler, "GET", "/connections");
+  assert.equal(row().status, "expired");
+  assert.equal(row().envelope, null);
+  assert.equal(row().key_id, null);
+});
+
+test("a failed restore after a failed choice erases the sealed tokens at once instead of leaving them", async () => {
+  const { w, clock, handler } = make();
+  const { id } = await connect(handler);
+  const real = w.fetchImpl;
+  const broken = createHandler({
+    env: env({ OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS: "true" }),
+    now: () => clock.t,
+    fetchImpl: async (url, init = {}) => {
+      if (String(url).includes("openblog_social_credentials") && init.method === "POST") return { ok: false, status: 500, json: async () => ({}), text: async () => "" };
+      if (String(url).includes("openblog_social_connections") && init.method === "PATCH" && JSON.parse(init.body).status === "authorized") return { ok: false, status: 500, json: async () => ({}), text: async () => "" };
+      return real(url, init);
+    },
+  });
+  assert.ok((await call(broken, "POST", `/connections/${id}/select`, { destination: "urn:li:person:abc123" })).status >= 500);
+  const row = tables(w).openblog_social_connections.find((entry) => entry.id === id);
+  assert.equal(row.envelope, null);
+  assert.equal(row.status, "failed");
+});
+
+test("disconnect also erases a handshake of that provider that is stuck holding sealed tokens", async () => {
+  const { w, clock, handler } = make();
+  const first = await connect(handler);
+  const account = (await call(handler, "POST", `/connections/${first.id}/select`, { destination: "urn:li:person:abc123" })).body.account;
+  const second = await connect(handler);
+  const stuck = flaky(w, clock, "openblog_social_connections", (patch) => patch.status === "completed");
+  await call(stuck, "POST", `/connections/${second.id}/select`, { destination: "urn:li:organization:777" });
+  const row = tables(w).openblog_social_connections.find((entry) => entry.id === second.id);
+  assert.ok(row.envelope);
+  await call(handler, "POST", `/accounts/${account.id}/disconnect`, {});
+  assert.equal(row.envelope, null);
+});
+
+test("a failed handshake never revokes a grant while another LinkedIn account of the site is live", async () => {
+  const { w, handler } = make();
+  const { id } = await connect(handler);
+  await call(handler, "POST", `/connections/${id}/select`, { destination: "urn:li:person:abc123" });
+  const revokes = () => w.provider.filter((entry) => entry.path === "/oauth/v2/revoke");
+  // Connecting another account that ends with nothing usable.
+  w.handlers[`${LI}/rest/organizationAcls`] = ok({ elements: [] });
+  w.handlers[`${LI}/v2/userinfo`] = { status: 404, body: {} };
+  const attempt = await connect(handler);
+  assert.equal(attempt.result.statusCode, 400);
+  assert.equal(revokes().length, 0);
+  // A missing required scope is the same.
+  w.handlers["POST www.linkedin.com/oauth/v2/accessToken"] = ok({ access_token: ACCESS, refresh_token: REFRESH, expires_in: 100, scope: "openid,profile" });
+  assert.equal((await connect(handler)).result.statusCode, 400);
+  assert.equal(revokes().length, 0);
+});
+
+test("a failed handshake still withdraws the grant when no account is live", async () => {
+  const { w, handler } = make();
+  w.handlers["POST www.linkedin.com/oauth/v2/accessToken"] = ok({ access_token: ACCESS, refresh_token: REFRESH, expires_in: 100, scope: "openid,profile" });
+  assert.equal((await connect(handler)).result.statusCode, 400);
+  assert.equal(w.provider.filter((entry) => entry.path === "/oauth/v2/revoke").length, 1);
+});
+
+test("reconnect: when the account row cannot be updated after the credential was saved, the new token is not revoked", async () => {
+  const { w, clock, handler } = make();
+  const { id } = await connect(handler);
+  const account = (await call(handler, "POST", `/connections/${id}/select`, { destination: "urn:li:person:abc123" })).body.account;
+  w.handlers["POST www.linkedin.com/oauth/v2/accessToken"] = ok({ access_token: "AQX-new-access-0011", refresh_token: "AQX-new-refresh-0012", expires_in: 5184000, scope: "openid,profile,w_member_social" });
+  const started = await call(handler, "POST", `/accounts/${account.id}/reconnect`, {});
+  const broken = flaky(w, clock, "openblog_social_accounts", () => true);
+  const done = await callback(broken, "linkedin", authorization(started.body.authorizeUrl).state);
+  assert.equal(done.statusCode, 400);
+  assert.equal(w.provider.filter((entry) => entry.path === "/oauth/v2/revoke").length, 0);
+  assert.deepEqual(await open(tables(w).openblog_social_credentials[0]), { accessToken: "AQX-new-access-0011", refreshToken: "AQX-new-refresh-0012" });
 });
