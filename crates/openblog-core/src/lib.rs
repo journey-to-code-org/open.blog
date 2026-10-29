@@ -96,6 +96,8 @@ pub mod future_suggestion;
 pub mod interpretation;
 pub mod interpretation_publication;
 pub mod invitation;
+pub mod job;
+pub mod job_archive;
 pub mod knowledge_atlas;
 pub mod landing;
 pub mod look;
@@ -146,6 +148,7 @@ pub mod synthesis;
 pub mod theme;
 pub mod third_perspective;
 pub mod video;
+pub mod voice;
 
 pub use config::SiteConfig;
 pub use date::DateTime;

@@ -125,7 +125,10 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
         };
         let key = line[..colon].trim().to_string();
         let rest = line[colon + 1..].trim();
-        if rest.is_empty() {
+        if rest.is_empty() && key == NESTED_KEY && next_is_mapping(lines, i) {
+            let indent = indent_of(lines[next_significant(lines, i)])?;
+            parse_nested(lines, &mut i, indent, &key, 1, &mut fields)?;
+        } else if rest.is_empty() {
             // A block list (or an empty scalar) follows.
             let mut items = Vec::new();
             while i < lines.len() {
@@ -161,6 +164,125 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
         }
     }
     Ok(FrontMatter { fields })
+}
+
+/// The one key whose value may be a nested mapping (the `job` profile, ADR
+/// 0285). It is stored flattened to dotted keys (`job.place.town`), so the
+/// `Value` shape and every other key are exactly as before.
+const NESTED_KEY: &str = "job";
+const MAX_NESTING: usize = 3;
+
+fn is_skipped(line: &str) -> bool {
+    line.trim().is_empty() || line.trim_start().starts_with('#')
+}
+
+fn next_significant(lines: &[&str], from: usize) -> usize {
+    (from..lines.len())
+        .find(|&at| !is_skipped(lines[at]))
+        .unwrap_or(lines.len())
+}
+
+fn next_is_mapping(lines: &[&str], from: usize) -> bool {
+    let at = next_significant(lines, from);
+    let Some(line) = lines.get(at) else {
+        return false;
+    };
+    let trimmed = line.trim();
+    line.starts_with(' ') && !trimmed.starts_with("- ") && trimmed != "-"
+}
+
+fn indent_of(line: &str) -> Result<usize, String> {
+    if line.starts_with('\t') {
+        return Err(format!("use spaces, not tabs, to indent `{}`", line.trim()));
+    }
+    Ok(line.len() - line.trim_start_matches(' ').len())
+}
+
+fn parse_nested(
+    lines: &[&str],
+    i: &mut usize,
+    indent: usize,
+    prefix: &str,
+    depth: usize,
+    fields: &mut BTreeMap<String, Value>,
+) -> Result<(), String> {
+    if depth > MAX_NESTING {
+        return Err(format!("`{prefix}` is nested too deeply"));
+    }
+    while *i < lines.len() {
+        let line = lines[*i].trim_end();
+        if is_skipped(line) {
+            *i += 1;
+            continue;
+        }
+        let here = indent_of(line)?;
+        if here < indent {
+            break;
+        }
+        if here > indent {
+            return Err(format!(
+                "unexpected indentation under `{prefix}`: `{}`",
+                line.trim()
+            ));
+        }
+        let Some(colon) = find_key_colon(line.trim_start()) else {
+            return Err(format!(
+                "expected `key: value` under `{prefix}`, found `{}`",
+                line.trim()
+            ));
+        };
+        let content = line.trim_start();
+        let key = format!("{prefix}.{}", content[..colon].trim());
+        let rest = content[colon + 1..].trim();
+        *i += 1;
+        if !rest.is_empty() {
+            let value = match rest.strip_prefix('[') {
+                Some(inner) => match inner.strip_suffix(']') {
+                    Some(inner) => Value::List(split_inline_list(inner)),
+                    None => return Err(format!("unterminated inline list for `{key}`")),
+                },
+                None => Value::Scalar(unquote(rest)),
+            };
+            fields.insert(key, value);
+            continue;
+        }
+        let at = next_significant(lines, *i);
+        let Some(next) = lines.get(at) else {
+            fields.insert(key, Value::Scalar(String::new()));
+            continue;
+        };
+        let next_indent = indent_of(next)?;
+        let trimmed = next.trim();
+        if next_indent <= indent {
+            fields.insert(key, Value::Scalar(String::new()));
+        } else if let Some(first) = trimmed
+            .strip_prefix("- ")
+            .or((trimmed == "-").then_some(""))
+        {
+            let mut items = vec![unquote(first.trim())];
+            *i = at + 1;
+            while *i < lines.len() {
+                let item_line = lines[*i];
+                if is_skipped(item_line) {
+                    *i += 1;
+                    continue;
+                }
+                let item = item_line.trim();
+                match item.strip_prefix("- ").or((item == "-").then_some("")) {
+                    Some(item) if indent_of(item_line)? > indent => {
+                        items.push(unquote(item.trim()));
+                        *i += 1;
+                    }
+                    _ => break,
+                }
+            }
+            fields.insert(key, Value::List(items));
+        } else {
+            *i = at;
+            parse_nested(lines, i, next_indent, &key, depth + 1, fields)?;
+        }
+    }
+    Ok(())
 }
 
 /// Find the colon that separates key from value. Keys never contain `:`;
@@ -257,7 +379,16 @@ fn unescape_double(s: &str) -> String {
 /// Serialize front matter back to text. Used by the importer and `new`.
 pub fn serialize(fields: &[(&str, Value)]) -> String {
     let mut out = String::from("---\n");
+    let nested_prefix = format!("{NESTED_KEY}.");
+    let mut nested_written = false;
     for (key, value) in fields {
+        if key.starts_with(&nested_prefix) {
+            if !nested_written {
+                nested_written = true;
+                serialize_nested(fields, &nested_prefix, &mut out);
+            }
+            continue;
+        }
         match value {
             Value::Scalar(s) => {
                 out.push_str(key);
@@ -278,6 +409,48 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
     }
     out.push_str("---\n");
     out
+}
+
+/// Write the flattened `job.*` keys back as one nested mapping, in key order,
+/// so parsing the result gives the same fields.
+fn serialize_nested(fields: &[(&str, Value)], prefix: &str, out: &mut String) {
+    let mut entries: Vec<(Vec<&str>, &Value)> = fields
+        .iter()
+        .filter(|(key, _)| key.starts_with(prefix))
+        .map(|(key, value)| (key.split('.').collect(), value))
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    out.push_str(NESTED_KEY);
+    out.push_str(":\n");
+    let mut open: Vec<&str> = Vec::new();
+    for (path, value) in entries {
+        let parents = &path[1..path.len() - 1];
+        let common = open
+            .iter()
+            .zip(parents)
+            .take_while(|(left, right)| left == right)
+            .count();
+        open.truncate(common);
+        for (depth, name) in parents.iter().enumerate().skip(common) {
+            out.push_str(&"  ".repeat(depth + 1));
+            out.push_str(name);
+            out.push_str(":\n");
+            open.push(name);
+        }
+        let indent = "  ".repeat(path.len() - 1);
+        let name = path[path.len() - 1];
+        match value {
+            Value::Scalar(s) => {
+                out.push_str(&format!("{indent}{name}: {}\n", quote_scalar(s)));
+            }
+            Value::List(items) => {
+                out.push_str(&format!("{indent}{name}:\n"));
+                for item in items {
+                    out.push_str(&format!("{indent}  - {}\n", quote_scalar(item)));
+                }
+            }
+        }
+    }
 }
 
 /// Preferred key order when writing a document, so edits produce stable diffs.

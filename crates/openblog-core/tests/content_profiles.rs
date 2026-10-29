@@ -49,7 +49,14 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
     let profiles = profile::catalog();
     assert_eq!(
         profiles.iter().map(|item| item.id).collect::<Vec<_>>(),
-        vec!["article", "recipe", "research", "video", "field-journal"]
+        vec![
+            "article",
+            "recipe",
+            "research",
+            "video",
+            "field-journal",
+            "job"
+        ]
     );
     assert_eq!(profiles[0].label, "Article");
     assert!(profiles[0].fields.is_empty());

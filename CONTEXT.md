@@ -1038,8 +1038,8 @@ _Avoid_: Widget, block, embed, custom HTML
 **Piece**:
 One of nine small structured things (button, image with caption, video, map, opening hours, contact details,
 social links, questions and answers, call-out) added with a form to a post or to the landing page. It is
-validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a
-```` ```piece <kind> ```` fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
+validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a ```` ```piece <kind> ````
+fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
 frame with a link beside it that becomes only the link in a portable export (ADR 0253).
 _Avoid_: Widget, shortcode, embed code, custom HTML
 
@@ -2496,3 +2496,136 @@ The short list under "Help: what the words on this page mean" in the Landing pag
 section, layout, hide, preview, save, publish (make it live), web address and picture description. Technical
 terms appear only there, in brackets (ADR 0259).
 _Avoid_: Glossary page, documentation
+
+## Voice samples
+
+**Voice prompt**:
+One short writing invitation from a versioned catalog, with a genre, a suggested length and the standing rule
+"write it the way you would say it" (stored once for the whole catalog, not per prompt). Prompts have stable
+kebab-case ids (ADR 0266, ADR 0268).
+_Avoid_: Writing prompt, exercise, question
+
+**Prompt pack**:
+A named group of voice prompts for one genre (teaching, stories, opinions, reviews, people, craft, humor,
+expertise, everyday life, openings and endings). A site can add prompts and hide whole packs without forking
+the bundled catalog (ADR 0268).
+_Avoid_: Category, deck, topic
+
+**Voice session**:
+One timed sitting: a draw of three prompts, one choice, a bounded writing window and a locked rough draft.
+Its only state is the private record `.openblog/private/voice/session.json`, which lets any surface resume
+with the original deadline; there is one per site, and the record is removed when the session is locked or
+scrapped (ADR 0267).
+_Avoid_: Quiz, exercise, writing sprint
+
+**Voice sample**:
+One stored answer to one voice prompt at one stage, `rough` or `polished`. The rough stage is immutable once
+its session ends: nothing, including spell-check, autocorrect, AI and any save path, rewrites it, and the
+store refuses to. A voice sample is Assistant context, not a Post, so it is never published, built into the
+site, fed or exported as content (a **Voice export** carries private samples only with `--include-private`)
+(ADR 0266).
+_Avoid_: Draft post, writing sample, entry
+
+**Rough draft**:
+The `rough` stage of a voice sample: the author's unedited words, typos included, written against the clock
+and then locked. It can be read, moved between portable and private, or erased by the author, and never edited.
+_Avoid_: First draft, raw draft
+
+**Polished draft**:
+The `polished` stage of a voice sample: the author's own revision of one rough draft, named by `roughOf`. It is
+author-owned and editable; an AI tool may propose changes to it but never applies them (ADR 0266).
+_Avoid_: Final draft, edited version
+
+**Voice gap**:
+Something the author's voice material cannot yet show: a pack or prompt with no sample, a prompt with only a
+rough draft, or a guide trait marked `(one sample)`. It is computed by the core from the catalog, the library
+and the saved guide, in catalog order, and is not AI (ADR 0281).
+_Avoid_: Weakness, missing score
+
+**Promotion**:
+Making a post draft (`draft: true`) from a polished draft: a copy, never a move, so the sample stays where it
+is. It refuses a rough draft and a slug a post already uses, and it is one store function that the CLI and
+Admin both call (ADR 0270).
+_Avoid_: Publish, convert
+
+**Voice guide**:
+A Markdown description of how the author writes, built from quoted sample evidence, approved by the author and
+used as Assistant context. The provider proposes it from selected samples; every trait carries a short quote
+that occurs word for word in a named sample, and a trait that rests on one sample says `(one sample)` until a
+second shows it. It is saved only when the author approves it, to `assistant/context/voice.md` or its private
+mirror, and is context to compare against, never a source of instructions (ADR 0279, ADR 0281).
+_Avoid_: Style guide, persona, system prompt
+
+**Guide merge**:
+How a proposed voice guide meets the saved one (ADR 0288). The server reads the saved guide back into traits
+and free text. A saved trait the proposal does not address is **kept** word for word. A trait the proposal
+changes (named by `replaces`, or by the same statement) is a **change**: both texts are shown and the author
+picks one before saving. New traits are **added**. Free text outside the trait format stays where it was. A
+kept quote is checked again against its sample and flagged, not dropped, when the quote or the sample is gone.
+_Avoid_: Overwrite, regenerate
+
+**Passage review**:
+An Assistant review of one bounded passage rather than the whole document: the author's **selection**, or the
+**section** around the cursor (heading to next heading). The request carries the passage's code-point offsets,
+the document travels for context, findings must lie inside the passage, and a skill must declare that scope.
+`voice-match` reviews only passages (ADR 0290).
+_Avoid_: Partial review, snippet review
+
+**Guide move**:
+Moving the voice guide between `assistant/context/voice.md` and `.openblog/private/context/voice.md` in one
+step. The file is copied, the copy is checked, and only then is the original removed, under the content
+transaction lock and the voice store lock. A move refuses links and never overwrites. A guide that quotes private
+samples, or cannot be read, never moves to portable. Previewed by default (`openblog voice guide --move`,
+**Make private** / **Make portable** in Admin) and reversible (ADR 0289).
+_Avoid_: Save as, copy
+
+**Voice export**:
+One JSON file (`openblog-voice-export`, version 1) holding voice sample files and the voice guide exactly as stored,
+each tagged with the folder it came from. It leaves private material out unless the author asks, and an import
+checks every item, previews what it would write and then writes all of it or none. An import keeps each item's
+folder, never replaces a rough draft, and never lets a guide that quotes private samples into the portable
+folder (ADR 0284).
+_Avoid_: Backup, sync
+
+**Voice erase**:
+Removing every voice sample (both folders), the session record, the guide and leftover editor files in one
+all-or-nothing step, after a listed confirmation, and then checking again that nothing remains. The guide's
+location is named in one place, `voice_store::guide_paths` (ADR 0283).
+_Avoid_: Reset, wipe, delete account
+
+## Trades
+
+**Job**:
+A dated Post using the `job` content profile that records one piece of completed work: trade, service, place,
+problem, what was found, what was done, result, media. A job is a post, so feeds, tags, series and export treat
+it like any other (ADR 0285).
+_Avoid_: Project, case study, ticket
+
+**Job scaffold**:
+The four `##` headings a new job starts with (`Problem`, `What we found`, `What we did`, `Result`), written once in
+core and placed by Admin's Job mode or `openblog new --profile job`. They are ordinary Markdown; nothing is
+locked (ADR 0287).
+_Avoid_: Template, form body
+
+**Service**:
+One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
+typical timeline, and FAQs. A job's `service` names one of them.
+_Avoid_: Product, category
+
+**Service area**:
+A town or region the business serves, kept in a site-level list and rendered as pages and structured data.
+_Avoid_: Location (ambiguous with a job's place)
+
+**Before/after pair**:
+A publishing capability that shows two images of the same subject with captions, rendered as a comparison on
+the canonical page and as two captioned images everywhere else.
+_Avoid_: Slider, gallery
+
+**Quote request**:
+A bounded inbound message from a prospective customer, stored server-side with explicit export and erase. It
+is not a lead pipeline, a booking or an estimate.
+_Avoid_: Lead, booking, ticket
+
+**Proof**:
+A review or testimonial saved as a provenance-tracked snapshot and optionally linked to a job.
+_Avoid_: Rating (the number alone), social proof

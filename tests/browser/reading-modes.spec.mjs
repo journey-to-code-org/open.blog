@@ -6,6 +6,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // The published page of a post with author-written supplements (ADRs 0140-0143) from the real build
 // and the real stylesheet and component: the standard, guided and deep-dive controls by keyboard
@@ -105,7 +106,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 const control = (page) => page.getByRole("group", { name: "Reading mode", exact: true });

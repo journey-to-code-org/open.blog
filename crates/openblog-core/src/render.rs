@@ -632,6 +632,22 @@ pub fn generate_with_trail_budget(
         out.add(url_to_file(&tag.url), r.tag_page(default_theme, tag))?;
     }
 
+    let job_plan = crate::job_archive::plan(site);
+    for archive in &job_plan {
+        for page_number in 1..=archive.page_count(c.posts_per_page) {
+            out.add(
+                url_to_file(&archive.page_url(page_number)),
+                r.job_archive_page(
+                    default_theme,
+                    &job_plan,
+                    archive,
+                    page_number,
+                    c.posts_per_page,
+                ),
+            )?;
+        }
+    }
+
     out.add("archive/index.html".into(), r.archive(default_theme))?;
     out.add("search/index.html".into(), r.search_page(default_theme))?;
     for page in &site.pages {
@@ -829,6 +845,7 @@ pub fn generate_with_trail_budget(
             extra.push(comparison_publication::COMPARISONS_URL.to_string());
             extra.extend(comparisons.comparisons.iter().map(|c| c.url.clone()));
         }
+        extra.extend(job_plan.iter().map(|archive| archive.url.clone()));
         out.add("sitemap.xml".into(), feeds::sitemap(site, &extra))?;
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
@@ -1889,16 +1906,24 @@ impl<'a> Renderer<'a> {
     }
 
     fn pager(&self, page_number: usize, page_count: usize) -> String {
-        if page_count <= 1 {
-            return String::new();
-        }
-        let url = |n: usize| {
+        self.pager_with(page_number, page_count, |n| {
             if n == 1 {
                 "/".to_string()
             } else {
                 format!("/page/{n}/")
             }
-        };
+        })
+    }
+
+    fn pager_with(
+        &self,
+        page_number: usize,
+        page_count: usize,
+        url: impl Fn(usize) -> String,
+    ) -> String {
+        if page_count <= 1 {
+            return String::new();
+        }
         let mut h = String::from("<nav class=\"ob-pager\" aria-label=\"Pagination\">");
         if page_number > 1 {
             h.push_str(&format!(
@@ -3095,6 +3120,91 @@ impl<'a> Renderer<'a> {
             &tag.name,
             &format!("Posts tagged {}.", tag.name),
             &tag.url,
+            &body,
+        )
+    }
+
+    fn job_archive_page(
+        &self,
+        theme: &Theme,
+        plan: &[crate::job_archive::JobArchive],
+        archive: &crate::job_archive::JobArchive,
+        page_number: usize,
+        per_page: usize,
+    ) -> String {
+        use crate::job_archive::{JobArchiveKind, JOBS_URL};
+        let page_count = archive.page_count(per_page);
+        let start = if per_page == 0 {
+            0
+        } else {
+            (page_number - 1) * per_page
+        };
+        let end = if per_page == 0 {
+            archive.posts.len()
+        } else {
+            archive.posts.len().min(start + per_page)
+        };
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
+        let eyebrow = match archive.kind {
+            JobArchiveKind::All => format!("<a href=\"{JOBS_URL}\">Jobs</a>"),
+            JobArchiveKind::Trade => {
+                format!("<a href=\"{JOBS_URL}\">Jobs</a> · {}", text(&archive.title))
+            }
+            JobArchiveKind::Service => {
+                let trade = plan.iter().find(|other| {
+                    other.kind == JobArchiveKind::Trade && other.trade == archive.trade
+                });
+                match trade {
+                    Some(trade) => format!(
+                        "<a href=\"{JOBS_URL}\">Jobs</a> · <a href=\"{}\">{}</a>",
+                        attr(&trade.url),
+                        text(&trade.title)
+                    ),
+                    None => format!("<a href=\"{JOBS_URL}\">Jobs</a>"),
+                }
+            }
+        };
+        body.push_str(&format!("<p class=\"ob-eyebrow\">{eyebrow}</p>\n"));
+        body.push_str(&self.heading(theme, 1, &archive.title, "ob-section-heading"));
+        body.push('\n');
+        if page_number == 1 {
+            let children: Vec<&crate::job_archive::JobArchive> = plan
+                .iter()
+                .filter(|child| match archive.kind {
+                    JobArchiveKind::All => child.kind == JobArchiveKind::Trade,
+                    JobArchiveKind::Trade => {
+                        child.kind == JobArchiveKind::Service && child.trade == archive.trade
+                    }
+                    JobArchiveKind::Service => false,
+                })
+                .collect();
+            if !children.is_empty() {
+                body.push_str("<ul class=\"ob-tags ob-tag-cloud\">");
+                for child in children {
+                    body.push_str(&format!(
+                        "<li><a href=\"{}\">{} <span class=\"ob-count\">{}</span></a></li>",
+                        attr(&child.url),
+                        text(&child.title),
+                        child.posts.len()
+                    ));
+                }
+                body.push_str("</ul>\n");
+            }
+        }
+        body.push_str(&self.post_list(theme, &archive.posts[start..end]));
+        body.push_str(&self.pager_with(page_number, page_count, |n| archive.page_url(n)));
+        body.push_str("\n</section>\n</div>");
+        let title = if page_number == 1 {
+            archive.title.clone()
+        } else {
+            format!("{} · Page {page_number}", archive.title)
+        };
+        self.simple(
+            theme,
+            &title,
+            &archive.description,
+            &archive.page_url(page_number),
             &body,
         )
     }

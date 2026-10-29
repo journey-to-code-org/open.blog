@@ -84,10 +84,13 @@ use crate::assistant::{
     ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION,
     BUILTIN_SKILL_SOURCES,
 };
+use crate::assistant::{PassageKind, ReviewPassage};
 mod comparisons;
 mod landing;
 mod look;
 mod reading_paths;
+mod voice;
+mod voice_guide;
 
 use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
@@ -108,6 +111,8 @@ const MAX_PIECE_REQUEST_BYTES: usize = 64 * 1024;
 /// The most `[field, value]` pairs a piece request may carry; the largest piece has far fewer.
 const MAX_PIECE_VALUES: usize = 64;
 const MAX_JSON_BODY: usize = 2 * 1024 * 1024 + 64 * 1024;
+/// A job's fields only: no body, so a small bound is plenty.
+const MAX_JOB_CHECK_BYTES: usize = 64 * 1024;
 const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SKILL_BYTES: usize = 256 * 1024;
@@ -504,6 +509,12 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "pieces" {
             return Ok(MAX_PIECE_REQUEST_BYTES);
         }
+        if name == "job/check" {
+            return Ok(MAX_JOB_CHECK_BYTES);
+        }
+        if name.starts_with("voice/") {
+            return Ok(voice::request_limit(req, name));
+        }
         return Ok(MAX_JSON_BODY);
     }
     Ok(0)
@@ -542,6 +553,11 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing-history.js" => "landing-history.js",
         "/admin/checks.js" => "checks.js",
         "/admin/checks-panel.js" => "checks-panel.js",
+        "/admin/job-form.js" => "job-form.js",
+        "/admin/voice.js" => "voice.js",
+        "/admin/voice-session.js" => "voice-session.js",
+        "/admin/voice-polished.js" => "voice-polished.js",
+        "/admin/voice-library.js" => "voice-library.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
@@ -655,6 +671,15 @@ fn authenticated_api(
             return preview_document(state, token);
         }
     }
+    if let Some(route) = voice::sample_route(name) {
+        return match (req.method.as_str(), route) {
+            ("GET", voice::SampleRoute::One(id)) => voice::get(state, req, id),
+            ("PUT", voice::SampleRoute::One(id)) => voice::save_polished(state, req, id),
+            ("POST", voice::SampleRoute::Visibility(id)) => voice::set_visibility(state, req, id),
+            ("POST", voice::SampleRoute::Promote(id)) => voice::promote(state, req, id),
+            _ => Response::error(404, "Unknown API route"),
+        };
+    }
     match (req.method.as_str(), name) {
         ("POST", "logout") => logout(state, req),
         ("GET", "session") => Response::json(
@@ -725,6 +750,20 @@ fn authenticated_api(
         ("GET", "landing/history") => landing::history_list(state),
         ("GET", "landing/history/item") => landing::history_item(state, req),
         ("POST", "landing/history/restore") => landing::history_restore(state, req),
+        ("GET", "voice/catalog") => voice::catalog(state),
+        ("GET", "voice/status") => voice::status(state),
+        ("POST", "voice/draw") => voice::draw(state, req),
+        ("GET", "voice/session") => voice::get_session(state),
+        ("DELETE", "voice/session") => voice::scrap(state, req),
+        ("GET", "voice/erase") => voice::erase_plan(state),
+        ("POST", "voice/erase") => voice::erase(state, req),
+        ("GET", "voice/guide/move") => voice::guide_move_plan(state, req),
+        ("POST", "voice/guide/move") => voice::guide_move(state, req),
+        ("POST", "voice/session/start") => voice::start(state, req),
+        ("PUT", "voice/session/draft") => voice::save_draft(state, req),
+        ("POST", "voice/session/lock") => voice::lock_session(state, req),
+        ("GET", "voice/samples") => voice::list(state),
+        ("POST", "voice/samples") => voice::create_polished(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
@@ -789,6 +828,7 @@ fn authenticated_api(
         ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("POST", "assistant/complete") => generate_inline_completion(state, req),
+        ("POST", "assistant/voice-guide") => voice_guide::generate_voice_guide(state, req),
         ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
@@ -869,6 +909,7 @@ fn authenticated_api(
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
         ("POST", "pieces") => build_piece(req),
+        ("POST", "job/check") => job_check(state, req),
         ("POST", "research/review") => review_before_publication(state, req),
         ("GET", "research/boundary") => boundary_site(state),
         ("GET", "research/readiness") => readiness_site(state),
@@ -3693,6 +3734,36 @@ fn etag_bytes(bytes: &[u8]) -> String {
 // Reading
 // ---------------------------------------------------------------------------
 
+/// Check a job's fields with the same validation the build uses and say, in
+/// the build's own sentences, what is still missing. Nothing is written.
+fn job_check(state: &AppState, req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(b) => b,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let fields = match fields_from_json(&body["fields"]) {
+        Ok(f) => f,
+        Err(e) => return Response::error(422, &e),
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(c) => c,
+        Err(e) => return Response::error(500, &e),
+    };
+    let front_matter = frontmatter::FrontMatter { fields };
+    let problems = match openblog_core::job::from_front_matter(&front_matter, &config.extra_trades)
+    {
+        Ok(_) => Vec::new(),
+        Err(problems) => problems,
+    };
+    Response::json(
+        200,
+        &json!({ "ok": problems.is_empty(), "problems": problems }),
+    )
+}
+
 fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
     let mut map = Map::new();
     for (k, v) in fields {
@@ -3709,6 +3780,21 @@ fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
     Json::Object(map)
 }
 
+/// A front matter key. The only dotted keys are the flattened `job.*` ones the
+/// job profile uses (ADR 0285); every segment is a plain word.
+fn is_field_name(key: &str) -> bool {
+    let plain = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
+    match key.strip_prefix("job.") {
+        Some(rest) => rest.split('.').count() <= 3 && rest.split('.').all(plain),
+        None => plain(key),
+    }
+}
+
 fn fields_from_json(value: &Json) -> Result<BTreeMap<String, Value>, String> {
     let object = value.as_object().ok_or("fields must be an object")?;
     if object.len() > 60 {
@@ -3719,9 +3805,7 @@ fn fields_from_json(value: &Json) -> Result<BTreeMap<String, Value>, String> {
         let valid_key = !key.is_empty()
             && key.len() <= 40
             && key.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-            && key
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+            && is_field_name(key);
         if !valid_key {
             return Err(format!("field name `{key}` is not allowed"));
         }
@@ -3819,6 +3903,25 @@ fn meta(state: &AppState) -> Response {
         }
     }
     tags.sort_by_key(|t| t.to_lowercase());
+    let mut services: Vec<String> = Vec::new();
+    for file in &sources.posts {
+        if let Ok(doc) = frontmatter::parse(&file.contents) {
+            if let Some(service) = doc.front_matter.get("job.service") {
+                if let Ok(service) = openblog_core::job::normalize_service(service) {
+                    if !services.contains(&service) {
+                        services.push(service);
+                    }
+                }
+            }
+        }
+    }
+    services.sort();
+    let job_form = json!({
+        "trades": openblog_core::job::known_trades(&config.extra_trades),
+        "costBands": openblog_core::job::CostBand::ALL.map(openblog_core::job::CostBand::as_str),
+        "services": services,
+        "scaffold": openblog_core::job::scaffold_body(),
+    });
     let profiles: Vec<Json> = openblog_core::profile::catalog()
         .iter()
         .map(|profile| {
@@ -3867,6 +3970,7 @@ fn meta(state: &AppState) -> Response {
             "defaultTheme": config.theme,
             "themes": theme_list,
             "profiles": profiles,
+            "job": job_form,
             "contributors": config.contributors,
             "creditRoles": credit_roles,
             "pieces": openblog_core::piece::schema_json(),
@@ -10218,6 +10322,7 @@ fn assistant_context_target(
     let (context_type, relative) = match context_type {
         "author" => ("author", PathBuf::from("author.md")),
         "site" => ("site", PathBuf::from("site.md")),
+        "voice" => ("voice", PathBuf::from("voice.md")),
         "post" => {
             let document_path = document_path
                 .ok_or_else(|| Response::error(400, "Post context requires documentPath"))?;
@@ -10237,7 +10342,7 @@ fn assistant_context_target(
         _ => {
             return Err(Response::error(
                 400,
-                "Context type must be author, site, or post",
+                "Context type must be author, site, voice, or post",
             ))
         }
     };
@@ -10513,6 +10618,13 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
             Err(response) => return response,
         }
     }
+    let mut voice_guides = Vec::new();
+    for visibility in ["portable", "private"] {
+        match assistant_context_document(&state.root, "voice", visibility, None) {
+            Ok(document) => voice_guides.push(document),
+            Err(response) => return response,
+        }
+    }
     if let Some(document_path) = req.query.get("path") {
         for visibility in ["portable", "private"] {
             match assistant_context_document(&state.root, "post", visibility, Some(document_path)) {
@@ -10534,22 +10646,48 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
             ".openblog/private/context/site.md",
             ".openblog/private/context/posts/.openblog-ignore-probe.md",
             ".openblog/private/context/references/.openblog-ignore-probe.txt",
+            ".openblog/private/context/voice/.openblog-ignore-probe.md",
         ]
         .iter()
         .all(|path| git.run(&["check-ignore", "-q", "--no-index", path]).is_ok());
         let tracked = git
             .run(&["ls-files", "--", ".openblog/private"])
             .is_ok_and(|paths| !paths.trim().is_empty());
-        let warning = if tracked {
-            Some("Private assistant content is already tracked by Git. Remove it from the index and rotate any exposed secrets before using it.")
+        let tracked_voice_files: Vec<String> = git
+            .run(&[
+                "ls-files",
+                "--",
+                ".openblog/private/context/voice",
+                ".openblog/private/voice",
+            ])
+            .map(|paths| {
+                paths
+                    .lines()
+                    .map(|path| path.trim().to_string())
+                    .filter(|path| !path.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let warning = if let Some(first) = tracked_voice_files.first() {
+            let more = tracked_voice_files.len() - 1;
+            Some(format!(
+                "Your private voice sample {first}{} is tracked by Git, so it could be published or shared. Remove it from Git with `git rm --cached` and make sure /.openblog/private/ is in .gitignore.",
+                if more == 0 {
+                    String::new()
+                } else {
+                    format!(" (and {more} more)")
+                }
+            ))
+        } else if tracked {
+            Some("Private assistant content is already tracked by Git. Remove it from the index and rotate any exposed secrets before using it.".to_string())
         } else if !ignored {
-            Some("Private assistant content is not ignored by Git. Add /.openblog/private/ to .gitignore before saving sensitive context.")
+            Some("Private assistant content is not ignored by Git. Add /.openblog/private/ to .gitignore before saving sensitive context.".to_string())
         } else {
             None
         };
-        json!({ "gitRepository": true, "ignored": ignored, "tracked": tracked, "warning": warning })
+        json!({ "gitRepository": true, "ignored": ignored, "tracked": tracked, "trackedVoiceFiles": tracked_voice_files, "warning": warning })
     } else {
-        json!({ "gitRepository": false, "ignored": null, "tracked": false, "warning": null })
+        json!({ "gitRepository": false, "ignored": null, "tracked": false, "trackedVoiceFiles": [], "warning": null })
     };
     Response::json(
         200,
@@ -10563,6 +10701,13 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
                 Ok(posts) => posts,
                 Err(response) => return response,
             },
+            "voiceGuides": voice_guides,
+            "voiceSamples": crate::voice_assistant::catalog_entries(&state.root),
+            "voiceBudget": crate::voice_assistant::budget(),
+            "voiceGaps": crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
+                &state.root,
+                crate::voice_assistant::read_guide(&state.root).as_ref().map(|(_, text)| text.as_str()),
+            )),
             "privateSafety": private_safety
         }),
     )
@@ -10639,6 +10784,15 @@ fn save_assistant_context(state: &AppState, req: &Request) -> Response {
     };
     if content.len() > MAX_ASSISTANT_CONTEXT_BYTES {
         return Response::error(413, "Context files are limited to 64 KiB of UTF-8 text");
+    }
+    if context_type == "voice"
+        && visibility == "portable"
+        && crate::voice_store::guide_is_private_derived(&state.root, &content)
+    {
+        return Response::error(
+            422,
+            "This guide quotes private samples; save it as private. Portable context is git-tracked",
+        );
     }
     let _content_lock = lock(&state.build);
     let _filesystem_lock = match content_transaction(state) {
@@ -10779,12 +10933,18 @@ fn create_assistant_reference(state: &AppState, req: &Request) -> Response {
     )
 }
 
-fn resolve_review_skills(root: &Path, ids: &[String]) -> Result<Vec<ReviewSkill>, Response> {
+/// Resolve the selected review skills for a review of `scope`: the whole document, a selection or a
+/// section. A skill must declare the scope it is used for (ADR 0290).
+fn resolve_review_skills(
+    root: &Path,
+    ids: &[String],
+    scope: SkillScope,
+) -> Result<Vec<ReviewSkill>, Response> {
     let projects = read_project_skills(root).map_err(|error| Response::error(500, &error))?;
     let id_counts = project_skill_id_counts(&projects);
     let builtins = builtin_skills();
     ids.iter()
-        .map(|id| resolve_review_skill(id, &builtins, &projects, &id_counts))
+        .map(|id| resolve_review_skill(id, &builtins, &projects, &id_counts, scope))
         .collect()
 }
 
@@ -10793,6 +10953,7 @@ fn resolve_review_skill(
     builtins: &[SkillDefinition],
     projects: &[ProjectSkillFile],
     id_counts: &BTreeMap<String, usize>,
+    scope: SkillScope,
 ) -> Result<ReviewSkill, Response> {
     if !valid_skill_path_id(id) {
         return Err(Response::error(400, "Invalid selected skill ID"));
@@ -10806,10 +10967,15 @@ fn resolve_review_skill(
         (None, Some(project)) => project.clone(),
         (None, None) => return Err(Response::error(400, "Selected skill is unavailable")),
     };
-    if skill.output != SkillOutputKind::Review || !skill.scopes.contains(&SkillScope::Document) {
+    if skill.output != SkillOutputKind::Review || !skill.scopes.contains(&scope) {
+        let what = match scope {
+            SkillScope::Document => "complete-document review",
+            SkillScope::Selection => "review of selected text",
+            SkillScope::Section => "review of one section",
+        };
         return Err(Response::error(
             400,
-            "Selected skill does not support complete-document review",
+            &format!("Selected skill does not support {what}"),
         ));
     }
     Ok(ReviewSkill {
@@ -10819,10 +10985,29 @@ fn resolve_review_skill(
     })
 }
 
+/// Resolve every selected context id on the server, for review, completion and the voice-guide
+/// task. A voice sample is read again from the store each time and counted against the request
+/// budget (ADR 0278); the browser only ever names it.
+fn resolve_review_contexts(root: &Path, ids: &[String]) -> Result<Vec<ReviewContext>, Response> {
+    let context = ids
+        .iter()
+        .map(|id| resolve_review_context(root, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    crate::voice_assistant::check_budget(&context)
+        .map_err(|message| Response::error(400, &message))?;
+    Ok(context)
+}
+
 fn resolve_review_context(root: &Path, id: &str) -> Result<ReviewContext, Response> {
     let parts = id.split(':').collect::<Vec<_>>();
+    if let ["voice", visibility, file] = parts.as_slice() {
+        let visibility = crate::voice_store::Visibility::parse(visibility)
+            .ok_or_else(|| Response::error(400, "Invalid selected context ID"))?;
+        return crate::voice_assistant::review_context(root, visibility, file)
+            .map_err(|message| Response::error(400, &message));
+    }
     let document = match parts.as_slice() {
-        [visibility @ ("portable" | "private"), context_type @ ("author" | "site")] => {
+        [visibility @ ("portable" | "private"), context_type @ ("author" | "site" | "voice")] => {
             assistant_context_document(root, context_type, visibility, None)?
         }
         [visibility @ ("portable" | "private"), "post", name] => {
@@ -10944,6 +11129,42 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         }
         _ => return Response::error(400, "Review Markdown is too large or invalid"),
     };
+    // An optional bounded passage: a selection or a section, in code-point offsets (ADR 0290).
+    let passage = match &body["passage"] {
+        Json::Null => None,
+        Json::Object(object) => {
+            let kind = object
+                .get("kind")
+                .and_then(Json::as_str)
+                .and_then(PassageKind::parse);
+            let offset = |key: &str| {
+                object
+                    .get(key)
+                    .and_then(Json::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+            };
+            match (kind, offset("start"), offset("end")) {
+                (Some(kind), Some(start), Some(end)) if object.len() == 3 => {
+                    match ReviewPassage::new(kind, start, end, markdown) {
+                        Ok(passage) => Some(passage),
+                        Err(error) => return Response::error(400, &error),
+                    }
+                }
+                _ => {
+                    return Response::error(
+                        400,
+                        "`passage` must be { kind: selection | section, start, end }",
+                    )
+                }
+            }
+        }
+        _ => {
+            return Response::error(
+                400,
+                "`passage` must be { kind: selection | section, start, end }",
+            )
+        }
+    };
     let skill_ids = match selected_ids(&body, "skillIds", 12) {
         Ok(ids) => ids,
         Err(response) => return response,
@@ -10952,17 +11173,14 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(ids) => ids,
         Err(response) => return response,
     };
+    let scope = passage.map_or(SkillScope::Document, |p| p.kind.scope());
     let (skills, context) = {
         let _assistant_lock = lock(&state.build);
-        let skills = match resolve_review_skills(&state.root, &skill_ids) {
+        let skills = match resolve_review_skills(&state.root, &skill_ids, scope) {
             Ok(skills) => skills,
             Err(response) => return response,
         };
-        let context = match context_ids
-            .iter()
-            .map(|id| resolve_review_context(&state.root, id))
-            .collect::<Result<Vec<_>, _>>()
-        {
+        let context = match resolve_review_contexts(&state.root, &context_ids) {
             Ok(context) => context,
             Err(response) => return response,
         };
@@ -10981,17 +11199,31 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Err(error) => return review_error(error),
     };
     let hash = review_source_hash(title, &metadata, markdown);
-    let request = AssistantRequest::document_review(
-        config.knowledge_checks.model.clone(),
-        AssistantDocument {
-            title: title.to_string(),
-            metadata,
-            markdown: markdown.to_string(),
-            hash: hash.clone(),
-        },
-        skills.clone(),
-        context.clone(),
-    );
+    let document = AssistantDocument {
+        title: title.to_string(),
+        metadata,
+        markdown: markdown.to_string(),
+        hash: hash.clone(),
+    };
+    let model = config.knowledge_checks.model.clone();
+    let request = match passage {
+        None => AssistantRequest::document_review(model, document, skills.clone(), context.clone()),
+        Some(passage) => AssistantRequest::passage_review(
+            model,
+            document,
+            skills.clone(),
+            context.clone(),
+            passage,
+        ),
+    };
+    let scope_json = match passage {
+        None => {
+            json!({ "kind": "document", "start": 0, "end": markdown.chars().count(), "unit": "unicode-code-points" })
+        }
+        Some(passage) => {
+            json!({ "kind": passage.kind.as_str(), "start": passage.start, "end": passage.end, "unit": "unicode-code-points" })
+        }
+    };
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
         None => {
@@ -11006,7 +11238,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::CodeInteraction(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
-        Ok(AssistantResult::Completion(_)) => {
+        Ok(AssistantResult::Completion(_) | AssistantResult::VoiceGuide(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
         Err(error) => return review_error(error),
@@ -11021,7 +11253,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             "reviewId": review_id,
             "schemaVersion": ASSISTANT_SCHEMA_VERSION,
             "sourceHash": hash,
-            "scope": { "kind": "document", "start": 0, "end": markdown.chars().count(), "unit": "unicode-code-points" },
+            "scope": scope_json,
             "skills": skills.iter().map(|skill| json!({ "id": skill.id, "version": skill.version })).collect::<Vec<_>>(),
             "context": context.iter().map(|document| json!({ "id": document.identity(), "name": document.name(), "visibility": document.visibility().as_str() })).collect::<Vec<_>>(),
             "provider": { "type": "generic-https", "model": config.knowledge_checks.model },
@@ -11079,11 +11311,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     };
     let context = {
         let _assistant_lock = lock(&state.build);
-        match context_ids
-            .iter()
-            .map(|id| resolve_review_context(&state.root, id))
-            .collect::<Result<Vec<_>, _>>()
-        {
+        match resolve_review_contexts(&state.root, &context_ids) {
             Ok(context) => context,
             Err(response) => return response,
         }
@@ -11126,6 +11354,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
         Ok(
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::CodeInteraction(_)
+            | AssistantResult::VoiceGuide(_)
             | AssistantResult::Review(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -11376,9 +11605,11 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     };
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
-        Ok(AssistantResult::Review(_) | AssistantResult::CodeInteraction(_)) => {
-            Response::error(502, "Assistant provider returned the wrong result type")
-        }
+        Ok(
+            AssistantResult::Review(_)
+            | AssistantResult::CodeInteraction(_)
+            | AssistantResult::VoiceGuide(_),
+        ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
         }
@@ -11463,6 +11694,7 @@ fn code_interaction_response(
         Ok(
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::Review(_)
+            | AssistantResult::VoiceGuide(_)
             | AssistantResult::Completion(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -17919,6 +18151,9 @@ mod tests {
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod voice_assistant_routes;
+    mod voice_journey;
+    mod voice_routes;
 
     use super::*;
     use crate::scaffold;
@@ -25002,6 +25237,120 @@ What I read:
     }
 
     #[test]
+    fn admin_meta_offers_the_job_form_its_trades_bands_scaffold_and_known_services() {
+        let f = fixture("job-meta");
+        std::fs::create_dir_all(f.state.root.join("content/posts")).unwrap();
+        std::fs::write(
+            f.state.root.join("content/posts/2026-10-21-floor.md"),
+            "---\ntitle: Floor\ndate: 2026-10-21\nprofile: job\ndraft: true\njob:\n  trade: flooring\n  service: Hardwood-Install\n---\nBody\n",
+        )
+        .unwrap();
+        let body = body_json(&meta(&f.state));
+        let job = &body["job"];
+        assert!(job["trades"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t == "flooring"));
+        assert_eq!(job["costBands"][0], "under-500");
+        assert_eq!(job["services"], json!(["hardwood-install"]));
+        assert!(job["scaffold"]
+            .as_str()
+            .unwrap()
+            .contains("## What we found"));
+    }
+
+    #[test]
+    fn job_fields_save_as_one_nested_mapping_and_check_with_core_sentences() {
+        let f = fixture("job-save");
+        let session = login_ok(&f);
+        let fields = json!({
+            "title": "Oak floor", "date": "2026-10-21", "profile": "job",
+            "job.trade": "flooring", "job.service": "hardwood-install",
+            "job.place.town": "Maple Falls", "job.place.region": "WA",
+            "job.started": "2026-10-14", "job.finished": "2026-10-16",
+            "job.media.before": ["/images/before.jpg"],
+        });
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({ "kind": "posts", "fields": fields, "body": "## Problem\n" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let path = body_json(&saved)["path"].as_str().unwrap().to_string();
+        let on_disk = std::fs::read_to_string(f.state.root.join("content").join(&path)).unwrap();
+        assert!(on_disk.contains("  media:\n    before:\n      - /images/before.jpg\n  place:\n    region: WA\n    town: Maple Falls\n"), "{on_disk}");
+        let reread = handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={path}")),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(
+            body_json(&reread)["fields"]["job.place.town"],
+            "Maple Falls"
+        );
+
+        let check = |fields: Json, csrf: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/job/check", json!({ "fields": fields })),
+                    &session,
+                    csrf,
+                ),
+            )
+        };
+        let bad = check(
+            json!({ "job.trade": "welding", "job.costBand": "cheap" }),
+            true,
+        );
+        assert_eq!(bad.status, 200);
+        let problems = body_json(&bad)["problems"].to_string();
+        assert!(
+            problems.contains("welding") && problems.contains("job.costBand"),
+            "{problems}"
+        );
+        assert!(
+            problems.contains("job.place.town"),
+            "every problem at once: {problems}"
+        );
+        assert_eq!(check(json!({ "job.trade": "flooring" }), false).status, 403);
+        let odd = check(json!({ "job..x": "a", "job.a.b.c.d": "b" }), true);
+        assert_eq!(odd.status, 422);
+        assert_eq!(
+            handle(
+                &f.state,
+                &json_req("POST", "/admin/api/job/check", json!({}))
+            )
+            .status,
+            401
+        );
+        assert_eq!(
+            preflight(
+                &f.state,
+                &authed(req("POST", "/admin/api/job/check"), &session, true)
+            )
+            .unwrap(),
+            MAX_JOB_CHECK_BYTES
+        );
+    }
+
+    #[test]
     fn assistant_status_is_authenticated_and_never_exposes_credentials() {
         let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
@@ -30279,7 +30628,7 @@ What I read:
                 .iter()
                 .filter(|skill| skill["source"] == "built-in")
                 .count(),
-            7
+            9
         );
         let broken = skills.iter().find(|skill| skill["id"] == "broken").unwrap();
         assert_eq!(broken["valid"], false);
@@ -30601,6 +30950,55 @@ What I read:
             .as_str()
             .unwrap()
             .contains("already tracked"));
+    }
+
+    #[test]
+    fn context_warns_by_name_when_a_private_voice_sample_is_tracked_by_git() {
+        let f = fixture("voice-tracked-warning");
+        let session = login_ok(&f);
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        fs::write(
+            f.dir.join(".gitignore"),
+            "/dist
+/.openblog/private/
+",
+        )
+        .unwrap();
+        let get = || {
+            body_json(&handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+            ))
+        };
+
+        // Ignored and untracked: no warning, and nothing about voice.
+        let safe = get();
+        assert_eq!(safe["privateSafety"]["ignored"], true);
+        assert!(safe["privateSafety"]["warning"].is_null());
+        assert_eq!(safe["privateSafety"]["trackedVoiceFiles"], json!([]));
+
+        let file = ".openblog/private/context/voice/2026-10-28-a-mistake-i-made-rough.md";
+        fs::create_dir_all(f.dir.join(".openblog/private/context/voice")).unwrap();
+        fs::write(f.dir.join(file), "private words").unwrap();
+        git.run(&["add", "-f", file]).unwrap();
+        let tracked = get();
+        assert_eq!(tracked["privateSafety"]["trackedVoiceFiles"], json!([file]));
+        let warning = tracked["privateSafety"]["warning"].as_str().unwrap();
+        assert!(warning.contains(file), "{warning}");
+        assert!(warning.contains("tracked by Git"), "{warning}");
+        assert!(!warning.contains("private words"));
+
+        // A portable sample is meant to be shared and never triggers it.
+        git.run(&["rm", "--cached", "-q", file]).unwrap();
+        fs::create_dir_all(f.dir.join("assistant/context/voice")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/voice/2026-10-28-x-rough.md"),
+            "shared words",
+        )
+        .unwrap();
+        git.run(&["add", "assistant/context/voice"]).unwrap();
+        assert!(get()["privateSafety"]["warning"].is_null());
     }
 
     #[test]

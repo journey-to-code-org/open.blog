@@ -38,6 +38,14 @@ mod source_store;
 mod syndication;
 mod transaction;
 mod url_context;
+mod voice_assistant;
+mod voice_capture;
+mod voice_cli;
+mod voice_diff;
+mod voice_exchange;
+mod voice_prompts;
+mod voice_session;
+mod voice_store;
 mod workspace;
 
 use std::collections::{HashMap, HashSet};
@@ -52,6 +60,8 @@ USAGE
 COMMANDS
     init [dir]                 Create a new blog in dir (default: current directory)
     init [dir] --github-pages  Also write a GitHub Pages deployment workflow
+    init [dir] --no-voice      Never offer a writing session afterwards (a terminal is
+                               asked once; scripts and pipes are never asked)
     new \"Title\"                Create content/posts/<date>-<slug>.md
     build                      Build the site into dist/
     serve                      Build, serve at http://localhost:8080, rebuild on change,
@@ -71,6 +81,18 @@ COMMANDS
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
     analytics service [dir]    Write a Node + MongoDB counter for Render (default: counter-service/)
+    voice [prompt-id]          A timed writing session: draw three prompts (or name one),
+                               write in your editor or the terminal, and keep the rough draft
+                               exactly as written (see voice OPTIONS)
+    voice --list               Prompts by pack, with what you have answered
+    voice --resume             Carry on with an interrupted session (an expired one is locked)
+    voice erase --yes          Erase every sample, the session record, the guide and editor files
+    voice guide --move portable|private
+                               Move the voice guide between the folders (preview; --yes moves it)
+    voice polish|diff|promote <sample>
+                               Refine a copy, compare it, or make a post draft from it
+    voice export|import        Move your voice samples and guide in one file, previewed and
+                               all or nothing (see voice OPTIONS)
     themes                     List themes and the inheritance chain of each
     import hashnode <host>     Import a Hashnode blog (e.g. yourname.hashnode.dev)
     contributors migrate --id <stable-id> [--write]
@@ -110,11 +132,58 @@ paths OPTIONS
                                it all or not at all. A stored path that differs is a conflict
                                unless --overwrite
 
+voice OPTIONS
+    voice [prompt-id]          Draw three prompts and pick 1-3, r (draw again) or q; or name a
+                               prompt id to skip the draw
+    --portable                 Keep the sample beside shared Assistant context instead of in
+                               the private folder (default: private)
+    --seconds <n>              Writing time, 30 to 3600 (default: 180)
+    --stdin                    Type in the terminal even if $VISUAL/$EDITOR is set; finish with
+                               a line holding only a dot (.) or end of input
+    --resume                   Resume the open session with its original deadline (one window at
+                               a time; $VISUAL/$EDITOR must wait for its window, e.g. code --wait)
+    --scrap --yes              Give up the open session and save nothing
+    erase [--yes]              List, then (with --yes) erase ALL voice data: samples in both
+                               folders, the session record, the guide and leftover editor
+                               files. All or nothing, then checks that nothing is left
+    guide --move portable|private [--yes]
+                               Say what moving the voice guide would do; with --yes move it in one
+                               step, copied, checked and only then removed. Moving to portable is
+                               refused for a guide that quotes private samples or cannot be read
+    --list                     Show the prompt packs, answered counts and stages
+    polish <sample>            Edit a COPY of a rough draft in $VISUAL/$EDITOR and save it as the
+                               polished draft (the rough draft is locked and never changes);
+                               --title, --slug, --description, --tags a,b set its details
+    diff <sample>              Show what the polished draft changed (unified diff)
+    promote <sample>           Create a post draft (draft: true) in content/posts from the polished
+                               draft; refuses a taken slug; --dir posts/2026 picks a folder under
+                               posts. The sample is left in place.
+    export [--out <file>] [--include-private] [--write]
+                               Put the voice samples and guide in one portable JSON file. Private
+                               samples and guide are left out unless --include-private, and such a
+                               file is only written outside the project or in .openblog/private/.
+                               One guide travels (the portable one when both exist); one export
+                               holds at most 100 samples and 8 MiB
+    import <file> [--overwrite] [--as private] [--write]
+                               Check an export and say what would change; with --write apply it all
+                               or not at all. Items keep their folder (--as private makes all
+                               private); a rough draft is never replaced; --overwrite replaces a
+                               differing polished draft or guide
+    <sample> is a file name from `voice --list` output or a prompt id. The clock is fixed when the
+    session starts: text after the deadline is not saved, and an interrupted session locks what
+    was saved when you resume after the deadline. Nothing edits a rough draft.
+
 new OPTIONS
     --series <slug>            Put the post in a series
     --tags a,b,c               Comma-separated tags
     --draft                    Mark the post as a draft
     --recipe                   Start from a recipe template (servings, times, ingredients, steps)
+    --profile job              Start a job: the job front matter and the headings Problem, What we
+                               found, What we did, Result. Always a draft until it is filled in
+    --trade <id>               With --profile job: the trade (bundled, or from extraTrades)
+    --service <id>             With --profile job: the service, such as hardwood-install
+    --town <name>              With --profile job: the town (never an address)
+    --region <name>            With --profile job: the region or state
 
 import hashnode OPTIONS
     --source public|graphql    public (default) reads your live site and needs no account;
@@ -141,10 +210,18 @@ const SWITCHES: &[&str] = &[
     "password-stdin",
     "github-pages",
     "overwrite",
+    "include-private",
     "recipe",
     "write",
     "publish",
     "json",
+    "no-voice",
+    "portable",
+    "resume",
+    "list",
+    "scrap",
+    "stdin",
+    "yes",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -202,7 +279,7 @@ fn run(raw: &[String]) -> Result<(), String> {
     if workspace::configured()
         && matches!(
             command.as_str(),
-            "init" | "new" | "import" | "publish" | "contributors"
+            "init" | "new" | "import" | "publish" | "contributors" | "voice"
         )
     {
         return Err("durable workspace mode requires content mutations and publishing through the admin API; CLI mutations are disabled to avoid unacknowledged writes".into());
@@ -230,8 +307,15 @@ fn run(raw: &[String]) -> Result<(), String> {
                     "\nNext: cd into the folder, run `openblog serve`, and edit openblog.json."
                 );
             }
+            // A person at a terminal is asked once; pipes and scripts never are (ADR 0269).
+            voice_cli::invite_after_init(
+                &dir,
+                args.switches.contains("no-voice"),
+                !created.is_empty(),
+            );
             Ok(())
         }
+        "voice" => voice_cli::run(&root, &args.positional, &args.options, &args.switches),
         "new" => {
             let title = args
                 .positional
@@ -248,15 +332,49 @@ fn run(raw: &[String]) -> Result<(), String> {
                 })
                 .unwrap_or_default();
             let _transaction = transaction::ContentTransactionLock::acquire(&root)?;
-            let created = scaffold::new_post(
-                &root,
-                title,
-                args.options.get("series").map(String::as_str),
-                &tags,
-                args.switches.contains("draft"),
-                args.switches.contains("recipe"),
-            )?;
+            let series = args.options.get("series").map(String::as_str);
+            let recipe = args.switches.contains("recipe");
+            let profile = args.options.get("profile").map(|p| p.trim().to_lowercase());
+            let job_option = |name: &str| args.options.get(name).map(String::as_str);
+            let created = match profile.as_deref() {
+                Some("job") if !recipe => {
+                    let start = scaffold::JobStart {
+                        trade: job_option("trade"),
+                        service: job_option("service"),
+                        town: job_option("town"),
+                        region: job_option("region"),
+                    };
+                    scaffold::new_job(&root, title, series, &tags, &start)?
+                }
+                Some("job") => return Err("--recipe and --profile job cannot be combined".into()),
+                None | Some("article") | Some("recipe") => {
+                    if ["trade", "service", "town", "region"]
+                        .iter()
+                        .any(|name| args.options.contains_key(*name))
+                    {
+                        return Err(
+                            "--trade, --service, --town and --region need --profile job".into()
+                        );
+                    }
+                    scaffold::new_post(
+                        &root,
+                        title,
+                        series,
+                        &tags,
+                        args.switches.contains("draft"),
+                        recipe || profile.as_deref() == Some("recipe"),
+                    )?
+                }
+                Some(other) => {
+                    return Err(format!(
+                        "`--profile {other}` is not supported by `new`; use article, recipe or job"
+                    ))
+                }
+            };
             println!("created {created}");
+            if profile.as_deref() == Some("job") {
+                println!("It is a draft until you fill in the job's details; `openblog check` lists what is missing.");
+            }
             Ok(())
         }
         "contributors" => {

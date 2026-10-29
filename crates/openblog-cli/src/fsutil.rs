@@ -115,50 +115,153 @@ pub fn replace_file_if_unchanged(
     Ok(!changed)
 }
 
+/// Whether a failed hard link means the file system has none (rather than, say, that the
+/// destination exists).
+fn hard_links_unsupported(error: &io::Error) -> bool {
+    if error.kind() == io::ErrorKind::Unsupported {
+        return true;
+    }
+    // Windows: ERROR_INVALID_FUNCTION and ERROR_NOT_SUPPORTED. Unix: EPERM (vfat on Linux),
+    // EOPNOTSUPP (Linux) and ENOTSUP (macOS).
+    let codes: &[i32] = if cfg!(windows) {
+        &[1, 50]
+    } else {
+        &[1, 45, 95]
+    };
+    error
+        .raw_os_error()
+        .is_some_and(|code| codes.contains(&code))
+}
+
+/// Create `target` with `contents`, failing if it exists. Not atomic: a crash can leave a short
+/// file, which is removed when the write itself fails. Used only where hard links are missing.
+fn write_exclusive(target: &Path, contents: &[u8]) -> io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(target)?;
+    let written = file.write_all(contents).and_then(|()| file.sync_all());
+    if written.is_err() {
+        drop(file);
+        let _ = fs::remove_file(target);
+    }
+    written
+}
+
 /// Publish a complete new file without replacing an existing destination.
 pub fn write_new_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or("export destination has no parent directory")?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
-    let parent = fs::canonicalize(parent)
-        .map_err(|error| format!("cannot resolve {}: {error}", parent.display()))?;
-    let target = parent.join(
-        path.file_name()
-            .ok_or("export destination needs a filename")?,
-    );
-    let token = crate::auth::random_token()?;
+    write_new_with(path, contents, &|from, to| fs::hard_link(from, to))
+        .map_err(|error| error.message)
+}
+
+/// Like [`write_new_atomic`], for a caller that words its own error: the `Err` is only the cause
+/// (the operating system's sentence, or what was missing), with no path and no talk of an export.
+pub fn create_new_file(path: &Path, contents: &[u8]) -> Result<(), String> {
+    write_new_with(path, contents, &|from, to| fs::hard_link(from, to)).map_err(|error| error.cause)
+}
+
+/// Why a new file could not be published: the export's sentence, and its cause alone.
+struct NewFileError {
+    message: String,
+    cause: String,
+}
+
+impl NewFileError {
+    fn new(message: String, cause: impl ToString) -> Self {
+        Self {
+            message,
+            cause: cause.to_string(),
+        }
+    }
+}
+
+type Link<'a> = &'a dyn Fn(&Path, &Path) -> io::Result<()>;
+
+fn write_new_with(path: &Path, contents: &[u8], link: Link<'_>) -> Result<(), NewFileError> {
+    let parent = path.parent().ok_or_else(|| {
+        NewFileError::new(
+            "export destination has no parent directory".into(),
+            "the destination has no folder",
+        )
+    })?;
+    fs::create_dir_all(parent).map_err(|error| {
+        NewFileError::new(
+            format!("cannot create {}: {error}", parent.display()),
+            &error,
+        )
+    })?;
+    let parent = fs::canonicalize(parent).map_err(|error| {
+        NewFileError::new(
+            format!("cannot resolve {}: {error}", parent.display()),
+            &error,
+        )
+    })?;
+    let target = parent.join(path.file_name().ok_or_else(|| {
+        NewFileError::new(
+            "export destination needs a filename".into(),
+            "the destination has no file name",
+        )
+    })?);
+    let token =
+        crate::auth::random_token().map_err(|error| NewFileError::new(error.clone(), error))?;
     let temporary = parent.join(format!(".openblog-export-{token}.tmp"));
     let mut file = fs::OpenOptions::new()
         .create_new(true)
         .write(true)
         .open(&temporary)
-        .map_err(|error| format!("cannot stage export {}: {error}", temporary.display()))?;
+        .map_err(|error| {
+            NewFileError::new(
+                format!("cannot stage export {}: {error}", temporary.display()),
+                &error,
+            )
+        })?;
     let result = (|| {
         file.write_all(contents)
             .and_then(|()| file.sync_all())
-            .map_err(|error| format!("cannot stage export {}: {error}", path.display()))?;
+            .map_err(|error| {
+                NewFileError::new(
+                    format!("cannot stage export {}: {error}", path.display()),
+                    &error,
+                )
+            })?;
         drop(file);
         // A same-directory hard link is an atomic, no-replace publication on
         // supported filesystems. Rename would overwrite on Unix.
-        retry_transient(|| fs::hard_link(&temporary, &target)).map_err(|error| {
-            format!(
-                "cannot publish export {} without overwriting: {error}",
-                path.display()
+        match retry_transient(|| link(&temporary, &target)) {
+            // FAT, exFAT and some network shares have no hard links: create the file
+            // exclusively instead, which still never replaces one.
+            Err(error) if hard_links_unsupported(&error) => write_exclusive(&target, contents),
+            other => other,
+        }
+        .map_err(|error| {
+            NewFileError::new(
+                format!(
+                    "cannot publish export {} without overwriting: {error}",
+                    path.display()
+                ),
+                &error,
             )
         })
     })();
     let cleanup = retry_transient(|| fs::remove_file(&temporary)).map_err(|error| {
-        format!(
-            "cannot remove export staging file {}: {error}",
-            temporary.display()
+        NewFileError::new(
+            format!(
+                "cannot remove export staging file {}: {error}",
+                temporary.display()
+            ),
+            format!("a temporary file could not be removed: {error}"),
         )
     });
     match (result, cleanup) {
-        (Err(error), Err(cleanup)) => Err(format!("{error}; {cleanup}")),
+        (Err(error), Err(cleanup)) => Err(NewFileError {
+            message: format!("{}; {}", error.message, cleanup.message),
+            cause: format!("{}; {}", error.cause, cleanup.cause),
+        }),
         (Err(error), _) => Err(error),
-        (Ok(()), Err(cleanup)) => Err(format!("export was published, but {cleanup}")),
+        (Ok(()), Err(cleanup)) => Err(NewFileError {
+            message: format!("export was published, but {}", cleanup.message),
+            cause: cleanup.cause,
+        }),
         (Ok(()), Ok(())) => Ok(()),
     }
 }
@@ -287,6 +390,64 @@ pub fn guard_output_dir(root: &Path, out: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_new_file_falls_back_to_an_exclusive_create_only_when_hard_links_are_missing() {
+        let dir = std::env::temp_dir().join(format!("ob-no-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("new.md");
+        let no_links: super::Link<'_> =
+            &|_, _| Err(std::io::Error::from(std::io::ErrorKind::Unsupported));
+        if let Err(error) = super::write_new_with(&target, b"first", no_links) {
+            panic!("{}", error.message);
+        }
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        // The fallback still never replaces a file, and says why without a path.
+        let Err(error) = super::write_new_with(&target, b"second", no_links) else {
+            panic!("an existing file was replaced");
+        };
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        assert!(!error.cause.contains("export"), "{}", error.cause);
+        assert!(
+            !error.cause.contains(&*dir.to_string_lossy()),
+            "{}",
+            error.cause
+        );
+        // Any other link failure is reported, not worked around.
+        let denied: super::Link<'_> =
+            &|_, _| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        let other = dir.join("other.md");
+        assert!(super::write_new_with(&other, b"x", denied).is_err());
+        assert!(!other.exists());
+        // No staging file is left behind either way.
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, ["new.md"]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_file_system_without_hard_links_still_gets_a_new_file_that_never_replaces_one() {
+        let dir = std::env::temp_dir().join(format!("ob-exclusive-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("new.md");
+        super::write_exclusive(&target, b"first").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        let error = super::write_exclusive(&target, b"second").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        assert!(super::hard_links_unsupported(&std::io::Error::from(
+            std::io::ErrorKind::Unsupported
+        )));
+        assert!(!super::hard_links_unsupported(&std::io::Error::from(
+            std::io::ErrorKind::AlreadyExists
+        )));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     use super::*;
 
     struct Scratch(PathBuf);

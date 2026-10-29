@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // Interpretation comparisons in the real Admin Studio (B7.2, ADR 0231): attributed readings,
 // evidence states (missing evidence is shown and never blocks), AI drafts that stay drafts until
@@ -58,7 +59,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  removeTree(root);
 });
 
 test.beforeEach(({ page }) => {

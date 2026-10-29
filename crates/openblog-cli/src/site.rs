@@ -282,9 +282,26 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/landing-history.js"),
     ),
     ("checks.js", include_str!("../../../web/admin/checks.js")),
+    ("voice.js", include_str!("../../../web/admin/voice.js")),
+    (
+        "voice-session.js",
+        include_str!("../../../web/admin/voice-session.js"),
+    ),
+    (
+        "voice-library.js",
+        include_str!("../../../web/admin/voice-library.js"),
+    ),
+    (
+        "voice-polished.js",
+        include_str!("../../../web/admin/voice-polished.js"),
+    ),
     (
         "checks-panel.js",
         include_str!("../../../web/admin/checks-panel.js"),
+    ),
+    (
+        "job-form.js",
+        include_str!("../../../web/admin/job-form.js"),
     ),
 ];
 

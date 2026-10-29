@@ -3,7 +3,7 @@
 ## Content profiles
 
 Posts can opt into field-specific authoring and publishing behavior with `profile` in front
-matter. The shared catalog currently provides `article`, `recipe`, `research`, `video`, and `field-journal`; the admin reads the
+matter. The shared catalog currently provides `article`, `recipe`, `research`, `video`, `field-journal`, and `job`; the admin reads the
 same definitions as the native and WebAssembly-capable core. Unknown ids are preserved and
 fall back to article output with a warning, so content remains portable while future
 journalism, education, media, and dataset profiles are added incrementally. Research posts
@@ -13,6 +13,7 @@ privacy-enhanced YouTube player, discovery metadata, and a release-kit workflow;
 [Video productions and release kits](video-production.md).
 Field journals add local GPX analysis and location-privacy controls; see
 [Field journals and private-by-default tracks](field-journal.md).
+Jobs record finished trade work as posts; see [Jobs](jobs.md).
 
 ## Authoring Assistant
 
@@ -28,6 +29,16 @@ Assistant requests carry a versioned guide to the actual publishing engine, incl
 and runnable-code syntax, embeds, content profiles, scheduling, and source-ownership boundaries.
 Drafts and selected context remain untrusted data, external research stays off, inputs and outputs are
 bounded, and stale or ambiguous edits fail closed. See [Using the Admin](admin.md#review-an-unsaved-document).
+
+## Voice samples
+
+Write a three-minute answer to a prompt, from `openblog voice` or the Admin **Voice** view, and keep it as a
+sample of how you sound. The rough draft is locked exactly as written, typos included; a polished draft is
+your own revision, and a polished draft can become a post draft. Samples are Assistant context, private by default, and
+are never published, built, fed or exported as content. You can select them for the Assistant, have it
+propose a voice guide made only of quotations from your own samples, and move your library between projects
+with a previewed, all-or-nothing export and import. Nothing changes for a project without samples. See
+[Using the Admin](admin.md#where-voice-samples-are-kept) and the [specification](specs/voice-samples.md).
 
 ## Syntax highlighting
 

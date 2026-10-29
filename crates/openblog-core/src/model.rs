@@ -333,6 +333,8 @@ pub struct Post {
     pub video: Option<VideoMetadata>,
     /// Set for outdoor logs using the field-journal profile.
     pub field_journal: Option<FieldJournalMetadata>,
+    /// Set for posts using the job profile once every field validates.
+    pub job: Option<crate::job::JobMetadata>,
     /// Approved public source attribution of a shared reflection (title, link, type, guiding
     /// question); never any private collaboration state.
     pub shared_attribution: Option<SharedAttribution>,
@@ -1992,6 +1994,23 @@ fn load_post_in(
         (profile.behavior == ProfileBehavior::Video).then(|| VideoMetadata::from_front_matter(fm));
     let field_journal = (profile.behavior == ProfileBehavior::FieldJournal)
         .then(|| FieldJournalMetadata::from_front_matter(fm));
+    let job = if profile.behavior == ProfileBehavior::Job {
+        match crate::job::from_front_matter(fm, &config.extra_trades) {
+            Ok(job) => Some(job),
+            // A draft may be unfinished; a published job must be complete.
+            Err(problems) if is_draft(fm) => {
+                profile.warnings.extend(
+                    problems
+                        .into_iter()
+                        .map(|problem| format!("job not ready to publish: {problem}")),
+                );
+                None
+            }
+            Err(problems) => return Err(problems.join("; ")),
+        }
+    } else {
+        None
+    };
 
     let title = match first(fm, &["title"]) {
         Some(t) => t.to_string(),
@@ -2212,6 +2231,7 @@ fn load_post_in(
         research,
         video,
         field_journal,
+        job,
         shared_attribution,
         code_highlight: fm
             .get_bool("highlight")

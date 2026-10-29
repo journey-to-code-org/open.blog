@@ -53,7 +53,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. Works on posts, pages and series pages (a series page in `content/series/`). The engine always writes a redirect page; set `redirectsFile: true` in `openblog.json` to also write a `_redirects` file with real 301s on hosts that read one. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
-| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, and `field-journal`. |
+| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, `field-journal`, and `job`. |
 | `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
 | `doi` | Research profile only. A DOI name or `https://doi.org/` URL for this work. |
 | `license` | Research profile only. An absolute HTTP or HTTPS URL for the work's license. |
@@ -83,7 +83,7 @@ profile in the admin's **Settings** view or write it directly:
 profile: recipe
 ```
 
-The built-in profiles are `article`, `recipe`, `research`, `video`, and `field-journal`. Existing `recipe: true`,
+The built-in profiles are `article`, `recipe`, `research`, `video`, `field-journal`, and `job`. Existing `recipe: true`,
 `type: recipe`, `layout: recipe`, and `kind: recipe` files continue to work. When both a
 canonical `profile` and a legacy recipe marker exist, `profile` wins and the build warns
 if they disagree.
@@ -105,6 +105,8 @@ Admin release kit for validating chapters and composing reusable YouTube copy. S
 
 The `field-journal` profile adds field facts and offline GPX analysis with private-by-default
 route publication. See [Field journals and private-by-default tracks](field-journal.md).
+
+The job profile records one piece of finished trade work (flooring, excavation, auto body, and so on) as an ordinary post. See [Jobs](jobs.md).
 
 The admin editor's **Search & answer readiness** checklist updates while you write. The
 same conservative checks run during a build and warn about weak descriptions, unusually
