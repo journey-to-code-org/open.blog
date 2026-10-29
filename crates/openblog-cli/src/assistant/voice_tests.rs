@@ -567,7 +567,7 @@ fn match_finding(evidence: &str, suggestion: Json) -> Json {
     json!({
         "id": "m1",
         "skillId": "voice-match",
-        "skillVersion": "1.0.0",
+        "skillVersion": "1.1.0",
         "category": "voice",
         "severity": "note",
         "title": "Sounds stiff",
@@ -584,13 +584,10 @@ fn match_finding(evidence: &str, suggestion: Json) -> Json {
 fn the_built_in_voice_match_skill_validates_and_forbids_full_rewrites() {
     let skill = builtin_skill("voice-match");
     assert_eq!(skill.output, SkillOutputKind::Review);
+    // A passage, never the whole document (ADR 0352).
     assert_eq!(
         skill.scopes,
-        vec![
-            SkillScope::Selection,
-            SkillScope::Section,
-            SkillScope::Document
-        ]
+        vec![SkillScope::Selection, SkillScope::Section]
     );
     for rule in [
         "never by rewriting the document",
@@ -866,4 +863,135 @@ fn at_most_five_voice_match_suggestions_are_applicable_per_review() {
     assert_eq!(applicable, 5);
     assert!(set.findings[5].suggestion.is_none());
     assert!(set.findings[6].explanation.contains("shown as advice only"));
+}
+
+// ---- passage reviews: a selection or a section (#424, #459, ADR 0352) ------------------------
+
+fn passage_request(markdown: &str, start: usize, end: usize) -> AssistantRequest {
+    let skill = builtin_skill("voice-match");
+    AssistantRequest::passage_review(
+        "test-model".into(),
+        AssistantDocument {
+            title: "Unsaved".into(),
+            metadata: json!({}),
+            markdown: markdown.into(),
+            hash: "abc".into(),
+        },
+        vec![ReviewSkill {
+            id: skill.id,
+            version: skill.version,
+            instructions: skill.body,
+        }],
+        voice_context(),
+        ReviewPassage::new(PassageKind::Selection, start, end, markdown).unwrap(),
+    )
+}
+
+#[test]
+fn a_passage_is_bounded_inside_the_document_and_has_text() {
+    let markdown = "One two.
+
+Three four.";
+    assert!(ReviewPassage::new(PassageKind::Selection, 0, 3, markdown).is_ok());
+    assert!(ReviewPassage::new(PassageKind::Section, 3, 3, markdown).is_err());
+    assert!(ReviewPassage::new(PassageKind::Section, 5, 2, markdown).is_err());
+    assert!(ReviewPassage::new(PassageKind::Selection, 0, 99, markdown).is_err());
+    assert!(
+        ReviewPassage::new(PassageKind::Selection, 8, 10, markdown).is_err(),
+        "blank"
+    );
+    let long = "a".repeat(MAX_REVIEW_PASSAGE + 1);
+    assert!(ReviewPassage::new(PassageKind::Selection, 0, long.len(), &long).is_err());
+    assert_eq!(PassageKind::parse("section"), Some(PassageKind::Section));
+    assert_eq!(PassageKind::parse("document"), None);
+}
+
+#[test]
+fn a_passage_review_sends_the_passage_and_its_scope_and_the_document_for_context() {
+    let markdown = "Opening line.
+
+It is what it is.";
+    let request = passage_request(markdown, 15, markdown.chars().count());
+    let payload = provider_payload(&request).unwrap();
+    assert_eq!(
+        payload["scope"],
+        json!({ "kind": "selection", "start": 15, "end": 32, "unit": "unicode-code-points" })
+    );
+    assert_eq!(
+        payload["untrustedData"]["source"]["passage"],
+        "It is what it is."
+    );
+    assert_eq!(payload["untrustedData"]["source"]["markdown"], markdown);
+    assert!(payload["systemInstructions"]
+        .as_str()
+        .unwrap()
+        .contains("must lie inside that passage"));
+    // A whole-document review is unchanged: no passage, document scope.
+    let whole = provider_payload(&match_request(markdown)).unwrap();
+    assert_eq!(whole["scope"]["kind"], "document");
+    assert!(whole["untrustedData"]["source"].get("passage").is_none());
+    assert!(!whole["systemInstructions"]
+        .as_str()
+        .unwrap()
+        .contains("passage"));
+}
+
+#[test]
+fn passage_findings_anchor_inside_the_passage_and_outside_is_advice_only() {
+    // The same words occur before the passage and inside it: inside, they anchor once.
+    let markdown = "It is what it is.
+
+Then: It is what it is, truly.";
+    let start = markdown.find("Then").unwrap();
+    let request = passage_request(markdown, start, markdown.chars().count());
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding("It is what it is", json!("That is that"))] }),
+        &request,
+    )
+    .unwrap()
+    .findings;
+    assert_eq!(findings[0].suggestion.as_deref(), Some("That is that"));
+    assert!(findings[0].range.start >= start);
+    // Evidence only before the passage: kept as advice, never applied.
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding("It is what it is.
+", json!("x"))] }),
+        &passage_request(
+            "It is what it is.
+
+Something else here.",
+            19,
+            39,
+        ),
+    )
+    .unwrap()
+    .findings;
+    assert_eq!(findings[0].suggestion, None);
+    // A range the provider claims outside the passage is not taken at its word.
+    let mut outside = match_finding("It is what it is", json!("x"));
+    outside["range"] = json!({ "start": 0, "end": 16 });
+    let findings = validate_review_findings(&json!({ "findings": [outside] }), &request)
+        .unwrap()
+        .findings;
+    assert!(findings[0].range.start >= start, "re-anchored inside");
+}
+
+#[test]
+fn another_skill_s_finding_outside_the_passage_rejects_the_review() {
+    let markdown = "Outside words here.
+
+Inside words here.";
+    let start = markdown.find("Inside").unwrap();
+    let mut request = passage_request(markdown, start, markdown.chars().count());
+    if let AssistantTask::DocumentReview { skills, .. } = &mut request.task {
+        skills[0].id = "copy-review".into();
+    }
+    let mut value = match_finding("Outside words", json!(null));
+    value["skillId"] = json!("copy-review");
+    let error = validate_review_findings(&json!({ "findings": [value.clone()] }), &request)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("inside the reviewed passage"), "{error}");
+    value["evidence"] = json!("Inside words");
+    assert!(validate_review_findings(&json!({ "findings": [value] }), &request).is_ok());
 }

@@ -121,10 +121,15 @@ authoring.
 ### Review an unsaved document
 
 Open **Assistant → Review** to review the current unsaved title, metadata, and Markdown without
-saving first. Select one or more review skills and any context the provider should receive, then
-inspect the disclosure: it lists the complete-document scope, approximate source size, every skill
+saving first. Under **What to review**, keep **Complete document** or choose **Selected text** (the text
+selected in the draft) or **Current section** (from the heading before the cursor to the next heading).
+Findings then stay inside that passage, and a skill that cannot review it is shown as unavailable
+([ADR 0352](adr/0352-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md)).
+Select one or more review skills and any context the provider should receive, then
+inspect the disclosure: it lists the scope, approximate source size, every skill
 and context item, provider model and safe destination origin, and confirms external research is off.
-Nothing is sent until **Run document review** is pressed.
+Nothing is sent until **Run document review** (or **Review selected text**, **Review current section**) is
+pressed.
 
 Validated findings are grouped under their originating skill and visibly labelled **AI-generated
 advice**. Each finding shows its severity, category, exact source evidence, explanation, optional
@@ -376,9 +381,10 @@ Nothing is sent unless you select it and run a request, and nothing here changes
   portable rule relies on it.
 - **Use the guide.** Select the guide like any context. The `voice-review` skill compares your draft with it and
   with your samples, and names the sample or guide section behind each finding (a finding that names none is
-  marked unverified advice). The `voice-match` skill suggests small replacements for specific passages; one
-  that cannot be found exactly in your draft is shown as advice and never applied, and any applied suggestion
-  can be undone. With AI autocomplete on and the guide selected, suggestions lean toward your voice, and turning
+  marked unverified advice). The `voice-match` skill works on a passage: select text or put the cursor in a
+  section, choose **Selected text** or **Current section** in Review, and it suggests small replacements inside
+  that passage only. A suggestion that cannot be found exactly in the passage is shown as advice and never
+  applied, and any applied suggestion can be undone. With AI autocomplete on and the guide selected, suggestions lean toward your voice, and turning
   autocomplete on names the selected context first.
 - **Never your rough text.** The Assistant never edits a rough draft and never applies a change to a polished
   draft: it proposes, you decide.

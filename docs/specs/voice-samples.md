@@ -121,6 +121,8 @@ Assistant workflow behave as they did.
   comment recording which folders it quotes. A guide that quotes private samples cannot be saved as
   portable. See
   [ADR 0279](../adr/0279-the-voice-guide-task-has-a-strict-validated-result-that-is-rendered-deterministically-and-saved-only-on-approval.md).
+- `voice-match` reviews a passage only, a selection or the current section, and its findings must lie inside it;
+  see [ADR 0352](../adr/0352-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md).
 - `voice-review` marks a finding unverified unless it names a sample or guide section; `voice-match` suggests
   replacements anchored to exact passages, applied only through the existing Apply and Undo path. See
   [ADR 0280](../adr/0280-voice-review-and-voice-match-compare-with-the-guide-and-samples-and-only-ever-propose.md).

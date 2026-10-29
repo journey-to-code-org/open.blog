@@ -757,7 +757,7 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
     );
     let finding = |id: &str, evidence: &str, suggestion: &str| {
         json!({
-            "id": id, "skillId": "voice-match", "skillVersion": "1.0.0", "category": "voice",
+            "id": id, "skillId": "voice-match", "skillVersion": "1.1.0", "category": "voice",
             "severity": "note", "title": "Sounds stiff",
             "explanation": format!("You write plainly in {file}."),
             "range": { "start": 0, "end": 4 }, "evidence": evidence, "suggestion": suggestion,
@@ -772,15 +772,46 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
     set_quiz_endpoint(&f, &endpoint);
     std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
     let markdown = "Opening.\n\nIt is what it is, and so on.";
-    let response = post(
-        &f,
-        &session,
-        "/admin/api/assistant/review",
+    let body = |passage: Json| {
         json!({
             "source": { "title": "Unsaved", "metadata": { "draft": "true" }, "markdown": markdown },
             "skillIds": ["voice-match"],
             "contextIds": [format!("voice:private:{file}")],
-        }),
+            "passage": passage,
+        })
+    };
+    // Voice match works on a passage, never on the whole document (ADR 0352).
+    let whole = post(
+        &f,
+        &session,
+        "/admin/api/assistant/review",
+        body(Json::Null),
+    );
+    assert_eq!(whole.status, 400);
+    assert!(String::from_utf8_lossy(&whole.body).contains("complete-document review"));
+    for bad in [
+        json!({ "kind": "document", "start": 0, "end": 4 }),
+        json!({ "kind": "selection", "start": 4, "end": 4 }),
+        json!({ "kind": "selection", "start": 0, "end": 999 }),
+        json!({ "kind": "selection", "start": 8, "end": 10 }),
+        json!({ "kind": "selection", "start": 0, "end": 4, "extra": 1 }),
+        json!("selection"),
+    ] {
+        let refused = post(
+            &f,
+            &session,
+            "/admin/api/assistant/review",
+            body(bad.clone()),
+        );
+        assert_eq!(refused.status, 400, "{bad}");
+    }
+    let start = 10;
+    let end = markdown.chars().count();
+    let response = post(
+        &f,
+        &session,
+        "/admin/api/assistant/review",
+        body(json!({ "kind": "section", "start": start, "end": end })),
     );
     assert_eq!(
         response.status,
@@ -792,7 +823,16 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
     let outbound = captured.recv().unwrap();
     assert_eq!(outbound["skills"][0]["id"], "voice-match");
     assert_eq!(outbound["untrustedData"]["context"][0]["content"], MISTAKE);
+    assert_eq!(outbound["scope"]["kind"], "section");
+    assert_eq!(
+        outbound["untrustedData"]["source"]["passage"],
+        "It is what it is, and so on."
+    );
     let result = body_json(&response);
+    assert_eq!(
+        result["scope"],
+        json!({ "kind": "section", "start": start, "end": end, "unit": "unicode-code-points" })
+    );
     let findings = result["findings"].as_array().unwrap();
     // Anchored: the range is the exact passage, so the browser's apply and undo path can use it.
     assert_eq!(findings[0]["suggestion"], "That is that");

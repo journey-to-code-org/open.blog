@@ -285,3 +285,52 @@ test("the voice guide moves between portable and private from beside it, preview
   writeFileSync(guidePath(), SAVED);
   rmSync(privateGuide);
 });
+
+test("voice match reviews only the selected text and its suggestion applies and undoes", async ({ page }) => {
+  let reviewRequest = null;
+  await page.route("**/admin/api/assistant/status", (route) =>
+    route.fulfill({ json: { providerType: "generic-https", model: "test", destination: "https://assistant.example", configured: true, capabilities: { review: true }, message: "ready" } }),
+  );
+  await page.route("**/admin/api/assistant/review", (route) => {
+    reviewRequest = route.request().postDataJSON();
+    const { start, end } = reviewRequest.passage;
+    return route.fulfill({
+      json: {
+        reviewId: "r1",
+        scope: { kind: "selection", start, end, unit: "unicode-code-points" },
+        skills: [{ id: "voice-match", version: "1.1.0" }],
+        findings: [{ id: "m1", skillId: "voice-match", skillVersion: "1.1.0", category: "voice", severity: "note", title: "Sounds stiff", explanation: "You write plainly.", range: { start, end }, evidence: "Some body text", suggestion: "Plain words", sources: [], verification: "unverified-advice" }],
+      },
+    });
+  });
+  await openContext(page);
+  // The Markdown editor of the open post (the Assistant pane sits beside it).
+  const body = page.locator("#oba-body");
+  const markdown = await body.inputValue();
+  const at = markdown.indexOf("Some body text");
+  await page.getByRole("navigation", { name: "Assistant views" }).getByRole("button", { name: "Review", exact: true }).click();
+  const skills = page.getByRole("group", { name: "Review skills" });
+  const voiceMatch = skills.locator("label", { hasText: "Voice match" }).getByRole("checkbox");
+  // Voice match is for a passage: not offered for the whole document.
+  await expect(voiceMatch).toBeDisabled();
+  await page.getByRole("radio", { name: "Selected text" }).check();
+  await expect(voiceMatch).toBeEnabled();
+  await voiceMatch.check();
+  await expect(page.locator(".oba-assistant-disclosure-panel", { hasText: "Review disclosure" })).toContainText("Selected text");
+
+  // Without a selection nothing is sent.
+  await body.evaluate((element) => element.setSelectionRange(0, 0));
+  await page.getByRole("button", { name: "Review selected text" }).click();
+  await expect(page.getByText(/The review did not run. Select some text in the draft first./)).toBeVisible();
+  expect(reviewRequest).toBeNull();
+
+  await body.evaluate((element, [from, to]) => element.setSelectionRange(from, to), [at, at + "Some body text".length]);
+  await page.getByRole("button", { name: "Review selected text" }).click();
+  await expect(page.getByRole("button", { name: "Apply suggestion" })).toBeVisible();
+  expect(reviewRequest.passage).toEqual({ kind: "selection", start: Array.from(markdown.slice(0, at)).length, end: Array.from(markdown.slice(0, at)).length + 14 });
+  expect(reviewRequest.skillIds).toEqual(["voice-match"]);
+  await page.getByRole("button", { name: "Apply suggestion" }).click();
+  await expect(body).toHaveValue(markdown.replace("Some body text", "Plain words"));
+  await page.getByRole("button", { name: "Undo applied suggestion" }).click();
+  await expect(body).toHaveValue(markdown);
+});

@@ -2564,6 +2564,13 @@ picks one before saving. New traits are **added**. Free text outside the trait f
 kept quote is checked again against its sample and flagged, not dropped, when the quote or the sample is gone.
 _Avoid_: Overwrite, regenerate
 
+**Passage review**:
+An Assistant review of one bounded passage rather than the whole document: the author's **selection**, or the
+**section** around the cursor (heading to next heading). The request carries the passage's code-point offsets,
+the document travels for context, findings must lie inside the passage, and a skill must declare that scope.
+`voice-match` reviews only passages (ADR 0352).
+_Avoid_: Partial review, snippet review
+
 **Guide move**:
 Moving the voice guide between `assistant/context/voice.md` and `.openblog/private/context/voice.md` in one
 step. The file is copied, the copy is checked, and only then is the original removed, under the content

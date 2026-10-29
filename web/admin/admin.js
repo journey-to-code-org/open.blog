@@ -8742,12 +8742,56 @@ export function selectableAssistantSkillIds(skills = [], requested = []) {
   return [...new Set(requested)].filter((id) => available.has(id));
 }
 
-export function assistantReviewSummary({ title = "", markdown = "", skills = [], selectedSkillIds = new Set(), context = [], selectedContextIds = new Set(), provider = {} } = {}) {
+/** What a review covers, as the author chooses it (ADR 0352). */
+export const ASSISTANT_REVIEW_SCOPES = [
+  { id: "document", label: "Complete document", run: "Run document review" },
+  { id: "selection", label: "Selected text", run: "Review selected text" },
+  { id: "section", label: "Current section", run: "Review current section" },
+];
+/** The longest passage, in Unicode code points, a selection or section review sends (the server's limit). */
+export const ASSISTANT_REVIEW_MAX_PASSAGE = 20_000;
+
+/** Whether a skill declares the review scope (`document`, `selection` or `section`). */
+export function assistantSkillSupportsScope(skill = {}, scope = "document") {
+  return Array.isArray(skill.scopes) && skill.scopes.includes(scope);
+}
+
+/**
+ * The passage a selection or section review sends, from the draft's Markdown and the editor's
+ * selection (UTF-16 offsets, as a textarea reports them). A selection is trimmed of surrounding
+ * whitespace; a section runs from the heading before the cursor (or the start) to the next heading
+ * (or the end). The answer is in Unicode code points, which is how the server and the findings
+ * count. `{ error }` when there is nothing to review.
+ */
+export function assistantReviewPassage(markdown = "", start = 0, end = start, kind = "selection") {
+  const text = String(markdown);
+  let from = Math.max(0, Math.min(start, end, text.length));
+  let to = Math.max(0, Math.min(Math.max(start, end), text.length));
+  if (kind === "section") {
+    const before = text.slice(0, to);
+    const heading = [...before.matchAll(/^#{1,6}[ \t]+\S.*$/gm)].pop();
+    from = heading ? heading.index : 0;
+    const searchFrom = heading ? heading.index + heading[0].length : to;
+    const next = text.slice(searchFrom).match(/^#{1,6}[ \t]+\S.*$/m);
+    to = next ? searchFrom + next.index : text.length;
+  } else if (kind !== "selection") {
+    return { error: "Choose selected text or the current section." };
+  }
+  while (from < to && /\s/.test(text[from])) from += 1;
+  while (to > from && /\s/.test(text[to - 1])) to -= 1;
+  if (from >= to) return { error: kind === "selection" ? "Select some text in the draft first." : "The current section has no text." };
+  const points = (index) => Array.from(text.slice(0, index)).length;
+  const passage = { kind, start: points(from), end: points(to) };
+  if (passage.end - passage.start > ASSISTANT_REVIEW_MAX_PASSAGE) return { error: `The ${kind === "selection" ? "selection" : "section"} is longer than ${ASSISTANT_REVIEW_MAX_PASSAGE} characters. Select less, or review the document.` };
+  return { passage, text: text.slice(from, to) };
+}
+
+export function assistantReviewSummary({ title = "", markdown = "", skills = [], selectedSkillIds = new Set(), context = [], selectedContextIds = new Set(), provider = {}, scope = "document" } = {}) {
   const chosenSkills = skills.filter((skill) => selectedSkillIds.has(skill.id));
   const chosenContext = context.filter((document) => selectedContextIds.has(document.id));
   const providerName = assistantProviderLabel(provider.providerType);
   return {
-    scope: "Complete document",
+    scope: (ASSISTANT_REVIEW_SCOPES.find((choice) => choice.id === scope) || ASSISTANT_REVIEW_SCOPES[0]).label,
     sourceCharacters: `${title}\n${markdown}`.length,
     skills: chosenSkills.map((skill) => `${skill.name || skill.id} · ${skill.version}`),
     context: chosenContext.map((document) => assistantContextLabel(document)),
@@ -21503,6 +21547,21 @@ export class Editor {
     ui.assistantSettingsClear = h("button", { class: "oba-btn oba-btn-danger oba-btn-link", type: "button", disabled: true, onClick: () => this.clearAssistantCredential() }, "Remove saved credential");
     ui.assistantSkillsStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Skills load when the Assistant opens.");
     ui.assistantReviewSkills = h("div", { class: "oba-skill-list", role: "group", "aria-label": "Review skills" });
+    this.assistantReviewScope = "document";
+    ui.assistantReviewScope = h(
+      "fieldset",
+      { class: "oba-review-scope" },
+      h("legend", {}, "What to review"),
+      ...ASSISTANT_REVIEW_SCOPES.map((choice) =>
+        h(
+          "div",
+          { class: "oba-capture-check" },
+          h("input", { type: "radio", id: `oba-review-scope-${choice.id}`, name: "oba-review-scope", value: choice.id, checked: choice.id === "document", onChange: () => this.setAssistantReviewScope(choice.id) }),
+          h("label", { for: `oba-review-scope-${choice.id}` }, choice.label),
+        ),
+      ),
+      h("p", { class: "oba-help" }, "Selected text and the current section use the selection or cursor in the draft. Skills that cannot review that much are unavailable."),
+    );
     ui.assistantReviewStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "No review has run. Your draft is unchanged.");
     ui.assistantReviewDisclosure = h("div", { class: "oba-assistant-disclosure" });
     ui.assistantReviewResults = h("section", { class: "oba-assistant-review-results", tabindex: "-1", role: "region", "aria-label": "Review results" });
@@ -21544,6 +21603,7 @@ export class Editor {
         { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" },
         h("h3", { id: "oba-assistant-review-title" }, "Document review"),
         h("p", {}, "Choose review skills, inspect the disclosure, then send the current unsaved document explicitly. Findings are AI-generated advice and never change the draft."),
+        ui.assistantReviewScope,
         ui.assistantSkillsStatus,
         ui.assistantReviewSkills,
         h("aside", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-review-disclosure-title" }, h("h4", { id: "oba-review-disclosure-title" }, "Review disclosure"), ui.assistantReviewDisclosure),
@@ -23344,6 +23404,7 @@ export class Editor {
       context: this.assistantContextDocuments || [],
       selectedContextIds: this.assistantContextSelected || new Set(),
       provider: this.assistantProviderStatus || {},
+      scope: this.assistantReviewScope || "document",
     });
     const list = h(
       "dl",
@@ -23465,12 +23526,73 @@ export class Editor {
     return true;
   }
 
+  /** Choose what a review covers: the document, the selected text or the current section (ADR 0352). */
+  setAssistantReviewScope(scope) {
+    const choice = ASSISTANT_REVIEW_SCOPES.find((candidate) => candidate.id === scope) || ASSISTANT_REVIEW_SCOPES[0];
+    this.assistantReviewScope = choice.id;
+    this.ui.assistantReviewRun.textContent = choice.run;
+    if (this.assistantSkillsLoaded) this.renderAssistantSkills();
+    this.renderAssistantReviewSummary();
+  }
+
+  /**
+   * The draft's Markdown with the selection in it, as UTF-16 offsets. In the Markdown editor that is the
+   * textarea's selection; in the visual editor the remembered selection is marked, the Markdown is written,
+   * and the marks are found and removed again, as the knowledge-check target does.
+   */
+  reviewPassageTarget() {
+    this.syncRichToMarkdown();
+    const markdown = this.ui.body.value;
+    if (this.editorMode !== "visual" || !this.visualSelection) {
+      const end = Number.isInteger(this.ui.body.selectionEnd) ? this.ui.body.selectionEnd : markdown.length;
+      const start = Number.isInteger(this.ui.body.selectionStart) ? this.ui.body.selectionStart : end;
+      return { markdown, start, end };
+    }
+    const range = this.visualSelection.cloneRange();
+    if (!this.ui.richBody.contains(range.commonAncestorContainer)) return { markdown, start: markdown.length, end: markdown.length };
+    let marker = "OPENBLOGREVIEWMARK";
+    while (markdown.includes(marker)) marker += "X";
+    const open = `${marker}A`;
+    const close = `${marker}B`;
+    const closing = range.cloneRange();
+    closing.collapse(false);
+    const closeNode = document.createTextNode(close);
+    closing.insertNode(closeNode);
+    const opening = range.cloneRange();
+    opening.collapse(true);
+    const openNode = document.createTextNode(open);
+    opening.insertNode(openNode);
+    const marked = this.richEditorMarkdown();
+    const parents = [openNode.parentNode, closeNode.parentNode];
+    openNode.remove();
+    closeNode.remove();
+    for (const parent of parents) parent?.normalize();
+    const a = marked.indexOf(open);
+    const b = marked.indexOf(close);
+    if (a < 0 || b < a) return { markdown, start: markdown.length, end: markdown.length };
+    const clean = marked.slice(0, a) + marked.slice(a + open.length, b) + marked.slice(b + close.length);
+    return { markdown: clean, start: a, end: b - open.length };
+  }
+
   async runAssistantReview() {
     this.syncRichToMarkdown();
     const skillIds = [...(this.selectedAssistantSkills || [])];
     if (!skillIds.length) {
       this.ui.assistantReviewStatus.textContent = "Select at least one document review skill.";
       return;
+    }
+    const scope = this.assistantReviewScope || "document";
+    let passage = null;
+    let reviewedMarkdown = this.ui.body.value;
+    if (scope !== "document") {
+      const target = this.reviewPassageTarget();
+      const found = assistantReviewPassage(target.markdown, target.start, target.end, scope);
+      if (found.error) {
+        this.ui.assistantReviewStatus.textContent = `The review did not run. ${found.error} Your draft is unchanged.`;
+        return;
+      }
+      passage = found.passage;
+      reviewedMarkdown = target.markdown;
     }
     const voiceBudget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
     if (voiceBudget.over) {
@@ -23491,7 +23613,7 @@ export class Editor {
     const source = {
       title: this.ui.title.value,
       metadata: this.collect(),
-      markdown: this.ui.body.value,
+      markdown: reviewedMarkdown,
     };
     try {
       const review = await this.app.api.call("POST", "assistant/review", {
@@ -23499,6 +23621,7 @@ export class Editor {
           source,
           skillIds,
           contextIds: [...this.assistantContextSelected],
+          ...(passage ? { passage } : {}),
         },
       });
       this.syncRichToMarkdown();
@@ -23658,13 +23781,18 @@ export class Editor {
     this.selectedAssistantSkills ||= new Set();
     const selected = selectableAssistantSkillIds(reviewSkills, [...this.selectedAssistantSkills]);
     this.selectedAssistantSkills = new Set(selected);
+    const scope = this.assistantReviewScope || "document";
+    for (const id of [...this.selectedAssistantSkills]) {
+      if (!assistantSkillSupportsScope(reviewSkills.find((skill) => skill.id === id), scope)) this.selectedAssistantSkills.delete(id);
+    }
     const reviewCards = reviewSkills.map((skill) => {
       const presentation = assistantSkillPresentation(skill);
+      const fits = assistantSkillSupportsScope(skill, scope);
       const input = h("input", {
         type: "checkbox",
         value: skill.id,
         checked: this.selectedAssistantSkills.has(skill.id),
-        disabled: presentation.disabled,
+        disabled: presentation.disabled || !fits,
         onChange: (event) => {
           if (event.target.checked) this.selectedAssistantSkills.add(skill.id);
           else this.selectedAssistantSkills.delete(skill.id);
@@ -23675,7 +23803,7 @@ export class Editor {
         "label",
         { class: `oba-skill-card${presentation.disabled ? " is-invalid" : ""}` },
         input,
-        h("span", {}, h("strong", {}, presentation.title), h("span", { class: "oba-small" }, `${presentation.source} · ${presentation.details}`)),
+        h("span", {}, h("strong", {}, presentation.title), h("span", { class: "oba-small" }, `${presentation.source} · ${presentation.details}${fits || presentation.disabled ? "" : " · Not for this scope"}`)),
       );
     });
     this.ui.assistantReviewSkills.replaceChildren(...reviewCards);

@@ -277,3 +277,34 @@ test("controlled provider response renders through the mounted Review UI without
     else globalThis.document = previousDocument;
   }
 });
+
+test("a selection or section review sends a bounded passage in code points (ADR 0352)", async () => {
+  const { assistantReviewPassage, assistantSkillSupportsScope, ASSISTANT_REVIEW_MAX_PASSAGE } = await import("../../web/admin/admin.js");
+  const markdown = "Intro words.\n\n## One\n\nBody one.\n\n### Deeper\n\nMore.\n\n## Two\n\nBody two.";
+  // A selection is trimmed of the whitespace around it.
+  const at = markdown.indexOf("Body one.");
+  assert.deepEqual(assistantReviewPassage(markdown, at - 2, at + 9, "selection"), { passage: { kind: "selection", start: at, end: at + 9 }, text: "Body one." });
+  assert.deepEqual(assistantReviewPassage(markdown, at, at, "selection"), { error: "Select some text in the draft first." });
+  // A section runs from the heading before the cursor to the next heading.
+  const section = assistantReviewPassage(markdown, at + 2, at + 2, "section");
+  assert.equal(section.text, "## One\n\nBody one.");
+  assert.equal(section.passage.start, markdown.indexOf("## One"));
+  // Before any heading, the section starts at the top.
+  assert.equal(assistantReviewPassage(markdown, 3, 3, "section").text, "Intro words.");
+  // The last section ends at the end.
+  assert.equal(assistantReviewPassage(markdown, markdown.length, markdown.length, "section").text, "## Two\n\nBody two.");
+  // Offsets count Unicode code points, as the server and the findings do.
+  assert.deepEqual(assistantReviewPassage("😀 one two", 3, 6, "selection").passage, { kind: "selection", start: 2, end: 5 });
+  assert.match(assistantReviewPassage("x".repeat(ASSISTANT_REVIEW_MAX_PASSAGE + 1), 0, ASSISTANT_REVIEW_MAX_PASSAGE + 1, "selection").error, /longer than/);
+  assert.ok(assistantReviewPassage(markdown, 0, 4, "document").error);
+  // A skill is offered only for a scope it declares.
+  assert.equal(assistantSkillSupportsScope({ scopes: ["selection", "section"] }, "document"), false);
+  assert.equal(assistantSkillSupportsScope({ scopes: ["selection", "section"] }, "section"), true);
+  assert.equal(assistantSkillSupportsScope({}, "document"), false);
+});
+
+test("the review disclosure names the scope that will be sent", () => {
+  assert.equal(assistantReviewSummary({ scope: "selection" }).scope, "Selected text");
+  assert.equal(assistantReviewSummary({ scope: "section" }).scope, "Current section");
+  assert.equal(assistantReviewSummary({}).scope, "Complete document");
+});
