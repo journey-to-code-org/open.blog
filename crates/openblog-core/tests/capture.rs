@@ -103,6 +103,6 @@ fn a_voice_note_is_recognised_by_its_bytes_and_named_beside_its_capture() {
 fn the_queue_bounds_are_finite_and_nest() {
     let limits = capture::limits_json(10);
     assert_eq!(limits["storedVersion"], 1);
-    assert!(capture::MAX_CAPTURE_BYTES <= capture::MAX_QUEUE_BYTES);
+    const { assert!(capture::MAX_CAPTURE_BYTES <= capture::MAX_QUEUE_BYTES) };
     assert_eq!(limits["maxQueued"], capture::MAX_QUEUED);
 }
