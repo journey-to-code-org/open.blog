@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Social publishing OAuth (story #355; ADR 0460): the hosted function can start and finish a LinkedIn or Facebook OAuth authorization-code handshake with a single-use state, optional PKCE, exact registered redirects, scopes verified from the provider's grant, and tokens sealed until the author picks a destination. Providers, API versions and scopes are settings; `supabase/social.sql` gains one additive table. Off unless social publishing is enabled and a provider is configured. See [Social publishing](docs/social-publishing.md).
+
 - Social publishing credentials (story #354; ADR 0295): provider tokens are envelope-encrypted by the hosted function (AES-256-GCM, a per-connection data key wrapped by `OPENBLOG_SOCIAL_TOKEN_KEYS`, which is never in the database), refreshed once at a time shortly before expiry, erased on revoke or when the provider drops the grant, and never shown in Admin, errors or logs. `OPENBLOG_SOCIAL_TOKEN_KEYS` is now required to enable social publishing.
 
 - Social publishing schema (story #354; ADR 0294): `supabase/social.sql` adds private, site-keyed tables for connected accounts, the schedule queue and delivery attempts, shaped for atomic claim, idempotency keys and provider response ids, with `supabase/social-rollback.sql`. It is optional, additive and re-runnable, and nothing reads it unless social publishing is enabled.

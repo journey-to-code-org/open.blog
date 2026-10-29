@@ -2677,3 +2677,14 @@ _Avoid_: Vault secret, encrypted token column
 A short claim on one account's credential that lets exactly one caller exchange its refresh token, so concurrent
 refreshes cannot burn a rotating refresh token.
 _Avoid_: Lock
+
+**Social connection**:
+One author's OAuth handshake with one provider, from the authorization URL to a finished or failed outcome. It
+holds a hash of a single-use state, never the state, and keeps the provider's tokens sealed only until the
+author chooses a destination or the attempt ends.
+_Avoid_: Login, session
+
+**OAuth state**:
+The unguessable single-use value that ties a provider's redirect back to the connection an authorized Admin
+started. It is the callback's only proof, since the callback carries no key.
+_Avoid_: Nonce, CSRF token (the Admin CSRF token is a different thing)

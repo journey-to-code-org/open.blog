@@ -69,3 +69,38 @@ Tokens are refreshed once at a time, shortly before they expire. If a provider s
 or you disconnect an account, its stored tokens are erased and the account asks to be connected again. Admin only ever
 sees a connection's status and dates, never a token. Tokens never appear in errors or logs, and are never written to
 `openblog.json`, the repository, a page or an export.
+
+## Connecting LinkedIn and Facebook (OAuth)
+
+Connecting an account is an OAuth authorization-code flow
+([ADR 0460](adr/0460-the-oauth-handshake-is-a-single-use-state-bound-connection-finished-by-the-hosted-function.md)).
+The provider sends the author's browser back to your hosted function, so it needs a public `https:` address.
+
+Create an app with each provider you want and set these in the function's environment (never in `openblog.json`):
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENBLOG_SOCIAL_CALLBACK_BASE` | Public `https://` address of the function, such as `https://blog.example.com/api/social`. No credentials, query or fragment. |
+| `OPENBLOG_SOCIAL_LINKEDIN_CLIENT_ID`, `OPENBLOG_SOCIAL_LINKEDIN_CLIENT_SECRET` | The LinkedIn app's credentials. A provider with neither set is simply not offered. |
+| `OPENBLOG_SOCIAL_FACEBOOK_CLIENT_ID`, `OPENBLOG_SOCIAL_FACEBOOK_CLIENT_SECRET` | The Meta app's credentials. |
+| `OPENBLOG_SOCIAL_<PROVIDER>_API_VERSION` | Optional. LinkedIn `YYYYMM` (default `202510`), Facebook `vNN.N` (default `v23.0`). |
+| `OPENBLOG_SOCIAL_<PROVIDER>_SCOPES` | Optional. Replaces the requested scopes (space or comma separated). |
+| `OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS` | Optional. `true` also asks for `r_organization_admin` and `w_organization_social`, to post as an organization. |
+| `OPENBLOG_SOCIAL_<PROVIDER>_PKCE` | Optional. `true` sends a PKCE (S256) challenge. Off by default; turn it on only if the provider documents it for your app type. |
+
+Register exactly this redirect URL in each provider app (Admin shows it too): `<CALLBACK_BASE>/callback/linkedin`
+and `<CALLBACK_BASE>/callback/facebook`. Nothing in a request can change the redirect or the scopes that are sent.
+
+**Verify these when you set up, because providers change them.** The defaults are a starting point, not a promise:
+
+- LinkedIn: confirm the `Linkedin-Version` you set is still supported, that **Share on LinkedIn** is added to the
+  app (for `w_member_social`) and **Sign In with LinkedIn using OpenID Connect** (for `openid profile`). Posting
+  as an organization needs the Community Management API, which LinkedIn approves per app; until it does, the
+  organization scopes are refused and only the member is offered.
+- Facebook: confirm the Graph version, and that `pages_show_list` and `pages_manage_posts` are available to your
+  app. Until Meta approves **Advanced access** through App Review, only people with a role on the app can
+  connect a Page that is not their own. Admin cannot read review status from the API and says so.
+
+Each attempt expires after ten minutes, works once, and at most ten may be open. If the author declines a
+permission, the attempt fails with a plain message and nothing is stored. The scopes shown in Admin are the ones
+the provider actually granted. Client secrets are sent in the request body to the provider, never in a URL.
