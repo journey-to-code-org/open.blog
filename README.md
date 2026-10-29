@@ -129,6 +129,9 @@ dist/                 the generated site (do not edit; rebuilt every time)
 
 Start with [the docs index](docs/README.md). The main guides:
 
+- [GitHub Pages documentation suite source](docs-site/README.md): a docs-portal
+  structure for CLI, Admin, Markdown authoring, and deployment guidance
+
 - [Writing content](docs/content.md): posts, series, pages, and every front matter field
 - [Configuration](docs/configuration.md): every setting in `openblog.json`
 - [Themes and the design system](docs/themes.md) and
