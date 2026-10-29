@@ -3,11 +3,14 @@
 // tests/web/admin-capture-queue.test.mjs with an in-memory store); `openIndexedStore` is the browser's.
 //
 // Stored format, version 1. One record per capture, keyed by its capture id:
-//   { v: 1, id, createdAt, fields: { trade, service, town, notes },
+//   { v: 1, id, createdAt, fields: { trade, service, town, notes, draft? },
 //     photos: [{ name, type, size, blob }], audio: null | { type, size, seconds, blob },
 //     attempts, failed, lastError }
-// Nothing is stored outside the bounds the server advertises (`capture` in Admin's meta); a record with a
+// draft is optional and additive (ADR 0422): an applied, unsaved job draft { title, description, sections }. A build
+// that does not know it ignores it and sends the notes; one that does bounds and sends it. Nothing is stored outside the bounds the server advertises (`capture` in Admin's meta); a record with a
 // newer version is never read, changed or sent, only shown, and the author decides whether to discard it.
+
+import { normalizeDraft } from "./capture-assistant.js";
 
 export const RECORD_VERSION = 1;
 export const DB_NAME = "openblog-capture";
@@ -42,6 +45,12 @@ export function captureBytes(capture) {
   return capture.photos.reduce((sum, photo) => sum + (photo.size || 0), 0) + (capture.audio?.size || 0);
 }
 
+/** The draft entry of a record's fields: a bounded draft, or nothing. */
+const draftField = (draft) => {
+  const clean = normalizeDraft(draft);
+  return clean ? { draft: clean } : {};
+};
+
 /** The record to store for a capture. Only the fields of the format are copied. */
 export function makeRecord(capture, now = new Date()) {
   const { trade, service, town, notes } = capture.fields;
@@ -49,7 +58,7 @@ export function makeRecord(capture, now = new Date()) {
     v: RECORD_VERSION,
     id: capture.id,
     createdAt: now.toISOString(),
-    fields: { trade: clip(trade, 80), service: clip(service, 80), town: clip(town, 80), notes: String(notes ?? "") },
+    fields: { trade: clip(trade, 80), service: clip(service, 80), town: clip(town, 80), notes: String(notes ?? ""), ...draftField(capture.fields.draft) },
     photos: capture.photos.map(({ name, type, size, blob }) => ({ name: clip(name, MAX_NAME), type: clip(type, 100), size, blob })),
     audio: capture.audio ? { type: clip(capture.audio.type, 100), size: capture.audio.size, seconds: capture.audio.seconds, blob: capture.audio.blob } : null,
     attempts: 0,
@@ -80,7 +89,7 @@ export function readRecord(raw, limits = QUEUE_LIMITS) {
       v: RECORD_VERSION,
       id,
       createdAt: typeof raw.createdAt === "string" ? raw.createdAt : new Date(0).toISOString(),
-      fields: { trade: field(raw.fields.trade), service: field(raw.fields.service), town: field(raw.fields.town), notes },
+      fields: { trade: field(raw.fields.trade), service: field(raw.fields.service), town: field(raw.fields.town), notes, ...draftField(raw.fields.draft) },
       photos: raw.photos.map(({ name, type, size, blob }) => ({ name: clip(name, MAX_NAME), type: clip(type, 100), size, blob })),
       audio: raw.audio ? { type: clip(raw.audio.type, 100), size: raw.audio.size, seconds: Number(raw.audio.seconds) || 0, blob: raw.audio.blob } : null,
       attempts: Number.isInteger(raw.attempts) && raw.attempts >= 0 ? raw.attempts : 0,

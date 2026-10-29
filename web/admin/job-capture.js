@@ -5,7 +5,7 @@
 
 import { el } from "./block-forms.js";
 import { audioLimits, clock, createRecorder, START_PROBLEMS } from "./capture-recorder.js";
-import { createTranscribeBox } from "./capture-assistant.js";
+import { createDraftBox, createTranscribeBox, draftBody } from "./capture-assistant.js";
 import { createCaptureQueue, openIndexedStore, queueLimits } from "./capture-queue.js";
 import { localDay } from "./job-form.js";
 
@@ -99,8 +99,8 @@ const stamp = (now) => now.toISOString().replace(/\.\d{3}Z$/, "Z");
 
 /** The front matter of the draft a capture becomes. Only keys the Job form already writes (ADR 0287). */
 export function captureFields(capture, now = new Date()) {
-  const { trade, service, town } = capture.fields;
-  const title = captureTitle(capture.fields, now);
+  const { trade, service, town, draft } = capture.fields;
+  const title = draft?.title || captureTitle(capture.fields, now);
   const fields = {
     title,
     slug: captureSlug(title, capture.id),
@@ -113,13 +113,14 @@ export function captureFields(capture, now = new Date()) {
   if (text(trade)) fields["job.trade"] = text(trade).toLowerCase();
   if (text(service)) fields["job.service"] = text(service);
   if (text(town)) fields["job.place.town"] = text(town);
+  if (draft?.description) fields.description = draft.description;
   return fields;
 }
 
 /** The body: the job scaffold, the notes under its first heading, then the photos, each with a plain alt for the author to improve. */
-export function captureBody({ scaffold = "", notes = "", photoUrls = [] }) {
-  const words = text(notes);
-  let body = scaffold;
+export function captureBody({ scaffold = "", notes = "", photoUrls = [], draft = null }) {
+  const words = draft ? "" : text(notes);
+  let body = draft ? draftBody({ scaffold, sections: draft.sections }) : scaffold;
   if (words) {
     const heading = body.match(/^## .*$/m);
     body = heading ? body.replace(heading[0], `${heading[0]}\n\n${words}`) : `${words}\n\n${body}`;
@@ -189,7 +190,7 @@ export async function sendCapture({ api, capture, scaffold, now = new Date() }) 
       kind: "posts",
       captureId: capture.id,
       fields: captureFields(capture, now),
-      body: captureBody({ scaffold, notes: capture.fields.notes, photoUrls }),
+      body: captureBody({ scaffold, notes: capture.fields.notes, photoUrls, draft: capture.fields.draft }),
     },
   });
   return { path: saved.path, skipped, audio };
@@ -249,6 +250,13 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
   const voice = el("fieldset", { class: "oba-fieldset oba-capture-voice", "data-capture-voice": "true" }, el("legend", { class: "oba-legend" }, "Voice note"), voiceBody);
   const transcribeBox = createTranscribeBox({ api, notes, limits, announce: (message) => { status.textContent = message; } });
   voice.append(transcribeBox.element);
+  const draftBox = createDraftBox({
+    api,
+    notes,
+    getFields: () => ({ trade: tradeSelect.value, service: serviceInput.value, town: townInput.value }),
+    announce: (message) => { status.textContent = message; },
+    onChange: () => {},
+  });
   const dropAudio = () => {
     if (audioPreview) URL.revokeObjectURL(audioPreview);
     audioPreview = "";
@@ -363,7 +371,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
 
   const read = () => ({
     id: captureId,
-    fields: { trade: tradeSelect.value, service: serviceInput.value, town: townInput.value, notes: notes.value },
+    fields: { trade: tradeSelect.value, service: serviceInput.value, town: townInput.value, notes: notes.value, draft: draftBox.getDraft() },
     photos: photos.map(({ name, type, size, blob }) => ({ name, type, size, blob })),
     audio: audio ? { ...audio } : null,
   });
@@ -374,6 +382,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     recorder.discard();
     captureId = newCaptureId();
     notes.value = "";
+    draftBox.reset();
     townInput.value = "";
     renderPhotos();
     renderTowns();
@@ -507,6 +516,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
     serviceList,
     field("notes", "Notes", notes),
     voice,
+    draftBox.element,
     saveButton,
     status,
     saved,
@@ -534,7 +544,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
       globalThis.addEventListener?.("online", onOnline);
       await runFlush();
     },
-    isDirty: () => photos.length > 0 || text(notes.value) !== "" || recorder.state === "recording" || recorder.state === "recorded",
+    isDirty: () => photos.length > 0 || draftBox.isDirty() || text(notes.value) !== "" || recorder.state === "recording" || recorder.state === "recorded",
     isBusy: () => busy,
     destroy() {
       globalThis.removeEventListener?.("online", onOnline);

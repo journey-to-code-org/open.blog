@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -387,4 +387,114 @@ test("transcription shows what is sent, waits for a confirmation, and adds an un
   await voice.getByRole("button", { name: "Undo the transcript" }).click();
   await expect(notes).toHaveValue("Typed first.");
   expect(await page.locator("[data-job-capture] img[src=x]").count()).toBe(0);
+});
+const ASSISTANT_STATUS = /\/admin\/api\/assistant\/status$/;
+const JOB_DRAFT = /\/admin\/api\/assistant\/job-draft$/;
+const AI_DRAFT = {
+  title: "Water heater swap in Draftville",
+  description: "Replaced a leaking tank heater in an afternoon.",
+  sections: { problem: "The old tank was leaking at the drain.", found: "The drain valve had corroded through.", did: "I fitted a new 40 gallon tank.", result: "" },
+};
+
+test("without a provider the typed notes become the post and the flow completes", async ({ page }) => {
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  const notes = view.getByLabel("Notes", { exact: true });
+  await expect(view.locator("[data-capture-draft]")).toContainText("Add a few words");
+  await notes.fill("Typed notes with no provider at all.");
+  await expect(view.locator("[data-capture-draft-off]")).toContainText("not set up on this site");
+  await expect(view.getByRole("button", { name: "Draft with AI" })).toHaveCount(0);
+  await expectNoOverflow(page, "[data-job-capture]");
+  await view.getByLabel("Town", { exact: true }).fill("Plaintown");
+  await view.getByRole("button", { name: "Save draft" }).click();
+  await expect(view.locator("[data-capture-saved]")).toContainText("Saved as a draft");
+  await expect.poll(() => draftsIn("plaintown").length).toBe(1);
+  expect(readFileSync(draftsIn("plaintown")[0], "utf8")).toContain("Typed notes with no provider at all.");
+});
+
+test("Draft with AI shows what is sent, fills unsaved editable fields, undoes in one step and never saves by itself", async ({ page }) => {
+  const guide = join(root, ".openblog", "private", "context", "voice.md");
+  mkdirSync(dirname(guide), { recursive: true });
+  writeFileSync(guide, "# Voice guide\n\nShort plain sentences. Says tank, never unit.\n");
+  const sent = [];
+  await page.route(ASSISTANT_STATUS, (route) => route.fulfill({ json: { providerType: "open-ai", model: "test-model", destination: "https://api.openai.com", configured: true, state: "ready", message: "ready" } }));
+  await page.route(JOB_DRAFT, (route) => { sent.push(route.request().postDataJSON()); return route.fulfill({ json: { draft: AI_DRAFT, body: "", proposal: true } }); });
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  const box = view.locator("[data-capture-draft]");
+  const documentSaves = [];
+  page.on("request", (request) => { if (request.method() === "POST" && /\/admin\/api\/document$/.test(request.url())) documentSaves.push(request.url()); });
+
+  await view.getByLabel("Town", { exact: true }).fill("Draftville");
+  await view.getByLabel("Notes", { exact: true }).fill("swapped a heater, old one leaked at the drain. valve corroded.");
+  const start = box.getByRole("button", { name: "Draft with AI" });
+  await expect(start).toBeEnabled();
+  expect((await start.boundingBox()).height).toBeGreaterThanOrEqual(43);
+  await start.click();
+  const disclosure = box.locator("[data-capture-draft-disclosure]");
+  await expect(disclosure).toContainText("https://api.openai.com (test-model)");
+  await expect(disclosure).toContainText("your private voice guide");
+  await expect(disclosure).toContainText("never sent with a draft");
+  await expectNoOverflow(page, "[data-job-capture]");
+  await box.getByRole("button", { name: "Cancel" }).click();
+  expect(sent).toEqual([]);
+  await expect(start).toBeFocused();
+
+  await start.click();
+  await box.getByRole("button", { name: "Send to the Assistant" }).click();
+  await expect(box.getByLabel("Title", { exact: true })).toHaveValue("Water heater swap in Draftville");
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ town: "Draftville", contextIds: ["private:voice"] });
+  expect(sent[0].notes).toContain("valve corroded");
+  await expect(box).toContainText("not saved yet");
+  await expect(box.getByLabel("What we did", { exact: true })).toHaveValue("I fitted a new 40 gallon tank.");
+  await expectNoOverflow(page, "[data-job-capture]");
+  for (const control of await box.locator("input, textarea, button").all()) {
+    expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(43);
+  }
+  expect(documentSaves).toEqual([]);
+
+  // One undo takes it all back; the notes were never touched.
+  await box.getByRole("button", { name: "Undo the draft" }).click();
+  await expect(box.getByLabel("Title", { exact: true })).toHaveCount(0);
+  await expect(view.getByLabel("Notes", { exact: true })).toHaveValue(/valve corroded/);
+  expect(documentSaves).toEqual([]);
+
+  // Draft again, edit it, then save normally: only now does anything reach the server.
+  await start.click();
+  await box.getByRole("button", { name: "Send to the Assistant" }).click();
+  await box.getByLabel("Result", { exact: true }).fill("Hot water by dinner.");
+  await box.getByLabel("Title", { exact: true }).fill("Water heater swap, Draftville");
+  expect(documentSaves).toEqual([]);
+  await view.getByRole("button", { name: "Save draft" }).click();
+  await expect(view.locator("[data-capture-saved]")).toContainText("Saved as a draft");
+  expect(documentSaves).toHaveLength(1);
+  const titled = () => readdirSync(join(root, "content", "posts")).filter((name) => name.includes("draftville")).map((name) => join(root, "content", "posts", name));
+  await expect.poll(() => titled().length).toBe(1);
+  const source = readFileSync(titled()[0], "utf8");
+  expect(source).toMatch(/draft: "?true"?/);
+  expect(source).toMatch(/profile: job/);
+  expect(source).toContain("Water heater swap, Draftville");
+  expect(source).toContain("Replaced a leaking tank heater in an afternoon.");
+  expect(source).toMatch(/## Problem\n\nThe old tank was leaking at the drain\.\n\n## What we found/);
+  expect(source).toContain("Hot water by dinner.");
+  expect(source).not.toContain("valve corroded");
+  await expect(box.getByLabel("Title", { exact: true })).toHaveCount(0);
+  await expectNoOverflow(page, "[data-job-capture]");
+});
+
+test("a refused draft says why and leaves the notes and the save untouched", async ({ page }) => {
+  await page.route(ASSISTANT_STATUS, (route) => route.fulfill({ json: { destination: "https://api.openai.com", model: "m", configured: true, state: "ready", message: "ready" } }));
+  await page.route(JOB_DRAFT, (route) => route.fulfill({ status: 502, json: { error: "The provider's job draft was rejected because it contained HTML. Nothing was applied.", code: "invalid-result" } }));
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  const box = view.locator("[data-capture-draft]");
+  await view.getByLabel("Notes", { exact: true }).fill("some notes");
+  await box.getByRole("button", { name: "Draft with AI" }).click();
+  await box.getByRole("button", { name: "Send to the Assistant" }).click();
+  await expect(view.locator("[data-capture-status]")).toContainText("Nothing was applied");
+  await expect(box.getByLabel("Title", { exact: true })).toHaveCount(0);
+  await expect(view.getByLabel("Notes", { exact: true })).toHaveValue("some notes");
+  await expect(box.getByRole("button", { name: "Draft with AI" })).toBeEnabled();
+  await expectNoOverflow(page, "[data-job-capture]");
 });

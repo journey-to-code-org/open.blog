@@ -5922,6 +5922,46 @@ ob-voice-library {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+.oba-capture-ai {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.oba-capture-ai[hidden] {
+  display: none;
+}
+.oba-capture-ai .oba-btn {
+  min-height: 48px;
+  max-width: 100%;
+}
+.oba-capture-ai-heading,
+.oba-capture-ai-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.oba-capture-ai-sends {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.2rem;
+  overflow-wrap: anywhere;
+}
+.oba-capture-ai .oba-help,
+.oba-capture-ai p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.oba-capture-draft-form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.oba-capture-ai .oba-capture-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 44px;
+}
 .oba-capture-pending {
   min-width: 0;
   padding-top: 0.75rem;

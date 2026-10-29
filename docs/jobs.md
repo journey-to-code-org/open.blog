@@ -97,6 +97,16 @@ when you tap **Send the recording**. The words come back into **Notes** under wh
 to correct, and **Undo the transcript** takes them out again. With no provider, Capture says so and you type your
 notes. A browser that cannot record simply shows no Record control. Setting up a provider or a local engine is in
 [the admin guide](admin.md#transcribing-a-voice-note).
+
+**Draft with AI** (under the voice note) turns your notes, typed or from a transcript, into a title, a one-sentence
+description and the four sections in your own words. It appears only when your site has an Assistant provider
+(set one up in Assistant settings; see [the admin guide](admin.md)) and you have notes. Tapping it first shows where the
+notes would go and what goes with them (the trade, service and town, and your voice guide if you leave **Write it in my
+voice** ticked); nothing is sent until you tap **Send to the Assistant**. The draft arrives as ordinary fields you can
+change, marked "not saved yet", and **Undo the draft** takes it all back in one step. It says only what your notes
+say and leaves a section empty when they do not, and it never fills the job's trade, dates, place or any other Job
+field. Nothing is saved or published until you tap **Save draft**, which then uses the draft's title, description and
+sections in place of the notes. With no provider, your typed notes become the post exactly as before.
 See [ADR 0296](adr/0296-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md),
 [ADR 0297](adr/0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md),
 [ADR 0298](adr/0298-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md)

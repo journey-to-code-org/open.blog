@@ -170,3 +170,243 @@ export function createTranscribeBox({ api, notes, limits, announce = () => {} })
     },
   };
 }
+
+// ----- drafting (ADR 0422) ---------------------------------------------------------------------------------
+
+/** The bounds of a draft, the same as the core's `job_draft` module enforces on the server. */
+export const DRAFT_LIMITS = Object.freeze({ title: 120, description: 300, section: 1500 });
+export const SECTION_KEYS = Object.freeze(["problem", "found", "did", "result"]);
+export const SECTION_LABELS = Object.freeze({ problem: "Problem", found: "What we found", did: "What we did", result: "Result" });
+
+const oneLine = (value, max) => String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+const block = (value, max) => String(value ?? "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/g, "").trim().slice(0, max);
+
+/**
+ * A draft read defensively: from the server, from a stored record or from the editable fields. Text is
+ * clipped to its bound, never trusted to be shorter. A draft with no title and no words is nothing (`null`).
+ */
+export function normalizeDraft(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const title = oneLine(raw.title, DRAFT_LIMITS.title);
+  const description = oneLine(raw.description, DRAFT_LIMITS.description);
+  const sections = {};
+  for (const key of SECTION_KEYS) sections[key] = block(raw.sections?.[key], DRAFT_LIMITS.section);
+  if (!title && SECTION_KEYS.every((key) => !sections[key])) return null;
+  return { title, description, sections };
+}
+
+/** The body a draft makes: its sections under the scaffold's own headings (or the standard four). */
+export function draftBody({ scaffold = "", sections }) {
+  const found = String(scaffold).match(/^## .*$/gm) || [];
+  const headings = SECTION_KEYS.map((key, index) => found[index] || `## ${SECTION_LABELS[key]}`);
+  return headings.map((heading, index) => `${heading}\n\n${sections[SECTION_KEYS[index]] ? `${sections[SECTION_KEYS[index]]}\n\n` : ""}`).join("");
+}
+
+/** What a drafting request would send, as lines for the author to read before confirming. */
+export function draftDisclosureLines({ status, notes, photoAlts = [], fields = {}, guide = null }) {
+  const lines = [];
+  const where = status?.destination ? `${status.destination}${status.model ? ` (${status.model})` : ""}` : "your Assistant provider";
+  lines.push(`Sent to: ${where}.`);
+  const count = String(notes ?? "").trim().length;
+  lines.push(`Sent: your notes (${count} character${count === 1 ? "" : "s"}), including any transcript you added.`);
+  const job = [fields.trade, fields.service, fields.town].map((value) => String(value ?? "").trim()).filter(Boolean);
+  lines.push(job.length ? `Sent: the job words ${job.join(", ")}.` : "Sent: no trade, service or town.");
+  lines.push(photoAlts.length ? `Sent: ${photoAlts.length} photo description${photoAlts.length === 1 ? "" : "s"}.` : "Photos are not sent, and no photo description is added.");
+  lines.push(guide ? `Sent: your ${guide.visibility} voice guide, so the draft sounds like you.` : "Your voice guide is not sent.");
+  lines.push("Your voice note's audio is never sent with a draft.");
+  lines.push("Nothing is saved or published. The draft appears here for you to edit.");
+  return lines;
+}
+
+/** Whether drafting is possible and which voice guide could be sent, read from the server. */
+export async function loadDraftSetup(api) {
+  let status = null;
+  try {
+    status = await api.call("GET", "assistant/status");
+  } catch {
+    return { ready: false, status: null, guide: null, reason: "" };
+  }
+  if (!status?.configured) return { ready: false, status, guide: null, reason: String(status?.message || "") };
+  let guide = null;
+  try {
+    const catalog = await api.call("GET", "assistant/context");
+    const usable = (catalog?.voiceGuides || []).filter((doc) => doc?.contextType === "voice" && doc.exists === true && doc.valid === true && typeof doc.id === "string");
+    const picked = usable.find((doc) => doc.visibility === "private") || usable[0];
+    if (picked) guide = { id: picked.id, visibility: picked.visibility === "portable" ? "portable" : "private" };
+  } catch {
+    // Drafting works without a guide; it just does not sound like the author yet.
+  }
+  return { ready: true, status, guide, reason: "" };
+}
+
+/** Ask for a draft. Resolves to a normalized draft; anything unusable is an error and nothing is applied. */
+export async function requestDraft({ api, notes, fields = {}, photoAlts = [], contextIds = [] }) {
+  const reply = await api.call("POST", "assistant/job-draft", {
+    json: { notes, photoAlts, trade: fields.trade || "", service: fields.service || "", town: fields.town || "", contextIds },
+  });
+  const draft = normalizeDraft(reply?.draft);
+  if (!draft) throw new Error("The Assistant did not return a usable draft. Your notes are unchanged.");
+  return draft;
+}
+
+/**
+ * The drafting control. `notes` is the Notes textarea; `getFields()` and `getPhotoAlts()` read what the capture
+ * holds now. Nothing is sent before the author confirms; the draft is shown in editable fields and is not part
+ * of any save until the author saves the capture; `Undo the draft` puts everything back as it was.
+ */
+export function createDraftBox({ api, notes, getFields = () => ({}), getPhotoAlts = () => [], announce = () => {}, onChange = () => {} }) {
+  const root = el("div", { class: "oba-capture-ai oba-capture-draft", "data-capture-draft": "true" });
+  const form = el("div", { class: "oba-capture-draft-form", "data-capture-draft-form": "true" });
+  let setup = null;
+  let step = "idle";
+  let useGuide = true;
+  let applied = false;
+  let undo = null;
+  let token = 0;
+  let loading = null;
+  const controls = {};
+  const prefix = `oba-draft-${++draftUid}`;
+
+  const field = (key, label, control, help) => el("div", { class: "oba-field" }, el("label", { for: `${prefix}-${key}` }, label), control, help ? el("p", { class: "oba-help" }, help) : null);
+  const make = (key, label, tag, props, help) => {
+    const control = el(tag, { id: `${prefix}-${key}`, "data-capture-draft-field": key, ...props });
+    control.addEventListener("input", onChange);
+    controls[key] = control;
+    return field(key, label, control, help);
+  };
+  const buildForm = () => {
+    form.replaceChildren(
+      make("title", "Title", "input", { type: "text", maxlength: String(DRAFT_LIMITS.title), autocomplete: "off" }),
+      make("description", "Description", "textarea", { rows: 2, maxlength: String(DRAFT_LIMITS.description) }, "One sentence for search results and link previews."),
+      ...SECTION_KEYS.map((key) => make(key, SECTION_LABELS[key], "textarea", { rows: 4, maxlength: String(DRAFT_LIMITS.section) })),
+    );
+  };
+  buildForm();
+
+  const read = () => normalizeDraft({ title: controls.title.value, description: controls.description.value, sections: Object.fromEntries(SECTION_KEYS.map((key) => [key, controls[key].value])) });
+  const write = (draft) => {
+    controls.title.value = draft?.title || "";
+    controls.description.value = draft?.description || "";
+    for (const key of SECTION_KEYS) controls[key].value = draft?.sections?.[key] || "";
+  };
+
+  const hasNotes = () => String(notes.value || "").trim().length > 0;
+  const button = (label, attrs, onClick) => el("button", { type: "button", class: "oba-btn", ...attrs, onClick }, label);
+
+  const ensureSetup = () => {
+    loading ||= loadDraftSetup(api).then((result) => {
+      setup = result;
+      render();
+    });
+    return loading;
+  };
+
+  let hadNotes = false;
+  function render() {
+    hadNotes = hasNotes();
+    const parts = [];
+    if (!setup) {
+      parts.push(el("p", { class: "oba-help" }, hasNotes() ? "Checking whether drafting is set up…" : "Add a few words, or a transcript of a voice note, to draft from."));
+    } else if (!setup.ready) {
+      parts.push(el("p", { class: "oba-help", "data-capture-draft-off": "true" }, `Drafting with AI is not set up on this site${setup.reason ? `: ${setup.reason}` : "."} Your notes are saved as they are.`));
+    } else if (step === "confirm") {
+      const heading = el("h4", { class: "oba-capture-ai-title", tabindex: "-1" }, "Before anything is sent");
+      const lines = draftDisclosureLines({ status: setup.status, notes: notes.value, photoAlts: getPhotoAlts(), fields: getFields(), guide: useGuide ? setup.guide : null });
+      const children = [heading, el("ul", { class: "oba-capture-ai-sends", "data-capture-draft-disclosure": "true" }, lines.map((line) => el("li", {}, line)))];
+      if (setup.guide) {
+        const box = el("input", { type: "checkbox", id: `${prefix}-guide`, checked: useGuide, "data-capture-draft-guide": "true" });
+        box.addEventListener("change", () => {
+          useGuide = box.checked;
+          render();
+          root.querySelector("[data-capture-draft-guide]")?.focus();
+        });
+        children.push(el("div", { class: "oba-field oba-capture-check" }, box, el("label", { for: `${prefix}-guide` }, `Write it in my voice (send my ${setup.guide.visibility} voice guide)`)));
+      }
+      children.push(el("div", { class: "oba-capture-voice-actions" },
+        button("Send to the Assistant", { class: "oba-btn oba-btn-primary", "data-capture-draft-send": "true" }, run),
+        button("Cancel", { "data-capture-draft-cancel": "true" }, () => {
+          step = "idle";
+          render();
+          root.querySelector("[data-capture-draft-start]")?.focus();
+        }),
+      ));
+      parts.push(...children);
+      root.replaceChildren(el("h3", { class: "oba-capture-ai-heading" }, "Draft with AI"), ...parts);
+      heading.focus();
+      return;
+    } else {
+      const busy = step === "working";
+      parts.push(button(busy ? "Drafting…" : applied ? "Draft again with AI" : "Draft with AI", { "data-capture-draft-start": "true", disabled: busy || !hasNotes(), "aria-busy": busy ? "true" : null }, () => {
+        step = "confirm";
+        render();
+      }));
+      parts.push(el("p", { class: "oba-help" }, hasNotes() ? "Optional. You see what is sent, and where, before anything leaves. Nothing is saved or published." : "Add a few words, or a transcript of a voice note, to draft from."));
+    }
+    if (applied) {
+      parts.push(
+        el("p", { class: "oba-help", "data-capture-draft-note": "true" }, "This draft is not saved yet. Change anything you like. It replaces your notes in the saved post; your notes stay in the box above until you save."),
+        form,
+        button("Undo the draft", { "data-capture-draft-undo": "true" }, () => {
+          write(undo?.previous || null);
+          applied = Boolean(undo?.previous);
+          undo = null;
+          announce("The draft was taken back. Your notes are as they were.");
+          render();
+          onChange();
+          root.querySelector("[data-capture-draft-start]")?.focus();
+        }),
+      );
+    }
+    root.replaceChildren(el("h3", { class: "oba-capture-ai-heading" }, "Draft with AI"), ...parts);
+  }
+
+  async function run() {
+    const mine = ++token;
+    step = "working";
+    render();
+    announce("Drafting…");
+    try {
+      const contextIds = useGuide && setup.guide ? [setup.guide.id] : [];
+      const draft = await requestDraft({ api, notes: String(notes.value).trim(), fields: getFields(), photoAlts: getPhotoAlts(), contextIds });
+      if (mine !== token) return;
+      undo = { previous: applied ? read() : null };
+      write(draft);
+      applied = true;
+      announce("A draft is ready below. It is not saved: read it, change what you like, then save.");
+    } catch (error) {
+      if (mine !== token) return;
+      announce(error?.message || "Could not draft. Your notes are unchanged.");
+    }
+    step = "idle";
+    render();
+    onChange();
+    (root.querySelector("[data-capture-draft-field='title']") || root.querySelector("[data-capture-draft-start]"))?.focus();
+  }
+
+  notes.addEventListener("input", () => {
+    const now = hasNotes();
+    if (!setup && now) ensureSetup();
+    if (now !== hadNotes && step === "idle") render();
+  });
+  render();
+
+  return {
+    element: root,
+    /** The draft as edited now, or `null` when none is applied. */
+    getDraft: () => (applied ? read() : null),
+    isDirty: () => applied,
+    /** Called when the author first has something to draft from, to read the setup once. */
+    prepare: () => (hasNotes() ? ensureSetup() : Promise.resolve()),
+    /** Start clean for the next capture. */
+    reset() {
+      token += 1;
+      step = "idle";
+      applied = false;
+      undo = null;
+      write(null);
+      render();
+    },
+  };
+}
+
+let draftUid = 0;
