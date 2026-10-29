@@ -163,3 +163,21 @@ test("a failed load says so in words and offers to try again", async () => {
     assert.ok(m.root.querySelectorAll("button").some((b) => b.dataset.action === "voice-retry"));
   })();
 });
+
+test("a prompt answered on several days lists every answer, each with its own polished draft", () => {
+  const data = listing({
+    samples: [
+      rough("a-mistake", "stories", "2026-10-01", { visibility: "portable" }),
+      polished("a-mistake", "stories", "2026-10-01", { visibility: "portable", words: 90 }),
+      rough("a-mistake", "stories", "2026-10-02", { words: 40 }),
+      rough("a-mistake", "stories", "2026-10-03", { words: 50 }),
+    ],
+  });
+  const rows = groupLibrary(data).groups[1].rows;
+  assert.deepEqual(rows.map((r) => r.rough.file), ["2026-10-03-a-mistake-rough.md", "2026-10-02-a-mistake-rough.md", "2026-10-01-a-mistake-rough.md"]);
+  assert.equal(rows[1].polished, null, "day two's rough draft is not paired with day one's polished draft");
+  assert.equal(rows[1].words, 40);
+  assert.equal(rows[1].visibility, "private");
+  assert.equal(rows[2].polished.file, "2026-10-01-a-mistake-polished.md");
+  assert.equal(rows[2].visibility, "portable");
+});

@@ -346,20 +346,29 @@ export function coverageText(pack) {
 
 /**
  * The library as groups. Packs come in the catalog's order, and inside a pack the prompts with samples come
- * newest first (by the newest file, then by name), so the same files always give the same page. A prompt that
- * has a rough and a polished draft is one row with both badges. Samples of a pack the catalog no longer offers
+ * newest first (by the newest file, then by name), so the same files always give the same page. Each rough draft
+ * is a row, with its own polished draft (the one whose `roughOf` names it) and both badges, so a prompt answered
+ * on several days lists every answer; a polished draft whose rough draft is missing is a row of its own. Samples
+ * of a pack the catalog no longer offers
  * go in a last group, and files that cannot be read in a group of their own with guidance for repairing them.
  */
 export function groupLibrary({ samples = [], coverage = [] }) {
   const valid = samples.filter((sample) => sample.valid);
   const rowsFor = (items) => {
-    const byPrompt = new Map();
-    for (const sample of items) {
-      const row = byPrompt.get(sample.prompt) || { prompt: sample.prompt, title: sample.promptTitle || sample.title || sample.prompt, rough: null, polished: null };
-      row[sample.stage] = row[sample.stage] && newest(row[sample.stage], sample) <= 0 ? row[sample.stage] : sample;
-      byPrompt.set(sample.prompt, row);
+    const titleOf = (sample) => sample.promptTitle || sample.title || sample.prompt;
+    const roughs = items.filter((sample) => sample.stage === "rough");
+    const roughFiles = new Set(roughs.map((sample) => sample.file));
+    const polishedOf = new Map();
+    const orphans = [];
+    for (const sample of items.filter((s) => s.stage === "polished")) {
+      if (sample.roughOf && roughFiles.has(sample.roughOf) && !polishedOf.has(sample.roughOf)) polishedOf.set(sample.roughOf, sample);
+      else orphans.push(sample);
     }
-    const rows = [...byPrompt.values()].map((row) => {
+    const pairs = [
+      ...roughs.map((sample) => ({ prompt: sample.prompt, title: titleOf(sample), rough: sample, polished: polishedOf.get(sample.file) || null })),
+      ...orphans.map((sample) => ({ prompt: sample.prompt, title: titleOf(sample), rough: null, polished: sample })),
+    ];
+    const rows = pairs.map((row) => {
       const files = [row.rough, row.polished].filter(Boolean);
       const latest = [...files].sort(newest)[0];
       const best = row.polished || row.rough;
