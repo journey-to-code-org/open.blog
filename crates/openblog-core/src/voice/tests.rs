@@ -195,7 +195,9 @@ fn polished_needs_a_matching_rough_and_a_rough_cannot_name_one() {
     ] {
         let mut sample = polished();
         sample.voice.rough_of = Some(bad.into());
-        assert!(sample.validate().unwrap_err().contains("`voice.roughOf`"));
+        let message = sample.validate().unwrap_err();
+        assert!(message.contains("`voice.roughOf`"));
+        assert!(!message.contains(bad), "{message}");
     }
 }
 

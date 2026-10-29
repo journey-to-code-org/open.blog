@@ -363,3 +363,138 @@ fn oversized_and_malformed_imports_are_refused_without_echoing_text() {
     let (_, problems) = plan(&b, &huge, false, false).unwrap();
     assert!(problems[0].contains("over"), "{problems:?}");
 }
+
+fn both_steps() -> Vec<Step> {
+    // Deliberately polished first: apply must undo whatever order it is given.
+    vec![
+        Step {
+            visibility: Visibility::Portable,
+            file: Some(POLISHED.into()),
+            content: sample(VoiceStage::Polished, "Words."),
+            action: Action::Create,
+        },
+        Step {
+            visibility: Visibility::Portable,
+            file: Some(ROUGH.into()),
+            content: sample(VoiceStage::Rough, "words"),
+            action: Action::Create,
+        },
+    ]
+}
+
+#[test]
+fn a_create_that_publishes_then_errors_is_still_rolled_back() {
+    let b = project("apply-late-error");
+    let steps = both_steps();
+    let hooks = Hooks {
+        after_write: |path| {
+            if path.ends_with(ROUGH) {
+                Err("injected failure after the write".into())
+            } else {
+                Ok(())
+            }
+        },
+        restore: restore_file,
+    };
+    let error = apply_with(&b, &steps, &hooks).unwrap_err();
+    assert!(
+        error.ends_with("everything written was put back"),
+        "{error}"
+    );
+    assert!(tree(&b)
+        .iter()
+        .all(|(path, _)| !path.ends_with(ROUGH) && !path.ends_with(POLISHED)));
+}
+
+#[test]
+fn a_rollback_that_fails_names_the_files_it_could_not_restore() {
+    let b = project("apply-stuck");
+    let steps = both_steps();
+    let hooks = Hooks {
+        after_write: |path| {
+            if path.ends_with(ROUGH) {
+                Err("injected failure".into())
+            } else {
+                Ok(())
+            }
+        },
+        restore: |undo| {
+            if undo.path.ends_with(POLISHED) {
+                Err("injected".into())
+            } else {
+                restore_file(undo)
+            }
+        },
+    };
+    let error = apply_with(&b, &steps, &hooks).unwrap_err();
+    assert!(error.contains("could not restore:"), "{error}");
+    assert!(
+        error.contains(&format!("assistant/context/voice/{POLISHED}")),
+        "{error}"
+    );
+    assert!(
+        !error.contains("everything written was put back"),
+        "{error}"
+    );
+    assert!(!error.contains(ROUGH), "{error}");
+}
+
+#[test]
+fn a_plan_writes_rough_drafts_before_their_polished_partner() {
+    let b = project("order");
+    let polished = Item {
+        visibility: "portable".into(),
+        file: POLISHED.into(),
+        content: sample(VoiceStage::Polished, "Words."),
+    };
+    let rough = Item {
+        visibility: "portable".into(),
+        file: ROUGH.into(),
+        content: sample(VoiceStage::Rough, "words"),
+    };
+    let bundle = exchange::export(&[polished, rough], None);
+    let (steps, problems) = plan(&b, &bundle, false, false).unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    let files: Vec<_> = steps.iter().filter_map(|s| s.file.as_deref()).collect();
+    assert_eq!(files, [ROUGH, POLISHED]);
+}
+
+#[test]
+fn a_write_import_waits_on_the_content_transaction_lock() {
+    let b = project("txn");
+    put_guide(
+        &b,
+        Visibility::Portable,
+        "# Voice guide
+",
+    );
+    let source = project("txn-src");
+    put_guide(
+        &source,
+        Visibility::Portable,
+        "# Voice guide
+
+Changed.
+",
+    );
+    let file = exported(&source, false);
+    let held = crate::transaction::ContentTransactionLock::acquire(&b).unwrap();
+    let mut opts = options(&file, true);
+    opts.overwrite = true;
+    // The lock is held, so the write is refused rather than racing an Admin save.
+    assert!(import(&b, &opts).is_err());
+    assert_eq!(
+        fs::read(b.join(PORTABLE_GUIDE)).unwrap(),
+        b"# Voice guide
+"
+    );
+    drop(held);
+    import(&b, &opts).unwrap();
+    assert_eq!(
+        fs::read(b.join(PORTABLE_GUIDE)).unwrap(),
+        b"# Voice guide
+
+Changed.
+"
+    );
+}

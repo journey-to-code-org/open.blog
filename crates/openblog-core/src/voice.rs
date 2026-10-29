@@ -380,9 +380,8 @@ impl VoiceSample {
             match parse_file_name(rough) {
                 Some((_, prompt, VoiceStage::Rough)) if prompt == voice.prompt => {}
                 _ => {
-                    return Err(format!(
-                        "The field `voice.roughOf` must be the file name of this prompt's rough draft, not `{rough}`."
-                    ));
+                    // The value is not echoed: it is input text.
+                    return Err("The field `voice.roughOf` must be the file name of this prompt's rough draft.".into());
                 }
             }
         }

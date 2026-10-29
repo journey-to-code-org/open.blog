@@ -293,6 +293,9 @@ fn plan(
         }
     }
     let mut steps: Vec<Step> = Vec::new();
+    // Rough drafts are written before their polished partner, so a crash part-way never leaves
+    // a polished draft without the rough draft it names.
+    let mut polished_steps: Vec<Step> = Vec::new();
     let names: BTreeSet<(Visibility, String)> = bundle
         .samples
         .iter()
@@ -359,13 +362,19 @@ fn plan(
                 Action::Replace
             }
         };
-        steps.push(Step {
+        let step = Step {
             visibility,
             file: Some(item.file.clone()),
             content: item.content.clone(),
             action,
-        });
+        };
+        if sample.voice.stage == VoiceStage::Polished {
+            polished_steps.push(step);
+        } else {
+            steps.push(step);
+        }
     }
+    steps.append(&mut polished_steps);
     if let Some(item) = &bundle.guide {
         let visibility = visibility_named(item);
         let action = match read_guide_bytes(root, visibility) {
@@ -399,10 +408,41 @@ fn plan(
 struct Undo {
     path: PathBuf,
     old: Option<Vec<u8>>,
+    label: String,
+}
+
+/// The two filesystem effects `apply` can fail on, so a test can inject a failure.
+struct Hooks {
+    /// Runs after each write succeeds; an `Err` is treated as that write failing.
+    after_write: fn(&Path) -> Result<(), String>,
+    /// Puts one file back.
+    restore: fn(&Undo) -> Result<(), String>,
+}
+
+fn restore_file(undo: &Undo) -> Result<(), String> {
+    match &undo.old {
+        Some(bytes) => voice_store::replace(&undo.path, bytes).map_err(|e| e.to_string()),
+        None => match fs::remove_file(&undo.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        },
+    }
 }
 
 /// Write every changing step, or put every file back and say why not.
 fn apply(root: &Path, steps: &[Step]) -> Result<(), String> {
+    apply_with(
+        root,
+        steps,
+        &Hooks {
+            after_write: |_| Ok(()),
+            restore: restore_file,
+        },
+    )
+}
+
+fn apply_with(root: &Path, steps: &[Step], hooks: &Hooks) -> Result<(), String> {
     let mut done: Vec<Undo> = Vec::new();
     let result = (|| -> Result<(), String> {
         for step in steps.iter().filter(|s| s.action != Action::Unchanged) {
@@ -419,29 +459,38 @@ fn apply(root: &Path, steps: &[Step]) -> Result<(), String> {
                 ),
                 _ => None,
             };
+            // Recorded before the write: a write can publish the file and still report an error,
+            // and the undo of a file that is not there is a no-op.
+            done.push(Undo {
+                path: path.clone(),
+                old,
+                label: step.relative(),
+            });
             if step.action == Action::Create {
                 fsutil::write_new_atomic(&path, step.content.as_bytes())?;
             } else {
                 voice_store::replace(&path, step.content.as_bytes())
                     .map_err(|error| error.to_string())?;
             }
-            done.push(Undo { path, old });
+            (hooks.after_write)(&path)?;
             voice_store::keep_private_out_of_git(root, step.visibility);
         }
         Ok(())
     })();
     if let Err(message) = result {
-        for undo in done.iter().rev() {
-            match &undo.old {
-                Some(bytes) => {
-                    let _ = voice_store::replace(&undo.path, bytes);
-                }
-                None => {
-                    let _ = fs::remove_file(&undo.path);
-                }
-            }
+        let failed: Vec<&str> = done
+            .iter()
+            .rev()
+            .filter(|undo| (hooks.restore)(undo).is_err())
+            .map(|undo| undo.label.as_str())
+            .collect();
+        if failed.is_empty() {
+            return Err(format!("{message}; everything written was put back"));
         }
-        return Err(format!("{message}; everything written was put back"));
+        return Err(format!(
+            "{message}; could not restore: {}",
+            failed.join(", ")
+        ));
     }
     Ok(())
 }
@@ -452,6 +501,18 @@ pub fn import(root: &Path, options: &Options<'_>) -> Result<(), String> {
         .ok_or("usage: openblog voice import <file> [--overwrite] [--as private] [--write]")?;
     crate::site::load_config(root)?;
     let text = read_export(root, file)?;
+    // Same order Admin uses: the content transaction (a guide save holds it), then the voice
+    // store lock. Admin's in-process build lock has no counterpart in a separate process.
+    let _transaction = if options.write {
+        Some(
+            crate::transaction::ContentTransactionLock::acquire_with_wait(
+                root,
+                std::time::Duration::from_secs(3),
+            )?,
+        )
+    } else {
+        None
+    };
     let _lock = if options.write {
         Some(voice_store::lock(root).map_err(|error| error.to_string())?)
     } else {
