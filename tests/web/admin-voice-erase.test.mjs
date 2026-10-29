@@ -111,3 +111,42 @@ test("leftovers found by the post-check are named, and an empty plan erases noth
     assert.equal(api.calls.filter((c) => c.method === "POST").length, 0);
   })();
 });
+
+test("after a clean erase the list is drawn again without the erased samples, and focus goes to the result", async () => {
+  await withDom(async () => {
+    let erased = false;
+    const sample = { id: "2026-10-28-a-rough", file: "2026-10-28-a-rough.md", valid: true, stage: "rough", pack: "stories", prompt: "a", promptTitle: "A", title: "A", date: "2026-10-28T09:00:00Z", words: 3, visibility: "private", roughOf: null };
+    const coverage = [{ id: "stories", title: "Stories", summary: "", total: 1, withRough: 1, withPolished: 0, prompts: [{ id: "a", title: "A", rough: true, polished: false }] }];
+    const api = {
+      async call(method, path) {
+        if (method === "GET" && path === "voice/samples") return erased ? { samples: [], coverage, warnings: [] } : { samples: [sample], coverage, warnings: [] };
+        if (method === "GET" && path === "voice/erase") return { items, confirm: "erase" };
+        if (method === "POST" && path === "voice/erase") {
+          erased = true;
+          return { erased: items, remaining: [], clean: true };
+        }
+        throw new Error(`unexpected ${method} ${path}`);
+      },
+    };
+    const root = await mount(api);
+    assert.match(text(root), /Read rough draft/);
+    await press(start(root));
+    await type(one(root, "[data-voice-erase-word]"), "erase");
+    await press(confirmButton(root));
+    await flush();
+    assert.doesNotMatch(text(root), /Read rough draft/, "no link to an erased sample is left");
+    assert.ok(one(root, "[data-voice-empty]"));
+    const status = one(root, "[data-voice-erase-status]");
+    assert.match(text(status), /nothing is left/);
+    assert.equal(document.activeElement, status);
+  })();
+});
+
+test("keeping the data puts focus back on the button that started the erase", async () => {
+  await withDom(async () => {
+    const root = await mount(server());
+    await press(start(root));
+    await press(button(root, "voice-erase-cancel"));
+    assert.equal(document.activeElement, start(root));
+  })();
+});

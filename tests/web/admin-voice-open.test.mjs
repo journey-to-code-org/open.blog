@@ -253,3 +253,17 @@ test("a taken slug is said in words and the button works again", async () => {
     assert.equal(button(m.root, "voice-promote").disabled, false);
   })();
 });
+
+test("the editor has one heading a level under the sample's, and a first save offers Make a post draft", async () => {
+  await withDom(async () => {
+    const m = await open(ROUGH.id, { samples: [ROUGH] });
+    const headings = all(m.root, "h2,h3,h4").map((h) => `${h.tagName}:${text(h)}`);
+    assert.deepEqual(headings.filter((h) => /polish/i.test(h)), ["H3:Polish a copy"]);
+    assert.equal(all(m.root, "h2").length, 1, "only the sample's own heading is an h2");
+    assert.equal(button(m.root, "voice-promote"), null);
+    await typeInto(body(m.root), "Polished.");
+    await button(m.root, "save-polished").click();
+    await flush();
+    assert.ok(button(m.root, "voice-promote"), "Make a post draft appears once the polished draft exists");
+  })();
+});
