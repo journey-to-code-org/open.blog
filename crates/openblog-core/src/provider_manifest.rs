@@ -1,4 +1,4 @@
-//! The versioned provider capability contract of distribution (epic #381, ADRs 0720 and 0721).
+//! The versioned provider capability contract of distribution (epic #381, ADRs 0720 to 0722).
 //!
 //! A **provider manifest** says, for one destination open.blog can reach (the cross-posting
 //! targets of `openblog syndicate` and the social accounts of scheduled publishing), what this
@@ -12,7 +12,7 @@
 //! provider) refuses the whole manifest. A request names capabilities from the same closed list,
 //! and a capability that is not done by the adapter makes the destination ineligible, never
 //! silently skipped. `netlify/lib/social-capabilities.mjs` is the hosted function's half for the
-//! social providers and reads, refuses and checks exactly as this module does.
+//! social providers; both are held to `tests/fixtures/provider-manifests.json`.
 //!
 //! Pure: no environment, no network, no credential. Errors are fixed text and never repeat a value
 //! they refused.
@@ -302,6 +302,23 @@ impl Constraints {
         "scheduleMinLeadSeconds",
         "scheduleMaxHorizonSeconds",
     ];
+
+    fn values(&self) -> [Option<u32>; 6] {
+        [
+            self.max_text_chars,
+            self.max_tags,
+            self.max_tag_name_chars,
+            self.max_request_body_bytes,
+            self.schedule_min_lead_seconds,
+            self.schedule_max_horizon_seconds,
+        ]
+    }
+
+    /// Whether a larger value of the constraint at this index is the looser one. Every limit is a
+    /// maximum except the schedule lead time, where a larger value is tighter.
+    fn larger_is_looser(index: usize) -> bool {
+        Self::NAMES[index] != "scheduleMinLeadSeconds"
+    }
 }
 
 /// One destination's declared capabilities, login, limits and policy, at one policy version.
@@ -967,6 +984,127 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
 /// Every built-in manifest, in [`ProviderId::ALL`] order.
 pub fn builtin_manifests() -> Vec<ProviderManifest> {
     ProviderId::ALL.into_iter().map(builtin_manifest).collect()
+}
+
+/// How a newer manifest of a provider relates to an older one (ADR 0722).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Compatibility {
+    /// Nothing that a plan depends on changed.
+    Same,
+    /// Only widened support, looser limits or documentation changed: approvals stand.
+    Compatible,
+    /// Something a plan may depend on narrowed or changed: approvals made under the older policy
+    /// version are void and the author previews and approves again.
+    Breaking,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompatibilityReport {
+    pub level: Compatibility,
+    /// Fixed change codes such as `capability-narrowed:image`, in a stable order.
+    pub changes: Vec<String>,
+}
+
+/// Why two manifests cannot be compared as an upgrade.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpgradeError {
+    /// They describe different providers.
+    DifferentProvider,
+    /// The newer manifest changed something but kept or lowered the policy version.
+    PolicyVersionNotRaised,
+}
+
+impl UpgradeError {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::DifferentProvider => "different-provider",
+            Self::PolicyVersionNotRaised => "policy-version-not-raised",
+        }
+    }
+}
+
+/// Classifies the move from `old` to `new`. Any change at all must raise the policy version, so an
+/// approval pinned to a policy version always means one set of facts.
+pub fn compatibility(
+    old: &ProviderManifest,
+    new: &ProviderManifest,
+) -> Result<CompatibilityReport, UpgradeError> {
+    if old.provider != new.provider {
+        return Err(UpgradeError::DifferentProvider);
+    }
+    let mut breaking = Vec::new();
+    let mut compatible = Vec::new();
+    if old.manifest_version != new.manifest_version || old.family != new.family {
+        breaking.push("manifest-format-changed".to_string());
+    }
+    for capability in Capability::ALL {
+        let (before, after) = (old.support(capability), new.support(capability));
+        if after < before {
+            breaking.push(format!("capability-narrowed:{}", capability.as_str()));
+        } else if after > before {
+            compatible.push(format!("capability-widened:{}", capability.as_str()));
+        }
+    }
+    let (before, after) = (old.constraints.values(), new.constraints.values());
+    for index in 0..Constraints::NAMES.len() {
+        let name = Constraints::NAMES[index];
+        let tighter = match (before[index], after[index]) {
+            (a, b) if a == b => continue,
+            (None, Some(_)) => Constraints::larger_is_looser(index),
+            (Some(_), None) => !Constraints::larger_is_looser(index),
+            (Some(a), Some(b)) => (b < a) == Constraints::larger_is_looser(index),
+            (None, None) => continue,
+        };
+        if tighter {
+            breaking.push(format!("constraint-tightened:{name}"));
+        } else {
+            compatible.push(format!("constraint-loosened:{name}"));
+        }
+    }
+    if old.login != new.login {
+        breaking.push("login-changed".to_string());
+    }
+    if old.canonical != new.canonical {
+        breaking.push("canonical-changed".to_string());
+    }
+    if old.publishing != new.publishing {
+        breaking.push("publishing-changed".to_string());
+    }
+    if old.label != new.label || old.sources != new.sources {
+        compatible.push("documentation-changed".to_string());
+    }
+    let level = if !breaking.is_empty() {
+        Compatibility::Breaking
+    } else if !compatible.is_empty() {
+        Compatibility::Compatible
+    } else {
+        Compatibility::Same
+    };
+    let raised = match (
+        policy_version_key(&old.policy_version),
+        policy_version_key(&new.policy_version),
+    ) {
+        (Some(a), Some(b)) => b > a,
+        _ => false,
+    };
+    if level != Compatibility::Same && !raised {
+        return Err(UpgradeError::PolicyVersionNotRaised);
+    }
+    breaking.extend(compatible);
+    Ok(CompatibilityReport {
+        level,
+        changes: breaking,
+    })
+}
+
+/// Whether an approval given under `approved_policy_version` still stands for `current`. It stands
+/// only for the same policy version, or when every manifest between is compatible; the caller
+/// passes the manifest the approval was given under so that the step can be classified.
+pub fn approval_stands(approved_under: &ProviderManifest, current: &ProviderManifest) -> bool {
+    approved_under.policy_version == current.policy_version
+        || compatibility(approved_under, current)
+            .is_ok_and(|report| report.level != Compatibility::Breaking)
 }
 
 #[cfg(test)]

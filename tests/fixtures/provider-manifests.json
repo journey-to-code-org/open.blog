@@ -1,0 +1,1252 @@
+{
+  "about": "The versioned provider capability contract (ADRs 0720 to 0722). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0722).",
+  "manifestVersion": 1,
+  "capabilities": [
+    "link",
+    "text",
+    "article",
+    "image",
+    "video",
+    "draft",
+    "schedule"
+  ],
+  "announcementNeeds": [
+    "link",
+    "text",
+    "schedule"
+  ],
+  "manifests": {
+    "dev": {
+      "canonical": "sent",
+      "capabilities": {
+        "article": "adapter",
+        "draft": "adapter",
+        "image": "adapter",
+        "link": "unsupported",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": 30,
+        "maxTags": 4,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "syndication",
+      "label": "DEV",
+      "login": {
+        "method": "environment-credential",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "dev",
+      "publishing": "explicit-approval",
+      "sources": [
+        "https://developers.forem.com/api/v1#tag/articles",
+        "https://github.com/forem/forem/blob/main/app/models/article.rb"
+      ]
+    },
+    "facebook": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "manual",
+        "link": "adapter",
+        "schedule": "adapter",
+        "text": "adapter",
+        "video": "manual"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": 31622400,
+        "scheduleMinLeadSeconds": 60
+      },
+      "family": "social",
+      "label": "Facebook",
+      "login": {
+        "method": "oauth2",
+        "scopes": [
+          "pages_show_list",
+          "pages_manage_posts"
+        ]
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "facebook",
+      "publishing": "explicit-approval",
+      "sources": [
+        "https://developers.facebook.com/docs/pages-api/posts",
+        "https://developers.facebook.com/docs/graph-api/reference/page/feed"
+      ]
+    },
+    "ghost": {
+      "canonical": "sent",
+      "capabilities": {
+        "article": "adapter",
+        "draft": "adapter",
+        "image": "adapter",
+        "link": "unsupported",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "syndication",
+      "label": "Ghost",
+      "login": {
+        "method": "environment-credential",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "ghost",
+      "publishing": "explicit-approval",
+      "sources": [
+        "https://docs.ghost.org/admin-api/posts/creating-a-post",
+        "https://ghost.org/changelog/canonical-urls/"
+      ]
+    },
+    "hashnode": {
+      "canonical": "sent",
+      "capabilities": {
+        "article": "adapter",
+        "draft": "adapter",
+        "image": "adapter",
+        "link": "unsupported",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": 100000,
+        "maxTagNameChars": null,
+        "maxTags": 15,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "syndication",
+      "label": "Hashnode",
+      "login": {
+        "method": "environment-credential",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "hashnode",
+      "publishing": "draft-only",
+      "sources": [
+        "https://github.com/Hashnode/gql-skill/blob/main/skills/gql-api/references/schema.graphql",
+        "https://github.com/Hashnode/gql-skill/blob/main/skills/gql-api/references/errors-and-limits.md"
+      ]
+    },
+    "linkedin": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "manual",
+        "link": "adapter",
+        "schedule": "adapter",
+        "text": "adapter",
+        "video": "manual"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": 3000,
+        "scheduleMaxHorizonSeconds": 31622400,
+        "scheduleMinLeadSeconds": 60
+      },
+      "family": "social",
+      "label": "LinkedIn",
+      "login": {
+        "method": "oauth2",
+        "scopes": [
+          "openid",
+          "profile",
+          "w_member_social"
+        ]
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "linkedin",
+      "publishing": "explicit-approval",
+      "sources": [
+        "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api",
+        "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema"
+      ]
+    },
+    "medium": {
+      "canonical": "manual",
+      "capabilities": {
+        "article": "manual",
+        "draft": "manual",
+        "image": "manual",
+        "link": "unsupported",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "syndication",
+      "label": "Medium",
+      "login": {
+        "method": "none",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "medium",
+      "publishing": "manual",
+      "sources": [
+        "https://help.medium.com/hc/en-us/articles/214550207-Importing-a-post-to-Medium"
+      ]
+    },
+    "wordpress": {
+      "canonical": "not-supported",
+      "capabilities": {
+        "article": "adapter",
+        "draft": "adapter",
+        "image": "adapter",
+        "link": "unsupported",
+        "schedule": "manual",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "syndication",
+      "label": "WordPress",
+      "login": {
+        "method": "environment-credential",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "wordpress",
+      "publishing": "explicit-approval",
+      "sources": [
+        "https://developer.wordpress.org/rest-api/reference/posts/"
+      ]
+    }
+  },
+  "refused": [
+    {
+      "name": "an unknown capability",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "capabilities",
+            "carousel"
+          ],
+          "value": "adapter"
+        }
+      ],
+      "code": "unknown-capability"
+    },
+    {
+      "name": "a capability left undeclared",
+      "base": "linkedin",
+      "changes": [
+        {
+          "delete": [
+            "capabilities",
+            "video"
+          ]
+        }
+      ],
+      "code": "missing-capability"
+    },
+    {
+      "name": "an unknown support level",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "capabilities",
+            "link"
+          ],
+          "value": "partial"
+        }
+      ],
+      "code": "unknown-support"
+    },
+    {
+      "name": "a later manifest format",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "manifestVersion"
+          ],
+          "value": 2
+        },
+        {
+          "set": [
+            "webhooks"
+          ],
+          "value": true
+        }
+      ],
+      "code": "unsupported-manifest-version"
+    },
+    {
+      "name": "a version written as text",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "manifestVersion"
+          ],
+          "value": "1"
+        }
+      ],
+      "code": "unsupported-manifest-version"
+    },
+    {
+      "name": "no version at all",
+      "base": "facebook",
+      "changes": [
+        {
+          "delete": [
+            "manifestVersion"
+          ]
+        }
+      ],
+      "code": "manifest-malformed"
+    },
+    {
+      "name": "an unknown field",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "webhooks"
+          ],
+          "value": true
+        }
+      ],
+      "code": "manifest-malformed"
+    },
+    {
+      "name": "an unknown limit",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "constraints",
+            "maxPolls"
+          ],
+          "value": 4
+        }
+      ],
+      "code": "manifest-malformed"
+    },
+    {
+      "name": "an unknown login field",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "login",
+            "token"
+          ],
+          "value": "x"
+        }
+      ],
+      "code": "manifest-malformed"
+    },
+    {
+      "name": "a missing limit block",
+      "base": "linkedin",
+      "changes": [
+        {
+          "delete": [
+            "constraints"
+          ]
+        }
+      ],
+      "code": "manifest-malformed"
+    },
+    {
+      "name": "an unsupported provider",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "provider"
+          ],
+          "value": "twitter"
+        }
+      ],
+      "code": "unknown-provider"
+    },
+    {
+      "name": "a provider in the wrong case",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "provider"
+          ],
+          "value": "LinkedIn"
+        }
+      ],
+      "code": "unknown-provider"
+    },
+    {
+      "name": "the wrong family",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "family"
+          ],
+          "value": "syndication"
+        }
+      ],
+      "code": "family-mismatch"
+    },
+    {
+      "name": "a zero limit",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "constraints",
+            "maxTextChars"
+          ],
+          "value": 0
+        }
+      ],
+      "code": "invalid-constraint"
+    },
+    {
+      "name": "a negative limit",
+      "base": "dev",
+      "changes": [
+        {
+          "set": [
+            "constraints",
+            "maxTags"
+          ],
+          "value": -1
+        }
+      ],
+      "code": "invalid-constraint"
+    },
+    {
+      "name": "a fractional limit",
+      "base": "dev",
+      "changes": [
+        {
+          "set": [
+            "constraints",
+            "maxTags"
+          ],
+          "value": 1.5
+        }
+      ],
+      "code": "invalid-constraint"
+    },
+    {
+      "name": "a limit written as text",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "constraints",
+            "maxTextChars"
+          ],
+          "value": "3000"
+        }
+      ],
+      "code": "invalid-constraint"
+    },
+    {
+      "name": "a policy version that is not a date",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "latest"
+        }
+      ],
+      "code": "invalid-policy-version"
+    },
+    {
+      "name": "a policy revision of zero",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-10-29.0"
+        }
+      ],
+      "code": "invalid-policy-version"
+    },
+    {
+      "name": "an unknown login method",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "login",
+            "method"
+          ],
+          "value": "password"
+        }
+      ],
+      "code": "invalid-login"
+    },
+    {
+      "name": "a scope with a space",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "login",
+            "scopes"
+          ],
+          "value": [
+            "openid profile"
+          ]
+        }
+      ],
+      "code": "invalid-login"
+    },
+    {
+      "name": "a repeated scope",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "login",
+            "scopes"
+          ],
+          "value": [
+            "openid",
+            "openid"
+          ]
+        }
+      ],
+      "code": "invalid-login"
+    },
+    {
+      "name": "scopes on an environment credential",
+      "base": "dev",
+      "changes": [
+        {
+          "set": [
+            "login",
+            "scopes"
+          ],
+          "value": [
+            "write"
+          ]
+        }
+      ],
+      "code": "invalid-login"
+    },
+    {
+      "name": "an unknown canonical rule",
+      "base": "dev",
+      "changes": [
+        {
+          "set": [
+            "canonical"
+          ],
+          "value": "maybe"
+        }
+      ],
+      "code": "invalid-policy"
+    },
+    {
+      "name": "an unknown publishing rule",
+      "base": "dev",
+      "changes": [
+        {
+          "set": [
+            "publishing"
+          ],
+          "value": "auto"
+        }
+      ],
+      "code": "invalid-policy"
+    },
+    {
+      "name": "a plain http source",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "sources"
+          ],
+          "value": [
+            "http://developers.facebook.com/docs/pages-api/posts"
+          ]
+        }
+      ],
+      "code": "invalid-source"
+    },
+    {
+      "name": "no sources",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "sources"
+          ],
+          "value": []
+        }
+      ],
+      "code": "invalid-source"
+    },
+    {
+      "name": "an empty label",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "label"
+          ],
+          "value": ""
+        }
+      ],
+      "code": "invalid-label"
+    },
+    {
+      "name": "a social post that claims a canonical copy",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "canonical"
+          ],
+          "value": "sent"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a manual import that claims an adapter",
+      "base": "medium",
+      "changes": [
+        {
+          "set": [
+            "capabilities",
+            "article"
+          ],
+          "value": "adapter"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
+    {
+      "name": "an adapter with no login",
+      "base": "dev",
+      "changes": [
+        {
+          "set": [
+            "login",
+            "method"
+          ],
+          "value": "none"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a schedule window that closes before it opens",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "constraints",
+            "scheduleMinLeadSeconds"
+          ],
+          "value": 31622400
+        }
+      ],
+      "code": "manifest-inconsistent"
+    }
+  ],
+  "requests": [
+    {
+      "provider": "linkedin",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "schedule"
+        ],
+        "textChars": 280,
+        "scheduleLeadSeconds": 3600
+      },
+      "codes": []
+    },
+    {
+      "provider": "linkedin",
+      "request": {
+        "capabilities": [
+          "text",
+          "link",
+          "image"
+        ]
+      },
+      "codes": [
+        "capability-manual"
+      ]
+    },
+    {
+      "provider": "linkedin",
+      "request": {
+        "capabilities": [
+          "article",
+          "video"
+        ]
+      },
+      "codes": [
+        "capability-unsupported",
+        "capability-manual"
+      ]
+    },
+    {
+      "provider": "linkedin",
+      "request": {
+        "capabilities": [
+          "link",
+          "text"
+        ],
+        "textChars": 3001
+      },
+      "codes": [
+        "text-too-long"
+      ]
+    },
+    {
+      "provider": "linkedin",
+      "request": {
+        "capabilities": [
+          "link",
+          "text"
+        ],
+        "scheduleLeadSeconds": 3600
+      },
+      "codes": [
+        "schedule-not-requested"
+      ]
+    },
+    {
+      "provider": "linkedin",
+      "request": {
+        "capabilities": [
+          "link",
+          "draft"
+        ]
+      },
+      "codes": [
+        "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "facebook",
+      "request": {
+        "capabilities": [
+          "link",
+          "text"
+        ],
+        "textChars": 5000
+      },
+      "codes": []
+    },
+    {
+      "provider": "facebook",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "schedule"
+        ],
+        "scheduleLeadSeconds": 30
+      },
+      "codes": [
+        "schedule-too-soon"
+      ]
+    },
+    {
+      "provider": "facebook",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "schedule"
+        ],
+        "scheduleLeadSeconds": 31708801
+      },
+      "codes": [
+        "schedule-too-far"
+      ]
+    },
+    {
+      "provider": "dev",
+      "request": {
+        "capabilities": [
+          "article",
+          "draft"
+        ],
+        "tags": 4,
+        "longestTagChars": 30
+      },
+      "codes": []
+    },
+    {
+      "provider": "dev",
+      "request": {
+        "capabilities": [
+          "article",
+          "draft"
+        ],
+        "tags": 5,
+        "longestTagChars": 31
+      },
+      "codes": [
+        "too-many-tags",
+        "tag-too-long"
+      ]
+    },
+    {
+      "provider": "dev",
+      "request": {
+        "capabilities": [
+          "article",
+          "schedule"
+        ]
+      },
+      "codes": [
+        "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "hashnode",
+      "request": {
+        "capabilities": [
+          "article",
+          "draft"
+        ],
+        "bodyBytes": 100001
+      },
+      "codes": [
+        "body-too-large"
+      ]
+    },
+    {
+      "provider": "wordpress",
+      "request": {
+        "capabilities": [
+          "article",
+          "schedule"
+        ]
+      },
+      "codes": [
+        "capability-manual"
+      ]
+    },
+    {
+      "provider": "medium",
+      "request": {
+        "capabilities": [
+          "article"
+        ]
+      },
+      "codes": [
+        "capability-manual"
+      ]
+    },
+    {
+      "provider": "ghost",
+      "request": {
+        "capabilities": [
+          "link"
+        ]
+      },
+      "codes": [
+        "capability-unsupported"
+      ]
+    }
+  ],
+  "unknownRequests": [
+    [
+      "link",
+      "poll"
+    ],
+    [
+      "Link"
+    ],
+    [
+      "link ",
+      "text"
+    ],
+    [
+      ""
+    ]
+  ],
+  "compatibility": [
+    {
+      "name": "nothing changed",
+      "base": "linkedin",
+      "changes": [],
+      "expect": {
+        "level": "same",
+        "changes": []
+      }
+    },
+    {
+      "name": "only the policy version was raised",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        }
+      ],
+      "expect": {
+        "level": "same",
+        "changes": []
+      }
+    },
+    {
+      "name": "the adapter learned images",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        },
+        {
+          "set": [
+            "capabilities",
+            "image"
+          ],
+          "value": "adapter"
+        }
+      ],
+      "expect": {
+        "level": "compatible",
+        "changes": [
+          "capability-widened:image"
+        ]
+      }
+    },
+    {
+      "name": "links became manual",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        },
+        {
+          "set": [
+            "capabilities",
+            "link"
+          ],
+          "value": "manual"
+        }
+      ],
+      "expect": {
+        "level": "breaking",
+        "changes": [
+          "capability-narrowed:link"
+        ]
+      }
+    },
+    {
+      "name": "the text limit shrank",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        },
+        {
+          "set": [
+            "constraints",
+            "maxTextChars"
+          ],
+          "value": 2000
+        }
+      ],
+      "expect": {
+        "level": "breaking",
+        "changes": [
+          "constraint-tightened:maxTextChars"
+        ]
+      }
+    },
+    {
+      "name": "the text limit was lifted",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        },
+        {
+          "set": [
+            "constraints",
+            "maxTextChars"
+          ],
+          "value": null
+        }
+      ],
+      "expect": {
+        "level": "compatible",
+        "changes": [
+          "constraint-loosened:maxTextChars"
+        ]
+      }
+    },
+    {
+      "name": "a longer lead time is needed",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        },
+        {
+          "set": [
+            "constraints",
+            "scheduleMinLeadSeconds"
+          ],
+          "value": 600
+        }
+      ],
+      "expect": {
+        "level": "breaking",
+        "changes": [
+          "constraint-tightened:scheduleMinLeadSeconds"
+        ]
+      }
+    },
+    {
+      "name": "a new scope is asked for",
+      "base": "facebook",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        },
+        {
+          "set": [
+            "login",
+            "scopes"
+          ],
+          "value": [
+            "pages_show_list",
+            "pages_manage_posts",
+            "pages_read_engagement"
+          ]
+        }
+      ],
+      "expect": {
+        "level": "breaking",
+        "changes": [
+          "login-changed"
+        ]
+      }
+    },
+    {
+      "name": "documentation moved",
+      "base": "dev",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-10-29.1"
+        },
+        {
+          "set": [
+            "sources"
+          ],
+          "value": [
+            "https://developers.forem.com/api/v1"
+          ]
+        }
+      ],
+      "expect": {
+        "level": "compatible",
+        "changes": [
+          "documentation-changed"
+        ]
+      }
+    },
+    {
+      "name": "a draft-only destination may now publish",
+      "base": "hashnode",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        },
+        {
+          "set": [
+            "publishing"
+          ],
+          "value": "explicit-approval"
+        }
+      ],
+      "expect": {
+        "level": "breaking",
+        "changes": [
+          "publishing-changed"
+        ]
+      }
+    },
+    {
+      "name": "narrowed and widened at once",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-11-15"
+        },
+        {
+          "set": [
+            "capabilities",
+            "image"
+          ],
+          "value": "adapter"
+        },
+        {
+          "set": [
+            "capabilities",
+            "schedule"
+          ],
+          "value": "manual"
+        }
+      ],
+      "expect": {
+        "level": "breaking",
+        "changes": [
+          "capability-narrowed:schedule",
+          "capability-widened:image"
+        ]
+      }
+    },
+    {
+      "name": "a change without a new policy version",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "capabilities",
+            "image"
+          ],
+          "value": "adapter"
+        }
+      ],
+      "expect": {
+        "error": "policy-version-not-raised"
+      }
+    },
+    {
+      "name": "a change under an older policy version",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "policyVersion"
+          ],
+          "value": "2026-01-01"
+        },
+        {
+          "set": [
+            "capabilities",
+            "image"
+          ],
+          "value": "adapter"
+        }
+      ],
+      "expect": {
+        "error": "policy-version-not-raised"
+      }
+    },
+    {
+      "name": "another provider",
+      "base": "linkedin",
+      "changes": [
+        {
+          "set": [
+            "provider"
+          ],
+          "value": "facebook"
+        },
+        {
+          "set": [
+            "label"
+          ],
+          "value": "Facebook"
+        }
+      ],
+      "expect": {
+        "error": "different-provider"
+      }
+    }
+  ]
+}

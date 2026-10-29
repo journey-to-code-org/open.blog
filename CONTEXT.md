@@ -2861,3 +2861,9 @@ _Avoid_: API version (the provider's own, such as LinkedIn's `YYYYMM`), manifest
 Whether a destination can take a distribution request through its adapter. An ineligible destination is reported
 with destination-specific reasons (a manual or unsupported capability, a limit), never sent a part of the request.
 _Avoid_: Validation error, warning
+
+**Manifest compatibility**:
+How a newer manifest of a provider relates to the older one: same, compatible (only widened, loosened or
+documentation changes; approvals stand) or breaking (anything narrowed, tightened or changed in login, canonical or
+publishing; approvals under the old policy version are void) (ADR 0722).
+_Avoid_: Semver, upgrade safety

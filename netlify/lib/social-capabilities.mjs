@@ -1,5 +1,6 @@
-// The versioned provider capability contract, hosted half (epic #381, ADRs 0720 and 0721). The Rust
-// half is crates/openblog-core/src/provider_manifest.rs; both read, refuse and check alike.
+// The versioned provider capability contract, hosted half (epic #381, ADRs 0720 to 0722). The Rust
+// half is crates/openblog-core/src/provider_manifest.rs; both read, refuse and check exactly what
+// tests/fixtures/provider-manifests.json says.
 //
 // A provider manifest says what this release's adapter does at one destination: which capabilities
 // it performs through the provider's API ("adapter"), which only the author can do by hand in the

@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { socialAdapters } from "../../netlify/lib/social-adapters.mjs";
-import { admittedManifest, ANNOUNCEMENT_NEEDS, checkRequest, ManifestError, MANIFESTS, parseCapabilities, parseManifest } from "../../netlify/lib/social-capabilities.mjs";
+import { admittedManifest, ANNOUNCEMENT_NEEDS, CAPABILITIES, checkRequest, MANIFEST_VERSION, ManifestError, MANIFESTS, parseCapabilities, parseManifest, policyVersionKey } from "../../netlify/lib/social-capabilities.mjs";
 import { providers, scripted } from "./social-publish-fakes.mjs";
 
 const withChange = (provider, change) => {
@@ -74,3 +74,52 @@ test("a refusal never repeats the value it refused", () => {
   assert.ok(!error.message.includes("script"));
 });
 
+// The shared contract fixture, which crates/openblog-core/tests/provider_manifest.rs runs too.
+const fixture = JSON.parse(readFileSync(new URL("../fixtures/provider-manifests.json", import.meta.url), "utf8"));
+
+const changed = (base, changes) => {
+  const value = structuredClone(base);
+  for (const change of changes) {
+    const path = change.set ?? change.delete;
+    const last = path.at(-1);
+    const target = path.slice(0, -1).reduce((node, key) => node[key], value);
+    if (change.set) target[last] = change.value;
+    else delete target[last];
+  }
+  return value;
+};
+
+test("the shipped social manifests are the fixture's exactly, and every shipped manifest reads", () => {
+  assert.equal(fixture.manifestVersion, MANIFEST_VERSION);
+  assert.deepEqual(fixture.capabilities, CAPABILITIES);
+  assert.deepEqual(fixture.announcementNeeds, ANNOUNCEMENT_NEEDS);
+  for (const provider of ["linkedin", "facebook"]) assert.deepEqual(MANIFESTS[provider], fixture.manifests[provider], provider);
+  for (const [provider, manifest] of Object.entries(fixture.manifests)) assert.deepEqual(parseManifest(manifest), manifest, provider);
+});
+
+test("every refused manifest fails closed with the fixture's code", () => {
+  for (const entry of fixture.refused) {
+    assert.throws(
+      () => parseManifest(changed(fixture.manifests[entry.base], entry.changes)),
+      (error) => error instanceof ManifestError && error.code === entry.code,
+      entry.name,
+    );
+  }
+  for (const value of [null, [], "manifest", 1]) assert.throws(() => parseManifest(value), (error) => error.code === "manifest-malformed");
+});
+
+test("every request is checked against its destination as the fixture says", () => {
+  for (const entry of fixture.requests) {
+    const manifest = parseManifest(fixture.manifests[entry.provider]);
+    const problems = checkRequest(manifest, entry.request);
+    assert.deepEqual(problems.map((problem) => problem.code), entry.codes, `${entry.provider} ${JSON.stringify(entry.request)}`);
+    for (const problem of problems) assert.ok(problem.message.includes(manifest.label));
+  }
+  for (const names of fixture.unknownRequests) assert.throws(() => parseCapabilities(names), (error) => error.code === "unknown-capability");
+});
+
+test("policy versions are dates with an optional revision", () => {
+  assert.deepEqual(policyVersionKey("2026-10-29"), ["2026-10-29", 0]);
+  assert.deepEqual(policyVersionKey("2026-10-29.2"), ["2026-10-29", 2]);
+  for (const bad of ["2026-13-01", "2026-10-29.0", "2026-10-29.", "26-10-29", "2026-10-29.100", "latest", null]) assert.equal(policyVersionKey(bad), null, String(bad));
+});
