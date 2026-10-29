@@ -2488,16 +2488,17 @@ impl<'a> Renderer<'a> {
             } else {
                 ""
             };
-            let captcha = if c.engagement.captcha.enabled() && comment_mode != ParticipationMode::Locked {
-                format!(
-                    " captcha-provider=\"{}\" captcha-site-key=\"{}\" captcha-scope=\"{}\"",
-                    attr(&c.engagement.captcha.provider),
-                    attr(&c.engagement.captcha.site_key),
-                    attr(&c.engagement.captcha.scope)
-                )
-            } else {
-                String::new()
-            };
+            let captcha =
+                if c.engagement.captcha.enabled() && comment_mode != ParticipationMode::Locked {
+                    format!(
+                        " captcha-provider=\"{}\" captcha-site-key=\"{}\" captcha-scope=\"{}\"",
+                        attr(&c.engagement.captcha.provider),
+                        attr(&c.engagement.captcha.site_key),
+                        attr(&c.engagement.captcha.scope)
+                    )
+                } else {
+                    String::new()
+                };
             body.push_str(&format!(
                 "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
@@ -6074,7 +6075,10 @@ mod tests {
             )
         };
         let posts = [
-            ("posts/open.md", "---\ntitle: Open\ndate: 2026-01-01\n---\nText"),
+            (
+                "posts/open.md",
+                "---\ntitle: Open\ndate: 2026-01-01\n---\nText",
+            ),
             (
                 "posts/locked.md",
                 "---\ntitle: Locked\ndate: 2026-01-01\ncomments: locked\n---\nText",
@@ -6100,7 +6104,9 @@ mod tests {
         );
 
         let on = build_posts(
-            &site(r#","captcha":{"provider":"turnstile","siteKey":" key_1-2 ","scope":"every-comment"}"#),
+            &site(
+                r#","captcha":{"provider":"turnstile","siteKey":" key_1-2 ","scope":"every-comment"}"#,
+            ),
             &posts,
         );
         let open = file(&on, "open/index.html");

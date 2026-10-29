@@ -1642,13 +1642,14 @@ mod captcha_tests {
         let config = SiteConfig::from_json(base).unwrap();
         assert!(!config.engagement.captcha.enabled());
         assert_eq!(config.engagement.captcha, CaptchaConfig::default());
-        assert!(!serde_json::to_string(&config)
-            .unwrap()
-            .contains("captcha"));
+        assert!(!serde_json::to_string(&config).unwrap().contains("captcha"));
         for (captcha, hint) in [
             (r#"{"provider":"turnstile"}"#, "siteKey is required"),
             (r#"{"provider":"other"}"#, "\"off\" or \"turnstile\""),
-            (r#"{"provider":"hcaptcha","siteKey":"k"}"#, "not \"hcaptcha\""),
+            (
+                r#"{"provider":"hcaptcha","siteKey":"k"}"#,
+                "not \"hcaptcha\"",
+            ),
             (r#"{"scope":"always"}"#, "\"session\" or \"every-comment\""),
             (r#"{"siteKey":"<script>"}"#, "never put a secret"),
             (r#"{"enabled":true}"#, "unknown field"),
@@ -1669,7 +1670,10 @@ mod captcha_tests {
         assert_eq!(config.engagement.captcha.scope, "every-comment");
         let again = SiteConfig::from_json(&serde_json::to_string(&config).unwrap()).unwrap();
         assert_eq!(again.engagement.captcha, config.engagement.captcha);
-        let off = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","engagement":{"captcha":{"provider":"off"}}}"#).unwrap();
+        let off = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","engagement":{"captcha":{"provider":"off"}}}"#,
+        )
+        .unwrap();
         assert!(!off.engagement.captcha.enabled());
     }
 }

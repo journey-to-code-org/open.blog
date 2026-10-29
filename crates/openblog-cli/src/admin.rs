@@ -25863,7 +25863,10 @@ What I read:
             (json!({ "provider": "turnstile" }), "siteKey is required"),
             (json!({ "provider": "other" }), "turnstile"),
             (json!({ "scope": "always" }), "every-comment"),
-            (json!({ "provider": "turnstile", "siteKey": "bad key!" }), "never put a secret"),
+            (
+                json!({ "provider": "turnstile", "siteKey": "bad key!" }),
+                "never put a secret",
+            ),
         ] {
             let refused = put_captcha(invalid);
             assert_eq!(refused.status, 422);
@@ -25981,7 +25984,11 @@ What I read:
         );
         assert_eq!(off.status, 200);
         assert!(!site::load_config(&f.dir).unwrap().engagement.feedback);
-        assert!(site::load_config(&f.dir).unwrap().engagement.captcha.enabled());
+        assert!(site::load_config(&f.dir)
+            .unwrap()
+            .engagement
+            .captcha
+            .enabled());
         let cleared = handle(
             &f.state,
             &authed(
