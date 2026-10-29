@@ -2980,6 +2980,80 @@ ob-future-suggestion [hidden] {
   font-size: 0.8rem;
 }
 
+/* ---------- Business facts (ADR 0401) ----------
+   One block for every theme: the footer on each page and the Landing page's Business facts
+   section both write `.ob-business`. Tokens only, so a theme restyles it by changing tokens. */
+
+.ob-footer-business {
+  flex-basis: 100%;
+  padding-bottom: 1rem;
+  border-bottom: var(--ob-row-border-width) solid var(--ob-color-border);
+}
+
+.ob-business {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.75rem 2rem;
+  color: var(--ob-color-text);
+}
+
+.ob-business > * {
+  margin: 0;
+}
+
+.ob-business-name {
+  font-weight: 700;
+}
+
+.ob-business-name,
+.ob-business-badge {
+  grid-column: 1 / -1;
+}
+
+.ob-badge {
+  display: inline-block;
+  padding: 0.2rem 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-soft);
+  border-radius: var(--ob-radius-sm);
+  color: var(--ob-color-accent-soft);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ob-business-contact,
+.ob-business-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-business-contact li,
+.ob-business-notes li {
+  margin: 0.25rem 0;
+}
+
+.ob-business-contact a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.ob-business-hours div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.2rem 0;
+}
+
+.ob-business-hours dt {
+  font-weight: 600;
+}
+
+.ob-business-hours dd {
+  margin: 0;
+  text-align: end;
+}
+
 ob-back-to-top {
   position: fixed;
   right: max(1rem, env(safe-area-inset-right));

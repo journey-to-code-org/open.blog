@@ -127,7 +127,7 @@ fn a_missing_landing_page_or_an_unreadable_one_leaves_the_site_unchanged() {
     let plain = build(&load(config(""), None));
     for bad in [
         "{ not json",
-        r#"{"format":"openblog-landing","version":2,"sections":[]}"#,
+        r#"{"format":"openblog-landing","version":3,"sections":[]}"#,
         r#"{"format":"openblog-landing","version":1,"sections":[{"id":"x","type":"html","markup":"<b>"}]}"#,
     ] {
         let site = load(config(""), Some(bad));

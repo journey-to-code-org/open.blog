@@ -14,7 +14,7 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use openblog_core::landing::{LandingPage, LANDING_FORMAT, LANDING_VERSION, MAX_FILE_BYTES};
+use openblog_core::landing::{LandingPage, LANDING_FORMAT, MAX_FILE_BYTES};
 use serde_json::{json, Value};
 
 use crate::source_store;
@@ -90,7 +90,8 @@ fn entry_from(id: u64, value: &Value) -> Option<Entry> {
     }
     let mut page = value["page"].as_object()?.clone();
     page.insert("format".into(), json!(LANDING_FORMAT));
-    page.insert("version".into(), json!(LANDING_VERSION));
+    let version = openblog_core::landing::version_for_page(&page);
+    page.insert("version".into(), json!(version));
     let page = LandingPage::parse(&Value::Object(page).to_string()).ok()?;
     Some(Entry {
         meta: Meta {
@@ -379,8 +380,7 @@ mod tests {
             .map(|(i, h)| json!({"id": format!("s{i}"), "type": "welcome", "heading": h}))
             .collect();
         LandingPage::parse(
-            &json!({"format": LANDING_FORMAT, "version": LANDING_VERSION, "sections": sections})
-                .to_string(),
+            &json!({"format": LANDING_FORMAT, "version": 1, "sections": sections}).to_string(),
         )
         .unwrap()
     }

@@ -16,7 +16,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use openblog_core::landing::{
-    LandingPage, LandingProblem, LANDING_FILE, LANDING_VERSION, MAX_FILE_BYTES,
+    LandingPage, LandingProblem, LANDING_FILE, LANDING_VERSION_MAX, MAX_FILE_BYTES,
 };
 
 use crate::source_store::{self, StoreError as RootError};
@@ -124,7 +124,7 @@ fn newer_version(text: &str) -> Option<u64> {
         .ok()?
         .get("version")?
         .as_u64()
-        .filter(|version| *version > LANDING_VERSION)
+        .filter(|version| *version > LANDING_VERSION_MAX)
 }
 
 /// What a save wrote.
@@ -304,13 +304,13 @@ mod tests {
     #[test]
     fn a_file_from_a_newer_release_is_never_overwritten() {
         let root = dir("newer");
-        let newer = r#"{"format":"openblog-landing","version":2,"sections":[],"kept":true}"#;
+        let newer = r#"{"format":"openblog-landing","version":3,"sections":[],"kept":true}"#;
         fs::write(root.join("content/landing.json"), newer).unwrap();
         let stored = read(&root, "content").unwrap().unwrap();
         assert!(stored.parsed.is_err());
         assert!(matches!(
             save(&root, "content", Some(&stored.revision), &page()),
-            Err(StoreError::Newer(2))
+            Err(StoreError::Newer(3))
         ));
         assert_eq!(on_disk(&root), newer);
     }

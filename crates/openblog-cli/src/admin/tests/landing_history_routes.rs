@@ -258,7 +258,7 @@ fn a_page_written_by_a_newer_release_is_never_overwritten_by_a_restore() {
     let session = login_ok(&f);
     let first = save(&f, &session, "First", &Json::Null);
     save(&f, &session, "Second", &first["revision"]);
-    let newer = r#"{"format":"openblog-landing","version":2,"sections":[]}"#;
+    let newer = r#"{"format":"openblog-landing","version":3,"sections":[]}"#;
     fs::write(landing_file(&f), newer).unwrap();
     let current = body_json(&handle(
         &f.state,

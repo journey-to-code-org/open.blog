@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Business facts on every page (epic #473, story #482; ADR 0401): when `business` is set, every page's footer carries one block with the name, a "Licensed and insured" badge, phone and email links, hours grouped by day, the license, accepted payments and the year founded, styled by the engine with `--ob-*` tokens so every theme gets it. The home page also carries `LocalBusiness` structured data (a trade subtype such as `Plumber` or `RoofingContractor` where schema.org has one) with only the fields you stated. The Landing page builder gains a **Business facts** section; a page that uses it is stored as landing version 2, every other page is unchanged. Sites without `business` build exactly as before.
+
 - Business facts in `openblog.json` (epic #473, story #482; ADR 0400): an optional, versioned `business` block states the legal and display name, trade, phone (stored as E.164 and formatted when pages are built), email, opening hours per weekday with closed days, license number and issuer, an insured flag, accepted kinds of payment and the founding year. A bad phone, time or payment method fails with a plain message naming the field. Without the block nothing changes. See [Configuration](docs/configuration.md#business-facts).
 
 - A trades voice prompt pack (epic #472, story #481): the bundled voice catalog gains a `trades` pack of eight short prompts for people who work with their hands (a job that went sideways, the question every customer asks, the tool you would never give up, and more), each answerable in three minutes. Hide it like any pack with `disabled: [trades]` in `assistant/voice/catalog.md`.

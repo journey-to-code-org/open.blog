@@ -10,7 +10,8 @@
 //! ([`render_inert_markdown`]).
 //!
 //! The stored file is `<content>/landing.json` (`openblog-landing`, version
-//! 1). The format is a one-way door, so it is versioned and conservative:
+//! 1, or 2 for a page that holds a Business facts section: ADR 0401). The
+//! format is a one-way door, so it is versioned and conservative:
 //!
 //! - [`LandingPage::parse`] refuses another version, and a newer one with a
 //!   message that says the file was not changed, so a release that does not
@@ -39,8 +40,31 @@ use crate::config::HomeConfig;
 
 /// Names the stored file.
 pub const LANDING_FORMAT: &str = "openblog-landing";
-/// The only stored version this release reads and writes.
+/// The version every page is written as unless it uses a type that needs a newer one.
 pub const LANDING_VERSION: u64 = 1;
+/// The version a page that holds a Business facts section is written as (ADR 0401). A page
+/// without one is still written as version 1, byte for byte as before.
+pub const LANDING_VERSION_BUSINESS: u64 = 2;
+/// The newest version this release reads.
+pub const LANDING_VERSION_MAX: u64 = LANDING_VERSION_BUSINESS;
+
+/// The version a stored page object needs: [`LANDING_VERSION_BUSINESS`] when any section is a
+/// Business facts section, otherwise [`LANDING_VERSION`].
+pub fn version_for_page(page: &Map<String, Value>) -> u64 {
+    let needs_business = page
+        .get("sections")
+        .and_then(Value::as_array)
+        .is_some_and(|sections| {
+            sections
+                .iter()
+                .any(|s| s.get("type").and_then(Value::as_str) == Some("business-facts"))
+        });
+    if needs_business {
+        LANDING_VERSION_BUSINESS
+    } else {
+        LANDING_VERSION
+    }
+}
 /// The stored file, relative to the content folder.
 pub const LANDING_FILE: &str = "landing.json";
 
@@ -149,6 +173,9 @@ pub enum SectionKind {
     SocialLinks(SocialLinks),
     Faq(Faq),
     Callout(Callout),
+    /// The business facts from `openblog.json`, placed on the page (ADR 0401). Needs landing
+    /// version 2.
+    BusinessFacts(BusinessFacts),
 }
 
 impl SectionKind {
@@ -169,12 +196,13 @@ impl SectionKind {
             Self::SocialLinks(_) => "social-links",
             Self::Faq(_) => "faq",
             Self::Callout(_) => "callout",
+            Self::BusinessFacts(_) => "business-facts",
         }
     }
 }
 
 /// Every type name this release defines.
-pub const SECTION_TYPES: [&str; 14] = [
+pub const SECTION_TYPES: [&str; 15] = [
     "welcome",
     "rich-text",
     "latest-posts",
@@ -189,7 +217,15 @@ pub const SECTION_TYPES: [&str; 14] = [
     "social-links",
     "faq",
     "callout",
+    "business-facts",
 ];
+
+/// The business facts section: the facts live in `openblog.json`, so the section holds only the
+/// heading it is placed under.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BusinessFacts {
+    pub heading: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Welcome {
@@ -415,7 +451,7 @@ fn known_keys(kind: &str) -> &'static [&'static str] {
         "welcome" => &["heading", "subheading", "image", "button"],
         "rich-text" => &["markdown"],
         "latest-posts" => &["heading", "count"],
-        "series" => &["heading"],
+        "series" | "business-facts" => &["heading"],
         "featured-post" => &["post", "heading"],
         "buttons" | "social-links" | "faq" => &["items"],
         "image" => &["src", "alt", "caption"],
@@ -503,6 +539,7 @@ impl Section {
             "contact" => SectionKind::Contact(from_fields(fields).map_err(wrong)?),
             "social-links" => SectionKind::SocialLinks(from_fields(fields).map_err(wrong)?),
             "faq" => SectionKind::Faq(from_fields(fields).map_err(wrong)?),
+            "business-facts" => SectionKind::BusinessFacts(from_fields(fields).map_err(wrong)?),
             _ => SectionKind::Callout(from_fields(fields).map_err(wrong)?),
         };
         Ok(Self {
@@ -529,6 +566,7 @@ impl Section {
             SectionKind::SocialLinks(v) => serde_json::to_value(v),
             SectionKind::Faq(v) => serde_json::to_value(v),
             SectionKind::Callout(v) => serde_json::to_value(v),
+            SectionKind::BusinessFacts(v) => serde_json::to_value(v),
         };
         let mut object = Map::new();
         // Unknown fields first so a known field always wins a name clash.
@@ -585,19 +623,19 @@ impl LandingPage {
                 ))])
             }
         }
-        match root.remove("version").as_ref().and_then(Value::as_u64) {
-            Some(LANDING_VERSION) => {}
-            Some(newer) if newer > LANDING_VERSION => {
+        let version = match root.remove("version").as_ref().and_then(Value::as_u64) {
+            Some(version @ LANDING_VERSION..=LANDING_VERSION_MAX) => version,
+            Some(newer) if newer > LANDING_VERSION_MAX => {
                 return Err(vec![LandingProblem::page(format!(
-                    "was written by a newer open.blog (landing page version {newer}); this release reads version {LANDING_VERSION}. The file has not been changed and will not be overwritten: update open.blog to edit it"
+                    "was written by a newer open.blog (landing page version {newer}); this release reads versions up to {LANDING_VERSION_MAX}. The file has not been changed and will not be overwritten: update open.blog to edit it"
                 ))])
             }
             _ => {
                 return Err(vec![LandingProblem::page(format!(
-                    "`version` must be {LANDING_VERSION}"
+                    "`version` must be {LANDING_VERSION} or {LANDING_VERSION_MAX}"
                 ))])
             }
-        }
+        };
         let sections = match root.remove("sections") {
             Some(Value::Array(items)) => items,
             _ => return Err(vec![LandingProblem::page("`sections` must be a list")]),
@@ -612,7 +650,19 @@ impl LandingPage {
         let mut problems = Vec::new();
         for (index, item) in sections.into_iter().enumerate() {
             match Section::from_value(index, item) {
-                Ok(section) => parsed.push(section),
+                Ok(section) => {
+                    if version < LANDING_VERSION_BUSINESS
+                        && matches!(section.kind, SectionKind::BusinessFacts(_))
+                    {
+                        problems.push(LandingProblem::in_section(
+                            &section.id,
+                            format!(
+                                "the business-facts section needs `version` {LANDING_VERSION_BUSINESS}"
+                            ),
+                        ));
+                    }
+                    parsed.push(section)
+                }
                 Err(problem) => problems.push(problem),
             }
         }
@@ -639,7 +689,7 @@ impl LandingPage {
             root.insert(key.clone(), value.clone());
         }
         root.insert("format".into(), Value::String(LANDING_FORMAT.into()));
-        root.insert("version".into(), Value::from(LANDING_VERSION));
+        root.insert("version".into(), Value::from(self.stored_version()));
         root.insert(
             "sections".into(),
             Value::Array(self.sections.iter().map(Section::to_value).collect()),
@@ -648,6 +698,19 @@ impl LandingPage {
             serde_json::to_string_pretty(&Value::Object(root)).unwrap_or_else(|_| "{}".into());
         text.push('\n');
         text
+    }
+
+    /// The stored version this page is written as (ADR 0401).
+    pub fn stored_version(&self) -> u64 {
+        if self
+            .sections
+            .iter()
+            .any(|s| matches!(s.kind, SectionKind::BusinessFacts(_)))
+        {
+            LANDING_VERSION_BUSINESS
+        } else {
+            LANDING_VERSION
+        }
     }
 
     /// Whether any section would be rendered.
@@ -995,6 +1058,9 @@ pub(crate) fn validate_section(section: &Section, problems: &mut Vec<LandingProb
         SectionKind::Series(v) => {
             check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
         }
+        SectionKind::BusinessFacts(v) => {
+            check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
+        }
         SectionKind::FeaturedPost(v) => {
             if !valid_id(&v.post) {
                 problems.push(LandingProblem::in_section(
@@ -1278,7 +1344,12 @@ mod tests {
     use serde_json::json;
 
     fn file(sections: Value) -> String {
-        json!({ "format": LANDING_FORMAT, "version": 1, "sections": sections }).to_string()
+        let version = if sections.to_string().contains("business-facts") {
+            LANDING_VERSION_BUSINESS
+        } else {
+            LANDING_VERSION
+        };
+        json!({ "format": LANDING_FORMAT, "version": version, "sections": sections }).to_string()
     }
 
     fn one(section: Value) -> Result<LandingPage, Vec<LandingProblem>> {
@@ -1310,7 +1381,8 @@ mod tests {
             {"id": "contact", "type": "contact", "email": "me@example.com", "phone": "+1 (555) 010-0100", "address": "1 High St"},
             {"id": "social", "type": "social-links", "items": [{"label": "Mastodon", "href": "https://example.social/@me"}]},
             {"id": "faq", "type": "faq", "items": [{"question": "Why?", "answer": "Because."}]},
-            {"id": "note", "type": "callout", "tone": "warning", "title": "Heads up", "body": "Careful"}
+            {"id": "note", "type": "callout", "tone": "warning", "title": "Heads up", "body": "Careful"},
+            {"id": "business", "type": "business-facts", "heading": "Contact and hours"}
         ])
     }
 
@@ -1345,19 +1417,38 @@ mod tests {
 
     #[test]
     fn a_newer_version_is_refused_with_a_clear_message_and_a_wrong_one_too() {
-        let newer = json!({"format": LANDING_FORMAT, "version": 2, "sections": []}).to_string();
+        let newer = json!({"format": LANDING_FORMAT, "version": 3, "sections": []}).to_string();
         let text = message(LandingPage::parse(&newer));
         assert!(text.contains("newer open.blog"), "{text}");
         assert!(text.contains("will not be overwritten"), "{text}");
         for bad in [json!(0), json!("1"), json!(null)] {
             let text =
                 json!({"format": LANDING_FORMAT, "version": bad, "sections": []}).to_string();
-            assert!(message(LandingPage::parse(&text)).contains("`version` must be 1"));
+            assert!(message(LandingPage::parse(&text)).contains("`version` must be 1 or 2"));
         }
         let no_version = json!({"format": LANDING_FORMAT, "sections": []}).to_string();
         assert!(LandingPage::parse(&no_version).is_err());
         let wrong_format = json!({"format": "other", "version": 1, "sections": []}).to_string();
         assert!(message(LandingPage::parse(&wrong_format)).contains("`format`"));
+    }
+
+    #[test]
+    fn a_page_is_version_one_until_it_holds_a_business_facts_section() {
+        let plain = LandingPage::parse(&file(
+            json!([{"id": "a", "type": "series", "heading": "S"}]),
+        ))
+        .unwrap();
+        assert_eq!(plain.stored_version(), 1);
+        assert!(plain.to_canonical_json().contains("\"version\": 1"));
+        let business = json!([{"id": "b", "type": "business-facts", "heading": "Find us"}]);
+        let page = LandingPage::parse(&file(business.clone())).unwrap();
+        assert_eq!(page.stored_version(), 2);
+        assert!(page.to_canonical_json().contains("\"version\": 2"));
+        // A version 1 file cannot hold the new type: an older release would have refused it.
+        let old = json!({"format": LANDING_FORMAT, "version": 1, "sections": business}).to_string();
+        assert!(message(LandingPage::parse(&old)).contains("needs `version` 2"));
+        let heading_missing = file(json!([{"id": "b", "type": "business-facts", "heading": ""}]));
+        assert!(LandingPage::parse(&heading_missing).is_err());
     }
 
     #[test]

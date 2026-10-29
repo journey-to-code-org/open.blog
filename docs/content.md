@@ -290,10 +290,14 @@ before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can 
 
 Each section has a unique `id` (lowercase letters, digits and single hyphens), a `type`, and an optional
 `hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`,
-`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq` and `callout`; the media, hours,
-contact, social, question and call-out types hold the same fields as the
-[pieces](#pieces-buttons-videos-maps-and-more) above. There are at most 40 sections and 256 KiB. The page is
-accepted whole or not at all, and a file from a newer release is never overwritten.
+`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout` and `business-facts`; the
+media, hours, contact, social, question and call-out types hold the same fields as the
+[pieces](#pieces-buttons-videos-maps-and-more) above. The `business-facts` section holds only a `heading`: it
+places the [business facts](configuration.md#business-facts) from `openblog.json` (name, phone, hours, license and
+insurance badge) under that heading, and renders nothing while none are stated. Because it is a new type, a page
+that holds one is stored as `"version": 2` (every other page stays version 1, byte for byte, and a version 1
+file cannot hold it). There are at most 40 sections and 256 KiB. The page is accepted whole or not at all, and
+a file from a newer release is never overwritten.
 
 Landing content never accepts markup. There is no HTML section; a button is a label and an address, a video is
 a provider and an id, a map is coordinates. Only Markdown is rich (the text section, answers, call-out bodies)
