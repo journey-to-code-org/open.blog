@@ -430,6 +430,7 @@ pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) ->
     let bytes = write_text(sample)?;
     let file = sample.file_name().map_err(StoreError::Refused)?;
     let path = path_of(root, visibility, &file)?;
+    refuse_linked_folder(root, visibility)?;
     let _lock = lock(root)?;
     match open_session_key(root) {
         Some((prompt, started))
@@ -502,6 +503,7 @@ pub fn write_polished(
     let mut bytes = write_text(sample)?;
     let rough_path = path_of(root, visibility, rough_name)?;
     let path = path_of(root, visibility, &file)?;
+    refuse_linked_folder(root, visibility)?;
     let _lock = lock(root)?;
     let rough = match read_bounded(&rough_path)? {
         Some(rough) => listed_from(visibility, rough_name, &rough),
@@ -657,6 +659,8 @@ pub fn move_visibility(
     if from == to {
         return refused("The sample is already there.");
     }
+    refuse_linked_folder(root, from)?;
+    refuse_linked_folder(root, to)?;
     let _lock = lock(root)?;
     let (rough, polished) = pair(root, from, file)?;
     let mut names = vec![rough];
@@ -814,23 +818,42 @@ fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
 /// A voice folder (relative to the project) with every ancestor up to the root checked: if any is
 /// a link or reparse point the erase is refused, because enumerating or deleting through it could
 /// reach another folder of the project (the posts, say). A folder that does not exist is fine.
-fn unlinked_dir(root: &Path, relative: &Path) -> Result<PathBuf> {
+/// Whether `relative` (or a folder on the way to it) is a link or a reparse point.
+fn linked_on_the_way(root: &Path, relative: &Path) -> Result<bool> {
     let mut current = root.to_path_buf();
     for component in relative.components() {
         current.push(component);
         match fs::symlink_metadata(&current) {
-            Ok(metadata) if is_link_or_reparse(&metadata) => {
-                return refused(format!(
-                    "{} is a link, so nothing was erased. Replace it with a real folder or remove the link, then run erase again.",
-                    relative.display()
-                ));
-            }
+            Ok(metadata) if is_link_or_reparse(&metadata) => return Ok(true),
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
             Err(error) => return Err(failed("Cannot inspect a voice folder", error)),
         }
     }
+    Ok(false)
+}
+
+fn unlinked_dir(root: &Path, relative: &Path) -> Result<PathBuf> {
+    if linked_on_the_way(root, relative)? {
+        return refused(format!(
+            "{} is a link, so nothing was erased. Replace it with a real folder or remove the link, then run erase again.",
+            relative.display()
+        ));
+    }
     contained(root, &relative.to_string_lossy())
+}
+
+/// A sample folder reached through a link is never written to, even when the link points inside
+/// the project (for example at `content/posts`, where a build or a commit would pick a sample up).
+/// The erase refuses the same layout.
+pub(crate) fn refuse_linked_folder(root: &Path, visibility: Visibility) -> Result<()> {
+    if linked_on_the_way(root, Path::new(visibility.directory()))? {
+        return refused(format!(
+            "{} is a link, so nothing was saved. Replace it with a real folder or remove the link, then try again.",
+            visibility.directory()
+        ));
+    }
+    Ok(())
 }
 
 /// Every folder an erase reads or deletes from, checked for links. Touches nothing.

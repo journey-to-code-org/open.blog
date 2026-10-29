@@ -1297,3 +1297,22 @@ fn promotion_never_replaces_a_file_and_keeps_to_the_posts_folder() {
         assert!(error.to_string().contains("posts"), "{bad}: {error}");
     }
 }
+
+#[test]
+fn a_voice_folder_linked_inside_the_project_is_never_written_to() {
+    let project = project_with_posts();
+    project.open_session("a-mistake-i-made");
+    let link = project.0.join(Visibility::Private.directory());
+    fs::create_dir_all(link.parent().unwrap()).unwrap();
+    if !try_dir_link(&project.0.join("content/posts"), &link) {
+        eprintln!("skipped: this OS refused to create a folder link");
+        return;
+    }
+    let before = snapshot(&project.0);
+    let error = write_rough(&project.0, Visibility::Private, &rough("words")).unwrap_err();
+    assert!(matches!(error, StoreError::Refused(_)), "{error}");
+    assert!(error.to_string().contains("is a link"), "{error}");
+    assert!(write_polished(&project.0, Visibility::Private, &polished("Clean."), None).is_err());
+    assert_posts_survive(&project);
+    assert_eq!(snapshot(&project.0), before);
+}
