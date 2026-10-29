@@ -1,4 +1,4 @@
--- Roll back optional scheduled social publishing (ADRs 0450 to 0452). Run in
+-- Roll back optional scheduled social publishing (ADRs 0293 to 0295). Run in
 -- the Supabase SQL editor.
 --
 -- First remove OPENBLOG_SOCIAL_ENABLED from the Netlify environment and

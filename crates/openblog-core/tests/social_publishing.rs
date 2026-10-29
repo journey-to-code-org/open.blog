@@ -1,4 +1,4 @@
-//! Optional social publishing, identity boundary (ADR 0450): the site scope and Admin actor rules
+//! Optional social publishing, identity boundary (ADR 0293): the site scope and Admin actor rules
 //! are held to `tests/fixtures/social-scope.json`, which the hosted function's tests read too.
 
 use openblog_core::social_publishing::{ScopeError, SiteScope, SocialActor, WORKER_ACTOR};

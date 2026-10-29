@@ -1,5 +1,5 @@
 //! Optional social publishing is off by default and invisible to the publishing pipeline
-//! (ADR 0450): a site build, a portable export and a cross-posting plan are byte for byte the
+//! (ADR 0293): a site build, a portable export and a cross-posting plan are byte for byte the
 //! same whether or not the deployment holds social publishing settings and secrets, and no such
 //! secret ever reaches their output.
 

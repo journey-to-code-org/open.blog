@@ -1,4 +1,4 @@
-# ADR 0452: Provider tokens are envelope-encrypted by the hosted function and refreshed single-flight
+# ADR 0295: Provider tokens are envelope-encrypted by the hosted function and refreshed single-flight
 
 - Status: Accepted
 - Date: 2026-10-29

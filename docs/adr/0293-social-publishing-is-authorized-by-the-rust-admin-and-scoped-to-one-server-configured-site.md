@@ -1,4 +1,4 @@
-# ADR 0450: Social publishing is authorized by the Rust Admin and scoped to one server-configured site
+# ADR 0293: Social publishing is authorized by the Rust Admin and scoped to one server-configured site
 
 - Status: Accepted
 - Date: 2026-10-29

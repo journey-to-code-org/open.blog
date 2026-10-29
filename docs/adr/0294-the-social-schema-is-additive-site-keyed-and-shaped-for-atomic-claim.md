@@ -1,4 +1,4 @@
-# ADR 0451: The social schema is additive, site-keyed and shaped for atomic claim
+# ADR 0294: The social schema is additive, site-keyed and shaped for atomic claim
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -23,7 +23,7 @@ The most conservative reversible design, in `supabase/social.sql` with `supabase
 - **Private.** Row level security on, no policies, `revoke all` from `public`, `anon`, `authenticated`; `service_role`
   gets `select, insert, update` and never `delete`: cancel and disconnect are updates, attempts are append and
   finish, and foreign keys are `on delete restrict` so history is never cascaded away.
-- **Site keyed, not owner keyed.** Every table has `site_id` with the same check as the scope rule (ADR 0450).
+- **Site keyed, not owner keyed.** Every table has `site_id` with the same check as the scope rule (ADR 0293).
   Ownership is a composite foreign key: a post's `(account_id, site_id)` references the account's `(id, site_id)`,
   and an attempt's `(post_id, site_id)` references the post's, so a row cannot point across sites even by mistake.
   The Admin user is only the audit text `connected_by` / `created_by` / `worker`.
@@ -47,7 +47,7 @@ The most conservative reversible design, in `supabase/social.sql` with `supabase
 
 ## Considered options
 
-- **`auth.users` ownership and RLS policies.** Rejected in ADR 0450.
+- **`auth.users` ownership and RLS policies.** Rejected in ADR 0293.
 - **Provider-specific tables.** Rejected: a table per provider multiplies migrations; the shape-checked columns do not.
 - **A claim function now.** Deferred: the claim story owns its semantics. This schema only guarantees it is possible
   (version, lease checks, indexes, idempotency).

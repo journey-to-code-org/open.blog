@@ -1,6 +1,6 @@
-// The lifecycle of a connected account's provider credentials (epic #353, ADR 0452): store them
+// The lifecycle of a connected account's provider credentials (epic #353, ADR 0295): store them
 // encrypted, hand an access token to server code that needs one, refresh it once and only once at a
-// time, and revoke it for good. Server-only, behind the site scope of ADR 0450.
+// time, and revoke it for good. Server-only, behind the site scope of ADR 0293.
 //
 // Tokens never leave this module except as the return value of `accessToken`, which only the
 // hosted function's delivery code calls. `describe` is what Admin may ever see: a status and

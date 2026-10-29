@@ -1,4 +1,4 @@
-// The identity boundary of optional scheduled social publishing (epic #353, ADR 0450): the
+// The identity boundary of optional scheduled social publishing (epic #353, ADR 0293): the
 // hosted half of crates/openblog-core/src/social_publishing.rs. Both read
 // tests/fixtures/social-scope.json and must accept and refuse the same values.
 //

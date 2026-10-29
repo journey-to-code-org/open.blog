@@ -52,7 +52,7 @@ LinkedIn and Facebook as well; stored tokens are deleted by the rollback but sta
 ## Provider tokens
 
 Access and refresh tokens are encrypted by the hosted function before they reach the database
-([ADR 0452](adr/0452-provider-tokens-are-envelope-encrypted-by-the-hosted-function-and-refreshed-single-flight.md)).
+([ADR 0295](adr/0295-provider-tokens-are-envelope-encrypted-by-the-hosted-function-and-refreshed-single-flight.md)).
 Each connection gets its own random key, wrapped by a key you keep only in the function's environment, so a database
 dump or a leaked `service_role` key does not reveal a token. Generate a key with
 `node -e "console.log('k1:' + require('crypto').randomBytes(32).toString('base64'))"` and store it in your secret

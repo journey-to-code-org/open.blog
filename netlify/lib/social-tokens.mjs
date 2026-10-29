@@ -1,5 +1,5 @@
 // Envelope encryption for provider credentials of optional social publishing (epic #353,
-// ADR 0452). Server-only: this module runs in the hosted function, never in a browser or a build.
+// ADR 0295). Server-only: this module runs in the hosted function, never in a browser or a build.
 //
 // Each credential bundle (access token, refresh token) is encrypted with its own random 256-bit
 // data key (AES-256-GCM). That data key is wrapped (AES-256-GCM) by a key-encryption key held only

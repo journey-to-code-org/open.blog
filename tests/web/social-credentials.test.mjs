@@ -1,4 +1,4 @@
-// Provider credentials of optional social publishing (epic #353, ADR 0452): envelope encryption,
+// Provider credentials of optional social publishing (epic #353, ADR 0295): envelope encryption,
 // single-flight refresh, revocation, and the promise that no token reaches an error, a log line or
 // anything Admin can see.
 import test from "node:test";

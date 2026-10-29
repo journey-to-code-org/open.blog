@@ -1,4 +1,4 @@
-//! Optional scheduled social publishing: the identity boundary (ADR 0450).
+//! Optional scheduled social publishing: the identity boundary (ADR 0293).
 //!
 //! Social publishing is off unless a deployer turns it on. When it is on, nothing in a browser
 //! talks to Supabase: the Rust Admin server authenticates the author with its own session, then

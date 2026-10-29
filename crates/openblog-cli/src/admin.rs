@@ -3974,6 +3974,7 @@ fn meta(state: &AppState) -> Response {
             "contributors": config.contributors,
             "creditRoles": credit_roles,
             "pieces": openblog_core::piece::schema_json(),
+            "compare": openblog_core::compare::schema_json(),
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
@@ -17488,6 +17489,15 @@ fn build_piece(req: &Request) -> Response {
     }) else {
         return Response::error(400, "values must be a list of [field, value] pairs");
     };
+    if kind == openblog_core::compare::FENCE {
+        return match openblog_core::compare::from_values(&values) {
+            Ok(pair) => Response::json(200, &json!({ "markdown": pair.to_markdown() })),
+            Err(problems) => Response::json(
+                422,
+                &json!({ "error": "Check the highlighted details", "problems": problems }),
+            ),
+        };
+    }
     match openblog_core::piece::Piece::from_values(kind, &values) {
         Ok(piece) => Response::json(200, &json!({ "markdown": piece.to_markdown() })),
         Err(problems) => Response::json(
@@ -32491,6 +32501,73 @@ What I read:
         );
         assert_eq!(publish.status, 409);
         drop(lock);
+    }
+
+    #[test]
+    fn a_before_and_after_pair_is_offered_checked_and_written_by_the_engine() {
+        let f = fixture("compare-pair");
+        let session = login_ok(&f);
+        let meta = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/meta"), &session, false),
+        ));
+        assert_eq!(meta["compare"]["kind"], "compare");
+        assert_eq!(meta["compare"]["label"], "Before and after");
+        assert_eq!(meta["pieces"].as_array().unwrap().len(), 9);
+        assert!(!meta["pieces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|piece| piece["kind"] == "compare"));
+        let build = |values: Json, csrf: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/pieces",
+                        json!({"kind": "compare", "values": values}),
+                    ),
+                    &session,
+                    csrf,
+                ),
+            )
+        };
+        let built = build(
+            json!([
+                ["before", "/images/a.jpg"],
+                ["before-alt", "The old floor"],
+                ["after", "/images/b.jpg"],
+                ["after-alt", "The new floor"],
+                ["after-caption", "Done"]
+            ]),
+            true,
+        );
+        assert_eq!(built.status, 200);
+        assert_eq!(
+            body_json(&built)["markdown"],
+            "```compare\nbefore: /images/a.jpg\nbefore-alt: The old floor\nafter: /images/b.jpg\nafter-alt: The new floor\nafter-caption: Done\n```\n"
+        );
+        let refused = build(
+            json!([
+                ["before", "/images/a.jpg"],
+                ["before-alt", ""],
+                ["after", ""],
+                ["after-alt", "x"]
+            ]),
+            true,
+        );
+        assert_eq!(refused.status, 422);
+        let problems = body_json(&refused)["problems"].clone();
+        assert!(problems[0]
+            .as_str()
+            .unwrap()
+            .contains("before picture needs a description"));
+        assert!(problems[1]
+            .as_str()
+            .unwrap()
+            .contains("after picture is missing"));
+        assert_ne!(build(json!([]), false).status, 200);
     }
 
     #[test]

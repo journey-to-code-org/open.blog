@@ -17,6 +17,7 @@ import "./components/ob-audio-lab.js";
 import "./components/ob-native-lab.js";
 import "./components/ob-recipe.js";
 import "./components/ob-quiz.js";
+import "./components/ob-compare.js";
 import "./components/ob-reading-modes.js";
 import "./components/ob-back-to-top.js";
 import "./components/ob-search.js";

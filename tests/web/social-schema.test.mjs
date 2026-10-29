@@ -1,4 +1,4 @@
-// The hosted store for optional social publishing (ADRs 0450 and 0451): additive, private,
+// The hosted store for optional social publishing (ADRs 0293 and 0294): additive, private,
 // site-scoped by composite keys, shaped for atomic claim and idempotency, and fully undone by the
 // rollback. The statements were also run against a real Postgres, twice, then rolled back.
 import test from "node:test";

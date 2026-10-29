@@ -1,4 +1,4 @@
-// Optional social publishing, identity boundary (epic #353, ADR 0450): the feature is off unless
+// Optional social publishing, identity boundary (epic #353, ADR 0293): the feature is off unless
 // configured, the role comes from which server key matched, the Admin user is an attribution
 // only, the site always comes from the server, and nothing here repeats a key.
 import test from "node:test";

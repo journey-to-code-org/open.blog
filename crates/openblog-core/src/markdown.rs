@@ -330,6 +330,8 @@ pub(crate) fn capability_source_ranges(
             let fence = parse_fence_info(&info);
             let id = if info.trim() == "quiz" {
                 "knowledge-check"
+            } else if info.trim() == crate::compare::FENCE {
+                crate::compare::CAPABILITY_ID
             } else if fence.lang == "demo" {
                 "interactive-demo"
             } else if fence.runnable && fence.lang.eq_ignore_ascii_case("web") {
@@ -1023,6 +1025,8 @@ fn transform_blocks<'a>(
     let mut quiz_occurrences = std::collections::HashMap::new();
     // An open `demo` fence and its authored fallback text.
     let mut demo: Option<(FenceInfo, String)> = None;
+    // An open `compare` fence and its source.
+    let mut compare: Option<String> = None;
     // An open `piece` fence: the kind it names and its `field: value` lines.
     let mut piece: Option<(String, String)> = None;
     // The section a deeper heading switched away from ("### Ingredients for the
@@ -1088,6 +1092,57 @@ fn transform_blocks<'a>(
                     if !next_is_quiz {
                         out.push(Event::Html(CowStr::from("</section>\n")));
                         quiz_group_open = false;
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) if info.trim() == crate::compare::FENCE)
+        {
+            compare = Some(String::new());
+            continue;
+        }
+        if let Some(source) = compare.as_mut() {
+            match event {
+                Event::Text(text) => source.push_str(text),
+                Event::End(TagEnd::CodeBlock) => {
+                    let source = compare.take().unwrap_or_default();
+                    data.capabilities.push(CapabilityDescriptor::describe(
+                        crate::compare::CAPABILITY_ID,
+                        Some(crate::compare::ELEMENT),
+                    ));
+                    let parsed = crate::compare::parse(&source).and_then(|pair| {
+                        if portable.is_some() && !pair.is_absolute() {
+                            Err(vec![
+                                "a portable copy needs each picture at an https:// address"
+                                    .to_string(),
+                            ])
+                        } else {
+                            Ok(pair)
+                        }
+                    });
+                    match parsed {
+                        Ok(pair) => out.push(Event::Html(CowStr::from(if portable.is_some() {
+                            pair.portable_html()
+                        } else {
+                            pair.page_html()
+                        }))),
+                        Err(problems) => {
+                            let error =
+                                format!("a `compare` fence is not valid: {}", problems.join("; "));
+                            data.errors.push(error.clone());
+                            if let Some(capability) = data.capabilities.last_mut() {
+                                capability.add_diagnostic(
+                                    CapabilityDiagnosticCode::MalformedContent,
+                                    "Malformed before and after pair; see the source-scoped Markdown error.",
+                                );
+                            }
+                            out.push(Event::Html(CowStr::from(format!(
+                                "<aside class=\"ob-compare-error\" role=\"alert\">Invalid before and after pair: {}</aside>\n",
+                                escape::text(&error)
+                            ))));
+                        }
                     }
                 }
                 _ => {}
@@ -2347,6 +2402,30 @@ pub fn render_portable(
     }
     crate::concept_links::mark_events(&mut parsed_events, false);
     assign_heading_ids(&mut parsed_events, None, options.supplements);
+    // A `compare` fence names its pictures in text, so they are resolved here like image links.
+    let mut compare_images = Vec::new();
+    let mut in_compare = false;
+    for event in &mut parsed_events {
+        match event {
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info)))
+                if info.trim() == crate::compare::FENCE =>
+            {
+                in_compare = true;
+            }
+            Event::End(TagEnd::CodeBlock) => in_compare = false,
+            Event::Text(source) if in_compare => {
+                let mapped = crate::compare::map_sources(source, |address| {
+                    let resolved = projection
+                        .resolve_link(address)
+                        .unwrap_or_else(|_| address.to_string());
+                    compare_images.push(resolved.clone());
+                    resolved
+                });
+                *source = CowStr::from(mapped);
+            }
+            _ => {}
+        }
+    }
     for event in &mut parsed_events {
         let destination = match event {
             Event::Start(Tag::Link { dest_url, .. })
@@ -2370,6 +2449,15 @@ pub fn render_portable(
     rendered.html = crate::raw_html::balance(&rendered.html);
     rendered.capabilities.extend(sanitized.capability);
     rendered.portable_images = sanitized.images;
+    rendered.portable_images.extend(
+        compare_images
+            .into_iter()
+            .filter(|url| url.starts_with("http"))
+            .map(|url| crate::portability::PortableImage {
+                url,
+                raw_html: false,
+            }),
+    );
     rendered.portable_has_raw_html = sanitized.has_raw_html;
     Ok(rendered)
 }
@@ -2499,6 +2587,15 @@ pub(crate) fn portable_semantic_facts(
                     let kind = info.split_whitespace().nth(1).unwrap_or("");
                     if let Ok(piece) = crate::piece::Piece::from_directive(kind, &source) {
                         for text in piece.visible_text() {
+                            facts.push(SemanticFact::new("content", "text", text));
+                        }
+                    }
+                    continue;
+                }
+                if info.trim() == crate::compare::FENCE {
+                    // Both captions must survive export; the pictures travel as images.
+                    if let Ok(pair) = crate::compare::parse(&source) {
+                        for text in pair.visible_text() {
                             facts.push(SemanticFact::new("content", "text", text));
                         }
                     }
@@ -2768,7 +2865,10 @@ fn render_events<'a>(
                 in_code_block = true;
                 if let CodeBlockKind::Fenced(info) = kind {
                     let lang = parse_fence_info(info).lang;
-                    if !lang.is_empty() && info.trim() != "quiz" && !code_languages.contains(&lang)
+                    if !lang.is_empty()
+                        && info.trim() != "quiz"
+                        && info.trim() != crate::compare::FENCE
+                        && !code_languages.contains(&lang)
                     {
                         code_languages.push(lang);
                     }

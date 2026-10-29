@@ -1,4 +1,4 @@
--- Optional scheduled social publishing (ADRs 0450 and 0451): connected
+-- Optional scheduled social publishing (ADRs 0293 and 0294): connected
 -- accounts, the schedule queue and the delivery attempt history. Run once in
 -- the Supabase SQL editor, only if the site opts in. A site that does not opt
 -- in never needs it; builds, exports and cross-posting do not read it. Then
@@ -10,7 +10,7 @@
 -- drop or rewrite anything that exists, and running it twice changes nothing.
 -- To undo it, see social-rollback.sql.
 --
--- Private by construction (ADR 0450): row level security is on with no
+-- Private by construction (ADR 0293): row level security is on with no
 -- policies, the public roles have no access at all, and only the hosted
 -- function, signed in as service_role, reads and writes. There is no
 -- auth.users reference and nothing a browser can reach. Every row carries the
@@ -49,7 +49,7 @@ create table if not exists public.openblog_social_accounts (
   display_name text not null check (char_length(display_name) between 1 and 200),
   status text not null default 'connected'
     check (status in ('connected', 'needs-reauth', 'disconnected')),
-  -- The Admin user who connected it (a social actor, ADR 0450).
+  -- The Admin user who connected it (a social actor, ADR 0293).
   connected_by text not null check (connected_by ~ '^[a-z0-9_.-]{1,32}$'),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -160,7 +160,7 @@ create index if not exists openblog_social_attempts_post
 create index if not exists openblog_social_attempts_site
   on public.openblog_social_attempts (site_id, started_at);
 
--- Provider credentials (ADR 0452). Only AES-256-GCM ciphertext: the envelope
+-- Provider credentials (ADR 0295). Only AES-256-GCM ciphertext: the envelope
 -- holds the encrypted tokens and their wrapped data key, and the key that
 -- unwraps it (OPENBLOG_SOCIAL_TOKEN_KEYS) is never in this database. Expiry,
 -- scopes and status are plain so a refresh can be planned without decrypting.

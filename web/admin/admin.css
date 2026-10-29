@@ -1773,6 +1773,18 @@ html[data-admin-density="compact"] .oba-pane {
   color: var(--ob-color-muted);
 }
 
+/* A file picker under a picture's address: it wraps on a phone and never pushes the dialog wider. */
+.oba-bf-picture {
+  min-width: 0;
+}
+
+.oba-bf-picture input[type="file"] {
+  display: block;
+  max-width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
 .oba-bf-button,
 .oba-block-form .oba-btn,
 .oba-piece-dialog .oba-btn {
