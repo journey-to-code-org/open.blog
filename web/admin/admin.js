@@ -8756,6 +8756,25 @@ export function assistantSkillSupportsScope(skill = {}, scope = "document") {
   return Array.isArray(skill.scopes) && skill.scopes.includes(scope);
 }
 
+/** The offsets (UTF-16) where ATX heading lines start, leaving out lines inside fenced code. */
+export function markdownHeadingStarts(markdown = "") {
+  const starts = [];
+  let fence = null;
+  let offset = 0;
+  for (const line of String(markdown).split("\n")) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})/u)?.[1];
+    if (fence) {
+      if (marker && marker[0] === fence.character && marker.length >= fence.length && line.slice(line.indexOf(marker) + marker.length).trim() === "") fence = null;
+    } else if (marker) {
+      fence = { character: marker[0], length: marker.length };
+    } else if (/^ {0,3}#{1,6}[ \t]+\S/.test(line)) {
+      starts.push(offset);
+    }
+    offset += line.length + 1;
+  }
+  return starts;
+}
+
 /**
  * The passage a selection or section review sends, from the draft's Markdown and the editor's
  * selection (UTF-16 offsets, as a textarea reports them). A selection is trimmed of surrounding
@@ -8768,12 +8787,11 @@ export function assistantReviewPassage(markdown = "", start = 0, end = start, ki
   let from = Math.max(0, Math.min(start, end, text.length));
   let to = Math.max(0, Math.min(Math.max(start, end), text.length));
   if (kind === "section") {
-    const before = text.slice(0, to);
-    const heading = [...before.matchAll(/^#{1,6}[ \t]+\S.*$/gm)].pop();
-    from = heading ? heading.index : 0;
-    const searchFrom = heading ? heading.index + heading[0].length : to;
-    const next = text.slice(searchFrom).match(/^#{1,6}[ \t]+\S.*$/m);
-    to = next ? searchFrom + next.index : text.length;
+    // A `#` line inside fenced code (a shell comment, say) is code, not a heading.
+    const headings = markdownHeadingStarts(text);
+    const heading = headings.filter((at) => at <= to).pop();
+    from = heading ?? 0;
+    to = headings.find((at) => at > (heading ?? -1)) ?? text.length;
   } else if (kind !== "selection") {
     return { error: "Choose selected text or the current section." };
   }

@@ -297,6 +297,15 @@ test("a selection or section review sends a bounded passage in code points (ADR 
   assert.deepEqual(assistantReviewPassage("😀 one two", 3, 6, "selection").passage, { kind: "selection", start: 2, end: 5 });
   assert.match(assistantReviewPassage("x".repeat(ASSISTANT_REVIEW_MAX_PASSAGE + 1), 0, ASSISTANT_REVIEW_MAX_PASSAGE + 1, "selection").error, /longer than/);
   assert.ok(assistantReviewPassage(markdown, 0, 4, "document").error);
+  // A `#` comment inside fenced code is not a heading: the section is still the one around it.
+  const code = "Intro.\n\n## Install\n\n```bash\n# install deps\nnpm ci\n```\n\nThen run it.\n\n~~~\n## not a heading either\n~~~\n\nDone.\n\n## Next\n\nLater.";
+  const install = code.slice(code.indexOf("## Install"), code.indexOf("## Next")).trim();
+  for (const cursor of [code.indexOf("Then run"), code.indexOf("npm ci"), code.indexOf("Install") + 2, code.indexOf("Done.")]) {
+    const found = assistantReviewPassage(code, cursor, cursor, "section");
+    assert.equal(found.text, install, `cursor at ${cursor}`);
+    assert.equal(found.passage.start, code.indexOf("## Install"));
+  }
+  assert.equal(assistantReviewPassage(code, code.indexOf("## Next"), code.indexOf("## Next"), "section").text, "## Next\n\nLater.");
   // A skill is offered only for a scope it declares.
   assert.equal(assistantSkillSupportsScope({ scopes: ["selection", "section"] }, "document"), false);
   assert.equal(assistantSkillSupportsScope({ scopes: ["selection", "section"] }, "section"), true);

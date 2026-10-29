@@ -122,7 +122,7 @@ authoring.
 
 Open **Assistant → Review** to review the current unsaved title, metadata, and Markdown without
 saving first. Under **What to review**, keep **Complete document** or choose **Selected text** (the text
-selected in the draft) or **Current section** (from the heading before the cursor to the next heading).
+selected in the draft) or **Current section** (from the heading before the cursor to the next heading; a `#` line inside fenced code is code, not a heading).
 Findings then stay inside that passage, and a skill that cannot review it is shown as unavailable
 ([ADR 0352](adr/0352-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md)).
 Select one or more review skills and any context the provider should receive, then

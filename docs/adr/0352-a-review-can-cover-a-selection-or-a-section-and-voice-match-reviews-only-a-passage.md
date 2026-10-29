@@ -53,7 +53,7 @@ already work from "selected text or the current section". What was missing was a
   (the default), **Selected text** or **Current section**. Selected text uses the Markdown editor's selection.
   In the visual editor it uses the remembered selection, mapped into the Markdown with temporary marks, as the
   knowledge-check target does. Current section runs from the heading before the cursor (or the start) to the
-  next heading (or the end), the same rule the interaction tools use. Surrounding whitespace is trimmed. A
+  next heading (or the end). A `#` line inside a ``` or ~~~ fence is code, not a heading. Surrounding whitespace is trimmed. A
   skill without the chosen scope is shown as unavailable ("Not for this scope") and is deselected. The
   disclosure names the scope, and the run button names it too (**Review selected text**, **Review current
   section**). An empty selection or an over-long passage is refused in the browser before anything is sent. The
