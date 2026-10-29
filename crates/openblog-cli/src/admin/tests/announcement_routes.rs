@@ -140,6 +140,9 @@ fn every_route_needs_a_session_and_every_write_a_csrf_token() {
         ("PATCH", "announcements"),
         ("POST", "announcements/reschedule"),
         ("POST", "announcements/cancel"),
+        ("POST", "announcements/retry"),
+        ("POST", "announcements/resolve"),
+        ("GET", "announcements/attempts"),
     ];
     for (method, name) in routes {
         let path = format!("/admin/api/social/{name}");
@@ -707,4 +710,127 @@ fn the_wire_request_carries_the_admin_key_and_the_actor_and_nothing_else_secret(
         !seen.contains("csrf") && !lower.contains("cookie"),
         "the browser's session never travels on"
     );
+}
+
+#[test]
+fn recovery_routes_relay_only_what_they_check() {
+    let f = social_site("recovery");
+    let calls = Calls::default();
+    let transport = fake(&calls, 200, json!({"announcement": announcement()}));
+    let id_path = |tail: &str| format!("/admin/api/social/{tail}?id={ANNOUNCEMENT}");
+
+    let (s, _) = call(
+        &f,
+        &transport,
+        "POST",
+        &id_path("announcements/retry"),
+        Some(json!({"version": 4})),
+    );
+    assert_eq!(s, 200);
+    let (s, _) = call(
+        &f,
+        &transport,
+        "POST",
+        &id_path("announcements/resolve"),
+        Some(json!({"version": 3, "outcome": "published", "providerPostId": "urn:li:share:7"})),
+    );
+    assert_eq!(s, 200);
+    let (s, _) = call(
+        &f,
+        &transport,
+        "POST",
+        &id_path("announcements/resolve"),
+        Some(json!({"version": 3, "outcome": "not-posted"})),
+    );
+    assert_eq!(s, 200);
+    let attempts = fake(
+        &calls,
+        200,
+        json!({"attempts": [{"attemptNo": 1}], "extra": "dropped"}),
+    );
+    let (s, b) = call(
+        &f,
+        &attempts,
+        "GET",
+        &id_path("announcements/attempts"),
+        None,
+    );
+    assert_eq!(s, 200);
+    assert_eq!(b["attempts"][0]["attemptNo"], 1);
+    assert!(b.get("extra").is_none());
+
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded[0].1, "announcements/retry");
+    assert_eq!(recorded[0].4, Some(json!({"version": 4})));
+    assert_eq!(
+        recorded[1].4,
+        Some(json!({"version": 3, "outcome": "published", "providerPostId": "urn:li:share:7"}))
+    );
+    assert_eq!(
+        recorded[2].4,
+        Some(json!({"version": 3, "outcome": "not-posted"}))
+    );
+    assert_eq!(recorded[3].0, "GET");
+    assert_eq!(recorded[3].3, "mikey");
+    drop(recorded);
+
+    let n = calls.lock().unwrap().len();
+    for (tail, body) in [
+        (
+            "announcements/retry",
+            json!({"version": 1, "status": "scheduled"}),
+        ),
+        ("announcements/retry", json!({})),
+        ("announcements/resolve", json!({"version": 1})),
+        (
+            "announcements/resolve",
+            json!({"version": 1, "outcome": "done"}),
+        ),
+        (
+            "announcements/resolve",
+            json!({"version": 1, "outcome": "published"}),
+        ),
+        (
+            "announcements/resolve",
+            json!({"version": 1, "outcome": "published", "providerPostId": "has space"}),
+        ),
+        (
+            "announcements/resolve",
+            json!({"version": 1, "outcome": "published", "providerPostId": "x".repeat(301)}),
+        ),
+        (
+            "announcements/resolve",
+            json!({"version": 1, "outcome": "not-posted", "providerPostId": "urn:li:share:7"}),
+        ),
+        (
+            "announcements/resolve",
+            json!({"version": 1, "outcome": "not-posted", "siteId": "other"}),
+        ),
+    ] {
+        let (s, _) = call(&f, &transport, "POST", &id_path(tail), Some(body.clone()));
+        assert_eq!(s, 400, "{tail} {body}");
+    }
+    for bad in ["x", "../../etc"] {
+        let path = format!("/admin/api/social/announcements/attempts?id={bad}");
+        let (s, b) = call(&f, &transport, "GET", &path, None);
+        assert_eq!((s, b["code"].as_str()), (400, Some("invalid-id")), "{bad}");
+    }
+    assert_eq!(calls.lock().unwrap().len(), n, "nothing refused was sent");
+
+    // A refusal from the hosted function reaches the author as a plain code and message.
+    let refused = fake(
+        &calls,
+        409,
+        json!({"error": "This may already be posted. Check the account, then say whether it was posted.", "code": "needs-resolution", "status": "unknown", "version": 3, "secret": "dropped"}),
+    );
+    let (s, b) = call(
+        &f,
+        &refused,
+        "POST",
+        &id_path("announcements/retry"),
+        Some(json!({"version": 3})),
+    );
+    assert_eq!((s, b["code"].as_str()), (409, Some("needs-resolution")));
+    assert_eq!(b["status"], "unknown");
+    assert!(b.get("secret").is_none());
 }

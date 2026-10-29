@@ -306,3 +306,36 @@ test("no key or token reaches the browser", async ({ page }) => {
   const everything = seen.join("\n") + (await page.content());
   for (const secret of [ADMIN_KEY, WORKER_KEY, SERVICE_KEY, "claimed_by", "idempotency"]) expect(everything).not.toContain(secret);
 });
+
+test("a failed announcement says why, asks before trying again, and fits a small phone", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await openSocial(page);
+  await compose(page);
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-announcement]")).toHaveCount(1);
+  // The worker used up the attempts behind the author's back (ADR 0482).
+  Object.assign(storage.posts[0], { status: "failed", version: 5, attempt_count: 3, last_error_code: "attempts-exhausted" });
+  await page.reload();
+  await expect(page.locator("[data-social-screen]")).toBeVisible();
+  const row = page.locator("[data-announcement]").first();
+  await expect(row.locator("[data-status-badge]")).toContainText("Failed");
+  await expect(row.locator("[data-row-error]")).toContainText("allowed number of times");
+  const retry = row.getByRole("button", { name: /^Try again: the announcement of/ });
+  await expect(retry).toHaveAttribute("aria-expanded", "false");
+  expect((await retry.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await retry.focus();
+  await page.keyboard.press("Enter");
+  await expect(row.getByRole("button", { name: "Yes, try again" })).toBeVisible();
+  const fit = await page.locator("[data-social-screen]").evaluate((screen) => ({
+    screen: screen.scrollWidth <= screen.clientWidth + 1,
+    rows: [...screen.querySelectorAll("[data-announcement]")].every((item) => item.scrollWidth <= item.clientWidth + 1),
+    page: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+  }));
+  expect(fit).toEqual({ screen: true, rows: true, page: true });
+  expect(storage.posts[0].status).toBe("failed");
+  await row.getByRole("button", { name: "Yes, try again" }).click();
+  await expect(page.locator("[data-social-status]")).toContainText("Back in the queue");
+  await expect(page.locator("[data-announcement]").first().locator("[data-status-badge]")).toContainText("Scheduled");
+  expect(storage.posts[0].status).toBe("scheduled");
+  expect(storage.posts[0].attempt_floor).toBe(3);
+});

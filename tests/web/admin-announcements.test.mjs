@@ -18,6 +18,8 @@ import {
   localToInstant,
   lockedReason,
   newKey,
+  problemWords,
+  REFRESH_CODES,
 } from "../../web/admin/announcements.js";
 import { ApiError, withDom } from "./dom-shim.mjs";
 // Importing the Voice harness makes the shared DOM refuse what a real browser would turn into text
@@ -160,6 +162,20 @@ function fakeAdmin({ queue = [row()], fail = {} } = {}) {
         const made = row({ ...current[0], status: "canceled", editable: false, version: 2 });
         current = [made];
         return { announcement: made };
+      }
+      if (route === "POST social/announcements/retry") {
+        const made = row({ ...current[0], status: "scheduled", editable: true, retryable: false, version: current[0].version + 1 });
+        current = [made];
+        return { announcement: made };
+      }
+      if (route === "POST social/announcements/resolve") {
+        const published = options.json.outcome === "published";
+        const made = row({ ...current[0], status: published ? "published" : "failed", editable: false, resolvable: false, retryable: !published, version: current[0].version + 1 });
+        current = [made];
+        return { announcement: made };
+      }
+      if (route === "GET social/announcements/attempts") {
+        return { attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
       }
       throw new Error(`unexpected ${route}`);
     },
@@ -419,4 +435,120 @@ test("unsaved words count as unsaved work, and a scheduled form does not", withD
   assert.equal(panel.isDirty(), false);
   fill(root, "caption", "half written");
   assert.equal(panel.isDirty(), true);
+}));
+
+// ------------------------------------------------------------------ recovery (ADR 0482)
+
+const failedRow = (over = {}) => row({ id: "a-5", status: "failed", editable: false, retryable: true, version: 4, attemptCount: 3, lastErrorCode: "attempts-exhausted", ...over });
+const unknownRow = (over = {}) => row({ id: "a-6", status: "unknown", editable: false, resolvable: true, version: 3, attemptCount: 1, lastErrorCode: "timeout", ...over });
+const rowOf = (root) => all(root, "li").filter((node) => node.dataset.announcement)[0];
+const listReads = (api) => api.calls.filter((call) => call.method === "GET" && (call.path === "social/announcements" || call.path.startsWith("social/announcements?"))).length;
+
+test("a short code reads as a sentence, and a queue that moved on refreshes", () => {
+  assert.match(problemWords("rate-limited"), /slow down/);
+  assert.match(problemWords("timeout"), /may or may not have been posted/);
+  assert.equal(problemWords("nothing-like-this"), "");
+  for (const code of ["stale", "conflict", "not-editable", "not-retryable", "not-resolvable", "needs-resolution"]) assert.ok(REFRESH_CODES.includes(code), code);
+  assert.match(errorText(new ApiError("x", 409, { error: "Check first.", code: "needs-resolution" })), /refreshed/);
+});
+
+test("a failed announcement says why in words and offers to try again, after asking", withDom(async () => {
+  const { root, api } = await open({ queue: [failedRow()] });
+  assert.match(text(byData(root, "data-row-error")[0]), /allowed number of times.*attempts-exhausted/);
+  const retry = button(root, "social-retry");
+  assert.match(retry.getAttribute("aria-label"), /Try again: the announcement of \/posts\/hello\//);
+  assert.equal(retry.getAttribute("aria-expanded"), "false");
+  await retry.dispatch("click");
+  assert.equal(retry.getAttribute("aria-expanded"), "true");
+  assert.equal(api.calls.some((call) => call.method === "POST"), false, "asking sends nothing");
+  await button(root, "social-keep").dispatch("click");
+  assert.equal(api.calls.some((call) => call.method === "POST"), false);
+  await button(root, "social-retry").dispatch("click");
+  await button(root, "social-confirm-retry").dispatch("click");
+  await flush();
+  const sent = api.calls.find((call) => call.path.startsWith("social/announcements/retry"));
+  assert.equal(sent.path, "social/announcements/retry?id=a-5");
+  assert.deepEqual(sent.json, { version: 4 });
+  assert.match(text(byData(root, "data-social-status")[0]), /Back in the queue/);
+  assert.equal(rowOf(root).dataset.status, "scheduled");
+}));
+
+test("an unknown result asks the author to look first, and records what they found", withDom(async () => {
+  const { root, api } = await open({ queue: [unknownRow()] });
+  assert.match(text(byData(root, "data-row-error")[0]), /may or may not have been posted/);
+  assert.equal(button(root, "social-retry"), undefined, "an unknown outcome cannot simply be retried");
+  await button(root, "social-resolve").dispatch("click");
+  const panel = () => all(rowOf(root), "div").find((node) => node.dataset.mode === "resolve");
+  assert.match(text(panel()), /It will not be sent again until you do/);
+  assert.deepEqual(all(panel(), "label").map(text), ["It was posted", "It was not posted", "Post id (only if it was posted)"]);
+  for (const control of all(panel(), "input")) assert.ok(control.id);
+  const alertText = () => text(all(panel(), "p").find((node) => node.getAttribute("role") === "alert"));
+
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  assert.match(alertText(), /Choose what you found/);
+  const [posted, , postId] = all(panel(), "input");
+  posted.checked = true;
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  assert.match(alertText(), /Enter the post id/);
+  postId.value = "has a space";
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  assert.match(alertText(), /no spaces/);
+  assert.equal(api.calls.some((call) => call.method === "POST"), false, "nothing invalid was sent");
+
+  postId.value = "urn:li:share:7000";
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  await flush();
+  const sent = api.calls.find((call) => call.path.startsWith("social/announcements/resolve"));
+  assert.equal(sent.path, "social/announcements/resolve?id=a-6");
+  assert.deepEqual(sent.json, { version: 3, outcome: "published", providerPostId: "urn:li:share:7000" });
+  assert.equal(text(byData(root, "data-social-status")[0]), "Recorded as posted.");
+  assert.equal(rowOf(root).dataset.status, "published");
+}));
+
+test("recording that it was not posted sends no id and offers a retry afterwards", withDom(async () => {
+  const { root, api } = await open({ queue: [unknownRow()] });
+  await button(root, "social-resolve").dispatch("click");
+  const panel = () => all(rowOf(root), "div").find((node) => node.dataset.mode === "resolve");
+  const [, missing, postId] = all(panel(), "input");
+  postId.value = "ignored-when-not-posted";
+  missing.checked = true;
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  await flush();
+  const sent = api.calls.find((call) => call.path.startsWith("social/announcements/resolve"));
+  assert.deepEqual(sent.json, { version: 3, outcome: "not-posted" });
+  assert.match(text(byData(root, "data-social-status")[0]), /not posted.*try it again/);
+  assert.ok(button(root, "social-retry"), "a failed announcement can now be retried");
+}));
+
+test("a refusal that the queue moved on refreshes the list and says so", withDom(async () => {
+  const moved = new ApiError("x", 409, { error: "This may already be posted. Check the account, then say whether it was posted.", code: "needs-resolution" });
+  const { root, api } = await open({ queue: [failedRow()], fail: { "POST social/announcements/retry": { error: moved, once: true } } });
+  await button(root, "social-retry").dispatch("click");
+  const before = listReads(api);
+  await button(root, "social-confirm-retry").dispatch("click");
+  await flush();
+  assert.match(text(byData(root, "data-social-status")[0]), /refreshed/);
+  assert.equal(listReads(api), before + 1);
+}));
+
+test("the history of tries loads when asked and reads in words", withDom(async () => {
+  const { root, api } = await open({ queue: [failedRow()] });
+  const details = byData(root, "data-history")[0];
+  assert.match(text(all(details, "summary")[0]), /What was tried \(3\)/);
+  assert.equal(api.calls.some((call) => call.path.startsWith("social/announcements/attempts")), false, "not loaded until opened");
+  details.open = true;
+  await details.dispatch("toggle");
+  await flush();
+  const items = all(details, "li");
+  assert.equal(items.length, 2);
+  assert.match(text(items[0]), /Try 1,.*not posted \(HTTP 503\)\. The provider could not take it just now\./);
+  assert.match(text(items[1]), /Try 2,.*in progress/);
+  assert.equal(api.calls.filter((call) => call.path.startsWith("social/announcements/attempts")).length, 1);
+  assert.equal(api.calls.find((call) => call.path.startsWith("social/announcements/attempts")).path, "social/announcements/attempts?id=a-5");
+}));
+
+test("a scheduled announcement waiting to try again says when", withDom(async () => {
+  const { root } = await open({ queue: [row({ attemptCount: 1, nextAttemptAt: "2099-01-01T15:05:00Z", lastErrorCode: "provider-unavailable" })] });
+  assert.match(text(byData(root, "data-row-next")[0]), /Will try again/);
+  assert.match(text(byData(root, "data-row-error")[0]), /could not take it just now/);
 }));

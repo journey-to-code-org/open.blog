@@ -2795,3 +2795,24 @@ The one narrow interface the delivery worker calls a social provider through: `p
 id only on confirmed success or throws a typed delivery error; `reconcile` optionally looks a post up. It is given a
 caption, a link, an idempotency key and one access token, nothing else of ours, and is tested against fakes.
 _Avoid_: Driver, integration
+
+**Unknown outcome**:
+The state of a delivery attempt that may have reached the provider and was not confirmed (a timeout, a dropped
+connection, a 5xx, an unreadable answer, a crash, a success that could not be recorded). It is never sent again by the
+worker; the adapter's lookup, then the author, settles it as posted or not posted.
+_Avoid_: Pending, failed (a failure certainly did not post)
+
+**Reconciliation**:
+The delivery worker's look at an unknown outcome through the provider adapter's optional lookup, on a widening
+schedule, ending in published, failed (`not-delivered`) or, when it cannot tell, review by a person.
+_Avoid_: Retry (a retry sends again)
+
+**Dead letter**:
+A scheduled social post that used up its attempts and is `failed` with `attempts-exhausted`. It keeps its history and
+can be retried by hand, with a fresh allowance of attempts.
+_Avoid_: Error queue
+
+**Account pause**:
+The time until which a rate-limited social account sends nothing, for any of its posts, so one limit is not hit again by
+the next announcement.
+_Avoid_: Cooldown, ban

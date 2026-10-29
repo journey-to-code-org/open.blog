@@ -13,6 +13,7 @@
 // storage response, a request body or a refused value.
 
 import { ACTOR_HEADER, SocialScopeError, authorizeSocial, ensureOwned, refuseClientScope, scopedQuery } from "./social-scope.mjs";
+import { validProviderPostId } from "./social-delivery.mjs";
 import {
   ScheduleError,
   checkCanonicalUrl,
@@ -39,6 +40,9 @@ const CREATE_FIELDS = ["accountId", "work", "canonicalUrl", "caption", "schedule
 const EDIT_FIELDS = ["version", "caption", "scheduledFor", "timeZone"];
 const RESCHEDULE_FIELDS = ["version", "scheduledFor", "timeZone"];
 const CANCEL_FIELDS = ["version"];
+const RETRY_FIELDS = ["version"];
+const RESOLVE_FIELDS = ["version", "outcome", "providerPostId"];
+const RESOLVE_OUTCOMES = ["published", "not-posted"];
 
 class RouteError extends Error {
   constructor(status, code, message, extra = {}) {
@@ -79,6 +83,9 @@ const postView = (row, account) => ({
   status: row.status,
   version: row.version,
   attemptCount: row.attempt_count,
+  nextAttemptAt: row.next_attempt_at ? instant(row.next_attempt_at) : null,
+  retryable: row.status === "failed",
+  resolvable: row.status === "unknown",
   lastErrorCode: row.last_error_code ?? null,
   providerPostId: row.provider_post_id ?? null,
   publishedAt: row.published_at ? instant(row.published_at) : null,
@@ -325,6 +332,73 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     return reply(200, { announcement: postView(rows[0], account) });
   };
 
+  // Manual recovery (ADR 0482). Only a failed announcement can be retried: it goes back to the queue
+  // with a fresh allowance of attempts. An unknown outcome may already be on the provider, so it
+  // cannot be retried; a person looks at the account and resolves it as posted (with the provider's
+  // post id) or not posted, and only then can it be retried. Both name the version they read.
+  const retry = async (query, rawBody) => {
+    const id = readId(query);
+    const version = readVersion(readBody(rawBody, RETRY_FIELDS, ["version"]).version);
+    const row = await postById(id);
+    if (!row) throw new RouteError(404, "not-found", "That announcement does not exist.");
+    if (row.status === "unknown") throw new RouteError(409, "needs-resolution", "This may already be posted. Check the account, then say whether it was posted.", { status: row.status, version: row.version });
+    if (row.status !== "failed") throw new RouteError(409, "not-retryable", "Only an announcement that failed can be retried.", { status: row.status, version: row.version });
+    if (row.version !== version) throw new RouteError(409, "stale", "This announcement changed since you opened it. Reload and try again.", { version: row.version });
+    const account = await usable(row.account_id);
+    const patch = { status: "scheduled", next_attempt_at: null, attempt_floor: row.attempt_count, reconcile_count: 0, last_error_code: null, version: version + 1, updated_at: iso(now()) };
+    const { rows } = await rest("PATCH", POSTS, scopedQuery(settings, { id: `eq.${id}`, version: `eq.${version}`, status: "eq.failed", select: "*" }).toString(), patch);
+    if (!rows.length) throw new RouteError(409, "conflict", "This announcement changed just now. Reload and check its status.");
+    ensureOwned(settings, rows);
+    return reply(200, { announcement: postView(rows[0], account) });
+  };
+
+  const resolve = async (identity, query, rawBody) => {
+    const id = readId(query);
+    const body = readBody(rawBody, RESOLVE_FIELDS, ["version", "outcome"]);
+    const version = readVersion(body.version);
+    if (!RESOLVE_OUTCOMES.includes(body.outcome)) throw new RouteError(400, "invalid-outcome", "Say whether it was posted or not posted.");
+    if (body.outcome === "published" && !validProviderPostId(body.providerPostId)) throw new RouteError(400, "invalid-provider-post-id", "Enter the post id the provider shows for it.");
+    if (body.outcome === "not-posted" && body.providerPostId !== undefined) throw new RouteError(400, "unknown-field", "A post that was not posted has no post id.");
+    const row = await postById(id);
+    if (!row) throw new RouteError(404, "not-found", "That announcement does not exist.");
+    if (row.status !== "unknown") throw new RouteError(409, "not-resolvable", "Only an announcement with an unknown outcome can be resolved.", { status: row.status, version: row.version });
+    if (row.version !== version) throw new RouteError(409, "stale", "This announcement changed since you opened it. Reload and try again.", { version: row.version });
+    const account = await accountById(row.account_id);
+    const published = body.outcome === "published";
+    const { rows } = await rest("POST", "rpc/openblog_social_settle", "", {
+      p_site_id: settings.siteId,
+      p_post_id: id,
+      p_version: version,
+      p_result: published ? "published" : "failed",
+      p_provider_post_id: published ? body.providerPostId : null,
+      p_error_code: published ? null : "reviewed-not-posted",
+      p_error_detail: published ? null : `Checked by ${identity.actor}: it was not posted.`,
+    });
+    if (!rows.length) throw new RouteError(409, "conflict", "This announcement changed just now. Reload and check its status.");
+    ensureOwned(settings, rows);
+    return reply(200, { announcement: postView(rows[0], account) });
+  };
+
+  // What was tried: every attempt, newest last, with its short code and fixed sentence.
+  const attempts = async (query) => {
+    const id = readId(query);
+    if (!(await postById(id))) throw new RouteError(404, "not-found", "That announcement does not exist.");
+    const { rows } = await rest("GET", "openblog_social_attempts", scopedQuery(settings, { post_id: `eq.${id}`, select: "*", order: "attempt_no.asc", limit: "50" }).toString());
+    ensureOwned(settings, rows);
+    return reply(200, {
+      attempts: rows.map((row) => ({
+        attemptNo: row.attempt_no,
+        startedAt: instant(row.started_at),
+        finishedAt: row.finished_at ? instant(row.finished_at) : null,
+        outcome: row.outcome ?? null,
+        httpStatus: row.http_status ?? null,
+        errorCode: row.error_code ?? null,
+        errorDetail: row.error_detail ?? null,
+        providerPostId: row.provider_post_id ?? null,
+      })),
+    });
+  };
+
   // { method, route, query, headers, body } -> { status, body }. `body` is parsed JSON or text.
   return async function handle({ method = "GET", route = "", query = "", headers = {}, body } = {}) {
     try {
@@ -338,6 +412,9 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
         "PATCH announcements": (parsed) => edit(params, parsed),
         "POST announcements/reschedule": (parsed) => reschedule(params, parsed),
         "POST announcements/cancel": (parsed) => cancel(params, parsed),
+        "POST announcements/retry": (parsed) => retry(params, parsed),
+        "POST announcements/resolve": (parsed) => resolve(identity, params, parsed),
+        "GET announcements/attempts": () => attempts(params),
       };
       const run = table[`${method} ${path}`];
       if (!run) {

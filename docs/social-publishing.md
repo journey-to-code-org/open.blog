@@ -197,7 +197,8 @@ routes beside the account routes, behind the same admin key, and answers 404 to 
 
 Admin (`/admin/api/social/`, session and CSRF like every Admin route): `posts`, `preview`, `destinations`,
 `announcements` (`GET` list, `POST` create, `PATCH ?id=` edit), `announcements/reschedule?id=`,
-`announcements/cancel?id=`. Hosted (the same names under the endpoint, admin key only): the same set except
+`announcements/cancel?id=`, `announcements/retry?id=`, `announcements/resolve?id=` and `GET announcements/attempts?id=`
+(ADR 0482). Hosted (the same names under the endpoint, admin key only): the same set except
 `posts` and `preview`, which Admin answers itself.
 
 ### The Social screen
@@ -281,3 +282,33 @@ returns the provider's own post id only when the provider confirmed success, or 
 for a provider that has no adapter registered yet **waits in the queue**, untouched; one for a provider this release does
 not know fails with `unsupported-provider`. Provider API versions, permissions and app review are settings you verify at
 setup (see Provider setup above); nothing is guessed at run time.
+
+## Retries, rate limits and uncertain outcomes
+
+([ADR 0482](adr/0482-a-failure-that-certainly-did-not-post-is-retried-with-back-off-and-one-that-may-have-posted-is-unknown-looked-up-and-then-settled-by-a-person.md).)
+What the worker does depends on what it knows about the provider's answer:
+
+| The provider's answer | The announcement becomes | Next |
+| --- | --- | --- |
+| Confirmed, with its post id | `published` | Done. The id is kept on the announcement and the attempt. |
+| Certainly not accepted (a refused connection, a clear "try later") | `scheduled` again | Retried after a back-off (about 1, 2, 4 minutes and so on, capped at an hour). |
+| Rate limited (429) | `scheduled` again | Waits at least the provider's `Retry-After` (at most a day), and **that account sends nothing** until then. |
+| Refused (400, 403, 404, 409, 410, 422) or the sign-in was refused (401) | `failed` | Not retried. Fix the cause (the caption, the account) and use **Try again**. |
+| No answer, a timeout, a 5xx, an unreadable answer, a crash, or a success that could not be recorded | `unknown` | **Never sent again by itself.** Looked up, then yours to settle. |
+| Tried the allowed number of times (default 5) | `failed`, `attempts-exhausted` | A dead letter that keeps its history. **Try again** gives it a fresh allowance. |
+
+**Unknown outcomes.** The worker asks the provider, through the adapter's optional lookup, whether the post exists:
+after 5 minutes, 15 minutes, an hour, six hours and a day. If it is there, the announcement becomes `published` with
+its post id. If the provider says conclusively that it is not there, and the attempt is at least 15 minutes old, it
+becomes `failed` (`not-delivered`) and you can use **Try again**. If the lookup cannot tell, or the destination cannot
+be looked up, the announcement stays `unknown` with `needs-review` and waits for you: open the account, see whether
+the post is there, and choose **Check the result** in Admin. To find stuck work in the database:
+`select id, status, last_error_code, updated_at from openblog_social_posts where status in ('unknown','failed');`.
+
+**Settings** (optional, bounded; a value out of range is ignored): `OPENBLOG_SOCIAL_MAX_ATTEMPTS` (default 5, 1 to 10)
+and `OPENBLOG_SOCIAL_BACKOFF_SECONDS` (default 60, 5 to 3600). An adapter that can use an idempotency key is given one
+that is the same for every attempt of one announcement; the worker does not rely on it.
+
+**What is recorded.** Each attempt keeps its number, times, outcome, HTTP status, a short code and a fixed sentence,
+and the provider's post id. It never keeps a token, a header, a request or anything the provider wrote, so the history
+is safe to show in Admin and to paste in a bug report.
