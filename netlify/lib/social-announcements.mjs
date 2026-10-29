@@ -14,6 +14,7 @@
 
 import { ACTOR_HEADER, SocialScopeError, authorizeSocial, ensureOwned, refuseClientScope, scopedQuery } from "./social-scope.mjs";
 import { validProviderPostId } from "./social-delivery.mjs";
+import { NEXT_STEPS, deliveryState, derivedTimeline, timelineFromEvents } from "./social-status.mjs";
 import {
   ScheduleError,
   checkCanonicalUrl,
@@ -34,6 +35,8 @@ export const DEFAULT_LIST = 50;
 export const MAX_LIST = 100;
 const POSTS = "openblog_social_posts";
 const ACCOUNTS = "openblog_social_accounts";
+const EVENTS = "openblog_social_post_events";
+const MAX_EVENTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const CREATE_FIELDS = ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "timeZone", "idempotencyKey"];
@@ -81,6 +84,9 @@ const postView = (row, account) => ({
   caption: row.body,
   scheduledFor: instant(row.scheduled_for),
   status: row.status,
+  // The author's delivery state and what they may do about it (ADR 0700).
+  delivery: deliveryState(row),
+  actions: [...(NEXT_STEPS[deliveryState(row)]?.actions ?? [])],
   version: row.version,
   attemptCount: row.attempt_count,
   nextAttemptAt: row.next_attempt_at ? instant(row.next_attempt_at) : null,
@@ -379,13 +385,40 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     return reply(200, { announcement: postView(rows[0], account) });
   };
 
-  // What was tried: every attempt, newest last, with its short code and fixed sentence.
+  // The recorded history (supabase/social-history.sql), or null when that file was not run: PostgREST
+  // answers 404 for a table it does not know, and only that is read as "not installed".
+  const recordedEvents = async (id) => {
+    let response;
+    try {
+      response = await fetchImpl(`${settings.url}/rest/v1/${EVENTS}?${scopedQuery(settings, { post_id: `eq.${id}`, select: "*", order: "id.asc", limit: String(MAX_EVENTS) })}`, {
+        method: "GET",
+        headers: { apikey: settings.key, authorization: `Bearer ${settings.key}` },
+      });
+    } catch {
+      throw new RouteError(502, "storage-unavailable", "The schedule could not be reached. Try again.");
+    }
+    if (response.status === 404) return null;
+    if (!response.ok) throw new RouteError(502, "storage-failed", "The schedule refused the request.");
+    const rows = await response.json().catch(() => null);
+    if (!Array.isArray(rows)) throw new RouteError(502, "storage-failed", "The schedule refused the request.");
+    ensureOwned(settings, rows);
+    return rows;
+  };
+
+  // What was tried and what happened: every attempt, oldest first, with its short code and fixed
+  // sentence, and the status history (ADR 0700). `timelineExact` is false when the history had to be
+  // rebuilt from the attempts because the recorded history is not installed.
   const attempts = async (query) => {
     const id = readId(query);
-    if (!(await postById(id))) throw new RouteError(404, "not-found", "That announcement does not exist.");
+    const post = await postById(id);
+    if (!post) throw new RouteError(404, "not-found", "That announcement does not exist.");
     const { rows } = await rest("GET", "openblog_social_attempts", scopedQuery(settings, { post_id: `eq.${id}`, select: "*", order: "attempt_no.asc", limit: "50" }).toString());
     ensureOwned(settings, rows);
+    const events = await recordedEvents(id);
     return reply(200, {
+      delivery: deliveryState(post),
+      timeline: events ? timelineFromEvents(events) : derivedTimeline(post, rows),
+      timelineExact: Boolean(events),
       attempts: rows.map((row) => ({
         attemptNo: row.attempt_no,
         startedAt: instant(row.started_at),

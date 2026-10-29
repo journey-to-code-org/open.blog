@@ -2832,3 +2832,16 @@ _Avoid_: Error queue
 The time until which a rate-limited social account sends nothing, for any of its posts, so one limit is not hit again by
 the next announcement.
 _Avoid_: Cooldown, ban
+
+**Delivery state**:
+What an author waits for on an announcement, derived from its stored status and problem code (ADR 0700): `pending`
+(scheduled, nothing wrong yet), `processing` (claimed), `retrying` (scheduled again after a try that did not post),
+`published`, `failed`, `unknown` or `canceled`. It decides the words and actions Admin offers; writers still fence on
+the stored status.
+_Avoid_: Status (the stored one), phase
+
+**Status history**:
+The ordered events of one announcement: created, every status, time or caption change, and each new problem code,
+recorded by a database trigger when `supabase/social-history.sql` is installed, otherwise rebuilt from the delivery
+attempts and marked as incomplete. Append-only; it holds no caption, token or provider text.
+_Avoid_: Audit log (the attempts are the delivery record), activity feed

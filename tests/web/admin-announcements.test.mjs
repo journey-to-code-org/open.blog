@@ -7,17 +7,21 @@ import test from "node:test";
 
 import {
   CAPTION_LIMIT,
+  DELIVERY_BADGES,
   STATUS_BADGES,
   captionCount,
   createAnnouncementsPanel,
+  deliveryOf,
   destinationLabel,
   errorText,
+  eventText,
   fieldForCode,
   formatWhen,
   instantToLocalInput,
   localToInstant,
   lockedReason,
   newKey,
+  nextStepText,
   problemWords,
   REFRESH_CODES,
 } from "../../web/admin/announcements.js";
@@ -131,7 +135,7 @@ const row = (over = {}) => ({
   ...over,
 });
 
-function fakeAdmin({ queue = [row()], fail = {} } = {}) {
+function fakeAdmin({ queue = [row()], fail = {}, history = {} } = {}) {
   const calls = [];
   let current = queue;
   const api = {
@@ -175,7 +179,7 @@ function fakeAdmin({ queue = [row()], fail = {} } = {}) {
         return { announcement: made };
       }
       if (route === "GET social/announcements/attempts") {
-        return { attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
+        return { ...history, attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
       }
       throw new Error(`unexpected ${route}`);
     },
@@ -534,7 +538,7 @@ test("a refusal that the queue moved on refreshes the list and says so", withDom
 test("the history of tries loads when asked and reads in words", withDom(async () => {
   const { root, api } = await open({ queue: [failedRow()] });
   const details = byData(root, "data-history")[0];
-  assert.match(text(all(details, "summary")[0]), /What was tried \(3\)/);
+  assert.match(text(all(details, "summary")[0]), /History \(3 tries\)/);
   assert.equal(api.calls.some((call) => call.path.startsWith("social/announcements/attempts")), false, "not loaded until opened");
   details.open = true;
   await details.dispatch("toggle");
@@ -543,12 +547,59 @@ test("the history of tries loads when asked and reads in words", withDom(async (
   assert.equal(items.length, 2);
   assert.match(text(items[0]), /Try 1,.*not posted \(HTTP 503\)\. The provider could not take it just now\./);
   assert.match(text(items[1]), /Try 2,.*in progress/);
+  assert.equal(byData(details, "data-timeline").length, 0, "no timeline from an older server, and nothing invented");
   assert.equal(api.calls.filter((call) => call.path.startsWith("social/announcements/attempts")).length, 1);
   assert.equal(api.calls.find((call) => call.path.startsWith("social/announcements/attempts")).path, "social/announcements/attempts?id=a-5");
 }));
+
+test("the status history reads in words, in the author's zone, and says when it was rebuilt", withDom(async () => {
+  const timeline = [
+    { at: "2026-11-01T12:00:00Z", change: "created", state: "pending", attemptNo: 0, code: null, scheduledFor: null },
+    { at: "2026-11-01T12:01:00Z", change: "rescheduled", state: "pending", attemptNo: 0, code: null, scheduledFor: "2026-11-02T09:00:00Z" },
+    { at: "2026-11-02T09:00:05Z", change: "status", state: "processing", attemptNo: 1, code: null, scheduledFor: null },
+    { at: "2026-11-02T09:00:09Z", change: "status", state: "retrying", attemptNo: 1, code: "rate-limited", scheduledFor: null },
+    { at: "2026-11-02T09:10:00Z", change: "status", state: "failed", attemptNo: 2, code: "<img src=x onerror=alert(1)>", scheduledFor: null },
+  ];
+  for (const exact of [true, false]) {
+    const { root } = await open({ queue: [failedRow()], history: { timeline, timelineExact: exact } });
+    const details = byData(root, "data-history")[0];
+    details.open = true;
+    await details.dispatch("toggle");
+    await flush();
+    const events = all(byData(details, "data-timeline")[0], "li");
+    assert.equal(events.length, 5);
+    assert.match(text(events[0]), /Scheduled$/);
+    assert.match(text(events[1]), /time changed, now /);
+    assert.match(text(events[2]), /Sending, try 1/);
+    assert.match(text(events[3]), /Retrying, try 1\. The provider asked us to slow down\./);
+    assert.match(text(events[4]), /Failed, try 2\. <img src=x onerror=alert\(1\)>/, "a code is only ever text");
+    assert.equal(all(details, "img").length, 0);
+    assert.equal(byData(details, "data-timeline-rebuilt").length, exact ? 0 : 1);
+  }
+}));
+
+test("each delivery state has a word and a shape, and the waiting ones say what happens next", () => {
+  for (const state of ["pending", "processing", "retrying", "published", "failed", "unknown", "canceled"]) {
+    assert.ok(DELIVERY_BADGES[state].text && DELIVERY_BADGES[state].symbol, state);
+  }
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: null }), "pending");
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: "deferred" }), "pending");
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: "rate-limited" }), "retrying");
+  assert.equal(deliveryOf({ status: "claimed" }), "processing");
+  assert.equal(deliveryOf({ status: "scheduled", delivery: "retrying" }), "retrying", "the server's word wins");
+  assert.equal(deliveryOf({ status: "scheduled", delivery: "__proto__" }), "pending", "an unknown word is not trusted");
+  assert.equal(deliveryOf({ status: "bogus" }), "unknown");
+  assert.match(nextStepText("retrying"), /tried again by itself/);
+  assert.match(nextStepText("processing"), /being sent now/);
+  assert.equal(nextStepText("pending"), "");
+  assert.match(eventText({ at: "2026-11-01T12:00:00Z", change: "baseline", state: "unknown" }, NY), /Needs checking, history starts here/);
+});
 
 test("a scheduled announcement waiting to try again says when", withDom(async () => {
   const { root } = await open({ queue: [row({ attemptCount: 1, nextAttemptAt: "2099-01-01T15:05:00Z", lastErrorCode: "provider-unavailable" })] });
   assert.match(text(byData(root, "data-row-next")[0]), /Will try again/);
   assert.match(text(byData(root, "data-row-error")[0]), /could not take it just now/);
+  assert.equal(byData(root, "data-delivery")[0].getAttribute("data-delivery"), "retrying");
+  assert.match(text(byData(root, "data-status-badge")[0]), /Retrying/);
+  assert.match(text(byData(root, "data-row-next-step")[0]), /tried again by itself/);
 }));

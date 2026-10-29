@@ -652,7 +652,8 @@ fn resolve(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     )
 }
 
-/// The attempts made for one announcement, as the hosted function reports them.
+/// The attempts made for one announcement and its status history (ADR 0700), as the hosted
+/// function reports them.
 fn attempts(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     let id = match announcement_id(req) {
         Ok(id) => id,
@@ -699,9 +700,21 @@ fn relay(
             "destinations",
             "replayed",
             "attempts",
+            "delivery",
+            "timeline",
+            "timelineExact",
         ] {
             if let Some(found) = value.get(name) {
-                kept.insert(name.to_string(), found.clone());
+                let found = match name {
+                    "timeline" => project_timeline(found),
+                    "delivery" => found
+                        .as_str()
+                        .filter(|s| plain_code(s))
+                        .map_or(Json::Null, |s| Json::String(s.to_string())),
+                    "timelineExact" => Json::Bool(found.as_bool() == Some(true)),
+                    _ => found.clone(),
+                };
+                kept.insert(name.to_string(), found);
             }
         }
         if kept.is_empty() {
@@ -748,6 +761,44 @@ fn relay(
             }),
         ),
     }
+}
+
+/// The status history rebuilt from known fields only (ADR 0700): a time, what changed, the delivery
+/// state, the attempt number and a short code. Anything else the function sends is dropped, and an
+/// event without a readable time, change or state is left out.
+fn project_timeline(value: &Json) -> Json {
+    let short = |value: &Json| {
+        value
+            .as_str()
+            .filter(|text| text.len() <= 40 && plain_message(text))
+            .map(|text| Json::String(text.to_string()))
+    };
+    let code = |value: &Json| {
+        value
+            .as_str()
+            .filter(|text| plain_code(text))
+            .map(|text| Json::String(text.to_string()))
+    };
+    let events = value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .take(200)
+                .filter_map(|item| {
+                    Some(json!({
+                        "at": short(item.get("at")?)?,
+                        "change": code(item.get("change")?)?,
+                        "state": code(item.get("state")?)?,
+                        "attemptNo": item.get("attemptNo").and_then(Json::as_u64).unwrap_or(0),
+                        "code": item.get("code").and_then(code).unwrap_or(Json::Null),
+                        "scheduledFor": item.get("scheduledFor").and_then(short).unwrap_or(Json::Null),
+                    }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Json::Array(events)
 }
 
 fn plain_code(code: &str) -> bool {

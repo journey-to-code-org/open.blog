@@ -5,7 +5,8 @@ time you choose. It is off by default. Your site, its exports and cross-posting 
 and nothing in this guide is needed to read, build or publish a blog.
 
 This page covers the identity and storage foundation (epic #353, story #354), scheduling announcements (story
-#356) and the delivery queue and worker (story #357). The provider adapters that actually post arrive in a later story.
+#356), the delivery queue and worker (story #357), the LinkedIn and Facebook adapters (story #358), and delivery
+status, monitoring and operations (story #359).
 
 ## Who is allowed to do what
 
@@ -213,6 +214,30 @@ sideways.
 Before you enable it for real, confirm in each provider's current documentation the API version, the permissions
 (scopes) and any app review the posting API needs; none of that is part of this screen, and nothing here posts until
 delivery is set up.
+
+## Status and history
+
+Each announcement shows one **delivery state** as a word and a shape
+([ADR 0700](adr/0700-an-announcement-has-seven-delivery-states-derived-from-its-row-and-a-history-recorded-by-a-trigger.md)):
+
+| State | Stored status | What it means | What you can do |
+| --- | --- | --- | --- |
+| Scheduled (`pending`) | `scheduled` | Waiting for its time; nothing has gone wrong. | Edit, cancel. |
+| Sending (`processing`) | `claimed` | A worker holds it and may be calling the provider now. | Nothing; reload in a minute. |
+| Retrying (`retrying`) | `scheduled` with a problem code | A try certainly did not post; it is tried again by itself at the time shown. | Edit, cancel, or wait. |
+| Published | `published` | The provider confirmed it and named the post. | Nothing. |
+| Failed | `failed` | It will not be sent again by itself. | Fix the cause, then **Try again**. |
+| Needs checking (`unknown`) | `unknown` | It may have posted. It is looked up, never resent blindly. | Look at the account, then **Check the result**. |
+| Canceled | `canceled` | You canceled it, or its account was disconnected. | Schedule a new one. |
+
+**History** on each announcement lists its status changes and every try, in your time zone. To record the history
+exactly, run `supabase/social-history.sql` in the Supabase SQL editor (after `social.sql` and `social-queue.sql`). It
+adds one append-only table, `openblog_social_post_events`, and a trigger that writes an event whenever an
+announcement's status, time, caption or problem code changes, whoever changes it. An event holds the status, the
+delivery state, the try number, a short code and times, never the caption, a token or anything a provider wrote.
+Announcements that already exist get one "history starts here" event. Without the file, Admin rebuilds the history
+from the tries and says that edits and checks made by hand may be missing. Undo it with
+`supabase/social-history-rollback.sql` (it deletes the recorded events; export them first if you want them).
 
 ## Publishing adapters
 
