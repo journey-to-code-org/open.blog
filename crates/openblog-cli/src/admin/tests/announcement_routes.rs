@@ -143,6 +143,7 @@ fn every_route_needs_a_session_and_every_write_a_csrf_token() {
         ("POST", "announcements/retry"),
         ("POST", "announcements/resolve"),
         ("GET", "announcements/attempts"),
+        ("GET", "announcements/health"),
     ];
     for (method, name) in routes {
         let path = format!("/admin/api/social/{name}");
@@ -882,4 +883,53 @@ fn the_status_history_is_rebuilt_from_known_fields_only() {
     for hidden in ["li_secret", "token", "<script>", "Bearer"] {
         assert!(!text.contains(hidden), "{hidden}");
     }
+}
+
+#[test]
+fn delivery_health_is_counts_and_alert_codes_only() {
+    let f = social_site("health");
+    let calls: Calls = StdMutex::new(Vec::new());
+    let hostile = fake(
+        &calls,
+        200,
+        json!({
+            "health": {
+                "installed": true, "overdue": 2, "needsReview": 1, "overdueMinutes": 15,
+                "alerts": ["backlog-overdue", "needs-review", "<b>x</b>", 7],
+                "oldestDueAt": "2026-11-01T12:00:00Z",
+                "caption": "SECRET caption", "accountName": "Ada", "due": -3,
+            },
+            "debug": "dropped",
+        }),
+    );
+    let (s, b) = call(
+        &f,
+        &hostile,
+        "GET",
+        "/admin/api/social/announcements/health",
+        None,
+    );
+    assert_eq!(s, 200);
+    assert_eq!(b["health"]["installed"], true);
+    assert_eq!(b["health"]["overdue"], 2);
+    assert_eq!(
+        b["health"]["alerts"],
+        json!(["backlog-overdue", "needs-review"])
+    );
+    assert!(
+        b["health"].get("due").is_none(),
+        "a negative count is not a count"
+    );
+    assert!(b.get("debug").is_none());
+    let text = b.to_string();
+    for hidden in ["SECRET", "Ada", "<b>"] {
+        assert!(!text.contains(hidden), "{hidden}");
+    }
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded[0].0, "GET");
+    assert_eq!(recorded[0].1, "announcements/health");
+    assert!(
+        recorded[0].2.is_empty(),
+        "nothing from the browser is passed on"
+    );
 }

@@ -152,12 +152,14 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
   }
 
   function disconnect(account) {
-    return act(`Disconnecting ${account.displayName}…`, () => api.call("POST", `social/accounts/${account.id}/disconnect`, { json: {} }), async () => {
+    return act(`Disconnecting ${account.displayName}…`, () => api.call("POST", `social/accounts/${account.id}/disconnect`, { json: {} }), async (answer) => {
       confirming = null;
       await load();
       focusTarget = "accounts";
       render();
-      say(`${account.displayName} is disconnected. Its stored tokens were erased.`);
+      const canceled = Number(answer?.account?.canceledAnnouncements) || 0;
+      const also = canceled > 0 ? ` ${canceled === 1 ? "Its 1 scheduled announcement was" : `Its ${canceled} scheduled announcements were`} canceled.` : "";
+      say(`${account.displayName} is disconnected. Its stored tokens were erased.${also}`);
     });
   }
 
@@ -311,7 +313,7 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
       ? el(
           "div",
           { class: "oba-notice oba-social-confirm", role: "group", "aria-label": `Confirm disconnecting ${account.displayName}`, "data-social-confirm": account.id },
-          el("p", { tabindex: "-1", "data-confirm-text": account.id }, `Disconnect ${account.displayName}? Its stored tokens are erased and posts cannot be sent to it until you connect it again. The account stays in your history.`),
+          el("p", { tabindex: "-1", "data-confirm-text": account.id }, `Disconnect ${account.displayName}? Its stored tokens are erased, its scheduled announcements are canceled, and nothing can be posted to it until you connect it again as a new account. The account stays in your history.`),
           el(
             "div",
             { class: "oba-landing-actions" },

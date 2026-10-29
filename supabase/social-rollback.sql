@@ -8,7 +8,7 @@
 --   select * from public.openblog_social_posts order by scheduled_for;
 --   select * from public.openblog_social_attempts order by started_at;
 --
--- This drops only what social.sql, social-queue.sql and social-history.sql added (the history
+-- This drops only what social.sql, social-queue.sql, social-history.sql and social-ops.sql added (the history
 -- trigger and its event table too): the connection, credential, attempt,
 -- queue and account tables (their rows go with them) and the schema version
 -- table. It touches no comment, feedback, subscription or workspace table, and
@@ -21,7 +21,11 @@
 
 begin;
 
--- The delivery queue functions (social-queue.sql) return the queue table's row type, so they go first.
+-- Operations (social-ops.sql) and the history (social-history.sql) first, then the delivery queue
+-- functions (social-queue.sql), which return the queue table's row type, then the tables.
+drop function if exists public.openblog_social_prune(text, integer, integer);
+drop function if exists public.openblog_social_sweep(text, integer);
+drop function if exists public.openblog_social_health(text, integer);
 drop trigger if exists openblog_social_posts_history on public.openblog_social_posts;
 drop function if exists public.openblog_social_record_event();
 drop table if exists public.openblog_social_post_events;

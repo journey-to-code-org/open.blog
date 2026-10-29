@@ -445,3 +445,38 @@ fn the_status_shows_the_redirect_to_register_and_drops_unknown_fields() {
     );
     server.join().unwrap();
 }
+
+#[test]
+fn a_disconnect_reports_how_many_announcements_it_canceled_and_nothing_more() {
+    let reply = json!({ "account": account(json!({
+        "status": "disconnected", "health": "disconnected", "disconnectedAt": "2026-10-29T12:00:00Z",
+        "canceledAnnouncements": 3, "secret": "li_token"
+    })) })
+    .to_string();
+    let (endpoint, server) = hosted(vec![(200, reply)]);
+    let r = route_with(
+        &env_for(&endpoint),
+        &json_req("POST", "/x", json!({})),
+        "mikey",
+        &format!("accounts/{ID}/disconnect"),
+    );
+    server.join().unwrap();
+    assert_eq!(r.status, 200);
+    let body: Json = serde_json::from_slice(&r.body).unwrap();
+    assert_eq!(body["account"]["canceledAnnouncements"], 3);
+    assert!(!String::from_utf8_lossy(&r.body).contains("li_token"));
+
+    // A count that is not a small whole number is not passed on.
+    let reply =
+        json!({ "account": account(json!({ "canceledAnnouncements": "3; drop" })) }).to_string();
+    let (endpoint, server) = hosted(vec![(200, reply)]);
+    let r = route_with(
+        &env_for(&endpoint),
+        &json_req("POST", "/x", json!({})),
+        "mikey",
+        &format!("accounts/{ID}/disconnect"),
+    );
+    server.join().unwrap();
+    let body: Json = serde_json::from_slice(&r.body).unwrap();
+    assert!(body["account"].get("canceledAnnouncements").is_none());
+}

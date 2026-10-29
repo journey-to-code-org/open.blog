@@ -44,7 +44,8 @@ safely, and creates `openblog_social_accounts`, `openblog_social_posts` (the sch
 `openblog_social_schema` (the schema version). All of them are private: row level security is on with no
 policies, the public roles have no access, and only the hosted function (`service_role`) reads and writes. Every
 row carries your site scope and relations include it, so a row cannot point at another site's account or post.
-Nothing is ever deleted by the function: cancelling and disconnecting are updates.
+Nothing is deleted by the function: cancelling and disconnecting are updates. The only exception is retention, which
+you turn on yourself (see the [operations runbook](#retention-optional-deletes-data)).
 
 To undo it, remove `OPENBLOG_SOCIAL_ENABLED`, stop the worker, export what you want to keep (the commands are in
 the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke the app at
@@ -124,7 +125,8 @@ Admin lists each destination and chooses one; nothing is connected until it does
 **Reconnect** signs in again and replaces the stored credential, but only for the same LinkedIn identity or the
 same Page. A different login is refused, LinkedIn is asked to withdraw that grant, and nothing is changed.
 
-**Disconnect** erases the stored tokens and keeps the account row for history. LinkedIn is asked to revoke the
+**Disconnect** erases the stored tokens, cancels the account's scheduled announcements (see the
+[operations runbook](#disconnecting-an-account)) and keeps the account row for history. LinkedIn is asked to revoke the
 grant when no other connected LinkedIn account could share it. Facebook is not asked, because withdrawing the grant
 would also cut off your other Pages: remove the app under **Settings > Business integrations** in Facebook if you
 want the grant gone. Revoke the app in the provider's settings as well when you retire the site.
@@ -399,3 +401,65 @@ sent and nothing relies on it.
 **What is recorded.** Each attempt keeps its number, times, outcome, HTTP status, a short code and a fixed sentence,
 and the provider's post id. It never keeps a token, a header, a request or anything the provider wrote, so the history
 is safe to show in Admin and to paste in a bug report.
+
+## Operations runbook
+
+([ADR 0701](adr/0701-social-operations-log-counts-only-alert-on-backlog-sweep-and-prune-by-opt-in-and-cancel-on-disconnect.md).)
+
+### Logs
+
+Every worker run writes one JSON line, `{"event":"openblog-social-worker","summary":{...}}`, with counts only
+(claimed, published, retried, failed, unknown, deferred, and the lookups). Log lines are built from whole numbers,
+true/false and short codes only, so no token, caption, account name, address or provider text can appear in them.
+Nothing else is logged, and errors are never logged with their detail.
+
+### Health and backlog alerts (optional)
+
+1. Run `supabase/social-ops.sql` in the Supabase SQL editor (after `social.sql` and `social-queue.sql`). It adds three
+   functions and changes no table or row. Undo it with `supabase/social-ops-rollback.sql`.
+2. Set `OPENBLOG_SOCIAL_OPS=true` on the hosted functions and redeploy.
+
+Each run then also reaps expired leases, expires account handshakes left open past their time (erasing any sealed
+tokens they still hold), reads the queue's health and writes an `openblog-social-ops` line. The line is a **warning**
+when there is an alert, so point your log drain or alerting at `"event":"openblog-social-ops"` at warn level:
+
+| Alert | Meaning | What to do |
+| --- | --- | --- |
+| `backlog-overdue` | Announcements are more than `OPENBLOG_SOCIAL_BACKLOG_ALERT_MINUTES` (default 15, 1 to 1440) late. | The worker is not running or not keeping up: check `select * from cron.job_run_details order by start_time desc limit 5;`, the Vault secrets, and the function's log. |
+| `expired-leases` | A run stopped mid-delivery. | Nothing: the next run returns it to the queue, or marks it Needs checking if it may have posted. If it repeats, raise the function timeout or lower the batch. |
+| `accounts-need-reconnect` | A provider refused an account's sign-in. | Reconnect it in Admin, then **Try again** its failed announcements. |
+| `needs-review` | An outcome may have posted and could not be looked up. | Check the account and use **Check the result** in Admin. |
+| `failed-recently` | Something failed in the last day. | Read its History in Admin. |
+| `stale-connections` | An unfinished account connection expired. | Nothing: the sweep cleaned it up. |
+
+Admin's Social screen shows the same health under **Delivery health**, whether or not `OPENBLOG_SOCIAL_OPS` is set,
+once the file is installed. To check by hand: `select * from openblog_social_health('<your site id>', 900);`.
+
+### Retention (optional, deletes data)
+
+Nothing is deleted unless you set `OPENBLOG_SOCIAL_RETENTION_DAYS` (30 to 3650) as well as `OPENBLOG_SOCIAL_OPS=true`.
+Then each run deletes, at most 200 at a time, announcements that **ended** (published, failed or canceled) longer ago
+than that, with their tries and history; finished account handshakes; and disconnected accounts nothing refers to
+any more. Scheduled, sending and Needs checking announcements are never deleted. Meta's Platform Terms (section 3.d)
+and LinkedIn's API Terms of Use (section 4) ask you to keep provider data only as long as you need it, so choose a
+period you can justify (for example 365) and export first if you want an archive:
+`copy (select * from openblog_social_attempts) to stdout with csv header;`.
+
+A person asking for their data to be deleted is a manual step: disconnect the account in Admin, then in the SQL editor
+delete its rows (replace the id):
+`delete from openblog_social_attempts where post_id in (select id from openblog_social_posts where account_id = '<id>');`
+then the same for `openblog_social_post_events` (if installed), `openblog_social_posts`, `openblog_social_credentials`
+and `openblog_social_accounts` with `account_id`/`id = '<id>'`.
+
+### Disconnecting an account
+
+Disconnecting erases its tokens and **cancels its scheduled announcements** (they show as Canceled, "its account was
+disconnected"), because a disconnected account can only come back as a new account. One a worker is sending at that
+moment fails without being sent, because its tokens are gone; one that Needs checking stays for you to check. Admin
+says how many were canceled.
+
+### Stuck work, by hand
+
+- Late queue: `select id, status, scheduled_for, next_attempt_at, last_error_code from openblog_social_posts where status = 'scheduled' and coalesce(next_attempt_at, scheduled_for) < now() - interval '15 minutes';`
+- Expired leases without waiting for a run: `select * from openblog_social_sweep('<your site id>');`
+- Needs checking: `select id, last_error_code, updated_at from openblog_social_posts where status = 'unknown';` and settle each in Admin.

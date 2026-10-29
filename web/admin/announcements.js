@@ -162,6 +162,26 @@ export function eventText(event, zone) {
   return line;
 }
 
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Delivery health (ADR 0701) in sentences, most urgent first. Only counts and fixed alert codes
+ * come from the server; an alert this screen does not know is not shown.
+ */
+export function healthLines(health) {
+  if (!health || health.installed !== true) return [];
+  const n = (name) => (Number.isSafeInteger(health[name]) && health[name] > 0 ? health[name] : 0);
+  const lines = {
+    "backlog-overdue": () => `${plural(n("overdue"), "announcement is", "announcements are")} more than ${plural(health.overdueMinutes || 15, "minute", "minutes")} late. The delivery worker may not be running: check its schedule and its log.`,
+    "expired-leases": () => `${plural(n("expiredLeases"), "delivery", "deliveries")} stopped before finishing. The next run picks them up; nothing is sent twice.`,
+    "accounts-need-reconnect": () => `${plural(n("accountsNeedReconnect"), "account needs", "accounts need")} to be connected again before ${n("accountsNeedReconnect") === 1 ? "it" : "they"} can post.`,
+    "needs-review": () => `${plural(n("needsReview"), "announcement needs", "announcements need")} you to check whether ${n("needsReview") === 1 ? "it was" : "they were"} posted.`,
+    "failed-recently": () => `${plural(n("failedRecently"), "announcement", "announcements")} failed in the last day.`,
+    "stale-connections": () => `${plural(n("staleConnections"), "unfinished account connection", "unfinished account connections")} expired and will be cleaned up.`,
+  };
+  return (Array.isArray(health.alerts) ? health.alerts : []).filter((code) => Object.hasOwn(lines, code)).map((code) => ({ code, text: lines[code]() }));
+}
+
 const WHY_LOCKED = Object.freeze({
   claimed: "A sender has picked this up, so it can no longer be changed.",
   published: "This was posted, so it can no longer be changed.",
@@ -767,6 +787,35 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     }
   }
 
+  // ---- delivery health: loaded beside the list, never in its way
+  const healthBox = el("section", { class: "oba-announce-health", "aria-labelledby": `${ids}-health-title`, "data-social-health": "true", hidden: true });
+  async function loadHealth() {
+    let health;
+    try {
+      health = (await api.call("GET", "social/announcements/health"))?.health;
+    } catch {
+      healthBox.hidden = true;
+      return;
+    }
+    if (!health) {
+      healthBox.hidden = true;
+      return;
+    }
+    const title = el("h2", { id: `${ids}-health-title` }, "Delivery health");
+    if (health.installed !== true) {
+      healthBox.replaceChildren(title, el("p", { class: "oba-small", "data-health-off": "true" }, "Queue health is not available. Run supabase/social-ops.sql to see how late the queue is and what waits for you."));
+    } else {
+      const lines = healthLines(health);
+      healthBox.replaceChildren(
+        title,
+        lines.length
+          ? el("ul", { class: "oba-announce-health-alerts", "aria-label": "Delivery alerts" }, lines.map((line) => el("li", { "data-health-alert": line.code }, line.text)))
+          : el("p", { class: "oba-small", "data-health-ok": "true" }, "Nothing is late, stuck or waiting for you."),
+      );
+    }
+    healthBox.hidden = false;
+  }
+
   function renderList() {
     list.replaceChildren(
       announcements.length
@@ -802,6 +851,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     updateCount();
     renderPreview(null);
     renderList();
+    loadHealth();
     if (!destinations.length) {
       status.textContent = "No account is connected yet, so there is nowhere to post. Connect a LinkedIn profile or Facebook Page first.";
     }
@@ -813,6 +863,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     status,
     loadError,
     form,
+    healthBox,
     el(
       "section",
       { class: "oba-announce-queue", "aria-labelledby": `${ids}-queue-title` },

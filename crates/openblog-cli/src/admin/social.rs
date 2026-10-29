@@ -170,7 +170,7 @@ fn project_credential(value: &Json) -> Json {
 
 fn project_account(value: &Json) -> Option<Json> {
     let id = text(value.get("id")?, 36).filter(|id| is_uuid(id))?;
-    Some(json!({
+    let mut account = json!({
         "id": id,
         "provider": provider_name(value.get("provider")?)?,
         "kind": slug(value.get("kind")?)?,
@@ -183,7 +183,16 @@ fn project_account(value: &Json) -> Option<Json> {
         "updatedAt": optional_text(value, "updatedAt", 40),
         "disconnectedAt": optional_text(value, "disconnectedAt", 40),
         "credential": project_credential(value.get("credential").unwrap_or(&Json::Null)),
-    }))
+    });
+    // A disconnect says how many scheduled announcements it canceled (ADR 0701); nothing else has it.
+    if let Some(count) = value
+        .get("canceledAnnouncements")
+        .and_then(Json::as_u64)
+        .filter(|count| *count <= 10_000)
+    {
+        account["canceledAnnouncements"] = json!(count);
+    }
+    Some(account)
 }
 
 fn project_destination(value: &Json) -> Option<Json> {

@@ -17,6 +17,7 @@ import {
   eventText,
   fieldForCode,
   formatWhen,
+  healthLines,
   instantToLocalInput,
   localToInstant,
   lockedReason,
@@ -135,7 +136,7 @@ const row = (over = {}) => ({
   ...over,
 });
 
-function fakeAdmin({ queue = [row()], fail = {}, history = {} } = {}) {
+function fakeAdmin({ queue = [row()], fail = {}, history = {}, health } = {}) {
   const calls = [];
   let current = queue;
   const api = {
@@ -177,6 +178,10 @@ function fakeAdmin({ queue = [row()], fail = {}, history = {} } = {}) {
         const made = row({ ...current[0], status: published ? "published" : "failed", editable: false, resolvable: false, retryable: !published, version: current[0].version + 1 });
         current = [made];
         return { announcement: made };
+      }
+      if (route === "GET social/announcements/health" && health) {
+        if (health instanceof Error) throw health;
+        return { health };
       }
       if (route === "GET social/announcements/attempts") {
         return { ...history, attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
@@ -602,4 +607,37 @@ test("a scheduled announcement waiting to try again says when", withDom(async ()
   assert.equal(byData(root, "data-delivery")[0].getAttribute("data-delivery"), "retrying");
   assert.match(text(byData(root, "data-status-badge")[0]), /Retrying/);
   assert.match(text(byData(root, "data-row-next-step")[0]), /tried again by itself/);
+}));
+
+test("delivery health reads as sentences, most urgent first, and ignores codes it does not know", () => {
+  const lines = healthLines({ installed: true, overdueMinutes: 15, overdue: 2, needsReview: 1, accountsNeedReconnect: 1, alerts: ["backlog-overdue", "accounts-need-reconnect", "needs-review", "made-up"] });
+  assert.deepEqual(lines.map((line) => line.code), ["backlog-overdue", "accounts-need-reconnect", "needs-review"]);
+  assert.match(lines[0].text, /^2 announcements are more than 15 minutes late\. The delivery worker may not be running/);
+  assert.match(lines[1].text, /^1 account needs to be connected again before it can post/);
+  assert.match(lines[2].text, /^1 announcement needs you to check whether it was posted/);
+  assert.deepEqual(healthLines({ installed: false, alerts: ["backlog-overdue"] }), []);
+  assert.deepEqual(healthLines(null), []);
+});
+
+test("the Social screen shows delivery health beside the queue, and stays out of the way when it cannot", withDom(async () => {
+  const healthy = await open({ health: { installed: true, overdueMinutes: 15, alerts: [] } });
+  await flush();
+  const box = byData(healthy.root, "data-social-health")[0];
+  assert.equal(box.hidden, false);
+  assert.match(text(box), /Delivery health.*Nothing is late, stuck or waiting for you\./);
+
+  const late = await open({ health: { installed: true, overdueMinutes: 30, overdue: 3, alerts: ["backlog-overdue", "<script>"] } });
+  await flush();
+  const alerts = byData(late.root, "data-health-alert");
+  assert.equal(alerts.length, 1);
+  assert.match(text(alerts[0]), /3 announcements are more than 30 minutes late/);
+
+  const off = await open({ health: { installed: false, alerts: [] } });
+  await flush();
+  assert.match(text(byData(off.root, "data-health-off")[0]), /supabase\/social-ops\.sql/);
+
+  const broken = await open({ health: new ApiError("x", 502, { error: "down", code: "hosted-failed" }) });
+  await flush();
+  assert.equal(byData(broken.root, "data-social-health")[0].hidden, true, "a health failure never blocks the screen");
+  assert.ok(byData(broken.root, "data-announcement").length > 0);
 }));

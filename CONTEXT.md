@@ -2845,3 +2845,14 @@ The ordered events of one announcement: created, every status, time or caption c
 recorded by a database trigger when `supabase/social-history.sql` is installed, otherwise rebuilt from the delivery
 attempts and marked as incomplete. Append-only; it holds no caption, token or provider text.
 _Avoid_: Audit log (the attempts are the delivery record), activity feed
+
+**Delivery health**:
+Counts of a site's social queue (late, in flight, expired leases, retrying, waiting for a lookup or a person, recent
+failures, accounts needing reconnect, abandoned handshakes) and the alert codes they raise, read by an opt-in database
+function for Admin and the worker's warning log line. It never holds a caption, name or token.
+_Avoid_: Metrics, dashboard
+
+**Social retention**:
+The opt-in deletion, after a configured 30 to 3650 days, of announcements that ended with their tries and history,
+finished handshakes and unreferenced disconnected accounts. Nothing scheduled, sending or unknown is ever removed.
+_Avoid_: Cleanup (the sweep only changes state), archiving

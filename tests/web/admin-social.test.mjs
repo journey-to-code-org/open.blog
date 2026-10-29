@@ -61,7 +61,7 @@ function server(initial = {}) {
       const disconnect = /^social\/accounts\/(.+)\/disconnect$/.exec(path);
       if (disconnect) {
         Object.assign(state.accounts.find((a) => a.id === disconnect[1]), { status: "disconnected", health: "disconnected", disconnectedAt: "2026-10-29T12:00:00Z" });
-        return {};
+        return { account: { ...state.accounts.find((a) => a.id === disconnect[1]), canceledAnnouncements: 2 } };
       }
       const reconnect = /^social\/accounts\/(.+)\/reconnect$/.exec(path);
       if (reconnect) {
@@ -237,6 +237,7 @@ test("disconnect asks first, says what it does, can be backed out of, and then r
   const confirm = all(root, "div").find((d) => d.dataset.socialConfirm);
   assert.match(text(confirm), /Its stored tokens are erased/);
   assert.match(text(confirm), /stays in your history/);
+  assert.match(text(confirm), /scheduled announcements are canceled/);
   assert.equal(dom.document.activeElement.dataset.confirmText, ID(1), "focus moves to the question");
   await click(buttons(root, "social-disconnect-cancel")[0]);
   assert.equal(all(root, "div").find((d) => d.dataset.socialConfirm), undefined);
@@ -244,7 +245,7 @@ test("disconnect asks first, says what it does, can be backed out of, and then r
   await click(buttons(root, "social-disconnect")[0]);
   await click(buttons(root, "social-disconnect-confirm")[0]);
   assert.deepEqual(api.calls.find((c) => c.path.includes("disconnect")), { method: "POST", path: `social/accounts/${ID(1)}/disconnect`, body: {} });
-  assert.match(text(all(root, "p").find((p) => p.dataset.socialStatus)), /Ada Lovelace is disconnected\. Its stored tokens were erased\./);
+  assert.match(text(all(root, "p").find((p) => p.dataset.socialStatus)), /Ada Lovelace is disconnected\. Its stored tokens were erased\. Its 2 scheduled announcements were canceled\./);
   assert.equal(all(root, "li").find((li) => li.dataset.account).dataset.health, "disconnected");
   assert.equal(dom.document.activeElement.id.endsWith("-accounts"), true, "focus returns to the accounts heading");
 }));

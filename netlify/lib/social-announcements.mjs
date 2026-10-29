@@ -15,6 +15,7 @@
 import { ACTOR_HEADER, SocialScopeError, authorizeSocial, ensureOwned, refuseClientScope, scopedQuery } from "./social-scope.mjs";
 import { validProviderPostId } from "./social-delivery.mjs";
 import { NEXT_STEPS, deliveryState, derivedTimeline, timelineFromEvents } from "./social-status.mjs";
+import { OpsError, createOps, opsPolicy } from "./social-ops.mjs";
 import {
   ScheduleError,
   checkCanonicalUrl,
@@ -131,7 +132,7 @@ const optionalZone = (value) => {
   if (value !== undefined && value !== null) checkTimeZone(value);
 };
 
-export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
+export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, now = () => Date.now(), ops = opsPolicy({}) } = {}) {
   if (!settings || settings.enabled !== true) throw new SocialScopeError(404, "not-enabled", "Social publishing is not enabled.");
   const iso = (ms) => new Date(ms).toISOString();
 
@@ -432,6 +433,17 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     });
   };
 
+  // Delivery health (ADR 0701): counts and alert codes only, or `installed: false` when
+  // supabase/social-ops.sql has not been run. Reading it changes nothing.
+  const health = async () => {
+    try {
+      return reply(200, { health: await createOps({ settings, fetchImpl, policy: ops }).health() });
+    } catch (error) {
+      if (error instanceof OpsError) throw new RouteError(502, error.code, "The schedule could not be reached. Try again.");
+      throw error;
+    }
+  };
+
   // { method, route, query, headers, body } -> { status, body }. `body` is parsed JSON or text.
   return async function handle({ method = "GET", route = "", query = "", headers = {}, body } = {}) {
     try {
@@ -448,6 +460,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
         "POST announcements/retry": (parsed) => retry(params, parsed),
         "POST announcements/resolve": (parsed) => resolve(identity, params, parsed),
         "GET announcements/attempts": () => attempts(params),
+        "GET announcements/health": () => health(),
       };
       const run = table[`${method} ${path}`];
       if (!run) {
