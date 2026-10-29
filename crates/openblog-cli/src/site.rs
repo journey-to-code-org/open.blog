@@ -167,6 +167,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-views.js"),
     ),
     (
+        "components/comment-captcha.js",
+        include_str!("../../../web/components/comment-captcha.js"),
+    ),
+    (
         "components/ob-comments.js",
         include_str!("../../../web/components/ob-comments.js"),
     ),
@@ -287,6 +291,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     (
         "business.js",
         include_str!("../../../web/admin/business.js"),
+    ),
+    (
+        "services.js",
+        include_str!("../../../web/admin/services.js"),
     ),
     ("paste.js", include_str!("../../../web/admin/paste.js")),
     (

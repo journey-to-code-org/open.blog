@@ -4,8 +4,8 @@ Social publishing announces an already-published post on a connected LinkedIn id
 time you choose. It is off by default. Your site, its exports and cross-posting work exactly the same without it,
 and nothing in this guide is needed to read, build or publish a blog.
 
-This page covers the identity and storage foundation (epic #353, story #354) and scheduling announcements (story
-#356). Provider setup and delivery arrive in later stories.
+This page covers the identity and storage foundation (epic #353, story #354), scheduling announcements (story
+#356) and the delivery queue and worker (story #357). The provider adapters that actually post arrive in a later story.
 
 ## Who is allowed to do what
 
@@ -179,7 +179,8 @@ What can be announced:
 - A time at least a minute ahead and no more than a year ahead, written with its zone. It is stored in UTC; Admin
   shows it in your own zone. Your zone is not stored.
 
-Until a delivery worker exists (a later story) a scheduled announcement waits in the queue and is not sent.
+A scheduled announcement waits in the queue until the delivery worker (below) claims it; without the worker, or without
+a provider adapter for its destination, it is never sent.
 
 Only a **scheduled** announcement can be changed, rescheduled or canceled. Once a worker has claimed it, it cannot be.
 Saving names the version you were looking at; if it changed meanwhile you are asked to reload. Creating is
@@ -196,7 +197,8 @@ routes beside the account routes, behind the same admin key, and answers 404 to 
 
 Admin (`/admin/api/social/`, session and CSRF like every Admin route): `posts`, `preview`, `destinations`,
 `announcements` (`GET` list, `POST` create, `PATCH ?id=` edit), `announcements/reschedule?id=`,
-`announcements/cancel?id=`. Hosted (the same names under the endpoint, admin key only): the same set except
+`announcements/cancel?id=`, `announcements/retry?id=`, `announcements/resolve?id=` and `GET announcements/attempts?id=`
+(ADR 0318). Hosted (the same names under the endpoint, admin key only): the same set except
 `posts` and `preview`, which Admin answers itself.
 
 ### The Social screen
@@ -214,7 +216,7 @@ delivery is set up.
 
 ## Publishing adapters
 
-Delivery calls one narrow function per provider ([ADR 0490](adr/0490-the-publishing-adapters-answer-published-failed-or-unknown-from-one-narrow-call-and-never-copy-provider-text.md)):
+Delivery calls one narrow function per provider ([ADR 0319](adr/0319-the-publishing-adapters-answer-published-failed-or-unknown-from-one-narrow-call-and-never-copy-provider-text.md)):
 `publish(post, credentials)` answers `published`, `failed` or `unknown`, with the provider post id when there is
 one. A post is `published` only when the provider confirmed it with an id. A server error, a timeout or an unclear
 success is `unknown`: the post may be live, so a person reconciles it and it is never sent again automatically.
@@ -232,7 +234,7 @@ product that grants `w_member_social`, and for organizations the Community Manag
 ### Facebook Pages
 
 Posts a message and the post link to the connected Page's feed (`POST /{page-id}/feed`) with that Page's access
-token ([ADR 0491](adr/0491-the-facebook-adapter-posts-a-message-and-link-to-the-page-feed-with-the-page-token-in-the-header-and-reads-graph-error-codes.md)).
+token ([ADR 0320](adr/0320-the-facebook-adapter-posts-a-message-and-link-to-the-page-feed-with-the-page-token-in-the-header-and-reads-graph-error-codes.md)).
 The token goes in the `Authorization` header, never in the address. Facebook's own error codes decide the result: an
 expired token or a removed app asks you to reconnect, a missing permission or Page role is reported as such, a rate
 limit is tried again later, and an "unknown error" is `unknown` because the post may exist.
@@ -243,8 +245,110 @@ until the app has Advanced access, only people with a role on the app can post t
 
 ### How the adapters are tested
 
-Both adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0492](adr/0492-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-run-through-both-adapters-and-a-result-contract.md)):
+Both adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0321](adr/0321-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-run-through-both-adapters-and-a-result-contract.md)):
 success, 401, 403, 429, 5xx, a network failure, a timeout and ambiguous successes, plus unsupported networks and a
 check that no token or provider wording reaches a result. No test uses a real account or the network. The replies are
 written from the providers' documentation, so check them against the current documentation when you change an API
 version.
+
+## Delivery queue
+
+Delivery has three parts, each opt-in on top of the last. This section is the queue; the worker that calls it and the
+schedule that wakes the worker are below it.
+
+Run `supabase/social-queue.sql` in the Supabase SQL editor after `social.sql`
+([ADR 0316](adr/0316-due-announcements-are-claimed-by-database-functions-under-a-lease-and-an-expired-lease-after-sending-is-unknown.md)).
+It is additive and re-runnable: five columns, one index and four functions, no existing row changed. Undo it with
+`supabase/social-queue-rollback.sql`; `social-rollback.sql` removes the functions before it drops the tables.
+
+- A **claim** takes due, scheduled announcements of this site, a bounded batch at a time, under a lease (5 minutes by
+  default). Two workers at once get different announcements; one an author just canceled is not claimed.
+- Each claim counts an **attempt** and opens an attempt row. The **sending mark** is made just before the provider is
+  called, and only while the lease is valid.
+- A lease that runs out **before** the sending mark returns the announcement to the queue. One that runs out
+  **after** it becomes `unknown`: the provider may have posted, so it is never sent again, only looked up or reviewed.
+- An outcome is recorded against the version the worker read, so a worker that lost its lease cannot overwrite the one
+  that holds it. `published` is recorded only with the provider's own post id.
+- Only `service_role` may execute the functions; the browser and the public keys cannot.
+
+Without this file announcements wait in the queue exactly as before.
+
+## The delivery worker
+
+The worker is a hosted function, `netlify/functions/social-worker.mjs`, reached at `POST /api/social-worker`
+([ADR 0317](adr/0317-a-protected-worker-endpoint-woken-by-pg-cron-and-pg-net-delivers-a-bounded-batch-through-a-narrow-adapter-interface.md)).
+Each call claims a small batch of due announcements, delivers each through its provider's adapter, records the outcome,
+and answers with counts only. It is off (404) unless the social settings are valid.
+
+**Who may call it.** Only the worker key, as `Authorization: Bearer <OPENBLOG_SOCIAL_WORKER_KEY>`. The admin key is
+refused (403), a missing or wrong key is 401, and a worker key that equals the Supabase service key, the admin key or an
+anon or publishable key disables the feature at start-up, so a public key can never run it. Nothing you send can name
+a site or change what it does.
+
+**Optional settings** (all have defaults; a value outside its range is ignored and the default used):
+
+| Variable | Default | Range |
+| --- | --- | --- |
+| `OPENBLOG_SOCIAL_BATCH_SIZE` | 5 | 1 to 25 |
+| `OPENBLOG_SOCIAL_LEASE_SECONDS` | 300 | 30 to 900 |
+| `OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS` | 4 | 2 to 30 |
+| `OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS` | 8 | 5 to 50 |
+
+The defaults (a 4-second provider timeout inside an 8-second budget) fit Netlify's default 10-second function
+timeout, and a run claims only as many announcements as its budget can finish (one at the defaults; the schedule
+wakes it every minute). To deliver more per run, raise the function's timeout in Netlify first (verify the limit for
+your plan), then raise the budget to stay about 2 seconds under it. A budget smaller than the provider timeout plus 2
+seconds is refused: both settings fall back to their defaults and the setting is reported as a problem. If the platform cuts a run off mid-delivery, the
+announcement is not lost and not repeated: its lease runs out and it becomes `unknown` if the provider may have
+been called, or returns to the queue if not.
+
+**Set it up** (each step is separate and reversible):
+
+1. Run `supabase/social-queue.sql` (the delivery queue, above).
+2. Deploy the function with `OPENBLOG_SOCIAL_WORKER_KEY` set (and the other social settings).
+3. Store the worker's address and key in Supabase Vault, from the SQL editor, replacing the placeholders:
+   `select vault.create_secret('https://YOUR-SITE.example/api/social-worker', 'openblog_social_worker_url');` and
+   `select vault.create_secret('THE-WORKER-KEY', 'openblog_social_worker_key');`
+4. Run `supabase/social-cron.sql`. It enables `pg_cron` and `pg_net` and schedules one job, `openblog-social-worker`,
+   every minute. Running it again leaves one job. Announcements go out within about a minute of their time.
+
+To stop delivery run `supabase/social-cron-rollback.sql` (it keeps the extensions and the Vault secrets; delete the
+secrets and rotate the worker key when you retire the feature). With no job, nothing wakes the worker; you can still call
+the endpoint by hand with the key.
+
+**Adapters.** The worker never talks to LinkedIn or Facebook itself. It calls an adapter registered in
+`netlify/lib/social-adapters.mjs` through a narrow interface (documented in `netlify/lib/social-delivery.mjs`): `publish`
+returns the provider's own post id only when the provider confirmed success, or throws a typed error. An announcement
+for a provider that has no adapter registered yet **waits in the queue**, untouched; one for a provider this release does
+not know fails with `unsupported-provider`. Provider API versions, permissions and app review are settings you verify at
+setup (see Provider setup above); nothing is guessed at run time.
+
+## Retries, rate limits and uncertain outcomes
+
+([ADR 0318](adr/0318-a-failure-that-certainly-did-not-post-is-retried-with-back-off-and-one-that-may-have-posted-is-unknown-looked-up-and-then-settled-by-a-person.md).)
+What the worker does depends on what it knows about the provider's answer:
+
+| The provider's answer | The announcement becomes | Next |
+| --- | --- | --- |
+| Confirmed, with its post id | `published` | Done. The id is kept on the announcement and the attempt. |
+| Certainly not accepted (a refused connection, a clear "try later") | `scheduled` again | Retried after a back-off (about 1, 2, 4 minutes and so on, capped at an hour). |
+| Rate limited (429) | `scheduled` again | Waits at least the provider's `Retry-After` (at most a day), and **that account sends nothing** until then. |
+| Refused (400, 403, 404, 409, 410, 422) or the sign-in was refused (401) | `failed` | Not retried. Fix the cause (the caption, the account) and use **Try again**. |
+| No answer, a timeout, a 5xx, an unreadable answer, a crash, or a success that could not be recorded | `unknown` | **Never sent again by itself.** Looked up, then yours to settle. |
+| Tried the allowed number of times (default 5) | `failed`, `attempts-exhausted` | A dead letter that keeps its history. **Try again** gives it a fresh allowance. |
+
+**Unknown outcomes.** The worker asks the provider, through the adapter's optional lookup, whether the post exists:
+after 5 minutes, 15 minutes, an hour, six hours and a day. If it is there, the announcement becomes `published` with
+its post id. If the provider says conclusively that it is not there, and the attempt is at least 15 minutes old, it
+becomes `failed` (`not-delivered`) and you can use **Try again**. If the lookup cannot tell, or the destination cannot
+be looked up, the announcement stays `unknown` with `needs-review` and waits for you: open the account, see whether
+the post is there, and choose **Check the result** in Admin. To find stuck work in the database:
+`select id, status, last_error_code, updated_at from openblog_social_posts where status in ('unknown','failed');`.
+
+**Settings** (optional, bounded; a value out of range is ignored): `OPENBLOG_SOCIAL_MAX_ATTEMPTS` (default 5, 1 to 10)
+and `OPENBLOG_SOCIAL_BACKOFF_SECONDS` (default 60, 5 to 3600). An adapter that can use an idempotency key is given one
+that is the same for every attempt of one announcement; the worker does not rely on it.
+
+**What is recorded.** Each attempt keeps its number, times, outcome, HTTP status, a short code and a fixed sentence,
+and the provider's post id. It never keeps a token, a header, a request or anything the provider wrote, so the history
+is safe to show in Admin and to paste in a bug report.

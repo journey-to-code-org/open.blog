@@ -1,3 +1,4 @@
+import { issuePass, validPass, verifyCaptcha } from "../lib/comment-captcha.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { AUTHOR_RESPONSE_KIND, PARENT_UNAVAILABLE, checkAnswerParent, mayDecideResponse, parentFactsOfRow, readAuthorResponseRequest, receiveAuthorResponse } from "../lib/author-response.mjs";
@@ -694,6 +695,18 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (policy !== "open") {
           return json(403, { error: policy === "locked" ? "This discussion is read-only." : "Comments are not available for this post." }, corsOrigin);
         }
+        let captchaSession;
+        if (String(env.OPENBLOG_CAPTCHA_ENABLED || "").trim() === "true") {
+          const secret = String(env.OPENBLOG_TURNSTILE_SECRET || "");
+          const signingSecret = String(env.OPENBLOG_CAPTCHA_PASS_SECRET || "");
+          if (!secret || signingSecret.length < 32) return json(503, { code: "captcha_configuration", error: "Comment verification is unavailable. Configure OPENBLOG_TURNSTILE_SECRET and OPENBLOG_CAPTCHA_PASS_SECRET (at least 32 characters)." }, corsOrigin);
+          if (!validPass(body.captchaPass, settings.siteId, signingSecret, now())) {
+            if (!await consumeQuota(settings, event, "comment-captcha", 20, 2000)) return json(429, { code: "captcha_rate_limited", error: "Too many verification attempts. Please try again later." }, corsOrigin);
+            const verified = await verifyCaptcha({ provider: "turnstile", token: body.captchaToken, secret, hostname: new URL(settings.origin).hostname, fetchImpl });
+            if (!verified) return json(403, { code: "captcha_required", error: "Please complete the comment verification and try again. Your comment has not been sent." }, corsOrigin);
+            captchaSession = issuePass(settings.siteId, signingSecret, now());
+          }
+        }
         if (!await consumeQuota(settings, event, "comments", 5, 500)) return json(429, { error: "Too many comments. Please try again later." }, corsOrigin);
         const claim = settings.protection ? await firstTimeThisHour(settings, event, "comments", [path, authorName, commentBody]) : null;
         if (settings.protection && !claim) {
@@ -704,7 +717,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           headers: { Prefer: "return=representation" },
           body: JSON.stringify({ site_id: settings.siteId, path, author_name: authorName, body: commentBody, status: "pending" }),
         }));
-        return json(202, { id: rows[0]?.id, status: "pending" }, corsOrigin);
+        return json(202, { id: rows[0]?.id, status: "pending", ...(captchaSession ? { captchaSession } : {}) }, corsOrigin);
       }
       if (operation === "feedback" || operation === "admin/feedback") {
         if (operation === "admin/feedback" && !admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);

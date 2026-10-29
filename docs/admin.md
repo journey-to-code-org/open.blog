@@ -964,6 +964,13 @@ does not conflict with it, and it changes only the `business` key of `openblog.j
 place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
 to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
+### Services
+
+Open **Services** (`#/services`) to describe each thing you sell once, with what it includes, a price band, a
+typical timeline and the questions customers ask. The screen edits the `services/` files through the same
+document routes as posts, pages and series, so sessions, CSRF, the 2 MiB bound, revision checks and the trash all
+apply as they do there. See [Services](services.md).
+
 ### A short phone walkthrough
 
 On a 375px phone: open Admin and choose **Landing page**; tap **Edit** on the welcome banner, change the
@@ -1017,8 +1024,15 @@ cannot be changed, and the row says why. If it was picked up while you were look
 tells you instead of failing. Use **Show** to filter by status.
 
 It works with a keyboard alone (Tab through the fields, Enter on **Schedule announcement**), every field has a visible
-label, and on a phone it is one column with buttons at least 44px tall. Nothing is posted by this screen yet: delivery
-arrives in a later story.
+label, and on a phone it is one column with buttons at least 44px tall. This screen only schedules; the delivery worker
+and the provider adapters do the posting (see [social publishing](social-publishing.md#the-delivery-worker)).
+
+**When a post does not go out.** A **Failed** announcement says why in plain words, with the short code beside it.
+**Try again** asks first, then puts it back in the queue with a fresh allowance of attempts. A **Needs checking**
+announcement is one where the provider did not say whether the post went out. It is never sent again by itself: look
+at the LinkedIn or Facebook account, then choose **Check the result** and say it was posted (with the post id the
+provider shows) or was not (it then becomes Failed, and you can try it again). A **Scheduled** announcement that is
+waiting to try again says when. **What was tried** under each announcement lists every attempt with its result.
 
 ## Running it for real
 

@@ -347,6 +347,27 @@ pub fn llms_index(site: &Site) -> Result<String, String> {
             ));
         }
     }
+    if !site.services.is_empty() {
+        out.push_str("\n## Services\n\n");
+        for service in &site.services {
+            out.push_str(&format!(
+                "- [{}]({}): {}\n",
+                markdown_text(&service.name),
+                c.absolute(&service.url),
+                markdown_text(&service.summary)
+            ));
+        }
+    }
+    if !c.service_areas.is_default() {
+        out.push_str("\n## Service areas\n\n");
+        for planned in c.service_areas.plan() {
+            out.push_str(&format!(
+                "- [{}]({})\n",
+                markdown_text(&planned.area.label()),
+                c.absolute(&planned.url)
+            ));
+        }
+    }
     let mut feed_links = Vec::new();
     if c.feeds.rss {
         feed_links.push(("RSS", "/rss.xml"));

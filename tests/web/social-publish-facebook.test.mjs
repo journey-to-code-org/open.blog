@@ -1,4 +1,4 @@
-// The Facebook Page feed adapter of optional social publishing (epic #353, story #358, ADR 0491),
+// The Facebook Page feed adapter of optional social publishing (epic #353, story #358, ADR 0320),
 // against a scripted provider only.
 import test from "node:test";
 import assert from "node:assert/strict";

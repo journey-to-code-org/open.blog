@@ -2619,7 +2619,7 @@ _Avoid_: Template, form body
 Two pictures of the same thing, written as a `compare` fence with a required description for each, an optional
 caption and a label ("Before" and "After" by default). Any post may hold one. The page shows a comparison
 control; feeds, syndicated copies and exports show two captioned figures. Reported as the `before-after`
-capability (ADR 0291).
+capability (ADR 0311).
 _Avoid_: Slider, image diff, gallery
 
 **Capture**:
@@ -2660,12 +2660,20 @@ author applies it and saves (ADR 0303).
 _Avoid_: AI post, generated post
 
 **Service**:
-One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
-typical timeline, and FAQs. A job's `service` names one of them.
+One offering a business sells, kept as a Markdown file in the `services/` collection with an `id`, a name, a
+one-sentence summary, what is included, a starting price band, a typical timeline, and FAQs. A job's `service`
+names one of them by id; once a site has any service, a job naming an unknown id is refused with the known ids
+listed. The price band is the jobs' cost band, a label and never a quote (ADR 0311). A site with services gets a
+`/services/` index and a page per service with `Service` structured data, and `FAQPage` data only for a service
+that has questions (ADR 0312). `openblog new --profile service` and Admin's Services screen write them (ADR 0313).
 _Avoid_: Product, category
 
 **Service area**:
-A town or region the business serves, kept in a site-level list and rendered as pages and structured data.
+A town and region the business serves, kept in the versioned `serviceAreas` list in `openblog.json` (ADR 0314)
+and rendered as pages and structured data. It has a town, a region formatted from a bundled list, and an optional
+one-line note about the reach; nothing finer than a town is ever stored. A job is "in" an area when its
+`place.town` and `place.region` match, and its area page shows the job's title, link and date only (ADR 0315);
+an area with no jobs says its work is not yet posted rather than filling the page.
 _Avoid_: Location (ambiguous with a job's place)
 
 **Before/after pair**:
@@ -2772,3 +2780,53 @@ The Admin page (`#/social`) where an author connects, reviews, reconnects and di
 only what the Admin server rebuilt from the hosted function's reply, and appears in the navigation only when the
 Admin server has social settings.
 _Avoid_: Integrations, social settings
+
+**Claim**:
+The atomic step in which a worker takes a due scheduled social post: one database function moves it to `claimed`
+under a lease, raises its attempt count and version, and opens the attempt row, skipping any row another claim has
+locked. A claim and an author's edit or cancel exclude each other.
+_Avoid_: Pick up, dequeue
+
+**Lease**:
+The time until which one worker may deliver a claimed post. When it runs out, the post is reaped: back to the queue if
+the provider was never called, `unknown` if it might have been.
+_Avoid_: Lock, timeout
+
+**Sending mark**:
+The stamp on a delivery attempt (`sending_at`) made just before the provider call, and only while the lease is valid.
+It separates "nothing was sent" from "it may have been sent", which decides whether an expired lease is retried or
+becomes an unknown outcome.
+_Avoid_: Heartbeat
+
+**Delivery worker**:
+The hosted function (`/api/social-worker`) that runs one bounded batch: it claims due scheduled social posts, delivers
+each through its provider's adapter, and records the outcome. Only the worker key may call it, and pg_cron and pg_net
+wake it from the database with the key kept in Vault.
+_Avoid_: Cron job (that only wakes it), publisher
+
+**Provider adapter**:
+The one narrow interface the delivery worker calls a social provider through: `publish` returns the provider's own post
+id only on confirmed success or throws a typed delivery error; `reconcile` optionally looks a post up. It is given a
+caption, a link, an idempotency key and one access token, nothing else of ours, and is tested against fakes.
+_Avoid_: Driver, integration
+
+**Unknown outcome**:
+The state of a delivery attempt that may have reached the provider and was not confirmed (a timeout, a dropped
+connection, a 5xx, an unreadable answer, a crash, a success that could not be recorded). It is never sent again by the
+worker; the adapter's lookup, then the author, settles it as posted or not posted.
+_Avoid_: Pending, failed (a failure certainly did not post)
+
+**Reconciliation**:
+The delivery worker's look at an unknown outcome through the provider adapter's optional lookup, on a widening
+schedule, ending in published, failed (`not-delivered`) or, when it cannot tell, review by a person.
+_Avoid_: Retry (a retry sends again)
+
+**Dead letter**:
+A scheduled social post that used up its attempts and is `failed` with `attempts-exhausted`. It keeps its history and
+can be retried by hand, with a fresh allowance of attempts.
+_Avoid_: Error queue
+
+**Account pause**:
+The time until which a rate-limited social account sends nothing, for any of its posts, so one limit is not hit again by
+the next announcement.
+_Avoid_: Cooldown, ban

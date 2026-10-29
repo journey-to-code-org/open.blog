@@ -178,7 +178,7 @@ fn other_profiles_and_stray_job_options_are_refused_and_plain_new_is_unchanged()
     let root = project("other", &[]);
     let odd = run(&root, &["new", "A post", "--profile", "video"]);
     assert!(!odd.status.success());
-    assert!(text(&odd.stderr).contains("article, recipe or job"));
+    assert!(text(&odd.stderr).contains("article, recipe, job or service"));
     let stray = run(&root, &["new", "A post", "--trade", "flooring"]);
     assert!(!stray.status.success());
     assert!(text(&stray.stderr).contains("--profile job"));

@@ -13,6 +13,7 @@ import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createAnnouncementsPanel } from "./announcements.js";
 import { createBusinessFacts } from "./business.js";
+import { createServices } from "./services.js";
 import { createSocialAccounts } from "./social.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
@@ -11443,6 +11444,7 @@ export class ObAdmin extends AdminElement {
       ...Object.entries(KINDS).map(([kind, info]) =>
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
+      h("a", { class: "oba-tab", "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
       h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
       h("a", { class: "oba-tab", "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
@@ -11459,6 +11461,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
       : active === "business"
         ? { title: "Business facts", detail: "Set your name, phone, hours, license and insurance once, and see them everywhere on your site." }
+      : active === "services"
+        ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
       : active === "look"
         ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
@@ -11744,6 +11748,8 @@ export class ObAdmin extends AdminElement {
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/announcements") }] : []),
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
+      { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
+      { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
@@ -11977,6 +11983,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "appearance") await this.showAppearance();
       else if (head === "look") await this.showLook();
       else if (head === "business") await this.showBusiness();
+      else if (head === "services") await this.showServices(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -14032,6 +14039,30 @@ export class ObAdmin extends AdminElement {
   async showBusiness() {
     const view = createBusinessFacts({ api: this.api });
     this.mount(this.shell("business", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- services (ADR 0313)
+
+  /** `#/services`: the list; `#/services/new` and `#/services/edit/<path>`: one service, edited through the document routes. */
+  async showServices(tail) {
+    const view = createServices({
+      api: this.api,
+      route: tail || "",
+      onSaved: (path) => {
+        this.skipRoute = true;
+        location.hash = `#/services/edit/${encodeURIComponent(path)}`;
+      },
+      onLeave: (hash) => {
+        this.dirty = false;
+        this.viewDirty = null;
+        location.hash = hash;
+      },
+    });
+    this.mount(this.shell("services", view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     this.viewCleanup = () => view.destroy();
@@ -19947,6 +19978,9 @@ export class ObAdmin extends AdminElement {
       const enabled = h("input", { type: "checkbox", checked: engagement.enabled });
       const comments = h("input", { type: "checkbox", checked: engagement.comments });
       const hostedAnalytics = h("input", { type: "checkbox", checked: engagement.analytics });
+      const captchaEnabled = h("input", { type: "checkbox", checked: engagement.captcha?.enabled });
+      const captchaKey = h("input", { type: "text", value: engagement.captcha?.siteKey || "", maxlength: 256 });
+      const captchaSettings = () => ({ enabled: captchaEnabled.checked, provider: "turnstile", siteKey: captchaKey.value.trim() });
       const endpoint = h("input", { type: "url", value: engagement.endpoint || `${String(this.meta.siteUrl || "").replace(/\/$/, "")}/api`, placeholder: "https://your-site.example/api" });
       const credential = h("input", { type: "password", value: "", autocomplete: "new-password", placeholder: "Leave blank to keep the saved token" });
       const credentialStatus = () => {
@@ -19971,6 +20005,7 @@ export class ObAdmin extends AdminElement {
               enabled: enabled.checked,
               comments: comments.checked,
               analytics: hostedAnalytics.checked,
+              captcha: captchaSettings(),
               endpoint: endpoint.value.trim(),
               etag: engagement.etag,
               credentialAction: credential.value.trim() ? "replace" : "keep",
@@ -19996,7 +20031,7 @@ export class ObAdmin extends AdminElement {
           if (!confirm("Remove the saved moderation token? A server environment token, if present, will remain active.")) return;
           const result = await this.api.call("PUT", "engagement/settings", { json: {
             enabled: enabled.checked, comments: comments.checked, analytics: hostedAnalytics.checked,
-            endpoint: endpoint.value.trim(), etag: engagement.etag, credentialAction: "clear",
+            endpoint: endpoint.value.trim(), etag: engagement.etag, credentialAction: "clear", captcha: captchaSettings(),
           } });
           engagement = result;
           clear.disabled = true;
@@ -20011,6 +20046,9 @@ export class ObAdmin extends AdminElement {
         h("p", { class: "oba-notice" }, "Required Netlify variables: SUPABASE_URL, SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY), OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ADMIN_API_KEY, and OPENBLOG_ANALYTICS_SALT."),
         h("label", {}, enabled, " Enable hosted engagement"),
         h("label", {}, comments, " Enable moderated comments"),
+        h("label", {}, captchaEnabled, " Verify comments with Cloudflare Turnstile"),
+        h("label", {}, "Turnstile public site key", captchaKey),
+        h("p", { class: "oba-small" }, "In Netlify set OPENBLOG_CAPTCHA_ENABLED=true, OPENBLOG_TURNSTILE_SECRET, and a separate random OPENBLOG_CAPTCHA_PASS_SECRET of at least 32 characters. Enter only the public site key here. Rebuild and redeploy; readers verify once per tab for 30 minutes. Local comments are unchanged."),
         h("label", {}, hostedAnalytics, " Store analytics in Supabase"),
         h("div", { class: "oba-field" }, h("label", {}, "Public function endpoint"), endpoint),
         h("div", { class: "oba-field" }, h("label", {}, "Moderation API token (write-only)"), credential),

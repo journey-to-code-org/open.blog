@@ -650,6 +650,31 @@ pub fn generate_with_trail_budget(
 
     out.add("archive/index.html".into(), r.archive(default_theme))?;
     out.add("search/index.html".into(), r.search_page(default_theme))?;
+    // The services collection (ADR 0312): an index and one page each, only
+    // when the site has services.
+    if !site.services.is_empty() {
+        out.add(
+            url_to_file(crate::service::SERVICES_URL),
+            r.service_index(default_theme, &job_plan),
+        )?;
+        for service in &site.services {
+            out.add(
+                url_to_file(&service.url),
+                r.service_page(service, &job_plan),
+            )?;
+        }
+    }
+    // Service areas (ADR 0315): an index and one page per area, only when the
+    // site lists areas.
+    if !c.service_areas.is_default() {
+        out.add(
+            url_to_file(crate::service_area::AREAS_URL),
+            r.area_index(default_theme, &job_plan),
+        )?;
+        for planned in c.service_areas.plan() {
+            out.add(url_to_file(&planned.url), r.area_page(&planned, &job_plan))?;
+        }
+    }
     for page in &site.pages {
         out.add(url_to_file(&page.url), r.page(page))?;
         for alias in &page.aliases {
@@ -846,6 +871,19 @@ pub fn generate_with_trail_budget(
             extra.extend(comparisons.comparisons.iter().map(|c| c.url.clone()));
         }
         extra.extend(job_plan.iter().map(|archive| archive.url.clone()));
+        if !site.services.is_empty() {
+            extra.push(crate::service::SERVICES_URL.to_string());
+            extra.extend(site.services.iter().map(|service| service.url.clone()));
+        }
+        if !c.service_areas.is_default() {
+            extra.push(crate::service_area::AREAS_URL.to_string());
+            extra.extend(
+                c.service_areas
+                    .plan()
+                    .into_iter()
+                    .map(|planned| planned.url),
+            );
+        }
         out.add("sitemap.xml".into(), feeds::sitemap(site, &extra))?;
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
@@ -935,6 +973,15 @@ pub fn generate_document(
         (series.url.as_str(), renderer.series_page(series))
     } else if let Some(page) = site.pages.iter().find(|page| page.source == source) {
         (page.url.as_str(), renderer.page(page))
+    } else if let Some(service) = site
+        .services
+        .iter()
+        .find(|service| service.source == source)
+    {
+        (
+            service.url.as_str(),
+            renderer.service_page(service, &crate::job_archive::plan(site)),
+        )
     } else {
         return Err(format!("no content document came from `{source}`"));
     };
@@ -1030,8 +1077,13 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // Interpretation comparisons reserve `/interpretations/` the same way
     // (ADR 0232); `/comparisons/` stays with passage comparisons.
     let publishes_interpretations = site.config.interpretations.publish;
+    // `/services/` is reserved only once the site has services (ADR 0312).
+    let has_services = !site.services.is_empty();
+    let has_areas = !site.config.service_areas.is_default();
     let reserved = |segment: &str| {
         RESERVED.contains(&segment)
+            || (has_services && segment == crate::service::SERVICES_DIR)
+            || (has_areas && segment == crate::service_area::AREAS_DIR)
             || (publishes_atlas && segment == ATLAS_SEGMENT)
             || (publishes_comparisons && segment == COMPARISONS_SEGMENT)
             || (publishes_paths && segment == crate::reading_path::PATHS_SEGMENT)
@@ -1271,10 +1323,17 @@ impl<'a> Renderer<'a> {
             ));
         }
         if meta.path == "/" && c.business.has_public_facts() {
+            let mut business = c.business.local_business_json_ld(
+                &c.absolute("/#business"),
+                &c.absolute("/"),
+                &c.title,
+            );
+            if let Some(served) = c.service_areas.area_served() {
+                business["areaServed"] = served;
+            }
             h.push_str(&format!(
                 "<script type=\"application/ld+json\">{}</script>\n",
-                c.business
-                    .local_business_json_ld(&c.absolute("/#business"), &c.absolute("/"), &c.title)
+                business
                     .to_string()
                     .replace('<', "\\u003c")
                     .replace('>', "\\u003e")
@@ -1726,6 +1785,28 @@ impl<'a> Renderer<'a> {
             .collect();
         for page in self.site.pages.iter().filter(|p| p.nav) {
             links.push((page.title.clone(), page.url.clone()));
+        }
+        // A site with services gets a link to them, unless its own navigation has one (ADR 0312).
+        if !self.site.services.is_empty()
+            && !links
+                .iter()
+                .any(|(_, href)| href.trim_end_matches('/') == "/services")
+        {
+            links.push((
+                "Services".to_string(),
+                crate::service::SERVICES_URL.to_string(),
+            ));
+        }
+        // Likewise a link to the towns served, only when areas are listed.
+        if !c.service_areas.is_default()
+            && !links
+                .iter()
+                .any(|(_, href)| href.trim_end_matches('/') == "/areas")
+        {
+            links.push((
+                "Areas".to_string(),
+                crate::service_area::AREAS_URL.to_string(),
+            ));
         }
         let mut h = String::new();
         h.push_str("<header class=\"ob-header\">\n<div class=\"ob-header-inner\">\n");
@@ -2407,13 +2488,23 @@ impl<'a> Renderer<'a> {
             } else {
                 ""
             };
+            let captcha = if c.engagement.captcha.enabled {
+                format!(
+                    " captcha-provider=\"turnstile\" captcha-site-key=\"{}\" captcha-scope=\"{}\"",
+                    attr(&c.engagement.captcha.site_key),
+                    attr(c.engagement.endpoint.trim().trim_end_matches('/'))
+                )
+            } else {
+                String::new()
+            };
             body.push_str(&format!(
-                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,
                 reports,
+                captcha,
             ));
         }
         if !c.snippets.post_footer.trim().is_empty() {
@@ -3290,6 +3381,234 @@ impl<'a> Renderer<'a> {
             page.html
         ));
         self.simple(theme, &page.title, &page.description, &page.url, &body)
+    }
+
+    fn service_index(&self, theme: &Theme, plan: &[crate::job_archive::JobArchive]) -> String {
+        let mut body = String::from(
+            "<div class=\"ob-container\">\n<section class=\"ob-section ob-services\">\n",
+        );
+        body.push_str(&self.heading(theme, 1, "Services", "ob-section-heading"));
+        body.push_str("\n<ul class=\"ob-list ob-list-rows ob-service-list\">\n");
+        for service in &self.site.services {
+            body.push_str(&format!(
+                "<li class=\"ob-service\">\n<h2 class=\"ob-row-title\"><a href=\"{}\">{}</a></h2>\n<p>{}</p>\n",
+                attr(&service.url),
+                text(&service.name),
+                text(&service.summary)
+            ));
+            let facts = service_facts(service);
+            if !facts.is_empty() {
+                body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", facts.join(" · ")));
+            }
+            let recent = crate::service::recent_jobs(plan, &service.id, SERVICE_INDEX_JOBS);
+            if !recent.is_empty() {
+                body.push_str("<p class=\"ob-meta\">Recent jobs</p>\n<ul class=\"ob-archive\">\n");
+                for index in recent {
+                    let post = &self.site.posts[index];
+                    body.push_str(&format!(
+                        "<li><a href=\"{}\">{}</a> <span class=\"ob-meta\">{}</span></li>\n",
+                        attr(&post.url),
+                        text(&post.title),
+                        self.time(post)
+                    ));
+                }
+                body.push_str("</ul>\n");
+            }
+            body.push_str("</li>\n");
+        }
+        body.push_str("</ul>\n</section>\n</div>");
+        self.simple(
+            theme,
+            "Services",
+            "What we do, what each service includes, and what it usually takes.",
+            crate::service::SERVICES_URL,
+            &body,
+        )
+    }
+
+    fn service_page(
+        &self,
+        service: &crate::model::Service,
+        plan: &[crate::job_archive::JobArchive],
+    ) -> String {
+        let theme = self.theme(&self.site.config.theme);
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page ob-service\">\n",
+        );
+        body.push_str(&format!(
+            "<p class=\"ob-eyebrow\"><a href=\"{}\">Services</a></p>\n",
+            crate::service::SERVICES_URL
+        ));
+        body.push_str(&self.heading(theme, 1, &service.name, "ob-post-title"));
+        body.push_str(&format!(
+            "\n<p class=\"ob-lede\">{}</p>\n",
+            text(&service.summary)
+        ));
+        let facts = service_facts(service);
+        if !facts.is_empty() {
+            body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", facts.join(" · ")));
+            if service.price_band.is_some() {
+                body.push_str(
+                    "<p class=\"ob-meta\">A price band is a guide, not a quote. Ask us about your job.</p>\n",
+                );
+            }
+        }
+        if !service.includes.is_empty() {
+            body.push_str("<h2>What is included</h2>\n<ul class=\"ob-service-includes\">\n");
+            for item in &service.includes {
+                body.push_str(&format!("<li>{}</li>\n", text(item)));
+            }
+            body.push_str("</ul>\n");
+        }
+        if !service.html.trim().is_empty() {
+            body.push_str(&format!(
+                "<ob-code{}><div class=\"ob-prose\">{}</div></ob-code>\n",
+                self.code_attr(theme, None),
+                service.html
+            ));
+        }
+        if !service.faq.is_empty() {
+            body.push_str("<section class=\"ob-faq\" aria-labelledby=\"ob-faq-title\">\n<h2 id=\"ob-faq-title\">Frequently asked questions</h2>\n");
+            for entry in &service.faq {
+                body.push_str(&format!(
+                    "<h3>{}</h3>\n<p>{}</p>\n",
+                    text(&entry.question),
+                    text(&entry.answer)
+                ));
+            }
+            body.push_str("</section>\n");
+        }
+        let recent = crate::service::recent_jobs(plan, &service.id, SERVICE_PAGE_JOBS);
+        if !recent.is_empty() {
+            body.push_str("<section class=\"ob-service-jobs\" aria-labelledby=\"ob-service-jobs-title\">\n<h2 id=\"ob-service-jobs-title\">Recent jobs</h2>\n");
+            body.push_str(&self.post_list(theme, &recent));
+            body.push_str("\n<ul class=\"ob-archive\">\n");
+            for archive in crate::service::job_archives(plan, &service.id) {
+                body.push_str(&format!(
+                    "<li><a href=\"{}\">All {}</a> <span class=\"ob-meta\">{}</span></li>\n",
+                    attr(&archive.url),
+                    text(&archive.title),
+                    plural_text(archive.posts.len(), "job", "jobs")
+                ));
+            }
+            body.push_str("</ul>\n</section>\n");
+        }
+        body.push_str("</article>\n</div>");
+        let mut meta = self.meta_simple(theme, &service.name, &service.summary, &service.url);
+        meta.json_ld = Some(crate::service::json_ld(self.site, service));
+        self.document(&meta, &body)
+    }
+
+    fn area_index(&self, theme: &Theme, plan: &[crate::job_archive::JobArchive]) -> String {
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section ob-areas\">\n");
+        body.push_str(&self.heading(theme, 1, "Areas we serve", "ob-section-heading"));
+        body.push_str("\n<ul class=\"ob-list ob-list-rows ob-area-list\">\n");
+        for planned in self.site.config.service_areas.plan() {
+            let jobs = crate::service_area::recent_jobs(plan, self.site, planned.area, usize::MAX);
+            body.push_str(&format!(
+                "<li class=\"ob-area\">\n<h2 class=\"ob-row-title\"><a href=\"{}\">{}</a></h2>\n",
+                attr(&planned.url),
+                text(&planned.area.label())
+            ));
+            if !planned.area.note.is_empty() {
+                body.push_str(&format!("<p>{}</p>\n", text(&planned.area.note)));
+            }
+            body.push_str(&format!(
+                "<p class=\"ob-meta\">{}</p>\n</li>\n",
+                if jobs.is_empty() {
+                    "Work here is not yet posted".to_string()
+                } else {
+                    plural_text(jobs.len(), "job posted", "jobs posted")
+                }
+            ));
+        }
+        body.push_str("</ul>\n</section>\n</div>");
+        self.simple(
+            theme,
+            "Areas we serve",
+            "The towns we work in, with the services we offer and recent jobs there.",
+            crate::service_area::AREAS_URL,
+            &body,
+        )
+    }
+
+    fn area_page(
+        &self,
+        planned: &crate::service_area::PlannedArea<'_>,
+        plan: &[crate::job_archive::JobArchive],
+    ) -> String {
+        let theme = self.theme(&self.site.config.theme);
+        let area = planned.area;
+        let label = area.label();
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page ob-area-page\">\n",
+        );
+        body.push_str(&format!(
+            "<p class=\"ob-eyebrow\"><a href=\"{}\">Areas we serve</a></p>\n",
+            crate::service_area::AREAS_URL
+        ));
+        body.push_str(&self.heading(theme, 1, &label, "ob-post-title"));
+        body.push_str(&format!(
+            "\n<p class=\"ob-lede\">Serving {}.</p>\n",
+            text(&label)
+        ));
+        if !area.note.is_empty() {
+            body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", text(&area.note)));
+        }
+        if !self.site.services.is_empty() {
+            body.push_str("<section class=\"ob-area-services\" aria-labelledby=\"ob-area-services-title\">\n<h2 id=\"ob-area-services-title\">Services we offer</h2>\n<ul class=\"ob-list ob-list-rows\">\n");
+            for service in &self.site.services {
+                body.push_str(&format!(
+                    "<li><a href=\"{}\">{}</a> <span class=\"ob-meta\">{}</span></li>\n",
+                    attr(&service.url),
+                    text(&service.name),
+                    text(&service.summary)
+                ));
+            }
+            body.push_str("</ul>\n</section>\n");
+        }
+        let recent = crate::service_area::recent_jobs(plan, self.site, area, AREA_PAGE_JOBS);
+        body.push_str(&format!(
+            "<section class=\"ob-area-jobs\" aria-labelledby=\"ob-area-jobs-title\">\n<h2 id=\"ob-area-jobs-title\">Recent jobs in {}</h2>\n",
+            text(&label)
+        ));
+        if recent.is_empty() {
+            body.push_str(&format!(
+                "<p class=\"ob-empty\">Work in {} is not yet posted. A finished job there will appear on this page.</p>\n",
+                text(&label)
+            ));
+        } else {
+            // Title and date only: a card's summary is text from the job's body.
+            body.push_str("<ul class=\"ob-archive\">\n");
+            for index in recent {
+                let post = &self.site.posts[index];
+                body.push_str(&format!(
+                    "<li><a href=\"{}\">{}</a> <span class=\"ob-meta\">{}</span></li>\n",
+                    attr(&post.url),
+                    text(&post.title),
+                    self.time(post)
+                ));
+            }
+            body.push_str("</ul>\n");
+        }
+        body.push_str("</section>\n");
+        let business = self.site.config.business.block_html();
+        if !business.is_empty() {
+            body.push_str(&format!(
+                "<section class=\"ob-area-business\" aria-label=\"Business details\">\n{business}</section>\n"
+            ));
+        }
+        body.push_str("</article>\n</div>");
+        let description = format!("Services we offer in {label}, and recent jobs there.");
+        let mut meta = self.meta_simple(
+            theme,
+            &format!("Serving {label}"),
+            &description,
+            &planned.url,
+        );
+        meta.json_ld = Some(crate::service_area::json_ld(self.site, area));
+        self.document(&meta, &body)
     }
 
     fn not_found(&self, theme: &Theme) -> String {
@@ -4406,6 +4725,24 @@ impl<'a> Renderer<'a> {
     }
 }
 
+/// How many recent jobs the services index lists per service, and a service page lists.
+const SERVICE_INDEX_JOBS: usize = 3;
+const SERVICE_PAGE_JOBS: usize = 5;
+/// How many recent jobs a service-area page lists.
+const AREA_PAGE_JOBS: usize = 10;
+
+/// The price band and timeline of a service as escaped text, in a fixed order.
+fn service_facts(service: &crate::model::Service) -> Vec<String> {
+    let mut facts = Vec::new();
+    if let Some(band) = service.price_band {
+        facts.push(format!("Price band: {}", text(band.label())));
+    }
+    if let Some(timeline) = &service.typical_timeline {
+        facts.push(format!("Typical timeline: {}", text(timeline)));
+    }
+    facts
+}
+
 /// What the reading paths index says before any path.
 const PATHS_LEDE: &str = "Routes through this site's posts and Knowledge Atlas entries, in an order the author chose, each with a reason for the step that follows.";
 /// What a path page says about its transitions.
@@ -4800,6 +5137,7 @@ mod tests {
                 credits: Vec::new(),
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+                services: Vec::new(),
                 source_library: None,
                 claim_evidence: None,
                 reader_feedback: None,
@@ -5677,6 +6015,14 @@ mod tests {
 
     #[test]
     fn hosted_engagement_renders_comments_and_reuses_the_endpoint_for_views() {
+        let protected = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"endpoint":"https://t.dev/api","captcha":{"enabled":true,"siteKey":"public-key"}}}"#,
+            true,
+        );
+        let html = file(&protected, "one/index.html");
+        assert!(html.contains("captcha-provider=\"turnstile\" captcha-site-key=\"public-key\" captcha-scope=\"https://t.dev/api\""));
+        assert!(!html.contains("challenges.cloudflare.com"));
+
         let files = build(
             r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","analytics":{"builtin":false,"showViews":true},"engagement":{"enabled":true,"comments":true,"analytics":true,"endpoint":"https://t.dev/api/"}}"#,
             true,

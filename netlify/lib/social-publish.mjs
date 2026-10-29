@@ -1,4 +1,4 @@
-// Provider publishing adapters of optional social publishing (epic #353, story #358, ADR 0490):
+// Provider publishing adapters of optional social publishing (epic #353, story #358, ADR 0319):
 // one narrow interface, `publish(post, credentials)`, that the scheduled worker calls and that
 // answers `{ status: "published" | "failed" | "unknown", providerPostId, retryable, code, ... }`.
 // Server-only. Every provider call goes through an injected `fetchImpl`; tests use fakes and

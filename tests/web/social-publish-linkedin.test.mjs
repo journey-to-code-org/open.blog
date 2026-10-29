@@ -1,4 +1,4 @@
-// The LinkedIn Posts adapter of optional social publishing (epic #353, story #358, ADR 0490),
+// The LinkedIn Posts adapter of optional social publishing (epic #353, story #358, ADR 0319),
 // against a scripted provider only.
 import test from "node:test";
 import assert from "node:assert/strict";

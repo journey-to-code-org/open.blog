@@ -43,6 +43,51 @@ Keep that origin current and publicly reachable. Public pages never receive any 
 moderation token. Supabase-backed hourly quotas limit comment submissions and analytics writes
 before content is stored.
 
+## Comment captcha (optional)
+
+In Admin → Analytics, enable **Verify comments with Cloudflare Turnstile** and enter the
+public site key, or add to `engagement` in `openblog.json`:
+
+```json
+"captcha": { "enabled": true, "provider": "turnstile", "siteKey": "YOUR_PUBLIC_SITE_KEY" }
+```
+
+Create a Turnstile widget allowing your public hostname. Set these Netlify environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `OPENBLOG_CAPTCHA_ENABLED` | `true` to enforce verification; absent means off |
+| `OPENBLOG_TURNSTILE_SECRET` | Widget secret, server only |
+| `OPENBLOG_CAPTCHA_PASS_SECRET` | Separate cryptographically random value, at least 32 characters |
+
+Rebuild and redeploy together. Never enter either secret in Admin, config, or source control.
+Enabled protection with missing secrets refuses submissions (`503 captcha_configuration`).
+Unverified submissions return `403 captcha_required` before comment storage. Success returns
+`captchaSession: {pass, expiresAt}` with a Unix-seconds expiry. The signed bearer pass lasts
+30 minutes in the tab session, and existing comment quotas still apply. Attempts have an additional
+hourly quota (20 per client, 2,000 per site). No SQL migration is required. Rotate the signing
+secret to invalidate all passes. Disable both public configuration and the environment opt-in,
+then rebuild/redeploy to roll back.
+
+The script loads only after form interaction. If you supply a Content-Security-Policy, allow
+`https://challenges.cloudflare.com` in `script-src` and `frame-src`; no wildcard is necessary.
+Blocked scripts show retry and preserve the draft. Local `openblog serve` comments are unaffected.
+
+Use [Cloudflare's published test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)
+only on a disposable deployment. The visible always-pass site key is
+`1x00000000000000000000AA` with test secret `1x0000000000000000000000000000000AA`;
+the always-fail test secret is `2x0000000000000000000000000000000AA`. Use the passing
+site key to exercise the widget, and the failing secret to exercise server rejection.
+Never deploy test keys to production. This verifier
+also requires the returned hostname to match `OPENBLOG_SITE_ORIGIN` and action `comment`:
+test responses with dummy hostname/action must be tested through a mocked verifier instead of
+weakening production validation. `tests/browser/comment-captcha.spec.mjs` intercepts the provider
+in Chromium, checking lazy loading, session reuse, rejection and blocked-script recovery.
+
+Run `node scripts/deployment-smoke.mjs <site-origin> <admin-origin> <open-post-path> --captcha`
+to check that a direct unverified comment POST is refused. It stores nothing when protection
+is correctly enabled; use a disposable deployment to diagnose a misconfiguration.
+
 ## Passage feedback (optional)
 
 The same function can accept typed passage feedback: a reader's question, suggested source,

@@ -185,8 +185,15 @@ stands, the reader's evidence beside the claim it names, duplicate cues and "Rec
 ## Out of scope
 
 - Reader accounts, email collection, avatars, reactions, notifications, nested replies, rich-text
-  comments, automatic spam scoring, CAPTCHA, real-time subscriptions, and multi-tenant management UI.
+  comments, automatic spam scoring, real-time subscriptions, and multi-tenant management UI.
 - Storing Supabase service-role credentials in `openblog.json`, Admin browser storage, generated HTML,
   or the repository.
 - Automatic Netlify environment mutation; Admin explains the required server values but does not
   call Netlify's management API.
+
+## Comment captcha
+
+Hosted comments optionally require Turnstile before storage, then accept an HMAC-signed,
+site-bound pass for 30 minutes. The browser keeps it in sessionStorage; every comment still
+consumes its hourly quota. See [setup](../../netlify/functions/README.md#comment-captcha-optional)
+and ADR 0311. Local comments are unchanged.

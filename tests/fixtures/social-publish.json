@@ -1,5 +1,5 @@
 {
-  "about": "Recorded-shape provider replies and the publish result each must produce (ADR 0492). Hand-written from the providers' documented shapes; no real account or network was used. Re-verify against the providers' current documentation when changing an API version.",
+  "about": "Recorded-shape provider replies and the publish result each must produce (ADR 0321). Hand-written from the providers' documented shapes; no real account or network was used. Re-verify against the providers' current documentation when changing an API version.",
   "token": "TOKEN-PLACEHOLDER-FOR-LEAK-CHECK-0001",
   "cases": [
     { "provider": "linkedin", "name": "created", "reply": { "status": 201, "headers": { "x-restli-id": "urn:li:share:7123456789012345678" } }, "expect": { "status": "published", "providerPostId": "urn:li:share:7123456789012345678", "retryable": false } },

@@ -567,6 +567,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
         "/admin/business.js" => "business.js",
+        "/admin/services.js" => "services.js",
         "/admin/paste.js" => "paste.js",
         "/admin/landing-history.js" => "landing-history.js",
         "/admin/checks.js" => "checks.js",
@@ -3569,7 +3570,8 @@ fn check_rel_path(rel: &str) -> Result<&'static str, String> {
         "posts" => Ok("posts"),
         "series" => Ok("series"),
         "pages" => Ok("pages"),
-        _ => Err("path must start with posts/, series/, or pages/".into()),
+        "services" => Ok("services"),
+        _ => Err("path must start with posts/, series/, pages/, or services/".into()),
     }
 }
 
@@ -3818,7 +3820,8 @@ fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
 }
 
 /// A front matter key. The only dotted keys are the flattened `job.*` ones the
-/// job profile uses (ADR 0285); every segment is a plain word.
+/// job profile uses (ADR 0285) and a service's `faq.<n>.<key>` ones (ADR 0311);
+/// every segment is a plain word.
 fn is_field_name(key: &str) -> bool {
     let plain = |part: &str| {
         !part.is_empty()
@@ -3826,6 +3829,14 @@ fn is_field_name(key: &str) -> bool {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     };
+    if let Some(rest) = key.strip_prefix("faq.") {
+        let mut parts = rest.split('.');
+        return matches!(
+            (parts.next(), parts.next(), parts.next()),
+            (Some(number), Some(name), None)
+                if number.len() <= 3 && number.bytes().all(|b| b.is_ascii_digit()) && plain(name)
+        );
+    }
     match key.strip_prefix("job.") {
         Some(rest) => rest.split('.').count() <= 3 && rest.split('.').all(plain),
         None => plain(key),
@@ -3949,6 +3960,19 @@ fn meta(state: &AppState) -> Response {
                         services.push(service);
                     }
                 }
+            }
+        }
+    }
+    for file in &sources.services {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if let Some(id) = doc.front_matter.get("id").map(str::trim) {
+            if openblog_core::service::check_id(id).is_ok()
+                && !doc.front_matter.get_bool("draft").unwrap_or(false)
+                && !services.iter().any(|known| known == id)
+            {
+                services.push(id.to_string());
             }
         }
     }
@@ -4834,6 +4858,7 @@ fn engagement_settings(state: &AppState) -> Response {
             "analytics": config.engagement.analytics,
             "endpoint": config.engagement.endpoint,
             "feedback": config.engagement.feedback,
+            "captcha": config.engagement.captcha,
             "etag": etag,
             "credential": credential,
         }),
@@ -4924,6 +4949,19 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
     if let Some(feedback) = body["feedback"].as_bool() {
         engagement.insert("feedback".into(), json!(feedback));
     }
+    if let Some(captcha) = body.get("captcha") {
+        let parsed =
+            match serde_json::from_value::<openblog_core::config::CaptchaConfig>(captcha.clone()) {
+                Ok(parsed) => parsed,
+                Err(_) => {
+                    return Response::error(
+                        422,
+                        "Captcha accepts only enabled, provider, and public siteKey",
+                    )
+                }
+            };
+        engagement.insert("captcha".into(), json!(parsed));
+    }
     value["engagement"] = Json::Object(engagement);
     let candidate = match serde_json::to_string_pretty(&value) {
         Ok(value) => format!("{value}\n"),
@@ -4978,6 +5016,7 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
         &json!({
             "enabled": enabled, "comments": comments, "analytics": analytics,
             "endpoint": endpoint, "etag": etag, "credential": credential,
+            "captcha": value["engagement"]["captcha"],
         }),
     )
 }
@@ -11763,8 +11802,8 @@ fn status(state: &AppState) -> Response {
 fn list_documents(state: &AppState, req: &Request) -> Response {
     let _content_transaction = lock(&state.build);
     let kind = req.query.get("kind").map(String::as_str).unwrap_or("posts");
-    if !matches!(kind, "posts" | "series" | "pages") {
-        return Response::error(400, "kind must be posts, series, or pages");
+    if !matches!(kind, "posts" | "series" | "pages" | "services") {
+        return Response::error(400, "kind must be posts, series, pages, or services");
     }
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
@@ -11777,6 +11816,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
     let files = match kind {
         "posts" => &sources.posts,
         "series" => &sources.series,
+        "services" => &sources.services,
         _ => &sources.pages,
     };
     let credit_sidecars = openblog_core::model::associate_credit_sidecars(&sources);
@@ -11850,9 +11890,16 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
                         .or_else(|| doc.front_matter.get("title"))
                         .unwrap_or(stem)
                         .to_string();
+                    let status = if kind == "services"
+                        && doc.front_matter.get_bool("draft").unwrap_or(false)
+                    {
+                        "draft"
+                    } else {
+                        "published"
+                    };
                     (
                         0,
-                        json!({ "path": file.path, "title": title, "slug": slugify(stem), "status": "published" }),
+                        json!({ "path": file.path, "title": title, "slug": slugify(stem), "status": status }),
                     )
                 }
                 Err(e) => (
@@ -16032,7 +16079,12 @@ fn validate_candidate(
         .flatten();
     let mut sources = site::read_sources_excluding(root, config, excluded_sidecar.as_deref())
         .map_err(|e| vec![e])?;
-    for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
+    for bucket in [
+        &mut sources.posts,
+        &mut sources.series,
+        &mut sources.pages,
+        &mut sources.services,
+    ] {
         bucket.retain(|f| f.path != rel);
     }
     sources.add(SourceFile {
@@ -16324,6 +16376,15 @@ fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<Strin
         Some(Value::Scalar(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
         _ => None,
     };
+    if kind == "services" {
+        return match get("id").filter(|id| openblog_core::service::check_id(id).is_ok()) {
+            Some(id) => Ok(format!("services/{id}.md")),
+            None => Err(
+                "a service needs an id of lowercase letters, digits and hyphens to name its file"
+                    .into(),
+            ),
+        };
+    }
     let slug = get("slug")
         .map(|s| slugify(&s))
         .or_else(|| get("title").or_else(|| get("name")).map(|t| slugify(&t)))
@@ -16341,7 +16402,7 @@ fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<Strin
         }
         "series" => Ok(format!("series/{slug}.md")),
         "pages" => Ok(format!("pages/{slug}.md")),
-        _ => Err("kind must be posts, series, or pages".into()),
+        _ => Err("kind must be posts, series, pages, or services".into()),
     }
 }
 
@@ -17188,8 +17249,11 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
         Err(e) => return Err(Response::error(422, &e)),
     };
     let kind = body["kind"].as_str().unwrap_or("posts").to_string();
-    if !matches!(kind.as_str(), "posts" | "pages" | "series") {
-        return Err(Response::error(422, "kind must be posts, series, or pages"));
+    if !matches!(kind.as_str(), "posts" | "pages" | "series" | "services") {
+        return Err(Response::error(
+            422,
+            "kind must be posts, series, pages, or services",
+        ));
     }
     let rel = match body["path"].as_str().filter(|path| !path.is_empty()) {
         Some(path) => match check_rel_path(path) {
@@ -17234,7 +17298,12 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
             Ok(sources) => sources,
             Err(e) => return Err(Response::error(500, &e)),
         };
-    for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
+    for bucket in [
+        &mut sources.posts,
+        &mut sources.series,
+        &mut sources.pages,
+        &mut sources.services,
+    ] {
         bucket.retain(|file| file.path != rel);
     }
     sources.add(SourceFile {
@@ -17680,6 +17749,11 @@ fn preview(state: &AppState, req: &Request) -> Response {
                     preview_site.theme_for_series(series).to_string(),
                 )
             }),
+        "services" => preview_site
+            .services
+            .iter()
+            .find(|service| service.source == rel)
+            .map(|service| (service.url.clone(), preview_site.config.theme.clone())),
         _ => None,
     };
     let Some((url, theme)) = target else {
@@ -18350,6 +18424,7 @@ mod tests {
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod service_routes;
     mod social_routes;
     mod voice_assistant_routes;
     mod voice_journey;
@@ -25755,6 +25830,25 @@ What I read:
         assert_eq!(initial.status, 200);
         let initial_json = body_json(&initial);
         assert_eq!(initial_json["enabled"], false);
+        let secret_attempt = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "etag": initial_json["etag"],
+                        "captcha": { "enabled": true, "siteKey": "public-key", "secret": "never-persist-this" }
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(secret_attempt.status, 422);
+        assert!(!fs::read_to_string(f.dir.join(site::CONFIG_FILE))
+            .unwrap()
+            .contains("never-persist-this"));
         let save = json!({
             "enabled": true,
             "comments": true,
@@ -25763,6 +25857,7 @@ What I read:
             "etag": initial_json["etag"],
             "credentialAction": "replace",
             "credential": "moderation-secret",
+            "captcha": { "enabled": true, "provider": "turnstile", "siteKey": "public-key" },
         });
         assert_eq!(
             handle(
@@ -25785,6 +25880,7 @@ What I read:
             ),
         );
         assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["captcha"]["siteKey"], "public-key");
         assert_eq!(body_json(&saved)["credential"]["configured"], true);
         assert!(!String::from_utf8_lossy(&saved.body).contains("moderation-secret"));
         let config = site::load_config(&f.dir).unwrap();
@@ -25836,6 +25932,8 @@ What I read:
         assert_eq!(kept.status, 200);
         let config = site::load_config(&f.dir).unwrap();
         assert!(config.engagement.feedback && !config.engagement.comments);
+        assert!(config.engagement.captcha.enabled);
+        assert_eq!(config.engagement.captcha.site_key, "public-key");
         let off = handle(
             &f.state,
             &authed(

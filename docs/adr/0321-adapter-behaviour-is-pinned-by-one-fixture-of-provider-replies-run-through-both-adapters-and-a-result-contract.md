@@ -1,4 +1,4 @@
-# ADR 0492: Adapter behaviour is pinned by one fixture of provider replies run through both adapters and a result contract
+# ADR 0321: Adapter behaviour is pinned by one fixture of provider replies run through both adapters and a result contract
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -7,7 +7,7 @@
 
 ## Context
 
-The worker will trust the publish result to decide whether to retry, reconcile or stop (ADR 0490, 0491). A wrong
+The worker will trust the publish result to decide whether to retry, reconcile or stop (ADR 0319, 0320). A wrong
 mapping duplicates a post or hides one. Provider docs change, and a single test per adapter would let a mapping
 drift unnoticed.
 

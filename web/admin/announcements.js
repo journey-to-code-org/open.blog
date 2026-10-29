@@ -111,10 +111,33 @@ export const STATUS_BADGES = Object.freeze({
 const WHY_LOCKED = Object.freeze({
   claimed: "A sender has picked this up, so it can no longer be changed.",
   published: "This was posted, so it can no longer be changed.",
-  failed: "This failed. Schedule a new announcement to try again.",
+  failed: "This could not be posted.",
   canceled: "This was canceled.",
   unknown: "The result is not known yet; it will not be sent again until it is checked.",
 });
+
+/** Server codes that mean the queue moved on while the author looked: the list is refreshed. */
+export const REFRESH_CODES = Object.freeze(["stale", "conflict", "not-editable", "not-retryable", "not-resolvable", "needs-resolution"]);
+
+/** What a short code kept on a failed or unchecked announcement means, in words. */
+const PROBLEM_WORDS = Object.freeze({
+  "rate-limited": "The provider asked us to slow down.",
+  "provider-unavailable": "The provider could not take it just now.",
+  "provider-rejected": "The provider refused the post.",
+  "provider-auth": "The provider refused the saved sign-in. Connect the account again.",
+  "needs-reauth": "The account must be connected again.",
+  "account-not-connected": "The destination is no longer connected.",
+  "unsupported-provider": "This destination cannot be posted to yet.",
+  "attempts-exhausted": "It was tried the allowed number of times.",
+  timeout: "The provider did not answer, so it may or may not have been posted.",
+  "lease-expired": "The sender stopped before it knew the result.",
+  "not-delivered": "The provider confirmed it was not posted.",
+  "reviewed-not-posted": "You checked and it was not posted.",
+  "needs-review": "It could not be checked automatically. Look at the account.",
+  "credential-error": "The saved sign-in could not be used.",
+});
+
+export const problemWords = (code) => PROBLEM_WORDS[code] || "";
 
 export const lockedReason = (status) => WHY_LOCKED[status] || "";
 
@@ -130,7 +153,7 @@ export function fieldForCode(code) {
 /** The sentence to show for a failed call. A server message is already plain text with no secrets. */
 export function errorText(error) {
   const message = error?.data?.error || (error?.status ? error.message : "");
-  if (["stale", "conflict", "not-editable"].includes(error?.data?.code)) return `${message} The list has been refreshed.`;
+  if (REFRESH_CODES.includes(error?.data?.code)) return `${message} The list has been refreshed.`;
   if (message) return message;
   return "Admin could not be reached. Check your connection and try again.";
 }
@@ -437,7 +460,8 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
       ),
       meta,
       el("p", { class: "oba-announce-caption", "data-row-caption": "true" }, item.caption),
-      item.lastErrorCode ? el("p", { class: "oba-small oba-announce-error-code", "data-row-error": "true" }, `Last problem: ${item.lastErrorCode}`) : null,
+      item.lastErrorCode ? el("p", { class: "oba-small oba-announce-error-code", "data-row-error": "true" }, `Last problem: ${problemWords(item.lastErrorCode) || item.lastErrorCode} (${item.lastErrorCode})`) : null,
+      item.status === "scheduled" && item.nextAttemptAt ? el("p", { class: "oba-small oba-announce-next", "data-row-next": "true" }, `Will try again ${formatWhen(item.nextAttemptAt, zone)}.`) : null,
     );
     const actions = el("div", { class: "oba-landing-actions oba-announce-row-actions" });
     if (item.editable) {
@@ -450,8 +474,112 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
       row.append(actions, panel);
     } else {
       row.append(el("p", { class: "oba-small oba-announce-locked", "data-row-locked": "true" }, lockedReason(item.status)));
+      if (item.retryable || item.resolvable) row.append(recoveryNode(item));
     }
+    if (item.attemptCount > 0) row.append(historyNode(item));
     return row;
+  }
+
+  // ---- recovery: try a failed one again, or say what happened to one whose result is unknown
+  function recoveryNode(item) {
+    const box = el("div", { class: "oba-announce-recovery" });
+    const panel = el("div", { class: "oba-announce-row-panel", hidden: true });
+    const open = el("button", { class: "oba-btn", type: "button", "aria-expanded": "false", "aria-label": `${item.retryable ? "Try again: the announcement of" : "Check the result of the announcement of"} ${item.work}`, "data-action": item.retryable ? "social-retry" : "social-resolve" }, item.retryable ? "Try again" : "Check the result");
+    const close = (focus) => {
+      panel.hidden = true;
+      panel.replaceChildren();
+      open.setAttribute("aria-expanded", "false");
+      if (focus) open.focus();
+    };
+    const problem = el("p", { class: "oba-field-error", role: "alert", hidden: true });
+    const keep = el("button", { class: "oba-btn", type: "button", "data-action": "social-keep" }, "Not now");
+    keep.addEventListener("click", () => close(true));
+    // Show the panel before focusing into it: a hidden element cannot take focus.
+    const reveal = () => {
+      panel.hidden = false;
+      open.setAttribute("aria-expanded", "true");
+    };
+    open.addEventListener("click", () => {
+      if (!panel.hidden) return close(true);
+      problem.hidden = true;
+      if (item.retryable) {
+        const confirm = el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "social-confirm-retry" }, "Yes, try again");
+        confirm.addEventListener("click", () => change(() => api.call("POST", `social/announcements/retry?id=${encodeURIComponent(item.id)}`, { json: { version: item.version } }), () => "Back in the queue. It will be tried again within a minute.", problem, confirm));
+        panel.replaceChildren(el("p", {}, `Try the announcement of ${item.work} again? It was not posted, so this will not post it twice.`), problem, el("div", { class: "oba-landing-actions" }, confirm, keep));
+        panel.dataset.mode = "retry";
+        panel.setAttribute("data-mode", "retry");
+        reveal();
+        confirm.focus?.();
+      } else {
+        const id = nextId(`${ids}-resolve`);
+        const posted = el("input", { type: "radio", name: id, id: `${id}-posted`, value: "published" });
+        const missing = el("input", { type: "radio", name: id, id: `${id}-missing`, value: "not-posted" });
+        const postId = el("input", { type: "text", id: `${id}-post-id`, autocomplete: "off", spellcheck: "false", "aria-describedby": `${id}-post-id-hint` });
+        const confirm = el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "social-confirm-resolve" }, "Save what I found");
+        confirm.addEventListener("click", () => {
+          const outcome = posted.checked ? "published" : missing.checked ? "not-posted" : "";
+          const value = postId.value.trim();
+          if (!outcome) return fail("Choose what you found.", posted);
+          if (outcome === "published" && !/^[\x21-\x7e]{1,300}$/.test(value)) return fail("Enter the post id the provider shows for it, with no spaces.", postId);
+          const json = { version: item.version, outcome };
+          if (outcome === "published") json.providerPostId = value;
+          return change(() => api.call("POST", `social/announcements/resolve?id=${encodeURIComponent(item.id)}`, { json }), (made) => (made.status === "published" ? "Recorded as posted." : "Recorded as not posted. You can try it again."), problem, confirm);
+        });
+        function fail(message, control) {
+          problem.textContent = message;
+          problem.hidden = false;
+          control.focus?.();
+        }
+        panel.replaceChildren(
+          el("p", {}, `The provider did not say whether ${item.work} was posted. Look at the ${providerName(item.destination?.provider)} account, then say what you found. It will not be sent again until you do.`),
+          el("fieldset", { class: "oba-field oba-fieldset" }, el("legend", {}, "What did you find?"), el("div", { class: "oba-announce-choice" }, posted, el("label", { for: posted.id }, "It was posted")), el("div", { class: "oba-announce-choice" }, missing, el("label", { for: missing.id }, "It was not posted"))),
+          el("div", { class: "oba-field" }, el("label", { for: postId.id }, "Post id (only if it was posted)"), postId, el("p", { class: "oba-small", id: `${id}-post-id-hint` }, "The id the provider shows for the post, such as the end of its address.")),
+          problem,
+          el("div", { class: "oba-landing-actions" }, confirm, keep),
+        );
+        panel.dataset.mode = "resolve";
+        panel.setAttribute("data-mode", "resolve");
+        reveal();
+        posted.focus?.();
+      }
+    });
+    box.append(el("div", { class: "oba-landing-actions oba-announce-row-actions" }, open), panel);
+    return box;
+  }
+
+  // ---- history: what was tried, loaded when the author asks
+  function historyNode(item) {
+    const body = el("div", { class: "oba-announce-history-body" });
+    const details = el("details", { class: "oba-announce-history", "data-history": item.id }, el("summary", {}, `What was tried (${item.attemptCount})`), body);
+    let loaded = false;
+    details.addEventListener("toggle", async () => {
+      if (!details.open || loaded) return;
+      loaded = true;
+      body.replaceChildren(el("p", { class: "oba-small" }, "Loading…"));
+      try {
+        const answer = await api.call("GET", `social/announcements/attempts?id=${encodeURIComponent(item.id)}`);
+        const tries = Array.isArray(answer.attempts) ? answer.attempts : [];
+        body.replaceChildren(
+          tries.length
+            ? el(
+                "ol",
+                { class: "oba-announce-attempts", "aria-label": `Attempts for ${item.work}` },
+                tries.map((attempt) =>
+                  el(
+                    "li",
+                    { "data-attempt": String(attempt.attemptNo) },
+                    `Try ${attempt.attemptNo}, ${formatWhen(attempt.startedAt, zone)}: ${attempt.outcome ? ({ published: "posted", failed: "not posted", unknown: "result unknown" })[attempt.outcome] || attempt.outcome : "in progress"}${attempt.httpStatus ? ` (HTTP ${attempt.httpStatus})` : ""}${attempt.errorCode ? `. ${problemWords(attempt.errorCode) || attempt.errorCode}` : ""}`,
+                  ),
+                ),
+              )
+            : el("p", { class: "oba-small" }, "Nothing has been tried yet."),
+        );
+      } catch (error) {
+        loaded = false;
+        body.replaceChildren(el("p", { class: "oba-field-error", role: "alert" }, errorText(error)));
+      }
+    });
+    return details;
   }
 
   function closePanel(panel, edit, cancel, focus) {
@@ -549,7 +677,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
       status.focus();
     } catch (error) {
       const message = errorText(error);
-      if (["stale", "conflict", "not-editable"].includes(error?.data?.code)) {
+      if (REFRESH_CODES.includes(error?.data?.code)) {
         status.textContent = message;
         await loadAnnouncements();
         status.focus();

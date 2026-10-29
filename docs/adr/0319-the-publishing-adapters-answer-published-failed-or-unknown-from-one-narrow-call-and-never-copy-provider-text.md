@@ -1,4 +1,4 @@
-# ADR 0490: The publishing adapters answer published, failed or unknown from one narrow call and never copy provider text
+# ADR 0319: The publishing adapters answer published, failed or unknown from one narrow call and never copy provider text
 
 - Status: Accepted
 - Date: 2026-10-29

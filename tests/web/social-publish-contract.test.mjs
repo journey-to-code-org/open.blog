@@ -1,4 +1,4 @@
-// Contract tests for the social publishing adapters (epic #353, story #358, ADR 0492): the same
+// Contract tests for the social publishing adapters (epic #353, story #358, ADR 0321): the same
 // fixture of provider replies is run through both adapters, every outcome is checked against the
 // publish-result contract the worker relies on, unsupported networks are refused, and no secret
 // can leak. Scripted providers only; no real network.
