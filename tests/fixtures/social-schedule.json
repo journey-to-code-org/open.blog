@@ -59,7 +59,8 @@
   "urls": {
     "accepted": [
       ["https://blog.example.org/posts/hello/", "/posts/hello/"],
-      ["https://www.example.org/2026/hello/", "/2026/hello/"]
+      ["https://www.example.org/2026/hello/", "/2026/hello/"],
+      ["https://user.github.io/blog/posts/hello/", "/posts/hello/"]
     ],
     "refused": [
       ["http://blog.example.org/posts/hello/", "/posts/hello/"],
@@ -73,6 +74,8 @@
       ["https://blog.example.org/posts/other/", "/posts/hello/"],
       ["https://blog.example.org/posts/hello/", "posts/hello/"],
       ["https://blog.example.org/posts/hello/", "//evil.example/"],
+      ["https://user.github.io//posts/hello/", "/posts/hello/"],
+      ["https://user.github.io/blog/posts/hello", "/posts/hello/"],
       ["https://blog.example.org/posts/hello/", "/"],
       ["", "/posts/hello/"],
       ["javascript:alert(1)", "/posts/hello/"]

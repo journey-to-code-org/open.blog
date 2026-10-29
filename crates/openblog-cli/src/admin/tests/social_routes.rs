@@ -328,6 +328,45 @@ fn a_create_is_checked_against_the_site_then_sent_with_the_actor_and_the_sites_o
 }
 
 #[test]
+fn a_site_under_a_folder_lists_previews_and_creates_by_the_site_relative_path() {
+    let f = social_site("folder");
+    fs::write(
+        f.dir.join("openblog.json"),
+        r#"{"title":"Lantern","url":"https://user.github.io/blog"}"#,
+    )
+    .unwrap();
+    let calls = Calls::default();
+    let transport = fake(&calls, 201, json!({"announcement": announcement()}));
+    let (_, listed) = call(&f, &transport, "GET", "/admin/api/social/posts", None);
+    let hello = listed["posts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["title"] == "Hello")
+        .unwrap();
+    assert_eq!(hello["work"], "/posts/hello/");
+    assert_eq!(
+        hello["canonicalUrl"],
+        "https://user.github.io/blog/posts/hello/"
+    );
+    let (status, body) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/announcements",
+        Some(draft(json!({"work": hello["work"]}))),
+    );
+    assert_eq!(status, 201, "{body}");
+    let recorded = calls.lock().unwrap();
+    let sent = recorded[0].4.as_ref().unwrap();
+    assert_eq!(sent["work"], "/posts/hello/");
+    assert_eq!(
+        sent["canonicalUrl"],
+        "https://user.github.io/blog/posts/hello/"
+    );
+}
+
+#[test]
 fn a_create_the_site_cannot_stand_behind_never_reaches_the_hosted_function() {
     let f = social_site("refuse");
     let calls = Calls::default();

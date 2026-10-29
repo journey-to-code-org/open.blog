@@ -200,6 +200,16 @@ pub fn check_time_zone(name: &str) -> Result<(), ScheduleError> {
 /// The result is an exact UTC instant, no earlier than a minute after `now` and no later than a
 /// year and a day.
 pub fn parse_schedule(input: &str, now: DateTime) -> Result<DateTime, ScheduleError> {
+    parse_schedule_with(input, now, true)
+}
+
+/// The same parse; `bounds: false` skips the lead and horizon checks, so a retried request whose
+/// time has since passed can still be recognized by the hosted function.
+pub fn parse_schedule_with(
+    input: &str,
+    now: DateTime,
+    bounds: bool,
+) -> Result<DateTime, ScheduleError> {
     let b = input.as_bytes();
     let digit = |i: usize| b.get(i).is_some_and(u8::is_ascii_digit);
     let is = |i: usize, c: u8| b.get(i) == Some(&c);
@@ -255,6 +265,9 @@ pub fn parse_schedule(input: &str, now: DateTime) -> Result<DateTime, ScheduleEr
     }
     let at = DateTime::parse(input).ok_or(ScheduleError::InvalidTime)?;
     let ahead = at.unix() - now.unix();
+    if !bounds {
+        return Ok(at);
+    }
     if ahead < MIN_LEAD_SECONDS {
         return Err(ScheduleError::TimeTooSoon);
     }
@@ -300,7 +313,13 @@ pub fn check_canonical_url(url: &str, work: &str) -> Result<(), ScheduleError> {
         && !work.contains(['?', '#', '\\'])
         && !work.bytes().any(|b| b < 0x20);
     let parsed = url::Url::parse(url).map_err(|_| ScheduleError::InvalidUrl)?;
-    if path_ok && parsed.path() == work {
+    // A site hosted under a folder links `<folder><work>`; the folder is the site's, so the
+    // check is that the path is exactly the post's path behind an optional plain prefix.
+    let path = parsed.path();
+    let prefix_ok = path
+        .strip_suffix(work)
+        .is_some_and(|prefix| !prefix.ends_with('/') && !prefix.contains("//"));
+    if path_ok && prefix_ok {
         Ok(())
     } else {
         Err(ScheduleError::InvalidUrl)
@@ -338,11 +357,10 @@ pub fn announceable(
         }
     }
     let url = own;
-    let parsed = url::Url::parse(&url).map_err(|_| ScheduleError::UrlNotPublic)?;
     if !public_https(&url) {
         return Err(ScheduleError::UrlNotPublic);
     }
-    let work = parsed.path().to_string();
+    let work = post.url.clone();
     check_canonical_url(&url, &work).map_err(|_| ScheduleError::UrlNotPublic)?;
     Ok(Announceable {
         work,

@@ -171,7 +171,7 @@ export function checkCanonicalUrl(url, work) {
     work.length >= 2 &&
     work.length <= 500 &&
     !/[?#\\\u0000-\u001F]/.test(work);
-  if (!parsed || !workOk || parsed.pathname !== work) throw new ScheduleError("url-invalid");
+  if (!parsed || !workOk || !parsed.pathname.endsWith(work) || parsed.pathname.slice(0, -work.length).endsWith("/") || parsed.pathname.includes("//")) throw new ScheduleError("url-invalid");
   return url;
 }
 

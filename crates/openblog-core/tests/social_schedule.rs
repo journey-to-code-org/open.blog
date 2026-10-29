@@ -226,3 +226,14 @@ fn only_a_public_post_with_a_public_address_can_be_announced() {
         );
     }
 }
+
+#[test]
+fn a_site_under_a_folder_keeps_the_site_relative_post_path_as_its_work() {
+    let (site, config) = site_at("https://user.github.io/blog");
+    let found = announceable(&site, &config, by(&site, "hello"), now()).unwrap();
+    assert_eq!(found.work, "/posts/hello/");
+    assert_eq!(
+        found.canonical_url,
+        "https://user.github.io/blog/posts/hello/"
+    );
+}
