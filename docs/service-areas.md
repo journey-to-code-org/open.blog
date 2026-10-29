@@ -1,7 +1,7 @@
 # Service areas
 
 A service area is a town you serve. You list them once in `openblog.json`, under `serviceAreas`. A site without
-the member builds exactly as it did before ([ADR 0400](adr/0400-service-areas-are-a-versioned-list-of-towns-in-openblog-json-checked-for-duplicates-with-regions-formatted-from-a-bundled-list-and-absent-means-nothing-changes.md)).
+the member builds exactly as it did before ([ADR 0314](adr/0314-service-areas-are-a-versioned-list-of-towns-in-openblog-json-checked-for-duplicates-with-regions-formatted-from-a-bundled-list-and-absent-means-nothing-changes.md)).
 
 ```json
 {
@@ -42,7 +42,7 @@ Each area's address is derived from its town, `/areas/bend/`. A town listed in t
 
 ## What the build makes
 
-A site that lists at least one area gets ([ADR 0401](adr/0401-service-area-pages-are-rendered-from-the-area-list-the-services-and-the-jobs-towns-alone-with-an-honest-empty-state-and-no-address-beyond-a-town.md)):
+A site that lists at least one area gets ([ADR 0315](adr/0315-service-area-pages-are-rendered-from-the-area-list-the-services-and-the-jobs-towns-alone-with-an-honest-empty-state-and-no-address-beyond-a-town.md)):
 
 - `/areas/`: every area with its note and how many jobs are posted there.
 - `/areas/<town>/`: one page per area with your services (linked, when you have a

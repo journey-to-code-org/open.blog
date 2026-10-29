@@ -1,4 +1,4 @@
-# ADR 0400: Service areas are a versioned list of towns in openblog.json, checked for duplicates, with regions formatted from a bundled list, and absent means nothing changes
+# ADR 0314: Service areas are a versioned list of towns in openblog.json, checked for duplicates, with regions formatted from a bundled list, and absent means nothing changes
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -44,6 +44,6 @@ job's town is compared to, so a town can only ever be a town.
 ## Consequences
 
 - A town is renamed or removed by editing one list; its page address follows the slug rule.
-- Pages and structured data (ADR 0401) read this list and the jobs' towns, nothing else.
+- Pages and structured data (ADR 0315) read this list and the jobs' towns, nothing else.
 - An Admin screen for the list is not part of this decision; the existing Business facts screen pattern can
   edit it later.

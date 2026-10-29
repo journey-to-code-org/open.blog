@@ -1,11 +1,11 @@
-# ADR 0401: Service-area pages are rendered from the area list, the services and the jobs' towns alone, with an honest empty state and no address beyond a town
+# ADR 0315: Service-area pages are rendered from the area list, the services and the jobs' towns alone, with an honest empty state and no address beyond a town
 
 - Status: Accepted
 - Date: 2026-10-29
 - Parent story: [#484](https://github.com/journey-to-code-org/open.blog/issues/484)
 - Task: [#513](https://github.com/journey-to-code-org/open.blog/issues/513)
 - Parent epic: [#473](https://github.com/journey-to-code-org/open.blog/issues/473)
-- Builds on: [ADR 0400](0400-service-areas-are-a-versioned-list-of-towns-in-openblog-json-checked-for-duplicates-with-regions-formatted-from-a-bundled-list-and-absent-means-nothing-changes.md), [ADR 0312](0312-service-pages-the-index-and-their-structured-data-are-rendered-from-the-collection-alone-deterministically-and-only-for-a-site-that-has-services.md), [ADR 0286](0286-jobs-archives-are-derived-from-job-posts-and-page-like-the-home-page.md), [ADR 0306](0306-business-facts-render-as-one-engine-block-in-the-footer-and-a-landing-section-with-localbusiness-data-on-the-home-page.md)
+- Builds on: [ADR 0314](0314-service-areas-are-a-versioned-list-of-towns-in-openblog-json-checked-for-duplicates-with-regions-formatted-from-a-bundled-list-and-absent-means-nothing-changes.md), [ADR 0312](0312-service-pages-the-index-and-their-structured-data-are-rendered-from-the-collection-alone-deterministically-and-only-for-a-site-that-has-services.md), [ADR 0286](0286-jobs-archives-are-derived-from-job-posts-and-page-like-the-home-page.md), [ADR 0306](0306-business-facts-render-as-one-engine-block-in-the-footer-and-a-landing-section-with-localbusiness-data-on-the-home-page.md)
 
 ## Context
 
@@ -18,10 +18,10 @@ not be padded, and a page about a job must never reveal where in town it was.
   navigation link, `llms.txt` section or structured data, and `areas` is not reserved. A page or post whose
   first address segment is `areas` fails the build **only while areas exist**, as `services` does (ADR 0312).
   A fixed fixture builds to the same bytes with the member absent and with an empty list.
-- **Addresses.** `/areas/` is an index and `/areas/<slug>/` an area's page, the slug derived by ADR 0400.
+- **Addresses.** `/areas/` is an index and `/areas/<slug>/` an area's page, the slug derived by ADR 0314.
 - **A page is built from three things.** The area (town, region, note), the services collection when the site
   has one (each linked, with its summary), and the jobs whose `place.town` and `place.region` are that area,
-  matched with the region formatting of ADR 0400 so `Oregon` and `OR` agree. Jobs are read from the jobs
+  matched with the region formatting of ADR 0314 so `Oregon` and `OR` agree. Jobs are read from the jobs
   archive plan (ADR 0286), newest first, at most ten, so a job is here exactly when the archives list it.
   The business facts block is the engine's own (`block_html`, ADR 0306), placed in its own section.
 - **No address, ever.** A job contributes its title, link and date to an area page, and its town and region

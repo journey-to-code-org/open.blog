@@ -664,7 +664,7 @@ pub fn generate_with_trail_budget(
             )?;
         }
     }
-    // Service areas (ADR 0401): an index and one page per area, only when the
+    // Service areas (ADR 0315): an index and one page per area, only when the
     // site lists areas.
     if !c.service_areas.is_default() {
         out.add(

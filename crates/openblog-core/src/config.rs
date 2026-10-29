@@ -139,7 +139,7 @@ pub struct SiteConfig {
     /// exactly as before.
     #[serde(skip_serializing_if = "BusinessConfig::is_default")]
     pub business: BusinessConfig,
-    /// The towns the business serves (ADR 0400). Omitted from the written file
+    /// The towns the business serves (ADR 0314). Omitted from the written file
     /// while none are stated, so a site that never sets it builds exactly as before.
     #[serde(skip_serializing_if = "ServiceAreasConfig::is_default")]
     pub service_areas: ServiceAreasConfig,

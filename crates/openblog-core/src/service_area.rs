@@ -1,4 +1,4 @@
-//! The towns a business serves, stored once under `serviceAreas` in `openblog.json` (ADR 0400).
+//! The towns a business serves, stored once under `serviceAreas` in `openblog.json` (ADR 0314).
 //!
 //! An area is a town and a region and, optionally, a short note such as "within 30 miles". Nothing
 //! finer than a town is ever stored, so nothing finer can be published. Pure validation and
