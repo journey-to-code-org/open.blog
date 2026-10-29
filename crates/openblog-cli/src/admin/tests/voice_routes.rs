@@ -1052,3 +1052,31 @@ fn erase_lists_first_needs_the_typed_word_and_removes_everything_with_a_post_che
     );
     assert!(!f.dir.join(SESSION_PATH).exists());
 }
+
+#[test]
+fn a_project_served_from_the_current_folder_keeps_its_sentences_and_hides_its_path() {
+    let root = std::path::Path::new(".");
+    let refusal = "Only a polished draft can be saved this way. A rough draft is never rewritten.";
+    assert_eq!(super::voice::scrub_root(root, refusal), refusal);
+    let canonical = std::fs::canonicalize(root).unwrap();
+    let plain = canonical.display().to_string();
+    let plain = plain.strip_prefix(r"\\?\").unwrap_or(&plain).to_string();
+    for spelling in [
+        canonical.display().to_string(),
+        plain.clone(),
+        plain.replace('\\', "/"),
+    ] {
+        let failure = format!(
+            "cannot create {spelling}{}private{}voice: denied.",
+            std::path::MAIN_SEPARATOR,
+            std::path::MAIN_SEPARATOR
+        );
+        let scrubbed = super::voice::scrub_root(root, &failure);
+        assert!(
+            scrubbed.starts_with("cannot create the project"),
+            "{scrubbed}"
+        );
+        assert!(!scrubbed.contains(&plain), "{scrubbed}");
+        assert!(scrubbed.ends_with(": denied."), "{scrubbed}");
+    }
+}

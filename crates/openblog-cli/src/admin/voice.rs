@@ -98,12 +98,35 @@ fn visibility_of(body: &Json) -> Result<Option<Visibility>, Response> {
 
 /// A path in an error is the project's own folder: say so instead of showing where it is.
 fn scrub(state: &AppState, message: &str) -> String {
-    let root = state.root.display().to_string();
-    let mut out = message.to_string();
-    for spelling in [root.clone(), root.replace('\\', "/")] {
-        if !spelling.is_empty() {
-            out = out.replace(&spelling, "the project");
+    scrub_root(&state.root, message)
+}
+
+/// [`scrub`] for a project at `root`. The store reports canonical absolute paths, so the root is
+/// matched in its canonical spelling (with and without the Windows `\\?\` prefix, with either
+/// slash), and as given only when that is absolute: a relative root such as `.` (the default for
+/// `openblog serve`) must never be replaced wherever it appears in a sentence.
+pub(super) fn scrub_root(root: &std::path::Path, message: &str) -> String {
+    let mut spellings: Vec<String> = Vec::new();
+    if let Ok(canonical) = std::fs::canonicalize(root) {
+        let canonical = canonical.display().to_string();
+        if let Some(plain) = canonical.strip_prefix(r"\\?\") {
+            spellings.push(plain.to_string());
         }
+        spellings.push(canonical);
+    }
+    if root.is_absolute() {
+        spellings.push(root.display().to_string());
+    }
+    for spelling in spellings.clone() {
+        spellings.push(spelling.replace('\\', "/"));
+    }
+    // Longest first, so a prefixed spelling is replaced whole; a spelling too short to be a
+    // path (a drive or the file-system root) is never used.
+    spellings.sort_by_key(|spelling| std::cmp::Reverse(spelling.len()));
+    spellings.dedup();
+    let mut out = message.to_string();
+    for spelling in spellings.iter().filter(|spelling| spelling.len() > 3) {
+        out = out.replace(spelling.as_str(), "the project");
     }
     out
 }
