@@ -1,4 +1,4 @@
-// The Job form in the Write view (ADR 0400): the few questions a job needs, written as the flattened
+// The Job form in the Write view (ADR 0287): the few questions a job needs, written as the flattened
 // `job.*` front matter keys the engine already validates. The form never owns the body: the four
 // scaffold headings are ordinary Markdown placed once into an empty draft. The first half of this file
 // is plain functions (tested in tests/web/admin-job-form.test.mjs); the second builds the form.

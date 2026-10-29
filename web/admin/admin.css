@@ -5704,7 +5704,7 @@ ob-voice-library {
   gap: 8px;
 }
 
-/* The Job form in the Write view (ADR 0400): one column, 44px targets, long names wrap. */
+/* The Job form in the Write view (ADR 0287): one column, 44px targets, long names wrap. */
 .oba-job-form {
   min-width: 0;
   margin: 0 0 1rem;

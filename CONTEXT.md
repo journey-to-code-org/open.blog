@@ -2581,7 +2581,7 @@ _Avoid_: Project, case study, ticket
 **Job scaffold**:
 The four `##` headings a new job starts with (`Problem`, `What we found`, `What we did`, `Result`), written once in
 core and placed by Admin's Job mode or `openblog new --profile job`. They are ordinary Markdown; nothing is
-locked (ADR 0400).
+locked (ADR 0287).
 _Avoid_: Template, form body
 
 **Service**:

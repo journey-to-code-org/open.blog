@@ -205,7 +205,7 @@ pub struct JobStart<'a> {
     pub region: Option<&'a str>,
 }
 
-/// Create a draft job post (ADR 0400): the same `job` front matter and the same
+/// Create a draft job post (ADR 0287): the same `job` front matter and the same
 /// four headings Admin's Job mode writes, checked by the job profile in core.
 pub fn new_job(
     root: &Path,

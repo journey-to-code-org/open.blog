@@ -22605,7 +22605,7 @@ export class Editor {
 
   /**
    * Show the Job form when the Job profile is chosen and give an empty draft the four scaffold headings
-   * (ADR 0400). The headings are ordinary Markdown: nothing is locked, and leaving the profile never touches the body.
+   * (ADR 0287). The headings are ordinary Markdown: nothing is locked, and leaving the profile never touches the body.
    */
   syncJobMode() {
     if (!this.jobForm) return;

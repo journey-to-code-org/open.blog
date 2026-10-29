@@ -1,4 +1,4 @@
-# ADR 0400: The job form and its scaffold are written once in core and produce a normal post
+# ADR 0287: The job form and its scaffold are written once in core and produce a normal post
 
 - Status: Accepted
 - Date: 2026-10-29

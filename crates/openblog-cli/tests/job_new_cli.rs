@@ -1,4 +1,4 @@
-//! `openblog new --profile job` through the real command line (ADR 0400): the same front matter and
+//! `openblog new --profile job` through the real command line (ADR 0287): the same front matter and
 //! headings Admin's Job mode writes, checked by the job profile in core, always a draft.
 
 use std::fs;

@@ -119,7 +119,7 @@ pub fn check_extra_trade(trade: &str) -> Result<(), String> {
     }
 }
 
-/// The four headings a new job starts with (ADR 0400). They are ordinary
+/// The four headings a new job starts with (ADR 0287). They are ordinary
 /// Markdown: the author may rename, reorder or delete them.
 pub const SCAFFOLD_HEADINGS: [&str; 4] = ["Problem", "What we found", "What we did", "Result"];
 

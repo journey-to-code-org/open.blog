@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio at 400px: choosing the Job profile shows the job form and gives an empty draft the four
-// scaffold headings; the answers are saved as the nested `job` mapping; leaving the profile keeps the Markdown (ADR 0400).
+// scaffold headings; the answers are saved as the nested `job` mapping; leaving the profile keeps the Markdown (ADR 0287).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
