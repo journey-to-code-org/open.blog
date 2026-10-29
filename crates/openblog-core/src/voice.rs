@@ -242,9 +242,8 @@ impl VoiceSample {
             ));
         }
         let stage_text = required(&fields, "voice.stage")?;
-        let stage = VoiceStage::parse(stage_text.trim()).ok_or_else(|| {
-            format!("The field `voice.stage` must be `rough` or `polished`, not `{stage_text}`.")
-        })?;
+        let stage = VoiceStage::parse(stage_text.trim())
+            .ok_or_else(|| "The field `voice.stage` must be `rough` or `polished`.".to_string())?;
         let voice = VoiceMeta {
             catalog: number(&fields, "voice.catalog")?,
             pack: required(&fields, "voice.pack")?,
@@ -335,7 +334,7 @@ impl VoiceSample {
                 || tag.chars().any(char::is_control)
             {
                 return Err(format!(
-                    "The tag `{tag}` must be 1 to {MAX_TAG} characters with no commas or line breaks."
+                    "Each tag must be 1 to {MAX_TAG} characters with no commas or line breaks."
                 ));
             }
         }
@@ -394,15 +393,18 @@ impl VoiceSample {
             );
         }
         for key in self.extra.keys() {
-            let bad = key.is_empty()
-                || key
-                    .chars()
-                    .any(|c| c.is_whitespace() || c.is_control() || c == ':')
-                || KNOWN_KEYS.contains(&key.as_str());
-            if bad {
+            // A known field's name is ours to repeat; any other name came from the file.
+            if KNOWN_KEYS.contains(&key.as_str()) {
                 return Err(format!(
                     "The extra field `{key}` has a name that cannot be saved."
                 ));
+            }
+            if key.is_empty()
+                || key
+                    .chars()
+                    .any(|c| c.is_whitespace() || c.is_control() || c == ':')
+            {
+                return Err("An extra field has a name that cannot be saved.".into());
             }
         }
         Ok(())

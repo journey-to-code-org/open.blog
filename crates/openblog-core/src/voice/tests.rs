@@ -160,7 +160,7 @@ fn every_field_domain_is_checked_with_a_sentence_naming_the_field() {
             Box::new(|s| {
                 s.extra.insert("bad key".into(), Value::Scalar("x".into()));
             }),
-            "`bad key`",
+            "An extra field",
         ),
         (
             Box::new(|s| {
@@ -207,7 +207,7 @@ fn unknown_stage_future_format_and_future_catalog_are_refused() {
     let stage = refused(VoiceSample::parse(
         &text.replace("voice.stage: rough", "voice.stage: draft"),
     ));
-    assert!(stage.contains("`voice.stage`") && stage.contains("`draft`"));
+    assert!(stage.contains("`voice.stage`") && !stage.contains("`draft`"));
     let format = refused(VoiceSample::parse(
         &text.replace("voice.format: 1", "voice.format: 2"),
     ));
@@ -336,4 +336,23 @@ fn a_slug_collision_is_reported_and_a_rough_draft_never_becomes_a_post() {
     assert!(error.contains("`a-mistake-i-made`") && error.contains("already exists"));
     let error = rough().to_post_draft(&[]).unwrap_err();
     assert!(error.contains("polished"));
+}
+
+#[test]
+fn a_refusal_never_repeats_text_from_the_file() {
+    let base = "---\ntitle: A mistake I made\nslug: a-mistake-i-made\ndate: 2026-10-28T09:30:00Z\nvoice.format: 1\nvoice.catalog: 1\nvoice.pack: stories\nvoice.prompt: a-mistake-i-made\nvoice.stage: rough\nvoice.timeLimitSeconds: 180\nvoice.words: 5\n---\n\nso i deleted the wrong folder\n";
+    let marker = "PRIVATE-MARKER-words-from-my-diary";
+    let stage = base.replace("voice.stage: rough", &format!("voice.stage: {marker}"));
+    let message = refused(VoiceSample::parse(&stage));
+    assert!(
+        message.contains("voice.stage") && !message.contains(marker),
+        "{message}"
+    );
+    let long = format!("{marker} {}", "x".repeat(200));
+    let tag = base.replace(
+        "voice.words: 5\n",
+        &format!("voice.words: 5\ntags: [{long}]\n"),
+    );
+    let message = refused(VoiceSample::parse(&tag));
+    assert!(!message.contains(marker), "{message}");
 }
