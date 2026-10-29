@@ -2578,6 +2578,12 @@ problem, what was found, what was done, result, media. A job is a post, so feeds
 it like any other (ADR 0285).
 _Avoid_: Project, case study, ticket
 
+**Job scaffold**:
+The four `##` headings a new job starts with (`Problem`, `What we found`, `What we did`, `Result`), written once in
+core and placed by Admin's Job mode or `openblog new --profile job`. They are ordinary Markdown; nothing is
+locked (ADR 0400).
+_Avoid_: Template, form body
+
 **Service**:
 One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
 typical timeline, and FAQs. A job's `service` names one of them.

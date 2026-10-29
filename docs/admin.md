@@ -703,6 +703,13 @@ conditions. Field Review analyzes GPX in the browser and privately stages the so
 only in Exact mode; it becomes public as part of a successful post save. Other modes save
 privacy-filtered derived data. Downgrading a saved Exact route moves its managed GPX to
 `.openblog/trash/tracks/` so the next build retracts it without destroying the source.
+Choosing **Job** shows an **About this job** form in Settings: trade, service, town, region,
+started, finished, price range, and before and after photos (uploaded the same way as any
+image). On an empty body it also writes the four headings `Problem`, `What we found`,
+`What we did` and `Result` as ordinary Markdown, in Visual or Markdown mode; they are never
+locked, never written over words you already have, and switching to another profile leaves the
+Markdown as it is. **Check this job** lists what the build would still ask for. See
+[Jobs](jobs.md).
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is

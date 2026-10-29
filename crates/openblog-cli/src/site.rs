@@ -299,6 +299,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         "checks-panel.js",
         include_str!("../../../web/admin/checks-panel.js"),
     ),
+    (
+        "job-form.js",
+        include_str!("../../../web/admin/job-form.js"),
+    ),
 ];
 
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");

@@ -32,7 +32,7 @@ test("every landing field is a typed control and none is named or labelled for H
 });
 
 test("the landing, look, paste and suggestion modules create no text area, no HTML sink and no style or script", () => {
-  for (const name of ["landing.js", "look.js", "paste.js", "checks.js", "checks-panel.js"]) {
+  for (const name of ["landing.js", "look.js", "paste.js", "checks.js", "checks-panel.js", "job-form.js"]) {
     const text = source(name);
     assert.ok(!/(?:h|el|createElement)\(\s*["'`]textarea|<textarea/i.test(text) || name === "landing.js", `${name} creates a text area`);
     for (const sink of [/\.innerHTML\s*=/, /\.outerHTML\s*=/, /insertAdjacentHTML/, /document\.write/, /\.srcdoc\s*=/, /createContextualFragment/, /new DOMParser/, /\beval\(/, /new Function/, /\.style\.cssText/]) {
