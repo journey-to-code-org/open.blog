@@ -81,7 +81,7 @@ fn visibility_named(item: &Item) -> Visibility {
 
 /// The export text, how many samples it holds and whether it holds a guide. Each thing left out
 /// is said on standard error.
-fn gather(root: &Path, include_private: bool) -> Result<(String, usize, bool), String> {
+fn gather(root: &Path, include_private: bool) -> Result<Gathered, String> {
     let (gathered, left_out) = collect(root, include_private)?;
     for warning in left_out {
         eprintln!("warning: left out of the export: {warning}");
@@ -89,11 +89,11 @@ fn gather(root: &Path, include_private: bool) -> Result<(String, usize, bool), S
     Ok(gathered)
 }
 
+/// The export text, how many samples it holds and whether it holds a guide.
+type Gathered = (String, usize, bool);
+
 /// [`gather`], with what was left out returned rather than printed.
-fn collect(
-    root: &Path,
-    include_private: bool,
-) -> Result<((String, usize, bool), Vec<String>), String> {
+fn collect(root: &Path, include_private: bool) -> Result<(Gathered, Vec<String>), String> {
     let mut left_out = Vec::new();
     let mut samples = Vec::new();
     for listed in voice_store::list(root) {
