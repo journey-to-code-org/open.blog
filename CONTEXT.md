@@ -2629,3 +2629,19 @@ _Avoid_: Lead, booking, ticket
 **Proof**:
 A review or testimonial saved as a provenance-tracked snapshot and optionally linked to a job.
 _Avoid_: Rating (the number alone), social proof
+
+**Social publishing**:
+An optional, off-by-default outward announcement of an already-published canonical post to a connected LinkedIn
+identity or Facebook Page, on a schedule. It never replaces the post or cross-posting. Everything about it is
+server-side; builds and exports do not know it exists.
+_Avoid_: Syndication (a full copy of the article on another platform)
+
+**Site scope**:
+The one site a social deployment acts for, taken from the server's `OPENBLOG_SITE_ID` and never from a request.
+Every social row carries it and every query is filtered by it.
+_Avoid_: Tenant, owner, namespace when the server's choice is meant
+
+**Social actor**:
+The signed-in Admin user the Rust Admin names to the hosted social function, or `@worker` for the scheduled
+worker. It is an audit attribution; the role is decided by which server key authenticated the call.
+_Avoid_: User, owner

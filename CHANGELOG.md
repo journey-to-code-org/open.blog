@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Optional social publishing, identity boundary (epic #353, story #354; ADR 0450): scheduled social publishing is off unless a deployer enables it. The Rust Admin authorizes the author and the hosted function acts for one server-configured site with separate admin and worker keys; a request can never name a site. Site builds, portable exports and cross-posting are unchanged without it. See [Social publishing](docs/social-publishing.md).
+
 ## [0.51.0] - 2026-10-29
 
 - Jobs (epic #471, story #476; ADR 0285): a new `job` content profile records one piece of finished trade work as an ordinary post, with a `job` front matter mapping for trade, service, town, dates, materials, a cost band and before and after images. Fields are checked with plain messages that name the field, `costBand` is an enum, a place is a town and never an address, and unknown keys are kept. Sites add their own trades with `extraTrades` in `openblog.json`, and a site with jobs gets `/jobs/`, `/jobs/<trade>/` and `/jobs/<trade>/<service>/` archives (paged like the home page, in the sitemap, none when empty; ADR 0286). A site that does not use the profile builds byte for byte as before. See [Jobs](docs/jobs.md).
