@@ -2488,15 +2488,17 @@ impl<'a> Renderer<'a> {
             } else {
                 ""
             };
-            let captcha = if c.engagement.captcha.enabled {
-                format!(
-                    " captcha-provider=\"turnstile\" captcha-site-key=\"{}\" captcha-scope=\"{}\"",
-                    attr(&c.engagement.captcha.site_key),
-                    attr(c.engagement.endpoint.trim().trim_end_matches('/'))
-                )
-            } else {
-                String::new()
-            };
+            let captcha =
+                if c.engagement.captcha.enabled() && comment_mode != ParticipationMode::Locked {
+                    format!(
+                        " captcha-provider=\"{}\" captcha-site-key=\"{}\" captcha-scope=\"{}\"",
+                        attr(&c.engagement.captcha.provider),
+                        attr(&c.engagement.captcha.site_key),
+                        attr(&c.engagement.captcha.scope)
+                    )
+                } else {
+                    String::new()
+                };
             body.push_str(&format!(
                 "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
@@ -6016,11 +6018,11 @@ mod tests {
     #[test]
     fn hosted_engagement_renders_comments_and_reuses_the_endpoint_for_views() {
         let protected = build(
-            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"endpoint":"https://t.dev/api","captcha":{"enabled":true,"siteKey":"public-key"}}}"#,
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"endpoint":"https://t.dev/api","captcha":{"provider":"turnstile","siteKey":"public-key"}}}"#,
             true,
         );
         let html = file(&protected, "one/index.html");
-        assert!(html.contains("captcha-provider=\"turnstile\" captcha-site-key=\"public-key\" captcha-scope=\"https://t.dev/api\""));
+        assert!(html.contains("<ob-comments path=\"/one/\" endpoint=\"https://t.dev/api\" captcha-provider=\"turnstile\" captcha-site-key=\"public-key\" captcha-scope=\"session\">"));
         assert!(!html.contains("challenges.cloudflare.com"));
 
         let files = build(
@@ -6063,6 +6065,61 @@ mod tests {
             .unwrap()
             .values()
             .all(|policy| policy == "hidden"));
+    }
+
+    #[test]
+    fn captcha_attributes_are_public_scoped_and_absent_when_off_locked_or_hidden() {
+        let site = |captcha: &str| {
+            format!(
+                r#"{{"title":"T","url":"https://t.dev","postPath":"/{{slug}}/","engagement":{{"enabled":true,"endpoint":"https://t.dev/api"{captcha}}}}}"#
+            )
+        };
+        let posts = [
+            (
+                "posts/open.md",
+                "---\ntitle: Open\ndate: 2026-01-01\n---\nText",
+            ),
+            (
+                "posts/locked.md",
+                "---\ntitle: Locked\ndate: 2026-01-01\ncomments: locked\n---\nText",
+            ),
+            (
+                "posts/hidden.md",
+                "---\ntitle: Hidden\ndate: 2026-01-01\ncomments: hidden\n---\nText",
+            ),
+        ];
+        let off = build_posts(&site(""), &posts);
+        let explicit_off = build_posts(
+            &site(r#","captcha":{"provider":"off","siteKey":"ignored-key"}"#),
+            &posts,
+        );
+        for page in ["open/index.html", "locked/index.html", "hidden/index.html"] {
+            assert!(!file(&off, page).contains("captcha"), "{page}");
+            assert!(!file(&explicit_off, page).contains("captcha"), "{page}");
+            assert!(!file(&explicit_off, page).contains("ignored-key"), "{page}");
+        }
+        assert_eq!(
+            file(&off, "open/index.html"),
+            file(&explicit_off, "open/index.html")
+        );
+
+        let on = build_posts(
+            &site(
+                r#","captcha":{"provider":"turnstile","siteKey":" key_1-2 ","scope":"every-comment"}"#,
+            ),
+            &posts,
+        );
+        let open = file(&on, "open/index.html");
+        assert!(open.contains("captcha-provider=\"turnstile\" captcha-site-key=\"key_1-2\" captcha-scope=\"every-comment\""));
+        assert!(!file(&on, "locked/index.html").contains("captcha"));
+        assert!(file(&on, "locked/index.html").contains("mode=\"locked\""));
+        assert!(!file(&on, "hidden/index.html").contains("<ob-comments"));
+        assert!(!file(&on, "hidden/index.html").contains("captcha"));
+        for output in &on {
+            if output.path.ends_with(".xml") || output.path == "openblog-comments.json" {
+                assert!(!output.contents.contains("captcha"), "{}", output.path);
+            }
+        }
     }
 
     #[test]

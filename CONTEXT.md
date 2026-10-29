@@ -1627,6 +1627,20 @@ contributing author of the work. A response to a published note is stored with i
 item starts pending like everything else. Replying sends nothing to the reader.
 _Avoid_: Revision note, correction, comment by the author, reply notification
 
+**Captcha challenge**:
+The optional human check a reader passes before commenting on a hosted site (ADR 0322). The browser loads
+the provider's script only when the reader first clicks or types in the comment form; the server, never
+the browser, decides whether the result is valid. It guards comment submission only, never reading,
+reports or analytics, and the local `openblog serve` comment store does not use it.
+_Avoid_: Captcha (for the pass), bot check, login
+
+**Session pass**:
+A signed, stateless proof that one captcha challenge was passed for this site, valid for 30 minutes by
+default (`OPENBLOG_CAPTCHA_SESSION_TTL_SECONDS`). The browser keeps it in `sessionStorage`, so it ends with the
+tab. It is not a reader identity and authorizes nothing except comment submissions on the same site; with
+`every-comment` scope none is issued. Passes cannot be individually revoked: rotate the signing secret.
+_Avoid_: Session, token (that is the provider's single-use challenge result), cookie, login
+
 **Moderator**:
 The site Admin, or a coordinator for the works of their publications. Contributing authors read
 and respond but do not moderate; readers act only on their own items as submitters.
@@ -2619,7 +2633,7 @@ _Avoid_: Template, form body
 Two pictures of the same thing, written as a `compare` fence with a required description for each, an optional
 caption and a label ("Before" and "After" by default). Any post may hold one. The page shows a comparison
 control; feeds, syndicated copies and exports show two captioned figures. Reported as the `before-after`
-capability (ADR 0311).
+capability (ADR 0316).
 _Avoid_: Slider, image diff, gallery
 
 **Capture**:

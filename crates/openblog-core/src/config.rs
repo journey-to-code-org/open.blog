@@ -748,20 +748,23 @@ impl Default for AnalyticsConfig {
     }
 }
 
-/// Hosted comments and analytics for static deployments such as Netlify.
+/// Optional captcha for hosted comments. Only public values live here; the
+/// provider secret and the pass-signing secret are server environment variables.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct CaptchaConfig {
-    pub enabled: bool,
+    /// `off` (default) or `turnstile`.
     pub provider: String,
     pub site_key: String,
+    /// `session` (default: one challenge per tab session) or `every-comment`.
+    pub scope: String,
 }
 impl Default for CaptchaConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            provider: "turnstile".into(),
+            provider: "off".into(),
             site_key: String::new(),
+            scope: "session".into(),
         }
     }
 }
@@ -769,7 +772,12 @@ impl CaptchaConfig {
     fn is_default(&self) -> bool {
         self == &Self::default()
     }
+    pub fn enabled(&self) -> bool {
+        self.provider != "off"
+    }
 }
+
+/// Hosted comments and analytics for static deployments such as Netlify.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct EngagementConfig {
@@ -1088,16 +1096,32 @@ impl SiteConfig {
         if self.theme.is_empty() {
             self.theme = "base".to_string();
         }
+        self.engagement.captcha.provider = self.engagement.captcha.provider.trim().to_lowercase();
+        self.engagement.captcha.scope = self.engagement.captcha.scope.trim().to_lowercase();
+        self.engagement.captcha.site_key = self.engagement.captcha.site_key.trim().to_string();
         let captcha = &self.engagement.captcha;
-        if captcha.provider != "turnstile"
-            || captcha.site_key.len() > 256
+        if !matches!(captcha.provider.as_str(), "off" | "turnstile") {
+            return Err(format!(
+                "engagement.captcha.provider must be \"off\" or \"turnstile\", not \"{}\"",
+                captcha.provider
+            ));
+        }
+        if !matches!(captcha.scope.as_str(), "session" | "every-comment") {
+            return Err(format!(
+                "engagement.captcha.scope must be \"session\" or \"every-comment\", not \"{}\"",
+                captcha.scope
+            ));
+        }
+        if captcha.provider == "turnstile" && captcha.site_key.is_empty() {
+            return Err("engagement.captcha.siteKey is required when the provider is turnstile (it is the public site key from the Turnstile dashboard)".into());
+        }
+        if captcha.site_key.len() > 256
             || !captcha
                 .site_key
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-            || (captcha.enabled && captcha.site_key.is_empty())
         {
-            return Err("engagement.captcha requires provider turnstile and a public siteKey (letters, numbers, underscore or hyphen)".into());
+            return Err("engagement.captcha.siteKey may only contain letters, numbers, underscore and hyphen (up to 256 characters); never put a secret key here".into());
         }
         if self.engagement.enabled {
             let endpoint = self
@@ -1623,22 +1647,40 @@ mod captcha_tests {
     fn captcha_defaults_and_validation() {
         let base = r#"{"title":"T","url":"https://t.dev"}"#;
         let config = SiteConfig::from_json(base).unwrap();
-        assert!(!config.engagement.captcha.enabled);
-        assert!(!serde_json::to_string(&config.engagement)
-            .unwrap()
-            .contains("captcha"));
-        for captcha in [
-            r#"{"enabled":true}"#,
-            r#"{"provider":"other"}"#,
-            r#"{"siteKey":"<script>"}"#,
-            r#"{"secret":"do-not-store"}"#,
+        assert!(!config.engagement.captcha.enabled());
+        assert_eq!(config.engagement.captcha, CaptchaConfig::default());
+        assert!(!serde_json::to_string(&config).unwrap().contains("captcha"));
+        for (captcha, hint) in [
+            (r#"{"provider":"turnstile"}"#, "siteKey is required"),
+            (r#"{"provider":"other"}"#, "\"off\" or \"turnstile\""),
+            (
+                r#"{"provider":"hcaptcha","siteKey":"k"}"#,
+                "not \"hcaptcha\"",
+            ),
+            (r#"{"scope":"always"}"#, "\"session\" or \"every-comment\""),
+            (r#"{"siteKey":"<script>"}"#, "never put a secret"),
+            (r#"{"enabled":true}"#, "unknown field"),
+            (r#"{"secret":"do-not-store"}"#, "unknown field"),
         ] {
             let text = format!(
                 r#"{{"title":"T","url":"https://t.dev","engagement":{{"captcha":{captcha}}}}}"#
             );
-            assert!(SiteConfig::from_json(&text).is_err(), "{captcha}");
+            let error = SiteConfig::from_json(&text).unwrap_err().to_string();
+            assert!(error.contains(hint), "{captcha}: {error}");
+            assert!(!error.contains("do-not-store"), "{error}");
         }
-        let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","engagement":{"captcha":{"enabled":true,"siteKey":"public-key"}}}"#).unwrap();
-        assert!(config.engagement.captcha.enabled);
+        let text = r#"{"title":"T","url":"https://t.dev","engagement":{"captcha":{"provider":" Turnstile ","siteKey":"  public-key  ","scope":"every-comment"}}}"#;
+        let config = SiteConfig::from_json(text).unwrap();
+        assert!(config.engagement.captcha.enabled());
+        assert_eq!(config.engagement.captcha.provider, "turnstile");
+        assert_eq!(config.engagement.captcha.site_key, "public-key");
+        assert_eq!(config.engagement.captcha.scope, "every-comment");
+        let again = SiteConfig::from_json(&serde_json::to_string(&config).unwrap()).unwrap();
+        assert_eq!(again.engagement.captcha, config.engagement.captcha);
+        let off = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","engagement":{"captcha":{"provider":"off"}}}"#,
+        )
+        .unwrap();
+        assert!(!off.engagement.captcha.enabled());
     }
 }
