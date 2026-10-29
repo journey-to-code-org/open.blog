@@ -211,3 +211,20 @@ sideways.
 Before you enable it for real, confirm in each provider's current documentation the API version, the permissions
 (scopes) and any app review the posting API needs; none of that is part of this screen, and nothing here posts until
 delivery is set up.
+
+## Publishing adapters
+
+Delivery calls one narrow function per provider ([ADR 0490](adr/0490-the-publishing-adapters-answer-published-failed-or-unknown-from-one-narrow-call-and-never-copy-provider-text.md)):
+`publish(post, credentials)` answers `published`, `failed` or `unknown`, with the provider post id when there is
+one. A post is `published` only when the provider confirmed it with an id. A server error, a timeout or an unclear
+success is `unknown`: the post may be live, so a person reconciles it and it is never sent again automatically.
+
+### LinkedIn
+
+Posts as the connected member or organization through the versioned REST Posts API (`POST /rest/posts`), with the
+post link as an article. The caption is sent as typed: LinkedIn formatting characters (`( ) [ ] { } < > @ | ~ _ * #`
+and the backslash) are escaped, so a caption cannot mention people or format text.
+
+Verify at setup, because LinkedIn changes them: the API version (`OPENBLOG_SOCIAL_LINKEDIN_API_VERSION`, a dated
+`YYYYMM` value that LinkedIn retires after about a year; the default is only a starting point), that your app has the
+product that grants `w_member_social`, and for organizations the Community Management API and `w_organization_social`.
