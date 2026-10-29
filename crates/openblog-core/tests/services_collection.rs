@@ -254,3 +254,20 @@ fn a_draft_service_is_unpublished_and_only_warns_while_unfinished() {
         .iter()
         .any(|service| service.id == "decks" && service.draft));
 }
+
+#[test]
+fn a_file_that_declares_a_service_marker_but_is_invalid_still_fails_the_build() {
+    for body in [
+        "---\nversion: 1\ntitle: Old\n---\n",
+        "---\nid: Bad Id\n---\n",
+    ] {
+        let errors = with_services(vec![file("services/foo.md", body)], vec![]).unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.starts_with("services/foo.md:")),
+            "{errors:?}"
+        );
+    }
+    let legacy = "---\ntitle: Old\n---\nHello\n";
+    let site = with_services(vec![file("services/foo.md", legacy)], vec![]).unwrap();
+    assert!(site.services.is_empty());
+}

@@ -949,6 +949,9 @@ impl Site {
         pages.sort_by(|a, b| a.title.cmp(&b.title));
         let mut services: Vec<Service> = Vec::new();
         for file in &sources.services {
+            if !crate::service::declares_service(&file.contents) {
+                continue;
+            }
             // A draft service is not published, and its problems are warnings,
             // so a freshly scaffolded one never stops a build.
             let draft = frontmatter::parse(&file.contents)

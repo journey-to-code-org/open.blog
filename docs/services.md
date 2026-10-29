@@ -2,7 +2,7 @@
 
 A service is one thing your business sells, described once: what it includes, a starting price band, a typical
 timeline and the questions customers ask. It is a Markdown file in `content/services/`. A site that has no such
-folder builds exactly as it did before ([ADR 0400](adr/0400-services-are-a-services-collection-of-markdown-files-with-versioned-front-matter-and-a-jobs-service-is-checked-against-it-only-when-the-site-has-one.md)).
+folder builds exactly as it did before. A Markdown file in `content/services/` counts as a service only if its front matter has `version` or `id`; a file with neither is ignored as it always was, and one with either that is otherwise invalid fails the build naming the file ([ADR 0400](adr/0400-services-are-a-services-collection-of-markdown-files-with-versioned-front-matter-and-a-jobs-service-is-checked-against-it-only-when-the-site-has-one.md)).
 
 open.blog is not a field-service tool. A price band is a label you choose to show; nothing here adds up,
 estimates or quotes.

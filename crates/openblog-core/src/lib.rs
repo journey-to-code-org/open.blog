@@ -205,6 +205,9 @@ impl Sources {
     /// files that are not content (images, READMEs, nested folders).
     pub fn add(&mut self, file: SourceFile) -> bool {
         match classify_source(&file.path) {
+            Some(SourceKind::Service) if !service::declares_service(&file.contents) => {
+                return false
+            }
             Some(SourceKind::Post) => self.posts.push(file),
             Some(SourceKind::PostCredits) => self.credits.push(file),
             Some(SourceKind::Series) => self.series.push(file),

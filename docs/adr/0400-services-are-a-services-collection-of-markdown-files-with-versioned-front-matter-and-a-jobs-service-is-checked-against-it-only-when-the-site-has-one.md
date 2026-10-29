@@ -26,6 +26,7 @@ owners will hand-write it, so it must be small, versioned and conservative.
   as `2 to 4 days`, at most 80) and `faq` (at most 20 entries). `id`, `name` and `summary` are required;
   the rest are optional. Every text value is plain text on one line: no control characters, and nothing is
   read as markup in front matter.
+- **Only a file that declares a service marker is a service.** A Markdown file in `services/` is a service only if its front matter declares `version` or `id`. A file with neither is a legacy file from before services existed: it is skipped exactly as if it were not content (not loaded, not an error, not counted, no reserved `services` address, not listed in Admin), so an existing site never starts failing. A file that declares either marker but is otherwise invalid still fails the build, naming the file.
 - **`version: 1` is the only version read or written.** A missing `version` means 1. Another value is
   refused with a message that says to update open.blog, and the file is not changed. Keys this release does
   not define stay in the file as written, so a newer file survives an older engine.

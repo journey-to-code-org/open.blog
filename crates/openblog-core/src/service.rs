@@ -49,6 +49,23 @@ pub struct ServiceMetadata {
     pub faq: Vec<FaqEntry>,
 }
 
+/// Whether a file under `services/` is a service at all: its front matter
+/// declares `version` or `id`. A Markdown file there without either is a
+/// legacy file from before services existed and is left out of the build, as
+/// if it were not content, so no existing site starts failing or loses the
+/// `services` address (ADR 0400).
+pub fn declares_service(contents: &str) -> bool {
+    crate::frontmatter::parse(contents).is_ok_and(|document| {
+        let declared = |key: &str| {
+            document
+                .front_matter
+                .get(key)
+                .is_some_and(|value| !value.trim().is_empty())
+        };
+        declared("version") || declared("id")
+    })
+}
+
 /// Read and validate a service's front matter. Every problem is a sentence
 /// naming the field; all of them are returned, not only the first.
 pub fn from_front_matter(fm: &FrontMatter) -> Result<ServiceMetadata, Vec<String>> {

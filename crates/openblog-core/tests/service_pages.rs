@@ -297,3 +297,20 @@ fn services_reserve_their_address() {
     let error = generate(&site, &ThemeSet::new()).unwrap_err();
     assert!(error.contains("reserved"), "{error}");
 }
+
+#[test]
+fn a_legacy_services_file_without_a_service_marker_changes_nothing() {
+    let legacy = "---\ntitle: Old notes\n---\nKept from before services existed.\n";
+    let mut with = Sources::default();
+    assert!(!with.add(file("services/foo.md", legacy)));
+    assert!(with.services.is_empty());
+    let without = build(vec![], jobs());
+    let legacy_build = build(vec![file("services/foo.md", legacy)], jobs());
+    assert_eq!(without.len(), legacy_build.len());
+    for (a, b) in without.iter().zip(&legacy_build) {
+        assert_eq!((&a.path, &a.contents), (&b.path, &b.contents));
+    }
+    assert!(legacy_build
+        .iter()
+        .all(|f| !f.path.starts_with("services/")));
+}
