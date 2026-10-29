@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-10-29
+
 - Jobs (epic #471, story #476; ADR 0285): a new `job` content profile records one piece of finished trade work as an ordinary post, with a `job` front matter mapping for trade, service, town, dates, materials, a cost band and before and after images. Fields are checked with plain messages that name the field, `costBand` is an enum, a place is a town and never an address, and unknown keys are kept. Sites add their own trades with `extraTrades` in `openblog.json`, and a site with jobs gets `/jobs/`, `/jobs/<trade>/` and `/jobs/<trade>/<service>/` archives (paged like the home page, in the sitemap, none when empty; ADR 0286). A site that does not use the profile builds byte for byte as before. See [Jobs](docs/jobs.md).
 
 - Job mode in Admin (story #477; ADR 0287): choosing the Job content profile in a post's Settings shows an **About this job** form for trade, service, town, region, dates, price range and before and after photos, writes the `job` mapping, and gives an empty body the headings `Problem`, `What we found`, `What we did` and `Result` as ordinary Markdown. Switching profile never changes the body, and **Check this job** lists what a build would still need. It works at 400 px. `openblog new "Title" --profile job` (with optional `--trade`, `--service`, `--town`, `--region`) writes the same front matter and headings as a draft, and an unknown trade is refused with the bundled and site-level trades listed.
