@@ -100,6 +100,7 @@ pub mod interpretation_publication;
 pub mod invitation;
 pub mod job;
 pub mod job_archive;
+pub mod job_draft;
 pub mod knowledge_atlas;
 pub mod landing;
 pub mod look;

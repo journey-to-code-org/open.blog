@@ -720,7 +720,10 @@ fn every_kind_of_request_carries_the_voice_sample_rules_before_any_sample() {
             payload["engineGuideVersion"], ENGINE_GUIDE_VERSION,
             "{name}"
         );
-        assert_eq!(ENGINE_GUIDE_VERSION, 5, "the voice rules bumped the guide");
+        assert_eq!(
+            ENGINE_GUIDE_VERSION, 6,
+            "the job-draft rules bumped the guide"
+        );
         let contract = payload["platformCapabilities"]
             .as_array()
             .unwrap()

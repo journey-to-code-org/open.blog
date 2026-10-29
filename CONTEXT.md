@@ -2644,6 +2644,13 @@ untrusted text: kept privately beside the note, cleaned and bounded by the core,
 plain for the author to edit. It is never a draft, never published and never treated as instructions (ADR 0420).
 _Avoid_: Caption, dictation
 
+**Job draft**:
+A title, a one-sentence description and the four scaffold sections written by the Assistant (`job-draft` task)
+from the author's notes and, if selected, their voice guide. It is plain text under a strict schema with no place
+for any `job` field, checked whole by the core, and only ever a proposal: nothing is saved or published until the
+author applies it and saves (ADR 0421).
+_Avoid_: AI post, generated post
+
 **Service**:
 One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
 typical timeline, and FAQs. A job's `service` names one of them.

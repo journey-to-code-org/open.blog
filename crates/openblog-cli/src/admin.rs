@@ -839,6 +839,7 @@ fn authenticated_api(
         ("POST", "assistant/voice-guide") => voice_guide::generate_voice_guide(state, req),
         ("GET", "assistant/transcribe") => capture_assistant::preview(state, req),
         ("POST", "assistant/transcribe") => capture_assistant::transcribe(state, req),
+        ("POST", "assistant/job-draft") => capture_assistant::job_draft(state, req),
         ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
@@ -11251,9 +11252,11 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::CodeInteraction(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
-        Ok(AssistantResult::Completion(_) | AssistantResult::VoiceGuide(_)) => {
-            return Response::error(502, "Assistant provider returned the wrong result type")
-        }
+        Ok(
+            AssistantResult::Completion(_)
+            | AssistantResult::VoiceGuide(_)
+            | AssistantResult::JobDraft(_),
+        ) => return Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => return review_error(error),
     };
     let review_id = match auth::random_token() {
@@ -11368,6 +11371,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::CodeInteraction(_)
             | AssistantResult::VoiceGuide(_)
+            | AssistantResult::JobDraft(_)
             | AssistantResult::Review(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -11621,7 +11625,8 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         Ok(
             AssistantResult::Review(_)
             | AssistantResult::CodeInteraction(_)
-            | AssistantResult::VoiceGuide(_),
+            | AssistantResult::VoiceGuide(_)
+            | AssistantResult::JobDraft(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
@@ -11708,6 +11713,7 @@ fn code_interaction_response(
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::Review(_)
             | AssistantResult::VoiceGuide(_)
+            | AssistantResult::JobDraft(_)
             | AssistantResult::Completion(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -18310,6 +18316,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 mod tests {
     mod capture_transcribe_routes;
     mod comparison_routes;
+    mod job_draft_routes;
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
