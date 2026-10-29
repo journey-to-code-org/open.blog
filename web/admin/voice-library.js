@@ -6,7 +6,7 @@
 
 import { el } from "./block-forms.js";
 import { buildRoughView, createPolishedEditor, keepBarReachable } from "./voice-polished.js";
-import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, clearVoiceCopies, dateText, groupLibrary, libraryHash, visibilityText, voiceErrorText, voiceHash, wordsText } from "./voice.js";
+import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, clearVoiceCopies, dateText, gapLines, groupLibrary, libraryHash, visibilityText, voiceErrorText, voiceHash, wordsText } from "./voice.js";
 
 let uid = 0;
 
@@ -230,6 +230,22 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
     );
   }
 
+  /** What is still missing: the same list `openblog voice --list` prints. */
+  function gapsNode(data) {
+    const lines = gapLines(data.gaps, data.coverage);
+    if (!lines.length) return null;
+    return el(
+      "section",
+      { class: "oba-notice oba-voice-gaps", "aria-labelledby": `${ids}-gaps`, "data-voice-gaps": "true" },
+      el("h3", { id: `${ids}-gaps` }, "What is missing"),
+      lines.map((line) =>
+        line.items
+          ? el("div", { "data-gap": line.kind }, el("p", {}, line.text), el("ul", {}, line.items.map((item) => el("li", {}, item))))
+          : el("p", { "data-gap": line.kind }, line.text),
+      ),
+    );
+  }
+
   function show(data) {
     const library = groupLibrary(data);
     if (library.empty) {
@@ -250,7 +266,8 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
     const polished = [...library.groups, library.other].filter(Boolean).reduce((n, g) => n + g.rows.filter((r) => r.polished).length, 0);
     const parts = [
       el("h2", { id: `${ids}-title`, tabindex: "-1", "data-voice-heading": "true" }, "Your voice samples"),
-      el("p", { class: "oba-voice-summary", "data-voice-summary": "true" }, `${sampled} ${sampled === 1 ? "prompt" : "prompts"} written, ${polished} polished. Rough drafts stay as you wrote them; polished drafts are yours to edit.`),
+      el("p", { class: "oba-voice-summary", "data-voice-summary": "true" }, `${sampled} ${sampled === 1 ? "sample" : "samples"} written, ${polished} polished. Rough drafts stay as you wrote them; polished drafts are yours to edit.`),
+      gapsNode(data),
       el("div", { class: "oba-landing-actions" }, el("a", { class: "oba-btn oba-btn-primary", href: voiceHash(), "data-action": "voice-start-session" }, "Start a session")),
       library.groups.map((group) => groupNode(group, ids)),
       library.other ? groupNode(library.other, ids) : null,

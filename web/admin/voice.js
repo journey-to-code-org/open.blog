@@ -338,6 +338,24 @@ export function createPolishedDraftStore(key, storage = () => globalThis.localSt
 
 const newest = (a, b) => (b.date || "").localeCompare(a.date || "") || a.file.localeCompare(b.file);
 
+/**
+ * The gap list the core computes (`voice --list` prints the same), in words. Prompt and pack ids become their
+ * titles where the catalog knows them. Returns an empty list when nothing is missing.
+ */
+export function gapLines(gaps, coverage = []) {
+  if (!gaps) return [];
+  const packTitle = new Map(coverage.map((pack) => [pack.id, pack.title]));
+  const promptTitle = new Map(coverage.flatMap((pack) => (pack.prompts || []).map((prompt) => [prompt.id, prompt.title])));
+  const lines = [];
+  const packs = (gaps.unansweredPacks || []).map((id) => packTitle.get(id) || id);
+  if (packs.length) lines.push({ kind: "packs", text: `Packs with no sample yet: ${packs.join(", ")}.` });
+  const rough = (gaps.roughOnlyPrompts || []).map((id) => promptTitle.get(id) || id);
+  if (rough.length) lines.push({ kind: "rough-only", text: `Rough only, no polished draft yet: ${rough.join(", ")}.` });
+  const traits = gaps.oneSampleTraits || [];
+  if (traits.length) lines.push({ kind: "one-sample", text: "Voice guide traits that rest on one sample:", items: traits.map((t) => `${t.statement} (${t.section})`) });
+  return lines;
+}
+
 /** `3 of 4 prompts written, 1 polished`. */
 export function coverageText(pack) {
   const written = `${pack.withRough} of ${pack.total} ${pack.total === 1 ? "prompt" : "prompts"} written`;

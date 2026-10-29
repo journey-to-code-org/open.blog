@@ -357,7 +357,7 @@ test("the library lists what was written, opens a rough draft read-only and a po
   const rows = page.locator("li.oba-voice-row[data-prompt]");
   await expect(rows.first()).toBeVisible();
   expect(await rows.count()).toBeGreaterThan(0);
-  await expect(page.locator("[data-voice-summary]")).toContainText("prompts written");
+  await expect(page.locator("[data-voice-summary]")).toContainText("samples written");
   const LONG = "an_extraordinarily_long_unbroken_word_that_must_wrap_instead_of_overflowing_a_small_screen_at_all_even_at_320";
   let overflow = await sideways(page, "ob-voice-library");
   expect(overflow.region, overflow.culprit).toBeLessThanOrEqual(TOLERANCE);

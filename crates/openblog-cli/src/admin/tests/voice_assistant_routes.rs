@@ -895,6 +895,12 @@ fn the_catalog_and_the_voice_guide_task_share_one_gap_summary() {
     assert_eq!(gaps["oneSampleTraits"][0]["statement"], "Plain");
     assert_eq!(gaps["oneSampleTraits"][0]["section"], "Word choice");
     assert_eq!(gaps["oneSampleTraits"][0]["sample"], "a-rough.md");
+    // The Admin library reads the same list.
+    let library = body_json(&handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/voice/samples"), &session, false),
+    ));
+    assert_eq!(&library["gaps"], gaps);
 
     // The provider receives the same summary.
     let (endpoint, captured, provider) = capturing_provider(provider_guide(&file));

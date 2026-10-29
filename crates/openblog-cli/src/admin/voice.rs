@@ -806,6 +806,13 @@ pub(super) fn list(state: &AppState) -> Response {
         &json!({
             "samples": items.iter().map(|i| listed_json(&catalog, i)).collect::<Vec<_>>(),
             "coverage": packs,
+            // The same gap list `openblog voice --list` prints and the voice-guide request carries.
+            "gaps": crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
+                &state.root,
+                crate::voice_assistant::read_guide(&state.root)
+                    .as_ref()
+                    .map(|(_, text)| text.as_str()),
+            )),
             "warnings": catalog.warnings,
         }),
     )

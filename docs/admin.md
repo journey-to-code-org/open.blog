@@ -354,8 +354,9 @@ Nothing is sent unless you select it and run a request, and nothing here changes
   autocomplete on names the selected context first.
 - **Never your rough text.** The Assistant never edits a rough draft and never applies a change to a polished
   draft: it proposes, you decide.
-- **What is missing.** `openblog voice --list` also shows prompts with a rough draft and no polished draft, and
-  guide traits that still rest on one sample; the Context view and the guide request use the same list.
+- **What is missing.** `openblog voice --list` also shows packs with no sample yet, prompts with a rough draft and
+  no polished draft, and guide traits that still rest on one sample; the Sample library shows the same list under
+  **What is missing**, and the guide request carries it.
 
 ### Move your voice library between projects
 
