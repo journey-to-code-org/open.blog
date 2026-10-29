@@ -346,6 +346,52 @@ impl ServiceAreasConfig {
     }
 }
 
+/// Indices into `Site::posts` of the newest jobs whose place is this area, newest first, at most
+/// `limit`. Read from the jobs archive plan (ADR 0286), so a job is here exactly when the archives
+/// list it; only the job's town and region are compared and nothing else of its place exists.
+pub fn recent_jobs(
+    plan: &[crate::job_archive::JobArchive],
+    site: &crate::model::Site,
+    area: &ServiceArea,
+    limit: usize,
+) -> Vec<usize> {
+    plan.iter()
+        .find(|archive| archive.kind == crate::job_archive::JobArchiveKind::All)
+        .map(|all| {
+            all.posts
+                .iter()
+                .copied()
+                .filter(|&index| {
+                    site.posts[index]
+                        .job
+                        .as_ref()
+                        .is_some_and(|job| area.covers(&job.town, &job.region))
+                })
+                .take(limit)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Structured data for an area's page: the business (or the site title as an organization) with
+/// `areaServed` for this town only. Built from configuration and nothing else; the caller escapes it
+/// for a `<script>`.
+pub fn json_ld(site: &crate::model::Site, area: &ServiceArea) -> String {
+    let c = &site.config;
+    let mut node = if c.business.has_public_facts() {
+        let name = if c.business.name().is_empty() {
+            c.title.as_str()
+        } else {
+            c.business.name()
+        };
+        json!({ "@type": c.business.schema_type(), "@id": c.absolute("/#business"), "name": name, "url": c.absolute("/") })
+    } else {
+        json!({ "@type": "Organization", "name": c.title, "url": c.absolute("/") })
+    };
+    node["areaServed"] = area.area_served();
+    json!({ "@context": "https://schema.org", "@graph": [node] }).to_string()
+}
+
 fn finish(errors: Vec<String>, areas: Vec<ServiceArea>) -> Result<ServiceAreasConfig, Vec<String>> {
     if errors.is_empty() {
         Ok(ServiceAreasConfig { areas })

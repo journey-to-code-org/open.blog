@@ -2672,7 +2672,8 @@ _Avoid_: Product, category
 A town and region the business serves, kept in the versioned `serviceAreas` list in `openblog.json` (ADR 0400)
 and rendered as pages and structured data. It has a town, a region formatted from a bundled list, and an optional
 one-line note about the reach; nothing finer than a town is ever stored. A job is "in" an area when its
-`place.town` and `place.region` match.
+`place.town` and `place.region` match, and its area page shows the job's title, link and date only (ADR 0401);
+an area with no jobs says its work is not yet posted rather than filling the page.
 _Avoid_: Location (ambiguous with a job's place)
 
 **Before/after pair**:

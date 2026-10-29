@@ -39,3 +39,27 @@ and `openblog build`:
 
 Each area's address is derived from its town, `/areas/bend/`. A town listed in two regions gets the region added
 (`/areas/portland-me/`, `/areas/portland-or/`), so the same list always gives the same addresses in any order.
+
+## What the build makes
+
+A site that lists at least one area gets ([ADR 0401](adr/0401-service-area-pages-are-rendered-from-the-area-list-the-services-and-the-jobs-towns-alone-with-an-honest-empty-state-and-no-address-beyond-a-town.md)):
+
+- `/areas/`: every area with its note and how many jobs are posted there.
+- `/areas/<town>/`: one page per area with your services (linked, when you have a
+  [services collection](services.md)), the ten newest jobs whose `place.town` and `place.region` are that town,
+  and your business facts block ([Configuration](configuration.md#business-facts)). Jobs match on the town and
+  region only, with the region spelled any way the bundled list knows (`Oregon` matches `OR`); a job in a
+  nearby town is not shown, because open.blog does not store coordinates.
+- **No address, ever.** A job appears as its title, link and date. Street, address and anything else in a job's
+  file never reach an area page.
+- **An honest empty state.** A town with no posted jobs says "Work in Redmond, OR is not yet posted. A finished
+  job there will appear on this page." and still lists your services. Nothing is padded.
+- `areaServed` structured data: each page carries your business (or the site title as an organization) with
+  `areaServed` for that town, and, when you have set business facts, the home page's `LocalBusiness` lists every
+  area. Only configured towns and regions are emitted; no address, coordinates or distance. Text is escaped so
+  nothing can break the page.
+- The index and each page in `sitemap.xml` and `llms.txt`, and an **Areas** link in the header navigation
+  (unless your own `nav` already links to `/areas/`). `areas` can no longer be a page or post address once you
+  list areas.
+
+A site with no `serviceAreas` builds exactly as it did before.
