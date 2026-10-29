@@ -1,4 +1,4 @@
-// Release gates for optional social publishing (story #360, ADR 0741): the setup and rollback guide,
+// Release gates for optional social publishing (story #360, ADR 0332): the setup and rollback guide,
 // the settings the code reads, the SQL files and the provider API versions agree, so the guide a
 // self-hosting owner follows cannot drift from what ships. Static checks always run. The rollback
 // check also runs the real SQL when OPENBLOG_TEST_PG_URL names an empty scratch database (see

@@ -2872,7 +2872,7 @@ finished handshakes and unreferenced disconnected accounts. Nothing scheduled, s
 _Avoid_: Cleanup (the sweep only changes state), archiving
 
 **Social switch**:
-One of the three independent places social publishing is turned on (ADR 0740): `OPENBLOG_SOCIAL_ENABLED=true` with
+One of the three independent places social publishing is turned on (ADR 0331): `OPENBLOG_SOCIAL_ENABLED=true` with
 valid settings on the hosted functions, `OPENBLOG_SOCIAL_ENDPOINT` with the admin key on the machine running Admin,
 and the cron job with its Vault secrets in Supabase. Each is off by default and undone on its own; none lives in
 `openblog.json`.
@@ -2881,7 +2881,7 @@ _Avoid_: Feature flag (there is no flag in the site file), toggle
 **Social release gate**:
 An automated check that must pass before a release touching social publishing: builds, feeds, exports, cross-posting
 plans and offline authoring unchanged by the settings; every hosted route a 404 when off; no Supabase or hosted social
-address in a browser file; and the guide, settings, SQL and provider versions in agreement (ADRs 0740 and 0741).
+address in a browser file; and the guide, settings, SQL and provider versions in agreement (ADRs 0331 and 0332).
 _Avoid_: Readiness check (that is the publication readiness report), smoke test
 
 ## Distribution

@@ -409,8 +409,8 @@ is safe to show in Admin and to paste in a bug report.
 
 ## Rolling it out, step by step
 
-([ADR 0740](adr/0740-social-publishing-is-an-opt-in-outward-announcement-beside-canonical-markdown-with-a-server-only-threat-model.md),
-[ADR 0741](adr/0741-social-publishing-rolls-out-through-reversible-gates-and-its-provider-versions-carry-an-end-date.md).)
+([ADR 0331](adr/0331-social-publishing-is-an-opt-in-outward-announcement-beside-canonical-markdown-with-a-server-only-threat-model.md),
+[ADR 0332](adr/0332-social-publishing-rolls-out-through-reversible-gates-and-its-provider-versions-carry-an-end-date.md).)
 Each gate below is separate. Check it before you go on, and stop at any gate you like: everything before it keeps
 working, and readers, builds, feeds, exports and cross-posting never change. The "Undo" column takes you back one gate.
 
@@ -482,7 +482,7 @@ Generate a key of the right length with `node -e "console.log(require('crypto').
   reconnecting** afterwards, reconnect them and use **Try again** on their failed announcements.
 
 Rotate a key at once if it may have leaked, and whenever someone who knew it leaves. The
-[threat model](adr/0740-social-publishing-is-an-opt-in-outward-announcement-beside-canonical-markdown-with-a-server-only-threat-model.md#threat-model)
+[threat model](adr/0331-social-publishing-is-an-opt-in-outward-announcement-beside-canonical-markdown-with-a-server-only-threat-model.md#threat-model)
 says what each key can reach.
 
 ## Rate limits

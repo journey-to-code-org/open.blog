@@ -1,4 +1,4 @@
-# ADR 0740: Social publishing is an opt-in outward announcement beside canonical Markdown, with a server-only threat model
+# ADR 0331: Social publishing is an opt-in outward announcement beside canonical Markdown, with a server-only threat model
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -79,7 +79,7 @@ Before a release that touches social publishing, these automated checks must pas
    enabled value (`TRUE`, `1`, `yes`) is off (`tests/web/social-architecture.test.mjs`).
 3. No browser file carries a Supabase client, a Supabase address or a hosted social route, and no social hosted
    module imports a file system API (the same test).
-4. The documentation, settings, SQL and provider versions agree (ADR 0741, `tests/web/social-release-gates.test.mjs`).
+4. The documentation, settings, SQL and provider versions agree (ADR 0332, `tests/web/social-release-gates.test.mjs`).
 
 ## Considered options
 

@@ -1,4 +1,4 @@
-// The architecture of optional social publishing (epic #353, story #360, ADR 0740): it is off
+// The architecture of optional social publishing (epic #353, story #360, ADR 0331): it is off
 // unless switched on, nothing in a browser talks to Supabase or the hosted social function, and the
 // hosted code cannot write a post, a build or the site file. These are release gates: they hold for
 // the whole feature, not for one route. No network, no Supabase: every call goes to a recorder.

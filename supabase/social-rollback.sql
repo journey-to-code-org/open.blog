@@ -22,7 +22,7 @@
 begin;
 
 -- The schedule (social-cron.sql) first, so nothing calls the worker with its key while the tables go
--- (ADR 0741). Only where pg_cron is installed; the Vault secrets stay (see social-cron-rollback.sql).
+-- (ADR 0332). Only where pg_cron is installed; the Vault secrets stay (see social-cron-rollback.sql).
 do $rollback$
 begin
   if to_regclass('cron.job') is not null then

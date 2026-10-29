@@ -43,7 +43,7 @@ const DEFINITIONS = Object.freeze({
     apiBase: "https://api.linkedin.com",
     versionPattern: /^\d{6}$/,
     // Checked 2026-10-29 against LinkedIn's migration table: 202510 was sunset on 2026-10-15, so the
-    // default moved to 202610 (Active, sunset 2027-10-15). See SUPPORT below and ADR 0741.
+    // default moved to 202610 (Active, sunset 2027-10-15). See SUPPORT below and ADR 0332.
     defaultVersion: "202610",
     // The member scopes every connection needs. `openid profile` name the member; `w_member_social` posts as them.
     baseScopes: Object.freeze(["openid", "profile", "w_member_social"]),
@@ -70,7 +70,7 @@ const DEFINITIONS = Object.freeze({
 });
 
 // When each default API version stops being served, as the provider's own documentation said on the
-// date it was checked (ADR 0741). A release gate test fails once a default's date has passed, so the
+// date it was checked (ADR 0332). A release gate test fails once a default's date has passed, so the
 // default is re-verified instead of silently breaking every post. A deployer's own
 // OPENBLOG_SOCIAL_<PROVIDER>_API_VERSION is not checked against this: it is theirs to keep current.
 export const VERSION_SUPPORT = Object.freeze({

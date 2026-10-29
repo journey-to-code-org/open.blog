@@ -1,4 +1,4 @@
-# ADR 0741: Social publishing rolls out through reversible gates, and its provider versions carry an end date
+# ADR 0332: Social publishing rolls out through reversible gates, and its provider versions carry an end date
 
 - Status: Accepted
 - Date: 2026-10-29

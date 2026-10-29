@@ -43,7 +43,7 @@
 [functions."engagement"]
   node_bundler = "esbuild"
 
-# Optional social publishing (ADRs 0293 and 0740). Off unless OPENBLOG_SOCIAL_ENABLED is set.
+# Optional social publishing (ADRs 0293 and 0331). Off unless OPENBLOG_SOCIAL_ENABLED is set.
 [functions."social"]
   node_bundler = "esbuild"
 

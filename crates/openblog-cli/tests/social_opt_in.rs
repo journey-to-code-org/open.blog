@@ -1,5 +1,5 @@
 //! Optional social publishing is off by default and invisible to the publishing pipeline
-//! (ADRs 0293 and 0740): a site build with its feeds, a portable export, a cross-posting plan and
+//! (ADRs 0293 and 0331): a site build with its feeds, a portable export, a cross-posting plan and
 //! offline authoring (`openblog new`, `openblog check`) are byte for byte the same whether or not
 //! the deployment holds social publishing settings and secrets, on the hosted side and on the
 //! Admin side, and no such secret ever reaches their output. This is a release gate.
