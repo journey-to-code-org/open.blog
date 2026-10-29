@@ -4,8 +4,8 @@ Social publishing announces an already-published post on a connected LinkedIn id
 time you choose. It is off by default. Your site, its exports and cross-posting work exactly the same without it,
 and nothing in this guide is needed to read, build or publish a blog.
 
-This page covers the identity and storage foundation (epic #353, story #354) and scheduling announcements (story
-#356). Provider setup and delivery arrive in later stories.
+This page covers the identity and storage foundation (epic #353, story #354), scheduling announcements (story
+#356) and the delivery queue and worker (story #357). The provider adapters that actually post arrive in a later story.
 
 ## Who is allowed to do what
 
@@ -179,7 +179,8 @@ What can be announced:
 - A time at least a minute ahead and no more than a year ahead, written with its zone. It is stored in UTC; Admin
   shows it in your own zone. Your zone is not stored.
 
-Until a delivery worker exists (a later story) a scheduled announcement waits in the queue and is not sent.
+A scheduled announcement waits in the queue until the delivery worker (below) claims it; without the worker, or without
+a provider adapter for its destination, it is never sent.
 
 Only a **scheduled** announcement can be changed, rescheduled or canceled. Once a worker has claimed it, it cannot be.
 Saving names the version you were looking at; if it changed meanwhile you are asked to reload. Creating is
@@ -233,3 +234,50 @@ It is additive and re-runnable: five columns, one index and four functions, no e
 - Only `service_role` may execute the functions; the browser and the public keys cannot.
 
 Without this file announcements wait in the queue exactly as before.
+
+## The delivery worker
+
+The worker is a hosted function, `netlify/functions/social-worker.mjs`, reached at `POST /api/social-worker`
+([ADR 0481](adr/0481-a-protected-worker-endpoint-woken-by-pg-cron-and-pg-net-delivers-a-bounded-batch-through-a-narrow-adapter-interface.md)).
+Each call claims a small batch of due announcements, delivers each through its provider's adapter, records the outcome,
+and answers with counts only. It is off (404) unless the social settings are valid.
+
+**Who may call it.** Only the worker key, as `Authorization: Bearer <OPENBLOG_SOCIAL_WORKER_KEY>`. The admin key is
+refused (403), a missing or wrong key is 401, and a worker key that equals the Supabase service key, the admin key or an
+anon or publishable key disables the feature at start-up, so a public key can never run it. Nothing you send can name
+a site or change what it does.
+
+**Optional settings** (all have defaults; a value outside its range is ignored and the default used):
+
+| Variable | Default | Range |
+| --- | --- | --- |
+| `OPENBLOG_SOCIAL_BATCH_SIZE` | 5 | 1 to 25 |
+| `OPENBLOG_SOCIAL_LEASE_SECONDS` | 300 | 30 to 900 |
+| `OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS` | 8 | 2 to 30 |
+| `OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS` | 22 | 5 to 50 |
+
+Set the function's timeout in Netlify above the budget (Netlify's default of 10 seconds is shorter than the 22-second
+default budget; either raise it to 26 or lower the budget). If the platform cuts a run off mid-delivery, the
+announcement is not lost and not repeated: its lease runs out and it becomes `unknown` if the provider may have
+been called, or returns to the queue if not.
+
+**Set it up** (each step is separate and reversible):
+
+1. Run `supabase/social-queue.sql` (the delivery queue, above).
+2. Deploy the function with `OPENBLOG_SOCIAL_WORKER_KEY` set (and the other social settings).
+3. Store the worker's address and key in Supabase Vault, from the SQL editor, replacing the placeholders:
+   `select vault.create_secret('https://YOUR-SITE.example/api/social-worker', 'openblog_social_worker_url');` and
+   `select vault.create_secret('THE-WORKER-KEY', 'openblog_social_worker_key');`
+4. Run `supabase/social-cron.sql`. It enables `pg_cron` and `pg_net` and schedules one job, `openblog-social-worker`,
+   every minute. Running it again leaves one job. Announcements go out within about a minute of their time.
+
+To stop delivery run `supabase/social-cron-rollback.sql` (it keeps the extensions and the Vault secrets; delete the
+secrets and rotate the worker key when you retire the feature). With no job, nothing wakes the worker; you can still call
+the endpoint by hand with the key.
+
+**Adapters.** The worker never talks to LinkedIn or Facebook itself. It calls an adapter registered in
+`netlify/lib/social-adapters.mjs` through a narrow interface (documented in `netlify/lib/social-delivery.mjs`): `publish`
+returns the provider's own post id only when the provider confirmed success, or throws a typed error. An announcement
+for a provider that has no adapter registered yet **waits in the queue**, untouched; one for a provider this release does
+not know fails with `unsupported-provider`. Provider API versions, permissions and app review are settings you verify at
+setup (see Provider setup above); nothing is guessed at run time.

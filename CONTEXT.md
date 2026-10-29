@@ -2783,3 +2783,15 @@ The stamp on a delivery attempt (`sending_at`) made just before the provider cal
 It separates "nothing was sent" from "it may have been sent", which decides whether an expired lease is retried or
 becomes an unknown outcome.
 _Avoid_: Heartbeat
+
+**Delivery worker**:
+The hosted function (`/api/social-worker`) that runs one bounded batch: it claims due scheduled social posts, delivers
+each through its provider's adapter, and records the outcome. Only the worker key may call it, and pg_cron and pg_net
+wake it from the database with the key kept in Vault.
+_Avoid_: Cron job (that only wakes it), publisher
+
+**Provider adapter**:
+The one narrow interface the delivery worker calls a social provider through: `publish` returns the provider's own post
+id only on confirmed success or throws a typed delivery error; `reconcile` optionally looks a post up. It is given a
+caption, a link, an idempotency key and one access token, nothing else of ours, and is tested against fakes.
+_Avoid_: Driver, integration

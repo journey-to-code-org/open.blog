@@ -26,6 +26,11 @@ export const env = (overrides = {}) => ({
   ...overrides,
 });
 
+import { createWorker } from "../../netlify/lib/social-worker.mjs";
+import { createCredentialStore } from "../../netlify/lib/social-credentials.mjs";
+import { deliveryPolicy } from "../../netlify/lib/social-delivery.mjs";
+import { socialSettings } from "../../netlify/lib/social-scope.mjs";
+
 const iso = (ms) => new Date(ms).toISOString();
 
 export function queueStorage({ now, failRpc, failGet } = {}) {
@@ -38,6 +43,7 @@ export function queueStorage({ now, failRpc, failGet } = {}) {
   ];
   const posts = [];
   const attempts = [];
+  const credentials = [];
   const calls = [];
   let sequence = 0;
 
@@ -214,7 +220,7 @@ export function queueStorage({ now, failRpc, failGet } = {}) {
       return json(404, {});
     }
     if (failGet?.(name)) return json(500, {});
-    const table = { openblog_social_posts: posts, openblog_social_accounts: accounts, openblog_social_attempts: attempts }[name];
+    const table = { openblog_social_posts: posts, openblog_social_accounts: accounts, openblog_social_attempts: attempts, openblog_social_credentials: credentials }[name];
     if (!table) return json(404, {});
     if (method === "GET") {
       let found = table.filter((row) => matches(row, target.searchParams));
@@ -226,6 +232,10 @@ export function queueStorage({ now, failRpc, failGet } = {}) {
       const limit = Number(target.searchParams.get("limit"));
       if (limit) found = found.slice(0, limit);
       return json(200, found.map((row) => ({ ...row })));
+    }
+    if (method === "POST" && table === credentials) {
+      credentials.push({ ...body });
+      return json(201, [{ ...body }]);
     }
     if (method === "PATCH") {
       const changed = [];
@@ -240,5 +250,46 @@ export function queueStorage({ now, failRpc, failGet } = {}) {
     return json(405, {});
   };
 
-  return { fetchImpl, accounts, posts, attempts, calls, addPost, reap };
+  return { fetchImpl, accounts, posts, attempts, credentials, calls, addPost, reap };
 }
+
+// A provider adapter that records what it is given and answers from a script. `script` is called
+// with (call number, arguments) and returns { providerPostId } or throws; the default publishes.
+export function fakeAdapter(provider, { publish, reconcile } = {}) {
+  const published = [];
+  const looked = [];
+  const adapter = {
+    provider,
+    published,
+    looked,
+    async publish(args) {
+      published.push(args);
+      if (publish) return publish(published.length, args);
+      return { providerPostId: `urn:fake:${provider}:${published.length}`, requestId: `req-${published.length}` };
+    },
+  };
+  if (reconcile) {
+    adapter.reconcile = async (args) => {
+      looked.push(args);
+      return reconcile(looked.length, args);
+    };
+  }
+  return adapter;
+}
+
+export const T0 = Date.parse("2026-11-01T12:00:00Z");
+export const ACCESS = "li_access_token_".padEnd(40, "z9");
+
+// A worker over fresh fakes, with real encrypted credentials for the accounts that have one.
+export async function workerSetup({ adapters, policyEnv = {}, storage = {}, accounts = [LINKEDIN, FACEBOOK] } = {}) {
+  let clock = T0;
+  const now = () => clock;
+  const fakes = queueStorage({ now, ...storage });
+  const settings = socialSettings(env());
+  const credentials = createCredentialStore({ settings, fetchImpl: fakes.fetchImpl, now });
+  for (const id of accounts) await credentials.save(id, { accessToken: id === LINKEDIN ? ACCESS : `fb_${ACCESS}`, expiresIn: 30 * 86400 });
+  const policy = deliveryPolicy(policyEnv);
+  const build = (extra = {}) => createWorker({ settings, adapters, fetchImpl: fakes.fetchImpl, now, random: () => 0.5, policy, credentials, ...extra });
+  return { ...fakes, now, advance: (ms) => (clock += ms), worker: build(), build, settings, policy, credentials };
+}
+
