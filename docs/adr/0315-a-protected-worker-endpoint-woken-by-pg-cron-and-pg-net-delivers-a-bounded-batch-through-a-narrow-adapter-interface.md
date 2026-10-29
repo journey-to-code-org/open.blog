@@ -1,4 +1,4 @@
-# ADR 0481: A protected worker endpoint, woken by pg_cron and pg_net, delivers a bounded batch through a narrow adapter interface
+# ADR 0315: A protected worker endpoint, woken by pg_cron and pg_net, delivers a bounded batch through a narrow adapter interface
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -7,7 +7,7 @@
 
 ## Context
 
-ADR 0480 made claiming safe; something must call it on a schedule, and a call that can post to people's accounts is
+ADR 0314 made claiming safe; something must call it on a schedule, and a call that can post to people's accounts is
 exactly what the epic says must not rely on "a public anonymous bearer alone". The provider adapters (LinkedIn Posts
 API, Facebook Pages feed) are built in parallel (story SP5), so the worker needs an interface to call, not a
 provider. The repository's hosted layer is Netlify functions that share `netlify/lib/` modules with the Admin

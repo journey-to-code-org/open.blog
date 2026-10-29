@@ -1,4 +1,4 @@
-// Optional social publishing, the delivery worker (epic #353, story #357, ADR 0481): a due
+// Optional social publishing, the delivery worker (epic #353, story #357, ADR 0315): a due
 // announcement is delivered once through its provider's adapter, never twice, and nothing secret is
 // shown to an adapter, a summary or an error. The provider is a fake adapter; Supabase is the
 // in-memory fake of social-queue-fakes.mjs. No network is used.

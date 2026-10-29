@@ -43,7 +43,7 @@ job:
 | Field | Required | Rule |
 | --- | --- | --- |
 | `trade` | yes | One of the trades below, or a trade the site adds. |
-| `service` | yes | A short id: lowercase letters, digits and hyphens. |
+| `service` | yes | A short id: lowercase letters, digits and hyphens. When the site has [services](services.md), one of their ids. |
 | `place.town`, `place.region` | yes | A plain name. Digits and commas are refused: towns only, never an address or postal code. |
 | `started`, `finished` | yes | `YYYY-MM-DD`. `finished` is the same day as `started` or later. |
 | `durationHours` | no | A number of hours greater than 0. |

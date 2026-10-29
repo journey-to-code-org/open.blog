@@ -1,4 +1,4 @@
-// The delivery contract of optional scheduled social publishing (epic #353, ADRs 0480 to 0482):
+// The delivery contract of optional scheduled social publishing (epic #353, ADRs 0314 to 0316):
 // the one narrow interface the worker calls a provider through, how a provider's answer is told
 // apart (not sent, refused, rate limited, unknown), and the retry and back-off arithmetic.
 //

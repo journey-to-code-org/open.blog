@@ -1,5 +1,5 @@
 // The delivery worker of optional scheduled social publishing (epic #353, story #357, ADRs
-// 0480 to 0482). One `run` claims a bounded batch of due announcements, delivers each through its
+// 0314 to 0316). One `run` claims a bounded batch of due announcements, delivers each through its
 // provider's adapter, records the outcome, and then looks again at outcomes it could not confirm.
 //
 // What it guarantees, in order of importance:

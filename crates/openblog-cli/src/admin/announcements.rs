@@ -572,7 +572,7 @@ fn cancel(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     )
 }
 
-/// Puts a failed announcement back in the queue (ADR 0482). The hosted function refuses any
+/// Puts a failed announcement back in the queue (ADR 0316). The hosted function refuses any
 /// other status, so an outcome nobody confirmed cannot be retried from here.
 fn retry(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     let id = match announcement_id(req) {

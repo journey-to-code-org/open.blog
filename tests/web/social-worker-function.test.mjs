@@ -1,4 +1,4 @@
-// The hosted delivery worker endpoint (epic #353, story #357, ADR 0481): off unless configured,
+// The hosted delivery worker endpoint (epic #353, story #357, ADR 0315): off unless configured,
 // callable only with the worker key, never with a public key or the admin key, bounded, and it
 // answers with counts only. Providers are fakes; Supabase is an in-memory fake.
 import test from "node:test";

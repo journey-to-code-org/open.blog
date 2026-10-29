@@ -29,7 +29,7 @@ pub const TRADES: &[&str] = &[
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "avif", "svg"];
 /// page is the archive's pagination path, so it cannot name a trade or service.
-const RESERVED: &str = "page";
+pub(crate) const RESERVED: &str = "page";
 const MAX_TEXT: usize = 80;
 const MAX_MATERIALS: usize = 50;
 const MAX_MATERIAL: usize = 120;
@@ -73,6 +73,19 @@ impl CostBand {
         Self::ALL
             .into_iter()
             .find(|band| band.as_str() == value.trim())
+    }
+
+    /// The words a page shows for the band. A label only: nothing is
+    /// computed from it, and it is never a quote.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Under500 => "Under $500",
+            Self::From500To2k => "$500 to $2,000",
+            Self::From2kTo10k => "$2,000 to $10,000",
+            Self::From10kTo50k => "$10,000 to $50,000",
+            Self::Over50k => "Over $50,000",
+            Self::Ask => "Ask for a quote",
+        }
     }
 }
 
@@ -327,7 +340,7 @@ pub fn from_front_matter(
     })
 }
 
-fn is_slug(value: &str) -> bool {
+pub(crate) fn is_slug(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 60
         && !value.starts_with('-')

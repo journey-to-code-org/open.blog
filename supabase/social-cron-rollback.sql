@@ -1,4 +1,4 @@
--- Roll back the social delivery schedule (ADR 0481): stop the cron job and drop the ping function.
+-- Roll back the social delivery schedule (ADR 0315): stop the cron job and drop the ping function.
 -- Run in the Supabase SQL editor. After this nothing wakes the worker; announcements wait.
 --
 -- It leaves the pg_cron and pg_net extensions (other things may use them) and the two Vault

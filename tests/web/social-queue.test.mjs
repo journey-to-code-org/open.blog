@@ -1,4 +1,4 @@
-// Optional social publishing, the delivery queue (epic #353, story #357, ADR 0480): claiming due
+// Optional social publishing, the delivery queue (epic #353, story #357, ADR 0314): claiming due
 // announcements under a lease, the attempt counter, the unknown-outcome rules and what a failure
 // may reveal. Storage is an in-memory fake that follows supabase/social-queue.sql; the SQL itself
 // is run against a real Postgres by social-queue-sql.test.mjs when one is supplied.

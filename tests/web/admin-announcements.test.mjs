@@ -437,7 +437,7 @@ test("unsaved words count as unsaved work, and a scheduled form does not", withD
   assert.equal(panel.isDirty(), true);
 }));
 
-// ------------------------------------------------------------------ recovery (ADR 0482)
+// ------------------------------------------------------------------ recovery (ADR 0316)
 
 const failedRow = (over = {}) => row({ id: "a-5", status: "failed", editable: false, retryable: true, version: 4, attemptCount: 3, lastErrorCode: "attempts-exhausted", ...over });
 const unknownRow = (over = {}) => row({ id: "a-6", status: "unknown", editable: false, resolvable: true, version: 3, attemptCount: 1, lastErrorCode: "timeout", ...over });

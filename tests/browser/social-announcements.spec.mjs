@@ -313,7 +313,7 @@ test("a failed announcement says why, asks before trying again, and fits a small
   await compose(page);
   await page.getByRole("button", { name: "Schedule announcement" }).click();
   await expect(page.locator("[data-announcement]")).toHaveCount(1);
-  // The worker used up the attempts behind the author's back (ADR 0482).
+  // The worker used up the attempts behind the author's back (ADR 0316).
   Object.assign(storage.posts[0], { status: "failed", version: 5, attempt_count: 3, last_error_code: "attempts-exhausted" });
   await page.reload();
   await expect(page.locator("[data-social-screen]")).toBeVisible();

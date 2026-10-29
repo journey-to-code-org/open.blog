@@ -198,7 +198,7 @@ routes beside the account routes, behind the same admin key, and answers 404 to 
 Admin (`/admin/api/social/`, session and CSRF like every Admin route): `posts`, `preview`, `destinations`,
 `announcements` (`GET` list, `POST` create, `PATCH ?id=` edit), `announcements/reschedule?id=`,
 `announcements/cancel?id=`, `announcements/retry?id=`, `announcements/resolve?id=` and `GET announcements/attempts?id=`
-(ADR 0482). Hosted (the same names under the endpoint, admin key only): the same set except
+(ADR 0316). Hosted (the same names under the endpoint, admin key only): the same set except
 `posts` and `preview`, which Admin answers itself.
 
 ### The Social screen
@@ -220,7 +220,7 @@ Delivery has three parts, each opt-in on top of the last. This section is the qu
 schedule that wakes the worker are below it.
 
 Run `supabase/social-queue.sql` in the Supabase SQL editor after `social.sql`
-([ADR 0480](adr/0480-due-announcements-are-claimed-by-database-functions-under-a-lease-and-an-expired-lease-after-sending-is-unknown.md)).
+([ADR 0314](adr/0314-due-announcements-are-claimed-by-database-functions-under-a-lease-and-an-expired-lease-after-sending-is-unknown.md)).
 It is additive and re-runnable: five columns, one index and four functions, no existing row changed. Undo it with
 `supabase/social-queue-rollback.sql`; `social-rollback.sql` removes the functions before it drops the tables.
 
@@ -239,7 +239,7 @@ Without this file announcements wait in the queue exactly as before.
 ## The delivery worker
 
 The worker is a hosted function, `netlify/functions/social-worker.mjs`, reached at `POST /api/social-worker`
-([ADR 0481](adr/0481-a-protected-worker-endpoint-woken-by-pg-cron-and-pg-net-delivers-a-bounded-batch-through-a-narrow-adapter-interface.md)).
+([ADR 0315](adr/0315-a-protected-worker-endpoint-woken-by-pg-cron-and-pg-net-delivers-a-bounded-batch-through-a-narrow-adapter-interface.md)).
 Each call claims a small batch of due announcements, delivers each through its provider's adapter, records the outcome,
 and answers with counts only. It is off (404) unless the social settings are valid.
 
@@ -288,7 +288,7 @@ setup (see Provider setup above); nothing is guessed at run time.
 
 ## Retries, rate limits and uncertain outcomes
 
-([ADR 0482](adr/0482-a-failure-that-certainly-did-not-post-is-retried-with-back-off-and-one-that-may-have-posted-is-unknown-looked-up-and-then-settled-by-a-person.md).)
+([ADR 0316](adr/0316-a-failure-that-certainly-did-not-post-is-retried-with-back-off-and-one-that-may-have-posted-is-unknown-looked-up-and-then-settled-by-a-person.md).)
 What the worker does depends on what it knows about the provider's answer:
 
 | The provider's answer | The announcement becomes | Next |

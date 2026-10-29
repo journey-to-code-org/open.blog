@@ -332,7 +332,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     return reply(200, { announcement: postView(rows[0], account) });
   };
 
-  // Manual recovery (ADR 0482). Only a failed announcement can be retried: it goes back to the queue
+  // Manual recovery (ADR 0316). Only a failed announcement can be retried: it goes back to the queue
   // with a fresh allowance of attempts. An unknown outcome may already be on the provider, so it
   // cannot be retried; a person looks at the account and resolves it as posted (with the provider's
   // post id) or not posted, and only then can it be retried. Both name the version they read.

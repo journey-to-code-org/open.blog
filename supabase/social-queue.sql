@@ -1,4 +1,4 @@
--- Optional scheduled social publishing, the delivery queue (ADRs 0480 to 0482): the functions
+-- Optional scheduled social publishing, the delivery queue (ADRs 0314 to 0316): the functions
 -- a hosted worker calls to claim due announcements atomically, hold them under a lease, record what
 -- the provider answered, and recover from a crash. Run once in the Supabase SQL editor, after
 -- social.sql, only if the site opts in to delivery. Until then announcements wait in the queue and
@@ -12,7 +12,7 @@
 -- They run as the caller (security invoker), so they can do nothing the table grants do not
 -- already allow, and only service_role may execute them.
 --
--- The rules they keep (ADR 0480, 0481, 0482):
+-- The rules they keep (ADR 0314, 0315, 0316):
 --   * claim_due takes at most a bounded batch of due, scheduled rows with `for update skip locked`,
 --     moves them to `claimed` with a lease, counts the attempt and opens its attempt row, all at once.
 --   * mark_sending records the moment before the provider call, and only while the lease is valid.

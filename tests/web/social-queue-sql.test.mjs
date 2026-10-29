@@ -1,4 +1,4 @@
-// The hosted delivery queue functions (ADRs 0480 to 0482): additive, private, and the claim is
+// The hosted delivery queue functions (ADRs 0314 to 0316): additive, private, and the claim is
 // atomic. The static checks always run. The behavioural checks run the real SQL against a real
 // Postgres when OPENBLOG_TEST_PG_URL names an empty scratch database (a superuser may create roles
 // and tables in it; the test removes everything it adds). They are skipped otherwise.

@@ -1,4 +1,4 @@
-// The scheduled delivery worker of optional social publishing (epic #353, story #357, ADR 0481).
+// The scheduled delivery worker of optional social publishing (epic #353, story #357, ADR 0315).
 // Called on a schedule by pg_cron through pg_net (supabase/social-cron.sql), or by hand, with
 // `POST` and `Authorization: Bearer <OPENBLOG_SOCIAL_WORKER_KEY>`. It runs one bounded batch of
 // social-worker.mjs and answers with counts only.
