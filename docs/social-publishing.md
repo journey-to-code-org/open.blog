@@ -38,8 +38,9 @@ Never put any of these in `openblog.json`, the repository or a browser bundle.
 ## The hosted tables
 
 Run `supabase/social.sql` once in the Supabase SQL editor, only if you opt in. It is additive, can be run twice
-safely, and creates `openblog_social_accounts`, `openblog_social_posts` (the schedule queue) and
-`openblog_social_attempts` (delivery history). All of them are private: row level security is on with no
+safely, and creates `openblog_social_accounts`, `openblog_social_posts` (the schedule queue),
+`openblog_social_attempts` (delivery history), `openblog_social_credentials` (encrypted tokens) and
+`openblog_social_schema` (the schema version). All of them are private: row level security is on with no
 policies, the public roles have no access, and only the hosted function (`service_role`) reads and writes. Every
 row carries your site scope and relations include it, so a row cannot point at another site's account or post.
 Nothing is ever deleted by the function: cancelling and disconnecting are updates.
@@ -57,7 +58,12 @@ dump or a leaked `service_role` key does not reveal a token. Generate a key with
 `node -e "console.log('k1:' + require('crypto').randomBytes(32).toString('base64'))"` and store it in your secret
 manager as well: if you lose it, every account has to be connected again.
 
-To rotate, put a new key first (`k2:...,k1:...`), redeploy, and re-wrap accounts; remove `k1` once none uses it.
+To rotate, put a new key first (`k2:...,k1:...`) and redeploy; new connections use `k2`. Keep `k1` in the list: no
+command re-wraps existing connections yet (the library function exists, and a later story adds the operator entry
+point). Removing `k1` while a connection still uses it makes that connection unreadable, and it has to be connected
+again. Check before removing a key:
+`select key_id, count(*) from openblog_social_credentials where status = 'active' group by 1;`
+Remove `k1` only when no active row shows it.
 
 Tokens are refreshed once at a time, shortly before they expire. If a provider says a connection is no longer valid,
 or you disconnect an account, its stored tokens are erased and the account asks to be connected again. Admin only ever
