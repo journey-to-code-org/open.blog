@@ -521,3 +521,61 @@ Changed.
 "
     );
 }
+
+#[test]
+fn one_guide_travels_and_the_private_one_left_out_is_named() {
+    let a = project("two-guides");
+    put_guide(&a, Visibility::Portable, "# Guide\nportable guide\n");
+    put_guide(&a, Visibility::Private, "# Guide\nprivate guide\n");
+    let ((text, _, guide), left_out) = collect(&a, true).unwrap();
+    assert!(guide);
+    assert!(text.contains("portable guide") && !text.contains("private guide"));
+    assert_eq!(
+        left_out,
+        ["the private voice guide (one guide travels, and the portable one is preferred)"]
+    );
+    // Without --include-private the private guide is not offered, so nothing is said about it.
+    let ((_, _, guide), left_out) = collect(&a, false).unwrap();
+    assert!(guide);
+    assert!(left_out.is_empty(), "{left_out:?}");
+}
+
+#[test]
+fn a_library_larger_than_one_export_is_refused_whole_and_nothing_is_written() {
+    let a = project("too-many");
+    for n in 0..=exchange::MAX_SAMPLES {
+        let file = format!(
+            "2025-{:02}-{:02}-a-mistake-i-made-rough.md",
+            1 + n / 28,
+            1 + n % 28
+        );
+        put(
+            &a,
+            Visibility::Portable,
+            &file,
+            &sample(VoiceStage::Rough, "words").replace(
+                "2026-10-28T09:30:00Z",
+                &format!("{}T09:30:00Z", &file[..10]),
+            ),
+        );
+    }
+    let listed = voice_store::list(&a);
+    assert_eq!(listed.len(), exchange::MAX_SAMPLES + 1);
+    assert!(
+        listed.iter().all(|l| l.valid),
+        "{:?}",
+        listed
+            .iter()
+            .find(|l| !l.valid)
+            .and_then(|l| l.guidance.clone())
+    );
+    let error = collect(&a, false).unwrap_err();
+    assert!(
+        error.contains("larger than one export holds (100 samples, 8 MiB)"),
+        "{error}"
+    );
+    let before = tree(&a);
+    let error = export(&a, &options("library.json", true)).unwrap_err();
+    assert!(error.contains("larger than one export holds"), "{error}");
+    assert_eq!(tree(&a), before, "nothing was written");
+}
