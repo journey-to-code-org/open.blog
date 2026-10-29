@@ -168,32 +168,52 @@ fn an_editor_that_closes_hands_back_the_text_below_the_marker() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// A clock for the deadline tests that does not depend on how fast the machine is. It reads the
+/// real time until the editor has saved `needle` into `file`, and from then on says the deadline
+/// has arrived. The deadline itself is far away on the real clock, so the save is always "in time"
+/// by the file's own modification time, however long the editor takes to start under load.
+fn deadline_once_saved(file: PathBuf, needle: &'static str, deadline: i64) -> impl Fn() -> i64 {
+    move || match std::fs::read_to_string(&file) {
+        Ok(text) if text.contains(needle) => deadline,
+        _ => now(),
+    }
+}
+
 #[test]
 fn an_editor_still_open_at_the_deadline_is_read_as_it_stands() {
     let dir = scratch("slow");
     let editor = script(
         &dir,
         "slow",
-        "printf 'written in time\n' >> \"$1\"\nexec sleep 3",
-        "echo written in time>> \"%~1\"\r\nping -n 4 127.0.0.1 >nul",
+        "printf 'written in time
+' >> \"$1\"
+exec sleep 60",
+        "echo written in time>> \"%~1\"
+ping -n 61 127.0.0.1 >nul",
     );
-    let header = "# header\n";
+    let header = "# header
+";
     let file = dir.join("draft.md");
+    let deadline = now() + 120;
+    let clock = deadline_once_saved(file.clone(), "written in time", deadline);
     let started = Instant::now();
     let captured = capture_in_editor(
         &editor,
         &file,
         header,
-        &format!("{header}{MARKER}\n"),
-        now() + 1,
-        &now,
+        &format!(
+            "{header}{MARKER}
+"
+        ),
+        deadline,
+        &clock,
         &mut |_| {},
     )
     .unwrap();
     assert_eq!(captured.ended, Ended::Deadline);
     assert_eq!(captured.text, "written in time");
-    assert!(started.elapsed() < Duration::from_secs(3));
-    std::thread::sleep(Duration::from_millis(3500));
+    // The editor would have kept running for a minute: it was stopped, not waited for.
+    assert!(started.elapsed() < Duration::from_secs(30));
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -237,31 +257,50 @@ fn each_session_gets_its_own_editor_file_and_stale_ones_are_removed() {
 #[test]
 fn the_deadline_stops_the_whole_editor_so_a_later_save_never_lands() {
     let dir = scratch("tree");
+    // The editor saves once, then keeps appending a heartbeat from a loop that runs a child
+    // process each time. If any of it survived the deadline the heartbeat would keep growing.
     let editor = script(
         &dir,
         "tree",
-        "printf 'in time\n' >> \"$1\"\nsleep 2\nsleep 3\nprintf x > \"$1.after\"",
-        "echo in time>> \"%~1\"\r\nping -n 3 127.0.0.1 >nul\r\nping -n 4 127.0.0.1 >nul\r\necho x> \"%~1.after\"",
+        "printf 'in time
+' >> \"$1\"
+while :; do printf x >> \"$1.beat\"; sleep 1; done",
+        "echo in time>> \"%~1\"
+:beat
+echo x>> \"%~1.beat\"
+ping -n 2 127.0.0.1 >nul
+goto beat",
     );
-    let header = "# header\n";
+    let header = "# header
+";
     let file = dir.join("draft.md");
+    let deadline = now() + 120;
+    let clock = deadline_once_saved(file.clone(), "in time", deadline);
     let started = Instant::now();
     let captured = capture_in_editor(
         &editor,
         &file,
         header,
-        &format!("{header}{MARKER}\n"),
-        now() + 1,
-        &now,
+        &format!(
+            "{header}{MARKER}
+"
+        ),
+        deadline,
+        &clock,
         &mut |_| {},
     )
     .unwrap();
     assert_eq!(captured.ended, Ended::Deadline);
     assert_eq!(captured.text, "in time");
-    assert!(started.elapsed() < Duration::from_secs(3));
-    std::thread::sleep(Duration::from_millis(5500));
-    assert!(
-        !dir.join("draft.md.after").exists(),
+    assert!(started.elapsed() < Duration::from_secs(30));
+    // Let anything still running show itself: a surviving loop beats at least once a second.
+    let beat = dir.join("draft.md.beat");
+    let size = |path: &PathBuf| std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let before = size(&beat);
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(
+        size(&beat),
+        before,
         "the editor process survived the deadline"
     );
     let _ = std::fs::remove_dir_all(dir);
