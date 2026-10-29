@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SocialCredentialError } from "../../netlify/lib/social-credentials.mjs";
 import { DeliveryError } from "../../netlify/lib/social-delivery.mjs";
-import { ACCESS, SERVICE_KEY, fakeAdapter, workerSetup as setup } from "./social-queue-fakes.mjs";
+import { ACCESS, LINKEDIN, SERVICE_KEY, fakeAdapter, workerSetup as setup } from "./social-queue-fakes.mjs";
 
 const failing = (kind, options) =>
   fakeAdapter("linkedin", {
@@ -102,7 +102,7 @@ test("attempts run out: a dead letter that says why and is not retried", async (
 });
 
 test("a refusal or a refused credential is final, with no retry", async () => {
-  for (const [kind, code] of [["rejected", "provider-rejected"], ["auth", "provider-auth"]]) {
+  for (const [kind, code] of [["rejected", "provider-rejected"], ["auth", "needs-reauth"]]) {
     const adapter = failing(kind, { status: kind === "auth" ? 401 : 422 });
     const s = await setup({ adapters: { linkedin: adapter } });
     const post = s.addPost();
@@ -169,8 +169,86 @@ test("a look-up that finds the post records its id and does not post again", asy
   assert.equal(s.attempts[0].provider_post_id, "urn:fake:found");
   assert.equal(adapter.published.length, 1);
   const [look] = adapter.looked;
-  assert.deepEqual(Object.keys(look).sort(), ["accessToken", "account", "attemptedAt", "post", "signal"]);
+  assert.deepEqual(Object.keys(look).sort(), ["accessToken", "account", "attemptedAt", "finishedAt", "post", "signal"]);
   assert.ok(look.attemptedAt);
+  assert.ok(Date.parse(look.finishedAt) >= Date.parse(look.attemptedAt), "the window the attempt ran in is given");
+});
+
+test("a provider that refuses the token moves the account to needs-reauth, and its other posts are not sent", async () => {
+  const adapter = failing("auth", { status: 401 });
+  const s = await setup({ adapters: { linkedin: adapter }, policyEnv: { OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "50" } });
+  const first = s.addPost();
+  const second = s.addPost();
+  const summary = await s.worker.run();
+  assert.equal(summary.failed, 2);
+  assert.equal(adapter.published.length, 1, "the second post fails before any send");
+  assert.equal(s.accounts.find((a) => a.id === LINKEDIN).status, "needs-reauth");
+  assert.deepEqual([first.status, first.last_error_code], ["failed", "needs-reauth"]);
+  assert.deepEqual([second.status, second.last_error_code], ["failed", "needs-reauth"]);
+  const third = s.addPost();
+  s.advance(MIN);
+  await s.worker.run();
+  assert.deepEqual([third.status, third.last_error_code, adapter.published.length], ["failed", "needs-reauth", 1]);
+});
+
+test("a token refusal never overrides a reconnect or a disconnect that landed first", async () => {
+  const adapter = failing("auth", { status: 401 });
+  const s = await setup({ adapters: { linkedin: adapter } });
+  s.addPost();
+  const original = adapter.publish;
+  adapter.publish = async (args) => {
+    s.accounts.find((a) => a.id === LINKEDIN).status = "disconnected";
+    return original(args);
+  };
+  await s.worker.run();
+  assert.equal(s.accounts.find((a) => a.id === LINKEDIN).status, "disconnected");
+});
+
+test("a look-up whose post id another announcement already holds goes to a person, not round again", async () => {
+  const adapter = fakeAdapter("linkedin", {
+    publish: (n) => {
+      if (n === 1) return { providerPostId: "urn:fake:sibling" };
+      throw new DeliveryError("uncertain");
+    },
+    reconcile: () => ({ state: "published", providerPostId: "urn:fake:sibling" }),
+  });
+  const s = await setup({ adapters: { linkedin: adapter }, policyEnv: { OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "50" } });
+  // The later-added post is scheduled earlier, so it is sent first.
+  const post = s.addPost();
+  const sibling = s.addPost();
+  await s.worker.run();
+  assert.deepEqual([sibling.status, post.status], ["published", "unknown"]);
+  s.advance(6 * MIN);
+  const summary = await s.worker.run();
+  assert.equal(summary.reconciled.published, 0);
+  assert.equal(summary.unrecorded, 0);
+  assert.deepEqual([post.status, post.last_error_code, post.next_attempt_at, post.provider_post_id], ["unknown", "needs-review", null, null]);
+  assert.equal(sibling.provider_post_id, "urn:fake:sibling");
+  s.advance(86400_000);
+  await s.worker.run();
+  assert.equal(adapter.looked.length, 1, "never looked up again");
+});
+
+test("a look-up that cannot be recorded because storage is down is tried again later", async () => {
+  let down = false;
+  const adapter = fakeAdapter("linkedin", {
+    publish: () => {
+      throw new DeliveryError("uncertain");
+    },
+    reconcile: () => ({ state: "published", providerPostId: "urn:fake:found" }),
+  });
+  const s = await setup({ adapters: { linkedin: adapter }, storage: { failRpc: (name, body) => down && name === "openblog_social_settle" && body.p_result === "published" } });
+  const post = s.addPost();
+  await s.worker.run();
+  down = true;
+  s.advance(6 * MIN);
+  const summary = await s.worker.run();
+  assert.equal(summary.unrecorded, 1);
+  assert.equal(post.status, "unknown");
+  assert.notEqual(post.last_error_code, "needs-review");
+  down = false;
+  await s.worker.run();
+  assert.deepEqual([post.status, post.provider_post_id], ["published", "urn:fake:found"]);
 });
 
 test("only a conclusive absence, long enough after the attempt, marks it not delivered", async () => {

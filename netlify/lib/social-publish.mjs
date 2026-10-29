@@ -186,6 +186,11 @@ function facebookError(status, body, response, now) {
 
 const RECONCILE_SKEW_SECONDS = 120;
 const RECONCILE_LIMIT = 25;
+// An attempt with no recorded end (a crash) is looked at up to the longest lease the queue grants.
+const RECONCILE_OPEN_SECONDS = 900;
+
+// Graph writes `created_time` as "2026-11-01T12:00:05+0000"; the offset gets its colon back.
+const graphTime = (value) => (typeof value === "string" ? Date.parse(value.replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) : NaN);
 
 export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
   const pageOf = (account) => {
@@ -218,32 +223,49 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
       }
       throw facebookError(status, body, response, now);
     },
-    // A read-only look at the Page's own published posts since just before the attempt started
-    // (needs `pages_read_engagement`, requested by default). A post of this Page whose message is
-    // the caption, or whose attachment links the canonical URL, is the announcement. "absent" is
-    // conclusive only when the whole window came back in one page of results. Any failure, a
-    // missing permission included, is "unknown": the worker keeps looking, then asks a person.
-    async reconcile({ post, account, accessToken, attemptedAt, signal } = {}) {
+    // A read-only look at the Page's own published posts made during the attempt, give or take two
+    // minutes (needs `pages_read_engagement`, requested by default). Only a post of this Page whose
+    // message is the caption AND whose attachment links the canonical URL is the announcement, and
+    // only when it is the one such post: two of them, or a post that matches by one of the two alone
+    // (a hand-made share of the link, a caption edited on Facebook), is "unknown", because nothing
+    // makes either unique to this announcement. "absent" is conclusive only when the whole window
+    // came back in one page of results and nothing in it came close. Any failure, a missing
+    // permission included, is "unknown": the worker keeps looking, then asks a person.
+    async reconcile({ post, account, accessToken, attemptedAt, finishedAt, signal } = {}) {
       try {
         const page = pageOf(account);
         const { caption, url } = prepare("facebook", { post, accessToken });
         const started = Date.parse(attemptedAt ?? "");
         if (!Number.isFinite(started)) return { state: "unknown" };
+        const finished = Date.parse(finishedAt ?? "");
+        const since = Math.floor(started / 1000) - RECONCILE_SKEW_SECONDS;
+        const until = (Number.isFinite(finished) && finished >= started ? Math.ceil(finished / 1000) : Math.ceil(started / 1000) + RECONCILE_OPEN_SECONDS) + RECONCILE_SKEW_SECONDS;
         const query = new URLSearchParams({
           fields: "id,message,created_time,attachments{url,unshimmed_url}",
-          since: String(Math.floor(started / 1000) - RECONCILE_SKEW_SECONDS),
+          since: String(since),
+          until: String(until),
           limit: String(RECONCILE_LIMIT),
         });
         const response = await send(fetchImpl, `${settings.apiBase}/${page}/published_posts?${query}`, { method: "GET", headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" } }, signal);
         if (Number(response?.status) !== 200) return { state: "unknown" };
         const body = await readJson(response);
         if (!body || !Array.isArray(body.data)) return { state: "unknown" };
+        const found = [];
+        let near = false;
         for (const item of body.data) {
           const id = item?.id;
           if (typeof id !== "string" || !FACEBOOK_POST_ID.test(id) || !id.startsWith(`${page}_`)) continue;
+          // Graph honours since/until; a post outside the window it sends anyway is not this attempt.
+          const created = graphTime(item.created_time);
+          if (Number.isFinite(created) && (created < since * 1000 || created > until * 1000)) continue;
           const links = Array.isArray(item.attachments?.data) ? item.attachments.data.flatMap((a) => [a?.unshimmed_url, a?.url]) : [];
-          if (item.message === caption || links.includes(url)) return { state: "published", providerPostId: id };
+          const byCaption = item.message === caption;
+          const byLink = links.includes(url);
+          if (byCaption && byLink) found.push(id);
+          else if (byCaption || byLink) near = true;
         }
+        if (found.length === 1 && !near) return { state: "published", providerPostId: found[0] };
+        if (found.length || near) return { state: "unknown" };
         return { state: "absent", conclusive: !body.paging?.next };
       } catch {
         return { state: "unknown" };

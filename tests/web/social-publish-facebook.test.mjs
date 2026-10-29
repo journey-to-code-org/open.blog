@@ -105,9 +105,12 @@ test("no Facebook text or token reaches an error", async () => {
 
 // Reconcile: a read-only look at the Page's own published posts.
 const ATTEMPTED = "2026-11-01T11:50:00.000Z";
+const FINISHED = "2026-11-01T11:50:20.000Z";
+const LINK = "https://blog.example.com/posts/hello/";
+const CAPTION = "A new post is up.";
 const look = async (reply, input = {}) => {
   const fake = scripted(reply);
-  const args = { ...call("facebook", input), attemptedAt: input.attemptedAt === undefined ? ATTEMPTED : input.attemptedAt };
+  const args = { ...call("facebook", input), attemptedAt: input.attemptedAt === undefined ? ATTEMPTED : input.attemptedAt, finishedAt: input.finishedAt === undefined ? FINISHED : input.finishedAt };
   return { value: await adapterFor(fake).reconcile(args), calls: fake.calls };
 };
 const listed = (data, paging) => ({ status: 200, body: { data, ...(paging ? { paging } : {}) } });
@@ -119,18 +122,42 @@ test("reconcile reads the Page's published posts since just before the attempt, 
   assert.equal(url.origin + url.pathname, `https://graph.facebook.com/v23.0/${PAGE}/published_posts`);
   assert.equal(calls[0].method, "GET");
   assert.equal(url.searchParams.get("since"), String(Date.parse(ATTEMPTED) / 1000 - 120));
+  assert.equal(url.searchParams.get("until"), String(Date.parse(FINISHED) / 1000 + 120), "the window ends just after the attempt");
+  const open = new URL((await look(listed([]), { finishedAt: null })).calls[0].url);
+  assert.equal(open.searchParams.get("until"), String(Date.parse(ATTEMPTED) / 1000 + 900 + 120), "no recorded end: the longest lease");
   assert.equal(calls[0].headers.authorization, `Bearer ${PAGE_TOKEN}`);
   assert.ok(!calls[0].url.includes(PAGE_TOKEN));
   assert.equal(calls[0].body, undefined, "a lookup never posts");
 });
 
-test("reconcile finds the post by its caption or by its link", async () => {
-  const byCaption = await look(listed([{ id: `${PAGE}_1`, message: "Something else" }, { id: POST_ID, message: "A new post is up." }]));
-  assert.deepEqual(byCaption.value, { state: "published", providerPostId: POST_ID });
-  const byLink = await look(listed([{ id: POST_ID, message: "edited", attachments: { data: [{ unshimmed_url: "https://blog.example.com/posts/hello/" }] } }]));
-  assert.deepEqual(byLink.value, { state: "published", providerPostId: POST_ID });
-  const otherPage = await look(listed([{ id: "42_1", message: "A new post is up." }]));
+const pagePost = (id, message, link, created_time = "2026-11-01T11:50:05+0000") => ({ id, message, created_time, ...(link ? { attachments: { data: [{ url: "https://l.facebook.com/x", unshimmed_url: link }] } } : {}) });
+
+test("reconcile finds the post only by its caption and its link together", async () => {
+  const both = await look(listed([pagePost(`${PAGE}_1`, "Something else"), pagePost(POST_ID, CAPTION, LINK)]));
+  assert.deepEqual(both.value, { state: "published", providerPostId: POST_ID });
+  const otherPage = await look(listed([pagePost("42_1", CAPTION, LINK)]));
   assert.equal(otherPage.value.state, "absent", "a post id of another Page is never taken");
+});
+
+test("reconcile never takes a post that matches by the link or the caption alone", async () => {
+  // A hand-made share of the same link, and a caption edited on Facebook: either may be someone else's post.
+  for (const item of [pagePost(POST_ID, "Look what I wrote", LINK), pagePost(POST_ID, CAPTION), pagePost(POST_ID, CAPTION, "https://blog.example.com/posts/other/")]) {
+    assert.deepEqual((await look(listed([item]))).value, { state: "unknown" }, JSON.stringify(item));
+  }
+  const nearAndExact = await look(listed([pagePost(`${PAGE}_9`, "Shared by hand", LINK), pagePost(POST_ID, CAPTION, LINK)]));
+  assert.deepEqual(nearAndExact.value, { state: "unknown" }, "a hand-made share beside a match makes the match ambiguous");
+});
+
+test("reconcile answers unknown when two posts match: a sibling announcement of the same post", async () => {
+  const twins = await look(listed([pagePost(`${PAGE}_1`, CAPTION, LINK), pagePost(POST_ID, CAPTION, LINK)]));
+  assert.deepEqual(twins.value, { state: "unknown" });
+});
+
+test("reconcile ignores a post made outside the attempt window", async () => {
+  const later = await look(listed([pagePost(POST_ID, CAPTION, LINK, "2026-11-02T09:00:00+0000")]));
+  assert.deepEqual(later.value, { state: "absent", conclusive: true });
+  const earlier = await look(listed([pagePost(POST_ID, CAPTION, LINK, "2026-11-01T11:40:00+0000")]));
+  assert.deepEqual(earlier.value, { state: "absent", conclusive: true });
 });
 
 test("reconcile says absent conclusively only when the whole window came back", async () => {

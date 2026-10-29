@@ -230,7 +230,10 @@ Neither LinkedIn nor Facebook accepts an idempotency key on these calls, so none
 "definitely not processed" is ever retried.
 
 **Looking up an unclear outcome.** Facebook: the worker looks at the Page's own published posts since the attempt, read
-only, and settles the announcement when it finds one with the same caption or link. This needs
+only, made between just before the attempt started and just after it ended, and settles the announcement only when
+exactly one of them has both the same caption and the same link. A post that matches by only one of the two (a link
+you shared by hand, another announcement of the same post, a caption you edited on Facebook) cannot be told apart, so
+the announcement comes to you as **Needs checking** instead of being guessed at. This needs
 `pages_read_engagement` (requested by default); without it the lookup cannot tell and you settle it. LinkedIn: there
 is no lookup, because reading a member's or organization's posts needs permissions LinkedIn gives only to approved
 partners, so an unclear LinkedIn outcome comes straight to you as **Needs checking**.
@@ -350,7 +353,8 @@ What the worker does depends on what it knows about the provider's answer:
 | Confirmed, with its post id | `published` | Done. The id is kept on the announcement and the attempt. |
 | Certainly not accepted (a refused connection, a clear "try later") | `scheduled` again | Retried after a back-off (about 1, 2, 4 minutes and so on, capped at an hour). |
 | Rate limited (429) | `scheduled` again | Waits at least the provider's `Retry-After` (at most a day), and **that account sends nothing** until then. |
-| Refused (400, 403, 404, 409, 410, 422) or the sign-in was refused (401) | `failed` | Not retried. Fix the cause (the caption, the account) and use **Try again**. |
+| Refused (400, 403, 404, 409, 410, 422) | `failed` | Not retried. Fix the cause (the caption, the account) and use **Try again**. |
+| The sign-in was refused (401, an expired or removed Facebook token) | `failed`, `needs-reauth` | The account becomes **needs reconnecting**, and its other announcements fail without being sent until you connect it again; then use **Try again**. |
 | No answer, a timeout, a 5xx, an unreadable answer, a crash, or a success that could not be recorded | `unknown` | **Never sent again by itself.** Looked up, then yours to settle. |
 | Tried the allowed number of times (default 5) | `failed`, `attempts-exhausted` | A dead letter that keeps its history. **Try again** gives it a fresh allowance. |
 

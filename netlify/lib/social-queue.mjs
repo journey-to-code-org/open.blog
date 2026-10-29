@@ -134,6 +134,16 @@ export function createQueue({ settings, fetchImpl = globalThis.fetch, now = () =
       return map;
     },
 
+    // A provider refused the account's token (401, an expired Graph token): the account must be
+    // connected again. Guarded on `connected`, so a reconnect or a disconnect that landed first
+    // stands. Resolves to true when this call moved the account.
+    async markNeedsReauth(accountId) {
+      if (!UUID.test(String(accountId))) throw new QueueError("invalid-account", "That is not an account id.");
+      const changed = rows(await call("PATCH", `${ACCOUNTS}?${scopedQuery(settings, { id: `eq.${accountId}`, status: "eq.connected" })}`, { status: "needs-reauth", updated_at: iso(now()) }));
+      ensureOwned(settings, changed);
+      return changed.length > 0;
+    },
+
     // The most recent attempt of one announcement, for reconciliation.
     async latestAttempt(postId) {
       if (!UUID.test(String(postId))) throw new QueueError("invalid-post", "That is not an announcement id.");

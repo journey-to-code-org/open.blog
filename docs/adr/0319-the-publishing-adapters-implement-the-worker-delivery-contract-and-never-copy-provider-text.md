@@ -22,7 +22,10 @@ interface, so they follow it exactly instead of defining a second one.
 - **Success is a value, every other outcome a typed throw.** `publish` resolves to `{ providerPostId }` only when the
   provider confirmed success and named the post with an id of its own shape (LinkedIn `urn:li:share|ugcPost:<n>` from
   `x-restli-id`). Anything else throws a `DeliveryError` (ADR 0317) whose `kind` the worker switches on (ADR 0318):
-  - `auth`: 401, or a token that is missing or not printable (no request is made).
+  - `auth`: 401, or a token that is missing or not printable (no request is made). The worker fails the post with
+    `needs-reauth` and moves the account from `connected` to `needs-reauth` (the same guarded update the credential
+    store makes when a refresh is refused), so its other announcements fail before any send and Admin asks the author
+    to connect again.
   - `rejected`: 400, 403, 404, 409, 410, 422 and any other 4xx: the provider read the request and refused it. Also a
     post the adapter cannot send at all (a destination id not of the provider's shape, a caption that fails the
     schedule rules of ADR 0308, a link that is not plain `https`); no request is made.

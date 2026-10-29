@@ -44,12 +44,14 @@ test("a 201 from LinkedIn and a 200 from Facebook publish with the provider's ow
   assert.equal(s.provider.calls.length, 2, "a published announcement is never sent again");
 });
 
-test("a 401 fails the announcement as a refused credential, without a retry", async () => {
+test("a 401 fails the announcement as a refused credential, without a retry, and the account needs reconnecting", async () => {
   const s = await setup({ status: 401, body: { message: `${PROVIDER_TEXT} ${ACCESS}` } });
   const post = s.addPost();
   await s.worker.run();
-  assert.deepEqual([post.status, post.last_error_code, post.next_attempt_at], ["failed", "provider-auth", null]);
+  assert.deepEqual([post.status, post.last_error_code, post.next_attempt_at], ["failed", "needs-reauth", null]);
   assert.equal(s.attempts[0].http_status, 401);
+  assert.equal(s.accounts.find((a) => a.id === LINKEDIN).status, "needs-reauth");
+  assert.equal(s.accounts.find((a) => a.id === FACEBOOK).status, "connected", "only the refused account");
   s.advance(86400_000);
   await s.worker.run();
   assert.equal(s.provider.calls.length, 1);
@@ -113,8 +115,18 @@ test("an ambiguous 2xx without a post id is unknown, never published", async () 
   }
 });
 
+test("a Graph code 190 moves the Facebook Page to needs-reauth", async () => {
+  const s = await setup({ status: 400, body: { error: { code: 190, message: PROVIDER_TEXT } } });
+  const post = s.addPost({ account_id: FACEBOOK });
+  await s.worker.run();
+  assert.deepEqual([post.status, post.last_error_code], ["failed", "needs-reauth"]);
+  assert.equal(s.accounts.find((a) => a.id === FACEBOOK).status, "needs-reauth");
+});
+
+const pagePost = (id, message, link) => ({ id, message, created_time: "2026-11-01T12:00:01+0000", attachments: { data: [{ unshimmed_url: link }] } });
+
 test("an unknown Facebook outcome is looked up read-only and settled when the post is found", async () => {
-  const s = await setup((n, url) => (url.includes("/published_posts") ? { status: 200, body: { data: [{ id: FB_ID, message: "Hello Page" }] } } : { status: 500, body: { error: { code: 1 } } }));
+  const s = await setup((n, url) => (url.includes("/published_posts") ? { status: 200, body: { data: [pagePost(FB_ID, "Hello Page", "https://blog.example.org/posts/p1/")] } } : { status: 500, body: { error: { code: 1 } } }));
   const post = s.addPost({ account_id: FACEBOOK, body: "Hello Page" });
   await s.worker.run();
   assert.equal(post.status, "unknown");
@@ -124,6 +136,37 @@ test("an unknown Facebook outcome is looked up read-only and settled when the po
   assert.deepEqual([post.status, post.provider_post_id], ["published", FB_ID]);
   assert.equal(providerCalls(s, "/feed").length, 1, "the post was sent once");
   assert.equal(providerCalls(s, "/published_posts")[0].method, "GET");
+  const window = new URL(providerCalls(s, "/published_posts")[0].url).searchParams;
+  assert.ok(Number(window.get("until")) > Number(window.get("since")), "the look is bounded to the attempt");
+});
+
+test("a sibling announcement's post with the same caption and link is not taken twice: it goes to a person", async () => {
+  // The sibling is published first as FB_ID; the second announcement of the same post is unknown.
+  const s = await setup((n, url) => {
+    if (url.includes("/published_posts")) return { status: 200, body: { data: [pagePost(FB_ID, "Hello Page", "https://blog.example.org/posts/same/")] } };
+    return n === 1 ? { status: 200, body: { id: FB_ID } } : { status: 500, body: { error: { code: 1 } } };
+  });
+  // The later-added post is scheduled earlier, so it is sent first.
+  const post = s.addPost({ account_id: FACEBOOK, body: "Hello Page", canonical_url: "https://blog.example.org/posts/same/" });
+  const sibling = s.addPost({ account_id: FACEBOOK, body: "Hello Page", canonical_url: "https://blog.example.org/posts/same/" });
+  await s.worker.run();
+  assert.deepEqual([sibling.status, post.status], ["published", "unknown"]);
+  s.advance(6 * MIN);
+  await s.worker.run();
+  assert.deepEqual([post.status, post.last_error_code, post.next_attempt_at, post.provider_post_id], ["unknown", "needs-review", null, null]);
+  s.advance(86400_000);
+  await s.worker.run();
+  assert.equal(providerCalls(s, "/published_posts").length, 1, "not looked up again every run");
+});
+
+test("a link shared by hand on the Page is never taken for the announcement", async () => {
+  const s = await setup((n, url) => (url.includes("/published_posts") ? { status: 200, body: { data: [pagePost(`${FB_PAGE}_777`, "Look what I wrote", "https://blog.example.org/posts/p1/")] } } : { status: 500, body: { error: { code: 1 } } }));
+  const post = s.addPost({ account_id: FACEBOOK, body: "Hello Page" });
+  await s.worker.run();
+  s.advance(6 * MIN);
+  await s.worker.run();
+  assert.equal(post.status, "unknown");
+  assert.equal(post.provider_post_id, null);
 });
 
 test("a provider this release does not support fails explicitly with no provider call", async () => {

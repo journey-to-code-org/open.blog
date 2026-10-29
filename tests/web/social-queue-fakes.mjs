@@ -159,6 +159,10 @@ export function queueStorage({ now, failRpc, failGet } = {}) {
     const row = posts.find((p) => p.id === args.p_post_id && p.site_id === args.p_site_id && p.version === args.p_version && ["claimed", "unknown"].includes(p.status));
     if (!row) return [];
     if (row.status === "unknown" && args.p_result === "retry") throw new Error("an unknown outcome resolves only to published or failed");
+    // The unique index openblog_social_posts_provider_post (site_id, account_id, provider_post_id).
+    if (args.p_result === "published" && posts.some((p) => p !== row && p.site_id === row.site_id && p.account_id === row.account_id && p.provider_post_id === args.p_provider_post_id)) {
+      throw Object.assign(new Error("duplicate key value violates unique constraint"), { status: 409 });
+    }
     if (row.status === "claimed" || args.p_result !== "unknown") {
       const attempt = attempts.find((a) => a.post_id === row.id && a.attempt_no === row.attempt_count && (!a.finished_at || a.outcome === "unknown"));
       if (attempt) {
@@ -215,7 +219,7 @@ export function queueStorage({ now, failRpc, failGet } = {}) {
         if (rpc === "openblog_social_mark_sending") return json(200, markSending(body));
         if (rpc === "openblog_social_settle") return json(200, settle(body));
       } catch (error) {
-        return json(400, { message: error.message });
+        return json(error.status || 400, { message: error.message });
       }
       return json(404, {});
     }
