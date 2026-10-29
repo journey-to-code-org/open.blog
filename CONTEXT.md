@@ -2574,7 +2574,7 @@ _Avoid_: Reset, wipe, delete account
 **Job**:
 A dated Post using the `job` content profile that records one piece of completed work: trade, service, place,
 problem, what was found, what was done, result, media. A job is a post, so feeds, tags, series and export treat
-it like any other (ADR 0400).
+it like any other (ADR 0285).
 _Avoid_: Project, case study, ticket
 
 **Service**:

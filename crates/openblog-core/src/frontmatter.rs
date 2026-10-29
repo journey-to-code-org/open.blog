@@ -167,7 +167,7 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
 }
 
 /// The one key whose value may be a nested mapping (the `job` profile, ADR
-/// 0400). It is stored flattened to dotted keys (`job.place.town`), so the
+/// 0285). It is stored flattened to dotted keys (`job.place.town`), so the
 /// `Value` shape and every other key are exactly as before.
 const NESTED_KEY: &str = "job";
 const MAX_NESTING: usize = 3;

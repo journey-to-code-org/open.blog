@@ -1,5 +1,5 @@
 //! The jobs archive: `/jobs/`, one archive per trade, and one per service
-//! within a trade (ADR 0401). Pure grouping of the site's job posts; the
+//! within a trade (ADR 0286). Pure grouping of the site's job posts; the
 //! renderer turns each archive into pages the way it does for tags.
 
 use std::collections::BTreeMap;

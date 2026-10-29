@@ -1,5 +1,5 @@
 //! The `job` content profile: one piece of completed trade work, written as a
-//! post (ADR 0400). Pure validation of front matter; nothing here reads a
+//! post (ADR 0285). Pure validation of front matter; nothing here reads a
 //! file, a clock or the network.
 //!
 //! The front matter is one `job` mapping. The parser flattens it to dotted
@@ -278,7 +278,7 @@ fn is_slug(value: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
-/// Towns only, never addresses (ADR 0400): digits and commas are what a street
+/// Towns only, never addresses (ADR 0285): digits and commas are what a street
 /// address or postal code adds, so they are refused.
 fn place_part(value: Option<&str>, field: &str, problems: &mut Vec<String>) -> String {
     let Some(value) = value else {

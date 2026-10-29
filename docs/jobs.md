@@ -2,7 +2,7 @@
 
 A job is a post that records one piece of finished trade work: a floor, a driveway, a brake repair.
 It is an ordinary post with `profile: job`, so feeds, tags, series, search and export treat it like any
-other post ([ADR 0400](adr/0400-jobs-are-posts-with-a-content-profile-and-open-blog-is-not-a-field-service-tool.md)).
+other post ([ADR 0285](adr/0285-jobs-are-posts-with-a-content-profile-and-open-blog-is-not-a-field-service-tool.md)).
 A site that never uses the profile builds exactly as it did before.
 
 open.blog is not a field-service tool. There is no invoicing, estimating, dispatch, job scheduling or
@@ -75,7 +75,7 @@ Jobs are browsable the way customers look for them. When a site has jobs, the bu
 They page like the home page (`postsPerPage`; later pages are `/jobs/page/2/` and so on), appear in `sitemap.xml`, and are
 built in a fixed order. A trade or service with no jobs gets no page, and a site with no jobs gets no `/jobs/` at all. Feeds
 are unchanged: jobs are posts, so they are in them as posts. `page` cannot be a trade or service id. See
-[ADR 0401](adr/0401-jobs-archives-are-derived-from-job-posts-and-page-like-the-home-page.md).
+[ADR 0286](adr/0286-jobs-archives-are-derived-from-job-posts-and-page-like-the-home-page.md).
 
 ## Checks
 

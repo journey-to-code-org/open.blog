@@ -129,7 +129,7 @@ pub struct SiteConfig {
     #[serde(skip_serializing_if = "ReaderAnnotationsConfig::is_off")]
     pub reader_annotations: ReaderAnnotationsConfig,
     /// Trades a site adds to the bundled list for the job profile (ADR
-    /// 0400). Omitted from the written file while empty.
+    /// 0285). Omitted from the written file while empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra_trades: Vec<String>,
 }

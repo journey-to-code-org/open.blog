@@ -1,4 +1,4 @@
-# ADR 0400: Jobs are posts with a content profile, and open.blog is not a field-service tool
+# ADR 0285: Jobs are posts with a content profile, and open.blog is not a field-service tool
 
 - Status: Accepted
 - Date: 2026-10-28

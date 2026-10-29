@@ -1,11 +1,11 @@
-# ADR 0401: Job archives are derived from job posts and page like the home page
+# ADR 0286: Job archives are derived from job posts and page like the home page
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#493](https://github.com/journey-to-code-org/open.blog/issues/493)
 - Parent story: [#476](https://github.com/journey-to-code-org/open.blog/issues/476)
 - Parent epic: [#471](https://github.com/journey-to-code-org/open.blog/issues/471)
-- Builds on: ADR 0400
+- Builds on: ADR 0285
 
 ## Context
 
