@@ -18016,6 +18016,7 @@ mod tests {
     mod reading_path_routes;
     mod safety_audit;
     mod voice_assistant_routes;
+    mod voice_journey;
     mod voice_routes;
 
     use super::*;
