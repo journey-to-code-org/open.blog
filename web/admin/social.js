@@ -389,6 +389,11 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
 
   // A tab the author comes back from: look again, but only while an attempt is waiting.
   const onFocus = () => {
+    // Detached from the page (the author went elsewhere): stop listening instead of polling.
+    if (root.isConnected === false) {
+      win?.removeEventListener?.("focus", onFocus);
+      return;
+    }
     if (!busy && state?.connections?.some((c) => ["pending", "exchanging"].includes(c.status))) load();
   };
   win?.addEventListener?.("focus", onFocus);

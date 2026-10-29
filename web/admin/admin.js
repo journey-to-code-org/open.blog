@@ -10953,6 +10953,8 @@ export class ObAdmin extends AdminElement {
   viewDirty = null;
   // Whether the open view's own save is in flight, for views that save outside the editor.
   viewBusy = null;
+  // Tears down the open view's outside listeners; run before the next view mounts.
+  viewCleanup = null;
   // The user whose session kept the workspace's panels, so only they ever get them back.
   keptOwner = "";
   // Set while the sign-in form is showing, from the moment a session ends or the writer signs out
@@ -11165,6 +11167,12 @@ export class ObAdmin extends AdminElement {
   // ---- views
 
   mount(...nodes) {
+    try {
+      this.viewCleanup?.();
+    } catch {
+      // A view's teardown must never stop the next one from opening.
+    }
+    this.viewCleanup = null;
     this.editor?.dispose();
     this.editor = null;
     this.viewDirty = null;
@@ -14035,6 +14043,8 @@ export class ObAdmin extends AdminElement {
     this.mount(this.shell("social", view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
+    // Its window focus listener must not outlive the page.
+    this.viewCleanup = () => view.destroy();
     await view.load();
   }
 

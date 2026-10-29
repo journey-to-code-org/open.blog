@@ -315,3 +315,16 @@ test("coming back to the tab refreshes only while an attempt is waiting, and des
   await flush();
   assert.equal(waiting.calls.filter((c) => c.path === "social/status").length, count + 1);
 }));
+
+test("a view that left the page stops polling on the next focus, even if destroy was never called", withDom(async () => {
+  const listeners = new Map();
+  const win = { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: (name) => listeners.delete(name) };
+  const api = server({ connections: [connection()] });
+  const { view } = await mount(api, win);
+  Object.defineProperty(view.element, "isConnected", { value: false });
+  const before = api.calls.length;
+  await listeners.get("focus")();
+  await flush();
+  assert.equal(api.calls.length, before, "no social request once the view is detached");
+  assert.equal(listeners.has("focus"), false);
+}));
