@@ -66,3 +66,10 @@ passage sound more like themselves, through the apply and undo path reviews alre
 
 - Every suggestion from these skills is either anchored and undoable or plain advice.
 - The apply path (ADR 0266) is unchanged: AI proposes, the author applies.
+
+## Amendment: voice match reviews a passage (ADR 0290)
+
+A review can now cover a selection or a section: the request carries `passage: { kind, start, end }`, findings
+must lie inside it, and a skill must declare the scope it is used for. `voice-match` therefore declares only
+`scopes: [selection, section]`. A voice-match finding whose evidence is not inside the passage is advice, never
+applied. `voice-review` is unchanged. See [ADR 0290](0290-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md).

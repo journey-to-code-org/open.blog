@@ -74,3 +74,10 @@ saved.
 ## Amendment: private samples never reach portable context
 
 The proposal records the visibilities of its source samples on a `<!-- openblog:voice-provenance sources=... -->` line under the title and reports `portableAllowed: false` when any sample is private. The Admin disables "Save as portable" for such a guide, and the context save refuses (422) a portable voice guide whose provenance includes `private`, because portable context is git-tracked and the guide quotes samples verbatim.
+
+## Amendment: the proposal is folded into the saved guide (ADR 0288)
+
+The proposal no longer replaces the saved guide. A trait may carry `replaces` (the statement of a saved trait it
+changes). The server keeps saved traits the proposal does not address, together with free text, and shows each
+changed trait with both texts. The author picks one for each change before saving. Only an exact repeat of a
+saved trait may cite a sample that was not selected. See [ADR 0288](0288-a-proposed-voice-guide-is-folded-into-the-saved-guide-on-the-server-and-the-author-decides-each-change.md).

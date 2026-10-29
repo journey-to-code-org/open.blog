@@ -8743,12 +8743,74 @@ export function selectableAssistantSkillIds(skills = [], requested = []) {
   return [...new Set(requested)].filter((id) => available.has(id));
 }
 
-export function assistantReviewSummary({ title = "", markdown = "", skills = [], selectedSkillIds = new Set(), context = [], selectedContextIds = new Set(), provider = {} } = {}) {
+/** What a review covers, as the author chooses it (ADR 0290). */
+export const ASSISTANT_REVIEW_SCOPES = [
+  { id: "document", label: "Complete document", run: "Run document review" },
+  { id: "selection", label: "Selected text", run: "Review selected text" },
+  { id: "section", label: "Current section", run: "Review current section" },
+];
+/** The longest passage, in Unicode code points, a selection or section review sends (the server's limit). */
+export const ASSISTANT_REVIEW_MAX_PASSAGE = 20_000;
+
+/** Whether a skill declares the review scope (`document`, `selection` or `section`). */
+export function assistantSkillSupportsScope(skill = {}, scope = "document") {
+  return Array.isArray(skill.scopes) && skill.scopes.includes(scope);
+}
+
+/** The offsets (UTF-16) where ATX heading lines start, leaving out lines inside fenced code. */
+export function markdownHeadingStarts(markdown = "") {
+  const starts = [];
+  let fence = null;
+  let offset = 0;
+  for (const line of String(markdown).split("\n")) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})/u)?.[1];
+    if (fence) {
+      if (marker && marker[0] === fence.character && marker.length >= fence.length && line.slice(line.indexOf(marker) + marker.length).trim() === "") fence = null;
+    } else if (marker) {
+      fence = { character: marker[0], length: marker.length };
+    } else if (/^ {0,3}#{1,6}[ \t]+\S/.test(line)) {
+      starts.push(offset);
+    }
+    offset += line.length + 1;
+  }
+  return starts;
+}
+
+/**
+ * The passage a selection or section review sends, from the draft's Markdown and the editor's
+ * selection (UTF-16 offsets, as a textarea reports them). A selection is trimmed of surrounding
+ * whitespace; a section runs from the heading before the cursor (or the start) to the next heading
+ * (or the end). The answer is in Unicode code points, which is how the server and the findings
+ * count. `{ error }` when there is nothing to review.
+ */
+export function assistantReviewPassage(markdown = "", start = 0, end = start, kind = "selection") {
+  const text = String(markdown);
+  let from = Math.max(0, Math.min(start, end, text.length));
+  let to = Math.max(0, Math.min(Math.max(start, end), text.length));
+  if (kind === "section") {
+    // A `#` line inside fenced code (a shell comment, say) is code, not a heading.
+    const headings = markdownHeadingStarts(text);
+    const heading = headings.filter((at) => at <= to).pop();
+    from = heading ?? 0;
+    to = headings.find((at) => at > (heading ?? -1)) ?? text.length;
+  } else if (kind !== "selection") {
+    return { error: "Choose selected text or the current section." };
+  }
+  while (from < to && /\s/.test(text[from])) from += 1;
+  while (to > from && /\s/.test(text[to - 1])) to -= 1;
+  if (from >= to) return { error: kind === "selection" ? "Select some text in the draft first." : "The current section has no text." };
+  const points = (index) => Array.from(text.slice(0, index)).length;
+  const passage = { kind, start: points(from), end: points(to) };
+  if (passage.end - passage.start > ASSISTANT_REVIEW_MAX_PASSAGE) return { error: `The ${kind === "selection" ? "selection" : "section"} is longer than ${ASSISTANT_REVIEW_MAX_PASSAGE} characters. Select less, or review the document.` };
+  return { passage, text: text.slice(from, to) };
+}
+
+export function assistantReviewSummary({ title = "", markdown = "", skills = [], selectedSkillIds = new Set(), context = [], selectedContextIds = new Set(), provider = {}, scope = "document" } = {}) {
   const chosenSkills = skills.filter((skill) => selectedSkillIds.has(skill.id));
   const chosenContext = context.filter((document) => selectedContextIds.has(document.id));
   const providerName = assistantProviderLabel(provider.providerType);
   return {
-    scope: "Complete document",
+    scope: (ASSISTANT_REVIEW_SCOPES.find((choice) => choice.id === scope) || ASSISTANT_REVIEW_SCOPES[0]).label,
     sourceCharacters: `${title}\n${markdown}`.length,
     skills: chosenSkills.map((skill) => `${skill.name || skill.id} · ${skill.version}`),
     context: chosenContext.map((document) => assistantContextLabel(document)),
@@ -8858,6 +8920,46 @@ export function voiceGuideDiffLines(diff = "") {
  */
 export function voiceGuidePortableNote(proposal = {}) {
   return proposal.portableAllowed === false ? "Quotes private samples; save as private" : "";
+}
+
+/**
+ * Join a merged guide's lines (ADR 0288). The server wrote every line: each is fixed text, or a
+ * changed trait with both texts. This only picks one per change, so the result is the server's
+ * rendering byte for byte. Null until every change has a choice.
+ */
+export function voiceGuideAssemble(lines = [], choices = {}) {
+  const out = [];
+  for (const line of lines) {
+    if (typeof line === "string") {
+      out.push(line);
+      continue;
+    }
+    const choice = choices[line?.change];
+    if (choice !== "current" && choice !== "proposed") return null;
+    out.push(choice === "current" ? line.current : line.proposed);
+  }
+  return `${out.join("\n")}\n`;
+}
+
+/** How many changes in a merged guide still need the author's choice. */
+export function voiceGuidePendingChanges(merge = {}, choices = {}) {
+  let pending = 0;
+  for (let change = 0; change < (merge.changes || 0); change += 1) {
+    if (choices[change] !== "current" && choices[change] !== "proposed") pending += 1;
+  }
+  return pending;
+}
+
+/** A trait as one line of plain text, the way the guide writes it. */
+export function voiceGuideTraitText(item = {}) {
+  return `${item.statement}: "${item.quote}" (${item.sample})${item.oneSample ? " (one sample)" : ""}`;
+}
+
+/** What a saved trait's quote check means, or nothing when the quote was found again. */
+export function voiceGuideCheckNote(check) {
+  if (check === "sample-missing") return "Its sample no longer exists, so this quote could not be checked. It is kept.";
+  if (check === "not-in-sample") return "This quote is no longer word for word in its sample. It is kept; check it.";
+  return "";
 }
 
 export function voiceGuideSaveRequest(proposal = {}, visibility, content) {
@@ -21479,6 +21581,21 @@ export class Editor {
     ui.assistantSettingsClear = h("button", { class: "oba-btn oba-btn-danger oba-btn-link", type: "button", disabled: true, onClick: () => this.clearAssistantCredential() }, "Remove saved credential");
     ui.assistantSkillsStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Skills load when the Assistant opens.");
     ui.assistantReviewSkills = h("div", { class: "oba-skill-list", role: "group", "aria-label": "Review skills" });
+    this.assistantReviewScope = "document";
+    ui.assistantReviewScope = h(
+      "fieldset",
+      { class: "oba-review-scope" },
+      h("legend", {}, "What to review"),
+      ...ASSISTANT_REVIEW_SCOPES.map((choice) =>
+        h(
+          "div",
+          { class: "oba-capture-check" },
+          h("input", { type: "radio", id: `oba-review-scope-${choice.id}`, name: "oba-review-scope", value: choice.id, checked: choice.id === "document", onChange: () => this.setAssistantReviewScope(choice.id) }),
+          h("label", { for: `oba-review-scope-${choice.id}` }, choice.label),
+        ),
+      ),
+      h("p", { class: "oba-help" }, "Selected text and the current section use the selection or cursor in the draft. Skills that cannot review that much are unavailable."),
+    );
     ui.assistantReviewStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "No review has run. Your draft is unchanged.");
     ui.assistantReviewDisclosure = h("div", { class: "oba-assistant-disclosure" });
     ui.assistantReviewResults = h("section", { class: "oba-assistant-review-results", tabindex: "-1", role: "region", "aria-label": "Review results" });
@@ -21520,6 +21637,7 @@ export class Editor {
         { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" },
         h("h3", { id: "oba-assistant-review-title" }, "Document review"),
         h("p", {}, "Choose review skills, inspect the disclosure, then send the current unsaved document explicitly. Findings are AI-generated advice and never change the draft."),
+        ui.assistantReviewScope,
         ui.assistantSkillsStatus,
         ui.assistantReviewSkills,
         h("aside", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-review-disclosure-title" }, h("h4", { id: "oba-review-disclosure-title" }, "Review disclosure"), ui.assistantReviewDisclosure),
@@ -22878,6 +22996,7 @@ export class Editor {
           : this.field(`oba-context-${document.id}-content`, `${typeLabel} context Markdown`, textarea),
         h("label", { class: "oba-check" }, selected, h("span", {}, `Selected context · ${document.characters} characters`)),
         h("div", { class: "oba-toolbar" }, save, remove),
+        document.contextType === "voice" && document.exists ? this.voiceGuideMoveControl(document) : null,
       );
     });
     this.ui.assistantContextCards.replaceChildren(...cards);
@@ -22978,6 +23097,62 @@ export class Editor {
     return [h("p", { class: budget.over ? "oba-notice is-warning" : "oba-small", role: budget.over ? "alert" : null }, budget.over ? `${budget.message} Deselect some voice samples before sending.` : `${budget.samples} of ${budget.budget.samples} voice samples and ${budget.characters} of ${budget.budget.characters} voice characters in this request.`)];
   }
 
+  /**
+   * Move the voice guide to the other folder (ADR 0289): the server says what would move, or why it
+   * will not, and nothing moves until the author confirms. Moving to portable is refused for a guide
+   * that quotes private samples or cannot be read.
+   */
+  voiceGuideMoveControl(document) {
+    const to = document.visibility === "private" ? "portable" : "private";
+    const label = to === "private" ? "Make private" : "Make portable";
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-guide-move-status": "" });
+    const confirm = h("div", { class: "oba-toolbar", hidden: true });
+    const start = h("button", { class: "oba-btn", type: "button", "data-voice-guide-move": to }, label);
+    const reset = () => {
+      confirm.hidden = true;
+      confirm.replaceChildren();
+      start.disabled = false;
+      start.focus();
+    };
+    start.addEventListener("click", async () => {
+      start.disabled = true;
+      status.textContent = "Checking the move…";
+      try {
+        const plan = (await this.app.api.call("GET", `voice/guide/move?to=${to}`)).move;
+        const git = to === "portable" ? " Git tracks the portable folder, so a commit would share it." : " The private folder is kept out of Git.";
+        status.textContent = plan.finishing
+          ? `${plan.toPath} already has the same guide; moving removes ${plan.fromPath} to finish an earlier move.`
+          : `This moves the guide from ${plan.fromPath} to ${plan.toPath}, unchanged.${git}`;
+        const yes = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: async () => {
+          yes.disabled = true;
+          try {
+            const reply = await this.app.api.call("POST", "voice/guide/move", { json: { to } });
+            this.assistantContextLoaded = false;
+            await this.loadAssistantContext(true);
+            this.ui.assistantContextStatus.textContent = `${reply.message || `The voice guide is now ${to}.`} You can move it back the same way.`;
+            // The cards were drawn again, so focus goes to the sentence that says what happened.
+            this.ui.assistantContextStatus.setAttribute("tabindex", "-1");
+            this.ui.assistantContextStatus.focus();
+          } catch (error) {
+            status.textContent = `The guide was not moved. ${error.message}`;
+            reset();
+          }
+        } }, to === "private" ? "Move to private" : "Move to portable");
+        const no = h("button", { class: "oba-btn", type: "button", onClick: () => {
+          status.textContent = "Nothing was moved.";
+          reset();
+        } }, "Cancel");
+        confirm.replaceChildren(yes, no);
+        confirm.hidden = false;
+        yes.focus();
+      } catch (error) {
+        status.textContent = `The guide was not moved. ${error.message}`;
+        start.disabled = false;
+      }
+    });
+    return h("div", { class: "oba-voice-guide-move" }, h("div", { class: "oba-toolbar" }, start), status, confirm);
+  }
+
   /** Ask the provider to propose a voice guide from the selected samples. Writes nothing. */
   async proposeVoiceGuide() {
     const sampleIds = [...this.assistantContextSelected].filter((id) => this.assistantContextDocuments.some((document) => document.id === id && document.kind === "voiceSample"));
@@ -23020,21 +23195,103 @@ export class Editor {
       return;
     }
     const lines = voiceGuideDiffLines(proposal.diff);
+    const merge = proposal.merge || null;
+    const choices = {};
     const editor = h("textarea", { rows: 18, "aria-label": "Proposed voice guide Markdown (editable)", spellcheck: false }, proposal.markdown || "");
+    // Hand edits win: once the author types in the box, a later choice no longer replaces the text.
+    let edited = false;
+    editor.addEventListener("input", () => {
+      edited = true;
+    });
     const compared = proposal.current?.exists ? `the saved ${proposal.current.visibility} guide` : "no saved guide yet";
     const portableBlocked = proposal.portableAllowed === false;
-    const save = (visibility) =>
+    const pendingNote = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-guide-pending": "" });
+    const saveButtons = [];
+    const refresh = () => {
+      const pending = voiceGuidePendingChanges(merge || {}, choices);
+      if (merge?.changes && pending === 0) {
+        const assembled = voiceGuideAssemble(merge.lines, choices);
+        if (!edited) editor.value = assembled;
+        pendingNote.textContent = edited ? "Your edits to the text are kept. Change that line by hand if you want the other choice." : "Every change is decided. Edit the text below if you want, then save.";
+      } else {
+        pendingNote.textContent = pending ? `Choose Keep current or Take proposed for ${pending} changed trait${pending === 1 ? "" : "s"} before saving.` : "";
+      }
+      editor.readOnly = pending > 0;
+      for (const button of saveButtons) button.disabled = button.dataset.blocked === "true" || pending > 0;
+    };
+    const save = (visibility) => {
+      const blocked = proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked);
       // Private is the default (ADR 0282): it comes first and is the primary button; portable is a choice.
-      h("button", { class: visibility === "private" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "data-voice-guide-save": visibility, disabled: proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked), onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+      const button = h("button", { class: visibility === "private" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "data-voice-guide-save": visibility, "data-blocked": String(blocked), disabled: blocked, onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+      saveButtons.push(button);
+      return button;
+    };
+    const toolbar = h("div", { class: "oba-toolbar" }, save("private"), save("portable"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard"));
     this.ui.voiceGuideResult.replaceChildren(
-      h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
-      h("h5", {}, "Changes"),
+      h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every new line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
+      ...(merge ? [this.voiceGuideMergeView(merge, choices, refresh)] : []),
+      h("h5", {}, merge?.changes ? "Changes if you take every proposed change" : "Changes"),
       lines.length
         ? h("pre", { class: "oba-voice-diff", "aria-label": "Changes to the voice guide" }, lines.map((line) => h("span", { class: `oba-voice-diff-${line.kind}`, "data-diff": line.kind }, `${line.text}\n`)))
         : h("p", { class: "oba-small" }, "The proposal matches the saved guide."),
       this.field("oba-voice-guide-markdown", "Edit before saving", editor),
-      h("div", { class: "oba-toolbar" }, save("private"), save("portable"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
+      pendingNote,
+      toolbar,
       ...(portableBlocked ? [h("p", { class: "oba-small", "data-voice-guide-note": "portable-blocked" }, voiceGuidePortableNote(proposal))] : []),
+    );
+    refresh();
+  }
+
+  /**
+   * The merged guide, trait by trait (ADR 0288): what is kept from the saved guide, what is new, and
+   * each changed trait with both texts and a choice the author must make before saving.
+   */
+  voiceGuideMergeView(merge, choices, onChoice) {
+    const tag = (text, kind) => h("span", { class: `oba-voice-merge-tag is-${kind}` }, text);
+    const flag = (check) => {
+      const note = voiceGuideCheckNote(check);
+      return note ? h("span", { class: "oba-voice-merge-flag", "data-check": check }, note) : null;
+    };
+    const item = (entry) => {
+      if (entry.status === "changed") {
+        const name = `oba-voice-change-${entry.change}`;
+        const option = (value, label, trait, check) => {
+          const id = `${name}-${value}`;
+          return h(
+            "div",
+            { class: "oba-voice-merge-option" },
+            h("input", { type: "radio", id, name, value, onChange: () => { choices[entry.change] = value; onChoice(); } }),
+            h("label", { for: id }, h("strong", {}, label), h("span", { class: "oba-voice-merge-text" }, voiceGuideTraitText(trait)), flag(check)),
+          );
+        };
+        return h(
+          "li",
+          { "data-merge": "changed" },
+          h(
+            "fieldset",
+            { class: "oba-voice-merge-change" },
+            h("legend", {}, tag("Changed", "changed"), ` ${entry.current.statement}`),
+            h("div", { class: "oba-voice-merge-pair" }, option("current", "Keep current", entry.current, entry.check), option("proposed", "Take proposed", entry.proposed, null)),
+          ),
+        );
+      }
+      const [label, trait] = entry.status === "added" ? ["New", entry.proposed] : entry.status === "unchanged" ? ["Unchanged", entry.current] : ["Kept from your current guide", entry.current];
+      return h("li", { "data-merge": entry.status }, tag(label, entry.status), " ", h("span", { class: "oba-voice-merge-text" }, voiceGuideTraitText(trait)), flag(entry.check));
+    };
+    const free = [
+      ...(merge.freeText ? ["Your own text outside the traits is kept where it is."] : []),
+      ...(merge.ownSections?.length ? [`Your own sections are kept: ${merge.ownSections.join(", ")}.`] : []),
+    ];
+    const unknown = merge.unknown?.length
+      ? [h("div", { class: "oba-voice-merge-section" }, h("h6", {}, "What is not yet known"), h("ul", { class: "oba-voice-merge-list" }, merge.unknown.map((entry) => h("li", { "data-merge": entry.status }, tag(entry.status === "added" ? "New" : "Kept from your current guide", entry.status), " ", h("span", { class: "oba-voice-merge-text" }, entry.text)))))]
+      : [];
+    return h(
+      "section",
+      { class: "oba-voice-merge", "aria-labelledby": "oba-voice-merge-title" },
+      h("h5", { id: "oba-voice-merge-title" }, merge.changes ? `Your guide, trait by trait (${merge.changes} change${merge.changes === 1 ? "" : "s"} to decide)` : "Your guide, trait by trait"),
+      ...free.map((text) => h("p", { class: "oba-small", "data-voice-guide-free": "" }, text)),
+      ...(merge.sections || []).map((section) => h("div", { class: "oba-voice-merge-section" }, h("h6", {}, section.heading), h("ul", { class: "oba-voice-merge-list" }, section.traits.map(item)))),
+      ...unknown,
     );
   }
 
@@ -23203,6 +23460,7 @@ export class Editor {
       context: this.assistantContextDocuments || [],
       selectedContextIds: this.assistantContextSelected || new Set(),
       provider: this.assistantProviderStatus || {},
+      scope: this.assistantReviewScope || "document",
     });
     const list = h(
       "dl",
@@ -23324,12 +23582,73 @@ export class Editor {
     return true;
   }
 
+  /** Choose what a review covers: the document, the selected text or the current section (ADR 0290). */
+  setAssistantReviewScope(scope) {
+    const choice = ASSISTANT_REVIEW_SCOPES.find((candidate) => candidate.id === scope) || ASSISTANT_REVIEW_SCOPES[0];
+    this.assistantReviewScope = choice.id;
+    this.ui.assistantReviewRun.textContent = choice.run;
+    if (this.assistantSkillsLoaded) this.renderAssistantSkills();
+    this.renderAssistantReviewSummary();
+  }
+
+  /**
+   * The draft's Markdown with the selection in it, as UTF-16 offsets. In the Markdown editor that is the
+   * textarea's selection; in the visual editor the remembered selection is marked, the Markdown is written,
+   * and the marks are found and removed again, as the knowledge-check target does.
+   */
+  reviewPassageTarget() {
+    this.syncRichToMarkdown();
+    const markdown = this.ui.body.value;
+    if (this.editorMode !== "visual" || !this.visualSelection) {
+      const end = Number.isInteger(this.ui.body.selectionEnd) ? this.ui.body.selectionEnd : markdown.length;
+      const start = Number.isInteger(this.ui.body.selectionStart) ? this.ui.body.selectionStart : end;
+      return { markdown, start, end };
+    }
+    const range = this.visualSelection.cloneRange();
+    if (!this.ui.richBody.contains(range.commonAncestorContainer)) return { markdown, start: markdown.length, end: markdown.length };
+    let marker = "OPENBLOGREVIEWMARK";
+    while (markdown.includes(marker)) marker += "X";
+    const open = `${marker}A`;
+    const close = `${marker}B`;
+    const closing = range.cloneRange();
+    closing.collapse(false);
+    const closeNode = document.createTextNode(close);
+    closing.insertNode(closeNode);
+    const opening = range.cloneRange();
+    opening.collapse(true);
+    const openNode = document.createTextNode(open);
+    opening.insertNode(openNode);
+    const marked = this.richEditorMarkdown();
+    const parents = [openNode.parentNode, closeNode.parentNode];
+    openNode.remove();
+    closeNode.remove();
+    for (const parent of parents) parent?.normalize();
+    const a = marked.indexOf(open);
+    const b = marked.indexOf(close);
+    if (a < 0 || b < a) return { markdown, start: markdown.length, end: markdown.length };
+    const clean = marked.slice(0, a) + marked.slice(a + open.length, b) + marked.slice(b + close.length);
+    return { markdown: clean, start: a, end: b - open.length };
+  }
+
   async runAssistantReview() {
     this.syncRichToMarkdown();
     const skillIds = [...(this.selectedAssistantSkills || [])];
     if (!skillIds.length) {
       this.ui.assistantReviewStatus.textContent = "Select at least one document review skill.";
       return;
+    }
+    const scope = this.assistantReviewScope || "document";
+    let passage = null;
+    let reviewedMarkdown = this.ui.body.value;
+    if (scope !== "document") {
+      const target = this.reviewPassageTarget();
+      const found = assistantReviewPassage(target.markdown, target.start, target.end, scope);
+      if (found.error) {
+        this.ui.assistantReviewStatus.textContent = `The review did not run. ${found.error} Your draft is unchanged.`;
+        return;
+      }
+      passage = found.passage;
+      reviewedMarkdown = target.markdown;
     }
     const voiceBudget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
     if (voiceBudget.over) {
@@ -23350,7 +23669,7 @@ export class Editor {
     const source = {
       title: this.ui.title.value,
       metadata: this.collect(),
-      markdown: this.ui.body.value,
+      markdown: reviewedMarkdown,
     };
     try {
       const review = await this.app.api.call("POST", "assistant/review", {
@@ -23358,6 +23677,7 @@ export class Editor {
           source,
           skillIds,
           contextIds: [...this.assistantContextSelected],
+          ...(passage ? { passage } : {}),
         },
       });
       this.syncRichToMarkdown();
@@ -23517,13 +23837,18 @@ export class Editor {
     this.selectedAssistantSkills ||= new Set();
     const selected = selectableAssistantSkillIds(reviewSkills, [...this.selectedAssistantSkills]);
     this.selectedAssistantSkills = new Set(selected);
+    const scope = this.assistantReviewScope || "document";
+    for (const id of [...this.selectedAssistantSkills]) {
+      if (!assistantSkillSupportsScope(reviewSkills.find((skill) => skill.id === id), scope)) this.selectedAssistantSkills.delete(id);
+    }
     const reviewCards = reviewSkills.map((skill) => {
       const presentation = assistantSkillPresentation(skill);
+      const fits = assistantSkillSupportsScope(skill, scope);
       const input = h("input", {
         type: "checkbox",
         value: skill.id,
         checked: this.selectedAssistantSkills.has(skill.id),
-        disabled: presentation.disabled,
+        disabled: presentation.disabled || !fits,
         onChange: (event) => {
           if (event.target.checked) this.selectedAssistantSkills.add(skill.id);
           else this.selectedAssistantSkills.delete(skill.id);
@@ -23534,7 +23859,7 @@ export class Editor {
         "label",
         { class: `oba-skill-card${presentation.disabled ? " is-invalid" : ""}` },
         input,
-        h("span", {}, h("strong", {}, presentation.title), h("span", { class: "oba-small" }, `${presentation.source} · ${presentation.details}`)),
+        h("span", {}, h("strong", {}, presentation.title), h("span", { class: "oba-small" }, `${presentation.source} · ${presentation.details}${fits || presentation.disabled ? "" : " · Not for this scope"}`)),
       );
     });
     this.ui.assistantReviewSkills.replaceChildren(...reviewCards);

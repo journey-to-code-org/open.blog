@@ -1153,3 +1153,58 @@ pub(super) fn promote(state: &AppState, req: &Request, id: &str) -> Response {
         Err(error) => store_error(state, error),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Moving the voice guide (ADR 0289)
+// ---------------------------------------------------------------------------
+
+fn guide_move_json(planned: &voice_store::GuideMove) -> Json {
+    json!({
+        "from": planned.from.as_str(),
+        "to": planned.to.as_str(),
+        "fromPath": planned.from_path,
+        "toPath": planned.to_path,
+        "bytes": planned.bytes,
+        "finishing": planned.finishing,
+    })
+}
+
+/// `GET voice/guide/move?to=portable|private`: what moving the guide would do, or why it is
+/// refused. Read only.
+pub(super) fn guide_move_plan(state: &AppState, req: &Request) -> Response {
+    let Some(to) = req.query.get("to").and_then(|to| Visibility::parse(to)) else {
+        return Response::error(400, "Choose portable or private");
+    };
+    match voice_store::plan_guide_move(&state.root, to) {
+        Ok(planned) => Response::json(200, &json!({ "move": guide_move_json(&planned) })),
+        Err(error) => store_error(state, error),
+    }
+}
+
+/// `POST voice/guide/move`: move the guide to `{ "to": "portable" | "private" }` in one step.
+/// The same locks as a guide save, in the same order: the build lock, the content transaction,
+/// then (inside the store) the voice store lock.
+pub(super) fn guide_move(state: &AppState, req: &Request) -> Response {
+    let body = match body_object(req, MAX_SMALL_REQUEST_BYTES) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(to) = body["to"].as_str().and_then(Visibility::parse) else {
+        return Response::error(400, "Choose portable or private");
+    };
+    let _content_lock = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    match voice_store::move_guide(&state.root, to) {
+        Ok(moved) => Response::json(
+            200,
+            &json!({
+                "moved": guide_move_json(&moved),
+                "message": format!("The voice guide is now {}.", moved.to.as_str()),
+            }),
+        ),
+        Err(error) => store_error(state, error),
+    }
+}

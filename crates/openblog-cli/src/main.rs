@@ -87,6 +87,8 @@ COMMANDS
     voice --list               Prompts by pack, with what you have answered
     voice --resume             Carry on with an interrupted session (an expired one is locked)
     voice erase --yes          Erase every sample, the session record, the guide and editor files
+    voice guide --move portable|private
+                               Move the voice guide between the folders (preview; --yes moves it)
     voice polish|diff|promote <sample>
                                Refine a copy, compare it, or make a post draft from it
     voice export|import        Move your voice samples and guide in one file, previewed and
@@ -144,6 +146,10 @@ voice OPTIONS
     erase [--yes]              List, then (with --yes) erase ALL voice data: samples in both
                                folders, the session record, the guide and leftover editor
                                files. All or nothing, then checks that nothing is left
+    guide --move portable|private [--yes]
+                               Say what moving the voice guide would do; with --yes move it in one
+                               step, copied, checked and only then removed. Moving to portable is
+                               refused for a guide that quotes private samples or cannot be read
     --list                     Show the prompt packs, answered counts and stages
     polish <sample>            Edit a COPY of a rough draft in $VISUAL/$EDITOR and save it as the
                                polished draft (the rough draft is locked and never changes);

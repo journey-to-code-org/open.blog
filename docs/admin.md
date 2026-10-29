@@ -121,10 +121,15 @@ authoring.
 ### Review an unsaved document
 
 Open **Assistant → Review** to review the current unsaved title, metadata, and Markdown without
-saving first. Select one or more review skills and any context the provider should receive, then
-inspect the disclosure: it lists the complete-document scope, approximate source size, every skill
+saving first. Under **What to review**, keep **Complete document** or choose **Selected text** (the text
+selected in the draft) or **Current section** (from the heading before the cursor to the next heading; a `#` line inside fenced code is code, not a heading).
+Findings then stay inside that passage, and a skill that cannot review it is shown as unavailable
+([ADR 0290](adr/0290-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md)).
+Select one or more review skills and any context the provider should receive, then
+inspect the disclosure: it lists the scope, approximate source size, every skill
 and context item, provider model and safe destination origin, and confirms external research is off.
-Nothing is sent until **Run document review** is pressed.
+Nothing is sent until **Run document review** (or **Review selected text**, **Review current section**) is
+pressed.
 
 Validated findings are grouped under their originating skill and visibly labelled **AI-generated
 advice**. Each finding shows its severity, category, exact source evidence, explanation, optional
@@ -329,7 +334,11 @@ keyboard; the timer is not announced every second, only at its marks and when it
 
 Samples are private unless you choose portable (`--portable`, or "Portable" when you start a session in
 Admin); "Make private" and "Make portable" on a sample move it, with its partner, and moving it back
-restores the same bytes. Private samples are never published, built, fed or exported as content (a voice
+restores the same bytes. The voice guide moves the same way. Use **Make private** or **Make portable** on its
+card in the Assistant Context view, or run `openblog voice guide --move private` (it shows what would move;
+add `--yes` to move it). The file is copied, checked and only then removed, so a failed move never loses the
+guide. A guide that quotes private samples, or cannot be read, stays private
+([ADR 0289](adr/0289-the-voice-guide-moves-between-portable-and-private-in-one-locked-copy-verify-remove-step.md)). Private samples are never published, built, fed or exported as content (a voice
 export carries them only with `--include-private`; see below).
 
 `openblog voice erase` lists everything the voice feature stored: samples in both folders, the session
@@ -355,19 +364,27 @@ Nothing is sent unless you select it and run a request, and nothing here changes
 - **Propose a guide.** Select samples and choose **Propose a voice guide from selected samples**. The provider
   returns a guide in which every line quotes your own words word for word and names its sample (a result with
   a quote that is not in the sample is rejected, and nothing is shown). A line that rests on one sample is
-  marked `(one sample)`, and the guide always ends with *What is not yet known*. You see the proposal as
+  marked `(one sample)`, and the guide always ends with *What is not yet known*. The proposal is folded into
+  your saved guide ([ADR 0288](adr/0288-a-proposed-voice-guide-is-folded-into-the-saved-guide-on-the-server-and-the-author-decides-each-change.md)).
+  Traits it does not address are kept word for word and labelled **Kept from your current guide**. Your own
+  text outside the traits, such as an introduction, notes or sections under your own headings, stays where it
+  is. A trait the proposal changes is shown with both texts, and you choose **Keep current** or **Take proposed**
+  for each one before you can save. A kept quote is checked again against its sample and flagged, not dropped,
+  when that sample no longer exists or no longer contains it. You see the proposal as
   changes against your saved guide, can edit it, and it is written only when you choose **Save as portable**
   (`assistant/context/voice.md`) or **Save as private** (`.openblog/private/context/voice.md`, the default).
   **Discard** leaves your files as they were. A guide changed elsewhere since you opened it is a conflict, not
-  an overwrite. A guide built from any private sample, or from a saved guide that is private, records that on a
+  an overwrite. A guide built from any private sample, from a saved guide that is private, or from a saved guide
+  whose traits quote a sample that is private now, records that on a
   provenance line under its title (`<!-- openblog:voice-provenance sources=... -->`) and can only be saved as
   private: **Save as portable** is disabled with the reason. Keep that line if you edit the guide; the
   portable rule relies on it.
 - **Use the guide.** Select the guide like any context. The `voice-review` skill compares your draft with it and
   with your samples, and names the sample or guide section behind each finding (a finding that names none is
-  marked unverified advice). The `voice-match` skill suggests small replacements for specific passages; one
-  that cannot be found exactly in your draft is shown as advice and never applied, and any applied suggestion
-  can be undone. With AI autocomplete on and the guide selected, suggestions lean toward your voice, and turning
+  marked unverified advice). The `voice-match` skill works on a passage: select text or put the cursor in a
+  section, choose **Selected text** or **Current section** in Review, and it suggests small replacements inside
+  that passage only. A suggestion that cannot be found exactly in the passage is shown as advice and never
+  applied, and any applied suggestion can be undone. With AI autocomplete on and the guide selected, suggestions lean toward your voice, and turning
   autocomplete on names the selected context first.
 - **Never your rough text.** The Assistant never edits a rough draft and never applies a change to a polished
   draft: it proposes, you decide.

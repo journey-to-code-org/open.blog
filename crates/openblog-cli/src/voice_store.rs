@@ -404,13 +404,11 @@ pub(crate) fn keep_private_out_of_git(root: &Path, visibility: Visibility) {
 
 /// Create a new file without replacing one, with a sentence that names the file and the cause but
 /// never its absolute path.
-fn create_new(path: &Path, bytes: &[u8]) -> Result<()> {
-    fsutil::write_new_atomic(path, bytes).map_err(|message| {
+pub(crate) fn create_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    fsutil::create_new_file(path, bytes).map_err(|cause| {
         let name = path
             .file_name()
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-        // The cause is the operating system's own sentence at the end of the message.
-        let cause = message.rsplit(": ").next().unwrap_or("").trim();
         StoreError::Failed(format!(
             "Cannot save `{name}`; nothing was replaced ({cause})."
         ))
@@ -737,6 +735,180 @@ pub fn guide_paths(_root: &Path) -> Vec<(Visibility, String)> {
             ".openblog/private/context/voice.md".to_string(),
         ),
     ]
+}
+
+/// The largest voice guide a move carries: the context file limit.
+pub const MAX_GUIDE_BYTES: u64 = 64 * 1024;
+
+/// The guide's file in one visibility, relative to the project (from [`guide_paths`]).
+pub fn guide_path(root: &Path, visibility: Visibility) -> String {
+    guide_paths(root)
+        .into_iter()
+        .find(|(v, _)| *v == visibility)
+        .map(|(_, path)| path)
+        .expect("both visibilities are named")
+}
+
+/// What a voice guide move would do, or did (ADR 0289).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuideMove {
+    pub from: Visibility,
+    pub to: Visibility,
+    /// Relative paths.
+    pub from_path: String,
+    pub to_path: String,
+    pub bytes: usize,
+    /// An identical copy is already at the destination: an interrupted move that only needs the
+    /// original removed.
+    pub finishing: bool,
+}
+
+/// The samples a saved guide's traits cite, read again from the store: each file's visibility and
+/// text. A sample that no longer exists (or no longer parses) is left out. Read only.
+pub fn carried_samples(
+    root: &Path,
+    saved: &openblog_core::voice::merge::SavedGuide,
+) -> std::collections::BTreeMap<String, (Visibility, String)> {
+    let mut found = std::collections::BTreeMap::new();
+    for file in saved.cited_samples() {
+        for visibility in [Visibility::Portable, Visibility::Private] {
+            if let Ok(loaded) = read(root, visibility, file) {
+                if let Some(sample) = loaded.sample {
+                    found.insert(file.to_string(), (visibility, sample.body));
+                    break;
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Whether a guide's text is private-derived (ADR 0288, ADR 0289): its provenance line names a
+/// private sample, or one of its traits cites a sample that is private now. Such a guide never
+/// goes to portable context, which Git tracks. The guide merge and the guide move share this rule.
+pub fn guide_is_private_derived(root: &Path, text: &str) -> bool {
+    openblog_core::voice::guide::quotes_private_samples(text)
+        || carried_samples(root, &openblog_core::voice::merge::SavedGuide::parse(text))
+            .values()
+            .any(|(visibility, _)| *visibility == Visibility::Private)
+}
+
+/// Check a guide move and read the guide. Read only.
+fn check_guide_move(root: &Path, to: Visibility) -> Result<(GuideMove, Vec<u8>)> {
+    let from = to.other();
+    let from_path = guide_path(root, from);
+    let to_path = guide_path(root, to);
+    for relative in [&from_path, &to_path] {
+        if linked_on_the_way(root, Path::new(relative))? {
+            return refused(format!(
+                "{relative}, or a folder on the way to it, is a link, so the guide was not moved. Replace it with a real file or folder, then try again."
+            ));
+        }
+    }
+    let source = contained(root, &from_path)?;
+    let target = contained(root, &to_path)?;
+    let unreadable = |why: &str| -> StoreError {
+        StoreError::Refused(format!(
+            "The {} voice guide {why}, so it was not moved. Repair or replace it in the Context view first.",
+            from.as_str()
+        ))
+    };
+    let bytes = match fs::symlink_metadata(&source) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return refused(format!(
+                "There is no {} voice guide to move.",
+                from.as_str()
+            ));
+        }
+        Err(error) => return Err(failed("Cannot inspect the voice guide", error)),
+        Ok(metadata) if !metadata.is_file() => return Err(unreadable("is not a regular file")),
+        Ok(metadata) if metadata.len() > MAX_GUIDE_BYTES => {
+            return Err(unreadable("is larger than 64 KiB"))
+        }
+        Ok(_) => fsutil::retry_transient(|| fs::read(&source))
+            .map_err(|_| unreadable("cannot be read"))?,
+    };
+    if bytes.len() as u64 > MAX_GUIDE_BYTES {
+        return Err(unreadable("is larger than 64 KiB"));
+    }
+    if to == Visibility::Portable {
+        // Portable context is tracked by Git: only a guide that can be read, and whose provenance
+        // does not name a private sample, goes there.
+        let text = std::str::from_utf8(&bytes).map_err(|_| unreadable("is not readable text"))?;
+        if guide_is_private_derived(root, text) {
+            return refused(
+                "This guide quotes private samples, so it stays private. Portable context is tracked by Git.",
+            );
+        }
+    }
+    let finishing = match fs::symlink_metadata(&target) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(failed("Cannot inspect the voice guide", error)),
+        Ok(metadata) if !metadata.is_file() => {
+            return refused(format!(
+                "{to_path} is not a regular file, so the guide was not moved."
+            ));
+        }
+        Ok(_) => {
+            let existing = fsutil::retry_transient(|| fs::read(&target))
+                .map_err(|error| failed("Cannot read the other voice guide", error))?;
+            if existing != bytes {
+                return refused(format!(
+                    "A {} voice guide already exists and differs, so nothing was moved. Keep one of the two first.",
+                    to.as_str()
+                ));
+            }
+            true
+        }
+    };
+    Ok((
+        GuideMove {
+            from,
+            to,
+            from_path,
+            to_path,
+            bytes: bytes.len(),
+            finishing,
+        },
+        bytes,
+    ))
+}
+
+/// What moving the guide to `to` would do, or why it is refused. Read only; it creates nothing.
+pub fn plan_guide_move(root: &Path, to: Visibility) -> Result<GuideMove> {
+    check_guide_move(root, to).map(|(planned, _)| planned)
+}
+
+/// Move the voice guide to the other folder in one step (ADR 0289). The bytes are copied unchanged
+/// and read back before the original is removed, so a failure never loses the guide: a copy that
+/// does not match is removed and the original stays, and an original that cannot be removed leaves
+/// two identical copies and a move that can be run again. Nothing is overwritten. The caller holds
+/// the content transaction lock (a guide save holds it too); this takes the store lock, the same
+/// order an import uses.
+pub fn move_guide(root: &Path, to: Visibility) -> Result<GuideMove> {
+    let _lock = lock(root)?;
+    let (planned, bytes) = check_guide_move(root, to)?;
+    let source = contained(root, &planned.from_path)?;
+    let target = contained(root, &planned.to_path)?;
+    // The ignore rule is in place before a private copy exists.
+    keep_private_out_of_git(root, to);
+    if !planned.finishing {
+        create_new(&target, &bytes)?;
+        let copied = fsutil::retry_transient(|| fs::read(&target)).ok();
+        if copied.as_deref() != Some(bytes.as_slice()) {
+            let _ = fsutil::retry_transient(|| fs::remove_file(&target));
+            return Err(StoreError::Failed(
+                "The copy did not match the guide, so nothing was moved.".into(),
+            ));
+        }
+    }
+    if let Err(error) = remove_source(&source) {
+        return Err(StoreError::Failed(format!(
+            "The guide was copied to {}, but {} could not be removed ({error}). Both copies are the same; run the move again to finish it.",
+            planned.to_path, planned.from_path
+        )));
+    }
+    Ok(planned)
 }
 
 /// The folder (relative) that holds the session record, the editor files and the erase trash.

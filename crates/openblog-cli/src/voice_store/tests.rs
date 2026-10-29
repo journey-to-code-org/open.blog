@@ -1316,3 +1316,225 @@ fn a_voice_folder_linked_inside_the_project_is_never_written_to() {
     assert_posts_survive(&project);
     assert_eq!(snapshot(&project.0), before);
 }
+
+// ---- moving the voice guide (ADR 0289) ---------------------------------------------------------
+
+const PORTABLE_GUIDE: &str = "assistant/context/voice.md";
+const PRIVATE_GUIDE: &str = ".openblog/private/context/voice.md";
+const GUIDE_TEXT: &str =
+    "# Voice guide\n<!-- openblog:voice-provenance sources=portable -->\n\n- Mine\n";
+
+fn put(project: &Project, relative: &str, bytes: &[u8]) {
+    let path = project.0.join(relative);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn the_guide_moves_both_ways_unchanged_and_private_is_kept_out_of_git() {
+    let project = Project::new();
+    fs::create_dir_all(project.0.join(".git")).unwrap();
+    put(&project, PORTABLE_GUIDE, GUIDE_TEXT.as_bytes());
+
+    let planned = plan_guide_move(&project.0, Visibility::Private).unwrap();
+    assert_eq!(planned.from_path, PORTABLE_GUIDE);
+    assert_eq!(planned.to_path, PRIVATE_GUIDE);
+    assert_eq!(planned.bytes, GUIDE_TEXT.len());
+    assert!(!planned.finishing);
+    // A plan writes nothing.
+    assert!(!project.0.join(PRIVATE_GUIDE).exists());
+
+    move_guide(&project.0, Visibility::Private).unwrap();
+    assert!(!project.0.join(PORTABLE_GUIDE).exists());
+    assert_eq!(
+        fs::read_to_string(project.0.join(PRIVATE_GUIDE)).unwrap(),
+        GUIDE_TEXT
+    );
+    assert!(fs::read_to_string(project.0.join(".gitignore"))
+        .unwrap()
+        .contains("/.openblog/private/"));
+
+    // And back again: the move is reversible and the bytes never change.
+    move_guide(&project.0, Visibility::Portable).unwrap();
+    assert!(!project.0.join(PRIVATE_GUIDE).exists());
+    assert_eq!(
+        fs::read_to_string(project.0.join(PORTABLE_GUIDE)).unwrap(),
+        GUIDE_TEXT
+    );
+}
+
+#[test]
+fn a_guide_that_quotes_private_samples_or_cannot_be_read_never_moves_to_portable() {
+    for bytes in [
+        b"# Voice guide\n<!-- openblog:voice-provenance sources=portable,private -->\n".to_vec(),
+        vec![0xff, 0xfe, 0x00, 0x41],
+        vec![b'a'; MAX_GUIDE_BYTES as usize + 1],
+    ] {
+        let project = Project::new();
+        put(&project, PRIVATE_GUIDE, &bytes);
+        let before = snapshot(&project.0);
+        assert!(matches!(
+            plan_guide_move(&project.0, Visibility::Portable),
+            Err(StoreError::Refused(_))
+        ));
+        assert!(matches!(
+            move_guide(&project.0, Visibility::Portable),
+            Err(StoreError::Refused(_))
+        ));
+        assert_eq!(snapshot(&project.0), before);
+    }
+    // A guide that quotes private samples may of course move to private.
+    let project = Project::new();
+    let private = b"# Voice guide\n<!-- openblog:voice-provenance sources=private -->\n";
+    put(&project, PORTABLE_GUIDE, private);
+    move_guide(&project.0, Visibility::Private).unwrap();
+    assert_eq!(fs::read(project.0.join(PRIVATE_GUIDE)).unwrap(), private);
+}
+
+#[test]
+fn a_guide_whose_traits_cite_a_sample_that_is_private_now_never_moves_to_portable() {
+    // The guide was made from portable samples, so its provenance says portable; then the sample
+    // it quotes was moved to private. Its quote is private text now.
+    let project = Project::with_session("a-mistake-i-made");
+    lock_rough(&project, Visibility::Private);
+    let guide = format!(
+        "# Voice guide
+<!-- openblog:voice-provenance sources=portable -->
+
+## Word choice
+
+- Casual: \"panicked\" ({ROUGH})
+"
+    );
+    put(&project, PRIVATE_GUIDE, guide.as_bytes());
+    assert!(guide_is_private_derived(&project.0, &guide));
+    let before = snapshot(&project.0);
+    assert!(matches!(
+        plan_guide_move(&project.0, Visibility::Portable),
+        Err(StoreError::Refused(message)) if message.contains("private samples")
+    ));
+    assert!(matches!(
+        move_guide(&project.0, Visibility::Portable),
+        Err(StoreError::Refused(_))
+    ));
+    assert_eq!(snapshot(&project.0), before);
+
+    // Once the sample is portable again, the guide may follow it.
+    move_visibility(&project.0, Visibility::Private, ROUGH, Visibility::Portable).unwrap();
+    assert!(!guide_is_private_derived(&project.0, &guide));
+    move_guide(&project.0, Visibility::Portable).unwrap();
+    assert_eq!(
+        fs::read_to_string(project.0.join(PORTABLE_GUIDE)).unwrap(),
+        guide
+    );
+}
+
+#[test]
+fn a_guide_move_never_overwrites_and_finishes_an_interrupted_move() {
+    let project = Project::new();
+    assert!(matches!(
+        plan_guide_move(&project.0, Visibility::Private),
+        Err(StoreError::Refused(message)) if message.contains("no portable voice guide")
+    ));
+    put(&project, PORTABLE_GUIDE, GUIDE_TEXT.as_bytes());
+    put(&project, PRIVATE_GUIDE, b"# Another guide\n");
+    let before = snapshot(&project.0);
+    assert!(matches!(
+        move_guide(&project.0, Visibility::Private),
+        Err(StoreError::Refused(message)) if message.contains("already exists")
+    ));
+    assert_eq!(snapshot(&project.0), before);
+    // An identical copy at the destination: the move only removes the original.
+    put(&project, PRIVATE_GUIDE, GUIDE_TEXT.as_bytes());
+    assert!(
+        plan_guide_move(&project.0, Visibility::Private)
+            .unwrap()
+            .finishing
+    );
+    move_guide(&project.0, Visibility::Private).unwrap();
+    assert!(!project.0.join(PORTABLE_GUIDE).exists());
+    assert_eq!(
+        fs::read_to_string(project.0.join(PRIVATE_GUIDE)).unwrap(),
+        GUIDE_TEXT
+    );
+}
+
+#[test]
+fn a_failed_removal_never_loses_the_guide_and_the_move_can_be_finished() {
+    let project = Project::new();
+    put(&project, PORTABLE_GUIDE, GUIDE_TEXT.as_bytes());
+    FAIL_REMOVE.with(|f| *f.borrow_mut() = Some("voice.md".to_string()));
+    let error = move_guide(&project.0, Visibility::Private).unwrap_err();
+    FAIL_REMOVE.with(|f| *f.borrow_mut() = None);
+    assert!(error.to_string().contains("run the move again"), "{error}");
+    // Both copies are the guide, byte for byte.
+    for path in [PORTABLE_GUIDE, PRIVATE_GUIDE] {
+        assert_eq!(
+            fs::read_to_string(project.0.join(path)).unwrap(),
+            GUIDE_TEXT
+        );
+    }
+    move_guide(&project.0, Visibility::Private).unwrap();
+    assert!(!project.0.join(PORTABLE_GUIDE).exists());
+    assert_eq!(
+        fs::read_to_string(project.0.join(PRIVATE_GUIDE)).unwrap(),
+        GUIDE_TEXT
+    );
+}
+
+#[test]
+fn a_linked_guide_or_guide_folder_refuses_the_move_and_touches_nothing() {
+    // The private context folder is a link to the posts.
+    let project = project_with_posts();
+    put(&project, PORTABLE_GUIDE, GUIDE_TEXT.as_bytes());
+    let link = project.0.join(".openblog/private/context");
+    fs::create_dir_all(link.parent().unwrap()).unwrap();
+    if !try_dir_link(&project.0.join("content/posts"), &link) {
+        eprintln!("skipped: this OS refused to create a folder link");
+        return;
+    }
+    let before = snapshot(&project.0);
+    assert!(matches!(
+        move_guide(&project.0, Visibility::Private),
+        Err(StoreError::Refused(message)) if message.contains("is a link")
+    ));
+    assert_posts_survive(&project);
+    assert_eq!(snapshot(&project.0), before);
+
+    // The guide itself is a link to a file outside the project.
+    let project = Project::new();
+    let outside = std::env::temp_dir().join(format!("ob-voice-guide-{}.md", std::process::id()));
+    fs::write(&outside, "outside words").unwrap();
+    fs::create_dir_all(project.0.join("assistant/context")).unwrap();
+    if try_link(&outside, &project.0.join(PORTABLE_GUIDE)) {
+        assert!(matches!(
+            move_guide(&project.0, Visibility::Private),
+            Err(StoreError::Refused(_))
+        ));
+        assert!(!project.0.join(PRIVATE_GUIDE).exists());
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "outside words");
+    }
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn a_create_that_cannot_happen_names_the_file_not_an_export_or_the_absolute_path() {
+    let project = Project::new();
+    let path = project.0.join("assistant/context/voice").join(ROUGH);
+    put(
+        &project,
+        &format!("assistant/context/voice/{ROUGH}"),
+        b"first",
+    );
+    let message = create_new(&path, b"second").unwrap_err().to_string();
+    assert!(
+        message.starts_with(&format!("Cannot save `{ROUGH}`; nothing was replaced (")),
+        "{message}"
+    );
+    assert!(!message.contains("export"), "{message}");
+    assert!(
+        !message.contains(&*project.0.to_string_lossy()),
+        "{message}"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"first");
+}

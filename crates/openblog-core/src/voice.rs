@@ -14,6 +14,7 @@ pub mod draw;
 pub mod exchange;
 pub mod gaps;
 pub mod guide;
+pub mod merge;
 
 use std::collections::BTreeMap;
 use std::fmt;

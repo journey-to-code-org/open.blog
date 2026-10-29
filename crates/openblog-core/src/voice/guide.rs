@@ -8,6 +8,8 @@
 
 use serde_json::Value as Json;
 
+pub use super::merge::{merge, Choice, SavedGuide};
+
 /// The start of the provenance comment a saved guide carries on the line after its title.
 pub const PROVENANCE_MARKER: &str = "<!-- openblog:voice-provenance";
 
@@ -60,6 +62,35 @@ pub struct Trait {
     pub sample: String,
     /// True until a second sample shows the same habit.
     pub one_sample: bool,
+    /// The statement of the saved guide's trait, in the same section, that this one changes. Only
+    /// a proposal sets it; a trait read from a saved guide never does (ADR 0288).
+    pub replaces: Option<String>,
+}
+
+impl Trait {
+    /// The trait as one guide bullet: `- <statement>: "<quote>" (<file>)`, with ` (one sample)`
+    /// appended when it rests on one sample.
+    pub fn line(&self) -> String {
+        format!(
+            "- {}: \"{}\" ({}){}",
+            self.statement,
+            self.quote,
+            self.sample,
+            if self.one_sample {
+                format!(" {ONE_SAMPLE_MARKER}")
+            } else {
+                String::new()
+            }
+        )
+    }
+
+    /// The same claim with the same evidence, whatever `replaces` says.
+    pub fn same_claim(&self, other: &Trait) -> bool {
+        self.statement == other.statement
+            && self.quote == other.quote
+            && self.sample == other.sample
+            && self.one_sample == other.one_sample
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,9 +130,23 @@ fn plain(value: &Json, what: &str, maximum: usize) -> Result<String, String> {
 }
 
 impl VoiceGuide {
-    /// Validate a provider result against the samples that were selected for the request. The
-    /// error is one plain sentence naming the first problem; nothing partial is returned.
+    /// Validate a provider result against the samples that were selected for the request, with no
+    /// saved guide. The error is one plain sentence naming the first problem; nothing partial is
+    /// returned.
     pub fn from_json(value: &Json, samples: &[SampleText<'_>]) -> Result<Self, String> {
+        Self::from_json_against(value, samples, &SavedGuide::default())
+    }
+
+    /// Validate a provider result against the selected samples and the saved guide it was asked to
+    /// keep (ADR 0288). A new or changed trait must quote a selected sample word for word. A trait
+    /// that repeats a saved claim exactly may cite a sample that was not selected, since the merge
+    /// keeps it anyway. `replaces` must name a saved trait in the same section, at most once; a
+    /// trait whose statement matches a saved one in its section changes that trait even without it.
+    pub fn from_json_against(
+        value: &Json,
+        samples: &[SampleText<'_>],
+        saved: &SavedGuide,
+    ) -> Result<Self, String> {
         let object = value
             .as_object()
             .filter(|o| o.len() == 2 && o.contains_key("sections") && o.contains_key("unknown"))
@@ -133,18 +178,20 @@ impl VoiceGuide {
                     "the section `{id}` has more than {MAX_TRAITS_PER_SECTION} traits"
                 ));
             }
-            let mut traits = Vec::with_capacity(raw_traits.len());
+            let saved_traits = saved.traits_of(id);
+            let mut traits: Vec<Trait> = Vec::with_capacity(raw_traits.len());
             for raw in raw_traits {
                 let item = raw
                     .as_object()
                     .filter(|o| {
-                        o.len() == 4
+                        let extra = usize::from(o.contains_key("replaces"));
+                        o.len() == 4 + extra
                             && ["statement", "quote", "sample", "oneSample"]
                                 .iter()
                                 .all(|key| o.contains_key(*key))
                     })
                     .ok_or(
-                        "each trait must contain exactly `statement`, `quote`, `sample` and `oneSample`",
+                        "each trait must contain exactly `statement`, `quote`, `sample`, `oneSample` and optionally `replaces`",
                     )?;
                 let statement = plain(&item["statement"], "a statement", MAX_STATEMENT_CHARS)?;
                 let quote = plain(&item["quote"], "a quote", MAX_QUOTE_CHARS)?;
@@ -152,21 +199,53 @@ impl VoiceGuide {
                 let one_sample = item["oneSample"]
                     .as_bool()
                     .ok_or("`oneSample` must be true or false")?;
-                let named = samples
-                    .iter()
-                    .find(|s| s.file == sample)
-                    .ok_or_else(|| format!("the sample `{sample}` was not selected"))?;
-                if !named.text.contains(&quote) {
-                    return Err(format!(
-                        "the quote \"{quote}\" does not occur word for word in {sample}"
-                    ));
-                }
-                traits.push(Trait {
+                let replaces = match item.get("replaces") {
+                    None | Some(Json::Null) => None,
+                    Some(value) => Some(plain(value, "`replaces`", MAX_STATEMENT_CHARS)?),
+                };
+                let mut found = Trait {
                     statement,
                     quote,
                     sample,
                     one_sample,
-                });
+                    replaces,
+                };
+                // The same statement as a saved trait in this section is that trait, kept or changed.
+                if found.replaces.is_none() {
+                    if let Some(old) = saved_traits.iter().find(|t| t.statement == found.statement)
+                    {
+                        if !old.same_claim(&found) {
+                            found.replaces = Some(old.statement.clone());
+                        }
+                    }
+                }
+                if let Some(target) = &found.replaces {
+                    if !saved_traits.iter().any(|t| &t.statement == target) {
+                        return Err(format!(
+                            "a trait replaces \"{target}\", which is not in that section of the saved guide"
+                        ));
+                    }
+                    if traits.iter().any(|t| t.replaces.as_ref() == Some(target)) {
+                        return Err(format!("two traits change the saved trait \"{target}\""));
+                    }
+                }
+                let repeats_saved =
+                    found.replaces.is_none() && saved_traits.iter().any(|t| t.same_claim(&found));
+                match samples.iter().find(|s| s.file == found.sample) {
+                    Some(named) => {
+                        if !named.text.contains(&found.quote) {
+                            return Err(format!(
+                                "the quote \"{}\" does not occur word for word in {}",
+                                found.quote, found.sample
+                            ));
+                        }
+                    }
+                    None if repeats_saved => {}
+                    None => {
+                        return Err(format!("the sample `{}` was not selected", found.sample));
+                    }
+                }
+                traits.push(found);
             }
             sections.push(Section {
                 id: id.to_string(),
@@ -197,53 +276,29 @@ impl VoiceGuide {
                 Some(serde_json::json!({
                     "id": id,
                     "heading": heading,
-                    "traits": section.traits.iter().map(|t| serde_json::json!({
-                        "statement": t.statement,
-                        "quote": t.quote,
-                        "sample": t.sample,
-                        "oneSample": t.one_sample,
-                    })).collect::<Vec<_>>(),
+                    "traits": section.traits.iter().map(trait_json).collect::<Vec<_>>(),
                 }))
             })
             .collect();
         serde_json::json!({ "sections": sections, "unknown": self.unknown })
     }
-    /// The guide as Markdown. The same guide always renders to the same bytes: sections follow the
-    /// fixed order, empty sections are left out, and the last section is always there.
+    /// The guide as Markdown, with no saved guide to fold into. The same guide always renders to
+    /// the same bytes: sections follow the fixed order, empty sections are left out, and the last
+    /// section is always there.
     pub fn render(&self) -> String {
-        let mut out = String::from("# Voice guide\n");
-        for (id, heading) in SECTIONS {
-            let Some(section) = self.sections.iter().find(|s| s.id == id) else {
-                continue;
-            };
-            if section.traits.is_empty() {
-                continue;
-            }
-            out.push_str(&format!("\n## {heading}\n\n"));
-            for item in &section.traits {
-                out.push_str(&format!(
-                    "- {}: \"{}\" ({}){}\n",
-                    item.statement,
-                    item.quote,
-                    item.sample,
-                    if item.one_sample {
-                        format!(" {ONE_SAMPLE_MARKER}")
-                    } else {
-                        String::new()
-                    }
-                ));
-            }
-        }
-        out.push_str(&format!("\n## {UNKNOWN_HEADING}\n\n"));
-        if self.unknown.is_empty() {
-            out.push_str("_Nothing is flagged yet._\n");
-        } else {
-            for item in &self.unknown {
-                out.push_str(&format!("- {item}\n"));
-            }
-        }
-        out
+        merge(&SavedGuide::default(), self).render(None, |_| Choice::Proposed)
     }
+}
+
+/// A trait as the Admin reads it.
+pub fn trait_json(t: &Trait) -> Json {
+    serde_json::json!({
+        "statement": t.statement,
+        "quote": t.quote,
+        "sample": t.sample,
+        "oneSample": t.one_sample,
+        "replaces": t.replaces,
+    })
 }
 
 /// A trait in a saved guide that still rests on one sample.

@@ -269,3 +269,38 @@ test("a proposal offers Save as private first, as the default, and Save as porta
     assert.doesNotMatch(buttons[1].className, /oba-btn-primary/);
   })();
 });
+
+test("a merged voice guide is joined only once every change is decided, from the server's own lines", async () => {
+  const { voiceGuideAssemble, voiceGuidePendingChanges } = await import("../../web/admin/admin.js");
+  const lines = [
+    "# Voice guide",
+    "",
+    "## Word choice",
+    "",
+    "- Says honestly: \"honestly it was\" (b.md)",
+    { change: 0, current: "- Says plainly: \"plain words\" (gone.md) (one sample)", proposed: "- Says plainly, lower case: \"so i deleted\" (a.md) (one sample)" },
+    "",
+    "## What is not yet known",
+    "",
+    "- Endings",
+  ];
+  const merge = { changes: 1, lines };
+  assert.equal(voiceGuideAssemble(lines, {}), null);
+  assert.equal(voiceGuidePendingChanges(merge, {}), 1);
+  assert.equal(voiceGuidePendingChanges(merge, { 0: "maybe" }), 1);
+  const kept = voiceGuideAssemble(lines, { 0: "current" });
+  assert.equal(kept, "# Voice guide\n\n## Word choice\n\n- Says honestly: \"honestly it was\" (b.md)\n- Says plainly: \"plain words\" (gone.md) (one sample)\n\n## What is not yet known\n\n- Endings\n");
+  const taken = voiceGuideAssemble(lines, { 0: "proposed" });
+  assert.ok(taken.includes("- Says plainly, lower case: "));
+  assert.ok(!taken.includes("(gone.md)"));
+  assert.equal(voiceGuidePendingChanges(merge, { 0: "proposed" }), 0);
+  assert.equal(voiceGuideAssemble(["# Voice guide"], {}), "# Voice guide\n");
+});
+
+test("a kept trait's quote check is explained and the trait reads the way the guide writes it", async () => {
+  const { voiceGuideCheckNote, voiceGuideTraitText } = await import("../../web/admin/admin.js");
+  assert.equal(voiceGuideCheckNote("verified"), "");
+  assert.match(voiceGuideCheckNote("sample-missing"), /no longer exists.*It is kept/);
+  assert.match(voiceGuideCheckNote("not-in-sample"), /no longer word for word/);
+  assert.equal(voiceGuideTraitText({ statement: "Plain", quote: "so i", sample: "a.md", oneSample: true }), "Plain: \"so i\" (a.md) (one sample)");
+});

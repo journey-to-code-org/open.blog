@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -175,4 +175,162 @@ test("an over-budget voice selection is refused before any request", async ({ pa
   await page.getByRole("button", { name: "Run document review" }).click();
   await expect(page.getByText(/Document review did not run. 2 voice samples are selected/)).toBeVisible();
   expect(posts).toEqual([]);
+});
+
+test("a proposal folded into the saved guide keeps what it does not address and waits for a choice on each change", async ({ page }) => {
+  const saved = readFileSync(guidePath(), "utf8");
+  const changeLine = { change: 0, current: "- Says plainly: \"plain words\" (2026-01-01-gone-rough.md) (one sample)", proposed: "- Says plainly, all lower case: \"so i delted\" (2026-10-28-a-mistake-i-made-rough.md) (one sample)" };
+  const lines = ["# Voice guide", "", "My own note at the top.", "", "## Word choice", "", changeLine, "- Likes lists: \"a list\" (2026-01-02-lists-rough.md)", "", "## What is not yet known", "", "- Endings"];
+  const proposal = {
+    guide: { sections: [], unknown: [] },
+    markdown: null,
+    portableAllowed: true,
+    current: { visibility: "portable", exists: true, content: saved },
+    diff: "--- voice.md (saved)\n+++ voice.md (proposed)\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+    targets: { portable: { exists: true, valid: true, etag: null, characters: saved.length }, private: { exists: false, valid: true, etag: null, characters: 0 } },
+    merge: {
+      changes: 1,
+      freeText: true,
+      ownSections: [],
+      sections: [{ id: "diction", heading: "Word choice", traits: [
+        { status: "changed", change: 0, check: "sample-missing", current: { statement: "Says plainly", quote: "plain words", sample: "2026-01-01-gone-rough.md", oneSample: true }, proposed: { statement: "Says plainly, all lower case", quote: "so i delted", sample: "2026-10-28-a-mistake-i-made-rough.md", oneSample: true } },
+        { status: "kept", check: "verified", current: { statement: "Likes lists", quote: "a list", sample: "2026-01-02-lists-rough.md", oneSample: false } },
+      ] }],
+      unknown: [{ text: "Endings", status: "kept" }],
+      lines,
+    },
+  };
+  await page.route("**/admin/api/assistant/status", (route) =>
+    route.fulfill({ json: { providerType: "generic-https", model: "test", destination: "https://assistant.example", configured: true, capabilities: { review: true }, message: "ready" } }),
+  );
+  await page.route("**/admin/api/assistant/voice-guide", (route) => route.fulfill({ json: proposal }));
+  await page.setViewportSize({ width: 360, height: 800 });
+  await openContext(page);
+  const samples = readdirSync(privateDir());
+  const mistake = samples.find((name) => name.includes("a-mistake-i-made"));
+  await page.locator(`[data-voice-sample="${mistake}"]`).getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Propose a voice guide from selected samples" }).click();
+  const result = page.getByRole("region", { name: "Proposed voice guide" });
+  const merged = result.getByRole("region", { name: /Your guide, trait by trait/ });
+  await expect(merged).toBeVisible();
+  await expect(merged.locator("[data-merge='kept']").first()).toContainText("Kept from your current guide");
+  await expect(merged.getByText("Your own text outside the traits is kept where it is.")).toBeVisible();
+  const change = merged.getByRole("group", { name: /Says plainly/ });
+  await expect(change).toContainText("Keep current");
+  await expect(change).toContainText("Take proposed");
+  await expect(change.locator("[data-check='sample-missing']")).toBeVisible();
+
+  // Nothing can be saved until the change is decided.
+  const savePrivate = result.getByRole("button", { name: "Save as private" });
+  await expect(savePrivate).toBeDisabled();
+  await expect(result.locator("[data-voice-guide-pending]")).toContainText("1 changed trait");
+
+  // Keeping the current text joins the server's lines with the old trait, from the keyboard.
+  await change.getByRole("radio", { name: /Keep current/ }).focus();
+  await page.keyboard.press("Space");
+  await expect(savePrivate).toBeEnabled();
+  const editor = result.getByRole("textbox", { name: /Proposed voice guide Markdown/ });
+  await expect(editor).toHaveValue(`${lines.map((line) => (typeof line === "string" ? line : line.current)).join("\n")}\n`);
+  await change.getByRole("radio", { name: /Take proposed/ }).check();
+  await expect(editor).toHaveValue(/Says plainly, all lower case/);
+
+  // The merged view fits a phone without sideways scrolling.
+  const overflow = await merged.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+
+  await result.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByText("Proposal discarded. Nothing was saved.")).toBeVisible();
+  expect(readFileSync(guidePath(), "utf8")).toBe(saved);
+});
+
+test("the voice guide moves between portable and private from beside it, previewed and reversible", async ({ page }) => {
+  const privateGuide = join(root, ".openblog", "private", "context", "voice.md");
+  rmSync(privateGuide, { force: true });
+  writeFileSync(guidePath(), SAVED);
+  await openContext(page);
+  const portableCard = page.getByRole("region", { name: "Voice guide · Portable" });
+  await portableCard.getByRole("button", { name: "Make private" }).click();
+  await expect(portableCard.locator("[data-voice-guide-move-status]")).toContainText("from assistant/context/voice.md to .openblog/private/context/voice.md");
+  // Cancel moves nothing and gives focus back.
+  await portableCard.getByRole("button", { name: "Cancel" }).click();
+  await expect(portableCard.locator("[data-voice-guide-move-status]")).toHaveText("Nothing was moved.");
+  await expect(portableCard.getByRole("button", { name: "Make private" })).toBeFocused();
+  expect(existsSync(privateGuide)).toBe(false);
+
+  await portableCard.getByRole("button", { name: "Make private" }).click();
+  await portableCard.getByRole("button", { name: "Move to private" }).click();
+  await expect(page.getByText("The voice guide is now private. You can move it back the same way.")).toBeVisible();
+  expect(existsSync(guidePath())).toBe(false);
+  expect(readFileSync(privateGuide, "utf8")).toBe(SAVED);
+
+  const privateCard = page.getByRole("region", { name: "Voice guide · Private" });
+  await privateCard.getByRole("button", { name: "Make portable" }).click();
+  await privateCard.getByRole("button", { name: "Move to portable" }).click();
+  await expect(page.getByText("The voice guide is now portable. You can move it back the same way.")).toBeVisible();
+  expect(readFileSync(guidePath(), "utf8")).toBe(SAVED);
+  expect(existsSync(privateGuide)).toBe(false);
+
+  // A private guide that quotes private samples is refused before anything moves.
+  rmSync(guidePath());
+  const quoting = "# Voice guide\n<!-- openblog:voice-provenance sources=private -->\n";
+  writeFileSync(privateGuide, quoting);
+  await page.reload();
+  await openContext(page);
+  const quotingCard = page.getByRole("region", { name: "Voice guide · Private" });
+  await quotingCard.getByRole("button", { name: "Make portable" }).click();
+  await expect(quotingCard.locator("[data-voice-guide-move-status]")).toContainText("quotes private samples");
+  await expect(quotingCard.getByRole("button", { name: "Move to portable" })).toHaveCount(0);
+  expect(readFileSync(privateGuide, "utf8")).toBe(quoting);
+  expect(existsSync(guidePath())).toBe(false);
+  writeFileSync(guidePath(), SAVED);
+  rmSync(privateGuide);
+});
+
+test("voice match reviews only the selected text and its suggestion applies and undoes", async ({ page }) => {
+  let reviewRequest = null;
+  await page.route("**/admin/api/assistant/status", (route) =>
+    route.fulfill({ json: { providerType: "generic-https", model: "test", destination: "https://assistant.example", configured: true, capabilities: { review: true }, message: "ready" } }),
+  );
+  await page.route("**/admin/api/assistant/review", (route) => {
+    reviewRequest = route.request().postDataJSON();
+    const { start, end } = reviewRequest.passage;
+    return route.fulfill({
+      json: {
+        reviewId: "r1",
+        scope: { kind: "selection", start, end, unit: "unicode-code-points" },
+        skills: [{ id: "voice-match", version: "1.1.0" }],
+        findings: [{ id: "m1", skillId: "voice-match", skillVersion: "1.1.0", category: "voice", severity: "note", title: "Sounds stiff", explanation: "You write plainly.", range: { start, end }, evidence: "Some body text", suggestion: "Plain words", sources: [], verification: "unverified-advice" }],
+      },
+    });
+  });
+  await openContext(page);
+  // The Markdown editor of the open post (the Assistant pane sits beside it).
+  const body = page.locator("#oba-body");
+  const markdown = await body.inputValue();
+  const at = markdown.indexOf("Some body text");
+  await page.getByRole("navigation", { name: "Assistant views" }).getByRole("button", { name: "Review", exact: true }).click();
+  const skills = page.getByRole("group", { name: "Review skills" });
+  const voiceMatch = skills.locator("label", { hasText: "Voice match" }).getByRole("checkbox");
+  // Voice match is for a passage: not offered for the whole document.
+  await expect(voiceMatch).toBeDisabled();
+  await page.getByRole("radio", { name: "Selected text" }).check();
+  await expect(voiceMatch).toBeEnabled();
+  await voiceMatch.check();
+  await expect(page.locator(".oba-assistant-disclosure-panel", { hasText: "Review disclosure" })).toContainText("Selected text");
+
+  // Without a selection nothing is sent.
+  await body.evaluate((element) => element.setSelectionRange(0, 0));
+  await page.getByRole("button", { name: "Review selected text" }).click();
+  await expect(page.getByText(/The review did not run. Select some text in the draft first./)).toBeVisible();
+  expect(reviewRequest).toBeNull();
+
+  await body.evaluate((element, [from, to]) => element.setSelectionRange(from, to), [at, at + "Some body text".length]);
+  await page.getByRole("button", { name: "Review selected text" }).click();
+  await expect(page.getByRole("button", { name: "Apply suggestion" })).toBeVisible();
+  expect(reviewRequest.passage).toEqual({ kind: "selection", start: Array.from(markdown.slice(0, at)).length, end: Array.from(markdown.slice(0, at)).length + 14 });
+  expect(reviewRequest.skillIds).toEqual(["voice-match"]);
+  await page.getByRole("button", { name: "Apply suggestion" }).click();
+  await expect(body).toHaveValue(markdown.replace("Some body text", "Plain words"));
+  await page.getByRole("button", { name: "Undo applied suggestion" }).click();
+  await expect(body).toHaveValue(markdown);
 });

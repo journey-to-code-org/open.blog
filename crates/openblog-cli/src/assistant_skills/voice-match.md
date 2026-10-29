@@ -2,8 +2,8 @@
 id: voice-match
 name: Voice match
 description: Suggests small replacements so a passage sounds more like the author, anchored to the exact source text.
-version: 1.0.0
-scopes: [selection, section, document]
+version: 1.1.0
+scopes: [selection, section]
 output: review
 ---
 Help the author make specific passages sound more like themselves, using only the explicitly supplied voice context: the approved voice guide (context with kind `voice-guide`) and the author's own voice samples (context with kind `voice-sample`).

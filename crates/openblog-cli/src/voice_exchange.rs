@@ -79,19 +79,33 @@ fn visibility_named(item: &Item) -> Visibility {
 
 // ---- export ----------------------------------------------------------------------------------
 
+/// The export text, how many samples it holds and whether it holds a guide. Each thing left out
+/// is said on standard error.
+fn gather(root: &Path, include_private: bool) -> Result<Gathered, String> {
+    let (gathered, left_out) = collect(root, include_private)?;
+    for warning in left_out {
+        eprintln!("warning: left out of the export: {warning}");
+    }
+    Ok(gathered)
+}
+
 /// The export text, how many samples it holds and whether it holds a guide.
-fn gather(root: &Path, include_private: bool) -> Result<(String, usize, bool), String> {
+type Gathered = (String, usize, bool);
+
+/// [`gather`], with what was left out returned rather than printed.
+fn collect(root: &Path, include_private: bool) -> Result<(Gathered, Vec<String>), String> {
+    let mut left_out = Vec::new();
     let mut samples = Vec::new();
     for listed in voice_store::list(root) {
         if listed.visibility == Visibility::Private && !include_private {
             continue;
         }
         if !listed.valid {
-            eprintln!(
-                "warning: left out of the export: {} ({})",
+            left_out.push(format!(
+                "{} ({})",
                 listed.file,
                 listed.guidance.as_deref().unwrap_or("not a valid sample")
-            );
+            ));
             continue;
         }
         let bytes = voice_store::raw(root, listed.visibility, &listed.file)
@@ -124,16 +138,16 @@ fn gather(root: &Path, include_private: bool) -> Result<(String, usize, bool), S
                 if guide.is_none() {
                     guide = Some(item);
                 } else {
-                    eprintln!(
-                        "warning: left out of the export: the {} voice guide (one guide travels, and the portable one is preferred)",
+                    left_out.push(format!(
+                        "the {} voice guide (one guide travels, and the portable one is preferred)",
                         visibility.as_str()
-                    );
+                    ));
                 }
             }
-            _ => eprintln!(
-                "warning: left out of the export: the {} voice guide (it is not text a guide may carry there)",
+            _ => left_out.push(format!(
+                "the {} voice guide (it is not text a guide may carry there)",
                 visibility.as_str()
-            ),
+            )),
         }
     }
     let text = exchange::export(&samples, guide.as_ref());
@@ -144,7 +158,7 @@ fn gather(root: &Path, include_private: bool) -> Result<(String, usize, bool), S
             MAX_EXPORT_BYTES / (1024 * 1024)
         ));
     }
-    Ok((text, samples.len(), guide.is_some()))
+    Ok(((text, samples.len(), guide.is_some()), left_out))
 }
 
 /// The nearest existing ancestor, resolved, with the rest appended.
@@ -473,7 +487,8 @@ fn apply_with(root: &Path, steps: &[Step], hooks: &Hooks) -> Result<(), String> 
                 label: step.relative(root),
             });
             if step.action == Action::Create {
-                fsutil::write_new_atomic(&path, step.content.as_bytes())?;
+                voice_store::create_new(&path, step.content.as_bytes())
+                    .map_err(|error| error.to_string())?;
             } else {
                 voice_store::replace(&path, step.content.as_bytes())
                     .map_err(|error| error.to_string())?;

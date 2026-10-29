@@ -112,11 +112,17 @@ Assistant workflow behave as they did.
   before anything is sent. The guide is an ordinary context file, `assistant/context/voice.md` or its
   private mirror. See
   [ADR 0278](../adr/0278-voice-samples-and-the-voice-guide-are-selected-as-assistant-context-by-id-and-reloaded-on-the-server.md).
+- A proposal is folded into the saved guide on the server: traits it does not address and free text are kept,
+  each changed trait is shown with both texts for the author to choose, and kept quotes are checked again and
+  flagged when their sample is gone. See
+  [ADR 0288](../adr/0288-a-proposed-voice-guide-is-folded-into-the-saved-guide-on-the-server-and-the-author-decides-each-change.md).
 - The `voice-guide` task returns strict JSON in which every trait quotes a selected sample word for word; the
   guide is rendered deterministically and saved only on approval, with a revision check and a provenance
   comment recording which folders it quotes. A guide that quotes private samples cannot be saved as
   portable. See
   [ADR 0279](../adr/0279-the-voice-guide-task-has-a-strict-validated-result-that-is-rendered-deterministically-and-saved-only-on-approval.md).
+- `voice-match` reviews a passage only, a selection or the current section, and its findings must lie inside it;
+  see [ADR 0290](../adr/0290-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md).
 - `voice-review` marks a finding unverified unless it names a sample or guide section; `voice-match` suggests
   replacements anchored to exact passages, applied only through the existing Apply and Undo path. See
   [ADR 0280](../adr/0280-voice-review-and-voice-match-compare-with-the-guide-and-samples-and-only-ever-propose.md).
@@ -133,6 +139,10 @@ Assistant workflow behave as they did.
   never replacing a rough draft, never moving a sample between folders, refusing newer formats and a
   portable guide that quotes private samples. See
   [ADR 0284](../adr/0284-the-voice-library-travels-as-one-previewed-all-or-nothing-export-that-keeps-each-items-folder.md).
+- The voice guide moves between the folders in one locked copy, verify and remove step. The move is previewed
+  first (`openblog voice guide --move portable|private [--yes]`, or Make private / Make portable in Admin),
+  refuses links, and never moves a guide that quotes private samples to portable. See
+  [ADR 0289](../adr/0289-the-voice-guide-moves-between-portable-and-private-in-one-locked-copy-verify-remove-step.md).
 - Erasing the library is listed, confirmed (`openblog voice erase --yes`, or typing `erase` in Admin), all or
   nothing, and checked again afterwards; it refuses linked folders. See
   [ADR 0282](../adr/0282-voice-samples-are-private-until-the-author-chooses-portable-and-a-move-between-the-folders-is-reversible.md)

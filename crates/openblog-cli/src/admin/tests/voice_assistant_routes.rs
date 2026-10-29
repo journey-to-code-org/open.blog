@@ -538,7 +538,15 @@ fn the_proposal_is_shown_as_a_diff_against_the_saved_guide_and_saved_only_with_t
     assert_eq!(result["current"]["content"], saved);
     assert_eq!(result["current"]["visibility"], "portable");
     let diff = result["diff"].as_str().unwrap();
-    assert!(diff.contains("-- Likes lists"), "{diff}");
+    // A hand-written line outside the trait format is kept where it was (ADR 0288).
+    assert!(!diff.contains("-- Likes lists"), "{diff}");
+    assert!(result["markdown"].as_str().unwrap().contains(
+        "## Habits and quirks
+
+- Likes lists
+"
+    ));
+    assert_eq!(result["merge"]["freeText"], true);
     assert!(diff.contains("+## Word choice"), "{diff}");
     assert_eq!(
         fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap(),
@@ -704,7 +712,7 @@ fn the_built_in_voice_guide_skill_runs_the_task_and_is_not_a_review_skill() {
         .as_str()
         .unwrap()
         .contains("word for word"));
-    assert_eq!(body_json(&response)["skill"]["version"], "1.0.0");
+    assert_eq!(body_json(&response)["skill"]["version"], "1.1.0");
 
     // It appears in the skill catalog, with its own output kind, and cannot be picked for a document review.
     let skills = body_json(&handle(
@@ -749,7 +757,7 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
     );
     let finding = |id: &str, evidence: &str, suggestion: &str| {
         json!({
-            "id": id, "skillId": "voice-match", "skillVersion": "1.0.0", "category": "voice",
+            "id": id, "skillId": "voice-match", "skillVersion": "1.1.0", "category": "voice",
             "severity": "note", "title": "Sounds stiff",
             "explanation": format!("You write plainly in {file}."),
             "range": { "start": 0, "end": 4 }, "evidence": evidence, "suggestion": suggestion,
@@ -764,15 +772,46 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
     set_quiz_endpoint(&f, &endpoint);
     std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
     let markdown = "Opening.\n\nIt is what it is, and so on.";
-    let response = post(
-        &f,
-        &session,
-        "/admin/api/assistant/review",
+    let body = |passage: Json| {
         json!({
             "source": { "title": "Unsaved", "metadata": { "draft": "true" }, "markdown": markdown },
             "skillIds": ["voice-match"],
             "contextIds": [format!("voice:private:{file}")],
-        }),
+            "passage": passage,
+        })
+    };
+    // Voice match works on a passage, never on the whole document (ADR 0290).
+    let whole = post(
+        &f,
+        &session,
+        "/admin/api/assistant/review",
+        body(Json::Null),
+    );
+    assert_eq!(whole.status, 400);
+    assert!(String::from_utf8_lossy(&whole.body).contains("complete-document review"));
+    for bad in [
+        json!({ "kind": "document", "start": 0, "end": 4 }),
+        json!({ "kind": "selection", "start": 4, "end": 4 }),
+        json!({ "kind": "selection", "start": 0, "end": 999 }),
+        json!({ "kind": "selection", "start": 8, "end": 10 }),
+        json!({ "kind": "selection", "start": 0, "end": 4, "extra": 1 }),
+        json!("selection"),
+    ] {
+        let refused = post(
+            &f,
+            &session,
+            "/admin/api/assistant/review",
+            body(bad.clone()),
+        );
+        assert_eq!(refused.status, 400, "{bad}");
+    }
+    let start = 10;
+    let end = markdown.chars().count();
+    let response = post(
+        &f,
+        &session,
+        "/admin/api/assistant/review",
+        body(json!({ "kind": "section", "start": start, "end": end })),
     );
     assert_eq!(
         response.status,
@@ -784,7 +823,16 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
     let outbound = captured.recv().unwrap();
     assert_eq!(outbound["skills"][0]["id"], "voice-match");
     assert_eq!(outbound["untrustedData"]["context"][0]["content"], MISTAKE);
+    assert_eq!(outbound["scope"]["kind"], "section");
+    assert_eq!(
+        outbound["untrustedData"]["source"]["passage"],
+        "It is what it is, and so on."
+    );
     let result = body_json(&response);
+    assert_eq!(
+        result["scope"],
+        json!({ "kind": "section", "start": start, "end": end, "unit": "unicode-code-points" })
+    );
     let findings = result["findings"].as_array().unwrap();
     // Anchored: the range is the exact passage, so the browser's apply and undo path can use it.
     assert_eq!(findings[0]["suggestion"], "That is that");
@@ -1093,4 +1141,232 @@ fn a_proposal_that_keeps_claims_from_a_private_guide_is_never_portable() {
         .as_str()
         .unwrap()
         .contains("sources=portable,private -->"));
+}
+
+// ---- folding a proposal into the saved guide (#423, ADR 0288) ---------------------------------
+
+#[test]
+fn a_proposal_keeps_unaddressed_traits_shows_changes_side_by_side_and_flags_missing_samples() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-merge");
+    let session = login_ok(&f);
+    write_guide_skill(&f);
+    // The saved guide was built from `book` (still there, not selected now) and a sample that has
+    // since been erased.
+    let book = write_rough(
+        &f.dir,
+        Visibility::Portable,
+        "a-book-i-loved",
+        "reviews",
+        "2026-10-29",
+        BOOK,
+    );
+    let mistake = write_rough(
+        &f.dir,
+        Visibility::Portable,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    let gone = "2026-01-01-gone-rough.md";
+    let saved = format!(
+        "# Voice guide
+<!-- openblog:voice-provenance sources=portable -->
+
+My own note at the top.
+
+## Word choice
+
+- Says honestly: \"honestly it was\" ({book})
+- Says plainly: \"plain words\" ({gone}) (one sample)
+
+## Habits and quirks
+
+- Quotes a book: \"a quiet book\" ({book})
+
+## What is not yet known
+
+- Endings
+"
+    );
+    fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+    fs::write(f.dir.join("assistant/context/voice.md"), &saved).unwrap();
+    // The proposal, from `mistake` only, changes one saved trait and adds one.
+    let result = json!({
+        "sections": [{ "id": "diction", "traits": [
+            { "statement": "Says plainly, lower case", "quote": "so i deleted", "sample": mistake, "oneSample": true, "replaces": "Says plainly" },
+            { "statement": "Stares", "quote": "just stared", "sample": mistake, "oneSample": true, "replaces": null }
+        ]}],
+        "unknown": ["Endings", "Dialogue"]
+    });
+    let (endpoint, _captured, provider) = capturing_provider(result.to_string());
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let response = post(
+        &f,
+        &session,
+        GUIDE_PATH,
+        json!({ "sampleIds": [format!("voice:portable:{mistake}")] }),
+    );
+    provider.join().unwrap();
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    let body = body_json(&response);
+    let merge = &body["merge"];
+    assert_eq!(merge["changes"], 1);
+    // A change waits for the author's choice: there is no finished Markdown yet.
+    assert!(body["markdown"].is_null());
+    let diction = &merge["sections"][0];
+    assert_eq!(diction["id"], "diction");
+    assert_eq!(diction["traits"][0]["status"], "kept");
+    assert_eq!(diction["traits"][0]["check"], "verified");
+    assert_eq!(diction["traits"][1]["status"], "changed");
+    assert_eq!(diction["traits"][1]["check"], "sample-missing");
+    assert_eq!(diction["traits"][1]["current"]["statement"], "Says plainly");
+    assert_eq!(
+        diction["traits"][1]["proposed"]["statement"],
+        "Says plainly, lower case"
+    );
+    assert_eq!(diction["traits"][2]["status"], "added");
+    assert_eq!(merge["sections"][1]["traits"][0]["status"], "kept");
+    assert_eq!(
+        merge["unknown"],
+        json!([{ "text": "Endings", "status": "kept" }, { "text": "Dialogue", "status": "added" }])
+    );
+    // The lines the Admin joins: fixed text, and one choice with both texts.
+    let lines = merge["lines"].as_array().unwrap();
+    let choice = lines.iter().find(|l| l.is_object()).unwrap();
+    assert_eq!(choice["change"], 0);
+    assert!(choice["current"]
+        .as_str()
+        .unwrap()
+        .starts_with("- Says plainly: "));
+    assert!(choice["proposed"]
+        .as_str()
+        .unwrap()
+        .starts_with("- Says plainly, lower case: "));
+    let keep_old: String = lines
+        .iter()
+        .map(|l| {
+            l.as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| l["current"].as_str().unwrap().to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        )
+        + "
+";
+    assert!(keep_old.contains("My own note at the top."));
+    assert!(keep_old.contains(&format!("- Says honestly: \"honestly it was\" ({book})")));
+    assert!(keep_old.contains(&format!("- Quotes a book: \"a quiet book\" ({book})")));
+    assert!(keep_old.contains(&format!(
+        "- Says plainly: \"plain words\" ({gone}) (one sample)"
+    )));
+    assert!(keep_old.contains("- Stares: "));
+    assert!(keep_old.contains(
+        "- Endings
+- Dialogue
+"
+    ));
+    assert_eq!(body["portableAllowed"], true);
+    assert_eq!(
+        fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap(),
+        saved,
+        "proposing writes nothing"
+    );
+}
+
+#[test]
+fn a_saved_trait_quoting_a_sample_that_is_private_now_keeps_the_merge_off_portable() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-merge-private");
+    let session = login_ok(&f);
+    write_guide_skill(&f);
+    let private = write_rough(
+        &f.dir,
+        Visibility::Private,
+        "a-book-i-loved",
+        "reviews",
+        "2026-10-29",
+        BOOK,
+    );
+    let mistake = write_rough(
+        &f.dir,
+        Visibility::Portable,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    // A portable guide with no provenance line that quotes a sample which is private.
+    fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+    fs::write(
+        f.dir.join("assistant/context/voice.md"),
+        format!(
+            "# Voice guide
+
+## Word choice
+
+- Says honestly: \"honestly it was\" ({private})
+"
+        ),
+    )
+    .unwrap();
+    let (endpoint, _captured, provider) = capturing_provider(provider_guide(&mistake));
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let response = post(
+        &f,
+        &session,
+        GUIDE_PATH,
+        json!({ "sampleIds": [format!("voice:portable:{mistake}")] }),
+    );
+    provider.join().unwrap();
+    let body = body_json(&response);
+    assert_eq!(body["portableAllowed"], false, "{body}");
+    let markdown = body["markdown"].as_str().unwrap();
+    assert!(markdown.contains("sources=portable,private -->"));
+    assert!(markdown.contains("- Says honestly: "));
+    // And the context save refuses it as portable.
+    let etag = body["targets"]["portable"]["etag"].clone();
+    let put = handle(
+        &f.state,
+        &authed(
+            json_req(
+                "PUT",
+                "/admin/api/assistant/context",
+                json!({ "contextType": "voice", "visibility": "portable", "content": markdown, "etag": etag }),
+            ),
+            &session,
+            true,
+        ),
+    );
+    assert_eq!(put.status, 422); // So does a hand edit with no provenance line that still quotes the sample that is private now:
+                                 // the save shares the guide move's rule (ADR 0289).
+    let saved = fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap();
+    let put = handle(
+        &f.state,
+        &authed(
+            json_req(
+                "PUT",
+                "/admin/api/assistant/context",
+                json!({ "contextType": "voice", "visibility": "portable", "content": format!("{saved}
+Edited.
+"), "etag": etag }),
+            ),
+            &session,
+            true,
+        ),
+    );
+    assert_eq!(put.status, 422);
 }

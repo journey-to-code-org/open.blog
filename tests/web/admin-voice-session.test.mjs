@@ -339,6 +339,18 @@ test("a session that is already open can be continued or scrapped", async () => 
     await flush();
     assert.equal(m.api.state.session, null);
   })();
+  await withDom(async () => {
+    const m = await mount();
+    m.api.state.session = { promptId: "my-hot-take", pack: "opinions", title: "My hot take", invitation: "Say it.", startedAt: "T0", deadlineMs: 180000, deadline: "D", draft: "kept words", visibility: "private" };
+    await startWriting(m);
+    await button(m.root, "voice-scrap").click();
+    assert.ok(document.activeElement === button(m.root, "voice-scrap-confirm"), "the question gets focus");
+    // "No, keep it" hides the question it sits in; focus goes back to the button that asked it.
+    await button(m.root, "voice-scrap-keep").click();
+    assert.equal(button(m.root, "voice-scrap-confirm").parentNode?.hidden, true, "the question is hidden");
+    assert.ok(document.activeElement === button(m.root, "voice-scrap"), "focus is back on Scrap it");
+    assert.notEqual(m.api.state.session, null, "nothing was scrapped");
+  })();
 });
 
 test("the draft is sent to the server a moment after typing stops, and the server's time left wins", async () => {

@@ -344,6 +344,12 @@ fn routes(id: &str) -> Vec<(&'static str, String, bool)> {
         ("POST", "/admin/api/voice/session/lock".into(), true),
         ("GET", "/admin/api/voice/erase".into(), false),
         ("POST", "/admin/api/voice/erase".into(), true),
+        (
+            "GET",
+            "/admin/api/voice/guide/move?to=private".into(),
+            false,
+        ),
+        ("POST", "/admin/api/voice/guide/move".into(), true),
         ("GET", "/admin/api/voice/samples".into(), false),
         ("POST", "/admin/api/voice/samples".into(), true),
         ("GET", sample.clone(), false),
@@ -734,6 +740,29 @@ fn a_guide_quoting_private_samples_never_reaches_a_portable_file_by_any_route() 
             );
         }
     }
+    // Saved as private, the guide cannot be moved to portable either (ADR 0289).
+    let saved = handle(
+        &f.state,
+        &authed(
+            json_req(
+                "PUT",
+                "/admin/api/assistant/context",
+                json!({ "contextType": "voice", "visibility": "private", "content": markdown, "etag": null }),
+            ),
+            &s,
+            true,
+        ),
+    );
+    assert_eq!(saved.status, 200);
+    let (status, _) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/guide/move",
+        json!({ "to": "portable" }),
+    );
+    assert_eq!(status, 409);
+    assert!(f.dir.join(".openblog/private/context/voice.md").exists());
     // The private sample itself moves to portable only by the explicit move, and then the
     // portable guide is allowed to quote it.
     assert!(

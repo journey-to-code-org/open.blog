@@ -84,6 +84,7 @@ use crate::assistant::{
     ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION,
     BUILTIN_SKILL_SOURCES,
 };
+use crate::assistant::{PassageKind, ReviewPassage};
 mod comparisons;
 mod landing;
 mod look;
@@ -756,6 +757,8 @@ fn authenticated_api(
         ("DELETE", "voice/session") => voice::scrap(state, req),
         ("GET", "voice/erase") => voice::erase_plan(state),
         ("POST", "voice/erase") => voice::erase(state, req),
+        ("GET", "voice/guide/move") => voice::guide_move_plan(state, req),
+        ("POST", "voice/guide/move") => voice::guide_move(state, req),
         ("POST", "voice/session/start") => voice::start(state, req),
         ("PUT", "voice/session/draft") => voice::save_draft(state, req),
         ("POST", "voice/session/lock") => voice::lock_session(state, req),
@@ -10785,7 +10788,7 @@ fn save_assistant_context(state: &AppState, req: &Request) -> Response {
     }
     if context_type == "voice"
         && visibility == "portable"
-        && voice_guide::guide_quotes_private_samples(&content)
+        && crate::voice_store::guide_is_private_derived(&state.root, &content)
     {
         return Response::error(
             422,
@@ -10931,12 +10934,18 @@ fn create_assistant_reference(state: &AppState, req: &Request) -> Response {
     )
 }
 
-fn resolve_review_skills(root: &Path, ids: &[String]) -> Result<Vec<ReviewSkill>, Response> {
+/// Resolve the selected review skills for a review of `scope`: the whole document, a selection or a
+/// section. A skill must declare the scope it is used for (ADR 0290).
+fn resolve_review_skills(
+    root: &Path,
+    ids: &[String],
+    scope: SkillScope,
+) -> Result<Vec<ReviewSkill>, Response> {
     let projects = read_project_skills(root).map_err(|error| Response::error(500, &error))?;
     let id_counts = project_skill_id_counts(&projects);
     let builtins = builtin_skills();
     ids.iter()
-        .map(|id| resolve_review_skill(id, &builtins, &projects, &id_counts))
+        .map(|id| resolve_review_skill(id, &builtins, &projects, &id_counts, scope))
         .collect()
 }
 
@@ -10945,6 +10954,7 @@ fn resolve_review_skill(
     builtins: &[SkillDefinition],
     projects: &[ProjectSkillFile],
     id_counts: &BTreeMap<String, usize>,
+    scope: SkillScope,
 ) -> Result<ReviewSkill, Response> {
     if !valid_skill_path_id(id) {
         return Err(Response::error(400, "Invalid selected skill ID"));
@@ -10958,10 +10968,15 @@ fn resolve_review_skill(
         (None, Some(project)) => project.clone(),
         (None, None) => return Err(Response::error(400, "Selected skill is unavailable")),
     };
-    if skill.output != SkillOutputKind::Review || !skill.scopes.contains(&SkillScope::Document) {
+    if skill.output != SkillOutputKind::Review || !skill.scopes.contains(&scope) {
+        let what = match scope {
+            SkillScope::Document => "complete-document review",
+            SkillScope::Selection => "review of selected text",
+            SkillScope::Section => "review of one section",
+        };
         return Err(Response::error(
             400,
-            "Selected skill does not support complete-document review",
+            &format!("Selected skill does not support {what}"),
         ));
     }
     Ok(ReviewSkill {
@@ -11115,6 +11130,42 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         }
         _ => return Response::error(400, "Review Markdown is too large or invalid"),
     };
+    // An optional bounded passage: a selection or a section, in code-point offsets (ADR 0290).
+    let passage = match &body["passage"] {
+        Json::Null => None,
+        Json::Object(object) => {
+            let kind = object
+                .get("kind")
+                .and_then(Json::as_str)
+                .and_then(PassageKind::parse);
+            let offset = |key: &str| {
+                object
+                    .get(key)
+                    .and_then(Json::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+            };
+            match (kind, offset("start"), offset("end")) {
+                (Some(kind), Some(start), Some(end)) if object.len() == 3 => {
+                    match ReviewPassage::new(kind, start, end, markdown) {
+                        Ok(passage) => Some(passage),
+                        Err(error) => return Response::error(400, &error),
+                    }
+                }
+                _ => {
+                    return Response::error(
+                        400,
+                        "`passage` must be { kind: selection | section, start, end }",
+                    )
+                }
+            }
+        }
+        _ => {
+            return Response::error(
+                400,
+                "`passage` must be { kind: selection | section, start, end }",
+            )
+        }
+    };
     let skill_ids = match selected_ids(&body, "skillIds", 12) {
         Ok(ids) => ids,
         Err(response) => return response,
@@ -11123,9 +11174,10 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(ids) => ids,
         Err(response) => return response,
     };
+    let scope = passage.map_or(SkillScope::Document, |p| p.kind.scope());
     let (skills, context) = {
         let _assistant_lock = lock(&state.build);
-        let skills = match resolve_review_skills(&state.root, &skill_ids) {
+        let skills = match resolve_review_skills(&state.root, &skill_ids, scope) {
             Ok(skills) => skills,
             Err(response) => return response,
         };
@@ -11148,17 +11200,31 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Err(error) => return review_error(error),
     };
     let hash = review_source_hash(title, &metadata, markdown);
-    let request = AssistantRequest::document_review(
-        config.knowledge_checks.model.clone(),
-        AssistantDocument {
-            title: title.to_string(),
-            metadata,
-            markdown: markdown.to_string(),
-            hash: hash.clone(),
-        },
-        skills.clone(),
-        context.clone(),
-    );
+    let document = AssistantDocument {
+        title: title.to_string(),
+        metadata,
+        markdown: markdown.to_string(),
+        hash: hash.clone(),
+    };
+    let model = config.knowledge_checks.model.clone();
+    let request = match passage {
+        None => AssistantRequest::document_review(model, document, skills.clone(), context.clone()),
+        Some(passage) => AssistantRequest::passage_review(
+            model,
+            document,
+            skills.clone(),
+            context.clone(),
+            passage,
+        ),
+    };
+    let scope_json = match passage {
+        None => {
+            json!({ "kind": "document", "start": 0, "end": markdown.chars().count(), "unit": "unicode-code-points" })
+        }
+        Some(passage) => {
+            json!({ "kind": passage.kind.as_str(), "start": passage.start, "end": passage.end, "unit": "unicode-code-points" })
+        }
+    };
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
         None => {
@@ -11188,7 +11254,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             "reviewId": review_id,
             "schemaVersion": ASSISTANT_SCHEMA_VERSION,
             "sourceHash": hash,
-            "scope": { "kind": "document", "start": 0, "end": markdown.chars().count(), "unit": "unicode-code-points" },
+            "scope": scope_json,
             "skills": skills.iter().map(|skill| json!({ "id": skill.id, "version": skill.version })).collect::<Vec<_>>(),
             "context": context.iter().map(|document| json!({ "id": document.identity(), "name": document.name(), "visibility": document.visibility().as_str() })).collect::<Vec<_>>(),
             "provider": { "type": "generic-https", "model": config.knowledge_checks.model },

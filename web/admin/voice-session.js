@@ -279,6 +279,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   /** A session is already open (from the command line, or another tab): continue it or scrap it. */
   function showOpen(info, slot) {
     const confirm = el("div", { class: "oba-landing-actions", hidden: true });
+    const scrap = el("button", { class: "oba-btn", type: "button", "data-action": "voice-scrap", onClick: () => { confirm.hidden = false; confirm.querySelector("button")?.focus(); } }, "Scrap it");
     const box = el(
       "div",
       { class: "oba-notice", role: "group", "aria-labelledby": `${base}-open`, "data-voice-open": "true" },
@@ -288,7 +289,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
         "div",
         { class: "oba-landing-actions" },
         el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "voice-continue", onClick: () => load() }, info.expired ? "Lock what was saved" : "Continue that session"),
-        el("button", { class: "oba-btn", type: "button", "data-action": "voice-scrap", onClick: () => { confirm.hidden = false; confirm.querySelector("button")?.focus(); } }, "Scrap it"),
+        scrap,
       ),
       confirm,
     );
@@ -302,7 +303,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
           box.append(errorBox(voiceErrorText(error)));
         }
       } }, "Yes, scrap it and save nothing"),
-      el("button", { class: "oba-btn", type: "button", onClick: () => { confirm.hidden = true; box.querySelector('[data-action="voice-scrap"]')?.focus(); } }, "No, keep it"),
+      el("button", { class: "oba-btn", type: "button", "data-action": "voice-scrap-keep", onClick: () => { confirm.hidden = true; scrap.focus(); } }, "No, keep it"),
     );
     slot.replaceChildren(box);
     box.querySelector("strong")?.focus();

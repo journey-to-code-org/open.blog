@@ -2556,6 +2556,29 @@ second shows it. It is saved only when the author approves it, to `assistant/con
 mirror, and is context to compare against, never a source of instructions (ADR 0279, ADR 0281).
 _Avoid_: Style guide, persona, system prompt
 
+**Guide merge**:
+How a proposed voice guide meets the saved one (ADR 0288). The server reads the saved guide back into traits
+and free text. A saved trait the proposal does not address is **kept** word for word. A trait the proposal
+changes (named by `replaces`, or by the same statement) is a **change**: both texts are shown and the author
+picks one before saving. New traits are **added**. Free text outside the trait format stays where it was. A
+kept quote is checked again against its sample and flagged, not dropped, when the quote or the sample is gone.
+_Avoid_: Overwrite, regenerate
+
+**Passage review**:
+An Assistant review of one bounded passage rather than the whole document: the author's **selection**, or the
+**section** around the cursor (heading to next heading). The request carries the passage's code-point offsets,
+the document travels for context, findings must lie inside the passage, and a skill must declare that scope.
+`voice-match` reviews only passages (ADR 0290).
+_Avoid_: Partial review, snippet review
+
+**Guide move**:
+Moving the voice guide between `assistant/context/voice.md` and `.openblog/private/context/voice.md` in one
+step. The file is copied, the copy is checked, and only then is the original removed, under the content
+transaction lock and the voice store lock. A move refuses links and never overwrites. A guide that quotes private
+samples, or cannot be read, never moves to portable. Previewed by default (`openblog voice guide --move`,
+**Make private** / **Make portable** in Admin) and reversible (ADR 0289).
+_Avoid_: Save as, copy
+
 **Voice export**:
 One JSON file (`openblog-voice-export`, version 1) holding voice sample files and the voice guide exactly as stored,
 each tagged with the folder it came from. It leaves private material out unless the author asks, and an import

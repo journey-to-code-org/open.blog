@@ -441,6 +441,28 @@ fn a_rollback_that_fails_names_the_files_it_could_not_restore() {
 }
 
 #[test]
+fn an_import_create_that_cannot_happen_names_the_file_and_never_talks_of_an_export() {
+    let b = project("apply-exists");
+    let steps = both_steps();
+    // Something else created the file after the plan was made.
+    let taken = b.join("assistant/context/voice").join(POLISHED);
+    fs::create_dir_all(taken.parent().unwrap()).unwrap();
+    fs::write(&taken, "someone else's").unwrap();
+    let hooks = Hooks {
+        after_write: |_| Ok(()),
+        restore: |_| Ok(()),
+    };
+    let error = apply_with(&b, &steps, &hooks).unwrap_err();
+    assert!(
+        error.starts_with(&format!("Cannot save `{POLISHED}`; nothing was replaced (")),
+        "{error}"
+    );
+    assert!(!error.contains("export"), "{error}");
+    assert!(!error.contains(&*b.to_string_lossy()), "{error}");
+    assert_eq!(fs::read_to_string(&taken).unwrap(), "someone else's");
+}
+
+#[test]
 fn a_plan_writes_rough_drafts_before_their_polished_partner() {
     let b = project("order");
     let polished = Item {
@@ -498,4 +520,62 @@ Changed.
 Changed.
 "
     );
+}
+
+#[test]
+fn one_guide_travels_and_the_private_one_left_out_is_named() {
+    let a = project("two-guides");
+    put_guide(&a, Visibility::Portable, "# Guide\nportable guide\n");
+    put_guide(&a, Visibility::Private, "# Guide\nprivate guide\n");
+    let ((text, _, guide), left_out) = collect(&a, true).unwrap();
+    assert!(guide);
+    assert!(text.contains("portable guide") && !text.contains("private guide"));
+    assert_eq!(
+        left_out,
+        ["the private voice guide (one guide travels, and the portable one is preferred)"]
+    );
+    // Without --include-private the private guide is not offered, so nothing is said about it.
+    let ((_, _, guide), left_out) = collect(&a, false).unwrap();
+    assert!(guide);
+    assert!(left_out.is_empty(), "{left_out:?}");
+}
+
+#[test]
+fn a_library_larger_than_one_export_is_refused_whole_and_nothing_is_written() {
+    let a = project("too-many");
+    for n in 0..=exchange::MAX_SAMPLES {
+        let file = format!(
+            "2025-{:02}-{:02}-a-mistake-i-made-rough.md",
+            1 + n / 28,
+            1 + n % 28
+        );
+        put(
+            &a,
+            Visibility::Portable,
+            &file,
+            &sample(VoiceStage::Rough, "words").replace(
+                "2026-10-28T09:30:00Z",
+                &format!("{}T09:30:00Z", &file[..10]),
+            ),
+        );
+    }
+    let listed = voice_store::list(&a);
+    assert_eq!(listed.len(), exchange::MAX_SAMPLES + 1);
+    assert!(
+        listed.iter().all(|l| l.valid),
+        "{:?}",
+        listed
+            .iter()
+            .find(|l| !l.valid)
+            .and_then(|l| l.guidance.clone())
+    );
+    let error = collect(&a, false).unwrap_err();
+    assert!(
+        error.contains("larger than one export holds (100 samples, 8 MiB)"),
+        "{error}"
+    );
+    let before = tree(&a);
+    let error = export(&a, &options("library.json", true)).unwrap_err();
+    assert!(error.contains("larger than one export holds"), "{error}");
+    assert_eq!(tree(&a), before, "nothing was written");
 }

@@ -870,3 +870,55 @@ fn a_second_window_cannot_drive_a_session_another_window_is_writing() {
     assert!(record.contains("the first window's words"), "{record}");
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+fn the_guide_moves_between_the_folders_only_with_yes_and_never_to_portable_when_it_quotes_private_samples(
+) {
+    let dir = site("guide-move");
+    let portable = dir.join("assistant/context/voice.md");
+    let private = dir.join(".openblog/private/context/voice.md");
+    let guide = "# Voice guide\n<!-- openblog:voice-provenance sources=portable -->\n\n- Mine\n";
+    fs::create_dir_all(portable.parent().unwrap()).unwrap();
+    fs::write(&portable, guide).unwrap();
+
+    // A preview by default: it says what would move and moves nothing.
+    let preview = run(&dir, &["voice", "guide", "--move", "private"], "");
+    assert!(!preview.status.success());
+    let said = text(&preview);
+    assert!(
+        said.contains("from assistant/context/voice.md to .openblog/private/context/voice.md"),
+        "{said}"
+    );
+    assert!(said.contains("Nothing was moved"), "{said}");
+    assert!(portable.exists() && !private.exists());
+
+    let moved = run(&dir, &["voice", "guide", "--move", "private", "--yes"], "");
+    assert!(moved.status.success(), "{}", text(&moved));
+    assert!(!portable.exists());
+    assert_eq!(fs::read_to_string(&private).unwrap(), guide);
+
+    let back = run(&dir, &["voice", "guide", "--move", "portable", "--yes"], "");
+    assert!(back.status.success(), "{}", text(&back));
+    assert_eq!(fs::read_to_string(&portable).unwrap(), guide);
+    assert!(!private.exists());
+
+    // A guide whose provenance names a private sample stays private.
+    fs::remove_file(&portable).unwrap();
+    fs::create_dir_all(private.parent().unwrap()).unwrap();
+    let quoting = "# Voice guide\n<!-- openblog:voice-provenance sources=private -->\n";
+    fs::write(&private, quoting).unwrap();
+    let refused = run(&dir, &["voice", "guide", "--move", "portable", "--yes"], "");
+    assert!(!refused.status.success());
+    assert!(
+        text(&refused).contains("quotes private samples"),
+        "{}",
+        text(&refused)
+    );
+    assert_eq!(fs::read_to_string(&private).unwrap(), quoting);
+    assert!(!portable.exists());
+
+    let usage = run(&dir, &["voice", "guide"], "");
+    assert!(!usage.status.success());
+    assert!(text(&usage).contains("--move portable|private"));
+    let _ = fs::remove_dir_all(&dir);
+}
