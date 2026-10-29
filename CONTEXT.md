@@ -2619,7 +2619,7 @@ _Avoid_: Template, form body
 Two pictures of the same thing, written as a `compare` fence with a required description for each, an optional
 caption and a label ("Before" and "After" by default). Any post may hold one. The page shows a comparison
 control; feeds, syndicated copies and exports show two captioned figures. Reported as the `before-after`
-capability (ADR 0311).
+capability (ADR 0314).
 _Avoid_: Slider, image diff, gallery
 
 **Capture**:
@@ -2660,8 +2660,12 @@ author applies it and saves (ADR 0303).
 _Avoid_: AI post, generated post
 
 **Service**:
-One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
-typical timeline, and FAQs. A job's `service` names one of them.
+One offering a business sells, kept as a Markdown file in the `services/` collection with an `id`, a name, a
+one-sentence summary, what is included, a starting price band, a typical timeline, and FAQs. A job's `service`
+names one of them by id; once a site has any service, a job naming an unknown id is refused with the known ids
+listed. The price band is the jobs' cost band, a label and never a quote (ADR 0311). A site with services gets a
+`/services/` index and a page per service with `Service` structured data, and `FAQPage` data only for a service
+that has questions (ADR 0312). `openblog new --profile service` and Admin's Services screen write them (ADR 0313).
 _Avoid_: Product, category
 
 **Service area**:

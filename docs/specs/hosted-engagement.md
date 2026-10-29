@@ -196,4 +196,4 @@ stands, the reader's evidence beside the claim it names, duplicate cues and "Rec
 Hosted comments optionally require Turnstile before storage, then accept an HMAC-signed,
 site-bound pass for 30 minutes. The browser keeps it in sessionStorage; every comment still
 consumes its hourly quota. See [setup](../../netlify/functions/README.md#comment-captcha-optional)
-and ADR 0311. Local comments are unchanged.
+and ADR 0314. Local comments are unchanged.

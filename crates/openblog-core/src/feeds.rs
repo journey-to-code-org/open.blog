@@ -347,6 +347,17 @@ pub fn llms_index(site: &Site) -> Result<String, String> {
             ));
         }
     }
+    if !site.services.is_empty() {
+        out.push_str("\n## Services\n\n");
+        for service in &site.services {
+            out.push_str(&format!(
+                "- [{}]({}): {}\n",
+                markdown_text(&service.name),
+                c.absolute(&service.url),
+                markdown_text(&service.summary)
+            ));
+        }
+    }
     let mut feed_links = Vec::new();
     if c.feeds.rss {
         feed_links.push(("RSS", "/rss.xml"));

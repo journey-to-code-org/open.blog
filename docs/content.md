@@ -6,6 +6,7 @@ Everything on the site comes from Markdown files under `content/`:
 content/posts/     one file per post
 content/series/    one file per series (optional)
 content/pages/     one file per page, such as About (optional)
+content/services/  one file per service, for trades and local businesses (optional; see [Services](services.md))
 ```
 
 Files anywhere in `content/posts/` are posts, including in subfolders. A `README.md`, and

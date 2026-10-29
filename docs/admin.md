@@ -964,6 +964,13 @@ does not conflict with it, and it changes only the `business` key of `openblog.j
 place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
 to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
+### Services
+
+Open **Services** (`#/services`) to describe each thing you sell once, with what it includes, a price band, a
+typical timeline and the questions customers ask. The screen edits the `services/` files through the same
+document routes as posts, pages and series, so sessions, CSRF, the 2 MiB bound, revision checks and the trash all
+apply as they do there. See [Services](services.md).
+
 ### A short phone walkthrough
 
 On a 375px phone: open Admin and choose **Landing page**; tap **Edit** on the welcome banner, change the
