@@ -1,4 +1,4 @@
-// The operations functions of social publishing (ADR 0701) against a real Postgres: health counts,
+// The operations functions of social publishing (ADR 0324) against a real Postgres: health counts,
 // the sweep, and retention that deletes only what ended long ago. Runs when OPENBLOG_TEST_PG_URL
 // names an empty scratch database (see social-queue-sql.test.mjs); skipped otherwise. The static
 // checks of the same file are in social-ops.test.mjs.

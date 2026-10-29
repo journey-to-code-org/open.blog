@@ -30,7 +30,7 @@ const json = (statusCode, value, extra = {}) => ({ statusCode, headers: { ...SEC
 const failure = (statusCode, code, message, extra) => json(statusCode, { error: code, message }, extra);
 
 // `sink` receives the log lines (console by default). Each is one JSON object built from counts and
-// short codes only (social-ops.mjs), so nothing secret can be logged (ADR 0701).
+// short codes only (social-ops.mjs), so nothing secret can be logged (ADR 0324).
 export function createHandler({ env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), random, adapters, sink = console } = {}) {
   return async (event) => {
     try {

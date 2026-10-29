@@ -1,4 +1,4 @@
--- Optional scheduled social publishing, operations (ADR 0701): queue health for monitoring and
+-- Optional scheduled social publishing, operations (ADR 0324): queue health for monitoring and
 -- backlog alerts, a sweep of expired leases and abandoned account handshakes, and opt-in retention
 -- of old delivery history. Run once in the Supabase SQL editor, after social.sql and
 -- social-queue.sql (and social-history.sql if you use it), only if you want them. Nothing calls

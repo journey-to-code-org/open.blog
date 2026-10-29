@@ -184,7 +184,7 @@ fn project_account(value: &Json) -> Option<Json> {
         "disconnectedAt": optional_text(value, "disconnectedAt", 40),
         "credential": project_credential(value.get("credential").unwrap_or(&Json::Null)),
     });
-    // A disconnect says how many scheduled announcements it canceled (ADR 0701); nothing else has it.
+    // A disconnect says how many scheduled announcements it canceled (ADR 0324); nothing else has it.
     if let Some(count) = value
         .get("canceledAnnouncements")
         .and_then(Json::as_u64)

@@ -1,4 +1,4 @@
-// Operations of optional scheduled social publishing (epic #353, story #359, ADR 0701): redacted
+// Operations of optional scheduled social publishing (epic #353, story #359, ADR 0324): redacted
 // logs, queue health and backlog alerts, the sweep of expired leases and abandoned handshakes, and
 // opt-in retention. Server-only, behind the site scope of ADR 0293.
 //

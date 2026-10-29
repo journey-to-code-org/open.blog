@@ -1,5 +1,5 @@
 // Delivery status and history of a scheduled social post as the author sees it (epic #353, story
-// #359, ADR 0700). Pure: no network, no storage, no clock.
+// #359, ADR 0323). Pure: no network, no storage, no clock.
 //
 // The queue keeps six stored statuses (`scheduled`, `claimed`, `published`, `failed`, `unknown`,
 // `canceled`, ADR 0308). An author needs seven delivery states, because a `scheduled` post that has

@@ -1,4 +1,4 @@
-# ADR 0700: An announcement has seven delivery states derived from its row, and a history recorded by a trigger
+# ADR 0323: An announcement has seven delivery states derived from its row, and a history recorded by a trigger
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -50,5 +50,5 @@ PUBLISHED, FAILED, UNKNOWN and CANCELED. The queue stores six statuses (ADR 0308
 
 - Rollback: `supabase/social-history-rollback.sql` drops the trigger, its functions and the events table (export
   first if you want them); `social-rollback.sql` removes them before the tables. The queue keeps working without them.
-- The history grows by a handful of rows per announcement. Retention (ADR 0701) removes a post's events with it.
+- The history grows by a handful of rows per announcement. Retention (ADR 0324) removes a post's events with it.
 - A row changed outside the trigger's columns (only the version) leaves no event; that is deliberate.

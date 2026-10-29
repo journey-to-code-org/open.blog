@@ -92,7 +92,7 @@ export function createAccounts({ connector, settings, providers, fetchImpl = glo
     // it; Facebook's grant is removed by the author in Facebook's settings (docs).
     //
     // A disconnected account can never post again (it is connected as a new account, ADR 0300), so
-    // its scheduled announcements are canceled with the code `account-disconnected` (ADR 0701), each
+    // its scheduled announcements are canceled with the code `account-disconnected` (ADR 0324), each
     // fenced by its version and its status like an author's cancel: one a worker claimed meanwhile
     // is left to the worker, which fails it without sending because the tokens are gone. Anything
     // `unknown` stays for the author to check. Run again on a second disconnect, so none is missed.

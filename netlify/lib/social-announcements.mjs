@@ -85,7 +85,7 @@ const postView = (row, account) => ({
   caption: row.body,
   scheduledFor: instant(row.scheduled_for),
   status: row.status,
-  // The author's delivery state and what they may do about it (ADR 0700).
+  // The author's delivery state and what they may do about it (ADR 0323).
   delivery: deliveryState(row),
   actions: [...(NEXT_STEPS[deliveryState(row)]?.actions ?? [])],
   version: row.version,
@@ -407,7 +407,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
   };
 
   // What was tried and what happened: every attempt, oldest first, with its short code and fixed
-  // sentence, and the status history (ADR 0700). `timelineExact` is false when the history had to be
+  // sentence, and the status history (ADR 0323). `timelineExact` is false when the history had to be
   // rebuilt from the attempts because the recorded history is not installed.
   const attempts = async (query) => {
     const id = readId(query);
@@ -433,7 +433,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     });
   };
 
-  // Delivery health (ADR 0701): counts and alert codes only, or `installed: false` when
+  // Delivery health (ADR 0324): counts and alert codes only, or `installed: false` when
   // supabase/social-ops.sql has not been run. Reading it changes nothing.
   const health = async () => {
     try {

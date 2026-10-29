@@ -1,4 +1,4 @@
-// The recorded status history of social publishing (ADR 0700): additive, private, append-only, and
+// The recorded status history of social publishing (ADR 0323): additive, private, append-only, and
 // complete whoever writes the row. The static checks always run. The behavioural checks run the
 // real SQL against a real Postgres when OPENBLOG_TEST_PG_URL names an empty scratch database (see
 // social-queue-sql.test.mjs); they are skipped otherwise.

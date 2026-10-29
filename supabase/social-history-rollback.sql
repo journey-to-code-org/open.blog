@@ -1,4 +1,4 @@
--- Roll back the recorded status history of social publishing (ADR 0700): the trigger, its two
+-- Roll back the recorded status history of social publishing (ADR 0323): the trigger, its two
 -- functions and the openblog_social_post_events table that social-history.sql added. Run in the
 -- Supabase SQL editor. Announcements, their attempts and the queue are untouched; Admin goes back to
 -- the history it rebuilds from the attempts, marked as incomplete.

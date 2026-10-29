@@ -363,7 +363,7 @@ test("an announcement's state and history read in words, by keyboard, without si
   await compose(page);
   await page.getByRole("button", { name: "Schedule announcement" }).click();
   await expect(page.locator("[data-announcement]")).toHaveCount(1);
-  // One try that certainly did not post, and the worker will try again (ADR 0318, 0700).
+  // One try that certainly did not post, and the worker will try again (ADR 0318, 0323).
   const post = storage.posts[0];
   const started = new Date(Date.now() + 1000).toISOString();
   Object.assign(post, { attempt_count: 1, version: 3, last_error_code: "rate-limited", next_attempt_at: new Date(Date.now() + 600_000).toISOString() });

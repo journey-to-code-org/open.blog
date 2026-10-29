@@ -1,4 +1,4 @@
-// Delivery status and history of an announcement (epic #353, story #359, ADR 0700): the seven
+// Delivery status and history of an announcement (epic #353, story #359, ADR 0323): the seven
 // delivery states, what the author may do in each, the recorded history and the one rebuilt from
 // the attempts, and the hosted route that serves them. Storage is an in-memory fake.
 import test from "node:test";

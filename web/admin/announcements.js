@@ -109,7 +109,7 @@ export const STATUS_BADGES = Object.freeze({
 });
 
 /**
- * The author's seven delivery states (ADR 0700), as a word and a shape. A scheduled announcement
+ * The author's seven delivery states (ADR 0323), as a word and a shape. A scheduled announcement
  * that has never gone wrong is "Scheduled"; one waiting to be tried again is "Retrying".
  */
 export const DELIVERY_BADGES = Object.freeze({
@@ -165,7 +165,7 @@ export function eventText(event, zone) {
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Delivery health (ADR 0701) in sentences, most urgent first. Only counts and fixed alert codes
+ * Delivery health (ADR 0324) in sentences, most urgent first. Only counts and fixed alert codes
  * come from the server; an alert this screen does not know is not shown.
  */
 export function healthLines(health) {
@@ -626,7 +626,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     return box;
   }
 
-  // ---- history: the status timeline and what was tried, loaded when the author asks (ADR 0700)
+  // ---- history: the status timeline and what was tried, loaded when the author asks (ADR 0323)
   function historyNode(item) {
     const body = el("div", { class: "oba-announce-history-body" });
     const tries = item.attemptCount > 0 ? ` (${item.attemptCount} ${item.attemptCount === 1 ? "try" : "tries"})` : "";

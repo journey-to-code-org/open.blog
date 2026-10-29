@@ -1,4 +1,4 @@
--- Optional scheduled social publishing, the recorded status history (ADR 0700): every change of an
+-- Optional scheduled social publishing, the recorded status history (ADR 0323): every change of an
 -- announcement's status, time or caption is appended to openblog_social_post_events by a trigger, so
 -- Admin can show an exact timeline (pending, processing, retrying, published, failed, unknown,
 -- canceled) instead of one rebuilt from the attempts. Run once in the Supabase SQL editor, after

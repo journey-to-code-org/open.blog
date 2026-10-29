@@ -1,4 +1,4 @@
-# ADR 0701: Social operations log counts only, alert on backlog, sweep and prune by opt-in, and cancel on disconnect
+# ADR 0324: Social operations log counts only, alert on backlog, sweep and prune by opt-in, and cancel on disconnect
 
 - Status: Accepted
 - Date: 2026-10-29

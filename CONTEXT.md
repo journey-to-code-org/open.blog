@@ -2848,7 +2848,7 @@ the next announcement.
 _Avoid_: Cooldown, ban
 
 **Delivery state**:
-What an author waits for on an announcement, derived from its stored status and problem code (ADR 0700): `pending`
+What an author waits for on an announcement, derived from its stored status and problem code (ADR 0323): `pending`
 (scheduled, nothing wrong yet), `processing` (claimed), `retrying` (scheduled again after a try that did not post),
 `published`, `failed`, `unknown` or `canceled`. It decides the words and actions Admin offers; writers still fence on
 the stored status.

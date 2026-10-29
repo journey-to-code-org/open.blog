@@ -1,4 +1,4 @@
-// Operations of optional social publishing (epic #353, story #359, ADR 0701): redacted log lines,
+// Operations of optional social publishing (epic #353, story #359, ADR 0324): redacted log lines,
 // queue health and backlog alerts, the sweep, opt-in retention, the worker's operations step, the
 // hosted health route, and canceling an account's scheduled announcements when it is disconnected.
 // Storage is an in-memory fake; nothing here touches a network or a provider.

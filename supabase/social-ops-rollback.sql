@@ -1,4 +1,4 @@
--- Roll back the operations functions of social publishing (ADR 0701) that social-ops.sql added:
+-- Roll back the operations functions of social publishing (ADR 0324) that social-ops.sql added:
 -- queue health, the sweep and retention. Run in the Supabase SQL editor after removing
 -- OPENBLOG_SOCIAL_OPS and OPENBLOG_SOCIAL_RETENTION_DAYS from the hosted functions, so nothing calls
 -- them while you undo. No table or row is touched: what retention already deleted stays deleted, and

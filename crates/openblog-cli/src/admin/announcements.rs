@@ -661,7 +661,7 @@ fn resolve(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     )
 }
 
-/// The attempts made for one announcement and its status history (ADR 0700), as the hosted
+/// The attempts made for one announcement and its status history (ADR 0323), as the hosted
 /// function reports them.
 fn attempts(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     let id = match announcement_id(req) {
@@ -774,7 +774,7 @@ fn relay(
     }
 }
 
-/// The status history rebuilt from known fields only (ADR 0700): a time, what changed, the delivery
+/// The status history rebuilt from known fields only (ADR 0323): a time, what changed, the delivery
 /// state, the attempt number and a short code. Anything else the function sends is dropped, and an
 /// event without a readable time, change or state is left out.
 fn project_timeline(value: &Json) -> Json {
@@ -812,7 +812,7 @@ fn project_timeline(value: &Json) -> Json {
     Json::Array(events)
 }
 
-/// Delivery health rebuilt from known fields only (ADR 0701): whole-number counts, alert codes and
+/// Delivery health rebuilt from known fields only (ADR 0324): whole-number counts, alert codes and
 /// one time. Anything else the function sends is dropped.
 fn project_health(value: &Json) -> Json {
     const COUNTS: [&str; 14] = [

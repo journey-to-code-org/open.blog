@@ -220,7 +220,7 @@ delivery is set up.
 ## Status and history
 
 Each announcement shows one **delivery state** as a word and a shape
-([ADR 0700](adr/0700-an-announcement-has-seven-delivery-states-derived-from-its-row-and-a-history-recorded-by-a-trigger.md)):
+([ADR 0323](adr/0323-an-announcement-has-seven-delivery-states-derived-from-its-row-and-a-history-recorded-by-a-trigger.md)):
 
 | State | Stored status | What it means | What you can do |
 | --- | --- | --- | --- |
@@ -404,7 +404,7 @@ is safe to show in Admin and to paste in a bug report.
 
 ## Operations runbook
 
-([ADR 0701](adr/0701-social-operations-log-counts-only-alert-on-backlog-sweep-and-prune-by-opt-in-and-cancel-on-disconnect.md).)
+([ADR 0324](adr/0324-social-operations-log-counts-only-alert-on-backlog-sweep-and-prune-by-opt-in-and-cancel-on-disconnect.md).)
 
 ### Logs
 
