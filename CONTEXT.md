@@ -2645,3 +2645,18 @@ _Avoid_: Tenant, owner, namespace when the server's choice is meant
 The signed-in Admin user the Rust Admin names to the hosted social function, or `@worker` for the scheduled
 worker. It is an audit attribution; the role is decided by which server key authenticated the call.
 _Avoid_: User, owner
+
+**Social account**:
+A connected LinkedIn identity or Facebook Page that a site may announce to. It is stored per site; its credentials
+are never part of the account row. Disconnecting keeps the row for history.
+_Avoid_: Profile, channel
+
+**Scheduled social post**:
+One queued announcement of one canonical post to one social account, with a time, a lease while a worker holds it
+and an idempotency key. It is `published` only with the provider's own response id.
+_Avoid_: Syndicated copy, job
+
+**Delivery attempt**:
+One recorded try to deliver a scheduled social post, with its outcome (`published`, `failed` or `unknown`) and a
+redacted error. Attempts are added and finished, never deleted.
+_Avoid_: Retry (a later attempt)

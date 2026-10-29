@@ -33,3 +33,16 @@ The scheduled worker uses a different key and acts as `@worker`. A leaked worker
 Neither key may equal the Supabase key, the Admin API key or an anon/publishable key. If the feature is enabled
 but something is wrong, it stays off and the log names the settings at fault, never their values.
 Never put any of these in `openblog.json`, the repository or a browser bundle.
+
+## The hosted tables
+
+Run `supabase/social.sql` once in the Supabase SQL editor, only if you opt in. It is additive, can be run twice
+safely, and creates `openblog_social_accounts`, `openblog_social_posts` (the schedule queue) and
+`openblog_social_attempts` (delivery history). All of them are private: row level security is on with no
+policies, the public roles have no access, and only the hosted function (`service_role`) reads and writes. Every
+row carries your site scope and relations include it, so a row cannot point at another site's account or post.
+Nothing is ever deleted by the function: cancelling and disconnecting are updates.
+
+To undo it, remove `OPENBLOG_SOCIAL_ENABLED`, stop the worker, export what you want to keep (the commands are in
+the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke the app at
+LinkedIn and Facebook as well; stored tokens are deleted by the rollback but stay valid there until revoked.

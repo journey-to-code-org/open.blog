@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Social publishing schema (story #354; ADR 0451): `supabase/social.sql` adds private, site-keyed tables for connected accounts, the schedule queue and delivery attempts, shaped for atomic claim, idempotency keys and provider response ids, with `supabase/social-rollback.sql`. It is optional, additive and re-runnable, and nothing reads it unless social publishing is enabled.
+
 - Optional social publishing, identity boundary (epic #353, story #354; ADR 0450): scheduled social publishing is off unless a deployer enables it. The Rust Admin authorizes the author and the hosted function acts for one server-configured site with separate admin and worker keys; a request can never name a site. Site builds, portable exports and cross-posting are unchanged without it. See [Social publishing](docs/social-publishing.md).
 
 ## [0.51.0] - 2026-10-29
