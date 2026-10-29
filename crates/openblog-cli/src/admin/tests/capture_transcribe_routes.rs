@@ -1,4 +1,4 @@
-//! Transcription of a captured voice note (ADR 0401, #502): the disclosure, the confirmation, the provider
+//! Transcription of a captured voice note (ADR 0302, #502): the disclosure, the confirmation, the provider
 //! boundary and the private transcript. Providers here are loopback fakes; no test reaches a network.
 
 use super::*;

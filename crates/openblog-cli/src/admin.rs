@@ -86,6 +86,7 @@ use crate::assistant::{
 };
 use crate::assistant::{PassageKind, ReviewPassage};
 mod announcements;
+mod business;
 mod capture_assistant;
 mod comparisons;
 mod landing;
@@ -500,6 +501,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
         }
+        if name == "business" {
+            return Ok(business::MAX_REQUEST_BYTES);
+        }
         if name == "look" || name == "look/preview" {
             return Ok(look::MAX_REQUEST_BYTES);
         }
@@ -562,6 +566,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/admin.css" => "admin.css",
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
+        "/admin/business.js" => "business.js",
         "/admin/paste.js" => "paste.js",
         "/admin/landing-history.js" => "landing-history.js",
         "/admin/checks.js" => "checks.js",
@@ -715,6 +720,8 @@ fn authenticated_api(
         ("GET", "meta") => meta(state),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
+        ("GET", "business") => business::get_business(state),
+        ("PUT", "business") => business::save_business(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
         ("POST", "look/preview") => look::preview(state, req),
@@ -18334,6 +18341,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     mod announcement_routes;
+    mod business_routes;
     mod capture_transcribe_routes;
     mod comparison_routes;
     mod job_draft_routes;

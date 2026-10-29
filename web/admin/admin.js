@@ -12,6 +12,7 @@ import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createAnnouncementsPanel } from "./announcements.js";
+import { createBusinessFacts } from "./business.js";
 import { createSocialAccounts } from "./social.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
@@ -11028,7 +11029,7 @@ export class ObAdmin extends AdminElement {
 
   async enter() {
     this.meta = await this.api.call("GET", "meta");
-    // Social publishing is optional: its tab exists only when Admin says it is set up (ADR 0307).
+    // Social publishing is optional: its tab exists only when Admin says it is set up (ADR 0310).
     try {
       this.social = await this.api.call("GET", "social/status");
     } catch {
@@ -11450,11 +11451,14 @@ export class ObAdmin extends AdminElement {
       h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
       ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
+      h("a", { class: "oba-tab", "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
       : active === "appearance"
         ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
+      : active === "business"
+        ? { title: "Business facts", detail: "Set your name, phone, hours, license and insurance once, and see them everywhere on your site." }
       : active === "look"
         ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
@@ -11739,7 +11743,8 @@ export class ObAdmin extends AdminElement {
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/announcements") }] : []),
-      { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
+      { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
+    { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
@@ -11971,6 +11976,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "appearance") await this.showAppearance();
       else if (head === "look") await this.showLook();
+      else if (head === "business") await this.showBusiness();
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -14020,6 +14026,18 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy || publishing;
   }
 
+  // ---- business facts (ADR 0307)
+
+  /** `#/business`: the one place the business facts are edited; the footer, the home page and structured data all read them. */
+  async showBusiness() {
+    const view = createBusinessFacts({ api: this.api });
+    this.mount(this.shell("business", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
   // ---- job capture (ADR 0296)
 
   /** `#/capture`: photos, remembered picks and notes from a phone on site, saved as an unpublished job draft. */
@@ -14076,7 +14094,7 @@ export class ObAdmin extends AdminElement {
     await view.load();
   }
 
-  // ---- social announcements (ADR 0307, #369)
+  // ---- social announcements (ADR 0310, #369)
 
   /** `#/announcements`: compose, preview and schedule an announcement, and manage the queue. */
   async showAnnouncements() {

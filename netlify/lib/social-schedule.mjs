@@ -1,4 +1,4 @@
-// The announcement model of optional scheduled social publishing (epic #353, ADR 0305): the hosted
+// The announcement model of optional scheduled social publishing (epic #353, ADR 0308): the hosted
 // half of crates/openblog-core/src/social_schedule.rs. Both read tests/fixtures/social-schedule.json
 // and must accept and refuse the same values. The Rust Admin applies these rules before it calls
 // the hosted function; the hosted function applies them again on the way into the database.

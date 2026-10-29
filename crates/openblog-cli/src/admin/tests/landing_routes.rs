@@ -85,6 +85,31 @@ fn every_route_requires_a_session_and_the_write_a_csrf_token_and_same_origin() {
 }
 
 #[test]
+fn a_business_facts_section_is_stored_as_version_two_and_other_pages_stay_version_one() {
+    let f = fixture("landing-business-version");
+    let session = login_ok(&f);
+    let (status, saved) = put(&f, &session, json!({"page": page()}));
+    assert_eq!(status, 201, "{saved}");
+    assert!(fs::read_to_string(landing_file(&f))
+        .unwrap()
+        .contains("\"version\": 1"));
+    let mut with = page();
+    with["sections"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id": "facts", "type": "business-facts", "heading": "Find us"}));
+    let (status, updated) = put(
+        &f,
+        &session,
+        json!({"page": with, "revision": saved["revision"]}),
+    );
+    assert_eq!(status, 200, "{updated}");
+    assert!(fs::read_to_string(landing_file(&f))
+        .unwrap()
+        .contains("\"version\": 2"));
+}
+
+#[test]
 fn a_missing_file_reads_as_no_page_with_the_default_layout() {
     let f = fixture("landing-missing");
     let session = login_ok(&f);

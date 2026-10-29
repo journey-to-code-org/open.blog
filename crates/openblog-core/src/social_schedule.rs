@@ -1,4 +1,4 @@
-//! Optional scheduled social publishing: the announcement model (ADR 0305).
+//! Optional scheduled social publishing: the announcement model (ADR 0308).
 //!
 //! An **announcement** is one scheduled post that links one already-published canonical article
 //! from one connected account. This module holds the pure rules the Rust Admin enforces before it

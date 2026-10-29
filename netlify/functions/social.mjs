@@ -101,7 +101,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         return resultPage(outcome.ok, outcome.text);
       }
 
-      // Scheduled announcements (ADR 0306) have their own, larger body and their own storage; the
+      // Scheduled announcements (ADR 0309) have their own, larger body and their own storage; the
       // announcements module authorizes the same admin key and bounds its own body.
       if (segments[0] === "announcements" || segments[0] === "destinations") {
         const raw = event.isBase64Encoded && event.body ? Buffer.from(event.body, "base64").toString("utf8") : event.body;

@@ -1,4 +1,4 @@
-//! Admin routes for scheduled social announcements (ADR 0306, story #356).
+//! Admin routes for scheduled social announcements (ADR 0309, story #356).
 //!
 //! Every route sits behind the session, and every write behind the CSRF check (`api`); a name no
 //! route owns is a 404 (deny by default). The browser never talks to Supabase or to the hosted

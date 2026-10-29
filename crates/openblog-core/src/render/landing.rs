@@ -16,9 +16,9 @@
 
 use crate::escape::{attr, text};
 use crate::landing::{
-    render_inert_markdown, Callout, Contact, Faq, FeaturedPost, ImageSection, LandingPage,
-    LatestPosts, MapSection, OpeningHours, RichText, Section, SectionKind, SeriesSection,
-    SocialLinks, Video, Welcome,
+    render_inert_markdown, BusinessFacts, Callout, Contact, Faq, FeaturedPost, ImageSection,
+    LandingPage, LatestPosts, MapSection, OpeningHours, RichText, Section, SectionKind,
+    SeriesSection, SocialLinks, Video, Welcome,
 };
 use crate::theme::Theme;
 
@@ -152,6 +152,7 @@ impl Renderer<'_> {
             SectionKind::SocialLinks(v) => self.landing_social(section, v),
             SectionKind::Faq(v) => self.landing_faq(section, v),
             SectionKind::Callout(v) => self.landing_callout(section, v),
+            SectionKind::BusinessFacts(v) => self.landing_business(cx, section, v),
         }
     }
 
@@ -216,6 +217,22 @@ impl Renderer<'_> {
         let mut inner = self.landing_heading(cx, &section.id, &v.heading);
         inner.push_str(&self.series_cards(cx.theme));
         inner.push('\n');
+        self.landing_wrap(section, true, &inner, "")
+    }
+
+    /// The business facts from `openblog.json` under their own heading; nothing when none are stated.
+    fn landing_business(
+        &self,
+        cx: &mut Context<'_>,
+        section: &Section,
+        v: &BusinessFacts,
+    ) -> String {
+        let block = self.site.config.business.block_html();
+        if block.is_empty() {
+            return String::new();
+        }
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        inner.push_str(&block);
         self.landing_wrap(section, true, &inner, "")
     }
 

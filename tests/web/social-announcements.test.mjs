@@ -1,4 +1,4 @@
-// Optional social publishing, authorized scheduling routes (epic #353, ADR 0306): who may call,
+// Optional social publishing, authorized scheduling routes (epic #353, ADR 0309): who may call,
 // what a destination must be, idempotent creation, versioned edits, cancel, and that nothing secret
 // or foreign comes back. Storage is an in-memory PostgREST fake; no real network is used.
 import test from "node:test";

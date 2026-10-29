@@ -39,7 +39,7 @@ immediately.
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
-| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
+| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. Business facts have their own screen. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
 | **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
 
 ## Workspace layout
@@ -947,6 +947,22 @@ in words. **Back to theme default** undoes one control, **Reset everything** cle
 takes back the last change. Only the controls your theme honors are shown, with a kind note about the rest
 ([Look controls](themes.md#look-controls)). The choices are saved under `appearance` in `openblog.json`
 ([configuration](configuration.md#site)).
+
+### Business facts
+
+Open **Business facts** (`#/business`) to state your name, trade, phone, email, opening hours, license, insurance,
+accepted payments and the year you started, once. The footer of every page, the home page's **Business facts**
+section and the `LocalBusiness` search data all read it ([configuration](configuration.md#business-facts)).
+Type a phone number the way you say it; it is saved with its country code. Each day of the week has its own
+choice (Not shown, Open with an opening and closing time, Open 24 hours, or Closed), and **Copy Monday to
+Tuesday through Friday** saves typing. A problem is said in words beside the field it is about, and a save that
+finds a mistake changes nothing. The screen is one column from 320px with 44px controls.
+
+The screen reads and saves `GET`/`PUT /admin/api/business` (session and CSRF as for every write, bounded to
+8 KiB). A save is checked against the revision of the block you loaded, so an edit made elsewhere in the file
+does not conflict with it, and it changes only the `business` key of `openblog.json`: every other key keeps its
+place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
+to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
 ### A short phone walkthrough
 

@@ -166,8 +166,8 @@ The page works with the keyboard and a screen reader and has no sideways scroll 
 ## Scheduling announcements
 
 An announcement is a caption and a time for one connected account, linking one of your public posts
-([ADR 0305](adr/0305-an-announcement-links-a-public-canonical-post-at-a-utc-instant-and-only-a-scheduled-one-can-change.md),
-[ADR 0306](adr/0306-announcement-routes-are-called-by-the-rust-admin-with-the-admin-key-and-change-a-row-only-by-version.md)).
+([ADR 0308](adr/0308-an-announcement-links-a-public-canonical-post-at-a-utc-instant-and-only-a-scheduled-one-can-change.md),
+[ADR 0309](adr/0309-announcement-routes-are-called-by-the-rust-admin-with-the-admin-key-and-change-a-row-only-by-version.md)).
 
 What can be announced:
 
@@ -202,7 +202,7 @@ Admin (`/admin/api/social/`, session and CSRF like every Admin route): `posts`, 
 ### The Social screen
 
 With the settings above in place, Admin shows an **Announcements** tab
-([ADR 0307](adr/0307-the-social-screen-is-a-labelled-form-with-a-server-checked-preview-and-times-in-the-authors-zone.md)):
+([ADR 0310](adr/0310-the-social-screen-is-a-labelled-form-with-a-server-checked-preview-and-times-in-the-authors-zone.md)):
 a composer (destination, post, caption, date and time, preview) and the list of announcements with edit and cancel.
 See [Admin](admin.md#announce-a-post-on-social-media-optional) for how it is used. It only offers connected accounts,
 so connecting one is a separate step. Check it in a browser at 320px wide before you rely on it: it should never scroll

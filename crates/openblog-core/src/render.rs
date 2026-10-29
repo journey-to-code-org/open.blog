@@ -1270,6 +1270,17 @@ impl<'a> Renderer<'a> {
                     .replace('&', "\\u0026")
             ));
         }
+        if meta.path == "/" && c.business.has_public_facts() {
+            h.push_str(&format!(
+                "<script type=\"application/ld+json\">{}</script>\n",
+                c.business
+                    .local_business_json_ld(&c.absolute("/#business"), &c.absolute("/"), &c.title)
+                    .to_string()
+                    .replace('<', "\\u003c")
+                    .replace('>', "\\u003e")
+                    .replace('&', "\\u0026")
+            ));
+        }
         if let Some(element) = &meta.reader_references {
             h.push_str(element);
             h.push('\n');
@@ -1765,6 +1776,12 @@ impl<'a> Renderer<'a> {
         let c = &self.site.config;
         let year = self.site.latest_update().map(|d| d.year()).unwrap_or(2026);
         let mut h = String::from("<footer class=\"ob-footer\">\n<div class=\"ob-footer-inner\">\n");
+        let business = c.business.block_html();
+        if !business.is_empty() {
+            h.push_str(&format!(
+                "<section class=\"ob-footer-business\" aria-label=\"Business details\">\n{business}</section>\n"
+            ));
+        }
         h.push_str(&format!("<p>{}</p>\n", text(&c.footer_text(year))));
         let mut links: Vec<(String, String)> = c
             .social

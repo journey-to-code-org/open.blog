@@ -1,4 +1,4 @@
-# ADR 0305: An announcement links a public canonical post at a UTC instant, and only a scheduled one can change
+# ADR 0308: An announcement links a public canonical post at a UTC instant, and only a scheduled one can change
 
 - Status: Accepted
 - Date: 2026-10-29

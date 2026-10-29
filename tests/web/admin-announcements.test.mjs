@@ -1,4 +1,4 @@
-// The Admin "Social" screen (epic #353, story #356, ADR 0307): the time in the author's own zone as
+// The Admin "Social" screen (epic #353, story #356, ADR 0310): the time in the author's own zone as
 // a UTC instant (with the days the clocks change), the caption count, the words for statuses and
 // errors, and the panel's behavior against a fake Admin: labelled fields, problems beside them,
 // idempotent retries, versioned edits, a confirmed cancel, and a refreshed queue after a lost race.

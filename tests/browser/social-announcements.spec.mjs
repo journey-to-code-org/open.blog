@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// The Social screen in Admin (ADR 0307, #369), from the real binary and the real Admin Studio, with
+// The Social screen in Admin (ADR 0310, #369), from the real binary and the real Admin Studio, with
 // the real hosted routes (netlify/lib/social-announcements.mjs) behind a local HTTP server over an
 // in-memory stand-in for Supabase. No real network and no real provider: nothing is ever posted.
 // It proves the whole path: the browser talks only to Admin, Admin checks the post and builds the

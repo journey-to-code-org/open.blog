@@ -216,3 +216,39 @@ Write five possible titles for something you want to write, then the first line 
 ### a-goodbye: A goodbye
 words: 60-150
 Say goodbye to something: a place, a job, a habit or a season. Keep it short and true.
+
+## trades: Trades
+
+Talk about the work, the customers and the days, the way you would on a job site.
+
+### a-job-that-went-sideways: A job that went sideways
+words: 80-200
+Tell about a job that did not go the way you planned. What went wrong, what did you do about it, and how did it end?
+
+### the-question-every-customer-asks: The question every customer asks
+words: 60-150
+What is the one question customers ask you again and again? Answer it the way you would out loud, standing in their kitchen.
+
+### the-tool-i-would-never-give-up: The tool I would never give up
+words: 60-150
+Pick the one tool you would fight to keep. Say what it does, how you came to own it, and what you would do without it.
+
+### a-myth-about-my-trade: A myth about my trade
+words: 60-150
+What do people believe about your trade that is not true? Say what they think and what is really going on.
+
+### how-i-price-a-job-honestly: How I price a job honestly
+words: 80-200
+Walk through how you work out what a job costs and what you tell the customer. Say what you do when it will cost more than they hoped.
+
+### the-best-customer-i-ever-had: The best customer I ever had
+words: 80-200
+Tell about a customer you were glad to work for. What did they do that made it easy, and what stuck with you afterward?
+
+### what-i-check-before-i-start: What I check before I start
+words: 60-150
+Before you touch anything, what do you look at? Tell it in the order you do it, and say what each check saves you from.
+
+### the-day-i-knew-i-was-good-at-this: The day I knew I was good at this
+words: 80-200
+Think of the moment you realized you had it figured out. Where were you, what had just happened, and what did it feel like?

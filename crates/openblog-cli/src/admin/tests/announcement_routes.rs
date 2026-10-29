@@ -1,4 +1,4 @@
-//! Admin social announcement routes (ADR 0306, story #356): deny by default, the session and CSRF
+//! Admin social announcement routes (ADR 0309, story #356): deny by default, the session and CSRF
 //! seams, off unless configured, the site (not the browser) decides what is announced and where it
 //! links, the hosted function is called with the admin key and the signed-in user, and nothing
 //! secret or foreign reaches the browser. The hosted function is a fake here, plus one real

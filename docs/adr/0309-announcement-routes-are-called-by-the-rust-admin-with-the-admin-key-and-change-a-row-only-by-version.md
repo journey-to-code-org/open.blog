@@ -1,4 +1,4 @@
-# ADR 0306: Announcement routes are called by the Rust Admin with the admin key and change a row only by version
+# ADR 0309: Announcement routes are called by the Rust Admin with the admin key and change a row only by version
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -8,7 +8,7 @@
 ## Context
 
 ADR 0293 fixed who may act (the Rust Admin, with a server-held key, naming the signed-in user) and for which site
-(the server's `OPENBLOG_SITE_ID`). ADR 0305 fixed what a valid announcement is. This ADR is the routes between
+(the server's `OPENBLOG_SITE_ID`). ADR 0308 fixed what a valid announcement is. This ADR is the routes between
 them: create, list, edit, reschedule and cancel, plus the destinations an announcement can go to.
 
 ## Decision
@@ -19,7 +19,7 @@ them: create, list, edit, reschedule and cancel, plus the destinations an announ
   `canonicalUrl`, a site, a status or any other unknown field is a 400). It then calls the hosted function
   (`netlify/functions/social.mjs`, logic in `netlify/lib/social-announcements.mjs`) with
   `Authorization: Bearer <OPENBLOG_SOCIAL_ADMIN_KEY>` and `X-OpenBlog-Actor: <user>`. The hosted function accepts only
-  the admin role (a worker key is a 403), refuses a body or query that names a site, and applies the ADR 0305 rules
+  the admin role (a worker key is a 403), refuses a body or query that names a site, and applies the ADR 0308 rules
   again before it writes.
 - **Off unless configured, on both sides.** The Admin needs the connected-accounts settings, `OPENBLOG_SOCIAL_ENDPOINT`
   (`https`, or `http` to this machine for development; no credentials, query or fragment) and

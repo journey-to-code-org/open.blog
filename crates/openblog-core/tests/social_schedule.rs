@@ -1,4 +1,4 @@
-//! Optional social publishing, the announcement model (ADR 0305): held to
+//! Optional social publishing, the announcement model (ADR 0308): held to
 //! `tests/fixtures/social-schedule.json`, which the hosted function's tests read too.
 
 use openblog_core::social_schedule::*;

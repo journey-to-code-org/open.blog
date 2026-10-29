@@ -5794,6 +5794,117 @@ ob-voice-library {
   overflow-wrap: anywhere;
 }
 
+/* The Business facts screen (ADR 0307): designed at 400px first. One column, 44px targets, every label and message wraps. */
+.oba-business {
+  display: grid;
+  gap: 1rem;
+  max-width: 40rem;
+  min-width: 0;
+}
+.oba-business-form {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.oba-business-group {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.75rem 0 0;
+  border: 0;
+  border-top: var(--ob-border-width) solid var(--ob-color-border);
+}
+.oba-business-group > legend {
+  padding: 0 0.5rem 0 0;
+  font-weight: 700;
+}
+.oba-business .oba-field {
+  min-width: 0;
+}
+.oba-business input[type="text"],
+.oba-business input[type="tel"],
+.oba-business input[type="email"],
+.oba-business select,
+.oba-business input[type="time"] {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+.oba-business-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+.oba-business-check input {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+.oba-business-day {
+  min-width: 0;
+  margin: 0;
+  padding: 0.5rem 0;
+  border: 0;
+  border-top: var(--ob-row-border-width) solid var(--ob-color-border);
+}
+.oba-business-day > legend {
+  padding: 0 0.5rem 0 0;
+  font-weight: 600;
+}
+.oba-business-day-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: flex-end;
+  min-width: 0;
+}
+.oba-business-day-row > label,
+.oba-business-times > label {
+  display: grid;
+  gap: 0.2rem;
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.oba-business-times {
+  display: flex;
+  flex: 2 1 12rem;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+}
+.oba-business-times[hidden] {
+  display: none;
+}
+.oba-business-copy,
+.oba-business-actions .oba-btn {
+  min-height: 44px;
+}
+.oba-business-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+.oba-business-problem {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+.oba-business [aria-invalid="true"] {
+  border-color: var(--oba-danger);
+  outline-offset: 2px;
+}
+
 /* The Capture view (ADR 0296): designed at 400px first. One column, 44px or larger targets, every name wraps. */
 .oba-capture {
   display: grid;
@@ -6321,7 +6432,7 @@ ob-voice-library {
   }
 }
 
-/* Social announcements (ADR 0307). One column, wrapping text, no fixed widths: the screen reads the
+/* Social announcements (ADR 0310). One column, wrapping text, no fixed widths: the screen reads the
    same on a phone and does not depend on a font's metrics. */
 .oba-announce {
   display: grid;
