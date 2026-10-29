@@ -4950,17 +4950,24 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
         engagement.insert("feedback".into(), json!(feedback));
     }
     if let Some(captcha) = body.get("captcha") {
-        let parsed =
+        let mut parsed =
             match serde_json::from_value::<openblog_core::config::CaptchaConfig>(captcha.clone()) {
                 Ok(parsed) => parsed,
                 Err(_) => {
                     return Response::error(
                         422,
-                        "Captcha accepts only enabled, provider, and public siteKey",
+                        "Captcha accepts only provider, scope, and the public siteKey; secrets are server environment variables",
                     )
                 }
             };
-        engagement.insert("captcha".into(), json!(parsed));
+        parsed.provider = parsed.provider.trim().to_lowercase();
+        parsed.scope = parsed.scope.trim().to_lowercase();
+        parsed.site_key = parsed.site_key.trim().to_string();
+        if parsed == openblog_core::config::CaptchaConfig::default() {
+            engagement.remove("captcha");
+        } else {
+            engagement.insert("captcha".into(), json!(parsed));
+        }
     }
     value["engagement"] = Json::Object(engagement);
     let candidate = match serde_json::to_string_pretty(&value) {
@@ -4969,9 +4976,10 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
             return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
         }
     };
-    if let Err(error) = SiteConfig::from_json(&candidate) {
-        return Response::error(422, &error);
-    }
+    let validated = match SiteConfig::from_json(&candidate) {
+        Ok(config) => config,
+        Err(error) => return Response::error(422, &error),
+    };
     let credential_path = match engagement_credential_path(&state.root) {
         Ok(path) => path,
         Err(error) => return Response::error(500, &error),
@@ -5016,7 +5024,7 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
         &json!({
             "enabled": enabled, "comments": comments, "analytics": analytics,
             "endpoint": endpoint, "etag": etag, "credential": credential,
-            "captcha": value["engagement"]["captcha"],
+            "captcha": validated.engagement.captcha,
         }),
     )
 }
@@ -25830,25 +25838,40 @@ What I read:
         assert_eq!(initial.status, 200);
         let initial_json = body_json(&initial);
         assert_eq!(initial_json["enabled"], false);
-        let secret_attempt = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "PUT",
-                    "/admin/api/engagement/settings",
-                    json!({
-                        "etag": initial_json["etag"],
-                        "captcha": { "enabled": true, "siteKey": "public-key", "secret": "never-persist-this" }
-                    }),
+        assert_eq!(initial_json["captcha"]["provider"], "off");
+        assert_eq!(initial_json["captcha"]["scope"], "session");
+        let put_captcha = |captcha: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        "/admin/api/engagement/settings",
+                        json!({ "etag": initial_json["etag"], "captcha": captcha }),
+                    ),
+                    &session,
+                    true,
                 ),
-                &session,
-                true,
-            ),
+            )
+        };
+        let secret_attempt = put_captcha(
+            json!({ "provider": "turnstile", "siteKey": "public-key", "secret": "never-persist-this" }),
         );
         assert_eq!(secret_attempt.status, 422);
+        assert!(!String::from_utf8_lossy(&secret_attempt.body).contains("never-persist-this"));
+        for (invalid, hint) in [
+            (json!({ "provider": "turnstile" }), "siteKey is required"),
+            (json!({ "provider": "other" }), "turnstile"),
+            (json!({ "scope": "always" }), "every-comment"),
+            (json!({ "provider": "turnstile", "siteKey": "bad key!" }), "never put a secret"),
+        ] {
+            let refused = put_captcha(invalid);
+            assert_eq!(refused.status, 422);
+            assert!(String::from_utf8_lossy(&refused.body).contains(hint));
+        }
         assert!(!fs::read_to_string(f.dir.join(site::CONFIG_FILE))
             .unwrap()
-            .contains("never-persist-this"));
+            .contains("captcha"));
         let save = json!({
             "enabled": true,
             "comments": true,
@@ -25857,7 +25880,7 @@ What I read:
             "etag": initial_json["etag"],
             "credentialAction": "replace",
             "credential": "moderation-secret",
-            "captcha": { "enabled": true, "provider": "turnstile", "siteKey": "public-key" },
+            "captcha": { "provider": "turnstile", "siteKey": " public-key ", "scope": "every-comment" },
         });
         assert_eq!(
             handle(
@@ -25881,6 +25904,7 @@ What I read:
         );
         assert_eq!(saved.status, 200);
         assert_eq!(body_json(&saved)["captcha"]["siteKey"], "public-key");
+        assert_eq!(body_json(&saved)["captcha"]["scope"], "every-comment");
         assert_eq!(body_json(&saved)["credential"]["configured"], true);
         assert!(!String::from_utf8_lossy(&saved.body).contains("moderation-secret"));
         let config = site::load_config(&f.dir).unwrap();
@@ -25932,8 +25956,9 @@ What I read:
         assert_eq!(kept.status, 200);
         let config = site::load_config(&f.dir).unwrap();
         assert!(config.engagement.feedback && !config.engagement.comments);
-        assert!(config.engagement.captcha.enabled);
+        assert!(config.engagement.captcha.enabled());
         assert_eq!(config.engagement.captcha.site_key, "public-key");
+        assert_eq!(config.engagement.captcha.scope, "every-comment");
         let off = handle(
             &f.state,
             &authed(
@@ -25956,7 +25981,33 @@ What I read:
         );
         assert_eq!(off.status, 200);
         assert!(!site::load_config(&f.dir).unwrap().engagement.feedback);
-
+        assert!(site::load_config(&f.dir).unwrap().engagement.captcha.enabled());
+        let cleared = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true,
+                        "comments": true,
+                        "analytics": true,
+                        "endpoint": "https://blog.example/api",
+                        "etag": body_json(&off)["etag"],
+                        "credentialAction": "keep",
+                        "captcha": { "provider": "off" },
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(cleared.status, 200);
+        assert_eq!(body_json(&cleared)["captcha"]["provider"], "off");
+        assert!(!fs::read_to_string(f.dir.join(site::CONFIG_FILE))
+            .unwrap()
+            .contains("captcha"));
+        let off = cleared;
         let saved_json = body_json(&off);
         let moved = handle(
             &f.state,
