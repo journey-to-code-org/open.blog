@@ -120,6 +120,11 @@ pub fn run(
         }
         Some("polish") => polish(root, one_sample(positional, "polish")?, options),
         Some("erase") if positional.len() == 1 => erase(root, switches.contains("yes")),
+        Some("guide") if positional.len() == 1 => guide(
+            root,
+            options.get("move").map(String::as_str),
+            switches.contains("yes"),
+        ),
         Some("diff") => diff(root, one_sample(positional, "diff")?),
         Some("promote") => promote(
             root,
@@ -484,6 +489,48 @@ fn erase(root: &Path, yes: bool) -> Result<(), String> {
         }
         Err("Erased what could be erased, but the files above are still there.".into())
     }
+}
+
+/// `openblog voice guide --move portable|private`: say what moving the voice guide would do, and
+/// with `--yes` move it in one step (ADR 0351).
+fn guide(root: &Path, to: Option<&str>, yes: bool) -> Result<(), String> {
+    let usage = "usage: openblog voice guide --move portable|private [--yes]";
+    let to = match to {
+        Some(value) => Visibility::parse(value).ok_or(usage)?,
+        None => return Err(usage.into()),
+    };
+    let planned = voice_store::plan_guide_move(root, to).map_err(store_error)?;
+    let note = if to == Visibility::Portable {
+        " Git tracks the portable folder, so a commit would share it."
+    } else {
+        " The private folder is kept out of Git."
+    };
+    if planned.finishing {
+        println!(
+            "{} already has the same guide; this removes {} to finish an earlier move.",
+            planned.to_path, planned.from_path
+        );
+    } else {
+        println!(
+            "This moves the voice guide from {} to {} ({} bytes, unchanged).{note}",
+            planned.from_path, planned.to_path, planned.bytes
+        );
+    }
+    if !yes {
+        return Err("Nothing was moved. Run it again with --yes to move it.".into());
+    }
+    // Same order as an import and the Admin: the content transaction, then the voice store lock.
+    let _transaction = transaction::ContentTransactionLock::acquire_with_wait(
+        root,
+        std::time::Duration::from_secs(3),
+    )?;
+    let moved = voice_store::move_guide(root, to).map_err(store_error)?;
+    println!(
+        "Moved the voice guide to {}. Move it back with `openblog voice guide --move {}`.",
+        moved.to_path,
+        moved.from.as_str()
+    );
+    Ok(())
 }
 
 // ---- the timed capture ---------------------------------------------------------------------

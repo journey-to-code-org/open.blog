@@ -137,6 +137,10 @@ Assistant workflow behave as they did.
   never replacing a rough draft, never moving a sample between folders, refusing newer formats and a
   portable guide that quotes private samples. See
   [ADR 0284](../adr/0284-the-voice-library-travels-as-one-previewed-all-or-nothing-export-that-keeps-each-items-folder.md).
+- The voice guide moves between the folders in one locked copy, verify and remove step. The move is previewed
+  first (`openblog voice guide --move portable|private [--yes]`, or Make private / Make portable in Admin),
+  refuses links, and never moves a guide that quotes private samples to portable. See
+  [ADR 0351](../adr/0351-the-voice-guide-moves-between-portable-and-private-in-one-locked-copy-verify-remove-step.md).
 - Erasing the library is listed, confirmed (`openblog voice erase --yes`, or typing `erase` in Admin), all or
   nothing, and checked again afterwards; it refuses linked folders. See
   [ADR 0282](../adr/0282-voice-samples-are-private-until-the-author-chooses-portable-and-a-move-between-the-folders-is-reversible.md)

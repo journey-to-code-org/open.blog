@@ -72,6 +72,8 @@ fn every_route_requires_a_session_and_a_write_the_csrf_token_and_the_same_origin
         ("POST", "/admin/api/voice/session/lock", true),
         ("GET", "/admin/api/voice/erase", false),
         ("POST", "/admin/api/voice/erase", true),
+        ("GET", "/admin/api/voice/guide/move?to=private", false),
+        ("POST", "/admin/api/voice/guide/move", true),
         ("GET", "/admin/api/voice/samples", false),
         ("POST", "/admin/api/voice/samples", true),
         ("GET", "/admin/api/voice/samples/2026-10-28-a-rough", false),
@@ -1079,4 +1081,89 @@ fn a_project_served_from_the_current_folder_keeps_its_sentences_and_hides_its_pa
         assert!(!scrubbed.contains(&plain), "{scrubbed}");
         assert!(scrubbed.ends_with(": denied."), "{scrubbed}");
     }
+}
+
+// ---- moving the voice guide (ADR 0351) ---------------------------------------------------------
+
+#[test]
+fn the_guide_move_is_previewed_then_done_in_one_step_and_reversed() {
+    let f = fixture("voice-guide-move");
+    let s = login_ok(&f);
+    let guide = "# Voice guide\n<!-- openblog:voice-provenance sources=portable -->\n\n- Mine\n";
+    fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+    fs::write(f.dir.join("assistant/context/voice.md"), guide).unwrap();
+
+    let (status, plan) = get(&f, &s, "/admin/api/voice/guide/move?to=private");
+    assert_eq!(status, 200, "{plan}");
+    assert_eq!(plan["move"]["fromPath"], "assistant/context/voice.md");
+    assert_eq!(plan["move"]["toPath"], ".openblog/private/context/voice.md");
+    assert!(!f.dir.join(".openblog/private/context/voice.md").exists());
+    assert_eq!(
+        get(&f, &s, "/admin/api/voice/guide/move?to=elsewhere").0,
+        400
+    );
+
+    let (status, moved) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/guide/move",
+        json!({ "to": "private" }),
+    );
+    assert_eq!(status, 200, "{moved}");
+    assert!(!f.dir.join("assistant/context/voice.md").exists());
+    assert_eq!(
+        fs::read_to_string(f.dir.join(".openblog/private/context/voice.md")).unwrap(),
+        guide
+    );
+    // Moving again the same way finds nothing to move.
+    let (status, refused) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/guide/move",
+        json!({ "to": "private" }),
+    );
+    assert_eq!(status, 409);
+    assert_eq!(refused["refused"], true);
+    let (status, _) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/guide/move",
+        json!({ "to": "portable" }),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(
+        fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap(),
+        guide
+    );
+    assert!(!f.dir.join(".openblog/private/context/voice.md").exists());
+}
+
+#[test]
+fn the_guide_move_is_refused_while_a_content_write_holds_the_lock() {
+    let f = fixture("voice-guide-move-locked");
+    let s = login_ok(&f);
+    fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+    fs::write(f.dir.join("assistant/context/voice.md"), "# Voice guide\n").unwrap();
+    let held = crate::transaction::ContentTransactionLock::acquire(&f.dir).unwrap();
+    let (status, _) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/guide/move",
+        json!({ "to": "private" }),
+    );
+    assert_eq!(status, 409);
+    assert!(f.dir.join("assistant/context/voice.md").exists());
+    drop(held);
+    let (status, _) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/guide/move",
+        json!({ "to": "private" }),
+    );
+    assert_eq!(status, 200);
 }

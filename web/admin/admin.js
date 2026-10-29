@@ -22880,6 +22880,7 @@ export class Editor {
           : this.field(`oba-context-${document.id}-content`, `${typeLabel} context Markdown`, textarea),
         h("label", { class: "oba-check" }, selected, h("span", {}, `Selected context · ${document.characters} characters`)),
         h("div", { class: "oba-toolbar" }, save, remove),
+        document.contextType === "voice" && document.exists ? this.voiceGuideMoveControl(document) : null,
       );
     });
     this.ui.assistantContextCards.replaceChildren(...cards);
@@ -22978,6 +22979,62 @@ export class Editor {
     const budget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
     if (!budget.samples) return [];
     return [h("p", { class: budget.over ? "oba-notice is-warning" : "oba-small", role: budget.over ? "alert" : null }, budget.over ? `${budget.message} Deselect some voice samples before sending.` : `${budget.samples} of ${budget.budget.samples} voice samples and ${budget.characters} of ${budget.budget.characters} voice characters in this request.`)];
+  }
+
+  /**
+   * Move the voice guide to the other folder (ADR 0351): the server says what would move, or why it
+   * will not, and nothing moves until the author confirms. Moving to portable is refused for a guide
+   * that quotes private samples or cannot be read.
+   */
+  voiceGuideMoveControl(document) {
+    const to = document.visibility === "private" ? "portable" : "private";
+    const label = to === "private" ? "Make private" : "Make portable";
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-guide-move-status": "" });
+    const confirm = h("div", { class: "oba-toolbar", hidden: true });
+    const start = h("button", { class: "oba-btn", type: "button", "data-voice-guide-move": to }, label);
+    const reset = () => {
+      confirm.hidden = true;
+      confirm.replaceChildren();
+      start.disabled = false;
+      start.focus();
+    };
+    start.addEventListener("click", async () => {
+      start.disabled = true;
+      status.textContent = "Checking the move…";
+      try {
+        const plan = (await this.app.api.call("GET", `voice/guide/move?to=${to}`)).move;
+        const git = to === "portable" ? " Git tracks the portable folder, so a commit would share it." : " The private folder is kept out of Git.";
+        status.textContent = plan.finishing
+          ? `${plan.toPath} already has the same guide; moving removes ${plan.fromPath} to finish an earlier move.`
+          : `This moves the guide from ${plan.fromPath} to ${plan.toPath}, unchanged.${git}`;
+        const yes = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: async () => {
+          yes.disabled = true;
+          try {
+            const reply = await this.app.api.call("POST", "voice/guide/move", { json: { to } });
+            this.assistantContextLoaded = false;
+            await this.loadAssistantContext(true);
+            this.ui.assistantContextStatus.textContent = `${reply.message || `The voice guide is now ${to}.`} You can move it back the same way.`;
+            // The cards were drawn again, so focus goes to the sentence that says what happened.
+            this.ui.assistantContextStatus.setAttribute("tabindex", "-1");
+            this.ui.assistantContextStatus.focus();
+          } catch (error) {
+            status.textContent = `The guide was not moved. ${error.message}`;
+            reset();
+          }
+        } }, to === "private" ? "Move to private" : "Move to portable");
+        const no = h("button", { class: "oba-btn", type: "button", onClick: () => {
+          status.textContent = "Nothing was moved.";
+          reset();
+        } }, "Cancel");
+        confirm.replaceChildren(yes, no);
+        confirm.hidden = false;
+        yes.focus();
+      } catch (error) {
+        status.textContent = `The guide was not moved. ${error.message}`;
+        start.disabled = false;
+      }
+    });
+    return h("div", { class: "oba-voice-guide-move" }, h("div", { class: "oba-toolbar" }, start), status, confirm);
   }
 
   /** Ask the provider to propose a voice guide from the selected samples. Writes nothing. */

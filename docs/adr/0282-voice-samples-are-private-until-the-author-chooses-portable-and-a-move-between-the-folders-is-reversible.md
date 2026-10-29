@@ -35,3 +35,11 @@ default to the private folder. This record states the policy in one place and na
 
 No new surface was needed: this story adds the reversal and staging tests and this record. A CLI command to move
 a sample is not added; Admin's "Make private" and "Make portable" are the way to change visibility.
+
+## Amendment: the guide moves too (ADR 0351)
+
+The guide now has its own move. `voice_store::move_guide` copies the file, checks the copy and then removes the
+original, under the content transaction lock and the store lock. It refuses links and refuses a move to portable
+for a guide that quotes private samples or cannot be read. The CLI runs it with
+`openblog voice guide --move portable|private [--yes]`, and the Admin with **Make private** or **Make portable**
+on the guide's card. See [ADR 0351](0351-the-voice-guide-moves-between-portable-and-private-in-one-locked-copy-verify-remove-step.md).

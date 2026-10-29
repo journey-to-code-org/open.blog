@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -241,4 +241,47 @@ test("a proposal folded into the saved guide keeps what it does not address and 
   await result.getByRole("button", { name: "Discard" }).click();
   await expect(page.getByText("Proposal discarded. Nothing was saved.")).toBeVisible();
   expect(readFileSync(guidePath(), "utf8")).toBe(saved);
+});
+
+test("the voice guide moves between portable and private from beside it, previewed and reversible", async ({ page }) => {
+  const privateGuide = join(root, ".openblog", "private", "context", "voice.md");
+  rmSync(privateGuide, { force: true });
+  writeFileSync(guidePath(), SAVED);
+  await openContext(page);
+  const portableCard = page.getByRole("region", { name: "Voice guide · Portable" });
+  await portableCard.getByRole("button", { name: "Make private" }).click();
+  await expect(portableCard.locator("[data-voice-guide-move-status]")).toContainText("from assistant/context/voice.md to .openblog/private/context/voice.md");
+  // Cancel moves nothing and gives focus back.
+  await portableCard.getByRole("button", { name: "Cancel" }).click();
+  await expect(portableCard.locator("[data-voice-guide-move-status]")).toHaveText("Nothing was moved.");
+  await expect(portableCard.getByRole("button", { name: "Make private" })).toBeFocused();
+  expect(existsSync(privateGuide)).toBe(false);
+
+  await portableCard.getByRole("button", { name: "Make private" }).click();
+  await portableCard.getByRole("button", { name: "Move to private" }).click();
+  await expect(page.getByText("The voice guide is now private. You can move it back the same way.")).toBeVisible();
+  expect(existsSync(guidePath())).toBe(false);
+  expect(readFileSync(privateGuide, "utf8")).toBe(SAVED);
+
+  const privateCard = page.getByRole("region", { name: "Voice guide · Private" });
+  await privateCard.getByRole("button", { name: "Make portable" }).click();
+  await privateCard.getByRole("button", { name: "Move to portable" }).click();
+  await expect(page.getByText("The voice guide is now portable. You can move it back the same way.")).toBeVisible();
+  expect(readFileSync(guidePath(), "utf8")).toBe(SAVED);
+  expect(existsSync(privateGuide)).toBe(false);
+
+  // A private guide that quotes private samples is refused before anything moves.
+  rmSync(guidePath());
+  const quoting = "# Voice guide\n<!-- openblog:voice-provenance sources=private -->\n";
+  writeFileSync(privateGuide, quoting);
+  await page.reload();
+  await openContext(page);
+  const quotingCard = page.getByRole("region", { name: "Voice guide · Private" });
+  await quotingCard.getByRole("button", { name: "Make portable" }).click();
+  await expect(quotingCard.locator("[data-voice-guide-move-status]")).toContainText("quotes private samples");
+  await expect(quotingCard.getByRole("button", { name: "Move to portable" })).toHaveCount(0);
+  expect(readFileSync(privateGuide, "utf8")).toBe(quoting);
+  expect(existsSync(guidePath())).toBe(false);
+  writeFileSync(guidePath(), SAVED);
+  rmSync(privateGuide);
 });

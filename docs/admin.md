@@ -329,7 +329,11 @@ keyboard; the timer is not announced every second, only at its marks and when it
 
 Samples are private unless you choose portable (`--portable`, or "Portable" when you start a session in
 Admin); "Make private" and "Make portable" on a sample move it, with its partner, and moving it back
-restores the same bytes. Private samples are never published, built, fed or exported as content (a voice
+restores the same bytes. The voice guide moves the same way. Use **Make private** or **Make portable** on its
+card in the Assistant Context view, or run `openblog voice guide --move private` (it shows what would move;
+add `--yes` to move it). The file is copied, checked and only then removed, so a failed move never loses the
+guide. A guide that quotes private samples, or cannot be read, stays private
+([ADR 0351](adr/0351-the-voice-guide-moves-between-portable-and-private-in-one-locked-copy-verify-remove-step.md)). Private samples are never published, built, fed or exported as content (a voice
 export carries them only with `--include-private`; see below).
 
 `openblog voice erase` lists everything the voice feature stored: samples in both folders, the session
