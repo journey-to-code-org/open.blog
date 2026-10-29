@@ -2488,13 +2488,23 @@ impl<'a> Renderer<'a> {
             } else {
                 ""
             };
+            let captcha = if c.engagement.captcha.enabled {
+                format!(
+                    " captcha-provider=\"turnstile\" captcha-site-key=\"{}\" captcha-scope=\"{}\"",
+                    attr(&c.engagement.captcha.site_key),
+                    attr(c.engagement.endpoint.trim().trim_end_matches('/'))
+                )
+            } else {
+                String::new()
+            };
             body.push_str(&format!(
-                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,
                 reports,
+                captcha,
             ));
         }
         if !c.snippets.post_footer.trim().is_empty() {
@@ -6005,6 +6015,14 @@ mod tests {
 
     #[test]
     fn hosted_engagement_renders_comments_and_reuses_the_endpoint_for_views() {
+        let protected = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"endpoint":"https://t.dev/api","captcha":{"enabled":true,"siteKey":"public-key"}}}"#,
+            true,
+        );
+        let html = file(&protected, "one/index.html");
+        assert!(html.contains("captcha-provider=\"turnstile\" captcha-site-key=\"public-key\" captcha-scope=\"https://t.dev/api\""));
+        assert!(!html.contains("challenges.cloudflare.com"));
+
         let files = build(
             r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","analytics":{"builtin":false,"showViews":true},"engagement":{"enabled":true,"comments":true,"analytics":true,"endpoint":"https://t.dev/api/"}}"#,
             true,
