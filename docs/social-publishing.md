@@ -228,3 +228,15 @@ and the backslash) are escaped, so a caption cannot mention people or format tex
 Verify at setup, because LinkedIn changes them: the API version (`OPENBLOG_SOCIAL_LINKEDIN_API_VERSION`, a dated
 `YYYYMM` value that LinkedIn retires after about a year; the default is only a starting point), that your app has the
 product that grants `w_member_social`, and for organizations the Community Management API and `w_organization_social`.
+
+### Facebook Pages
+
+Posts a message and the post link to the connected Page's feed (`POST /{page-id}/feed`) with that Page's access
+token ([ADR 0491](adr/0491-the-facebook-adapter-posts-a-message-and-link-to-the-page-feed-with-the-page-token-in-the-header-and-reads-graph-error-codes.md)).
+The token goes in the `Authorization` header, never in the address. Facebook's own error codes decide the result: an
+expired token or a removed app asks you to reconnect, a missing permission or Page role is reported as such, a rate
+limit is tried again later, and an "unknown error" is `unknown` because the post may exist.
+
+Verify at setup, because Meta changes them: the Graph version (`OPENBLOG_SOCIAL_FACEBOOK_API_VERSION`, for example
+`v23.0`; old versions are retired), that your app has `pages_manage_posts` (and `pages_show_list`), and App Review:
+until the app has Advanced access, only people with a role on the app can post to Pages.

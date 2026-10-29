@@ -46,6 +46,8 @@ const published = (providerPostId, httpStatus) => result("published", "published
 const TOKEN = /^[\x21-\x7e]{8,4096}$/;
 const LINKEDIN_AUTHOR = /^urn:li:(person:[A-Za-z0-9_-]{1,64}|organization:\d{1,20})$/;
 const LINKEDIN_POST_ID = /^urn:li:(share|ugcPost):\d{1,30}$/;
+const FACEBOOK_PAGE = /^\d{1,30}$/;
+const FACEBOOK_POST_ID = /^\d{1,30}_\d{1,30}$/;
 
 // LinkedIn reads `commentary` as "little text": these characters are markup and must be escaped
 // so a caption such as "(beta) | v2 *new*" is posted as typed and mentions cannot be injected.
@@ -146,7 +148,46 @@ async function linkedin(settings, post, token, fetchImpl, timeoutMs) {
   return byStatus(status, response);
 }
 
-const ADAPTERS = { linkedin };
+// Facebook's own error codes, which arrive with a 400 as often as with the matching HTTP status.
+const FACEBOOK_AUTH = new Set([102, 190]);
+const FACEBOOK_THROTTLE = new Set([4, 17, 32, 341, 613]);
+const FACEBOOK_TRANSIENT = new Set([1, 2]);
+
+function facebookError(status, body, response) {
+  const code = Number(body?.error?.code);
+  if (FACEBOOK_AUTH.has(code)) return failed("auth-rejected", { httpStatus: status, reauth: true });
+  if (code === 10 || (code >= 200 && code <= 299)) return failed("permission-denied", { httpStatus: status });
+  if (FACEBOOK_THROTTLE.has(code)) return failed("throttled", { httpStatus: status, retryable: true, retryAfterSeconds: retryAfter(response) });
+  // "An unknown error occurred" can follow a post that was in fact created.
+  if (FACEBOOK_TRANSIENT.has(code)) return unknown("provider-error", { httpStatus: status });
+  return byStatus(status, response);
+}
+
+async function facebook(settings, post, token, fetchImpl, timeoutMs) {
+  if (!FACEBOOK_PAGE.test(String(post.destination?.id))) return failed("invalid-post");
+  if (post.destination.kind && post.destination.kind !== "page") return failed("invalid-post");
+  // The Page token goes in the header, never in the URL or body, so no access log can keep it.
+  const response = await send(
+    fetchImpl,
+    `${settings.apiBase}/${post.destination.id}/feed`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ message: post.caption, link: post.url }).toString(),
+    },
+    timeoutMs,
+  );
+  if (!response) return unknown("network-error");
+  const status = Number(response.status) || 0;
+  const body = await readJson(response);
+  if (status >= 200 && status < 300) {
+    const id = body?.id;
+    return status === 200 && typeof id === "string" && FACEBOOK_POST_ID.test(id) && id.startsWith(`${post.destination.id}_`) ? published(id, status) : unknown("outcome-unknown", { httpStatus: status });
+  }
+  return facebookError(status, body, response);
+}
+
+const ADAPTERS = { linkedin, facebook };
 
 // `providers` is socialProviders(env). `post` is
 //   { provider, destination: { id, kind? }, caption, url, title? }
