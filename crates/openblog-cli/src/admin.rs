@@ -3810,7 +3810,7 @@ fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
 }
 
 /// A front matter key. The only dotted keys are the flattened `job.*` ones the
-/// job profile uses (ADR 0285) and a service's `faq.<n>.<key>` ones (ADR 0400);
+/// job profile uses (ADR 0285) and a service's `faq.<n>.<key>` ones (ADR 0308);
 /// every segment is a plain word.
 fn is_field_name(key: &str) -> bool {
     let plain = |part: &str| {

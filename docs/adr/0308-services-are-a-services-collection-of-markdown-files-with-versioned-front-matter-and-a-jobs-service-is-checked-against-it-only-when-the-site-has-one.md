@@ -1,4 +1,4 @@
-# ADR 0400: Services are a `services/` collection of Markdown files with versioned front matter, and a job's service is checked against it only when the site has one
+# ADR 0308: Services are a `services/` collection of Markdown files with versioned front matter, and a job's service is checked against it only when the site has one
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -54,4 +54,4 @@ owners will hand-write it, so it must be small, versioned and conservative.
 - A site that already had loose files under `content/services/` (which were ignored) now has them read as
   services and refused if they do not have the front matter. This is the cost of using the folder name the
   epic names; the message names the file.
-- Pages, structured data and Admin build on this model (ADR 0401, ADR 0402).
+- Pages, structured data and Admin build on this model (ADR 0309, ADR 0310).

@@ -650,7 +650,7 @@ pub fn generate_with_trail_budget(
 
     out.add("archive/index.html".into(), r.archive(default_theme))?;
     out.add("search/index.html".into(), r.search_page(default_theme))?;
-    // The services collection (ADR 0401): an index and one page each, only
+    // The services collection (ADR 0309): an index and one page each, only
     // when the site has services.
     if !site.services.is_empty() {
         out.add(
@@ -1057,7 +1057,7 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // Interpretation comparisons reserve `/interpretations/` the same way
     // (ADR 0232); `/comparisons/` stays with passage comparisons.
     let publishes_interpretations = site.config.interpretations.publish;
-    // `/services/` is reserved only once the site has services (ADR 0401).
+    // `/services/` is reserved only once the site has services (ADR 0309).
     let has_services = !site.services.is_empty();
     let reserved = |segment: &str| {
         RESERVED.contains(&segment)
@@ -1757,7 +1757,7 @@ impl<'a> Renderer<'a> {
         for page in self.site.pages.iter().filter(|p| p.nav) {
             links.push((page.title.clone(), page.url.clone()));
         }
-        // A site with services gets a link to them, unless its own navigation has one (ADR 0401).
+        // A site with services gets a link to them, unless its own navigation has one (ADR 0309).
         if !self.site.services.is_empty()
             && !links
                 .iter()

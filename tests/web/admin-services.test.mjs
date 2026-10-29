@@ -1,4 +1,4 @@
-// The Services screen's pure contract (ADR 0402, #511): the form read from a stored document, the fields a
+// The Services screen's pure contract (ADR 0310, #511): the form read from a stored document, the fields a
 // save sends (flattened `faq.<n>.*` keys, unknown keys kept), the checks that match the build's rules, and
 // the server's problem sentences placed on the right entry. The screen itself is driven in a real browser
 // at 400px (tests/browser/services.spec.mjs).

@@ -1,4 +1,4 @@
-//! `openblog new --profile service` through the real command line (ADR 0402): a draft service the
+//! `openblog new --profile service` through the real command line (ADR 0310): a draft service the
 //! build accepts as unfinished, written with the same front matter the build reads.
 
 use std::fs;

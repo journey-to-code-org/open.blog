@@ -38,7 +38,7 @@ pub struct Sources {
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
-    /// The `services/` collection (ADR 0400).
+    /// The `services/` collection (ADR 0308).
     pub services: Vec<SourceFile>,
     /// Where the private source library comes from, if anywhere. A load
     /// reads it only when a post that opts in to citations cites something,
@@ -531,7 +531,7 @@ pub struct Page {
     pub capabilities: Vec<CapabilityDescriptor>,
 }
 
-/// One offering of the business, from `services/` (ADR 0400). Its address is
+/// One offering of the business, from `services/` (ADR 0308). Its address is
 /// `/services/<id>/`.
 #[derive(Clone, Debug)]
 pub struct Service {
@@ -562,7 +562,7 @@ pub struct Site {
     pub series: Vec<Series>,
     pub tags: Vec<Tag>,
     pub pages: Vec<Page>,
-    /// The `services/` collection (ADR 0400), by name then id. Empty for a
+    /// The `services/` collection (ADR 0308), by name then id. Empty for a
     /// site without one, which then builds exactly as it always did.
     pub services: Vec<Service>,
     /// Posts waiting for their publish date, soonest first.

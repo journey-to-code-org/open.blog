@@ -286,7 +286,7 @@ pub struct ServiceStart<'a> {
     pub price_band: Option<&'a str>,
 }
 
-/// Create a draft service, `content/services/<id>.md` (ADR 0402): version 1
+/// Create a draft service, `content/services/<id>.md` (ADR 0310): version 1
 /// front matter with the required keys left for the owner to fill in, checked
 /// by the same rules the build uses. A draft never stops a build; `openblog
 /// check` lists what is still missing.

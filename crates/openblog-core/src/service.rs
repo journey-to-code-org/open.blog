@@ -1,5 +1,5 @@
 //! The `services/` collection: one offering a business sells, described once
-//! (ADR 0400). Pure validation of front matter and of the references jobs make
+//! (ADR 0308). Pure validation of front matter and of the references jobs make
 //! to a service; nothing here reads a file, a clock or the network.
 //!
 //! A service is `services/<name>.md`: front matter, then a Markdown body.
@@ -53,7 +53,7 @@ pub struct ServiceMetadata {
 /// declares `version` or `id`. A Markdown file there without either is a
 /// legacy file from before services existed and is left out of the build, as
 /// if it were not content, so no existing site starts failing or loses the
-/// `services` address (ADR 0400).
+/// `services` address (ADR 0308).
 pub fn declares_service(contents: &str) -> bool {
     crate::frontmatter::parse(contents).is_ok_and(|document| {
         let declared = |key: &str| {
@@ -282,7 +282,7 @@ pub fn recent_jobs(plan: &[JobArchive], id: &str, limit: usize) -> Vec<usize> {
 }
 
 /// `Service` structured data for a service's page, with a `FAQPage` beside it
-/// only when it has questions (ADR 0401). Built from what the service file
+/// only when it has questions (ADR 0309). Built from what the service file
 /// says and nothing else; the keys are written in a fixed order, so the same
 /// site always gives the same text. The caller escapes it for a `<script>`.
 pub fn json_ld(site: &Site, service: &Service) -> String {
