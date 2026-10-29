@@ -1,47 +1,31 @@
-// Provider publishing adapters of optional social publishing (epic #353, story #358, ADR 0319):
-// one narrow interface, `publish(post, credentials)`, that the scheduled worker calls and that
-// answers `{ status: "published" | "failed" | "unknown", providerPostId, retryable, code, ... }`.
-// Server-only. Every provider call goes through an injected `fetchImpl`; tests use fakes and
-// recorded fixtures and never reach a network.
+// Provider publishing adapters of optional social publishing (epic #353, story #358, ADRs 0319 to
+// 0321): the LinkedIn Posts API and the Facebook Pages feed, each implementing the adapter
+// interface the delivery worker calls (documented at the top of social-delivery.mjs, ADRs 0316 to
+// 0318). social-adapters.mjs registers an adapter only for a provider this deployment configured.
+// Server-only. Every provider call goes through an injected `fetchImpl` with the worker's abort
+// signal; tests use fakes and recorded-shape fixtures and never reach a network.
 //
-// The worker, not this module, decides what a result means for the queue. This module only says
-// what the provider told us, conservatively:
-//   - `published` needs a 2xx AND a well-formed provider post id. A 2xx without one is `unknown`.
-//   - a refusal the provider made before doing anything (400/401/403/422, a throttle) is `failed`.
-//   - anything that may have been processed without us seeing the answer (network error, timeout,
-//     5xx, an unreadable 2xx) is `unknown`, with `retryable: false`: the worker reconciles, it
-//     does not post again blindly.
-// A provider's reply text is parsed for a few fields and never copied, so a token, a message or an
+// What an adapter says, conservatively:
+//   - `publish` resolves to `{ providerPostId }` only for a success the provider confirmed AND named
+//     with a well-formed id of its own shape. A 2xx without one is "uncertain", never a success.
+//   - everything else throws a DeliveryError: "auth" (401, an expired Graph token), "rejected" (a
+//     refusal the provider made before acting, or a post this adapter cannot send at all),
+//     "rate-limited" (429 or a Graph throttle code, with the provider's Retry-After), "transient"
+//     (the request certainly never left: the signal was already aborted, the host did not resolve,
+//     the connection was refused) and "uncertain" (anything that may have been processed without
+//     us seeing the answer: a timeout, a dropped connection, a 5xx, an unreadable answer).
+//   - neither provider honours an idempotency key on these calls, so the worker's `idempotencyKey`
+//     is not sent; only an answer that means "definitely not processed" is ever retried (ADR 0319).
+// A provider's reply is parsed for a few fields and never copied, so a token, a message or an
 // injected string cannot reach a log, an attempt row or an Admin screen. The access token travels
-// only in the Authorization header.
+// only in the Authorization header. Nothing here logs.
 
-import { checkCaption, ScheduleError, providerOf } from "./social-schedule.mjs";
+import { checkCaption, ScheduleError } from "./social-schedule.mjs";
+import { DeliveryError, kindOfStatus, parseRetryAfter } from "./social-delivery.mjs";
 
+// Only used when a caller gives no signal; the worker always gives its own provider timeout.
 export const PUBLISH_TIMEOUT_MS = 15_000;
 const MAX_REPLY_CHARS = 64 * 1024;
-const MAX_RETRY_AFTER_SECONDS = 3600;
-
-// Fixed, redacted text for every code a result can carry. Shown to the author; nothing else is.
-export const PUBLISH_MESSAGES = Object.freeze({
-  "invalid-post": "The post could not be sent because its details are not valid.",
-  "unsupported-provider": "That destination is not supported yet.",
-  "provider-not-configured": "That provider is not set up on this server.",
-  "no-credentials": "There is no usable access for this account. Reconnect it.",
-  "auth-rejected": "The provider no longer accepts this account's access. Reconnect it.",
-  "permission-denied": "The provider says this account may not post here. Check its permissions and role.",
-  throttled: "The provider asked us to slow down. It will be tried again later.",
-  "request-rejected": "The provider refused the post.",
-  "provider-unexpected": "The provider answered in a way that was not expected.",
-  "outcome-unknown": "The provider's answer was not clear, so the post may or may not be live. Check the page and mark the result.",
-  "provider-error": "The provider had a problem. The post may or may not be live. Check the page and mark the result.",
-  "network-error": "The provider did not answer in time. The post may or may not be live. Check the page and mark the result.",
-});
-
-const result = (status, code, extra = {}) =>
-  Object.freeze({ status, providerPostId: null, retryable: false, code, message: PUBLISH_MESSAGES[code] || "", httpStatus: 0, reauth: false, retryAfterSeconds: null, ...extra });
-const failed = (code, extra) => result("failed", code, extra);
-const unknown = (code, extra) => result("unknown", code, extra);
-const published = (providerPostId, httpStatus) => result("published", "published", { providerPostId, httpStatus });
 
 const TOKEN = /^[\x21-\x7e]{8,4096}$/;
 const LINKEDIN_AUTHOR = /^urn:li:(person:[A-Za-z0-9_-]{1,64}|organization:\d{1,20})$/;
@@ -49,10 +33,22 @@ const LINKEDIN_POST_ID = /^urn:li:(share|ugcPost):\d{1,30}$/;
 const FACEBOOK_PAGE = /^\d{1,30}$/;
 const FACEBOOK_POST_ID = /^\d{1,30}_\d{1,30}$/;
 
+// Connection errors that happen before a byte of the request is sent.
+const NOT_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"]);
+
 // LinkedIn reads `commentary` as "little text": these characters are markup and must be escaped
 // so a caption such as "(beta) | v2 *new*" is posted as typed and mentions cannot be injected.
 const LINKEDIN_RESERVED = /[\\|{}@[\]()<>#*_~]/g;
 export const escapeLinkedInCommentary = (text) => text.replace(LINKEDIN_RESERVED, "\\$&");
+
+// The article title LinkedIn requires: the caption's first line as plain text, bounded.
+export const linkedInTitle = (caption) =>
+  String(caption ?? "")
+    .split("\n")[0]
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200) || "Read the full post";
 
 function httpsUrl(value) {
   try {
@@ -83,138 +79,174 @@ const header = (response, name) => {
   }
 };
 
-function retryAfter(response) {
-  const seconds = Number(header(response, "retry-after"));
-  return Number.isFinite(seconds) && seconds > 0 ? Math.min(Math.ceil(seconds), MAX_RETRY_AFTER_SECONDS) : null;
-}
-
-// What an HTTP status alone says, for a provider that did not use its own error codes.
-function byStatus(status, response) {
-  if (status === 401) return failed("auth-rejected", { httpStatus: status, reauth: true });
-  if (status === 403) return failed("permission-denied", { httpStatus: status });
-  if (status === 429) return failed("throttled", { httpStatus: status, retryable: true, retryAfterSeconds: retryAfter(response) });
-  if (status >= 500) return unknown("provider-error", { httpStatus: status });
-  if (status === 400 || status === 404 || status === 409 || status === 422) return failed("request-rejected", { httpStatus: status });
-  return failed("provider-unexpected", { httpStatus: status });
-}
-
-async function send(fetchImpl, url, init, timeoutMs) {
+// The checks every post must pass before any request; failing one is a final refusal with no call.
+function prepare(provider, { post, accessToken }) {
+  if (typeof accessToken !== "string" || !TOKEN.test(accessToken)) throw new DeliveryError("auth");
+  let caption;
   try {
-    return await fetchImpl(url, { redirect: "manual", ...init, signal: AbortSignal.timeout(timeoutMs) });
-  } catch {
-    return null;
+    caption = checkCaption(provider, post?.caption);
+  } catch (error) {
+    if (error instanceof ScheduleError) throw new DeliveryError("rejected");
+    throw error;
+  }
+  const url = httpsUrl(post?.canonicalUrl);
+  if (!url) throw new DeliveryError("rejected");
+  return { caption, url };
+}
+
+// One provider call. A throw from fetch is told apart: certainly not sent, or may have been.
+async function send(fetchImpl, url, init, signal) {
+  const bound = signal || AbortSignal.timeout(PUBLISH_TIMEOUT_MS);
+  if (bound.aborted) throw new DeliveryError("transient");
+  try {
+    return await fetchImpl(url, { redirect: "manual", ...init, signal: bound });
+  } catch (error) {
+    const code = error?.cause?.code ?? error?.code;
+    throw new DeliveryError(typeof code === "string" && NOT_SENT.has(code) ? "transient" : "uncertain");
   }
 }
 
-async function linkedin(settings, post, token, fetchImpl, timeoutMs) {
-  if (!LINKEDIN_AUTHOR.test(String(post.destination?.id))) return failed("invalid-post");
-  const kind = post.destination.id.startsWith("urn:li:person:") ? "member" : "organization";
-  if (post.destination.kind && post.destination.kind !== kind) return failed("invalid-post");
-  const title = String(post.title ?? "").replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || "Read the full post";
-  const body = {
-    author: post.destination.id,
-    commentary: escapeLinkedInCommentary(post.caption),
-    visibility: "PUBLIC",
-    distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
-    content: { article: { source: post.url, title } },
-    lifecycleState: "PUBLISHED",
-    isReshareDisabledByAuthor: false,
-  };
-  const response = await send(
-    fetchImpl,
-    `${settings.apiBase}/rest/posts`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        accept: "application/json",
-        "content-type": "application/json",
-        // The versioned REST API. The dated version is a setting (docs/social-publishing.md).
-        "linkedin-version": settings.version,
-        "x-restli-protocol-version": "2.0.0",
-      },
-      body: JSON.stringify(body),
+// What an HTTP status alone says, for an answer that is not a success. Any other 4xx means the
+// provider read the request and refused it; anything else (3xx, 5xx, odd codes) may have posted.
+function statusError(status, response, now) {
+  const kind = kindOfStatus(status);
+  if (kind === "rate-limited") return new DeliveryError(kind, { status, retryAfterMs: parseRetryAfter(header(response, "retry-after"), now()) });
+  if (kind === "uncertain" && status >= 400 && status < 500) return new DeliveryError("rejected", { status });
+  return new DeliveryError(kind, { status });
+}
+
+export function linkedinAdapter(settings, { fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
+  return Object.freeze({
+    provider: "linkedin",
+    async publish({ post, account, accessToken, signal } = {}) {
+      const author = String(account?.externalId ?? "");
+      if (!LINKEDIN_AUTHOR.test(author)) throw new DeliveryError("rejected");
+      const kind = author.startsWith("urn:li:person:") ? "member" : "organization";
+      if (account.kind && account.kind !== kind) throw new DeliveryError("rejected");
+      const { caption, url } = prepare("linkedin", { post, accessToken });
+      const body = {
+        author,
+        commentary: escapeLinkedInCommentary(caption),
+        visibility: "PUBLIC",
+        distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
+        content: { article: { source: url, title: linkedInTitle(caption) } },
+        lifecycleState: "PUBLISHED",
+        isReshareDisabledByAuthor: false,
+      };
+      const response = await send(
+        fetchImpl,
+        `${settings.apiBase}/rest/posts`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            accept: "application/json",
+            "content-type": "application/json",
+            // The versioned REST API. The dated version is a setting (docs/social-publishing.md).
+            "linkedin-version": settings.version,
+            "x-restli-protocol-version": "2.0.0",
+          },
+          body: JSON.stringify(body),
+        },
+        signal,
+      );
+      const status = Number(response?.status) || 0;
+      if (status === 201 || status === 200) {
+        // LinkedIn answers 201 with the new post's URN in `x-restli-id` and an empty body.
+        const id = header(response, "x-restli-id") || (await readJson(response))?.id;
+        if (typeof id === "string" && LINKEDIN_POST_ID.test(id)) return { providerPostId: id };
+        throw new DeliveryError("uncertain", { status });
+      }
+      if (status >= 200 && status < 300) throw new DeliveryError("uncertain", { status });
+      throw statusError(status, response, now);
     },
-    timeoutMs,
-  );
-  if (!response) return unknown("network-error");
-  const status = Number(response.status) || 0;
-  if (status === 201 || status === 200) {
-    // LinkedIn answers 201 with the new post's URN in `x-restli-id` and an empty body.
-    const id = header(response, "x-restli-id") || (await readJson(response))?.id;
-    return typeof id === "string" && LINKEDIN_POST_ID.test(id) ? published(id, status) : unknown("outcome-unknown", { httpStatus: status });
-  }
-  if (status >= 200 && status < 300) return unknown("outcome-unknown", { httpStatus: status });
-  return byStatus(status, response);
+    // No reconcile: finding a member's or organization's posts (`GET /rest/posts?q=author`) needs
+    // r_member_social or r_organization_social, which LinkedIn grants only to approved partners and
+    // this deployment never requests. An unknown LinkedIn outcome goes straight to a person (ADR 0319).
+  });
 }
 
 // Facebook's own error codes, which arrive with a 400 as often as with the matching HTTP status.
 const FACEBOOK_AUTH = new Set([102, 190]);
 const FACEBOOK_THROTTLE = new Set([4, 17, 32, 341, 613]);
-const FACEBOOK_TRANSIENT = new Set([1, 2]);
+const FACEBOOK_MAYBE = new Set([1, 2]);
 
-function facebookError(status, body, response) {
+function facebookError(status, body, response, now) {
   const code = Number(body?.error?.code);
-  if (FACEBOOK_AUTH.has(code)) return failed("auth-rejected", { httpStatus: status, reauth: true });
-  if (code === 10 || (code >= 200 && code <= 299)) return failed("permission-denied", { httpStatus: status });
-  if (FACEBOOK_THROTTLE.has(code)) return failed("throttled", { httpStatus: status, retryable: true, retryAfterSeconds: retryAfter(response) });
+  if (FACEBOOK_AUTH.has(code)) return new DeliveryError("auth", { status });
+  if (code === 10 || (code >= 200 && code <= 299)) return new DeliveryError("rejected", { status });
+  if (FACEBOOK_THROTTLE.has(code)) return new DeliveryError("rate-limited", { status, retryAfterMs: parseRetryAfter(header(response, "retry-after"), now()) });
   // "An unknown error occurred" can follow a post that was in fact created.
-  if (FACEBOOK_TRANSIENT.has(code)) return unknown("provider-error", { httpStatus: status });
-  return byStatus(status, response);
+  if (FACEBOOK_MAYBE.has(code)) return new DeliveryError("uncertain", { status });
+  return statusError(status, response, now);
 }
 
-async function facebook(settings, post, token, fetchImpl, timeoutMs) {
-  if (!FACEBOOK_PAGE.test(String(post.destination?.id))) return failed("invalid-post");
-  if (post.destination.kind && post.destination.kind !== "page") return failed("invalid-post");
-  // The Page token goes in the header, never in the URL or body, so no access log can keep it.
-  const response = await send(
-    fetchImpl,
-    `${settings.apiBase}/${post.destination.id}/feed`,
-    {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ message: post.caption, link: post.url }).toString(),
-    },
-    timeoutMs,
-  );
-  if (!response) return unknown("network-error");
-  const status = Number(response.status) || 0;
-  const body = await readJson(response);
-  if (status >= 200 && status < 300) {
-    const id = body?.id;
-    return status === 200 && typeof id === "string" && FACEBOOK_POST_ID.test(id) && id.startsWith(`${post.destination.id}_`) ? published(id, status) : unknown("outcome-unknown", { httpStatus: status });
-  }
-  return facebookError(status, body, response);
-}
+const RECONCILE_SKEW_SECONDS = 120;
+const RECONCILE_LIMIT = 25;
 
-const ADAPTERS = { linkedin, facebook };
-
-// `providers` is socialProviders(env). `post` is
-//   { provider, destination: { id, kind? }, caption, url, title? }
-// and `credentials` is { accessToken } (a Page token for Facebook), opened by the credential store.
-export function createPublisher({ providers = {}, fetchImpl = globalThis.fetch, timeoutMs = PUBLISH_TIMEOUT_MS } = {}) {
-  return {
-    async publish(post, credentials) {
-      let name;
-      try {
-        name = providerOf(post?.provider).name;
-      } catch {
-        return failed("unsupported-provider");
-      }
-      const settings = providers[name];
-      if (!settings) return failed("provider-not-configured");
-      const token = credentials?.accessToken;
-      if (typeof token !== "string" || !TOKEN.test(token)) return failed("no-credentials", { reauth: true });
-      let caption;
-      try {
-        caption = checkCaption(name, post.caption);
-      } catch (error) {
-        if (!(error instanceof ScheduleError)) throw error;
-        return failed("invalid-post");
-      }
-      const url = httpsUrl(post.url);
-      if (!url || !post.destination || typeof post.destination !== "object") return failed("invalid-post");
-      return ADAPTERS[name](settings, { ...post, caption, url }, token, fetchImpl, timeoutMs);
-    },
+export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
+  const pageOf = (account) => {
+    const page = String(account?.externalId ?? "");
+    if (!FACEBOOK_PAGE.test(page) || (account.kind && account.kind !== "page")) throw new DeliveryError("rejected");
+    return page;
   };
+  return Object.freeze({
+    provider: "facebook",
+    async publish({ post, account, accessToken, signal } = {}) {
+      const page = pageOf(account);
+      const { caption, url } = prepare("facebook", { post, accessToken });
+      // The Page token goes in the header, never in the URL or body, so no access log can keep it.
+      const response = await send(
+        fetchImpl,
+        `${settings.apiBase}/${page}/feed`,
+        {
+          method: "POST",
+          headers: { authorization: `Bearer ${accessToken}`, accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ message: caption, link: url }).toString(),
+        },
+        signal,
+      );
+      const status = Number(response?.status) || 0;
+      const body = await readJson(response);
+      if (status >= 200 && status < 300) {
+        const id = body?.id;
+        if (status === 200 && typeof id === "string" && FACEBOOK_POST_ID.test(id) && id.startsWith(`${page}_`)) return { providerPostId: id };
+        throw new DeliveryError("uncertain", { status });
+      }
+      throw facebookError(status, body, response, now);
+    },
+    // A read-only look at the Page's own published posts since just before the attempt started
+    // (needs `pages_read_engagement`, requested by default). A post of this Page whose message is
+    // the caption, or whose attachment links the canonical URL, is the announcement. "absent" is
+    // conclusive only when the whole window came back in one page of results. Any failure, a
+    // missing permission included, is "unknown": the worker keeps looking, then asks a person.
+    async reconcile({ post, account, accessToken, attemptedAt, signal } = {}) {
+      try {
+        const page = pageOf(account);
+        const { caption, url } = prepare("facebook", { post, accessToken });
+        const started = Date.parse(attemptedAt ?? "");
+        if (!Number.isFinite(started)) return { state: "unknown" };
+        const query = new URLSearchParams({
+          fields: "id,message,created_time,attachments{url,unshimmed_url}",
+          since: String(Math.floor(started / 1000) - RECONCILE_SKEW_SECONDS),
+          limit: String(RECONCILE_LIMIT),
+        });
+        const response = await send(fetchImpl, `${settings.apiBase}/${page}/published_posts?${query}`, { method: "GET", headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" } }, signal);
+        if (Number(response?.status) !== 200) return { state: "unknown" };
+        const body = await readJson(response);
+        if (!body || !Array.isArray(body.data)) return { state: "unknown" };
+        for (const item of body.data) {
+          const id = item?.id;
+          if (typeof id !== "string" || !FACEBOOK_POST_ID.test(id) || !id.startsWith(`${page}_`)) continue;
+          const links = Array.isArray(item.attachments?.data) ? item.attachments.data.flatMap((a) => [a?.unshimmed_url, a?.url]) : [];
+          if (item.message === caption || links.includes(url)) return { state: "published", providerPostId: id };
+        }
+        return { state: "absent", conclusive: !body.paging?.next };
+      } catch {
+        return { state: "unknown" };
+      }
+    },
+  });
 }
+
+export const ADAPTER_FACTORIES = Object.freeze({ linkedin: linkedinAdapter, facebook: facebookAdapter });

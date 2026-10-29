@@ -44,7 +44,9 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
   const store = queue || createQueue({ settings, fetchImpl, now });
   const tokens = credentials || createCredentialStore({ settings, fetchImpl, now });
   // Providers this release knows but has no adapter for are left alone, not failed.
-  const waiting = PROVIDERS.filter((provider) => !adapters[provider]);
+  // Own properties only, so a provider named like an Object member is never mistaken for an adapter.
+  const adapterFor = (provider) => (typeof provider === "string" && Object.hasOwn(adapters, provider) ? adapters[provider] : null);
+  const waiting = PROVIDERS.filter((provider) => !adapterFor(provider));
 
   const accessTokenFor = (account) => {
     const configured = providers[account.provider];
@@ -118,7 +120,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
     if (account.status !== "connected") {
       return failed(summary, post, account.status === "needs-reauth" ? "needs-reauth" : "account-not-connected", account.status === "needs-reauth" ? "This account must be connected again before it can post." : "The destination was disconnected.");
     }
-    const adapter = adapters[account.provider];
+    const adapter = adapterFor(account.provider);
     if (!adapter) return failed(summary, post, "unsupported-provider", "This destination is not supported by this deployment.");
     // Not enough time left to finish safely: give the attempt back instead of starting a send that
     // the platform may cut off.
@@ -166,7 +168,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
       summary.reconciled.stillUnknown += 1;
       return settle(summary, post, { result: "unknown", errorCode: exhausted ? "needs-review" : code, errorDetail: exhausted ? "The provider could not confirm whether this was posted. Check the account and resolve it by hand." : undefined, nextAtMs });
     };
-    const adapter = account && account.status === "connected" ? adapters[account.provider] : null;
+    const adapter = account && account.status === "connected" ? adapterFor(account.provider) : null;
     // No way to look it up: nothing will change by waiting, so it goes to a person now.
     if (!adapter || typeof adapter.reconcile !== "function") {
       summary.reconciled.stillUnknown += 1;
