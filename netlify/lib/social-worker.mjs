@@ -200,7 +200,9 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
     async run({ budgetMs = policy.budgetMs } = {}) {
       const summary = emptySummary();
       const deadline = now() + Math.min(Math.max(budgetMs, 1000), 55_000);
-      const claimed = await store.claim({ limit: policy.batch, leaseSeconds: policy.leaseSeconds, maxAttempts: policy.maxAttempts, perAccount: policy.perAccount, skipProviders: waiting });
+      // Claim only what the budget can finish, so claimed work is not left to expire on its lease.
+      const fits = Math.max(1, Math.floor((deadline - now() - SPARE_MS) / (policy.providerTimeoutMs + SPARE_MS)));
+      const claimed = await store.claim({ limit: Math.min(policy.batch, fits), leaseSeconds: policy.leaseSeconds, maxAttempts: policy.maxAttempts, perAccount: policy.perAccount, skipProviders: waiting });
       summary.claimed = claimed.length;
       const accounts = await store.accounts(claimed.map((post) => post.account_id));
       for (const post of claimed) await deliver(summary, post, accounts.get(post.account_id), deadline);

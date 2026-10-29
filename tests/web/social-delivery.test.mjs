@@ -69,11 +69,11 @@ test("a provider's Retry-After is a floor, capped at a day; back-off still appli
 
 test("delivery settings have defaults, ranges, and name a bad setting without its value", () => {
   const policy = deliveryPolicy({});
-  assert.deepEqual([policy.maxAttempts, policy.batch, policy.perAccount, policy.leaseSeconds, policy.providerTimeoutMs, policy.budgetMs], [5, 5, 3, 300, 8000, 22000]);
+  assert.deepEqual([policy.maxAttempts, policy.batch, policy.perAccount, policy.leaseSeconds, policy.providerTimeoutMs, policy.budgetMs], [5, 5, 3, 300, 4000, 8000]);
   assert.deepEqual(policy.problems, []);
   assert.equal(deliveryPolicy({ OPENBLOG_SOCIAL_MAX_ATTEMPTS: "8" }).maxAttempts, 8);
   const bad = deliveryPolicy({ OPENBLOG_SOCIAL_MAX_ATTEMPTS: "99", OPENBLOG_SOCIAL_BATCH_SIZE: "0", OPENBLOG_SOCIAL_LEASE_SECONDS: "abc", OPENBLOG_SOCIAL_BACKOFF_SECONDS: "1.5", OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "-3" });
-  assert.deepEqual([bad.maxAttempts, bad.batch, bad.leaseSeconds, bad.backoffBaseSeconds, bad.budgetSeconds], [5, 5, 300, 60, 22]);
+  assert.deepEqual([bad.maxAttempts, bad.batch, bad.leaseSeconds, bad.backoffBaseSeconds, bad.budgetSeconds], [5, 5, 300, 60, 8]);
   assert.deepEqual([...bad.problems].sort(), ["OPENBLOG_SOCIAL_BACKOFF_SECONDS", "OPENBLOG_SOCIAL_BATCH_SIZE", "OPENBLOG_SOCIAL_LEASE_SECONDS", "OPENBLOG_SOCIAL_MAX_ATTEMPTS", "OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS"]);
   assert.doesNotMatch(JSON.stringify(bad.problems), /99|abc|1\.5/);
   assert.ok(Object.isFrozen(policy));
@@ -82,4 +82,16 @@ test("delivery settings have defaults, ranges, and name a bad setting without it
 test("a provider post id is printable, bounded and has no whitespace", () => {
   for (const ok of ["urn:li:share:7000000000000000000", "123456789_987654321", "a"]) assert.equal(validProviderPostId(ok), true, ok);
   for (const bad of ["", " ", "a b", "line\nbreak", "x".repeat(301), null, undefined, 12, "tab\t", "é"]) assert.equal(validProviderPostId(bad), false, String(bad));
+});
+
+test("the default policy fits a 10 second platform limit and can start a delivery", () => {
+  const policy = deliveryPolicy({});
+  assert.ok(policy.providerTimeoutMs + 2000 <= policy.budgetMs, "one provider call plus the margin fits the budget");
+  assert.ok(policy.budgetMs < 10_000, "the budget is under Netlify's default function timeout");
+});
+
+test("a budget too small for one provider call is refused and flagged", () => {
+  const policy = deliveryPolicy({ OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "6", OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS: "8" });
+  assert.deepEqual([policy.budgetMs, policy.providerTimeoutMs], [8000, 4000]);
+  assert.deepEqual([...policy.problems], ["OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS"]);
 });

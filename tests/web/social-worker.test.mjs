@@ -62,7 +62,7 @@ test("a summary, a row and an attempt never hold a token or a key", async () => 
 
 test("two workers at once deliver each announcement exactly once", async () => {
   const adapter = LINKED();
-  const s = await setup({ adapters: { linkedin: adapter } });
+  const s = await setup({ adapters: { linkedin: adapter }, policyEnv: { OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "50" } });
   for (let i = 0; i < 5; i += 1) s.addPost();
   const other = s.build();
   const [a, b] = await Promise.all([s.worker.run(), other.run()]);
@@ -90,7 +90,7 @@ test("a provider with no adapter yet waits; a provider this release does not kno
 
 test("a destination that is not connected fails explicitly and the provider is not called", async () => {
   const adapter = LINKED();
-  const s = await setup({ adapters: { linkedin: adapter }, accounts: [LINKEDIN, REAUTH, GONE] });
+  const s = await setup({ adapters: { linkedin: adapter }, accounts: [LINKEDIN, REAUTH, GONE], policyEnv: { OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "50" } });
   const reauth = s.addPost({ account_id: REAUTH });
   const gone = s.addPost({ account_id: GONE });
   await s.worker.run();
@@ -187,7 +187,7 @@ test("work that does not fit the time budget is deferred without using an attemp
 
 test("a batch is bounded by the policy", async () => {
   const adapter = LINKED();
-  const s = await setup({ adapters: { linkedin: adapter }, policyEnv: { OPENBLOG_SOCIAL_BATCH_SIZE: "2" } });
+  const s = await setup({ adapters: { linkedin: adapter }, policyEnv: { OPENBLOG_SOCIAL_BATCH_SIZE: "2", OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "50" } });
   for (let i = 0; i < 5; i += 1) s.addPost();
   assert.equal((await s.worker.run()).claimed, 2);
   assert.equal(adapter.published.length, 2);
@@ -204,4 +204,14 @@ test("the queue being down is an error for the caller, with nothing delivered", 
 test("the worker does not exist unless social publishing is enabled", () => {
   assert.throws(() => createWorker({ settings: socialSettings({}) }), (e) => e.status === 404);
   assert.equal(SITE, "lantern-studios");
+});
+
+test("a run claims only as many announcements as its budget can finish", async () => {
+  const adapter = LINKED();
+  const s = await setup({ adapters: { linkedin: adapter } });
+  for (let i = 0; i < 5; i += 1) s.addPost();
+  const summary = await s.worker.run();
+  assert.equal(summary.claimed, 1, "the 8 second default budget fits one 4 second call and its margin");
+  assert.equal(summary.published, 1);
+  assert.equal(summary.deferred, 0);
 });

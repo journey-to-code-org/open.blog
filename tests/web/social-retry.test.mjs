@@ -60,7 +60,7 @@ test("back-off grows with each attempt", async () => {
 
 test("a rate limit honours Retry-After and pauses the whole account", async () => {
   const adapter = failing("rate-limited", { status: 429, retryAfterMs: 10 * MIN });
-  const s = await setup({ adapters: { linkedin: adapter } });
+  const s = await setup({ adapters: { linkedin: adapter }, policyEnv: { OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "50" } });
   const limited = s.addPost();
   const other = s.addPost();
   const summary = await s.worker.run({});

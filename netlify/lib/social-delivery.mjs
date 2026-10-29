@@ -89,12 +89,15 @@ const DEFAULTS = Object.freeze({
   backoffBaseSeconds: 60,
   backoffMaxSeconds: 3600,
   maxRetryAfterSeconds: 86400,
-  providerTimeoutSeconds: 8,
-  budgetSeconds: 22,
+  providerTimeoutSeconds: 4,
+  budgetSeconds: 8,
   reconcileBatch: 5,
   maxReconciles: 6,
   absenceSettleSeconds: 900,
 });
+
+// Keep in step with SPARE_MS in social-worker.mjs.
+export const MARGIN_SECONDS = 2;
 
 const RANGES = {
   maxAttempts: ["OPENBLOG_SOCIAL_MAX_ATTEMPTS", 1, 10],
@@ -116,6 +119,13 @@ export function deliveryPolicy(env = {}) {
     const number = /^\d{1,6}$/.test(raw) ? Number(raw) : NaN;
     if (Number.isInteger(number) && number >= low && number <= high) values[field] = number;
     else problems.push(name);
+  }
+  // A run must have room for at least one provider call plus the margin, or nothing would ever be
+  // delivered. Refuse the pair, flag both settings and go back to the defaults.
+  if (values.budgetSeconds < values.providerTimeoutSeconds + MARGIN_SECONDS) {
+    problems.push(RANGES.budgetSeconds[0]);
+    values.budgetSeconds = DEFAULTS.budgetSeconds;
+    values.providerTimeoutSeconds = DEFAULTS.providerTimeoutSeconds;
   }
   return Object.freeze({
     ...values,

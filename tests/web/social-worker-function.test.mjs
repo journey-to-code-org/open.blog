@@ -77,7 +77,7 @@ test("a request cannot name a site, carry fields or be large", async () => {
 });
 
 test("an empty or object body runs one bounded batch and answers with counts only", async () => {
-  const s = await setup();
+  const s = await setup({ env: { OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS: "50" } });
   for (let i = 0; i < 4; i += 1) s.addPost();
   const reply = await s.call({ body: "{}" });
   assert.equal(reply.statusCode, 200);

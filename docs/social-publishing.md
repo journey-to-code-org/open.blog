@@ -254,11 +254,14 @@ a site or change what it does.
 | --- | --- | --- |
 | `OPENBLOG_SOCIAL_BATCH_SIZE` | 5 | 1 to 25 |
 | `OPENBLOG_SOCIAL_LEASE_SECONDS` | 300 | 30 to 900 |
-| `OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS` | 8 | 2 to 30 |
-| `OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS` | 22 | 5 to 50 |
+| `OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS` | 4 | 2 to 30 |
+| `OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS` | 8 | 5 to 50 |
 
-Set the function's timeout in Netlify above the budget (Netlify's default of 10 seconds is shorter than the 22-second
-default budget; either raise it to 26 or lower the budget). If the platform cuts a run off mid-delivery, the
+The defaults (a 4-second provider timeout inside an 8-second budget) fit Netlify's default 10-second function
+timeout, and a run claims only as many announcements as its budget can finish (one at the defaults; the schedule
+wakes it every minute). To deliver more per run, raise the function's timeout in Netlify first (verify the limit for
+your plan), then raise the budget to stay about 2 seconds under it. A budget smaller than the provider timeout plus 2
+seconds is refused: both settings fall back to their defaults and the setting is reported as a problem. If the platform cuts a run off mid-delivery, the
 announcement is not lost and not repeated: its lease runs out and it becomes `unknown` if the provider may have
 been called, or returns to the queue if not.
 
