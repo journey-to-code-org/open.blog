@@ -249,3 +249,23 @@ test("a guide quoting private samples cannot be saved as portable", async () => 
   assert.equal(voiceGuidePortableNote(proposal), "Quotes private samples; save as private");
   assert.equal(voiceGuidePortableNote({ portableAllowed: true }), "");
 });
+
+test("a proposal offers Save as private first, as the default, and Save as portable as a plain choice", async () => {
+  const { withDom } = await import("./dom-shim.mjs");
+  await withDom(async () => {
+    const editor = guideEditor(async () => ({}), [], []);
+    editor.field = (_id, _label, control) => control;
+    editor.voiceGuideProposal = { markdown: "# Voice guide\n", diff: "", targets: {}, current: { exists: false }, portableAllowed: true };
+    editor.renderVoiceGuideProposal();
+    const buttons = [];
+    const walk = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (node.tagName === "BUTTON" && node.dataset?.voiceGuideSave) buttons.push(node);
+      for (const child of node.childNodes || []) walk(child);
+    };
+    for (const child of editor.ui.voiceGuideResult.children) walk(child);
+    assert.deepEqual(buttons.map((b) => b.dataset.voiceGuideSave), ["private", "portable"]);
+    assert.match(buttons[0].className, /oba-btn-primary/);
+    assert.doesNotMatch(buttons[1].className, /oba-btn-primary/);
+  })();
+});

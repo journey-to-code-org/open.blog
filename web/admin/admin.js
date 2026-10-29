@@ -22986,7 +22986,8 @@ export class Editor {
     const compared = proposal.current?.exists ? `the saved ${proposal.current.visibility} guide` : "no saved guide yet";
     const portableBlocked = proposal.portableAllowed === false;
     const save = (visibility) =>
-      h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked), onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+      // Private is the default (ADR 0282): it comes first and is the primary button; portable is a choice.
+      h("button", { class: visibility === "private" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "data-voice-guide-save": visibility, disabled: proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked), onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
     this.ui.voiceGuideResult.replaceChildren(
       h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
       h("h5", {}, "Changes"),
@@ -22994,7 +22995,7 @@ export class Editor {
         ? h("pre", { class: "oba-voice-diff", "aria-label": "Changes to the voice guide" }, lines.map((line) => h("span", { class: `oba-voice-diff-${line.kind}`, "data-diff": line.kind }, `${line.text}\n`)))
         : h("p", { class: "oba-small" }, "The proposal matches the saved guide."),
       this.field("oba-voice-guide-markdown", "Edit before saving", editor),
-      h("div", { class: "oba-toolbar" }, save("portable"), save("private"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
+      h("div", { class: "oba-toolbar" }, save("private"), save("portable"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
       ...(portableBlocked ? [h("p", { class: "oba-small", "data-voice-guide-note": "portable-blocked" }, voiceGuidePortableNote(proposal))] : []),
     );
   }
