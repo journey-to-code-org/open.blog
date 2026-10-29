@@ -12,6 +12,8 @@
 // Only Web Crypto and URL are used, so the module runs unchanged in Node (Netlify, tests) and in
 // Deno (a Supabase Edge Function). Errors and settings never carry a key, token or refused value.
 
+import { parseKeyring } from "./social-tokens.mjs";
+
 export const ACTOR_HEADER = "x-openblog-actor";
 export const WORKER_ACTOR = "@worker";
 export const MAX_SITE_SCOPE_BYTES = 80;
@@ -64,10 +66,16 @@ export function socialSettings(env = {}) {
   const serverKey = (name, value, sibling) => {
     if (value.length < MIN_SERVER_KEY_CHARS || /\s/.test(value) || value === sibling || others.includes(value)) problems.push(name);
   };
+  let tokenKeys = null;
+  try {
+    tokenKeys = parseKeyring(env.OPENBLOG_SOCIAL_TOKEN_KEYS);
+  } catch {
+    problems.push("OPENBLOG_SOCIAL_TOKEN_KEYS");
+  }
   serverKey("OPENBLOG_SOCIAL_ADMIN_KEY", adminKey, workerKey);
   serverKey("OPENBLOG_SOCIAL_WORKER_KEY", workerKey, adminKey);
   if (problems.length) return disabled(problems);
-  return sealed({ enabled: true, problems: [], url, siteId }, { key, adminKey, workerKey });
+  return sealed({ enabled: true, problems: [], url, siteId }, { key, adminKey, workerKey, tokenKeys });
 }
 
 const disabled = (problems) => Object.freeze({ enabled: false, problems: Object.freeze(problems), toJSON: () => ({ enabled: false, problems }) });

@@ -29,6 +29,7 @@ The scheduled worker uses a different key and acts as `@worker`. A leaked worker
 | `OPENBLOG_SITE_ID` | The site scope: 1 to 80 of `A-Z a-z 0-9 . _ -`, starting with a letter or digit. |
 | `OPENBLOG_SOCIAL_ADMIN_KEY` | At least 32 characters; used by the Rust Admin. |
 | `OPENBLOG_SOCIAL_WORKER_KEY` | At least 32 characters; used by the scheduled worker. Differs from the admin key. |
+| `OPENBLOG_SOCIAL_TOKEN_KEYS` | Token encryption keys, `id:base64` of 32 random bytes, comma separated; the first encrypts new tokens. Required. |
 
 Neither key may equal the Supabase key, the Admin API key or an anon/publishable key. If the feature is enabled
 but something is wrong, it stays off and the log names the settings at fault, never their values.
@@ -46,3 +47,19 @@ Nothing is ever deleted by the function: cancelling and disconnecting are update
 To undo it, remove `OPENBLOG_SOCIAL_ENABLED`, stop the worker, export what you want to keep (the commands are in
 the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke the app at
 LinkedIn and Facebook as well; stored tokens are deleted by the rollback but stay valid there until revoked.
+
+## Provider tokens
+
+Access and refresh tokens are encrypted by the hosted function before they reach the database
+([ADR 0452](adr/0452-provider-tokens-are-envelope-encrypted-by-the-hosted-function-and-refreshed-single-flight.md)).
+Each connection gets its own random key, wrapped by a key you keep only in the function's environment, so a database
+dump or a leaked `service_role` key does not reveal a token. Generate a key with
+`node -e "console.log('k1:' + require('crypto').randomBytes(32).toString('base64'))"` and store it in your secret
+manager as well: if you lose it, every account has to be connected again.
+
+To rotate, put a new key first (`k2:...,k1:...`), redeploy, and re-wrap accounts; remove `k1` once none uses it.
+
+Tokens are refreshed once at a time, shortly before they expire. If a provider says a connection is no longer valid,
+or you disconnect an account, its stored tokens are erased and the account asks to be connected again. Admin only ever
+sees a connection's status and dates, never a token. Tokens never appear in errors or logs, and are never written to
+`openblog.json`, the repository, a page or an export.

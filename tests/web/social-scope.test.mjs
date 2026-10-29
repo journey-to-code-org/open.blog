@@ -30,6 +30,7 @@ const env = (overrides = {}) => ({
   OPENBLOG_SITE_ID: "lantern-studios",
   OPENBLOG_SOCIAL_ADMIN_KEY: ADMIN_KEY,
   OPENBLOG_SOCIAL_WORKER_KEY: WORKER_KEY,
+  OPENBLOG_SOCIAL_TOKEN_KEYS: "k1:" + Buffer.alloc(32, 7).toString("base64"),
   ...overrides,
 });
 
@@ -61,6 +62,9 @@ test("the feature is off unless explicitly enabled, and off when incomplete", ()
     ["OPENBLOG_SITE_ID", ""],
     ["OPENBLOG_SOCIAL_ADMIN_KEY", "short"],
     ["OPENBLOG_SOCIAL_WORKER_KEY", ""],
+    ["OPENBLOG_SOCIAL_TOKEN_KEYS", ""],
+    ["OPENBLOG_SOCIAL_TOKEN_KEYS", "k1:c2hvcnQ="],
+    ["OPENBLOG_SOCIAL_TOKEN_KEYS", "bad id:" + Buffer.alloc(32, 7).toString("base64")],
   ]) {
     const settings = socialSettings(env({ [name]: value }));
     assert.equal(settings.enabled, false, `${name}=${value}`);

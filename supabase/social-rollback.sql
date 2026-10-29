@@ -8,7 +8,7 @@
 --   select * from public.openblog_social_posts order by scheduled_for;
 --   select * from public.openblog_social_attempts order by started_at;
 --
--- This drops only what social.sql added: the credential (if present), attempt,
+-- This drops only what social.sql added: the credential, attempt,
 -- queue and account tables (their rows go with them) and the schema version
 -- table. It touches no comment, feedback, subscription or workspace table, and
 -- no post. Nothing already published to LinkedIn or Facebook is removed there.

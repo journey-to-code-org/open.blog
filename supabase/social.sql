@@ -6,7 +6,7 @@
 -- (docs/social-publishing.md) and redeploy. Until then nothing here is used.
 --
 -- Additive only: it creates the schema version table, the account table, the
--- queue table and the attempt table with their indexes. It does not rename,
+-- queue table, the attempt table and the credential table with their indexes. It does not rename,
 -- drop or rewrite anything that exists, and running it twice changes nothing.
 -- To undo it, see social-rollback.sql.
 --
@@ -160,15 +160,50 @@ create index if not exists openblog_social_attempts_post
 create index if not exists openblog_social_attempts_site
   on public.openblog_social_attempts (site_id, started_at);
 
+-- Provider credentials (ADR 0452). Only AES-256-GCM ciphertext: the envelope
+-- holds the encrypted tokens and their wrapped data key, and the key that
+-- unwraps it (OPENBLOG_SOCIAL_TOKEN_KEYS) is never in this database. Expiry,
+-- scopes and status are plain so a refresh can be planned without decrypting.
+-- Revoking erases the envelope and keeps the row.
+create table if not exists public.openblog_social_credentials (
+  account_id uuid primary key,
+  site_id text not null check (site_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$'),
+  status text not null default 'active' check (status in ('active', 'revoked')),
+  key_id text check (key_id ~ '^[A-Za-z0-9_-]{1,32}$'),
+  envelope jsonb check (jsonb_typeof(envelope) = 'object' and octet_length(envelope::text) <= 16384),
+  access_expires_at timestamptz,
+  refresh_expires_at timestamptz,
+  scopes text check (char_length(scopes) <= 1000),
+  -- Every change names the version it expects and raises it, so a refresh
+  -- and a revoke can never both win.
+  version integer not null default 1 check (version >= 1),
+  -- Single-flight refresh: one caller holds this until the time passes.
+  refresh_lease_until timestamptz,
+  refresh_failures integer not null default 0 check (refresh_failures >= 0),
+  last_refreshed_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint openblog_social_credentials_account
+    foreign key (account_id, site_id)
+    references public.openblog_social_accounts (id, site_id) on delete restrict,
+  -- Tokens exist exactly while the credential is active.
+  constraint openblog_social_credentials_erased check (
+    (status = 'revoked') = (envelope is null and key_id is null and revoked_at is not null)
+  )
+);
+
 alter table public.openblog_social_schema enable row level security;
 alter table public.openblog_social_accounts enable row level security;
 alter table public.openblog_social_posts enable row level security;
 alter table public.openblog_social_attempts enable row level security;
+alter table public.openblog_social_credentials enable row level security;
 
 revoke all on public.openblog_social_schema from public, anon, authenticated;
 revoke all on public.openblog_social_accounts from public, anon, authenticated;
 revoke all on public.openblog_social_posts from public, anon, authenticated;
 revoke all on public.openblog_social_attempts from public, anon, authenticated;
+revoke all on public.openblog_social_credentials from public, anon, authenticated;
 
 -- Least privilege for the hosted function. It never deletes: cancel and
 -- disconnect are updates, and attempts are append-and-finish.
@@ -176,5 +211,6 @@ grant select on public.openblog_social_schema to service_role;
 grant select, insert, update on public.openblog_social_accounts to service_role;
 grant select, insert, update on public.openblog_social_posts to service_role;
 grant select, insert, update on public.openblog_social_attempts to service_role;
+grant select, insert, update on public.openblog_social_credentials to service_role;
 
 commit;

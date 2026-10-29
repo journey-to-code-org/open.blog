@@ -2660,3 +2660,13 @@ _Avoid_: Syndicated copy, job
 One recorded try to deliver a scheduled social post, with its outcome (`published`, `failed` or `unknown`) and a
 redacted error. Attempts are added and finished, never deleted.
 _Avoid_: Retry (a later attempt)
+
+**Credential envelope**:
+The encrypted form of a social account's provider tokens: AES-256-GCM ciphertext plus a wrapped data key, bound to
+one site and account, openable only with a key from `OPENBLOG_SOCIAL_TOKEN_KEYS` that is never in the database.
+_Avoid_: Vault secret, encrypted token column
+
+**Refresh lease**:
+A short claim on one account's credential that lets exactly one caller exchange its refresh token, so concurrent
+refreshes cannot burn a rotating refresh token.
+_Avoid_: Lock
