@@ -6,7 +6,9 @@ and nothing in this guide is needed to read, build or publish a blog.
 
 This page covers the identity and storage foundation (epic #353, story #354), scheduling announcements (story
 #356), the delivery queue and worker (story #357), the LinkedIn and Facebook adapters (story #358), and delivery
-status, monitoring and operations (story #359).
+status, monitoring and operations (story #359), and how to roll it out, roll it back, rotate its secrets and find
+what went wrong (story #360). If you only want the order of things, start at
+[Rolling it out, step by step](#rolling-it-out-step-by-step).
 
 ## Who is allowed to do what
 
@@ -32,7 +34,9 @@ The scheduled worker uses a different key and acts as `@worker`. A leaked worker
 | `OPENBLOG_SOCIAL_WORKER_KEY` | At least 32 characters; used by the scheduled worker. Differs from the admin key. |
 | `OPENBLOG_SOCIAL_TOKEN_KEYS` | Token encryption keys, `id:base64` of 32 random bytes, comma separated; the first encrypts new tokens. Required. |
 
-Neither key may equal the Supabase key, the Admin API key or an anon/publishable key. If the feature is enabled
+Neither key may equal the Supabase key (`SUPABASE_SECRET_KEY`, or the legacy `SUPABASE_SERVICE_ROLE_KEY`), the
+Admin API key (`OPENBLOG_ADMIN_API_KEY`) or an anon or publishable key (`SUPABASE_ANON_KEY`,
+`SUPABASE_PUBLISHABLE_KEY`); the function reads those only to compare. If the feature is enabled
 but something is wrong, it stays off and the log names the settings at fault, never their values.
 Never put any of these in `openblog.json`, the repository or a browser bundle.
 
@@ -85,7 +89,7 @@ Create an app with each provider you want and set these in the function's enviro
 | `OPENBLOG_SOCIAL_CALLBACK_BASE` | Public `https://` address of the function, such as `https://blog.example.com/api/social`. No credentials, query or fragment. |
 | `OPENBLOG_SOCIAL_LINKEDIN_CLIENT_ID`, `OPENBLOG_SOCIAL_LINKEDIN_CLIENT_SECRET` | The LinkedIn app's credentials. A provider with neither set is simply not offered. |
 | `OPENBLOG_SOCIAL_FACEBOOK_CLIENT_ID`, `OPENBLOG_SOCIAL_FACEBOOK_CLIENT_SECRET` | The Meta app's credentials. |
-| `OPENBLOG_SOCIAL_<PROVIDER>_API_VERSION` | Optional. LinkedIn `YYYYMM` (default `202510`), Facebook `vNN.N` (default `v23.0`). |
+| `OPENBLOG_SOCIAL_<PROVIDER>_API_VERSION` | Optional. LinkedIn `YYYYMM` (default `202610`, served until 2027-10-15), Facebook `vNN.N` (default `v23.0`, served until 2027-10-08). Dates as the providers listed them on 2026-10-29. |
 | `OPENBLOG_SOCIAL_<PROVIDER>_SCOPES` | Optional. Replaces the requested scopes (space or comma separated). |
 | `OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS` | Optional. `true` also asks for `r_organization_admin` and `w_organization_social`, to post as an organization. |
 | `OPENBLOG_SOCIAL_<PROVIDER>_PKCE` | Optional. `true` sends a PKCE (S256) challenge. Off by default; turn it on only if the provider documents it for your app type. |
@@ -340,10 +344,11 @@ a site or change what it does.
 | `OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS` | 4 | 2 to 30 |
 | `OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS` | 8 | 5 to 50 |
 
-The defaults (a 4-second provider timeout inside an 8-second budget) fit Netlify's default 10-second function
-timeout, and a run claims only as many announcements as its budget can finish (one at the defaults; the schedule
-wakes it every minute). To deliver more per run, raise the function's timeout in Netlify first (verify the limit for
-your plan), then raise the budget to stay about 2 seconds under it. A budget smaller than the provider timeout plus 2
+The defaults (a 4-second provider timeout inside an 8-second budget) fit even a 10-second function limit, and a run
+claims only as many announcements as its budget can finish (one at the defaults; the schedule wakes it every minute).
+Netlify's [function configuration](https://docs.netlify.com/build/functions/configuration/) listed a 60-second
+synchronous execution limit on 2026-10-29; older setups and other hosts may allow less. To deliver more per run, check
+your host's limit, then raise the budget to stay about 2 seconds under it. A budget smaller than the provider timeout plus 2
 seconds is refused: both settings fall back to their defaults and the setting is reported as a problem. If the platform cuts a run off mid-delivery, the
 announcement is not lost and not repeated: its lease runs out and it becomes `unknown` if the provider may have
 been called, or returns to the queue if not.
@@ -401,6 +406,127 @@ sent and nothing relies on it.
 **What is recorded.** Each attempt keeps its number, times, outcome, HTTP status, a short code and a fixed sentence,
 and the provider's post id. It never keeps a token, a header, a request or anything the provider wrote, so the history
 is safe to show in Admin and to paste in a bug report.
+
+## Rolling it out, step by step
+
+([ADR 0331](adr/0331-social-publishing-is-an-opt-in-outward-announcement-beside-canonical-markdown-with-a-server-only-threat-model.md),
+[ADR 0332](adr/0332-social-publishing-rolls-out-through-reversible-gates-and-its-provider-versions-carry-an-end-date.md).)
+Each gate below is separate. Check it before you go on, and stop at any gate you like: everything before it keeps
+working, and readers, builds, feeds, exports and cross-posting never change. The "Undo" column takes you back one gate.
+
+| Gate | Do | Check | Undo |
+| --- | --- | --- | --- |
+| 1. Storage | Run `supabase/social.sql` in the Supabase SQL editor. | `select version from openblog_social_schema;` shows `1`. | `supabase/social-rollback.sql` |
+| 2. Hosted function | Set the [settings](#settings-hosted-function-only) on the Netlify site (generate each key as in [Rotating secrets](#rotating-secrets)) and redeploy. | `curl -s -o /dev/null -w '%{http_code}' https://YOUR-SITE/api/social/status` answers `401` (on, and wants a key), not `404` (off). If it is `404`, the function log names the setting at fault. | Remove `OPENBLOG_SOCIAL_ENABLED` and redeploy. |
+| 3. Admin | On the machine that runs `openblog serve --admin`, set `OPENBLOG_SOCIAL_ENDPOINT` and the same `OPENBLOG_SOCIAL_ADMIN_KEY`, then restart Admin. | Admin shows **Social accounts**; it lists no provider yet. | Unset both and restart Admin. |
+| 4. Providers | Create the LinkedIn and Meta apps, register the redirect addresses and add the products and permissions in [Connecting LinkedIn and Facebook](#connecting-linkedin-and-facebook-oauth); set the client id, secret and `OPENBLOG_SOCIAL_CALLBACK_BASE`; redeploy. | **Connect** an account you own and choose a destination. | **Disconnect** it in Admin, remove the client settings, and remove the app in the provider's settings. |
+| 5. Scheduling | Nothing to install. | Schedule an announcement in the **Announcements** tab. It stays **Scheduled**: nothing sends it yet. | Cancel it. |
+| 6. Delivery | Run `supabase/social-queue.sql`, and `supabase/social-history.sql` if you want the exact history. | Call the worker once by hand: `curl -s -X POST -H "Authorization: Bearer $OPENBLOG_SOCIAL_WORKER_KEY" https://YOUR-SITE/api/social-worker` answers with counts, and a due announcement to an account you own is published. | `supabase/social-history-rollback.sql`, then `supabase/social-queue-rollback.sql` |
+| 7. Schedule | Store the two Vault secrets, then run `supabase/social-cron.sql` (see [The delivery worker](#the-delivery-worker)). | `select status, start_time from cron.job_run_details order by start_time desc limit 3;` shows a successful run each minute. | `supabase/social-cron-rollback.sql` |
+| 8. Operations (optional) | Run `supabase/social-ops.sql`, set `OPENBLOG_SOCIAL_OPS=true`, redeploy. Add `OPENBLOG_SOCIAL_RETENTION_DAYS` only if you want old history deleted. | Admin shows **Delivery health**; the log has `openblog-social-ops` lines. | Remove `OPENBLOG_SOCIAL_OPS`, then `supabase/social-ops-rollback.sql` |
+
+For your first real announcement, post to an account or Page you own with a caption that says it is a test, and
+watch it go from Scheduled to Published. Delete the test post on the network by hand afterwards; open.blog never
+deletes anything it posted.
+
+The hosted function runs as a Netlify function (`netlify/functions/social.mjs` and `social-worker.mjs`, routed by
+`netlify.toml`). It is not a Supabase Edge Function: the modules use only Web APIs so they could be hosted there
+later, but this release builds, deploys and tests them on Netlify only.
+
+## Rolling it back
+
+To turn the whole feature off and remove it, in this order. Each step is safe to stop after.
+
+1. **Stop it.** Remove `OPENBLOG_SOCIAL_ENABLED` from the Netlify site and redeploy. Every social route and the worker
+   now answer 404 and touch nothing; scheduled announcements simply wait.
+2. **Hide it in Admin.** Unset `OPENBLOG_SOCIAL_ENDPOINT` and `OPENBLOG_SOCIAL_ADMIN_KEY` on the Admin machine and
+   restart Admin.
+3. **Keep what you need.** Export the announcements and their history (the commands are at the top of
+   `supabase/social-rollback.sql`).
+4. **Remove the data.** Run `supabase/social-rollback.sql`. It stops the `openblog-social-worker` cron job first (when
+   `pg_cron` is installed), then drops every `openblog_social_*` function, trigger and table that `social.sql`,
+   `social-queue.sql`, `social-history.sql`, `social-ops.sql` and `social-cron.sql` made. It touches no other table,
+   job or extension, and running it twice is harmless.
+5. **Remove the Vault secrets.**
+   `delete from vault.secrets where name in ('openblog_social_worker_url', 'openblog_social_worker_key');`
+6. **Revoke access at the providers.** Remove the app from the connected LinkedIn member's permitted services and
+   from Facebook's **Settings > Business integrations**, or delete the apps. Tokens deleted by the rollback stay valid
+   there until you do.
+7. **Delete the remaining settings**, the token keys (`OPENBLOG_SOCIAL_TOKEN_KEYS`) last, and rotate any key you
+   shared.
+
+Check: `select count(*) from pg_tables where tablename like 'openblog_social%';` is `0`, and
+`select count(*) from cron.job where jobname = 'openblog-social-worker';` is `0`. Posts already published on LinkedIn
+or Facebook stay there; delete them on the network if you want them gone.
+
+To undo only part of it, use the rollback file of that gate (table above), newest gate first: operations, schedule,
+history, then queue. Each one leaves the gates before it working.
+
+## Rotating secrets
+
+Generate a key of the right length with `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
+(43 characters). Keep every value in a secret manager, never in `openblog.json`, the repository or a ticket.
+
+- **`OPENBLOG_SOCIAL_ADMIN_KEY`**: set the new value on the Netlify site and redeploy, then on the Admin machine and
+  restart Admin. In between, Admin reports a setup problem and changes nothing; no announcement is affected.
+- **`OPENBLOG_SOCIAL_WORKER_KEY`**: set the new value on the Netlify site and redeploy, then update the Vault secret
+  `openblog_social_worker_key`:
+  `select vault.update_secret((select id from vault.secrets where name = 'openblog_social_worker_key'), 'THE-NEW-KEY');`
+  Runs in between are refused (401) and announcements wait for the next run; nothing is lost or sent twice.
+- **`SUPABASE_SECRET_KEY`**: create a new secret key in the Supabase dashboard, set it on the Netlify site, redeploy,
+  then delete the old key in Supabase. Tokens stay readable: they are sealed with the token keys, not this one.
+- **`OPENBLOG_SOCIAL_TOKEN_KEYS`**: put the new key first and keep the old ones, as described in
+  [Provider tokens](#provider-tokens). Remove an old key only when no active connection uses it.
+- **`OPENBLOG_SOCIAL_<PROVIDER>_CLIENT_SECRET`**: generate a new secret in the provider's app, set it on the Netlify
+  site and redeploy. A provider may end existing grants when its secret changes; if accounts show **Needs
+  reconnecting** afterwards, reconnect them and use **Try again** on their failed announcements.
+
+Rotate a key at once if it may have leaked, and whenever someone who knew it leaves. The
+[threat model](adr/0331-social-publishing-is-an-opt-in-outward-announcement-beside-canonical-markdown-with-a-server-only-threat-model.md#threat-model)
+says what each key can reach.
+
+## Rate limits
+
+What the providers documented on 2026-10-29 (check again when you set up; they change):
+
+- **LinkedIn** counts calls per day, per application and per member, and resets at midnight UTC. A request over the
+  limit gets a 429. LinkedIn does not publish most limits; your app's **Analytics** tab in the Developer Portal shows
+  them for endpoints you have called today, and LinkedIn emails the app's admins at 75% of an application limit.
+  Its Share on LinkedIn guide lists 150 requests a day per member and 100,000 per application.
+  ([Rate limiting](https://learn.microsoft.com/en-us/linkedin/shared/api-guide/concepts/rate-limits),
+  [Share on LinkedIn](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/share-on-linkedin).)
+- **Facebook Pages** calls made with a Page token count against Meta's business-use-case limit for that Page:
+  4,800 calls times the number of people who engaged with the Page, over a rolling 24 hours. Over it, Graph answers
+  with code `80001`; codes `4`, `17` and `32` are app and user limits. Meta asks callers to stop until the limit
+  clears, because calls made while throttled extend it.
+  ([Rate limiting](https://developers.facebook.com/docs/graph-api/overview/rate-limiting/).)
+
+open.blog makes very few calls: one per announcement, plus a few read-only lookups for an unclear Facebook outcome
+and a token refresh now and then. When a provider says "too many", that **account is paused** until the provider's
+`Retry-After` (at most a day; by back-off if it gave none) and sends nothing in between, so the next announcement
+does not hit the limit again; the announcement shows **Retrying** with its time. A run sends at most three
+announcements per account. If you schedule many announcements to one account, space them out.
+
+## Troubleshooting
+
+| What you see | Likely cause | What to do |
+| --- | --- | --- |
+| Admin has no **Social accounts** entry | `OPENBLOG_SOCIAL_ENDPOINT` or `OPENBLOG_SOCIAL_ADMIN_KEY` is not set where Admin runs. | Set both and restart Admin (gate 3). |
+| Admin says the function rejected its key | The admin key differs between Admin and the function. | Set the same value in both places. |
+| Admin says social publishing is not enabled there, or the routes answer 404 | `OPENBLOG_SOCIAL_ENABLED` is not exactly `true`, or a hosted setting is invalid. | Read the function log: it names each setting at fault, never its value. |
+| A provider is missing under **Connect** | Its client id or secret is missing or malformed, or `OPENBLOG_SOCIAL_CALLBACK_BASE` is missing. | Admin lists the setting at fault; fix it and redeploy. |
+| The provider says the redirect address does not match | The app does not list `<CALLBACK_BASE>/callback/linkedin` or `/callback/facebook` exactly. | Copy the address Admin shows into the provider's app. |
+| No LinkedIn organization, or no Facebook Page, is offered | LinkedIn has not approved the Community Management API; the Page role lacks content creation; `pages_manage_posts` was declined; or Meta's App Review is pending. | See [Choosing where to post](#choosing-where-to-post). |
+| Announcements stay **Scheduled** after their time (`backlog-overdue` when operations are on) | The queue (gate 6) or the schedule (gate 7) is missing, a Vault secret is missing or wrong, or the worker key differs. | `select status, return_message from cron.job_run_details order by start_time desc limit 5;` and `select status_code, created from net._http_response order by created desc limit 5;` A `401` means the Vault key differs from `OPENBLOG_SOCIAL_WORKER_KEY`. pg_net keeps responses for six hours. |
+| One network's announcements wait while the other's go (`provider-not-configured`) | That provider has no settings on this deployment. | Add its settings and redeploy, or cancel them. |
+| LinkedIn announcements are all refused at once | The `Linkedin-Version` was retired, or the app lost the product that grants `w_member_social`. | Set `OPENBLOG_SOCIAL_LINKEDIN_API_VERSION` to a current version and check the app's products. |
+| An account shows **Needs reconnecting** (`accounts-need-reconnect`) | The provider refused its token: expired, revoked, a changed password, or the app removed. | **Reconnect** it, then **Try again** its failed announcements. |
+| **Needs checking** (`needs-review`) | A delivery may have posted and could not be looked up. | Look at the account and choose **Check the result**. |
+| After a deploy, announcements show **Retrying**, then **Failed**, with "The saved sign-in could not be used." (`credential-error`, then `attempts-exhausted`), while their accounts still show connected | A token key was removed from `OPENBLOG_SOCIAL_TOKEN_KEYS` while connections used it. | Put the old key back (after the new one), redeploy, then **Try again** the failed announcements. |
+| **Retrying** with a time far ahead | The account is paused after a rate limit. | Wait, or see [Rate limits](#rate-limits). |
+
+When you ask for help, paste an announcement's **History** or the `openblog-social-worker` and `openblog-social-ops`
+log lines: they hold counts and short codes only, never a token, caption or provider text.
 
 ## Operations runbook
 

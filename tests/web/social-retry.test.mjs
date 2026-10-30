@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SocialCredentialError } from "../../netlify/lib/social-credentials.mjs";
 import { DeliveryError } from "../../netlify/lib/social-delivery.mjs";
+import { SocialTokenError } from "../../netlify/lib/social-tokens.mjs";
 import { ACCESS, LINKEDIN, SERVICE_KEY, fakeAdapter, workerSetup as setup } from "./social-queue-fakes.mjs";
 
 const failing = (kind, options) =>
@@ -366,4 +367,30 @@ test("a credential that cannot be used yet is a retry; one the provider dropped 
     assert.equal(post.last_error_code, code, error.code);
     assert.equal(adapter.published.length, 0);
   }
+});
+
+// docs/social-publishing.md "Troubleshooting": a token key removed from OPENBLOG_SOCIAL_TOKEN_KEYS
+// shows as Retrying, then Failed, with the credential message, while the account stays connected.
+test("a credential sealed under a removed token key retries, then fails as exhausted, and leaves the account connected", async () => {
+  const adapter = fakeAdapter("linkedin");
+  const s = await setup({ adapters: { linkedin: adapter } });
+  const post = s.addPost();
+  const worker = s.build({
+    credentials: {
+      accessToken: async () => {
+        throw new SocialTokenError("unknown-key", "x");
+      },
+    },
+  });
+  await worker.run();
+  assert.equal(post.status, "scheduled");
+  assert.equal(post.last_error_code, "credential-error");
+  for (let i = 0; i < 20 && post.status === "scheduled"; i += 1) {
+    s.advance(86400_000);
+    await worker.run();
+  }
+  assert.equal(post.status, "failed");
+  assert.equal(post.last_error_code, "attempts-exhausted");
+  assert.equal(s.accounts.find((a) => a.id === LINKEDIN).status, "connected");
+  assert.equal(adapter.published.length, 0);
 });

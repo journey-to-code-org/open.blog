@@ -28,7 +28,7 @@ test("the request is the versioned REST Posts call with an article, a bearer tok
   assert.equal(sent.redirect, "manual");
   assert.ok(sent.hasSignal);
   assert.equal(sent.headers.authorization, `Bearer ${LI_TOKEN}`);
-  assert.equal(sent.headers["linkedin-version"], "202510");
+  assert.equal(sent.headers["linkedin-version"], "202610");
   assert.equal(sent.headers["x-restli-protocol-version"], "2.0.0");
   assert.equal(JSON.stringify(sent.headers).includes("x-li-format"), false);
   assert.ok(!sent.url.includes(LI_TOKEN) && !sent.body.includes(LI_TOKEN));
