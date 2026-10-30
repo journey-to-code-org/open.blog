@@ -942,4 +942,117 @@ mod tests {
         assert!(!none.exists());
         std::fs::remove_dir_all(directory).unwrap();
     }
+
+    /// A site with one good recipe, one with an error, and one article.
+    fn recipe_site() -> std::path::PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "openblog-export-recipe-{}",
+            crate::auth::random_token().unwrap()
+        ));
+        let posts = directory.join("content/posts");
+        std::fs::create_dir_all(&posts).unwrap();
+        std::fs::write(
+            directory.join("openblog.json"),
+            r#"{"url":"https://kitchen.example","postPath":"/{slug}/","author":{"name":"The Cook"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("pasta.md"),
+            "---\ntitle: Pasta\nslug: pasta\ndate: 2020-01-01\nprofile: recipe\nservings: 2\nprep: 5 min\ncook: 10 min\ncover: /p.jpg\n---\n## Ingredients\n\n- 200 g pasta\n\n## Steps\n\n1. Boil.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("stew.md"),
+            "---\ntitle: Stew\nslug: stew\ndate: 2020-01-02\nprofile: recipe\ncover: /s.jpg\n---\n## Ingredients\n\n- 0 carrots\n\n## Steps\n\n1. Simmer.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("notes.md"),
+            "---\ntitle: Notes\nslug: notes\ndate: 2020-01-03\n---\nJust words.\n",
+        )
+        .unwrap();
+        directory
+    }
+
+    #[test]
+    fn a_checked_recipe_is_written_once_as_the_json_ld_its_page_carries() {
+        let root = recipe_site();
+        assert_eq!(Format::parse("recipe-json-ld"), Some(Format::RecipeJsonLd));
+        let destination = root.join("exports/pasta.recipe.json");
+        let out = destination.to_str().unwrap();
+        // A dry run writes nothing.
+        run(
+            &root,
+            "pasta",
+            Format::RecipeJsonLd,
+            Some(out),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(!destination.exists());
+        run(&root, "pasta", Format::RecipeJsonLd, Some(out), true, false).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&destination).unwrap()).unwrap();
+        assert_eq!(written["@context"], "https://schema.org");
+        assert_eq!(written["@type"], "Recipe");
+        assert_eq!(
+            written["recipeIngredient"],
+            serde_json::json!(["200 g pasta"])
+        );
+        assert_eq!(written["url"], "https://kitchen.example/pasta/");
+        assert_eq!(written["totalTime"], "PT15M");
+        // The file is the page's own node plus the context.
+        let (site, _) = site::load_site(&root, false, Some(clock::now())).unwrap();
+        let post = site.posts.iter().find(|p| p.slug == "pasta").unwrap();
+        let mut node = openblog_core::recipe_schema::recipe_node(
+            &site.config,
+            post,
+            post.recipe.as_ref().unwrap(),
+        );
+        node["@context"] = serde_json::json!("https://schema.org");
+        assert_eq!(written, node);
+        // An existing file is never replaced.
+        assert!(
+            run(&root, "pasta", Format::RecipeJsonLd, Some(out), true, false)
+                .unwrap_err()
+                .contains("refusing to overwrite")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_recipe_with_an_error_or_a_post_that_is_no_recipe_is_not_exported() {
+        let root = recipe_site();
+        let destination = root.join("exports/stew.recipe.json");
+        let error = run(
+            &root,
+            "stew",
+            Format::RecipeJsonLd,
+            Some(destination.to_str().unwrap()),
+            true,
+            false,
+        )
+        .unwrap_err();
+        assert!(error.contains("1 error(s)"), "{error}");
+        assert!(error.contains("no files were changed"), "{error}");
+        assert!(!destination.exists());
+        let (site, _) = site::load_site(&root, false, Some(clock::now())).unwrap();
+        let stew = site.posts.iter().find(|p| p.slug == "stew").unwrap();
+        let (_, problems) = recipe_export(&site, stew).unwrap();
+        assert_eq!(
+            problems.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(),
+            vec!["zero-quantity"]
+        );
+        let notes = site.posts.iter().find(|p| p.slug == "notes").unwrap();
+        assert!(recipe_export(&site, notes)
+            .unwrap_err()
+            .contains("is not a recipe"));
+        assert!(
+            run(&root, "notes", Format::RecipeJsonLd, None, false, false)
+                .unwrap_err()
+                .contains("is not a recipe")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
