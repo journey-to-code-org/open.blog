@@ -1407,3 +1407,391 @@ mod tests {
         fs::remove_dir_all(root).ok();
     }
 }
+
+/// Failure reporting, unsettled attempts and source address preservation (task DIST3.2.3), run
+/// against a scripted Pinterest.
+#[cfg(test)]
+mod failure_tests {
+    use super::tests::{
+        boards, confirmed, key, plan as pin_plan, reply, run, site, state, Scripted, ON,
+    };
+    use super::*;
+    use openblog_core::image_facts::samples;
+
+    fn send(root: &Path, answer: Result<Response, String>) -> (Result<(), String>, String) {
+        let plan = pin_plan(root);
+        let transport = Scripted::new(vec![boards(&["111"]), answer]);
+        run(root, &confirmed(&plan.digest), &transport)
+    }
+
+    #[test]
+    fn every_reply_is_posted_not_posted_or_unknown_and_never_repeats_provider_text() {
+        let body = |status| {
+            reply(
+                status,
+                json!({"code": 9, "message": "PROVIDER-SECRET-TEXT"}),
+            )
+        };
+        let cases: Vec<(Result<Response, String>, Outcome)> = vec![
+            (
+                reply(201, json!({"id": "12", "link": "x"})),
+                Outcome::Posted {
+                    id: "12".into(),
+                    link: Some("x".into()),
+                },
+            ),
+            (
+                reply(201, json!({"id": "not-digits"})),
+                Outcome::Unknown { code: "no-pin-id" },
+            ),
+            (
+                Ok(Response {
+                    status: 200,
+                    body: b"<html>".to_vec(),
+                }),
+                Outcome::Unknown { code: "no-pin-id" },
+            ),
+            (body(400), Outcome::NotPosted { code: "rejected" }),
+            (body(404), Outcome::NotPosted { code: "rejected" }),
+            (
+                body(401),
+                Outcome::NotPosted {
+                    code: "token-refused",
+                },
+            ),
+            (
+                body(403),
+                Outcome::NotPosted {
+                    code: "not-permitted",
+                },
+            ),
+            (
+                body(429),
+                Outcome::NotPosted {
+                    code: "rate-limited",
+                },
+            ),
+            (
+                body(500),
+                Outcome::Unknown {
+                    code: "provider-error",
+                },
+            ),
+            (
+                body(503),
+                Outcome::Unknown {
+                    code: "provider-error",
+                },
+            ),
+            (
+                Err("request timed out after 30 seconds".into()),
+                Outcome::Unknown {
+                    code: "no-response",
+                },
+            ),
+        ];
+        for (answer, expected) in cases {
+            assert_eq!(classify(&answer), expected);
+        }
+        for status in [400, 401, 403, 429] {
+            let root = site(ON);
+            let (result, _) = send(&root, body(status));
+            let error = result.unwrap_err();
+            assert!(error.starts_with("Not pinned:"), "{status}: {error}");
+            assert!(!error.contains("PROVIDER-SECRET-TEXT"));
+            let record = &state(&root).pins[&key(&pin_plan(&root))];
+            assert_eq!(record.status, RecordStatus::NotPosted);
+            assert!(record.pin_id.is_none());
+            let saved = fs::read_to_string(root.join(".openblog/pinterest.json")).unwrap();
+            assert!(!saved.contains("PROVIDER-SECRET-TEXT"));
+            // Certainly not posted: sending again is allowed and works.
+            let (result, _) = send(
+                &root,
+                reply(201, json!({"id": "77", "link": pin_plan(&root).link})),
+            );
+            result.unwrap();
+            assert_eq!(
+                state(&root).pins[&key(&pin_plan(&root))].status,
+                RecordStatus::Posted
+            );
+            fs::remove_dir_all(root).ok();
+        }
+        let root = site(ON);
+        let (result, _) = send(&root, body(401));
+        assert!(result.unwrap_err().contains("reconnect"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn the_attempt_is_recorded_before_the_request_so_a_crash_cannot_repeat_a_pin() {
+        let root = site(ON);
+        let plan = pin_plan(&root);
+        let record_file = root.join(".openblog/pinterest.json");
+        let mut transport = Scripted::new(vec![boards(&["111"]), Err("connection reset".into())]);
+        let seen = record_file.clone();
+        let wanted = key(&plan);
+        transport.during_send = Some(Box::new(move |request: &Request| {
+            if request.method == "POST" {
+                let state = PinState::load(&seen).unwrap();
+                assert_eq!(state.pins[&wanted].status, RecordStatus::Unknown);
+            }
+        }));
+        let (result, _) = run(&root, &confirmed(&plan.digest), &transport);
+        let error = result.unwrap_err();
+        assert!(error.starts_with("Pin status unknown:"), "{error}");
+        assert!(error.contains("--reconcile"));
+        let record = &state(&root).pins[&key(&plan)];
+        assert_eq!(record.status, RecordStatus::Unknown);
+        assert_eq!(record.failure.as_deref(), Some("no-response"));
+        assert_eq!(record.attempted_at, "2026-10-29T12:00:00Z");
+
+        // An unsettled attempt is never sent again on its own.
+        let again = Scripted::new(vec![]);
+        let (result, _) = run(&root, &confirmed(&plan.digest), &again);
+        assert!(result.unwrap_err().contains("may have created a Pin"));
+        assert!(again.calls.borrow().is_empty());
+        fs::remove_dir_all(root).ok();
+    }
+
+    fn unsettled(root: &Path) -> PinPlan {
+        let (result, _) = send(root, reply(502, json!({})));
+        assert!(result.unwrap_err().starts_with("Pin status unknown:"));
+        pin_plan(root)
+    }
+
+    fn reconcile() -> Options {
+        Options {
+            reconcile: true,
+            ..Options::default()
+        }
+    }
+
+    #[test]
+    fn reconcile_records_the_one_pin_that_links_the_post_since_the_attempt() {
+        let root = site(ON);
+        let plan = unsettled(&root);
+        let transport = Scripted::new(vec![reply(
+            200,
+            json!({"items": [
+                {"id": "1", "link": "https://cook.example.org/posts/other/", "created_at": "2026-10-29T12:00:05"},
+                {"id": "2", "link": plan.link, "created_at": "2026-01-01T00:00:00"},
+                {"id": "3", "link": plan.link, "created_at": "2026-10-29T12:00:04"}
+            ], "bookmark": null}),
+        )]);
+        let (result, printed) = run(&root, &reconcile(), &transport);
+        result.unwrap();
+        assert!(printed.contains("https://www.pinterest.com/pin/3/"));
+        let calls = transport.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].method, "GET");
+        assert!(calls[0]
+            .url
+            .starts_with("https://api-sandbox.pinterest.com/v5/boards/111/pins?"));
+        let record = &state(&root).pins[&key(&plan)];
+        assert_eq!(record.status, RecordStatus::Posted);
+        assert_eq!(record.pin_id.as_deref(), Some("3"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn reconcile_never_decides_alone_that_nothing_was_posted() {
+        let root = site(ON);
+        let plan = unsettled(&root);
+        // Nothing found: the attempt stays unsettled until the author says otherwise.
+        let empty = Scripted::new(vec![reply(200, json!({"items": [], "bookmark": null}))]);
+        let (result, _) = run(&root, &reconcile(), &empty);
+        assert!(result.unwrap_err().contains("--forget-attempt"));
+        assert_eq!(state(&root).pins[&key(&plan)].status, RecordStatus::Unknown);
+        // Two candidates: still unsettled.
+        let two = Scripted::new(vec![reply(
+            200,
+            json!({"items": [
+                {"id": "4", "link": plan.link, "created_at": "2026-10-29T12:00:01"},
+                {"id": "5", "link": plan.link, "created_at": "2026-10-29T12:00:02"}
+            ], "bookmark": null}),
+        )]);
+        let (result, _) = run(&root, &reconcile(), &two);
+        assert!(result.unwrap_err().contains("2 Pins"));
+        // A failed read leaves it as it was.
+        let failed = Scripted::new(vec![reply(500, json!({}))]);
+        let (result, _) = run(&root, &reconcile(), &failed);
+        assert!(result.unwrap_err().contains("stays unsettled"));
+        assert_eq!(state(&root).pins[&key(&plan)].status, RecordStatus::Unknown);
+        // The author checked the board: forgetting the attempt allows sending again.
+        let forget = Options {
+            forget_attempt: true,
+            ..Options::default()
+        };
+        let none = Scripted::new(vec![]);
+        let (result, printed) = run(&root, &forget, &none);
+        result.unwrap();
+        assert!(printed.contains("second one"));
+        assert!(none.calls.borrow().is_empty());
+        assert!(!state(&root).pins.contains_key(&key(&plan)));
+        let (result, _) = send(&root, reply(201, json!({"id": "6", "link": plan.link})));
+        result.unwrap();
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn the_pin_links_the_canonical_address_and_a_changed_link_is_reported() {
+        let root = site(ON);
+        let plan = pin_plan(&root);
+        assert_eq!(plan.link, "https://cook.example.org/posts/tart/");
+        let (result, printed) = send(
+            &root,
+            reply(
+                201,
+                json!({"id": "8", "link": "https://cook.example.org/posts/tart/?utm_source=pinterest"}),
+            ),
+        );
+        result.unwrap();
+        assert!(printed.contains("did not carry your post's address"));
+        assert_eq!(state(&root).pins[&key(&plan)].link_preserved, Some(false));
+        fs::remove_dir_all(root).ok();
+
+        // The link is the canonical address cross-posting sends (ADR 0004): the post's page on
+        // this site, whatever else the front matter says.
+        let root = site(ON);
+        fs::write(
+            root.join("content/posts/tart.md"),
+            super::tests::RECIPE.replace(
+                "profile: recipe\n",
+                "profile: recipe\ncanonicalUrl: https://kitchen.example.com/tart\n",
+            ),
+        )
+        .unwrap();
+        let canonical = pin_plan(&root).link;
+        assert_eq!(canonical, "https://cook.example.org/posts/tart/");
+        let transport = Scripted::new(vec![
+            boards(&["111"]),
+            reply(201, json!({"id": "9", "link": canonical})),
+        ]);
+        let (result, _) = run(&root, &confirmed(&pin_plan(&root).digest), &transport);
+        result.unwrap();
+        assert_eq!(transport.calls.borrow()[1].body["link"], canonical);
+        fs::remove_dir_all(root).ok();
+
+        // A site without a public address cannot be pinned.
+        let root = site(ON);
+        let config = fs::read_to_string(root.join("openblog.json"))
+            .unwrap()
+            .replace("https://cook.example.org", "http://localhost:3000");
+        fs::write(root.join("openblog.json"), config).unwrap();
+        let plan = pin_plan(&root);
+        assert!(plan.problems.iter().any(|p| p.code == "link-not-public"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_credit_travels_in_the_description_and_unsafe_images_are_never_sent() {
+        let root = site(ON);
+        fs::write(
+            root.join("content/posts/tart.md"),
+            super::tests::RECIPE.replace(
+                "cardTitle:",
+                "cardImage: /img/pin.png\ncardImageAlt: A slice of tart\ncardImageCredit: Ana Ruiz\ncardTitle:",
+            ),
+        )
+        .unwrap();
+        let plan = pin_plan(&root);
+        assert!(plan.ready, "{:?}", plan.problems);
+        assert_eq!(plan.description, "Sharp and short.\n\nImage: Ana Ruiz");
+        fs::remove_dir_all(root).ok();
+
+        // A description that no longer fits with its credit is refused by the manifest.
+        let root = site(ON);
+        let long = "a".repeat(795);
+        fs::write(
+            root.join("content/posts/tart.md"),
+            super::tests::RECIPE.replace(
+                "cardTitle:",
+                &format!("cardDescription: {long}\ncardImage: /img/pin.png\ncardImageAlt: A slice\ncardImageCredit: Ana Ruiz\ncardTitle:"),
+            ),
+        )
+        .unwrap();
+        let plan = pin_plan(&root);
+        assert!(
+            plan.problems.iter().any(|p| p.code == "text-too-long"),
+            "{:?}",
+            plan.problems
+        );
+        fs::remove_dir_all(root).ok();
+
+        // A photograph that records where it was taken, or an image on another site, is not sent.
+        for (file, post) in [
+            (
+                Some(samples::png(1000, 1500, true)),
+                super::tests::RECIPE.to_string(),
+            ),
+            (
+                None,
+                super::tests::RECIPE.replace("/img/pin.png", "https://images.example.net/pin.png"),
+            ),
+        ] {
+            let root = site(ON);
+            if let Some(bytes) = file {
+                fs::write(root.join("static/img/pin.png"), bytes).unwrap();
+            }
+            fs::write(root.join("content/posts/tart.md"), post).unwrap();
+            let plan = pin_plan(&root);
+            assert!(!plan.ready);
+            let transport = Scripted::new(vec![]);
+            let (result, _) = run(&root, &confirmed(&plan.digest), &transport);
+            assert!(result.unwrap_err().contains(NOTHING_SENT));
+            assert!(transport.calls.borrow().is_empty());
+            fs::remove_dir_all(root).ok();
+        }
+    }
+
+    #[test]
+    fn listing_boards_follows_pages_and_reports_a_refused_token() {
+        let root = site(ON);
+        let transport = Scripted::new(vec![
+            reply(
+                200,
+                json!({"items": [{"id": "1", "name": "Bakes"}], "bookmark": "next-page"}),
+            ),
+            reply(
+                200,
+                json!({"items": [{"id": "2", "name": "Trips\nand more"}, {"id": "x", "name": "bad"}], "bookmark": null}),
+            ),
+        ]);
+        let now = || DateTime::from_unix(0);
+        let token = || Some(super::tests::TOKEN.to_string());
+        let context = Context {
+            transport: &transport,
+            now: &now,
+            token: &token,
+        };
+        let mut out = Vec::new();
+        run_boards_with(&root, false, &context, &mut out).unwrap();
+        let printed = String::from_utf8(out).unwrap();
+        assert!(printed.contains("1  Bakes") && printed.contains("2  Trips and more"));
+        assert!(!printed.contains("bad"));
+        assert!(transport.calls.borrow()[1]
+            .url
+            .contains("bookmark=next-page"));
+
+        let refused = Scripted::new(vec![reply(401, json!({"code": 2, "message": "x"}))]);
+        let context = Context {
+            transport: &refused,
+            now: &now,
+            token: &token,
+        };
+        let error = run_boards_with(&root, true, &context, &mut Vec::new()).unwrap_err();
+        assert!(error.contains("reconnect"));
+
+        let no_token = || None;
+        let nothing = Scripted::new(vec![]);
+        let context = Context {
+            transport: &nothing,
+            now: &now,
+            token: &no_token,
+        };
+        let error = run_boards_with(&root, false, &context, &mut Vec::new()).unwrap_err();
+        assert!(error.contains(TOKEN_VARIABLE));
+        assert!(nothing.calls.borrow().is_empty());
+        fs::remove_dir_all(root).ok();
+    }
+}

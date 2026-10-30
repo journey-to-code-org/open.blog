@@ -2959,3 +2959,20 @@ _Avoid_: Platform, network, image size
 Passing over a card image candidate the destination cannot take, recorded with its reasons, and trying the next. A
 card is never fixed by cropping, resizing or generating anything (ADR 0782).
 _Avoid_: Auto-fix, default image
+
+**Pin plan**:
+Exactly what `openblog pinterest pin` would send to one Pinterest board: the post's Pin card (its title, its
+description followed by the image credit, the image's own alternative text, the canonical link) and the image file's
+bytes, with the environment (`sandbox` or `production`), board and section. Built without any request (ADR 0784).
+_Avoid_: Pin draft, Pin preview page
+
+**Pin digest**:
+The digest of a Pin plan, over every field the request carries and a digest of the image's bytes. `--write` sends
+only when `--confirm` repeats it, so any change after the preview stops the send (ADR 0784).
+_Avoid_: Approval id, card digest (which covers only the card)
+
+**Unsettled Pin attempt**:
+A recorded Pin request that may have created a Pin (no answer, a server error, or a reply without a Pin id). It is
+never sent again on its own: `--reconcile` looks for the one Pin linking the post since the attempt, and only the
+author, with `--forget-attempt`, may decide that none was made (ADR 0785).
+_Avoid_: Failed Pin, retry
