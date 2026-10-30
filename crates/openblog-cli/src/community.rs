@@ -5,6 +5,7 @@
 //! community, and records the submissions the author says they made. Nothing here sends a
 //! request, reads a credential or fetches a provider page.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -306,20 +307,15 @@ fn launch(
     Ok(())
 }
 
-/// What is at each image path the plan names, and the real file of each image found inside the
-/// project. A path whose real location (after links) is outside the project is never read.
-fn probe_images(
-    root: &Path,
-    plan: &LaunchPlan,
-) -> Result<
-    (
-        std::collections::BTreeMap<String, ImageProbe>,
-        std::collections::BTreeMap<String, PathBuf>,
-    ),
-    String,
-> {
-    let mut probes = std::collections::BTreeMap::new();
-    let mut found = std::collections::BTreeMap::new();
+/// What the CLI found at each image path a launch plan names, and the real file of each image
+/// found inside the project.
+type Probed = (BTreeMap<String, ImageProbe>, BTreeMap<String, PathBuf>);
+
+/// Probes each image the plan names. A path whose real location (after links) is outside the
+/// project is never read.
+fn probe_images(root: &Path, plan: &LaunchPlan) -> Result<Probed, String> {
+    let mut probes = BTreeMap::new();
+    let mut found = BTreeMap::new();
     let project = fs::canonicalize(root)
         .map_err(|error| format!("cannot resolve {}: {error}", root.display()))?;
     for file in plan.image_files() {
