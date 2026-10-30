@@ -27,6 +27,7 @@ mod private_guard;
 mod publish;
 mod readiness;
 mod reading_path_store;
+mod recipe_package;
 mod research_review;
 mod safe_http;
 mod scaffold;
@@ -72,8 +73,8 @@ COMMANDS
                                Manage who can sign in to the admin editor
     check                      Validate content and themes without writing anything
     export <slug>              Preview or write a portable Markdown article, the post's
-                               cited references as CSL JSON or BibTeX, or a recipe as
-                               schema.org Recipe JSON-LD
+                               cited references as CSL JSON or BibTeX, a recipe as
+                               schema.org Recipe JSON-LD, or a recipe directory package
     paths export|import        Export reading paths to one file, or check and import one
                                (dry run unless --write)
     publish [summary]          Commit changed content with git and push (deploys via CI)
@@ -121,12 +122,17 @@ syndicate OPTIONS
                                syndication.requireApproval, --write sends only what is approved
 
 export OPTIONS
-    --format markdown|csl-json|bibtex|recipe-json-ld
+    --format markdown|csl-json|bibtex|recipe-json-ld|recipe-package
                                Portable format (default: markdown); csl-json and bibtex
                                export the public description of the references the post
                                cites, and list what the format leaves out; recipe-json-ld
                                checks a recipe and exports the schema.org Recipe its page
-                               carries, refusing while the check finds an error
+                               carries, refusing while the check finds an error;
+                               recipe-package prepares a folder (recipe.json, the text to
+                               paste, the cover and a guide page) for recipe directories'
+                               own submission steps, sending nothing
+    --directory google-search,pinterest,foodgawker
+                               recipe-package only: the directories to check and prepare for
     --out <path>               Output file for an explicit --write
     --write                    Write the export (otherwise print a dry-run preview)
     --json                     Print a versioned dry-run manifest with exact content
@@ -493,7 +499,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "export" => {
             let slug = args.positional.first().ok_or(
-                "usage: openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld] [--out <path>] [--json] [--write]",
+                "usage: openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld|recipe-package] [--directory <names>] [--out <path>] [--json] [--write]",
             )?;
             let format = args
                 .options
@@ -502,14 +508,15 @@ fn run(raw: &[String]) -> Result<(), String> {
                 .unwrap_or("markdown");
             let format = portable_export::Format::parse(format).ok_or_else(|| {
                 format!(
-                    "unsupported portable export format `{format}`; expected `markdown`, `csl-json`, `bibtex` or `recipe-json-ld`"
+                    "unsupported portable export format `{format}`; expected `markdown`, `csl-json`, `bibtex`, `recipe-json-ld` or `recipe-package`"
                 )
             })?;
-            portable_export::run(
+            portable_export::run_with_directories(
                 &root,
                 slug,
                 format,
                 args.options.get("out").map(String::as_str),
+                args.options.get("directory").map(String::as_str),
                 args.switches.contains("write"),
                 args.switches.contains("json"),
             )

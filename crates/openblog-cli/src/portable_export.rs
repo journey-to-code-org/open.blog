@@ -20,6 +20,8 @@ pub enum Format {
     Bibtex,
     /// A recipe post as the schema.org `Recipe` its page carries (ADRs 0820 and 0821).
     RecipeJsonLd,
+    /// A folder for recipe directories' own submission steps (ADRs 0822 and 0823).
+    RecipePackage,
 }
 
 impl Format {
@@ -29,6 +31,7 @@ impl Format {
             "csl-json" => Some(Self::CslJson),
             "bibtex" => Some(Self::Bibtex),
             "recipe-json-ld" => Some(Self::RecipeJsonLd),
+            "recipe-package" => Some(Self::RecipePackage),
             _ => None,
         }
     }
@@ -39,10 +42,13 @@ impl Format {
             Self::CslJson => "csl-json",
             Self::Bibtex => "bibtex",
             Self::RecipeJsonLd => "recipe-json-ld",
+            Self::RecipePackage => "recipe-package",
         }
     }
 }
 
+/// [`run_with_directories`] without `--directory`, as the tests of other exports call it.
+#[cfg(test)]
 pub fn run(
     root: &Path,
     slug: &str,
@@ -51,6 +57,26 @@ pub fn run(
     write: bool,
     json: bool,
 ) -> Result<(), String> {
+    run_with_directories(root, slug, format, output, None, write, json)
+}
+
+/// [`run`], with `--directory` for a recipe package (ADR 0823).
+pub fn run_with_directories(
+    root: &Path,
+    slug: &str,
+    format: Format,
+    output: Option<&str>,
+    directories: Option<&str>,
+    write: bool,
+    json: bool,
+) -> Result<(), String> {
+    if directories.is_some() && format != Format::RecipePackage {
+        return Err(
+            "--directory applies to --format recipe-package only; no files were changed".into(),
+        );
+    }
+    // An unknown or unavailable directory is refused before anything is read.
+    let directories = crate::recipe_package::parse_directories(directories)?;
     if json && write {
         return Err("--json is available for dry runs only; no files were changed".into());
     }
@@ -70,6 +96,17 @@ pub fn run(
         .iter()
         .find(|post| post.slug == slug)
         .ok_or_else(|| format!("published post `{slug}` was not found"))?;
+    if format == Format::RecipePackage {
+        return crate::recipe_package::run(
+            root,
+            &site,
+            post,
+            destination.as_deref(),
+            &directories,
+            write,
+            json,
+        );
+    }
     if format == Format::RecipeJsonLd {
         return run_recipe(root, &site, post, destination.as_deref(), write, json);
     }

@@ -2932,3 +2932,15 @@ The closed list of problems a recipe export is checked against: unreadable, zero
 missing lists, inconsistent times and a missing canonical address are errors that stop the export; gaps such as no
 photo or no author are warnings. A problem names the ingredient, step or field, never the author's words (ADR 0821).
 _Avoid_: Validation error, lint
+
+**Recipe directory**:
+A site that lists recipes from other sites (Google Search recipe results, Pinterest, Foodgawker), in a closed, dated
+list with each condition marked as read in its own documentation or not verified. open.blog never submits to one;
+the author does, by hand (ADR 0822).
+_Avoid_: Destination (a cross-posting or social target with an adapter), aggregator, recipe app (an importer)
+
+**Recipe package**:
+A new folder prepared by `openblog export <slug> --format recipe-package` for the recipe directories the author
+chose: the page's `Recipe` JSON-LD, the text to paste, the credit, the cover when it is a static file, a plan and a
+static guide to the author's steps. Prepared, never sent (ADR 0823).
+_Avoid_: Submission (the author's own act in the directory), recipe export (the single JSON-LD file)

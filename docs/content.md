@@ -732,6 +732,38 @@ field, never your text. See ADRs
 [0820](adr/0820-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md)
 and [0821](adr/0821-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md).
 
+### Preparing a recipe for recipe directories
+
+No recipe directory lets open.blog submit for you, so open.blog never does: it prepares a
+folder with everything a directory's own form or check needs, and a page listing your steps.
+You choose the directories, and you make each submission yourself, by hand, if you want to.
+
+```sh
+openblog export lemon-garlic-pasta --format recipe-package --directory google-search,pinterest   # preview and check
+openblog export lemon-garlic-pasta --format recipe-package --directory foodgawker --json          # versioned plan
+openblog export lemon-garlic-pasta --format recipe-package --directory google-search,pinterest,foodgawker   --out exports/pasta-package --write
+```
+
+The new folder holds `recipe.json` (the same schema.org data as the page), `title.txt`,
+`description.txt`, `ingredients.txt`, `steps.txt`, `link.txt` (the canonical address),
+`credit.txt` (your title, the site author, the canonical address and, when set, `adaptedFrom`),
+the cover image when it is a file in your static folder, `package.json`, and `index.html`: open it
+in a browser for each directory's conditions and steps. A cover given as a web address is linked,
+not downloaded. Without `--directory` the folder holds the recipe files only.
+
+| Directory | How it receives your recipe | Checked here |
+| --- | --- | --- |
+| `google-search` | Reads your page; test it with the Rich Results Test and ask for indexing in Search Console | Needs a cover; warns under the 50,000 pixels Google recommends |
+| `pinterest` | Reads your page's recipe data when you save a Pin from it | Needs a cover |
+| `foodgawker` | You submit a photo, title, description and link from your account; editors review it | Needs a cover; warns when it is not square or there is no `description`. Its pages could not be read directly, so every condition is marked "not verified": check them on Foodgawker |
+
+`yummly` is refused because it closed in December 2024, and `allrecipes` because its submission
+terms could not be verified. A recipe check error (above), a missing cover, or a post whose
+`canonical` names another page stops the package, and nothing is written. The facts were
+checked on 2026-10-29; see ADRs
+[0822](adr/0822-recipe-directories-are-a-closed-dated-list-whose-conditions-say-where-they-were-read-and-every-submission-is-by-hand.md)
+and [0823](adr/0823-a-recipe-package-is-a-new-folder-of-the-pages-recipe-the-text-to-paste-the-cover-and-a-static-guide-and-nothing-is-sent.md).
+
 ## Series
 
 A series groups posts in reading order and gets its own page. Create

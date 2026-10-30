@@ -61,6 +61,11 @@ Checked on 2026-10-29 against the providers' own documentation:
 - Ghost, Hashnode and Medium: as verified for [cross-posting](cross-posting.md). Scheduling there was not
   re-verified, so it is listed as unsupported.
 
+Recipe directories (Google Search recipe results, Pinterest, Foodgawker) have no adapter and no manifest here:
+open.blog only prepares a package for them, and every capability is manual or unsupported in the same vocabulary.
+Their dated facts and sources are listed in
+[Preparing a recipe for recipe directories](content.md#preparing-a-recipe-for-recipe-directories).
+
 ## Seeing what each destination would receive
 
 `openblog syndicate <slug> --preview <new folder>` writes each destination's exact copy and an accessible page

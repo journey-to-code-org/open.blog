@@ -43,7 +43,7 @@ openblog publish setup
 ## Portability and syndication
 
 ```bash
-openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld] [--out path] [--write]
+openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld|recipe-package] [--directory names] [--out path] [--write]
 openblog syndicate <slug> [--target a,b] [--write] [--publish]
 ```
 
