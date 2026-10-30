@@ -664,6 +664,7 @@ A few words about the dish.
 | `prep`, `cook`, `total` | One length of time: `15 min`, `1 hr 30 min`, `1.5 hours`, `1 1/2 hours`, `1h30m`, `1:30` (1 hour 30 minutes), or `PT1H30M`. Anything else, such as `overnight` or `10-15 min`, is shown on the card as written and left out of the search-engine data. `total` defaults to prep plus cook when both are given. Also `prepTime`, `cookTime`, `totalTime`. |
 | `cuisine`, `course` | Shown on the card and given to search engines. `category` also works for `course`. |
 | `calories` | Free text, per serving, such as `520 kcal`. |
+| `adaptedFrom` | The web address of the recipe yours is adapted from, such as `https://example.org/original`. Given to search engines and recipe apps as the source (`isBasedOn`); not shown on the page, so credit the original in your text too. Also `adapted_from`, `basedOn`. Anything that is not an `http(s)` address is left out. |
 
 **Sections.** The labels must be headings (`## Ingredients`), not bold text, and each
 ingredient and step must be a list item (`- ` or `1. `); `openblog check` warns about a

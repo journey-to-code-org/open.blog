@@ -94,6 +94,13 @@ const RECIPE_FIELDS: &[ProfileField] = &[
         kind: ProfileFieldKind::Text,
         help: "Free text such as 520 kcal.",
     },
+    ProfileField {
+        key: "adaptedFrom",
+        label: "Adapted from",
+        kind: ProfileFieldKind::Text,
+        help:
+            "Web address of the recipe this one is adapted from; recipe apps get it as the source.",
+    },
 ];
 
 const RESEARCH_FIELDS: &[ProfileField] = &[

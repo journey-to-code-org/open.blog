@@ -114,6 +114,10 @@ pub struct Recipe {
     pub steps: Vec<String>,
     /// Id of the first recipe heading, the target of "Jump to recipe".
     pub anchor: Option<String>,
+    /// Where the recipe comes from when it is adapted from another, as written in `adaptedFrom`
+    /// (also `adapted_from`, `basedOn`). Exported as schema.org `isBasedOn` only when it is an
+    /// http(s) address (ADR 0820).
+    pub adapted_from: Option<String>,
 }
 
 /// True when the front matter marks the post as a recipe.
@@ -224,6 +228,7 @@ impl Recipe {
             ingredients,
             steps,
             anchor: None,
+            adapted_from: get(&["adaptedFrom", "adapted_from", "basedOn"]).map(str::to_string),
         }
     }
 }
