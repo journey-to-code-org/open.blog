@@ -37,7 +37,10 @@ contract (ADRs 0325 to 0327) is the place every destination states what open.blo
   day, Standard apps per user per minute; no numbers are published there. The
   [sandbox](https://dev.pinterest.com/docs/developer-tools/sandbox/) is the same API at `api-sandbox.pinterest.com`;
   the app console generates a sandbox token that "lasts 30 days", and a sandbox token does not work in production
-  nor a production token in the sandbox. Collecting a person's password or session cookies instead of OAuth is
+  nor a production token in the sandbox. Sandbox entities are separate from production ones: production boards
+  are filtered out of `GET /v5/boards` there, and the way the sandbox page gives to get a sandbox board is
+  `POST /v5/boards` on `api-sandbox.pinterest.com`, so a new sandbox token has no board until one is made that way.
+  Collecting a person's password or session cookies instead of OAuth is
   grounds for refusing an app.
 
 ## Decision
@@ -62,6 +65,11 @@ contract (ADRs 0325 to 0327) is the place every destination states what open.blo
 - **Sandbox first.** `syndication.pinterest.environment` is `sandbox` (the default, `api-sandbox.pinterest.com`,
   where Pins are visible only to the author) or `production` (`api.pinterest.com`), which the author sets on purpose
   once their app has Standard access. A sandbox Pin is reported as visible only to the author.
+- **A sandbox board is a guided manual step.** Because pinterest.com boards are not visible in the sandbox,
+  `openblog pinterest boards` with an empty sandbox prints the one `POST /v5/boards` request to make a sandbox
+  board (naming `$PINTEREST_ACCESS_TOKEN`, never the token), and `docs/pinterest.md` gives the same step.
+  open.blog does not make boards itself: that would be a second write path to confirm and test, for a one-time
+  setup step. A `boards --create` command can be added later if authors need it.
 - **Only the author's own published work.** A Pin is built only from a production-visible post's card, its image
   only from a file the site itself serves (ADR 0784), which keeps within "new content created by the user".
 

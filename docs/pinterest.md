@@ -62,6 +62,21 @@ openblog pinterest boards
 
 Secret boards are not listed: open.blog does not ask for the secret-board scopes.
 
+**In the sandbox, make a sandbox board first.** The sandbox keeps its own boards: boards you made on pinterest.com
+are not visible there, and a sandbox board can only be made through Pinterest's API, not on the website. So with a
+new sandbox token, `openblog pinterest boards` lists nothing and says so. Make one board with your sandbox token
+(open.blog does not send this request for you):
+
+```sh
+curl -X POST https://api-sandbox.pinterest.com/v5/boards \
+  -H "Authorization: Bearer $PINTEREST_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My Pins"}'
+```
+
+Its answer includes the new board's `id`; `openblog pinterest boards` now lists it too. In `production`, your
+pinterest.com boards are listed as they are.
+
 ## Preview, confirm, send
 
 ```sh

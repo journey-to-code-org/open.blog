@@ -673,6 +673,28 @@ fn network<T>(run: impl FnOnce(&Context<'_>) -> T) -> T {
     })
 }
 
+/// What to do when a token can pin to no board. The sandbox holds only sandbox entities: boards
+/// made on pinterest.com are filtered out of its board list, and a sandbox board can only be made
+/// through the API (ADR 0783), so the sandbox message gives that one request for the author to
+/// run. It names the token's variable, never the token, and open.blog sends nothing for it.
+fn no_boards(environment: Environment) -> String {
+    match environment {
+        Environment::Sandbox => format!(
+            "This token can pin to no board in Pinterest's sandbox. Boards you made on pinterest.com are not \
+             visible there: the sandbox has its own boards, made only through the API. Make one with your \
+             sandbox token (open.blog does not send this for you):\n\n  \
+             curl -X POST {}/boards -H \"Authorization: Bearer ${TOKEN_VARIABLE}\" \
+             -H \"Content-Type: application/json\" -d '{{\"name\": \"My Pins\"}}'\n\n\
+             Then run `openblog pinterest boards` again. See docs/pinterest.md.\n",
+            environment.api_base()
+        ),
+        Environment::Production => {
+            "This token can pin to no board in Pinterest's production. Create a board on pinterest.com first.\n"
+                .to_string()
+        }
+    }
+}
+
 pub fn run_boards(root: &Path, json: bool) -> Result<(), String> {
     network(|context| run_boards_with(root, json, context, &mut std::io::stdout()))
 }
@@ -694,10 +716,7 @@ fn run_boards_with(
         .map_err(|error| format!("could not serialize the boards: {error}"))?
             + "\n"
     } else if boards.is_empty() {
-        format!(
-            "This token can pin to no board in Pinterest's {}. Create a board in Pinterest first.\n",
-            settings.environment.as_str()
-        )
+        no_boards(settings.environment)
     } else {
         let mut text = format!(
             "Boards this token can pin to ({}). Choose one with --board <id> or syndication.pinterest.board:\n",
@@ -1740,6 +1759,43 @@ mod failure_tests {
             let (result, _) = run(&root, &confirmed(&plan.digest), &transport);
             assert!(result.unwrap_err().contains(NOTHING_SENT));
             assert!(transport.calls.borrow().is_empty());
+            fs::remove_dir_all(root).ok();
+        }
+    }
+
+    #[test]
+    fn an_empty_sandbox_says_how_to_make_a_sandbox_board_without_printing_the_token() {
+        let now = || DateTime::from_unix(0);
+        let token = || Some(super::tests::TOKEN.to_string());
+        for (config, expect, absent) in [
+            (
+                ON,
+                "curl -X POST https://api-sandbox.pinterest.com/v5/boards -H \"Authorization: Bearer $PINTEREST_ACCESS_TOKEN\"",
+                "on pinterest.com first",
+            ),
+            (
+                r#"{"enabled":true,"environment":"production","board":"111"}"#,
+                "Create a board on pinterest.com first.",
+                "curl",
+            ),
+        ] {
+            let root = site(config);
+            let transport = Scripted::new(vec![boards(&[])]);
+            let context = Context {
+                transport: &transport,
+                now: &now,
+                token: &token,
+            };
+            let mut out = Vec::new();
+            run_boards_with(&root, false, &context, &mut out).unwrap();
+            let printed = String::from_utf8(out).unwrap();
+            assert!(printed.contains(expect), "{printed}");
+            assert!(!printed.contains(absent), "{printed}");
+            assert!(!printed.contains(super::tests::TOKEN));
+            let calls = transport.calls.borrow();
+            assert_eq!(calls.len(), 1, "only the board listing is sent");
+            assert_eq!(calls[0].method, "GET");
+            drop(calls);
             fs::remove_dir_all(root).ok();
         }
     }
