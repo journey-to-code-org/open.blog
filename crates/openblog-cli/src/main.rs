@@ -130,6 +130,12 @@ submit OPTIONS
     --title <text>             Your own title for this submission instead of the post's
     --kit <new folder>         Write an accessible index.html checklist and kit.json there
                                instead of printing the kit
+    --confirm <destination>    Record that you submitted it there by hand (your word; open.blog
+                               never checks), so it is not prepared again
+    --permalink <address>      With --confirm: the address of your submission
+    --again                    Prepare an HN repost after a quiet year, or record a second
+                               submission
+    --list                     Show the submissions you confirmed for the post
 
 export OPTIONS
     --format markdown|csl-json|bibtex
@@ -244,6 +250,7 @@ const SWITCHES: &[&str] = &[
     "scrap",
     "stdin",
     "yes",
+    "again",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -492,6 +499,10 @@ fn run(raw: &[String]) -> Result<(), String> {
                     to: args.options.get("to").cloned(),
                     title: args.options.get("title").cloned(),
                     kit: args.options.get("kit").cloned(),
+                    confirm: args.options.get("confirm").cloned(),
+                    permalink: args.options.get("permalink").cloned(),
+                    list: args.switches.contains("list"),
+                    again: args.switches.contains("again"),
                 },
             )
         }

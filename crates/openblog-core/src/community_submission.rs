@@ -33,6 +33,11 @@ pub const MAX_COMMUNITY_RULES: usize = 30;
 pub const MAX_RULE_CHARS: usize = 300;
 /// How long a community's rules, as the author wrote them down, are taken as current.
 pub const RULES_REVIEW_DAYS: i64 = 180;
+/// HN accepts a repost only of a story without significant attention "in the last year or so".
+pub const HN_REPOST_QUIET_DAYS: i64 = 365;
+/// The record format this release reads and writes, and the largest record file read.
+pub const RECORDS_VERSION: u32 = 1;
+pub const MAX_RECORDS_BYTES: usize = 1024 * 1024;
 
 const HN_GUIDELINES: &str = "https://news.ycombinator.com/newsguidelines.html";
 const HN_FAQ: &str = "https://news.ycombinator.com/newsfaq.html";
@@ -176,6 +181,9 @@ pub enum SubmissionError {
     TooManyDestinations,
     InvalidCommunity,
     Disabled(ProviderId),
+    InvalidPermalink(ProviderId),
+    AlreadyConfirmed,
+    RecordsMalformed,
 }
 
 impl SubmissionError {
@@ -186,6 +194,9 @@ impl SubmissionError {
             Self::TooManyDestinations => "too-many-destinations",
             Self::InvalidCommunity => "invalid-community",
             Self::Disabled(_) => "destination-disabled",
+            Self::InvalidPermalink(_) => "invalid-permalink",
+            Self::AlreadyConfirmed => "already-confirmed",
+            Self::RecordsMalformed => "records-malformed",
         }
     }
 }
@@ -213,6 +224,18 @@ impl std::fmt::Display for SubmissionError {
                 "Hacker News submissions are off. Set community.hackerNews.enabled to true in openblog.json to prepare them.",
             ),
             Self::Disabled(_) => f.write_str("Submissions to this destination are off."),
+            Self::InvalidPermalink(ProviderId::Reddit) => f.write_str(
+                "The address must be your post in that community, such as https://www.reddit.com/r/rust/comments/abc123/; open.blog does not open it.",
+            ),
+            Self::InvalidPermalink(_) => f.write_str(
+                "The address must be your submission on Hacker News, such as https://news.ycombinator.com/item?id=123; open.blog does not open it.",
+            ),
+            Self::AlreadyConfirmed => f.write_str(
+                "You already confirmed submitting this post there. Add --again only if you really submitted it a second time.",
+            ),
+            Self::RecordsMalformed => f.write_str(
+                "The community submission record is not one this release reads; repair or move it.",
+            ),
         }
     }
 }
@@ -346,6 +369,8 @@ pub struct DestinationKit {
     pub rules: Vec<Rule>,
     pub notices: Vec<Notice>,
     pub policy_version: String,
+    /// What the author confirmed submitting here before, newest last.
+    pub confirmed: Vec<ConfirmedSubmission>,
 }
 
 impl DestinationKit {
@@ -358,6 +383,7 @@ impl DestinationKit {
 #[derive(Clone, Debug)]
 pub struct KitRequest<'a> {
     pub slug: &'a str,
+    pub source_id: &'a str,
     pub post_title: &'a str,
     /// The author's own title for this run, in place of the post's.
     pub title: Option<&'a str>,
@@ -368,6 +394,10 @@ pub struct KitRequest<'a> {
     pub destinations: &'a [Destination],
     /// Now, as Unix seconds, to tell how long ago the author last read a community's rules.
     pub now_unix: i64,
+    /// What the author confirmed submitting before, to keep a repeat submission from being prepared.
+    pub records: &'a SubmissionRecords,
+    /// The author says a repost to Hacker News is justified (only after a quiet year).
+    pub again: bool,
 }
 
 /// Every destination's kit for one post.
@@ -437,6 +467,11 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
             "The title has invisible or control characters; write it again in plain text.",
         ));
     }
+    let confirmed =
+        request
+            .records
+            .confirmed_for(request.source_id, request.canonical_url, &destination.key());
+    notices.extend(repeat_notices(destination, &confirmed, request));
     let mut rules_url = None;
     let (rules, submit_url) = match destination {
         Destination::HackerNews => {
@@ -498,11 +533,58 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
         rules,
         notices,
         policy_version: manifest.policy_version,
+        confirmed,
     };
     if kit.ready() {
         kit.submit_url = Some(submit_url);
     }
     kit
+}
+
+// A repeat submission is never prepared silently: Reddit's never, HN's only after a quiet year and
+// with --again (ADR 0803).
+fn repeat_notices(
+    destination: &Destination,
+    confirmed: &[ConfirmedSubmission],
+    request: &KitRequest<'_>,
+) -> Vec<Notice> {
+    let Some(last) = confirmed.last() else {
+        return Vec::new();
+    };
+    let day = last.confirmed_at.get(..10).unwrap_or("an earlier day");
+    let label = destination.label();
+    match destination {
+        Destination::HackerNews => {
+            if request.now_unix - last.confirmed_at_unix < HN_REPOST_QUIET_DAYS * 86_400 {
+                vec![Notice::blocking(
+                    "already-submitted",
+                    format!(
+                        "You confirmed submitting this post to {label} on {day}. Hacker News buries a repost of a story from the last year, so do not submit it again."
+                    ),
+                )]
+            } else if !request.again {
+                vec![Notice::blocking(
+                    "submitted-before",
+                    format!(
+                        "You confirmed submitting this post to {label} on {day}. Hacker News allows a few reposts of a story that had no significant attention; if that is so, prepare it again with --again."
+                    ),
+                )]
+            } else {
+                vec![Notice::advice(
+                    "repost",
+                    format!(
+                        "This is a repost: you confirmed submitting this post to {label} on {day}. Do not repost it again if it gets attention."
+                    ),
+                )]
+            }
+        }
+        Destination::Reddit(_) => vec![Notice::blocking(
+            "already-submitted",
+            format!(
+                "You confirmed submitting this post to {label} on {day}. Posting it there again would be a repeat submission."
+            ),
+        )],
+    }
 }
 
 /// What HN's guidelines say about a title, as notices. Only an empty or over-long title blocks;
@@ -679,6 +761,215 @@ fn hn_rules() -> Vec<Rule> {
     ]
 }
 
+/// What a confirmed submission rests on. Only the author's word exists in this release: open.blog
+/// never reads the provider to check it (ADR 0803).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Evidence {
+    Author,
+}
+
+/// The state of a submission open.blog knows of. Only the author can confirm one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SubmissionStatus {
+    AuthorConfirmed,
+}
+
+/// One submission the author says they made, by hand.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConfirmedSubmission {
+    pub status: SubmissionStatus,
+    pub evidence: Evidence,
+    pub canonical_url: String,
+    pub title: String,
+    /// The author's submission at the provider, as they gave it; never opened by open.blog.
+    pub permalink: Option<String>,
+    pub confirmed_at: String,
+    pub confirmed_at_unix: i64,
+    /// The provider manifest's policy version when the author confirmed it.
+    pub policy_version: String,
+}
+
+/// The private record of confirmed submissions: by source identity, then destination key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SubmissionRecords {
+    pub records_version: u32,
+    pub records: BTreeMap<String, BTreeMap<String, Vec<ConfirmedSubmission>>>,
+}
+
+impl Default for SubmissionRecords {
+    fn default() -> Self {
+        Self {
+            records_version: RECORDS_VERSION,
+            records: BTreeMap::new(),
+        }
+    }
+}
+
+impl SubmissionRecords {
+    /// Reads the record, refusing it whole on anything unknown.
+    pub fn from_json(text: &str) -> Result<Self, SubmissionError> {
+        if text.len() > MAX_RECORDS_BYTES {
+            return Err(SubmissionError::RecordsMalformed);
+        }
+        let records: Self =
+            serde_json::from_str(text).map_err(|_| SubmissionError::RecordsMalformed)?;
+        let keys_read = records
+            .records
+            .values()
+            .flat_map(BTreeMap::keys)
+            .all(|key| Destination::parse(key).is_ok_and(|d| d.key() == *key));
+        if records.records_version != RECORDS_VERSION || !keys_read {
+            return Err(SubmissionError::RecordsMalformed);
+        }
+        Ok(records)
+    }
+
+    pub fn to_json(&self) -> String {
+        let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
+        text.push('\n');
+        text
+    }
+
+    /// Every confirmation for this destination of this post: under its source identity, or under
+    /// another identity with the same canonical address. Oldest first.
+    pub fn confirmed_for(
+        &self,
+        source_id: &str,
+        canonical_url: &str,
+        key: &str,
+    ) -> Vec<ConfirmedSubmission> {
+        let mut found: Vec<ConfirmedSubmission> = self
+            .records
+            .iter()
+            .filter_map(|(source, destinations)| destinations.get(key).map(|list| (source, list)))
+            .flat_map(|(source, list)| {
+                list.iter()
+                    .filter(move |c| source == source_id || c.canonical_url == canonical_url)
+            })
+            .cloned()
+            .collect();
+        found.sort_by_key(|c| c.confirmed_at_unix);
+        found
+    }
+
+    /// Everything confirmed for one post, by destination key.
+    pub fn for_source(
+        &self,
+        source_id: &str,
+    ) -> Option<&BTreeMap<String, Vec<ConfirmedSubmission>>> {
+        self.records.get(source_id)
+    }
+}
+
+/// What the author says they submitted.
+#[derive(Clone, Debug)]
+pub struct Confirmation<'a> {
+    pub source_id: &'a str,
+    pub canonical_url: &'a str,
+    pub title: &'a str,
+    pub destination: &'a Destination,
+    pub permalink: Option<&'a str>,
+    pub now: crate::date::DateTime,
+    /// The author says they submitted it a second time.
+    pub again: bool,
+}
+
+/// Records the author's confirmation. It says only that the author confirmed it: nothing is
+/// fetched, and a permalink is checked for shape alone.
+pub fn confirm(
+    records: &mut SubmissionRecords,
+    confirmation: &Confirmation<'_>,
+) -> Result<ConfirmedSubmission, SubmissionError> {
+    let destination = confirmation.destination;
+    let key = destination.key();
+    let permalink = confirmation
+        .permalink
+        .map(|value| normalize_permalink(destination, value))
+        .transpose()?;
+    if !confirmation.again
+        && !records
+            .confirmed_for(confirmation.source_id, confirmation.canonical_url, &key)
+            .is_empty()
+    {
+        return Err(SubmissionError::AlreadyConfirmed);
+    }
+    let entry = ConfirmedSubmission {
+        status: SubmissionStatus::AuthorConfirmed,
+        evidence: Evidence::Author,
+        canonical_url: confirmation.canonical_url.to_string(),
+        title: normalize_title(confirmation.title),
+        permalink,
+        confirmed_at: confirmation.now.rfc3339(),
+        confirmed_at_unix: confirmation.now.unix(),
+        policy_version: builtin_manifest(destination.provider()).policy_version,
+    };
+    records
+        .records
+        .entry(confirmation.source_id.to_string())
+        .or_default()
+        .entry(key)
+        .or_default()
+        .push(entry.clone());
+    Ok(entry)
+}
+
+/// The author's submission address in one canonical spelling, or a refusal. Only the shape is
+/// checked; the address is never opened.
+pub fn normalize_permalink(
+    destination: &Destination,
+    value: &str,
+) -> Result<String, SubmissionError> {
+    let refused = SubmissionError::InvalidPermalink(destination.provider());
+    let url = url::Url::parse(value.trim()).map_err(|_| refused)?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return Err(refused);
+    }
+    let host = url.host_str().unwrap_or_default();
+    match destination {
+        Destination::HackerNews => {
+            let pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
+            match (host, url.path(), pairs.as_slice()) {
+                ("news.ycombinator.com", "/item", [(name, id)])
+                    if name == "id"
+                        && (1..=12).contains(&id.len())
+                        && id.bytes().all(|b| b.is_ascii_digit()) =>
+                {
+                    Ok(format!("https://news.ycombinator.com/item?id={id}"))
+                }
+                _ => Err(refused),
+            }
+        }
+        Destination::Reddit(community) => {
+            if !matches!(
+                host,
+                "www.reddit.com" | "reddit.com" | "old.reddit.com" | "new.reddit.com"
+            ) {
+                return Err(refused);
+            }
+            let segments: Vec<&str> = url
+                .path_segments()
+                .map(Iterator::collect)
+                .unwrap_or_default();
+            match segments.as_slice() {
+                ["r", name, "comments", id, ..]
+                    if name.eq_ignore_ascii_case(community)
+                        && (1..=12).contains(&id.len())
+                        && id
+                            .bytes()
+                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) =>
+                {
+                    Ok(format!("https://www.reddit.com/r/{name}/comments/{id}/"))
+                }
+                _ => Err(refused),
+            }
+        }
+    }
+}
+
 /// The kit as plain text for the terminal.
 pub fn kit_text(kit: &SubmissionKit) -> String {
     let mut out = format!(
@@ -718,7 +1009,8 @@ pub fn kit_text(kit: &SubmissionKit) -> String {
         }
         match &d.submit_url {
             Some(url) => out.push_str(&format!(
-                "  open the form, check it, and submit it yourself: {url}\n"
+                "  open the form, check it, and submit it yourself: {url}\n  then record it: {}\n",
+                confirm_command(&kit.slug, &d.destination)
             )),
             None => out.push_str("  no submit link while it is blocked\n"),
         }
@@ -827,6 +1119,31 @@ pub fn kit_page(kit: &SubmissionKit) -> String {
             )),
             None => out.push_str("<p>No submit link while this destination is blocked.</p>\n"),
         }
+        if !d.confirmed.is_empty() {
+            out.push_str("<h3>You confirmed submitting it here before</h3>\n<ul>\n");
+            for c in &d.confirmed {
+                out.push_str(&format!(
+                    "<li>On {} (your word; open.blog did not check){}</li>\n",
+                    t(c.confirmed_at.get(..10).unwrap_or("")),
+                    c.permalink
+                        .as_deref()
+                        .map(|p| format!(
+                            ": <a href=\"{}\" rel=\"noopener noreferrer\">{}</a>",
+                            a(p),
+                            t(p)
+                        ))
+                        .unwrap_or_default()
+                ));
+            }
+            out.push_str("</ul>\n");
+        }
+        if d.ready() {
+            out.push_str(&format!(
+                "<h3>After you submit</h3>\n<p>open.blog cannot see whether you submitted. If you did, record it, with the address of your submission if you have it, so it is not prepared again:</p>\n<pre tabindex=\"0\" aria-label=\"Command that records your submission to {}\"><code>{}</code></pre>\n",
+                a(&d.label),
+                t(&confirm_command(&kit.slug, &d.destination))
+            ));
+        }
         out.push_str(&format!(
             "<p class=\"code\">Checked under the {} provider policy of {}.</p>\n</section>\n",
             t(&d.label),
@@ -835,6 +1152,13 @@ pub fn kit_page(kit: &SubmissionKit) -> String {
     }
     out.push_str("</main>\n</body>\n</html>\n");
     out
+}
+
+/// The command that records the author's own confirmation of a submission.
+pub fn confirm_command(slug: &str, destination: &str) -> String {
+    format!(
+        "openblog submit {slug} --confirm {destination} --permalink <address of your submission>"
+    )
 }
 
 const KIT_STYLE: &str = "<style>
@@ -864,6 +1188,10 @@ mod tests {
     const HN: &[Destination] = &[Destination::HackerNews];
     // 2026-10-29T00:00:00Z
     const NOW: i64 = 1_793_232_000;
+    static NO_RECORDS: SubmissionRecords = SubmissionRecords {
+        records_version: RECORDS_VERSION,
+        records: BTreeMap::new(),
+    };
 
     fn request<'a>(
         title: Option<&'a str>,
@@ -872,6 +1200,7 @@ mod tests {
     ) -> KitRequest<'a> {
         KitRequest {
             slug: "a-post",
+            source_id: "source:content/posts/a-post.md",
             post_title: "Why  borrow\tchecking helps",
             title,
             canonical_url: "https://blog.example.org/a-post/?x=1&y=<2>",
@@ -879,6 +1208,8 @@ mod tests {
             config,
             destinations,
             now_unix: NOW,
+            records: &NO_RECORDS,
+            again: false,
         }
     }
 
@@ -1115,6 +1446,170 @@ mod tests {
         .is_err());
     }
 
+    fn confirmation<'a>(
+        destination: &'a Destination,
+        permalink: Option<&'a str>,
+        day: &str,
+        again: bool,
+    ) -> Confirmation<'a> {
+        Confirmation {
+            source_id: "source:content/posts/a-post.md",
+            canonical_url: "https://blog.example.org/a-post/?x=1&y=<2>",
+            title: "Why borrow checking helps",
+            destination,
+            permalink,
+            now: crate::date::DateTime::parse(day).unwrap(),
+            again,
+        }
+    }
+
+    #[test]
+    fn a_confirmation_is_the_authors_word_recorded_with_a_checked_permalink() {
+        let mut records = SubmissionRecords::default();
+        let hn = Destination::HackerNews;
+        let entry = confirm(
+            &mut records,
+            &confirmation(
+                &hn,
+                Some(" https://news.ycombinator.com/item?id=4242 "),
+                "2026-10-29",
+                false,
+            ),
+        )
+        .unwrap();
+        assert_eq!(entry.status, SubmissionStatus::AuthorConfirmed);
+        assert_eq!(entry.evidence, Evidence::Author);
+        assert_eq!(
+            entry.permalink.as_deref(),
+            Some("https://news.ycombinator.com/item?id=4242")
+        );
+        assert_eq!(entry.confirmed_at, "2026-10-29T00:00:00Z");
+        let text = records.to_json();
+        assert!(text.contains("\"status\": \"author-confirmed\""));
+        assert!(text.contains("\"evidence\": \"author\""));
+        assert_eq!(SubmissionRecords::from_json(&text).unwrap(), records);
+        // A second confirmation needs --again.
+        assert_eq!(
+            confirm(&mut records, &confirmation(&hn, None, "2026-10-30", false)),
+            Err(SubmissionError::AlreadyConfirmed)
+        );
+        confirm(&mut records, &confirmation(&hn, None, "2026-10-30", true)).unwrap();
+        assert_eq!(
+            records
+                .confirmed_for("source:content/posts/a-post.md", "-", "hacker-news")
+                .len(),
+            2
+        );
+        // The same canonical address under another source identity still counts.
+        assert_eq!(
+            records
+                .confirmed_for(
+                    "other",
+                    "https://blog.example.org/a-post/?x=1&y=<2>",
+                    "hacker-news"
+                )
+                .len(),
+            2
+        );
+        assert!(records
+            .confirmed_for("other", "https://elsewhere.example/", "hacker-news")
+            .is_empty());
+    }
+
+    #[test]
+    fn a_permalink_is_checked_for_shape_only_and_spelled_one_way() {
+        let hn = Destination::HackerNews;
+        let rust = Destination::Reddit("rust".into());
+        assert_eq!(
+            normalize_permalink(
+                &rust,
+                "https://old.reddit.com/r/Rust/comments/1abc2d/why_borrow/?utm=x#c"
+            )
+            .unwrap(),
+            "https://www.reddit.com/r/Rust/comments/1abc2d/"
+        );
+        for bad in [
+            "http://news.ycombinator.com/item?id=1",
+            "https://news.ycombinator.com/item?id=1&x=2",
+            "https://news.ycombinator.com/item?id=abc",
+            "https://evil.example/item?id=1",
+            "https://user:pw@news.ycombinator.com/item?id=1",
+            "not a url",
+        ] {
+            assert_eq!(
+                normalize_permalink(&hn, bad),
+                Err(SubmissionError::InvalidPermalink(ProviderId::HackerNews)),
+                "{bad}"
+            );
+        }
+        for bad in [
+            "https://www.reddit.com/r/golang/comments/1abc2d/",
+            "https://www.reddit.com/r/rust/",
+            "https://reddit.evil.example/r/rust/comments/1abc2d/",
+            "https://www.reddit.com/r/rust/comments/ABC/",
+        ] {
+            assert!(normalize_permalink(&rust, bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_confirmed_submission_is_not_prepared_again() {
+        let mut records = SubmissionRecords::default();
+        let hn = Destination::HackerNews;
+        let rust = Destination::Reddit("rust".into());
+        confirm(&mut records, &confirmation(&hn, None, "2026-06-01", false)).unwrap();
+        confirm(
+            &mut records,
+            &confirmation(&rust, None, "2024-01-01", false),
+        )
+        .unwrap();
+        let config = reddit_config("2026-10-01");
+        let both = [hn.clone(), rust.clone()];
+        let mut request = request(None, &both, &config);
+        request.records = &records;
+        let kit = prepare(&request);
+        let codes = |d: &DestinationKit| d.notices.iter().map(|n| n.code).collect::<Vec<_>>();
+        assert_eq!(codes(&kit.destinations[0]), ["already-submitted"]);
+        assert!(kit.destinations[0].submit_url.is_none());
+        assert_eq!(kit.destinations[0].confirmed.len(), 1);
+        // Reddit: never again in the same community, however long ago.
+        assert_eq!(codes(&kit.destinations[1]), ["already-submitted"]);
+        assert!(kit_page(&kit).contains("You confirmed submitting it here before"));
+
+        // HN after a quiet year: blocked until the author says --again, then advice.
+        let mut old = SubmissionRecords::default();
+        confirm(&mut old, &confirmation(&hn, None, "2025-06-01", false)).unwrap();
+        request.records = &old;
+        request.destinations = HN;
+        assert_eq!(
+            codes(&prepare(&request).destinations[0]),
+            ["submitted-before"]
+        );
+        request.again = true;
+        let again = prepare(&request);
+        assert_eq!(codes(&again.destinations[0]), ["repost"]);
+        assert!(again.destinations[0].ready());
+    }
+
+    #[test]
+    fn a_record_of_another_shape_is_refused_whole() {
+        for text in [
+            "{}",
+            r#"{"recordsVersion":2,"records":{}}"#,
+            r#"{"recordsVersion":1,"records":{},"extra":1}"#,
+            r#"{"recordsVersion":1,"records":{"s":{"lobsters":[]}}}"#,
+            r#"{"recordsVersion":1,"records":{"s":{"reddit:Rust":[]}}}"#,
+            r#"{"recordsVersion":1,"records":{"s":{"hacker-news":[{"status":"posted","evidence":"author","canonicalUrl":"u","title":"t","permalink":null,"confirmedAt":"x","confirmedAtUnix":1,"policyVersion":"p"}]}}}"#,
+            r#"{"recordsVersion":1,"records":{"s":{"hacker-news":[{"status":"author-confirmed","evidence":"api","canonicalUrl":"u","title":"t","permalink":null,"confirmedAt":"x","confirmedAtUnix":1,"policyVersion":"p"}]}}}"#,
+        ] {
+            assert_eq!(
+                SubmissionRecords::from_json(text),
+                Err(SubmissionError::RecordsMalformed),
+                "{text}"
+            );
+        }
+    }
+
     #[test]
     fn the_page_is_static_escaped_and_labelled() {
         let config = CommunityConfig::default();
@@ -1129,6 +1624,8 @@ mod tests {
         assert!(page.contains("aria-label=\"Title for Hacker News\""));
         assert!(page.contains("<legend>Before you submit to Hacker News</legend>"));
         assert!(page.contains("Open the Hacker News submit form"));
+        assert!(page.contains("aria-label=\"Command that records your submission to Hacker News\""));
+        assert!(page.contains("openblog submit a-post --confirm hacker-news --permalink"));
         assert!(page.contains("rel=\"noopener noreferrer\""));
         let json: Json = serde_json::from_str(&kit_json(&kit)).unwrap();
         assert_eq!(json["kitVersion"], 1);
