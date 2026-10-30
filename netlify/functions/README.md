@@ -44,6 +44,14 @@ Keep that origin current and publicly reachable. Public pages never receive any 
 moderation token. Supabase-backed hourly quotas limit comment submissions and analytics writes
 before content is stored.
 
+## Webmentions (optional)
+
+`webmention.mjs` is the site's Webmention endpoint (`/api/webmention`). It is off, and answers 404,
+unless `OPENBLOG_WEBMENTION_ENABLED=true` and `OPENBLOG_WEBMENTION_ADMIN_KEY` is set; run
+[`supabase/webmention.sql`](../../supabase/webmention.sql) first. It checks and stores the two
+addresses a sender gives and never fetches either; `openblog mentions pull --write` does that later.
+See [Receive Webmentions](../../docs/webmention.md#receive-webmentions).
+
 ## Comment captcha (optional)
 
 A Cloudflare Turnstile challenge before the first comment of a visit keeps bots out of the

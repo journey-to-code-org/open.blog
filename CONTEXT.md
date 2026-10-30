@@ -2955,3 +2955,25 @@ The private file (`webmention.stateFile`) that records, per canonical post and t
 status (`sent`, `no-endpoint`, `retrying`, `failed`, `rejected`, `blocked`), the post revision it was for, and
 when a retry is due. It decides what the next run sends (ADR 0861).
 _Avoid_: Outbox, delivery log (the social operations log)
+
+**Received Webmention**:
+A request from another site that one of its pages (`source`) links a post here (`target`). The hosted receiver
+checks the two addresses and stores the pair without fetching anything; `openblog mentions pull --write` fetches
+the source through the public-only fetcher and keeps it only when the page links the post exactly (ADR 0863).
+_Avoid_: Comment, reply, pingback, backlink when the request is meant
+
+**Mention inbox**:
+The private file (`webmention.receive.inboxFile`) of received mentions, their state (`pending`, `approved`,
+`rejected`, `removed`, `blocked`), the source's claims, a revision and the blocked hosts. Never published; only a
+mention approved at its current revision reaches `content/webmentions.json` (ADR 0864).
+_Avoid_: Moderation inbox (the hosted participation inbox), queue (the outbound Webmention queue)
+
+**Source claims**:
+What a source page says about itself: its title, an author's name and a day, kept as bounded plain text. Never an
+identity: only the source's host and that it linked the post were checked, and the page says so (ADR 0864).
+_Avoid_: Author, identity, verified name, h-card
+
+**Published mentions**:
+`content/webmentions.json`, the approved mentions a post's canonical page lists as plain links marked
+`nofollow ugc`, with no script, image or excerpt. Feeds and portable copies never carry them (ADR 0865).
+_Avoid_: Comments, backlinks, social proof

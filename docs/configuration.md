@@ -393,6 +393,18 @@ front matter. See [Webmention](webmention.md).
 { "webmention": { "enabled": true, "excludeHosts": ["tracker.example"] } }
 ```
 
+`webmention.receive` is off and absent by default too. With `enabled: true` and an `https`
+`endpoint` (the hosted function's `/api/webmention`), each post that has not opted out advertises
+the endpoint, the build writes `openblog-webmention.json`, and `openblog mentions pull --write`
+takes and checks what other sites sent. `inboxFile` is the private moderation inbox (default
+`.openblog/webmention-inbox.json`) and `retentionDays` (default 90) is how long
+`openblog mentions prune --write` keeps what you did not approve. Approved mentions are published
+in `content/webmentions.json`. See [Receive Webmentions](webmention.md#receive-webmentions).
+
+```json
+{ "webmention": { "receive": { "enabled": true, "endpoint": "https://blog.example.com/api/webmention" } } }
+```
+
 ## Knowledge Atlas
 
 `knowledgeAtlas.publish` (off by default) publishes the approved part of your private
