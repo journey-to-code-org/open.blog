@@ -9,6 +9,7 @@ use crate::contributor::{self, Contributor};
 use crate::look::LookSettings;
 use crate::participation::ParticipationConfig;
 use crate::reading_depth::ReadingMode;
+use crate::seasonal::SeasonalConfig;
 use crate::service_area::ServiceAreasConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -143,6 +144,10 @@ pub struct SiteConfig {
     /// while none are stated, so a site that never sets it builds exactly as before.
     #[serde(skip_serializing_if = "ServiceAreasConfig::is_default")]
     pub service_areas: ServiceAreasConfig,
+    /// Seasonal reminders for a trade site (ADR 0920). Off and omitted from the written file
+    /// until stated, so a site that never sets it builds exactly as before.
+    #[serde(skip_serializing_if = "SeasonalConfig::is_default")]
+    pub seasonal_prompts: SeasonalConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -577,6 +582,7 @@ impl Default for SiteConfig {
             extra_trades: Vec::new(),
             business: BusinessConfig::default(),
             service_areas: ServiceAreasConfig::default(),
+            seasonal_prompts: SeasonalConfig::default(),
         }
     }
 }
@@ -1214,6 +1220,9 @@ impl SiteConfig {
                 crate::job::normalize_trade(&self.business.trade, &self.extra_trades)
                     .map_err(|error| error.replacen("job.trade", "business.trade", 1))?;
         }
+        if let Some(problem) = crate::seasonal::incomplete(&self.seasonal_prompts).first() {
+            return Err(problem.clone());
+        }
         Ok(())
     }
 
@@ -1364,6 +1373,23 @@ mod tests {
         assert!(bad_hours.contains("24-hour time like 08:00"), "{bad_hours}");
         let bad_trade = SiteConfig::from_json(r#"{"business":{"trade":"wizardry"}}"#).unwrap_err();
         assert!(bad_trade.contains("business.trade"), "{bad_trade}");
+    }
+
+    #[test]
+    fn seasonal_prompts_are_off_by_default_and_validated_with_the_config() {
+        let plain = SiteConfig::from_json("{}").unwrap();
+        assert!(plain.seasonal_prompts.is_default());
+        assert!(!plain.to_json().contains("seasonalPrompts"));
+        let set = SiteConfig::from_json(
+            r#"{"seasonalPrompts":{"enabled":true,"topics":[{"id":"ac-tuneup","disabled":true}]}}"#,
+        )
+        .unwrap();
+        assert!(set.seasonal_prompts.enabled);
+        assert!(set.to_json().contains("\"seasonalPrompts\""));
+        let error =
+            SiteConfig::from_json(r#"{"seasonalPrompts":{"topics":[{"id":"mine"}]}}"#).unwrap_err();
+        assert!(error.contains("needs a start"), "{error}");
+        assert!(SiteConfig::from_json(r#"{"seasonalPrompts":{"enabled":1}}"#).is_err());
     }
 
     #[test]
