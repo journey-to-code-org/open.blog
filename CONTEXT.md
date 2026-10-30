@@ -2919,3 +2919,19 @@ The author's explicit consent to one distribution plan, given by its digest: bou
 canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
 under. Private; with `requireApproval` a write sends only what it covers (ADR 0329).
 _Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)
+
+**Visual card**:
+What one image destination shows of a published post: one of the author's own published images, a title, a
+description, the image's alternative text, the canonical link and the image's recorded credit. Built and checked by
+`openblog card`, never generated and never sent by it (ADRs 0780 to 0782).
+_Avoid_: Social image, thumbnail, generated card
+
+**Card image candidate**:
+An image a visual card may use, tried in a fixed order: the explicit `cardImage`, the authored cover, then for recipe
+and field-journal posts the photographs in the portable body. The first one a destination accepts is used (ADR 0780).
+_Avoid_: Best image, hero
+
+**Image credit**:
+The recorded source of a card image: one line of text and an optional https link, from `coverCredit` or
+`cardImageCredit` and their `...Url` keys. Never inferred; an image without one has none.
+_Avoid_: Attribution (a work credit of the post), caption

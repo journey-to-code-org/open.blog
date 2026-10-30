@@ -158,6 +158,7 @@ pub mod synthesis;
 pub mod theme;
 pub mod third_perspective;
 pub mod video;
+pub mod visual_card;
 pub mod voice;
 
 pub use config::SiteConfig;
