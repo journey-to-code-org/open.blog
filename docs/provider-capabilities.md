@@ -35,7 +35,7 @@ Anything open.blog does not recognise (a capability, a provider, a manifest form
 | Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (`publishAt`, kept by YouTube) |
 | Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | OAuth (on your computer) |
 | Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the description links it |
-| Becomes public | your approval | draft only | your approval | your approval | your approval | your approval | your approval | by hand |
+| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | your approval (private until `--publish-at` or by hand) |
 
 Limits enforced before anything is sent: DEV takes 4 tags of at most 30 characters; Hashnode 15 tags and a request
 of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters. Announcements are scheduled between one
