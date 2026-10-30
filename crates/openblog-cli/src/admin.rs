@@ -91,6 +91,7 @@ mod capture_assistant;
 mod comparisons;
 mod landing;
 mod look;
+mod quote;
 mod reading_paths;
 mod social;
 mod voice;
@@ -525,6 +526,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name.starts_with("voice/") {
             return Ok(voice::request_limit(req, name));
         }
+        if name.starts_with("quote/") {
+            return Ok(quote::MAX_QUOTE_REQUEST_BYTES);
+        }
         if let Some(rest) = name.strip_prefix("social/") {
             return Ok(if announcements::owns(rest) {
                 announcements::MAX_REQUEST_BYTES
@@ -581,6 +585,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
         "/admin/social.js" => "social.js",
+        "/admin/quotes.js" => "quotes.js",
         "/admin/announcements.js" => "announcements.js",
         "/admin/voice-library.js" => "voice-library.js",
         _ => return Response::error(404, "Not found"),
@@ -641,7 +646,10 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
     }
     let mut workspace = lock(&state.workspace);
     // Social routes change nothing on disk, so they never open a workspace transaction.
-    let local_write = !req.is_read_only() && name != "logout" && !name.starts_with("social/");
+    let local_write = !req.is_read_only()
+        && name != "logout"
+        && !name.starts_with("social/")
+        && !name.starts_with("quote/");
     let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
             Ok(transaction) => Some(transaction),
@@ -696,6 +704,9 @@ fn authenticated_api(
         if let Some(token) = name.strip_prefix("preview/") {
             return preview_document(state, token);
         }
+    }
+    if let Some(rest) = name.strip_prefix("quote/") {
+        return quote::route(req, &session.user, rest);
     }
     if let Some(rest) = name.strip_prefix("social/") {
         if announcements::owns(rest) {
@@ -4044,6 +4055,7 @@ fn meta(state: &AppState) -> Response {
             "codeInteractionGeneration": assistant_ready,
             "codeRunnerLanguages": code_runner_languages,
             "social": social::is_configured(),
+            "quote": quote::is_configured(),
             "now": clock::now().rfc3339(),
         }),
     )
@@ -18430,6 +18442,7 @@ mod tests {
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod quote_routes;
     mod reading_path_routes;
     mod safety_audit;
     mod service_routes;

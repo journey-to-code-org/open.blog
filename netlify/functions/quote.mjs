@@ -20,6 +20,7 @@ import {
 import { createStore } from "../lib/quote-store.mjs";
 import { createNotifier, notifySettings, resendTransport, retryFailed } from "../lib/quote-notify.mjs";
 import { timingSafeEqual } from "node:crypto";
+import { erasePreview, eraseConfirmed, exportCsv, listRequests, retentionDays, retentionSweep, setStatus } from "../lib/quote-admin.mjs";
 
 const HOUR = 60 * 60 * 1000;
 const SECURITY = {
@@ -67,6 +68,31 @@ const sameKey = (given, wanted) => {
   return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
 };
 
+// Routes under /api/quote/ for the owner. `segments` ends with one of:
+//   GET requests | POST requests/<id>/status | GET export | POST erase/preview | POST erase | POST retention/run
+async function manage({ settings, method, segments, query, body, store, now, days }) {
+  const at = segments.indexOf("quote") + 1;
+  const parts = segments.slice(at);
+  const input = () => {
+    try {
+      const value = JSON.parse(body || "{}");
+      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    } catch {
+      throw new QuoteError(400, "malformed");
+    }
+  };
+  if (method === "GET" && parts.length === 1 && parts[0] === "requests") return json(200, await listRequests({ store, settings, query, days }));
+  if (method === "POST" && parts.length === 3 && parts[0] === "requests" && parts[2] === "status") return json(200, await setStatus({ store, id: parts[1], status: input().status, now }));
+  if (method === "GET" && parts.length === 1 && parts[0] === "export") return json(200, await exportCsv({ store, query }));
+  if (method === "POST" && parts.length === 2 && parts[0] === "erase" && parts[1] === "preview") return json(200, await erasePreview({ store, settings, ids: input().ids, now }));
+  if (method === "POST" && parts.length === 1 && parts[0] === "erase") {
+    const value = input();
+    return json(200, await eraseConfirmed({ store, settings, ids: value.ids, token: value.token, now }));
+  }
+  if (method === "POST" && parts.length === 2 && parts[0] === "retention" && parts[1] === "run") return json(200, await retentionSweep({ store, settings, days, now }));
+  return json(404, { error: "not-found" });
+}
+
 export function createHandler({ env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), uuid = randomUUID, transport = null, sleep } = {}) {
   return async (event) => {
     const settings = quoteSettings(env);
@@ -82,9 +108,17 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
     const origin = headers.origin;
     if (origin && origin !== settings.origin) return asJson || method === "GET" ? json(403, { error: "refused" }) : page(403, "refused");
 
+    let admin = false;
     try {
       if (method === "GET" && route === "token") return json(200, { token: issueToken(settings.secret, now()) });
       const segments = String(event.path || "").split("/").filter(Boolean);
+      if (["requests", "export", "erase", "retention"].includes(segments[segments.indexOf("quote") + 1])) {
+        // Admin management of stored requests (ADR 0903): admin key only, JSON replies only.
+        admin = true;
+        const bearer = String(headers.authorization || "").replace(/^Bearer /i, "");
+        if (!settings.adminKey || !sameKey(bearer, settings.adminKey)) return json(settings.adminKey ? 401 : 404, { error: settings.adminKey ? "unauthorized" : "not-found" });
+        return await manage({ settings, method, segments, query: event.queryStringParameters || {}, body: event.body, store: createStore({ settings, fetchImpl, now }), now, days: retentionDays(env) });
+      }
       if (segments.includes("notifications")) {
         // Admin-only and personal-data-free: states and counts, then a bounded retry.
         const bearer = String(headers.authorization || "").replace(/^Bearer /i, "");
@@ -164,9 +198,9 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       if (error instanceof QuoteError) {
         const key = error.status === 413 ? "too-large" : error.status === 422 ? "invalid" : error.status === 409 ? "retry" : error.status >= 500 ? "failed" : "refused";
         const body = { error: error.code, ...(error.fields.length ? { fields: error.fields } : {}) };
-        return wantsJson(headers) ? json(error.status, body) : page(error.status === 409 ? 409 : error.status, key);
+        return wantsJson(headers) || admin ? json(error.status, body) : page(error.status === 409 ? 409 : error.status, key);
       }
-      return wantsJson(headers) ? json(500, { error: "failed" }) : page(500, "failed");
+      return wantsJson(headers) || admin ? json(500, { error: "failed" }) : page(500, "failed");
     }
   };
 }

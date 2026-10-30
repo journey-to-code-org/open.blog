@@ -77,6 +77,75 @@ export function createStore({ settings, fetchImpl, now = () => Date.now() }) {
       return response.json();
     },
 
+    // ---- Admin management (ADR 0903). Rows are always scoped to the site.
+
+    async list({ status, service, limit = 200 }) {
+      const filter = [status ? `&status=eq.${encodeURIComponent(status)}` : "", service ? `&service=eq.${encodeURIComponent(service)}` : ""].join("");
+      const columns = "id,status,name,phone,email,town,service,description,page,photos,created_at,handled_at,archived_at,notify_status";
+      const response = await call(`/rest/v1/${TABLE}?select=${columns}&${site}${filter}&order=created_at.desc&limit=${Math.min(limit, 500)}`, { method: "GET", headers: headers() });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      return response.json();
+    },
+
+    async range({ from, to }) {
+      const bounds = `${from ? `&created_at=gte.${encodeURIComponent(from)}` : ""}${to ? `&created_at=lt.${encodeURIComponent(to)}` : ""}`;
+      const columns = "id,status,name,phone,email,town,service,description,page,photos,created_at,handled_at,archived_at";
+      const response = await call(`/rest/v1/${TABLE}?select=${columns}&${site}${bounds}&order=created_at.asc&limit=5000`, { method: "GET", headers: headers() });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      return response.json();
+    },
+
+    async byIds(ids) {
+      const response = await call(`/rest/v1/${TABLE}?select=id,photos,status&${site}&id=in.(${ids.map(encodeURIComponent).join(",")})`, { method: "GET", headers: headers() });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      return response.json();
+    },
+
+    // Archived requests archived before `before` (ISO), oldest first.
+    async archivedBefore(before, limit = 50) {
+      const response = await call(`/rest/v1/${TABLE}?select=id,photos,status&${site}&status=eq.archived&archived_at=lt.${encodeURIComponent(before)}&order=archived_at.asc&limit=${limit}`, { method: "GET", headers: headers() });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      return response.json();
+    },
+
+    // A short-lived address for one private photo (Admin shows it as a thumbnail).
+    async signPhoto(path, expiresIn = 600) {
+      const response = await call(`/storage/v1/object/sign/${BUCKET}/${path}`, { method: "POST", headers: headers({ "content-type": "application/json" }), body: JSON.stringify({ expiresIn }) });
+      if (!response.ok) return null;
+      const body = await response.json().catch(() => null);
+      const signed = String(body?.signedURL || body?.signedUrl || "");
+      if (!signed.startsWith("/")) return null;
+      return `${settings.url}/storage/v1${signed.replace(/^\/storage\/v1/, "")}`;
+    },
+
+    // The object paths still present under `prefix` (one request's folder).
+    async listObjects(prefix) {
+      const response = await call(`/storage/v1/object/list/${BUCKET}`, { method: "POST", headers: headers({ "content-type": "application/json" }), body: JSON.stringify({ prefix, limit: 100 }) });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      const list = await response.json();
+      if (!Array.isArray(list)) throw new QuoteError(503, "storage-unavailable");
+      return list.map((item) => `${prefix}/${item.name}`);
+    },
+
+    // One bulk removal. Throws unless the provider accepted it.
+    async removeObjects(paths) {
+      if (!paths.length) return;
+      const response = await call(`/storage/v1/object/${BUCKET}`, { method: "DELETE", headers: headers({ "content-type": "application/json" }), body: JSON.stringify({ prefixes: paths }) });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+    },
+
+    // One DELETE statement is atomic in Postgres: every listed row goes or none does. Returns the count.
+    async deleteRows(ids) {
+      const response = await call(`/rest/v1/${TABLE}?${site}&id=in.(${ids.map(encodeURIComponent).join(",")})`, { method: "DELETE", headers: headers({ prefer: "return=representation" }) });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      const rows = await response.json();
+      return Array.isArray(rows) ? rows.length : 0;
+    },
+
+    async setPhotos(id, photos) {
+      await this.patch(id, { photos });
+    },
+
     async patch(id, changes) {
       const response = await call(`/rest/v1/${TABLE}?${site}&id=eq.${encodeURIComponent(id)}`, {
         method: "PATCH",

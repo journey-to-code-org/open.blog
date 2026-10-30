@@ -54,7 +54,7 @@ fn loopback(host: &str) -> bool {
 
 /// `https://` (or `http://` to a loopback address, for local development), no credentials, query
 /// or fragment. Returns the address without a trailing slash.
-fn valid_endpoint(value: &str) -> Option<String> {
+pub(super) fn valid_endpoint(value: &str) -> Option<String> {
     let url = url::Url::parse(value.trim()).ok()?;
     let host = url.host_str()?;
     let secure = url.scheme() == "https" || (url.scheme() == "http" && loopback(host));
@@ -98,7 +98,7 @@ fn process_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
-fn is_uuid(value: &str) -> bool {
+pub(super) fn is_uuid(value: &str) -> bool {
     let groups: Vec<&str> = value.split('-').collect();
     groups.len() == 5
         && [8usize, 4, 4, 4, 12]
@@ -113,13 +113,13 @@ fn is_uuid(value: &str) -> bool {
 }
 
 /// A short, printable string from the hosted function; anything else is dropped.
-fn text(value: &Json, max: usize) -> Option<String> {
+pub(super) fn text(value: &Json, max: usize) -> Option<String> {
     let value = value.as_str()?;
     (value.chars().count() <= max && !value.chars().any(char::is_control))
         .then(|| value.to_string())
 }
 
-fn slug(value: &Json) -> Option<String> {
+pub(super) fn slug(value: &Json) -> Option<String> {
     let value = value.as_str()?;
     (!value.is_empty()
         && value.len() <= 40
