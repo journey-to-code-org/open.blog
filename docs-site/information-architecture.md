@@ -32,18 +32,28 @@ This documentation suite is organized as a product-style technical docs portal.
 - [Front Matter Guide](./content/front-matter-guide)
 - [Content Quality Checklist](./content/quality-checklist)
 
-### 5) Operations
+### 5) Advanced Capabilities
+
+- [Advanced Capabilities](./advanced/overview)
+- [Architecture and Mental Model](./advanced/architecture-and-mental-model)
+- [Research and Evidence Workflows](./advanced/research-and-evidence-workflows)
+- [Publishing and Syndication](./advanced/publishing-and-syndication)
+- [Themes, Components, and Design System](./advanced/themes-components-and-design-system)
+- [Analytics and Operations](./advanced/analytics-and-operations)
+- [Imports and Migrations](./advanced/imports-and-migrations)
+
+### 6) Operations
 
 - [GitHub Pages Deployment](./deployment)
 - [Troubleshooting](./troubleshooting)
 - [Contributing to Docs](./contributing)
 
-### 6) Releases and Upgrades
+### 7) Releases and Upgrades
 
 - [Versioning and Migrations](./versioning-and-migrations)
 - Changelog communication model and breaking-change runbook
 
-### 7) Help
+### 8) Help
 
 - [FAQ](./faq)
 - Fast answers to common CLI, Admin, Markdown, and deployment questions

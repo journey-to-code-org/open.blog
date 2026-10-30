@@ -9,6 +9,7 @@ This folder contains the standalone technical documentation suite intended for G
 - `cli/` – CLI overview, commands, and workflows
 - `admin-panel/` – Admin usage and publishing flow
 - `content/` – Markdown, front matter, and quality guidance
+- `advanced/` – architecture, research, syndication, themes, analytics, migrations
 - `deployment.md` – GitHub Pages deployment notes
 - `troubleshooting.md` – operational troubleshooting
 - `contributing.md` – documentation maintenance guidance
