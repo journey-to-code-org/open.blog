@@ -37,13 +37,13 @@ Anything open.blog does not recognise (a capability, a provider, a manifest form
 | Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval |
 
 Hacker News and Reddit are *community* destinations (policy version 2026-10-29,
-[ADR 0800](adr/0800-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)):
+[ADR 0337](adr/0337-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)):
 the link is **manual** (you submit it yourself on the community's own form) and every other capability is
 **unsupported**; there is no login and nothing becomes public except by your own submission. A community manifest that
 claims anything open.blog would do there is refused. Their title limits and rules are in
 [Community submissions](community-submissions.md#what-was-checked-and-where-2026-10-29). Product Hunt is a community
 destination too
-([ADR 0804](adr/0804-product-hunt-is-a-community-destination-whose-launch-the-maker-enters-and-submits-by-hand.md)):
+([ADR 0341](adr/0341-product-hunt-is-a-community-destination-whose-launch-the-maker-enters-and-submits-by-hand.md)):
 its link, text, images, video, draft and launch day are all **manual**, because the maker enters each in Product
 Hunt's own form, and it has no login; see [Product Hunt launch kits](community-submissions.md#product-hunt-launch-kits).
 

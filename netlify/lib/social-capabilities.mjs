@@ -152,7 +152,7 @@ export function parseManifest(value) {
     (manifest.publishing === "manual" && anyAdapter) ||
     (manifest.publishing === "draft-only" && capabilities.draft !== "adapter") ||
     (manifest.family === "social" && manifest.canonical !== "linked") ||
-    // A community destination is submitted to by the author, by hand, never by open.blog (ADR 0800).
+    // A community destination is submitted to by the author, by hand, never by open.blog (ADR 0337).
     (manifest.family === "community" &&
       (anyAdapter || method !== "none" || manifest.publishing !== "manual" || manifest.canonical !== "linked" || capabilities.link !== "manual")) ||
     (min !== null && max !== null && min >= max)

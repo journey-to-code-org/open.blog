@@ -7,8 +7,8 @@ Your Markdown and your own site stay the original. For a product launch, see
 [Product Hunt launch kits](#product-hunt-launch-kits).
 
 This is off until you turn it on, and nothing in your build, feeds or cross-posting changes because of it
-(ADRs [0800](adr/0800-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)
-to [0803](adr/0803-a-community-submission-is-recorded-only-as-the-authors-word-and-keeps-a-repeat-from-being-prepared.md)).
+(ADRs [0337](adr/0337-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)
+to [0340](adr/0340-a-community-submission-is-recorded-only-as-the-authors-word-and-keeps-a-repeat-from-being-prepared.md)).
 
 ## Turn it on
 
@@ -132,8 +132,8 @@ to upload, a preview, Product Hunt's rules as a checklist, and a link to Product
 schedules, uploads or submits a launch, and it never signs in. You do all of that on Product Hunt, or not at all.
 Your post stays the original: the kit always carries its canonical address, and suggests linking it from your first
 comment
-(ADRs [0804](adr/0804-product-hunt-is-a-community-destination-whose-launch-the-maker-enters-and-submits-by-hand.md)
-to [0807](adr/0807-a-product-hunt-launch-stays-the-makers-to-approve-submit-and-record-and-is-never-repeated-silently.md)).
+(ADRs [0341](adr/0341-product-hunt-is-a-community-destination-whose-launch-the-maker-enters-and-submits-by-hand.md)
+to [0344](adr/0344-a-product-hunt-launch-stays-the-makers-to-approve-submit-and-record-and-is-never-repeated-silently.md)).
 
 ### Turn it on and write the launch plan
 

@@ -1,4 +1,4 @@
-# ADR 0807: A Product Hunt launch stays the maker's to approve, submit and record, and is never repeated silently
+# ADR 0344: A Product Hunt launch stays the maker's to approve, submit and record, and is never repeated silently
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -10,7 +10,7 @@
 Task DIST4.2.3 asks to "keep approval/submission manual and document platform compliance", and the epic says the
 Product Hunt "submission stays user-controlled". Product Hunt's launch guide forbids asking for upvotes and company
 accounts, and allows a relaunch for each significant new iteration. Its API offers no way to create a launch and
-forbids commercial use (ADR 0804). ADR 0803 already records community submissions as the author's word.
+forbids commercial use (ADR 0341). ADR 0340 already records community submissions as the author's word.
 
 ## Decision
 
@@ -18,9 +18,9 @@ forbids commercial use (ADR 0804). ADR 0803 already records community submission
   their own click on Product Hunt's form. open.blog prepares and hands off; it does not create a draft, schedule a
   launch, upload an image, sign in, store a Product Hunt credential or read anything back. The distribution approval
   of ADR 0329 is for writes open.blog makes; a launch kit makes none.
-- **The handoff appears only when nothing blocks.** A blocked kit has no link to the form (ADR 0805); the fields stay
+- **The handoff appears only when nothing blocks.** A blocked kit has no link to the form (ADR 0342); the fields stay
   copyable so the maker can still decide.
-- **Recording reuses ADR 0803.** `--confirm product-hunt [--permalink <address>]` records `status:
+- **Recording reuses ADR 0340.** `--confirm product-hunt [--permalink <address>]` records `status:
   "author-confirmed"`, `evidence: "author"` under the post's source identity and key `product-hunt`. The address is
   checked for shape only (`https://www.producthunt.com/posts/<slug>`, `/products/<slug>` or
   `/products/<slug>/launches/<slug>`) and never opened.
@@ -46,4 +46,4 @@ forbids commercial use (ADR 0804). ADR 0803 already records community submission
 - Distribution reporting (epic #388) sees a Product Hunt launch as an author-confirmed fact, like the other
   community destinations, never as provider-verified.
 - If Product Hunt ever offers an API for makers, using it would be a manifest change the contract treats as breaking
-  (ADRs 0327, 0804), and this ADR would be superseded.
+  (ADRs 0327, 0341), and this ADR would be superseded.

@@ -1,11 +1,11 @@
-//! Product Hunt launch kits (epic #384, story #396, ADRs 0804 to 0807).
+//! Product Hunt launch kits (epic #384, story #396, ADRs 0341 to 0344).
 //!
 //! A **launch plan** is what the maker writes down for one post's product launch, in
 //! `launches/<slug>.json`: the product's name, tagline, short pitch, screenshots, demo video and
 //! launch metadata. A **launch kit** is that plan checked against what Product Hunt says it
 //! accepts, with every reason it should not go ahead, ready for the maker to copy into Product
 //! Hunt's own form. open.blog never creates, schedules or submits a launch: the Product Hunt
-//! manifest says "by hand" (ADR 0804), and nothing here touches the network, reads a credential
+//! manifest says "by hand" (ADR 0341), and nothing here touches the network, reads a credential
 //! or a file. The caller reads the images and hands their bytes' facts in.
 //!
 //! Notices are fixed text, apart from the limits, counts and file names they state.
@@ -30,7 +30,7 @@ pub const MAX_PLAN_BYTES: usize = 64 * 1024;
 /// Product Hunt's tagline limit ("Preparing for launch").
 pub const TAGLINE_MAX_CHARS: usize = 60;
 /// Product Hunt's description limit in its launch guide; its help article says 260, which is
-/// advice here (ADR 0805).
+/// advice here (ADR 0342).
 pub const DESCRIPTION_MAX_CHARS: usize = 500;
 pub const DESCRIPTION_SHORT_CHARS: usize = 260;
 /// The product's name: Product Hunt states no limit; this is open.blog's sanity bound.
@@ -57,7 +57,7 @@ pub const SCHEDULE_HORIZON_DAYS: i64 = 31;
 const PACIFIC_LAG_SECONDS: i64 = 8 * 3600;
 
 /// Where the signed-in maker starts a new launch. It redirects to sign-in when signed out and
-/// takes no prefilled field the kit relies on (ADR 0804).
+/// takes no prefilled field the kit relies on (ADR 0341).
 pub const SUBMIT_URL: &str = "https://www.producthunt.com/posts/new";
 const LAUNCH_GUIDE: &str = "https://www.producthunt.com/launch";
 const PREPARING: &str = "https://www.producthunt.com/launch/preparing-for-launch";
@@ -516,7 +516,7 @@ pub fn prepare(request: &LaunchRequest<'_>) -> LaunchKit {
     let manifest = builtin_manifest(ProviderId::ProductHunt);
     let mut notices = Vec::new();
     // The manifest must say the maker enters the link and the images by hand; anything else
-    // fails closed (ADRs 0326, 0804).
+    // fails closed (ADRs 0326, 0341).
     let guided = manifest.check(&DistributionRequest::new([
         Capability::Link,
         Capability::Image,
@@ -943,7 +943,7 @@ fn kit_image(
 
 /// The only script on the launch kit page: it reveals the copy buttons and copies a field's text.
 /// It reads nothing else, sends nothing, and the page's policy allows no request at all; without
-/// it, every field is still a labelled, selectable text box (ADR 0806).
+/// it, every field is still a labelled, selectable text box (ADR 0343).
 pub const COPY_SCRIPT: &str = "document.querySelectorAll('button[data-copy]').forEach(function(b){b.hidden=false;b.addEventListener('click',function(){var f=document.getElementById(b.getAttribute('data-copy'));var s=document.getElementById('copy-status');var done=function(){s.textContent=b.getAttribute('data-done')};var byHand=function(){f.focus();f.select();try{if(document.execCommand('copy')){done();return}}catch(e){}s.textContent='Selected; copy it with your keyboard.'};if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(f.value).then(done,byHand)}else{byHand()}})})";
 /// The base64 SHA-256 of [`COPY_SCRIPT`], which the page's policy allows and nothing else. A
 /// test in the CLI, which has the hash, holds the two together.
@@ -1111,7 +1111,7 @@ fn copyables(kit: &LaunchKit) -> Vec<Copyable> {
 }
 
 /// The launch kit page: static HTML in the style of the distribution preview (ADR 0330), with one
-/// hashed script for copy buttons that stay hidden without it (ADR 0806).
+/// hashed script for copy buttons that stay hidden without it (ADR 0343).
 pub fn kit_page(kit: &LaunchKit) -> String {
     let t = crate::escape::text;
     let a = crate::escape::attr;

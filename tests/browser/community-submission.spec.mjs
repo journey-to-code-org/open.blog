@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { removeTree } from "./teardown.mjs";
 
-// The community submission kit (story #395, ADRs 0800 to 0803) is a static page written by
+// The community submission kit (story #395, ADRs 0337 to 0340) is a static page written by
 // `openblog submit --kit`: no server, no provider, no credential, no script. open.blog never
 // submits; the page hands the author to each community's own form.
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");

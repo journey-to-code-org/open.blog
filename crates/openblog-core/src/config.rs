@@ -83,7 +83,7 @@ pub struct SiteConfig {
     /// Optional server-side cross-posting destinations. Credentials are read from
     /// environment variables and are never serialized here.
     pub syndication: SyndicationConfig,
-    /// Guided community submissions (`openblog submit`, ADRs 0800 to 0803): every destination is
+    /// Guided community submissions (`openblog submit`, ADRs 0337 to 0340): every destination is
     /// off by default, nothing is ever submitted for the author, and the object is omitted from
     /// the written file while it has its defaults.
     #[serde(skip_serializing_if = "CommunityConfig::is_default")]

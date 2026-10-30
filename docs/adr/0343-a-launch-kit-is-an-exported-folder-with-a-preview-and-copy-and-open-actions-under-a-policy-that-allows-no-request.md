@@ -1,4 +1,4 @@
-# ADR 0806: A launch kit is an exported folder with a preview and copy and open actions, under a policy that allows no request
+# ADR 0343: A launch kit is an exported folder with a preview and copy and open actions, under a policy that allows no request
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -8,7 +8,7 @@
 ## Context
 
 Task DIST4.2.2 asks for an "exportable launch kit with preview and copy/open actions". The Hacker News and Reddit kit
-page (ADR 0801) is script-free and deferred copy buttons to this story. Copying needs script; the kit must still work
+page (ADR 0338) is script-free and deferred copy buttons to this story. Copying needs script; the kit must still work
 without it, and a page opened from disk must not become a way to send anything anywhere.
 
 ## Decision
@@ -20,7 +20,7 @@ without it, and a page opened from disk must not become a way to send anything a
   refused, because a launch's text comes from its plan.
 - **Images are read only inside the project.** A path in the plan must be project-relative without `..`; the CLI
   resolves it (following links) and treats one whose real location is outside the project as `image-outside-project`,
-  never reading it. The core never reads files (ADR 0805).
+  never reading it. The core never reads files (ADR 0342).
 - **The page** keeps ADR 0330's shape (`lang`, one `h1`, a "Prepared, not launched" notice, labelled sections, visible
   focus, no sideways scroll at phone width, `referrer` `no-referrer`) and adds `robots` `noindex`. In order: the
   canonical post and product address, the status with blocking reasons before advice, a **preview** (an

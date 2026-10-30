@@ -1,4 +1,4 @@
-# ADR 0803: A community submission is recorded only as the author's word, and keeps a repeat from being prepared
+# ADR 0340: A community submission is recorded only as the author's word, and keeps a repeat from being prepared
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -9,7 +9,7 @@
 
 The story asks to "track author-confirmed submissions without pretending API success", and the epic to avoid spam
 and repeat submissions. open.blog cannot know whether the author pressed submit on Hacker News or Reddit: it never
-submits, and reading the providers back would need an API it does not use (ADRs 0800 to 0802). Distribution
+submits, and reading the providers back would need an API it does not use (ADRs 0337 to 0339). Distribution
 reporting (epic #388) will later need to tell provider-verified facts from facts nobody checked.
 
 ## Decision

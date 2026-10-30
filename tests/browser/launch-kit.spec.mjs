@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
 import { removeTree } from "./teardown.mjs";
 
-// The Product Hunt launch kit (story #396, ADRs 0804 to 0807) is a folder written by
+// The Product Hunt launch kit (story #396, ADRs 0341 to 0344) is a folder written by
 // `openblog submit --to product-hunt --kit`: a page with a preview, copy and open actions, and the
 // screenshots beside it. open.blog never launches; the page allows no request and only its own,
 // hashed copy script.

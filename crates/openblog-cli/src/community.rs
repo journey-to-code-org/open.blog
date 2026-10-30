@@ -1,5 +1,5 @@
 //! `openblog submit`: guided community submissions and Product Hunt launch kits (epic #384,
-//! stories #395 and #396, ADRs 0800 to 0807).
+//! stories #395 and #396, ADRs 0337 to 0344).
 //!
 //! Prepares, for one production-visible post, what the author needs to submit it by hand to a
 //! community, and records the submissions the author says they made. Nothing here sends a
@@ -218,7 +218,7 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
     Ok(())
 }
 
-/// Prepares a Product Hunt launch kit from the maker's launch plan (ADRs 0805, 0806). It reads the
+/// Prepares a Product Hunt launch kit from the maker's launch plan (ADRs 0342, 0343). It reads the
 /// plan and the images it names inside the project, and writes only into a new folder.
 fn launch(
     root: &Path,

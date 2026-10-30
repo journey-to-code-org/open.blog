@@ -1,10 +1,10 @@
-//! Guided community submissions (epic #384, stories #395 and #396, ADRs 0800 to 0807).
+//! Guided community submissions (epic #384, stories #395 and #396, ADRs 0337 to 0344).
 //!
 //! A **submission kit** prepares, for one published post, what the author needs to submit it by
 //! hand to a community: the title and the exact canonical link, the community's rules as a
 //! checklist, every reason the submission should not go ahead, and a link to the community's own
 //! submit form. open.blog never submits: the community destinations' manifests say "by hand"
-//! (ADR 0800), and nothing here touches the network, reads a credential or writes a file.
+//! (ADR 0337), and nothing here touches the network, reads a credential or writes a file.
 //!
 //! Errors and notices are fixed text, apart from the limits and names they state; they never
 //! repeat the author's title.
@@ -22,7 +22,7 @@ use crate::provider_manifest::{
 /// The kit format this release writes.
 pub const KIT_VERSION: u32 = 1;
 /// The longest Hacker News title, in characters. HN's submit form refuses a longer one; the limit
-/// is not in HN's written guidelines (ADR 0801).
+/// is not in HN's written guidelines (ADR 0338).
 pub const HN_TITLE_MAX_CHARS: usize = 80;
 /// The longest Reddit post title, in characters (Reddit's submit form).
 pub const REDDIT_TITLE_MAX_CHARS: usize = 300;
@@ -52,7 +52,7 @@ const REDDIT_SPAM: &str = "https://support.reddithelp.com/hc/en-us/articles/3600
 pub struct CommunityConfig {
     pub hacker_news: HackerNewsConfig,
     pub reddit: RedditConfig,
-    /// Product Hunt launch kits (ADR 0805).
+    /// Product Hunt launch kits (ADR 0342).
     pub product_hunt: crate::launch_kit::ProductHuntConfig,
     /// Private record of the submissions the author confirmed, relative to the project root.
     pub state_file: String,
@@ -148,7 +148,7 @@ pub struct RedditConfig {
 }
 
 /// One community as the author wrote it down. open.blog never reads a community's rules from
-/// Reddit; the author copies them, and the kit makes them a checklist (ADR 0802).
+/// Reddit; the author copies them, and the kit makes them a checklist (ADR 0339).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct RedditCommunity {
@@ -259,7 +259,7 @@ pub enum Destination {
     HackerNews,
     /// A Reddit community, by its name in lower case.
     Reddit(String),
-    /// A Product Hunt launch, prepared on its own as a launch kit (ADR 0805).
+    /// A Product Hunt launch, prepared on its own as a launch kit (ADR 0342).
     ProductHunt,
 }
 
@@ -465,7 +465,7 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
     let title = normalize_title(raw_title);
     let mut notices = Vec::new();
     // The manifest must say exactly "the author submits the link by hand"; anything else fails
-    // closed (ADRs 0326, 0800).
+    // closed (ADRs 0326, 0337).
     let guided = manifest.check(&DistributionRequest::new([Capability::Link]))
         == [Ineligibility::ManualOnly(Capability::Link)];
     if !guided {
@@ -540,7 +540,7 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
                 ),
             )
         }
-        // A launch is not a link and a title: it has its own kit (ADR 0805), so a submission
+        // A launch is not a link and a title: it has its own kit (ADR 0342), so a submission
         // kit never offers Product Hunt's form.
         Destination::ProductHunt => {
             notices.push(Notice::blocking(
@@ -570,7 +570,7 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
 }
 
 // A repeat submission is never prepared silently: Reddit's never, HN's only after a quiet year and
-// with --again (ADR 0803).
+// with --again (ADR 0340).
 fn repeat_notices(
     destination: &Destination,
     confirmed: &[ConfirmedSubmission],
@@ -791,7 +791,7 @@ fn hn_rules() -> Vec<Rule> {
 }
 
 /// What a confirmed submission rests on. Only the author's word exists in this release: open.blog
-/// never reads the provider to check it (ADR 0803).
+/// never reads the provider to check it (ADR 0340).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Evidence {

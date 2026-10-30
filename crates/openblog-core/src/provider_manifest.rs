@@ -120,7 +120,7 @@ impl From<social_schedule::Provider> for ProviderId {
 
 /// Which seam a provider is reached through: a full copy of the article (`openblog syndicate`,
 /// ADR 0004), an announcement that links the canonical post (social publishing, epic #353), or a
-/// guided submission the author makes by hand to a community (`openblog submit`, ADR 0800).
+/// guided submission the author makes by hand to a community (`openblog submit`, ADR 0337).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Family {
@@ -633,7 +633,7 @@ impl ProviderManifest {
 
     // Facts that cannot hold together: a remote adapter that needs no login, a manual-only
     // destination that claims an adapter, a schedule window that closes before it opens, a
-    // community destination that open.blog would submit to itself (ADR 0800).
+    // community destination that open.blog would submit to itself (ADR 0337).
     fn consistent(&self) -> Result<(), ManifestError> {
         let any_adapter = self.capabilities.values().any(|s| *s == Support::Adapter);
         let community_by_hand = self.family != Family::Community
@@ -1003,9 +1003,9 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
         Family::Community => {
             // No community offers open.blog a way to submit, and each asks that a person, not a
             // tool, decides each submission: the author opens the provider's own form and submits
-            // by hand (ADR 0800). The title limits are the guided kit's, not a capability's (ADR
-            // 0801). A Product Hunt launch also takes text, images, a demo video, a draft and a
-            // launch day, all of which the maker enters in Product Hunt's form (ADR 0804).
+            // by hand (ADR 0337). The title limits are the guided kit's, not a capability's (ADR
+            // 0338). A Product Hunt launch also takes text, images, a demo video, a draft and a
+            // launch day, all of which the maker enters in Product Hunt's form (ADR 0341).
             let (label, docs): (_, &[&str]) = match provider {
                 ProviderId::HackerNews => (
                     "Hacker News",

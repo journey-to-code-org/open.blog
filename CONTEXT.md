@@ -2930,36 +2930,36 @@ _Avoid_: Campaign, schedule, dry-run output (the existing text and JSON plans)
 **Community destination**:
 A place the author submits a post to by hand, such as Hacker News, a Reddit community or Product Hunt. Its provider
 manifest (family `community`) says the link is manual, nothing is done by an adapter and there is no login, so
-open.blog only prepares and never submits (ADRs 0800, 0804).
+open.blog only prepares and never submits (ADRs 0337, 0341).
 _Avoid_: Social network (an adapter destination), auto-post, share target
 
 **Submission kit**:
 For one published post and the community destinations the author chose, what they need to submit it by hand: the
 title, the exact canonical link, the rules as a checklist, blocking reasons and advice, and a link to the community's
-own submit form shown only when nothing blocks. Written by `openblog submit`; never a submission (ADRs 0801, 0802).
+own submit form shown only when nothing blocks. Written by `openblog submit`; never a submission (ADRs 0338, 0339).
 _Avoid_: Launch kit (the Product Hunt kit of story #396), submission, campaign
 
 **Launch plan**:
 What the maker writes down for one post's Product Hunt launch, in `launches/<slug>.json`: name, tagline, short pitch,
 product address, thumbnail and gallery screenshots, YouTube demo, launch tags, co-makers, first comment and launch
-day. Outside `content/`, so nothing public reads it (ADR 0805).
+day. Outside `content/`, so nothing public reads it (ADR 0342).
 _Avoid_: Launch (the event on Product Hunt), product page, front matter
 
 **Launch kit**:
 A launch plan checked against Product Hunt's written limits, with blocking reasons and advice, the images copied
 beside a preview page with copy and open actions, and a link to Product Hunt's own form shown only when nothing
-blocks. Written by `openblog submit <slug> --to product-hunt`; never a launch (ADRs 0805, 0806).
+blocks. Written by `openblog submit <slug> --to product-hunt`; never a launch (ADRs 0342, 0343).
 _Avoid_: Submission kit (the Hacker News and Reddit kit), press kit, scheduled launch
 
 **Community rules**:
 The rules of one Reddit community as the author copied them into `community.reddit.communities`, with the day they
-last read them. open.blog never reads them from Reddit; without them a Reddit kit is blocked (ADR 0802).
+last read them. open.blog never reads them from Reddit; without them a Reddit kit is blocked (ADR 0339).
 _Avoid_: Subreddit policy fetched by API, provider rules (Reddit-wide rules, linked from the kit)
 
 **Author-confirmed submission**:
 A submission the author says they made, recorded privately with `--confirm` and `evidence: "author"`. It is never
 checked with the provider and is never shown as verified; it keeps a repeat submission from being prepared
-(ADR 0803). A confirmed Product Hunt launch blocks the kit until `--again` marks a relaunch (ADR 0807).
+(ADR 0340). A confirmed Product Hunt launch blocks the kit until `--again` marks a relaunch (ADR 0344).
 _Avoid_: Posted, published, delivered (states a provider confirmed)
 
 **Distribution approval**:

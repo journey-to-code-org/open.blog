@@ -1,4 +1,4 @@
-# ADR 0805: A launch plan is the maker's own file, checked against Product Hunt's written limits, and only measurable ones block
+# ADR 0342: A launch plan is the maker's own file, checked against Product Hunt's written limits, and only measurable ones block
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -9,7 +9,7 @@
 
 Task DIST4.2.1 asks to "model product tagline, screenshots, short pitch, demo and launch metadata". A launch is about
 a product, not a post, so the post's front matter does not hold it; and the Markdown and the canonical site must stay
-the source of truth and unchanged. Product Hunt's written limits are in ADR 0804. Two of its pages disagree on the
+the source of truth and unchanged. Product Hunt's written limits are in ADR 0341. Two of its pages disagree on the
 description (500 characters in the launch guide, 260 in the help article).
 
 ## Decision
@@ -30,7 +30,7 @@ description (500 characters in the launch guide, 260 in the help article).
   outside the project, missing, not PNG, JPEG or GIF *by its bytes*, or of 3 MB or more; a demo that is not a full
   YouTube watch address (`youtu.be` included); more than 3 launch tags; an invalid maker name; a launch day that is
   not a date, has passed in Pacific time, or is more than 31 days ahead; and a launch the maker already confirmed,
-  unless `--again` (ADR 0807).
+  unless `--again` (ADR 0344).
 - **What is advice**, because Product Hunt leaves it to judgement or its pages disagree: a description over 260
   characters, a tagline ending in a full stop or equal to the post's title, a non-square thumbnail, gallery images
   not of the 1270 by 760 shape, an image without `alt`, no tags, no launch day, no first comment, a first comment
@@ -48,7 +48,7 @@ description (500 characters in the launch guide, 260 in the help article).
   post's source that renderers and exports must then learn to skip, and one post may announce several products.
 - **Entries in `openblog.json`.** Rejected: launch copy is content, changes per launch and does not belong in site
   configuration.
-- **Block on every recommendation.** Rejected for the reason in ADR 0801: a tool that blocks on judgement teaches
+- **Block on every recommendation.** Rejected for the reason in ADR 0338: a tool that blocks on judgement teaches
   people to work around it.
 
 ## Consequences

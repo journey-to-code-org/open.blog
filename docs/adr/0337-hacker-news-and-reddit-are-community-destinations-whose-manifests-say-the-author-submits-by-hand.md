@@ -1,4 +1,4 @@
-# ADR 0800: Hacker News and Reddit are community destinations whose manifests say the author submits by hand
+# ADR 0337: Hacker News and Reddit are community destinations whose manifests say the author submits by hand
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -33,7 +33,7 @@ What the providers say, checked on 2026-10-29:
 ## Decision
 
 - **A third family, `community`.** `ProviderId` gains `hacker-news` and `reddit`, both in `Family::Community`. A
-  community destination is reached by `openblog submit` (ADRs 0801 to 0803), never by `openblog syndicate` or the
+  community destination is reached by `openblog submit` (ADRs 0338 to 0340), never by `openblog syndicate` or the
   social delivery worker.
 - **The manifest says "by hand" and the contract enforces it.** Both manifests declare `link: manual` and every other
   capability `unsupported`, login `none`, publishing `manual`, canonical `linked`, and no constraints. A community
@@ -44,7 +44,7 @@ What the providers say, checked on 2026-10-29:
 - **The hosted function knows the names and nothing more.** `social-capabilities.mjs` reads the two manifests so the
   shared fixture stays one list, but `admittedManifest` admits only the social family, so the delivery worker never
   registers an adapter for a community.
-- **Title limits are not capabilities.** HN and Reddit titles are held to limits by the submission kit (ADR 0801),
+- **Title limits are not capabilities.** HN and Reddit titles are held to limits by the submission kit (ADR 0338),
   not by `maxTextChars`, which is the limit of the `text` capability these destinations do not have.
 
 ## Considered options
@@ -55,7 +55,7 @@ What the providers say, checked on 2026-10-29:
   approval and terms open.blog cannot accept for its users, and a tool posting to communities is what Reddit's spam
   rules are about.
 - **Model each subreddit as a provider.** Rejected: the provider is Reddit; a community is the author's choice of
-  where, with its own checklist (ADR 0802).
+  where, with its own checklist (ADR 0339).
 
 ## Consequences
 

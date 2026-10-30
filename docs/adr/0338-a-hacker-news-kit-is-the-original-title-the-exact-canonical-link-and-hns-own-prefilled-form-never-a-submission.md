@@ -1,4 +1,4 @@
-# ADR 0801: A Hacker News kit is the original title, the exact canonical link and HN's own prefilled form, never a submission
+# ADR 0338: A Hacker News kit is the original title, the exact canonical link and HN's own prefilled form, never a submission
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -8,7 +8,7 @@
 ## Context
 
 The epic says "never auto-submit to HN; avoid spam/repeat-submission; provide link, title and rules reminder". HN has
-no submit API (ADR 0800) and asks, in its [guidelines](https://news.ycombinator.com/newsguidelines.html) and
+no submit API (ADR 0337) and asks, in its [guidelines](https://news.ycombinator.com/newsguidelines.html) and
 [FAQ](https://news.ycombinator.com/newsfaq.html), for the original title without emphasis, gratuitous numbers or the
 site's name; no soliciting of votes; no delete-and-repost; and promotion only part of the time. HN's
 [bookmarklet](https://news.ycombinator.com/bookmarklet.html) opens `submitlink?u=<address>&t=<title>`, the submit

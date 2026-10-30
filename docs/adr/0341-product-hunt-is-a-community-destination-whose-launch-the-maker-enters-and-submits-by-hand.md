@@ -1,4 +1,4 @@
-# ADR 0804: Product Hunt is a community destination whose launch the maker enters and submits by hand
+# ADR 0341: Product Hunt is a community destination whose launch the maker enters and submits by hand
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -10,7 +10,7 @@
 Story #396 asks for Product Hunt launch kits "while retaining ownership of the canonical post", with approval and
 submission kept manual. Product Hunt is not a place to post a link like Hacker News: a *launch* is a product page with
 a name, tagline, description, thumbnail, gallery, optional YouTube demo, launch tags, makers, a first comment and a
-launch day. ADR 0800 made community destinations a closed family of the provider contract whose manifests say "the
+launch day. ADR 0337 made community destinations a closed family of the provider contract whose manifests say "the
 author submits by hand".
 
 What Product Hunt says, checked on 2026-10-29:
@@ -36,19 +36,19 @@ What Product Hunt says, checked on 2026-10-29:
 - **`product-hunt` joins the community family.** `ProviderId::ProductHunt`; label "Product Hunt". Its manifest says
   `link`, `text`, `image`, `video`, `draft` and `schedule` are **manual** (the maker types or uploads each in Product
   Hunt's form, and Product Hunt itself keeps the draft and the launch day) and `article` is unsupported; login `none`,
-  publishing `manual`, canonical `linked`, no constraints. ADR 0800's rule already refuses a community manifest with
+  publishing `manual`, canonical `linked`, no constraints. ADR 0337's rule already refuses a community manifest with
   an adapter capability, a login or non-manual publishing, so no new rule is needed; the shared fixture gains a
   refused "would upload images" case and a request case.
 - **The hosted function knows the name only.** `social-capabilities.mjs` lists it as community so the fixture stays
   one list; the delivery worker still admits only the social family.
 - **The kit's limits are not capabilities.** Tagline, description, image and tag limits belong to the launch kit
-  (ADR 0805), not `constraints`, because open.blog sends none of them.
+  (ADR 0342), not `constraints`, because open.blog sends none of them.
 
 ## Considered options
 
 - **Use the API.** Rejected: it has no launch creation, write access is discretionary, and its terms forbid commercial
   use, which open.blog cannot judge for every author.
-- **Keep Product Hunt outside the contract.** Rejected for the reason in ADR 0800: one list says what open.blog does
+- **Keep Product Hunt outside the contract.** Rejected for the reason in ADR 0337: one list says what open.blog does
   at each provider.
 - **Declare everything but the link unsupported, like HN.** Rejected: the manifest would then say the launch has no
   images, which is false; "manual" is the truthful word for something only the maker does.

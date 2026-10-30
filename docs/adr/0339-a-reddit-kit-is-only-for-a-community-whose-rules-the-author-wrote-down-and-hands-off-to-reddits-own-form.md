@@ -1,4 +1,4 @@
-# ADR 0802: A Reddit kit is only for a community whose rules the author wrote down, and hands off to Reddit's own form
+# ADR 0339: A Reddit kit is only for a community whose rules the author wrote down, and hands off to Reddit's own form
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -8,7 +8,7 @@
 ## Context
 
 The epic asks for a "Reddit per-community policy checklist, user edits, manual open-and-submit; no API assumption".
-Reddit's site-wide rules (ADR 0800) defer to each community's own rules, which its moderators set and change, and
+Reddit's site-wide rules (ADR 0337) defer to each community's own rules, which its moderators set and change, and
 they treat posting one link to many communities, or contributing mainly links to one's own work, as spam. Reading a
 community's rules automatically would need Reddit's Data API, which now needs Reddit's approval and its terms. Reddit
 does not document a prefilled submit address; `https://www.reddit.com/r/<community>/submit?url=…&title=…` is the
