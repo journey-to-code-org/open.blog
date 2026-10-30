@@ -10,8 +10,8 @@
 Epic #383 asks for destination-ready visual cards (a Pinterest Pin first, story #394) built from imagery the author
 already has, with source attribution, and with no mandatory AI generation. A post already publishes images: its
 cover (`cover`, with the aliases `image`, `coverImage`, `hero`, and `coverAlt`), the photographs in its body, and
-the link preview image its page declares (`og:image`: the cover, else the first body image, else the site's
-`ogImage`). Recipe and field-journal (travel) posts are where the body's photographs matter most. Nothing records
+the link preview image its page declares (`og:image`: the cover, else a video post's `thumbnail`, else the
+site's `ogImage`). Recipe and field-journal (travel) posts are where the body's photographs matter most. Nothing records
 who made an image.
 
 ## Decision
@@ -35,7 +35,8 @@ who made an image.
   `https` link; the card shows "Image: <credit>" and carries the link. A body image has no credit field, so its
   credit is empty; every card still links back to the canonical post, which is the source of the work. The link
   preview candidate (`page_image_candidate`) is exactly the build's `og:image` and carries the cover's credit only
-  when it is the cover.
+  when it is the cover. The renderer and `openblog card` choose the post's own share image through one helper,
+  `Post::page_image` (the cover, else the video thumbnail), so the two cannot drift.
 - **Fixed problems.** Each refusal is a fixed code (`image-address-unusable`, `image-not-https`, `credit-too-long`,
   `credit-url-invalid`) with a sentence that never repeats the address, the credit or any other author text.
 

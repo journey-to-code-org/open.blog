@@ -38,7 +38,7 @@ Images are tried in this order, and the first one the destination accepts is use
    alternative text is the description you wrote in Markdown, `![like this](/img/step-2.jpg)`.
 
 A link preview (`facebook-link`, `linkedin-link`) always uses exactly the image your page already declares for link
-previews: your cover, else the post's first image, else the site's `ogImage`. Change those to change it.
+previews: your cover, else a video post's `thumbnail`, else the site's `ogImage`. Change those to change it.
 
 Every image passed over is listed with the reason, so you can see which fallback was taken.
 

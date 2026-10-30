@@ -74,13 +74,13 @@ pub(crate) fn build(
         .canonical_url()
         .to_string();
     let page_url = config.absolute(&post.url);
+    // Exactly the page's og:image: the post's own (its cover, else a video's thumbnail), else
+    // the site's ogImage, chosen by the same rule the renderer uses.
     let page_image = post
-        .cover
-        .as_deref()
+        .page_image()
         .or((!config.og_image.is_empty()).then_some(config.og_image.as_str()));
     let page_image_alt = post
-        .cover
-        .as_ref()
+        .page_image()
         .and_then(|_| Some(post.cover_alt.as_str()).filter(|alt| !alt.trim().is_empty()));
     let card_source = CardSource {
         title: &post.title,
@@ -462,6 +462,29 @@ mod tests {
                     .iter()
                     .any(|p| p.code == "image-location-metadata")));
         }
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_link_card_checks_a_video_posts_thumbnail_the_page_declares_as_its_image() {
+        let post = "---\ntitle: Episode one\nslug: tart\ndate: 2026-01-01\nprofile: video\ndescription: The first episode.\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\nthumbnail: /img/wide.jpg\n---\nTranscript.\n";
+        let root = site(post);
+        let (plan, measured) = build(&root, "tart", &CardFormat::ALL).unwrap();
+        for link in &plan.cards[1..] {
+            let image = link.image.as_ref().expect("the thumbnail");
+            assert_eq!(image.candidate.src, "/img/wide.jpg");
+            assert_eq!(image.facts.map(|f| (f.width, f.height)), Some((1200, 630)));
+        }
+        assert!(measured
+            .iter()
+            .any(|(path, _)| path == "img/wide.jpg" || path == "/img/wide.jpg"));
+        assert!(!measured.iter().any(|(path, _)| path.contains("default")));
+        // The page itself declares the same image.
+        let config = site::load_config(&root).unwrap();
+        let (loaded, _) = site::load_site(&root, false, Some(crate::clock::now())).unwrap();
+        let built = loaded.posts.iter().find(|p| p.slug == "tart").unwrap();
+        assert_eq!(built.page_image(), Some("/img/wide.jpg"));
+        assert!(!config.og_image.is_empty());
         fs::remove_dir_all(root).ok();
     }
 
