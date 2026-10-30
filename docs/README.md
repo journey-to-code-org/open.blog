@@ -13,7 +13,7 @@ If you are new, read these in order; each one stands alone otherwise.
    Ghost, and WordPress without leaking credentials or creating duplicate originals.
    [Provider capabilities](provider-capabilities.md) lists what each destination can take, and
    [Community submissions](community-submissions.md) prepares a post for you to submit by hand to Hacker
-   News or Reddit.
+   News or Reddit, or a Product Hunt launch kit.
 6. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
 7. [Adding web components to a theme](theme-components.md): scripts, heading effects,

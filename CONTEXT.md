@@ -2946,7 +2946,7 @@ _Avoid_: Subreddit policy fetched by API, provider rules (Reddit-wide rules, lin
 **Author-confirmed submission**:
 A submission the author says they made, recorded privately with `--confirm` and `evidence: "author"`. It is never
 checked with the provider and is never shown as verified; it keeps a repeat submission from being prepared
-(ADR 0803).
+(ADR 0803). A confirmed Product Hunt launch blocks the kit until `--again` marks a relaunch (ADR 0807).
 _Avoid_: Posted, published, delivered (states a provider confirmed)
 
 **Distribution approval**:

@@ -387,8 +387,9 @@ credential names, and safety behavior.
 `hackerNews.enabled` and `reddit.enabled` turn each destination on, and `reddit.communities.<name>` holds the rules you
 copied from each community (`rules`, 1 to 30 lines), the day you last read them (`reviewed`, `YYYY-MM-DD`) and an
 optional `flair` reminder. `stateFile` (default `.openblog/community-submissions.json`) keeps the submissions you
-confirmed. There are no credentials. Only `openblog submit` reads or checks this object. See
-[Community submissions](community-submissions.md).
+confirmed. `productHunt.enabled` turns on Product Hunt launch kits, read from `productHunt.launchDir` (default
+`launches`, one `<slug>.json` per post). There are no credentials. Only `openblog submit` reads or checks this
+object. See [Community submissions](community-submissions.md).
 
 ## Knowledge Atlas
 

@@ -1,9 +1,10 @@
-# Community submissions: Hacker News and Reddit
+# Community submissions: Hacker News, Reddit and Product Hunt
 
 open.blog can prepare a post for you to share on Hacker News or in a Reddit community. It never submits for you.
 It gathers the title, the exact link to your post, the community's rules as a checklist, and a link to the
 community's own submit form. You read the rules, decide, and submit there yourself, or you don't submit at all.
-Your Markdown and your own site stay the original.
+Your Markdown and your own site stay the original. For a product launch, see
+[Product Hunt launch kits](#product-hunt-launch-kits).
 
 This is off until you turn it on, and nothing in your build, feeds or cross-posting changes because of it
 (ADRs [0800](adr/0800-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)
@@ -124,6 +125,102 @@ mistake.
   (`/r/<community>/submit?url=…&title=…`) and the 300-character title limit are long-standing Reddit behaviour,
   not documented API. If either changes, the title and link on the page still work by copy and paste.
 
+## Product Hunt launch kits
+
+If your post announces a product, open.blog can prepare its Product Hunt launch: the text to paste, the screenshots
+to upload, a preview, Product Hunt's rules as a checklist, and a link to Product Hunt's own form. It never creates,
+schedules, uploads or submits a launch, and it never signs in. You do all of that on Product Hunt, or not at all.
+Your post stays the original: the kit always carries its canonical address, and suggests linking it from your first
+comment
+(ADRs [0804](adr/0804-product-hunt-is-a-community-destination-whose-launch-the-maker-enters-and-submits-by-hand.md)
+to [0807](adr/0807-a-product-hunt-launch-stays-the-makers-to-approve-submit-and-record-and-is-never-repeated-silently.md)).
+
+### Turn it on and write the launch plan
+
+In `openblog.json`, add `"productHunt": { "enabled": true }` under `community`. Then write `launches/<slug>.json`
+next to your content (the folder is `community.productHunt.launchDir`). It is outside `content/`, so nothing on
+your site, in your feeds or in your exports reads it:
+
+```json
+{
+  "launchVersion": 1,
+  "name": "Field Notes",
+  "tagline": "A notebook that publishes itself",
+  "description": "Write in Markdown and publish a fast, accessible static site you own.",
+  "productUrl": "https://fieldnotes.example/",
+  "thumbnail": { "file": "launches/field-notes/thumb.png", "alt": "The Field Notes logo" },
+  "gallery": [
+    { "file": "launches/field-notes/editor.png", "alt": "The editor with a draft open" },
+    { "file": "launches/field-notes/post.png", "alt": "A published post on a phone" }
+  ],
+  "demo": "https://www.youtube.com/watch?v=VIDEO_ID",
+  "tags": ["Writing", "Open Source"],
+  "makers": ["your_ph_username"],
+  "firstComment": "Hi, I am the maker. Why I built it: https://notes.example.org/posts/field-notes/",
+  "launchDay": "2026-11-12"
+}
+```
+
+`productUrl` defaults to your post's address. Image paths are relative to the project and must stay inside it.
+
+### Prepare the kit
+
+```sh
+openblog submit <slug> --to product-hunt                 # print it
+openblog submit <slug> --to product-hunt --kit ph-kit    # write ph-kit/index.html, kit.json and images/
+```
+
+Open `index.html` in a browser. Each field has a **Copy** button (or select the text and copy it yourself when
+script is off), each image has an **Open** link, and **Open Product Hunt's new launch form** appears once nothing
+blocks. The page cannot make any request: its security policy allows no fetch, form or outside resource, and only
+its own copy script runs.
+
+**Blocks** (no link to the form): a missing name, tagline or description; a tagline over 60 or a description over
+500 characters; a shortened or tracking product link; no thumbnail; fewer than 2 gallery images; an image that is
+missing, outside the project, not PNG, JPEG or GIF, or 3 MB or more; a demo that is not a full YouTube address; more
+than 3 launch tags; a launch day that has passed in Pacific time or is more than a month away; a launch you already
+recorded (until `--again`).
+
+**Advice** (worth a second look, never blocks): a description over 260 characters, a tagline ending in a full stop
+or equal to your post's title, a thumbnail that is not square, screenshots not shaped like 1270 by 760, an image
+without `alt`, no tags, no launch day, no first comment, a first comment that mentions votes or does not link your
+post.
+
+### Launch and record it
+
+On Product Hunt, sign in with your personal account, choose **Submit** and **New product**, and paste and upload
+from the kit. Schedule it or launch it there. Afterwards:
+
+```sh
+openblog submit <slug> --confirm product-hunt --permalink https://www.producthunt.com/posts/field-notes
+```
+
+The launch is recorded as **author-confirmed**, your word. The kit is then blocked for that post; Product Hunt
+lets a product launch again for each significant new iteration, so `--again` prepares a relaunch and says so.
+
+### What Product Hunt asks, and what open.blog does about it
+
+| Product Hunt says | open.blog |
+| --- | --- |
+| Makers post their own product from a personal account; no company accounts | A checklist item; open.blog has no account and never signs in |
+| You cannot ask people directly to upvote | A checklist item, and advice when your first comment mentions votes; open.blog never shares or asks |
+| Tagline at most 60 characters; description at most 500 (260 in the help article) | 60 and 500 block; over 260 is advice |
+| No shortened or tracking links | Blocks shorteners and `utm_*`, `fbclid`, `gclid`, `mc_cid`, `mc_eid`, `ref` |
+| Square thumbnail, at least 2 gallery images, each image under 3 MB, 1270 by 760 recommended | Missing, too few or too large blocks; shape is advice |
+| YouTube video only, full address, not private | Anything but a `youtube.com/watch?v=` address blocks; privacy cannot be checked offline |
+| Up to 3 launch tags; schedule up to a month ahead; launches go live 12:01 a.m. Pacific | More than 3 tags, or a day past or beyond 31 days, blocks |
+| The API is read-only by default, write access is case by case, no commercial use | open.blog does not use it |
+
+Checked on 2026-10-29 against the [launch guide](https://www.producthunt.com/launch),
+[Preparing for launch](https://www.producthunt.com/launch/preparing-for-launch), the
+[help article on posting](https://help.producthunt.com/en/articles/479557-how-to-post-a-product) and the
+[API documentation](https://api.producthunt.com/v2/docs). **Not verified:** whether Product Hunt's new launch form
+(`https://www.producthunt.com/posts/new`, which sends you to sign in first) reads any prefilled field, so the kit
+never passes one; a limit on the product name (none is written; open.blog stops at 80 characters); Product Hunt's
+rules for co-maker usernames (open.blog accepts letters, digits and underscores); and the formats Product Hunt
+accepts beyond PNG, JPEG and GIF. If Product Hunt changes a limit, the fields stay copyable and the kit says which
+limit it checked.
+
 ## For developers
 
 - Rust: `openblog_core::community_submission` (`prepare`, `kit_page`, `kit_json`, `confirm`, `normalize_permalink`,
@@ -131,5 +228,8 @@ mistake.
 - Both communities are in the [provider capability](provider-capabilities.md) contract as the `community` family, whose
   manifests must say the link is submitted by hand and nothing else is possible. A community manifest that claims any
   adapter capability is refused.
-- Tests: `cargo test -p openblog-core community_submission`, `cargo test -p openblog-cli community::`, the shared
-  `tests/fixtures/provider-manifests.json`, and `tests/browser/community-submission.spec.mjs`.
+- Product Hunt: `openblog_core::launch_kit` (`LaunchPlan`, `sniff_image`, `prepare`, `kit_page`, `kit_text`,
+  `kit_json`, `COPY_SCRIPT` and its hash); the CLI reads the plan and probes the images in `community.rs`.
+- Tests: `cargo test -p openblog-core community_submission launch_kit`, `cargo test -p openblog-cli community::`,
+  the shared `tests/fixtures/provider-manifests.json`, `tests/browser/community-submission.spec.mjs` and
+  `tests/browser/launch-kit.spec.mjs`.
