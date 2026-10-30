@@ -18,6 +18,8 @@ import {
   PER_CLIENT_PER_HOUR, PER_SITE_PER_HOUR, QuoteError, checkToken, clientHash, issueToken, quoteSettings, readForm, tokenHash, validateRequest,
 } from "../lib/quote-intake.mjs";
 import { createStore } from "../lib/quote-store.mjs";
+import { createNotifier, notifySettings, resendTransport, retryFailed } from "../lib/quote-notify.mjs";
+import { timingSafeEqual } from "node:crypto";
 
 const HOUR = 60 * 60 * 1000;
 const SECURITY = {
@@ -59,10 +61,20 @@ function resendForm(settings, fields, now) {
 const wantsJson = (headers) => /application\/json/i.test(String(headers.accept || headers.Accept || ""));
 const lower = (headers) => Object.fromEntries(Object.entries(headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
 
-export function createHandler({ env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), uuid = randomUUID, notify = null } = {}) {
+const sameKey = (given, wanted) => {
+  const a = Buffer.from(String(given || ""));
+  const b = Buffer.from(String(wanted || ""));
+  return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+};
+
+export function createHandler({ env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), uuid = randomUUID, transport = null, sleep } = {}) {
   return async (event) => {
     const settings = quoteSettings(env);
     if (!settings.enabled) return json(404, { error: "not-enabled" });
+    // Owner notification is off unless a provider is named and complete (ADR 0902).
+    const mail = notifySettings(env);
+    const send = mail.enabled ? transport || resendTransport({ apiKey: mail.apiKey, fetchImpl }) : null;
+    const notify = send ? createNotifier({ settings: mail, transport: send, ...(sleep ? { sleep } : {}) }) : null;
     const method = String(event.httpMethod || "GET").toUpperCase();
     const headers = lower(event.headers);
     const route = String(event.path || "").split("/").filter(Boolean).pop();
@@ -72,6 +84,23 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
 
     try {
       if (method === "GET" && route === "token") return json(200, { token: issueToken(settings.secret, now()) });
+      const segments = String(event.path || "").split("/").filter(Boolean);
+      if (segments.includes("notifications")) {
+        // Admin-only and personal-data-free: states and counts, then a bounded retry.
+        const bearer = String(headers.authorization || "").replace(/^Bearer /i, "");
+        if (!settings.adminKey || !sameKey(bearer, settings.adminKey)) return json(settings.adminKey ? 401 : 404, { error: settings.adminKey ? "unauthorized" : "not-found" });
+        const store = createStore({ settings, fetchImpl, now });
+        if (method === "GET" && route === "notifications") {
+          const rows = await store.notificationOverview();
+          return json(200, { enabled: Boolean(send), notifications: rows.map((r) => ({ id: r.id, status: r.notify_status, attempts: r.notify_attempts, error: r.notify_error_code, createdAt: r.created_at })) });
+        }
+        if (method === "POST" && route === "retry") {
+          if (!send) return json(409, { error: "notifications-off" });
+          const rows = await store.retryable({ staleMs: 10 * 60 * 1000 });
+          return json(200, await retryFailed({ settings: mail, transport: send, store, rows }));
+        }
+        return json(404, { error: "not-found" });
+      }
       if (method !== "POST" || route !== "submit") return json(404, { error: "not-found" });
 
       const form = readForm(headers, event.body, event.isBase64Encoded);

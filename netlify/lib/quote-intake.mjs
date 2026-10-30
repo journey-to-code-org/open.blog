@@ -46,14 +46,18 @@ export function quoteSettings(env = {}) {
   const siteId = text(env.OPENBLOG_SITE_ID).trim();
   const origin = text(env.OPENBLOG_SITE_ORIGIN).replace(/\/$/, "");
   const secret = text(env.OPENBLOG_QUOTE_SECRET);
+  const adminKey = text(env.OPENBLOG_QUOTE_ADMIN_KEY);
   const problems = [];
   if (!httpsOrigin(`${url}/`)) problems.push("SUPABASE_URL");
   if (!key) problems.push("SUPABASE_SECRET_KEY");
   if (!SITE_SCOPE.test(siteId)) problems.push("OPENBLOG_SITE_ID");
   if (!httpsOrigin(`${origin}/`)) problems.push("OPENBLOG_SITE_ORIGIN");
   if (secret.length < MIN_SECRET_CHARS || /\s/.test(secret) || secret === key) problems.push("OPENBLOG_QUOTE_SECRET");
+  // The admin key is optional (it only unlocks the notification routes), but when set it must be long
+  // and distinct from every other credential.
+  if (adminKey && (adminKey.length < MIN_SECRET_CHARS || /\s/.test(adminKey) || adminKey === key || adminKey === secret)) problems.push("OPENBLOG_QUOTE_ADMIN_KEY");
   if (problems.length) return off(problems);
-  return { enabled: true, problems: [], url, key, siteId, origin, secret };
+  return { enabled: true, problems: [], url, key, siteId, origin, secret, adminKey };
 }
 
 const mac = (secret, label, value) => createHmac("sha256", secret).update(`${label}\n${value}`).digest("base64url");
@@ -139,7 +143,7 @@ function parseMultipart(body, boundary) {
 
 const clean = (value, max) =>
   text(value)
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F​-‏‪-‮⁦-⁩]/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "")
     .trim()
     .slice(0, max + 1);
 

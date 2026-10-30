@@ -60,6 +60,23 @@ export function createStore({ settings, fetchImpl, now = () => Date.now() }) {
       if (!response.ok) throw new QuoteError(503, "storage-unavailable");
     },
 
+    // Notification outcomes only: ids, states, counts, codes and times. Never a visitor value.
+    async notificationOverview() {
+      const response = await call(`/rest/v1/${TABLE}?select=id,notify_status,notify_attempts,notify_error_code,created_at&${site}&notify_status=in.(pending,failed)&order=created_at.desc&limit=100`, { method: "GET", headers: headers() });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      return response.json();
+    },
+
+    // Rows whose email failed, or stayed pending long enough to be a lost attempt, with just what
+    // the message needs.
+    async retryable({ staleMs }) {
+      const before = new Date(now() - staleMs).toISOString();
+      const filter = `or=(notify_status.eq.failed,and(notify_status.eq.pending,created_at.lt.${before}))`;
+      const response = await call(`/rest/v1/${TABLE}?select=id,name,town,service,photos,notify_attempts&${site}&${filter}&order=created_at.asc&limit=25`, { method: "GET", headers: headers() });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      return response.json();
+    },
+
     async patch(id, changes) {
       const response = await call(`/rest/v1/${TABLE}?${site}&id=eq.${encodeURIComponent(id)}`, {
         method: "PATCH",
