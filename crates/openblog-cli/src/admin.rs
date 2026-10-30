@@ -92,6 +92,7 @@ mod comparisons;
 mod landing;
 mod look;
 mod reading_paths;
+mod seasonal;
 mod social;
 mod voice;
 mod voice_guide;
@@ -567,6 +568,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
         "/admin/business.js" => "business.js",
+        "/admin/seasonal.js" => "seasonal.js",
         "/admin/services.js" => "services.js",
         "/admin/paste.js" => "paste.js",
         "/admin/landing-history.js" => "landing-history.js",
@@ -723,6 +725,10 @@ fn authenticated_api(
         ("PUT", "appearance") => save_appearance_settings(state, req),
         ("GET", "business") => business::get_business(state),
         ("PUT", "business") => business::save_business(state, req),
+        ("GET", "seasonal") => seasonal::get_seasonal(state),
+        ("PUT", "seasonal") => seasonal::save_seasonal(state, req),
+        ("POST", "seasonal/snooze") => seasonal::snooze(state, req),
+        ("POST", "seasonal/open") => seasonal::open(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
         ("POST", "look/preview") => look::preview(state, req),
@@ -18432,6 +18438,7 @@ mod tests {
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod seasonal_routes;
     mod service_routes;
     mod social_routes;
     mod voice_assistant_routes;

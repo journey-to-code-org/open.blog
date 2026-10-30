@@ -13,6 +13,7 @@ import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createAnnouncementsPanel } from "./announcements.js";
 import { createBusinessFacts } from "./business.js";
+import { createSeasonalReminders } from "./seasonal.js";
 import { createServices } from "./services.js";
 import { createSocialAccounts } from "./social.js";
 import { createVoiceSession } from "./voice-session.js";
@@ -11454,6 +11455,7 @@ export class ObAdmin extends AdminElement {
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
       ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
       h("a", { class: "oba-tab", "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
+      h("a", { class: "oba-tab", "aria-current": active === "reminders" ? "page" : null, href: "#/reminders" }, "Reminders"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
@@ -11461,6 +11463,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
       : active === "business"
         ? { title: "Business facts", detail: "Set your name, phone, hours, license and insurance once, and see them everywhere on your site." }
+      : active === "reminders"
+        ? { title: "Seasonal reminders", detail: "Get a nudge at the right time of year about what to write for your trade. A reminder only starts a draft; it never publishes." }
       : active === "services"
         ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
       : active === "look"
@@ -11747,6 +11751,7 @@ export class ObAdmin extends AdminElement {
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/announcements") }] : []),
+      { label: "Seasonal reminders", category: "Site", keywords: "seasonal reminder prompt season topic draft snooze", run: () => go("#/reminders") },
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
       { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
       { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
@@ -11983,6 +11988,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "appearance") await this.showAppearance();
       else if (head === "look") await this.showLook();
       else if (head === "business") await this.showBusiness();
+      else if (head === "reminders") await this.showReminders();
       else if (head === "services") await this.showServices(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
@@ -14039,6 +14045,18 @@ export class ObAdmin extends AdminElement {
   async showBusiness() {
     const view = createBusinessFacts({ api: this.api });
     this.mount(this.shell("business", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- seasonal reminders (ADR 0922)
+
+  /** `#/reminders`: what to write about now for the trade; a reminder only ever starts an unpublished draft. */
+  async showReminders() {
+    const view = createSeasonalReminders({ api: this.api });
+    this.mount(this.shell("reminders", view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     this.viewCleanup = () => view.destroy();

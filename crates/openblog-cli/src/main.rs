@@ -31,6 +31,7 @@ mod recipe_package;
 mod research_review;
 mod safe_http;
 mod scaffold;
+mod seasonal_store;
 mod selection_store;
 mod serve;
 mod shared_publications;
