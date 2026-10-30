@@ -67,6 +67,11 @@ Checked on 2026-10-29 against the providers' own documentation:
 that checks it against these manifests, and `--approve` records your consent to exactly that plan. See
 [Preview and approve before sending](cross-posting.md#preview-and-approve-before-sending).
 
+## Images for a destination
+
+What a Pinterest Pin or a shared link's preview would show of a post, and whether its image fits that destination,
+is checked separately by `openblog card`; see [Visual cards](visual-cards.md).
+
 ## When a provider changes
 
 A manifest change always raises its policy version. A change that only widens what an adapter does, loosens a limit

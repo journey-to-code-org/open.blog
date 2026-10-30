@@ -2935,3 +2935,14 @@ _Avoid_: Best image, hero
 The recorded source of a card image: one line of text and an optional https link, from `coverCredit` or
 `cardImageCredit` and their `...Url` keys. Never inferred; an image without one has none.
 _Avoid_: Attribution (a work credit of the post), caption
+
+**Card format**:
+One destination a visual card is built for, from a closed list (`pinterest-pin`, `facebook-link`, `linkedin-link`),
+with dated requirements verified against the provider's documentation (shape, sizes, file size and types, text
+limits). A link preview format shows the page's own metadata, never card fields (ADR 0782).
+_Avoid_: Platform, network, image size
+
+**Card fallback**:
+Passing over a card image candidate the destination cannot take, recorded with its reasons, and trying the next. A
+card is never fixed by cropping, resizing or generating anything (ADR 0782).
+_Avoid_: Auto-fix, default image

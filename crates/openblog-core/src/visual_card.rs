@@ -1371,13 +1371,104 @@ impl CardFormat {
     }
 }
 
-/// Checks a measured image against a destination's requirements.
+/// Checks a measured image against a destination's requirements: its format, file size,
+/// minimum and recommended sizes, shape, and any location it carries.
 fn check_image(
-    _format: CardFormat,
-    _facts: &ImageFacts,
-    _source: &CardSource<'_>,
+    format: CardFormat,
+    facts: &ImageFacts,
+    source: &CardSource<'_>,
 ) -> Vec<CardProblem> {
-    Vec::new()
+    let spec = format.spec();
+    let mut out = Vec::new();
+    if let Some(types) = spec.media_types {
+        if !types.contains(&facts.media_type) {
+            let names: Vec<&str> = types.iter().map(|t| t.label()).collect();
+            out.push(CardProblem::new(
+                "image-type-unsupported",
+                Severity::Blocking,
+                format!(
+                    "This destination accepts {} images only.",
+                    names.join(" and ")
+                ),
+            ));
+        }
+    }
+    if let Some(max) = spec.max_bytes {
+        if facts.bytes > max {
+            out.push(CardProblem::new(
+                "image-too-large",
+                Severity::Blocking,
+                format!(
+                    "The image file is larger than the {} MB this destination accepts.",
+                    max / 1_000_000
+                ),
+            ));
+        }
+    }
+    let below = |(w, h): (u32, u32)| facts.width < w || facts.height < h;
+    let too_small = spec.minimum.filter(|size| below(*size));
+    if let Some((w, h)) = too_small {
+        out.push(CardProblem::new(
+            "image-too-small",
+            Severity::Blocking,
+            format!("The image is smaller than the {w} × {h} pixels this destination needs."),
+        ));
+    } else if let Some((w, h)) = spec.large_minimum.filter(|size| below(*size)) {
+        out.push(CardProblem::new(
+            "image-shown-small",
+            Severity::Notice,
+            format!(
+                "Below {w} × {h} pixels this destination shows the image small, beside the text."
+            ),
+        ));
+    } else if facts.width < spec.recommended.0 {
+        // The shape is reported on its own; this is about resolution.
+        let (w, h) = spec.recommended;
+        out.push(CardProblem::new(
+            "below-recommended-size",
+            Severity::Notice,
+            format!(
+                "The image is smaller than the recommended {w} × {h} pixels and may look soft."
+            ),
+        ));
+    }
+    // Shapes are compared exactly in whole numbers, with a 3% tolerance.
+    let (rw, rh) = spec.ratio;
+    let shown = u64::from(facts.width) * u64::from(rh);
+    let wanted = u64::from(facts.height) * u64::from(rw);
+    if shown.abs_diff(wanted) * 100 > wanted * 3 {
+        let taller = shown < wanted;
+        let message = match (format, taller) {
+            (CardFormat::PinterestPin, true) => {
+                "The image is taller than 2:3, so feeds may cut off its bottom."
+            }
+            (CardFormat::PinterestPin, false) => {
+                "The image is wider than 2:3, so it shows shorter than a recommended Pin."
+            }
+            (_, _) => "The image is not about 1.91:1, so the destination crops it to that shape.",
+        };
+        out.push(CardProblem::new("shape-differs", Severity::Notice, message));
+    }
+    if facts.location_metadata {
+        let travel_hidden = source.profile == crate::profile::FIELD_JOURNAL_ID
+            && crate::field_journal::LocationPrivacy::parse(
+                source.front_matter.get("locationPrivacy"),
+            ) != crate::field_journal::LocationPrivacy::Exact;
+        out.push(if travel_hidden {
+            CardProblem::new(
+                "image-location-metadata",
+                Severity::Blocking,
+                "The image file records where it was taken (Exif GPS), but this travel post keeps its exact location private. Remove the location from the file first.",
+            )
+        } else {
+            CardProblem::new(
+                "image-location-metadata",
+                Severity::Check,
+                "The image file records where it was taken (Exif GPS). Remove it unless you mean to share that place.",
+            )
+        });
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1741,5 +1832,185 @@ mod tests {
         assert_eq!(wrap("one two three four", 9), ["one two", "three", "four"]);
         assert_eq!(wrap("abcdefghij k", 4), ["abcd", "efgh", "ij k"]);
         assert_eq!(clamp(wrap("aaa bbb ccc ddd", 7), 1, 7), ["aaa bb\u{2026}"]);
+    }
+
+    fn facts(media_type: MediaType, width: u32, height: u32, bytes: u64, gps: bool) -> ImageFacts {
+        ImageFacts {
+            media_type,
+            width,
+            height,
+            bytes,
+            location_metadata: gps,
+        }
+    }
+
+    fn codes_for(
+        format: CardFormat,
+        image: ImageFacts,
+        front: &str,
+        profile: &str,
+    ) -> Vec<&'static str> {
+        let front = fm(front);
+        check_image(format, &image, &source(&front, profile, ""))
+            .iter()
+            .map(|p| p.code)
+            .collect()
+    }
+
+    #[test]
+    fn each_destination_holds_an_image_to_its_own_verified_requirements() {
+        use CardFormat::*;
+        let cases: &[(CardFormat, ImageFacts, &[&str])] = &[
+            (
+                PinterestPin,
+                facts(MediaType::Png, 1000, 1500, 20_000_000, false),
+                &[],
+            ),
+            (
+                PinterestPin,
+                facts(MediaType::Jpeg, 2000, 3000, 1, false),
+                &[],
+            ),
+            (
+                PinterestPin,
+                facts(MediaType::Webp, 1000, 1500, 1, false),
+                &["image-type-unsupported"],
+            ),
+            (
+                PinterestPin,
+                facts(MediaType::Png, 1000, 1500, 20_000_001, false),
+                &["image-too-large"],
+            ),
+            (
+                PinterestPin,
+                facts(MediaType::Png, 600, 900, 1, false),
+                &["below-recommended-size"],
+            ),
+            (
+                PinterestPin,
+                facts(MediaType::Png, 1000, 2100, 1, false),
+                &["shape-differs"],
+            ),
+            (
+                PinterestPin,
+                facts(MediaType::Png, 1200, 1200, 1, false),
+                &["shape-differs"],
+            ),
+            (
+                FacebookLink,
+                facts(MediaType::Webp, 1200, 630, 8_000_000, false),
+                &[],
+            ),
+            (
+                FacebookLink,
+                facts(MediaType::Png, 199, 300, 1, false),
+                &["image-too-small", "shape-differs"],
+            ),
+            (
+                FacebookLink,
+                facts(MediaType::Png, 573, 300, 1, false),
+                &["image-shown-small"],
+            ),
+            (
+                FacebookLink,
+                facts(MediaType::Png, 1000, 524, 1, false),
+                &["below-recommended-size"],
+            ),
+            (
+                FacebookLink,
+                facts(MediaType::Png, 1200, 630, 8_000_001, false),
+                &["image-too-large"],
+            ),
+            (
+                LinkedinLink,
+                facts(MediaType::Gif, 1200, 627, 5_000_000, false),
+                &[],
+            ),
+            (
+                LinkedinLink,
+                facts(MediaType::Png, 1200, 630, 5_000_001, false),
+                &["image-too-large"],
+            ),
+            (
+                LinkedinLink,
+                facts(MediaType::Png, 1199, 628, 1, false),
+                &["image-too-small"],
+            ),
+            (
+                LinkedinLink,
+                facts(MediaType::Png, 1200, 1200, 1, false),
+                &["shape-differs"],
+            ),
+        ];
+        for (format, image, expected) in cases {
+            assert_eq!(
+                &codes_for(*format, *image, "title: x", "article"),
+                expected,
+                "{format:?} {image:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_photographs_location_is_held_back_for_a_private_travel_post() {
+        let gps = facts(MediaType::Jpeg, 1000, 1500, 1, true);
+        let severity = |front: &str, profile: &str| {
+            let front = fm(front);
+            check_image(CardFormat::PinterestPin, &gps, &source(&front, profile, ""))[0].severity
+        };
+        assert_eq!(severity("title: x", "field-journal"), Severity::Blocking);
+        assert_eq!(
+            severity("locationPrivacy: approximate", "field-journal"),
+            Severity::Blocking
+        );
+        assert_eq!(
+            severity("locationPrivacy: exact", "field-journal"),
+            Severity::Check
+        );
+        assert_eq!(severity("title: x", "recipe"), Severity::Check);
+    }
+
+    #[test]
+    fn a_pin_falls_back_past_an_image_the_destination_refuses_to_the_next_photograph() {
+        let front = fm("profile: field-journal\ncover: /cover.webp\ncoverAlt: A ridge");
+        let markdown = "![The trailhead](/trail.jpg)\n\n![The summit](/summit.png)";
+        let card_source = source(&front, "field-journal", markdown);
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &card_source,
+            &mut |c: &ImageCandidate| {
+                Measurement::Measured(match c.src.as_str() {
+                    "/cover.webp" => facts(MediaType::Webp, 1000, 1500, 1, false),
+                    "/trail.jpg" => facts(MediaType::Jpeg, 1000, 1500, 1, true),
+                    _ => facts(MediaType::Png, 1000, 1500, 1, false),
+                })
+            },
+        );
+        let skipped: Vec<_> = pin
+            .skipped
+            .iter()
+            .map(|s| (s.src.as_str(), s.problems[0].code))
+            .collect();
+        assert_eq!(
+            skipped,
+            [
+                ("/cover.webp", "image-type-unsupported"),
+                ("/trail.jpg", "image-location-metadata")
+            ]
+        );
+        assert_eq!(pin.image.unwrap().candidate.src, "/summit.png");
+        assert_eq!(pin.alt.as_deref(), Some("The summit"));
+        assert_eq!(pin.status, CardStatus::Ready);
+    }
+
+    #[test]
+    fn every_destination_states_its_sources_and_a_dated_policy() {
+        assert_eq!(CARD_POLICY_VERSION.len(), 10);
+        for format in CardFormat::ALL {
+            let spec = format.spec();
+            assert!(!spec.sources.is_empty());
+            assert!(spec.sources.iter().all(|s| s.starts_with("https://")));
+            assert_eq!(format.canvas(), spec.recommended);
+        }
     }
 }

@@ -11,7 +11,8 @@ If you are new, read these in order; each one stands alone otherwise.
    counts on a static host, and a counter you can host for free.
 5. [Cross-posting](cross-posting.md): safely syndicate articles to Hashnode, DEV, Medium,
    Ghost, and WordPress without leaking credentials or creating duplicate originals.
-   [Provider capabilities](provider-capabilities.md) lists what each destination can take.
+   [Provider capabilities](provider-capabilities.md) lists what each destination can take, and
+   [Visual cards](visual-cards.md) builds and checks Pinterest and link preview cards from your own images.
 6. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
 7. [Adding web components to a theme](theme-components.md): scripts, heading effects,
