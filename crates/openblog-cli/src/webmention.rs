@@ -26,7 +26,7 @@ use crate::syndication::{self, SyndicationPost};
 use crate::{fsutil, safe_http, site, url_context};
 
 /// Redirects followed while fetching a target, each hop checked again.
-const MAX_REDIRECTS: usize = 5;
+pub(crate) const MAX_REDIRECTS: usize = 5;
 /// The most of a target page read while looking for its endpoint.
 const MAX_DISCOVERY_BYTES: u64 = 1024 * 1024;
 /// One request's whole time, connection to last byte.
@@ -123,11 +123,12 @@ fn reply_from(
         .map(str::to_string)
         .collect();
     let mut body = Vec::new();
-    let is_html = matches!(
+    // HTML, and plain text for a received mention's source (ADR 0864); nothing else is read.
+    let readable = matches!(
         content_type.as_deref(),
-        Some("text/html" | "application/xhtml+xml")
+        Some("text/html" | "application/xhtml+xml" | "text/plain")
     );
-    if read_html && is_html {
+    if read_html && readable {
         // Only the start of a large page is read; an endpoint is declared near the top.
         let _ = response
             .body_mut()
@@ -152,7 +153,7 @@ impl Network for PublicNetwork {
             .get(url.as_str())
             .header(
                 "Accept",
-                "text/html, application/xhtml+xml;q=0.9, */*;q=0.1",
+                "text/html, application/xhtml+xml;q=0.9, text/plain;q=0.5, */*;q=0.1",
             )
             .header("Accept-Encoding", "identity")
             .call();

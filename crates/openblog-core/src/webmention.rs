@@ -38,6 +38,73 @@ pub struct WebmentionConfig {
     pub state_file: String,
     /// Hosts that never receive a Webmention from this site (a host also covers its subdomains).
     pub exclude_hosts: Vec<String>,
+    /// Receiving Webmentions from other sites (story #402, ADRs 0863 to 0866). Off by default and
+    /// omitted from the written `openblog.json` while it has its defaults.
+    #[serde(skip_serializing_if = "ReceiveConfig::is_default")]
+    pub receive: ReceiveConfig,
+}
+
+/// The days a closed or unanswered received mention is kept in the private inbox by default.
+pub const DEFAULT_RETENTION_DAYS: u32 = 90;
+
+/// Whether and where the site accepts Webmentions. Off by default: no page advertises an
+/// endpoint, no manifest is written and `openblog mentions pull` refuses to contact anything.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct ReceiveConfig {
+    /// Advertise the endpoint on posts and pull what it received.
+    pub enabled: bool,
+    /// The hosted receiver's public address (`https://site.example/api/webmention`), advertised
+    /// in a `<link rel="webmention">` on each post that accepts mentions.
+    pub endpoint: String,
+    /// The private moderation inbox, relative to the project root.
+    pub inbox_file: String,
+    /// Days a rejected, removed, blocked, invalid or still pending mention is kept before
+    /// `openblog mentions prune --write` deletes it.
+    pub retention_days: u32,
+}
+
+impl Default for ReceiveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: String::new(),
+            inbox_file: ".openblog/webmention-inbox.json".into(),
+            retention_days: DEFAULT_RETENTION_DAYS,
+        }
+    }
+}
+
+impl ReceiveConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
+    /// The endpoint as a URL, once receiving is on and it is an absolute `https` address with
+    /// a host and no credentials, query or fragment.
+    pub fn endpoint_url(&self) -> Option<Url> {
+        if !self.enabled {
+            return None;
+        }
+        let url = Url::parse(self.endpoint.trim()).ok()?;
+        (url.scheme() == "https"
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none())
+        .then_some(url)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.enabled && self.endpoint_url().is_none() {
+            return Err("webmention.receive.endpoint must be an HTTPS URL without credentials, query, or fragment while webmention.receive.enabled is true".into());
+        }
+        if !(1..=3650).contains(&self.retention_days) {
+            return Err("webmention.receive.retentionDays must be between 1 and 3650".into());
+        }
+        Ok(())
+    }
 }
 
 impl Default for WebmentionConfig {
@@ -46,6 +113,7 @@ impl Default for WebmentionConfig {
             enabled: false,
             state_file: ".openblog/webmentions.json".into(),
             exclude_hosts: Vec::new(),
+            receive: ReceiveConfig::default(),
         }
     }
 }

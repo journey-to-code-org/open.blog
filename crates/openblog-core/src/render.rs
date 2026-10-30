@@ -110,6 +110,9 @@ struct Meta<'a> {
     tags: Vec<String>,
     highwire: Vec<(&'static str, String)>,
     noindex: bool,
+    /// The Webmention endpoint a post that accepts mentions advertises (ADR
+    /// 0863); `None` on every other page, which is then written exactly as before.
+    webmention: Option<String>,
 }
 
 /// The query projection of the published atlas, projected once per build: its
@@ -935,6 +938,21 @@ pub fn generate_with_trail_budget(
     if let Some(manifest) = participation::legacy_feedback_manifest(site) {
         out.add("openblog-feedback.json".into(), manifest)?;
     }
+    // The posts that accept Webmentions, which the hosted receiver checks a
+    // target against (ADR 0863). Written only while receiving is on, so every
+    // other site's output is unchanged.
+    if c.webmention.receive.endpoint_url().is_some() {
+        let targets: Vec<String> = site
+            .posts
+            .iter()
+            .filter(|post| !post.webmentions_off)
+            .map(|post| c.absolute(&post.url))
+            .collect();
+        out.add(
+            "openblog-webmention.json".into(),
+            serde_json::json!({ "version": 1, "targets": targets }).to_string(),
+        )?;
+    }
 
     Ok(out.files)
 }
@@ -1189,6 +1207,12 @@ impl<'a> Renderer<'a> {
             "<link rel=\"canonical\" href=\"{}\">\n",
             attr(&social.url)
         ));
+        if let Some(endpoint) = &meta.webmention {
+            h.push_str(&format!(
+                "<link rel=\"webmention\" href=\"{}\">\n",
+                attr(endpoint)
+            ));
+        }
         h.push_str("<meta name=\"generator\" content=\"open.blog\">\n");
         if let Some(page) = theme.colors.get("light").and_then(|m| m.get("page")) {
             h.push_str(&format!("<meta name=\"theme-color\" content=\"{}\" media=\"(prefers-color-scheme: light)\">\n", attr(page)));
@@ -2166,6 +2190,7 @@ impl<'a> Renderer<'a> {
             tags: Vec::new(),
             highwire: Vec::new(),
             noindex: false,
+            webmention: None,
         };
         self.document(&meta, &body)
     }
@@ -2468,6 +2493,9 @@ impl<'a> Renderer<'a> {
             &continued.earlier,
             &continued.titles,
         ));
+        // Approved Webmentions (ADR 0865): plain links to the other sites on
+        // the canonical page only, never in a feed or portable copy.
+        body.push_str(&crate::mention_publication::render_section(post.mentions()));
         let third_perspective = self.third_perspective(post);
         if let Some(region) = &third_perspective {
             body.push_str(region);
@@ -2713,6 +2741,12 @@ impl<'a> Renderer<'a> {
                 Vec::new()
             },
             noindex: false,
+            // Only a post that accepts mentions advertises the endpoint, and
+            // only while receiving is on (ADR 0863).
+            webmention: (!post.webmentions_off)
+                .then(|| c.webmention.receive.endpoint_url())
+                .flatten()
+                .map(String::from),
         };
         self.document(&meta, &body)
     }
@@ -4402,6 +4436,7 @@ impl<'a> Renderer<'a> {
             tags: Vec::new(),
             highwire: Vec::new(),
             noindex: false,
+            webmention: None,
         }
     }
 
@@ -5146,6 +5181,7 @@ mod tests {
                 third_perspectives: None,
                 community_features: None,
                 continuations: None,
+                webmentions: None,
                 landing: None,
             },
             LoadOptions::default(),
