@@ -2947,8 +2947,31 @@ _Avoid_: Social video, video syndication
 The exact metadata a video release would carry to YouTube (title, composed description with the canonical article
 link, tags, thumbnail, chapters, captions, transcript, audience and synthetic-content answers, private visibility),
 its status (blocked, manual or ready), every problem with its code, the guided steps and a digest. Written by
-`openblog video --preview`; sends nothing (ADR 0842).
+`openblog video --preview`; sends nothing (ADR 0842). Its digest is what a video approval binds.
 _Avoid_: Release kit (Admin's copy helper), upload plan
+
+**YouTube connection**:
+The author's Google grant for uploads, made by `openblog youtube connect` with the deployer's own Desktop-app OAuth
+client (loopback redirect, PKCE) and both scopes `youtube.upload` and `youtube.readonly`. Its refresh token is kept
+protected in `.openblog/private/youtube/credential` on the author's computer; nothing hosted holds it (ADR 0844).
+_Avoid_: Social account (a hosted LinkedIn or Facebook grant), API key
+
+**Video approval**:
+The author's consent to upload exactly one YouTube preview (its digest) from one master file (its size and digest),
+with an optional `publishAt`, under the manifest it was previewed under. Changing any of them voids it (ADR 0845).
+_Avoid_: Distribution approval (a syndication plan's), publish consent
+
+**Upload record**:
+The private, protected record of one release's upload: its state (not-uploaded, uploading, uploaded, failed or
+unknown), the resumable session and bytes received, the video id and watch address, the thumbnail's state and a
+bounded history of coded events. Never a token or the author's words (ADR 0846).
+_Avoid_: Syndication state, delivery history (the social queue's)
+
+**Unknown upload**:
+A release whose last chunk was sent but whose reply was lost and whose session has ended: the video may exist.
+Nothing is sent again until `--lookup` finds exactly the release in the channel's recent uploads, finds no upload at
+all in the attempt's window, or a person settles it with `--settle` (ADR 0846).
+_Avoid_: Failed upload, retry
 
 **Text alternative**:
 What lets a video be followed without sound: caption files or the post's Transcript section. A release without one

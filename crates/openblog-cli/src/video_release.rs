@@ -1,9 +1,11 @@
-//! `openblog video <slug>`: the YouTube-ready preview of a video post (epic #386, ADRs 0842, 0843).
+//! `openblog video <slug>`: the YouTube-ready preview of a video post (epic #386, ADRs 0842, 0843),
+//! and its approval and upload (story #400, ADRs 0844 to 0846, in [`crate::youtube`]).
 //!
 //! Reads the post, its release fields and the files they name, and prints or writes what the
-//! author would enter in YouTube Studio. It sends nothing, reads no credential and writes only into
-//! a new preview folder the author names. A file is read only at a clean path inside the project
-//! with no symlink on the way, and only its size and first bytes are read.
+//! author would enter in YouTube Studio. The preview sends nothing, reads no credential and writes
+//! only into a new preview folder the author names. A file is read only at a clean path inside the
+//! project with no symlink on the way, and only its size and first bytes are read, except that an
+//! approval or an upload reads the whole master file to fingerprint and send it.
 
 use std::fs;
 use std::io::Read;
@@ -20,12 +22,76 @@ pub struct Options {
     pub json: bool,
     /// A new folder to write the preview into: `preview.json`, the text files and `index.html`.
     pub preview: Option<String>,
+    /// Approve exactly the preview with this digest for upload (sends nothing).
+    pub approve: Option<String>,
+    /// With `--approve`: when YouTube makes the private upload public.
+    pub publish_at: Option<String>,
+    /// Upload the approved release, or resume its upload.
+    pub upload: bool,
+}
+
+/// Everything an approval or an upload needs about one release, read once.
+pub(crate) struct Prepared {
+    pub slug: String,
+    pub preview: VideoPreview,
+    pub post_date: openblog_core::DateTime,
+    pub draft: bool,
+    /// Whether the canonical address is a public `https` one a viewer can reach.
+    pub public_canonical: bool,
+    /// The master file, when the release names one that exists at a clean path.
+    pub video: Option<PathBuf>,
+    /// The thumbnail in the static folder, when it is a local JPEG or PNG.
+    pub thumbnail: Option<PathBuf>,
 }
 
 pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
-    if options.json && options.preview.is_some() {
-        return Err("--json and --preview each run alone; nothing was written".into());
+    let actions = [
+        options.json,
+        options.preview.is_some(),
+        options.approve.is_some(),
+        options.upload,
+    ]
+    .iter()
+    .filter(|on| **on)
+    .count();
+    if actions > 1 {
+        return Err(
+            "--json, --preview, --approve and --upload each run alone; nothing was written or sent"
+                .into(),
+        );
     }
+    if options.publish_at.is_some() && options.approve.is_none() {
+        return Err("--publish-at is given with --approve, which records it with the approval; nothing was written or sent".into());
+    }
+    let prepared = prepare(root, slug)?;
+    if let Some(digest) = &options.approve {
+        return crate::youtube::approve(root, &prepared, digest, options.publish_at.as_deref());
+    }
+    if options.upload {
+        return crate::youtube::upload(root, &prepared);
+    }
+    let preview = &prepared.preview;
+    if options.json {
+        let text = serde_json::to_string_pretty(&preview.to_json_value())
+            .map_err(|error| format!("could not serialize the preview: {error}"))?;
+        println!("{text}");
+        return Ok(());
+    }
+    if let Some(directory) = &options.preview {
+        let written = write_preview(root, directory, preview, prepared.thumbnail.as_deref())?;
+        println!(
+            "YouTube preview of `{slug}` written to {} ({}). Nothing was uploaded.",
+            written.display(),
+            preview.status.as_str()
+        );
+        return Ok(());
+    }
+    print_summary(preview);
+    Ok(())
+}
+
+/// Reads the post, its release and the files it names, and builds the preview.
+pub(crate) fn prepare(root: &Path, slug: &str) -> Result<Prepared, String> {
     // A release is prepared before the article goes live, so drafts and scheduled posts count.
     let (loaded, _) = site::load_site(root, true, None)?;
     let post = loaded
@@ -56,29 +122,27 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
         },
         &probe,
     );
-    if options.json {
-        let text = serde_json::to_string_pretty(&preview.to_json_value())
-            .map_err(|error| format!("could not serialize the preview: {error}"))?;
-        println!("{text}");
-        return Ok(());
-    }
-    if let Some(directory) = &options.preview {
-        let thumbnail = release
-            .thumbnail
-            .as_deref()
-            .and_then(|url| url.strip_prefix('/'))
-            .and_then(video_release::project_path)
-            .and_then(|path| resolve(root, &paths.static_dir, &AssetRef::Static(path)));
-        let written = write_preview(root, directory, &preview, thumbnail.as_deref())?;
-        println!(
-            "YouTube preview of `{slug}` written to {} ({}). Nothing was uploaded.",
-            written.display(),
-            preview.status.as_str()
-        );
-        return Ok(());
-    }
-    print_summary(&preview);
-    Ok(())
+    let thumbnail = release
+        .thumbnail
+        .as_deref()
+        .and_then(|url| url.strip_prefix('/'))
+        .and_then(video_release::project_path)
+        .and_then(|path| resolve(root, &paths.static_dir, &AssetRef::Static(path)));
+    let video = release
+        .reference
+        .file
+        .as_deref()
+        .and_then(video_release::project_path)
+        .and_then(|path| resolve(root, &paths.static_dir, &AssetRef::Project(path)));
+    Ok(Prepared {
+        slug: slug.to_string(),
+        public_canonical: public_address(&canonical_url),
+        preview,
+        post_date: post.date,
+        draft: post.draft,
+        video,
+        thumbnail,
+    })
 }
 
 /// Whether the canonical address is one a viewer can reach: public and `https`, and not the
@@ -176,6 +240,12 @@ fn print_summary(preview: &VideoPreview) {
             "Write the preview with `openblog video {} --preview <new folder>`.",
             preview.slug
         );
+        if preview.reference.file.is_some() {
+            println!(
+                "To upload it privately with open.blog, approve exactly this preview: `openblog video {} --approve {}`.",
+                preview.slug, preview.digest
+            );
+        }
     }
 }
 

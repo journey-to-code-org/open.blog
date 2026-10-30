@@ -109,7 +109,8 @@ thumbnail, `preview.json`, and an `index.html` you can open in any browser. The 
 opening, then `Read the article:` with the post's canonical address, then the chapters and the
 AI-assistance note, so viewers can always reach your site. Nothing is uploaded and no account is
 needed: the page lists the steps to follow in YouTube Studio, and the video starts private until
-you publish or schedule it there.
+you publish or schedule it there. To let open.blog upload it for you instead, see
+[Upload an approved release](#upload-an-approved-release).
 
 The preview checks YouTube's own rules (as of 2026-10-29): a title of at most 100 characters and a
 description of at most 5,000 bytes, neither containing `<` or `>`; tags of at most 500 characters
@@ -136,3 +137,80 @@ Before anything can go to YouTube, the preview also checks the files and answers
 
 open.blog reads only each file's size and first bytes, never follows a symbolic link, and never
 reads outside your project.
+
+## Upload an approved release
+
+open.blog can upload a release for you, but only after you opt in twice: once for the channel, and
+once for each release. Until then everything above works exactly as before and nothing is sent.
+
+### Connect a channel (once per computer)
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), in a project of your own,
+   enable the **YouTube Data API v3** and create an OAuth client of the **Desktop app** type.
+2. Set its id (and secret, if it has one) in your shell, never in the project:
+   `OPENBLOG_YOUTUBE_CLIENT_ID` and `OPENBLOG_YOUTUBE_CLIENT_SECRET`.
+3. Run `openblog youtube connect`, open the address it prints in a browser signed in to the
+   channel's Google account, and allow both permissions: uploading videos (`youtube.upload`) and
+   viewing the channel (`youtube.readonly`, used only to look for an upload whose outcome was
+   lost). open.blog stores nothing unless you allow both.
+
+The refresh token is kept in `.openblog/private/youtube/credential`, encrypted for your Windows
+account (or readable only by you elsewhere), and is never in your site, a log or an error.
+`openblog youtube status` shows whether a channel is connected and sends nothing;
+`openblog youtube disconnect` revokes the access at Google and deletes the file. If Google cannot be
+reached, the file is deleted anyway and you are told to remove open.blog's access at
+[myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+
+### Approve, then upload
+
+```bash
+openblog video zhalendor-episode-1                       # prints the approve command with the digest
+openblog video zhalendor-episode-1 --approve <digest> --publish-at 2026-11-02T09:00:00Z
+openblog video zhalendor-episode-1 --upload
+```
+
+- `--approve <digest>` approves exactly the release you previewed and the video file as it is now.
+  It sends nothing. If you later change the release, the post's address or the file, the upload is
+  refused until you preview and approve again.
+- `--publish-at` is optional. With it, YouTube makes the video public at that time, which must name
+  its zone, be in the future, and be no earlier than the article's date. Without it, the video
+  stays private until you publish it in YouTube Studio. The upload itself is always private.
+- `--upload` sends the video in pieces, so an interrupted upload resumes where it stopped the next
+  time you run it, then sets the thumbnail. A draft post is not uploaded.
+- open.blog does not upload caption files: add them in YouTube Studio after the upload.
+
+When it is done, open.blog prints the video's address. Add it to the post as `videoUrl:` to embed
+the video on your page.
+
+### When something goes wrong
+
+Every failure says what happened, with a code, and whether anything was sent:
+
+- `quota-exceeded`: your Google project's daily YouTube quota is spent; it resets at midnight
+  Pacific Time. Run `--upload` again then; it resumes.
+- `upload-limit-reached`: your channel reached YouTube's own daily upload limit.
+- `rate-limited` or `provider-unavailable`: try again later; the upload resumes.
+- `grant-revoked`, `permission-missing` or `client-changed`: run `openblog youtube connect` again.
+- `rejected` or `forbidden`: YouTube refused the release and no video was created.
+- A thumbnail YouTube refuses (custom thumbnails need a verified channel) leaves the video uploaded;
+  `--upload` retries only the thumbnail.
+
+If the whole file was sent but YouTube's reply was lost, open.blog cannot know whether the video
+exists, so the release becomes **unknown** and nothing more is sent. Run
+`openblog video <slug> --lookup`: it records the video if exactly one upload since the attempt has
+your title and description, and says nothing was uploaded only if the channel has no upload at all
+since then (and at least fifteen minutes have passed). Otherwise check YouTube Studio and record
+what you find with `--settle uploaded:<video id>` or `--settle not-uploaded`.
+`openblog video <slug> --status` shows the release's state and history. The record is kept on this
+computer only, in `.openblog/private/youtube/`
+(ADRs [0844](adr/0844-youtube-uploads-use-the-deployers-own-google-client-a-loopback-pkce-grant-and-a-refresh-token-protected-on-the-authors-machine.md),
+[0845](adr/0845-an-approved-release-is-uploaded-private-through-a-recorded-resumable-session-and-youtube-not-open-blog-schedules-its-publication.md),
+[0846](adr/0846-the-youtube-id-is-recorded-privately-and-an-upload-whose-reply-was-lost-is-unknown-until-a-lookup-or-a-person-settles-it.md)).
+
+YouTube's rules were checked on 2026-10-29 against the
+[resumable upload protocol](https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol),
+[videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert),
+[thumbnails.set](https://developers.google.com/youtube/v3/docs/thumbnails/set),
+[the API errors](https://developers.google.com/youtube/v3/docs/errors),
+[quota costs](https://developers.google.com/youtube/v3/determine_quota_cost) and
+[OAuth for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app).

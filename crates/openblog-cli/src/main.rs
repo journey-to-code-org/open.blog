@@ -49,6 +49,7 @@ mod voice_prompts;
 mod voice_session;
 mod voice_store;
 mod workspace;
+mod youtube;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -81,7 +82,10 @@ COMMANDS
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
     video <slug>               Check a video post's YouTube release: title, description with the
                                article link, thumbnail, chapters, captions, transcript and consent;
-                               uploads nothing (see video OPTIONS)
+                               uploads nothing unless approved and asked to (see video OPTIONS)
+    youtube connect|disconnect|status
+                               Connect a YouTube channel for approved uploads (off until
+                               OPENBLOG_YOUTUBE_CLIENT_ID is set), revoke it, or show it
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -127,6 +131,10 @@ video OPTIONS
     --json                     Print the YouTube preview as JSON
     --preview <new folder>     Write title.txt, description.txt, tags.txt, transcript.txt, the
                                thumbnail, preview.json and an accessible index.html; uploads nothing
+    --approve <digest>         Approve exactly the previewed release and its video file (sends
+                               nothing); add --publish-at <RFC 3339 time> to have YouTube publish it
+    --upload                   Upload the approved release as a private video, resume an
+                               interrupted upload, or retry its thumbnail
 
 export OPTIONS
     --format markdown|csl-json|bibtex
@@ -241,6 +249,7 @@ const SWITCHES: &[&str] = &[
     "scrap",
     "stdin",
     "yes",
+    "upload",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -491,8 +500,18 @@ fn run(raw: &[String]) -> Result<(), String> {
                 video_release::Options {
                     json: args.switches.contains("json"),
                     preview: args.options.get("preview").cloned(),
+                    approve: args.options.get("approve").cloned(),
+                    publish_at: args.options.get("publish-at").cloned(),
+                    upload: args.switches.contains("upload"),
                 },
             )
+        }
+        "youtube" => {
+            let action = args
+                .positional
+                .first()
+                .ok_or("usage: openblog youtube connect|disconnect|status")?;
+            youtube::command(&root, action)
         }
         "paths" => {
             let options = paths_exchange::Options {

@@ -250,3 +250,72 @@ fn release_fields_leave_the_built_site_byte_for_byte_unchanged() {
         assert!(after[name] == *bytes, "{name} changed");
     }
 }
+
+fn run_without_youtube(root: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_openblog"))
+        .args(args)
+        .arg("--root")
+        .arg(root)
+        .env_remove("OPENBLOG_WORKSPACE")
+        .env_remove("OPENBLOG_YOUTUBE_CLIENT_ID")
+        .env_remove("OPENBLOG_YOUTUBE_CLIENT_SECRET")
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn uploading_is_off_without_an_oauth_client_and_an_approval_changes_no_build_output() {
+    let root = project("upload-off");
+    post(&root, &RELEASE.replace(" <cut>", ""), false);
+    let before = run(
+        &root,
+        &["build", "--out", root.join("before").to_str().unwrap()],
+    );
+    assert!(before.status.success(), "{}", text(&before.stderr));
+
+    // Nothing is approved yet: the upload is refused before anything else.
+    let out = run_without_youtube(&root, &["video", "episode", "--upload"]);
+    assert!(!out.status.success());
+    assert!(
+        text(&out.stderr).contains("[not-approved]"),
+        "{}",
+        text(&out.stderr)
+    );
+
+    let wrong = run_without_youtube(&root, &["video", "episode", "--approve", "abc"]);
+    assert!(!wrong.status.success());
+    assert!(text(&wrong.stderr).contains("[plan-changed]"));
+    let digest = json(&root)["digest"].as_str().unwrap().to_string();
+    let approve = run_without_youtube(&root, &["video", "episode", "--approve", &digest]);
+    assert!(approve.status.success(), "{}", text(&approve.stderr));
+    assert!(text(&approve.stdout).contains("Nothing was sent."));
+    assert!(root
+        .join(".openblog/private/youtube/approvals.json")
+        .is_file());
+
+    // Approved, but no OAuth client: off, with the guided workflow named.
+    let out = run_without_youtube(&root, &["video", "episode", "--upload"]);
+    assert!(!out.status.success());
+    let error = text(&out.stderr);
+    assert!(
+        error.contains("[youtube-not-configured]") && error.contains("--preview"),
+        "{error}"
+    );
+
+    let status = run_without_youtube(&root, &["youtube", "status"]);
+    assert!(status.status.success());
+    let status = text(&status.stdout);
+    assert!(
+        status.contains("not set") && status.contains("Connected: no"),
+        "{status}"
+    );
+    let both = run_without_youtube(&root, &["video", "episode", "--upload", "--lookup"]);
+    assert!(!both.status.success());
+
+    let after = run(
+        &root,
+        &["build", "--out", root.join("after").to_str().unwrap()],
+    );
+    assert!(after.status.success(), "{}", text(&after.stderr));
+    assert_eq!(tree(&root.join("before")), tree(&root.join("after")));
+}
