@@ -133,6 +133,7 @@ pub mod reading_path;
 pub mod reading_path_exchange;
 pub mod recipe;
 pub mod recipe_check;
+pub mod recipe_directory;
 pub mod recipe_schema;
 pub mod reflection;
 pub mod render;
