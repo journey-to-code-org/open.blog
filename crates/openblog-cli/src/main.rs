@@ -79,8 +79,8 @@ COMMANDS
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
-    submit <slug> --to <where>  Prepare a community submission to make by hand (Hacker News);
-                               open.blog never submits for you
+    submit <slug> --to <where>  Prepare a community submission to make by hand (Hacker News,
+                               Reddit); open.blog never submits for you
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -123,8 +123,10 @@ syndicate OPTIONS
                                syndication.requireApproval, --write sends only what is approved
 
 submit OPTIONS
-    --to hacker-news           Where to prepare a submission (each must be enabled under
-                               community in openblog.json)
+    --to hacker-news,reddit:rust
+                               Where to prepare a submission (each must be enabled under
+                               community in openblog.json; a Reddit community needs the rules
+                               you wrote down for it)
     --title <text>             Your own title for this submission instead of the post's
     --kit <new folder>         Write an accessible index.html checklist and kit.json there
                                instead of printing the kit

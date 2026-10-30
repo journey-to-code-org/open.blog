@@ -9,6 +9,8 @@
 //! Errors and notices are fixed text, apart from the limits and names they state; they never
 //! repeat the author's title.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as Json};
 
@@ -22,11 +24,20 @@ pub const KIT_VERSION: u32 = 1;
 /// The longest Hacker News title, in characters. HN's submit form refuses a longer one; the limit
 /// is not in HN's written guidelines (ADR 0801).
 pub const HN_TITLE_MAX_CHARS: usize = 80;
+/// The longest Reddit post title, in characters (Reddit's submit form).
+pub const REDDIT_TITLE_MAX_CHARS: usize = 300;
 /// The most destinations one kit prepares.
 pub const MAX_DESTINATIONS: usize = 6;
+/// The most rules the author can write down for one community, and the longest rule.
+pub const MAX_COMMUNITY_RULES: usize = 30;
+pub const MAX_RULE_CHARS: usize = 300;
+/// How long a community's rules, as the author wrote them down, are taken as current.
+pub const RULES_REVIEW_DAYS: i64 = 180;
 
 const HN_GUIDELINES: &str = "https://news.ycombinator.com/newsguidelines.html";
 const HN_FAQ: &str = "https://news.ycombinator.com/newsfaq.html";
+const REDDIT_RULES: &str = "https://redditinc.com/policies/reddit-rules";
+const REDDIT_SPAM: &str = "https://support.reddithelp.com/hc/en-us/articles/360043504051-Spam";
 
 /// Guided community submissions in `openblog.json`. Every destination is off by default, and the
 /// object is omitted from the written file while it has its defaults, so a site that never sets
@@ -35,6 +46,7 @@ const HN_FAQ: &str = "https://news.ycombinator.com/newsfaq.html";
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct CommunityConfig {
     pub hacker_news: HackerNewsConfig,
+    pub reddit: RedditConfig,
     /// Private record of the submissions the author confirmed, relative to the project root.
     pub state_file: String,
 }
@@ -43,6 +55,7 @@ impl Default for CommunityConfig {
     fn default() -> Self {
         Self {
             hacker_news: HackerNewsConfig::default(),
+            reddit: RedditConfig::default(),
             state_file: ".openblog/community-submissions.json".into(),
         }
     }
@@ -57,9 +70,96 @@ impl CommunityConfig {
     pub fn enabled(&self, provider: ProviderId) -> bool {
         match provider {
             ProviderId::HackerNews => self.hacker_news.enabled,
+            ProviderId::Reddit => self.reddit.enabled,
             _ => false,
         }
     }
+
+    /// The community the author wrote down, matched without regard to case as Reddit does.
+    pub fn reddit_community(&self, name: &str) -> Option<(&str, &RedditCommunity)> {
+        self.reddit
+            .communities
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(key, community)| (key.as_str(), community))
+    }
+
+    /// Checks what the author wrote down. Only `openblog submit` calls it, so a mistake here never
+    /// stops a build.
+    pub fn validate(&self) -> Result<(), String> {
+        let mut seen: Vec<String> = Vec::new();
+        for (name, community) in &self.reddit.communities {
+            if !valid_community_name(name) {
+                return Err(
+                    "community.reddit.communities: a community name is 3 to 21 letters, digits or underscores, without r/"
+                        .to_string(),
+                );
+            }
+            let at = |problem: &str| format!("community.reddit.communities.{name}: {problem}");
+            let lower = name.to_ascii_lowercase();
+            if seen.contains(&lower) {
+                return Err(at("this community is listed twice, in different case"));
+            }
+            seen.push(lower);
+            if community.rules.is_empty() || community.rules.len() > MAX_COMMUNITY_RULES {
+                return Err(at(&format!(
+                    "write down 1 to {MAX_COMMUNITY_RULES} of the community's rules under `rules`, from its sidebar or rules page"
+                )));
+            }
+            for rule in &community.rules {
+                let chars = rule.trim().chars().count();
+                if chars == 0 || chars > MAX_RULE_CHARS || rule.chars().any(char::is_control) {
+                    return Err(at(&format!(
+                        "each rule is one line of 1 to {MAX_RULE_CHARS} characters"
+                    )));
+                }
+            }
+            if !community.reviewed.is_empty() && review_date(&community.reviewed).is_none() {
+                return Err(at(
+                    "`reviewed` is the day you last read the rules, such as 2026-10-29",
+                ));
+            }
+            if community.flair.chars().count() > 64 || community.flair.chars().any(char::is_control)
+            {
+                return Err(at("`flair` is one line of at most 64 characters"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Reddit submissions: off by default, and only to communities whose rules the author wrote down.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct RedditConfig {
+    pub enabled: bool,
+    /// Keyed by the community's name, without `r/`.
+    pub communities: BTreeMap<String, RedditCommunity>,
+}
+
+/// One community as the author wrote it down. open.blog never reads a community's rules from
+/// Reddit; the author copies them, and the kit makes them a checklist (ADR 0802).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct RedditCommunity {
+    pub rules: Vec<String>,
+    /// The day the author last read the community's rules, `YYYY-MM-DD`.
+    pub reviewed: String,
+    /// The flair the community expects for a post like this, as a reminder.
+    pub flair: String,
+}
+
+/// A community name as Reddit allows it: 3 to 21 letters, digits or underscores.
+pub fn valid_community_name(name: &str) -> bool {
+    (3..=21).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+// A plain `YYYY-MM-DD` day, as Unix seconds at its start.
+fn review_date(value: &str) -> Option<i64> {
+    if value.len() != 10 {
+        return None;
+    }
+    crate::date::DateTime::parse(value).map(|date| date.unix())
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -74,6 +174,7 @@ pub enum SubmissionError {
     NoDestination,
     UnknownDestination,
     TooManyDestinations,
+    InvalidCommunity,
     Disabled(ProviderId),
 }
 
@@ -83,6 +184,7 @@ impl SubmissionError {
             Self::NoDestination => "no-destination",
             Self::UnknownDestination => "unknown-destination",
             Self::TooManyDestinations => "too-many-destinations",
+            Self::InvalidCommunity => "invalid-community",
             Self::Disabled(_) => "destination-disabled",
         }
     }
@@ -92,14 +194,20 @@ impl std::fmt::Display for SubmissionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoDestination => f.write_str(
-                "Name where to submit with --to, such as --to hacker-news.",
+                "Name where to submit with --to, such as --to hacker-news or --to reddit:rust.",
             ),
             Self::UnknownDestination => f.write_str(
-                "A destination is not one open.blog prepares submissions for; use hacker-news.",
+                "A destination is not one open.blog prepares submissions for; use hacker-news or reddit:<community>.",
             ),
             Self::TooManyDestinations => write!(
                 f,
                 "One kit prepares at most {MAX_DESTINATIONS} destinations."
+            ),
+            Self::InvalidCommunity => f.write_str(
+                "A Reddit community name is 3 to 21 letters, digits or underscores, such as reddit:rust.",
+            ),
+            Self::Disabled(ProviderId::Reddit) => f.write_str(
+                "Reddit submissions are off. Set community.reddit.enabled to true in openblog.json and write down each community's rules under community.reddit.communities to prepare them.",
             ),
             Self::Disabled(ProviderId::HackerNews) => f.write_str(
                 "Hacker News submissions are off. Set community.hackerNews.enabled to true in openblog.json to prepare them.",
@@ -115,15 +223,25 @@ impl std::error::Error for SubmissionError {}
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Destination {
     HackerNews,
+    /// A Reddit community, by its name in lower case.
+    Reddit(String),
 }
 
 impl Destination {
-    /// Reads one destination name, such as `hacker-news`.
+    /// Reads one destination name: `hacker-news`, or `reddit:<community>` (`r/` is allowed).
     pub fn parse(value: &str) -> Result<Self, SubmissionError> {
-        match value.trim() {
-            "hacker-news" => Ok(Self::HackerNews),
-            _ => Err(SubmissionError::UnknownDestination),
+        let value = value.trim();
+        if value == "hacker-news" {
+            return Ok(Self::HackerNews);
         }
+        let Some(community) = value.strip_prefix("reddit:") else {
+            return Err(SubmissionError::UnknownDestination);
+        };
+        let community = community.strip_prefix("r/").unwrap_or(community);
+        if !valid_community_name(community) {
+            return Err(SubmissionError::InvalidCommunity);
+        }
+        Ok(Self::Reddit(community.to_ascii_lowercase()))
     }
 
     /// Reads a comma-separated list, once each, in the order given.
@@ -148,12 +266,14 @@ impl Destination {
     pub fn key(&self) -> String {
         match self {
             Self::HackerNews => "hacker-news".into(),
+            Self::Reddit(community) => format!("reddit:{community}"),
         }
     }
 
     pub fn provider(&self) -> ProviderId {
         match self {
             Self::HackerNews => ProviderId::HackerNews,
+            Self::Reddit(_) => ProviderId::Reddit,
         }
     }
 
@@ -161,6 +281,7 @@ impl Destination {
     pub fn label(&self) -> String {
         match self {
             Self::HackerNews => "Hacker News".into(),
+            Self::Reddit(community) => format!("r/{community} on Reddit"),
         }
     }
 }
@@ -220,6 +341,8 @@ pub struct DestinationKit {
     pub link: String,
     /// The provider's own submit form, filled in where it accepts that. None while blocked.
     pub submit_url: Option<String>,
+    /// Where the community's current rules are, to read before submitting.
+    pub rules_url: Option<String>,
     pub rules: Vec<Rule>,
     pub notices: Vec<Notice>,
     pub policy_version: String,
@@ -240,6 +363,11 @@ pub struct KitRequest<'a> {
     pub title: Option<&'a str>,
     pub canonical_url: &'a str,
     pub site_title: &'a str,
+    pub config: &'a CommunityConfig,
+    /// Every destination of this kit, so one can see the others.
+    pub destinations: &'a [Destination],
+    /// Now, as Unix seconds, to tell how long ago the author last read a community's rules.
+    pub now_unix: i64,
 }
 
 /// Every destination's kit for one post.
@@ -266,8 +394,9 @@ pub fn normalize_title(title: &str) -> String {
 
 /// Prepares every destination's kit. Pure: the caller has checked that each destination is
 /// enabled.
-pub fn prepare(request: &KitRequest<'_>, destinations: &[Destination]) -> SubmissionKit {
-    let kits = destinations
+pub fn prepare(request: &KitRequest<'_>) -> SubmissionKit {
+    let kits = request
+        .destinations
         .iter()
         .map(|destination| prepare_one(request, destination))
         .collect();
@@ -308,6 +437,7 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
             "The title has invisible or control characters; write it again in plain text.",
         ));
     }
+    let mut rules_url = None;
     let (rules, submit_url) = match destination {
         Destination::HackerNews => {
             notices.extend(hn_title_notices(
@@ -324,6 +454,38 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
                 ),
             )
         }
+        Destination::Reddit(community) => {
+            let configured = request.config.reddit_community(community);
+            let name = configured.map_or(community.as_str(), |(name, _)| name);
+            rules_url = Some(format!("https://www.reddit.com/r/{name}/about/rules"));
+            notices.extend(reddit_notices(
+                &title,
+                configured.map(|(_, c)| c),
+                name,
+                request.now_unix,
+            ));
+            let reddit_destinations = request
+                .destinations
+                .iter()
+                .filter(|d| matches!(d, Destination::Reddit(_)))
+                .count();
+            if reddit_destinations > 1 {
+                notices.push(Notice::advice(
+                    "several-communities",
+                    format!(
+                        "This kit prepares the same link for {reddit_destinations} Reddit communities. Posting one link to many communities at once can count as spam; choose where you take part."
+                    ),
+                ));
+            }
+            (
+                reddit_rules(name, configured.map(|(_, c)| c)),
+                format!(
+                    "https://www.reddit.com/r/{name}/submit?url={}&title={}",
+                    escape::url_component(request.canonical_url),
+                    escape::url_component(&title)
+                ),
+            )
+        }
     };
     let mut kit = DestinationKit {
         destination: destination.key(),
@@ -332,6 +494,7 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
         title,
         link: request.canonical_url.to_string(),
         submit_url: None,
+        rules_url,
         rules,
         notices,
         policy_version: manifest.policy_version,
@@ -409,6 +572,88 @@ fn gratuitous_number(title: &str) -> bool {
     }
 }
 
+/// Whether a Reddit submission can go ahead: the author must have written down the community's
+/// rules, and the title must fit Reddit's form. A stale or undated copy of the rules is advice.
+pub fn reddit_notices(
+    title: &str,
+    community: Option<&RedditCommunity>,
+    name: &str,
+    now_unix: i64,
+) -> Vec<Notice> {
+    let mut notices = Vec::new();
+    let chars = title.chars().count();
+    if chars == 0 {
+        notices.push(Notice::blocking("title-empty", "The title is empty."));
+    } else if chars > REDDIT_TITLE_MAX_CHARS {
+        notices.push(Notice::blocking(
+            "title-too-long",
+            format!(
+                "Reddit takes a title of at most {REDDIT_TITLE_MAX_CHARS} characters; this one has {chars}. Shorten it with --title."
+            ),
+        ));
+    }
+    let Some(community) = community else {
+        notices.push(Notice::blocking(
+            "community-rules-missing",
+            format!(
+                "Write down r/{name}'s rules under community.reddit.communities.{name}.rules in openblog.json first; open.blog does not read them from Reddit."
+            ),
+        ));
+        return notices;
+    };
+    match review_date(&community.reviewed) {
+        None => notices.push(Notice::advice(
+            "rules-undated",
+            format!(
+                "You have not said when you last read r/{name}'s rules; read them again on Reddit and set `reviewed`."
+            ),
+        )),
+        Some(reviewed) if now_unix - reviewed > RULES_REVIEW_DAYS * 86_400 => {
+            notices.push(Notice::advice(
+                "rules-stale",
+                format!(
+                    "You last read r/{name}'s rules more than {RULES_REVIEW_DAYS} days ago; moderators change them, so read them again."
+                ),
+            ))
+        }
+        Some(_) => {}
+    }
+    notices
+}
+
+fn reddit_rules(name: &str, community: Option<&RedditCommunity>) -> Vec<Rule> {
+    let mut rules = vec![
+        provider_rule(
+            &format!("Follow r/{name}'s own rules, which its moderators set, including any limit on self-promotion."),
+            REDDIT_RULES,
+        ),
+        provider_rule(
+            "Post where you take part, not only to promote your own work.",
+            REDDIT_RULES,
+        ),
+        provider_rule(
+            "Don't ask for votes, and don't post the same link to many communities.",
+            REDDIT_SPAM,
+        ),
+    ];
+    if let Some(community) = community {
+        for rule in &community.rules {
+            rules.push(Rule {
+                text: rule.trim().to_string(),
+                source: None,
+            });
+        }
+        let flair = community.flair.trim();
+        if !flair.is_empty() {
+            rules.push(Rule {
+                text: format!("Choose the flair \"{flair}\"."),
+                source: None,
+            });
+        }
+    }
+    rules
+}
+
 fn hn_rules() -> Vec<Rule> {
     vec![
         provider_rule(
@@ -463,6 +708,9 @@ pub fn kit_text(kit: &SubmissionKit) -> String {
                 notice.code,
                 notice.message
             ));
+        }
+        if let Some(rules_url) = &d.rules_url {
+            out.push_str(&format!("  read the current rules: {rules_url}\n"));
         }
         out.push_str("  before you submit:\n");
         for rule in &d.rules {
@@ -546,6 +794,12 @@ pub fn kit_page(kit: &SubmissionKit) -> String {
             a(&d.label),
             t(&d.link)
         ));
+        if let Some(rules_url) = &d.rules_url {
+            out.push_str(&format!(
+                "<p><a href=\"{}\" rel=\"noopener noreferrer\">Read the community's current rules on Reddit</a> before you tick them off below.</p>\n",
+                a(rules_url)
+            ));
+        }
         out.push_str(&format!(
             "<fieldset>\n<legend>Before you submit to {}</legend>\n<ul class=\"checklist\">\n",
             t(&d.label)
@@ -607,19 +861,38 @@ pub fn kit_json(kit: &SubmissionKit) -> String {
 mod tests {
     use super::*;
 
-    fn request<'a>(title: Option<&'a str>) -> KitRequest<'a> {
+    const HN: &[Destination] = &[Destination::HackerNews];
+    // 2026-10-29T00:00:00Z
+    const NOW: i64 = 1_793_232_000;
+
+    fn request<'a>(
+        title: Option<&'a str>,
+        destinations: &'a [Destination],
+        config: &'a CommunityConfig,
+    ) -> KitRequest<'a> {
         KitRequest {
             slug: "a-post",
             post_title: "Why  borrow\tchecking helps",
             title,
             canonical_url: "https://blog.example.org/a-post/?x=1&y=<2>",
             site_title: "Field Notes",
+            config,
+            destinations,
+            now_unix: NOW,
         }
+    }
+
+    fn kit(
+        title: Option<&str>,
+        destinations: &[Destination],
+        config: &CommunityConfig,
+    ) -> SubmissionKit {
+        prepare(&request(title, destinations, config))
     }
 
     #[test]
     fn a_hacker_news_kit_carries_the_original_title_and_the_exact_link_and_never_submits() {
-        let kit = prepare(&request(None), &[Destination::HackerNews]);
+        let kit = kit(None, HN, &CommunityConfig::default());
         let hn = &kit.destinations[0];
         assert_eq!(hn.title, "Why borrow checking helps");
         assert_eq!(hn.link, "https://blog.example.org/a-post/?x=1&y=<2>");
@@ -636,16 +909,14 @@ mod tests {
     #[test]
     fn a_title_over_eighty_characters_blocks_and_withholds_the_submit_link() {
         let long = "x".repeat(81);
-        let kit = prepare(&request(Some(&long)), &[Destination::HackerNews]);
-        let hn = &kit.destinations[0];
+        let long_kit = kit(Some(&long), HN, &CommunityConfig::default());
+        let hn = &long_kit.destinations[0];
         assert!(!hn.ready());
         assert!(hn.submit_url.is_none());
         let codes: Vec<_> = hn.notices.iter().map(|n| n.code).collect();
         assert_eq!(codes, ["title-too-long", "title-edited"]);
         let exact = "x".repeat(80);
-        assert!(
-            prepare(&request(Some(&exact)), &[Destination::HackerNews]).destinations[0].ready()
-        );
+        assert!(kit(Some(&exact), HN, &CommunityConfig::default()).destinations[0].ready());
     }
 
     #[test]
@@ -670,10 +941,7 @@ mod tests {
 
     #[test]
     fn invisible_characters_in_a_title_block() {
-        let kit = prepare(
-            &request(Some("Hidden\u{202E}text")),
-            &[Destination::HackerNews],
-        );
+        let kit = kit(Some("Hidden\u{202E}text"), HN, &CommunityConfig::default());
         assert!(kit.destinations[0]
             .notices
             .iter()
@@ -713,11 +981,146 @@ mod tests {
         .is_err());
     }
 
+    fn reddit_config(reviewed: &str) -> CommunityConfig {
+        serde_json::from_value(json!({
+            "reddit": {
+                "enabled": true,
+                "communities": {
+                    "Rust": {
+                        "rules": ["Posts must be about the Rust language", "  No more than one self-promotion a week  "],
+                        "reviewed": reviewed,
+                        "flair": "blog post"
+                    }
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_reddit_kit_turns_the_communitys_written_rules_into_a_checklist() {
+        let config = reddit_config("2026-10-01");
+        config.validate().unwrap();
+        let destinations = [Destination::parse("reddit:r/rust").unwrap()];
+        let kit = kit(None, &destinations, &config);
+        let d = &kit.destinations[0];
+        assert_eq!(d.destination, "reddit:rust");
+        assert_eq!(d.label, "r/rust on Reddit");
+        assert!(d.ready(), "{:?}", d.notices);
+        assert!(d.notices.is_empty());
+        // The author's spelling of the community is used in addresses.
+        assert_eq!(
+            d.rules_url.as_deref(),
+            Some("https://www.reddit.com/r/Rust/about/rules")
+        );
+        assert_eq!(
+            d.submit_url.as_deref(),
+            Some("https://www.reddit.com/r/Rust/submit?url=https%3A%2F%2Fblog.example.org%2Fa-post%2F%3Fx%3D1%26y%3D%3C2%3E&title=Why%20borrow%20checking%20helps")
+        );
+        let texts: Vec<_> = d.rules.iter().map(|r| r.text.as_str()).collect();
+        assert!(texts.contains(&"Posts must be about the Rust language"));
+        assert!(texts.contains(&"No more than one self-promotion a week"));
+        assert!(texts.contains(&"Choose the flair \"blog post\"."));
+        assert_eq!(d.rules.iter().filter(|r| r.source.is_none()).count(), 3);
+        assert_eq!(d.rules.iter().filter(|r| r.source.is_some()).count(), 3);
+        let page = kit_page(&kit);
+        assert!(page.contains("Read the community's current rules on Reddit"));
+        assert!(page.contains("(your note)"));
+    }
+
+    #[test]
+    fn a_community_without_written_rules_is_blocked_with_no_submit_link() {
+        let config = reddit_config("2026-10-01");
+        let destinations = [Destination::parse("reddit:programming").unwrap()];
+        let d = &kit(None, &destinations, &config).destinations[0];
+        assert!(!d.ready());
+        assert!(d.submit_url.is_none());
+        assert_eq!(d.notices[0].code, "community-rules-missing");
+        // The three Reddit-wide rules are still shown, so the author knows what applies.
+        assert_eq!(d.rules.len(), 3);
+    }
+
+    #[test]
+    fn stale_or_undated_rules_and_several_communities_are_advice() {
+        let codes = |config: &CommunityConfig, destinations: &[Destination]| -> Vec<&'static str> {
+            kit(None, destinations, config).destinations[0]
+                .notices
+                .iter()
+                .map(|n| n.code)
+                .collect()
+        };
+        let rust = [Destination::Reddit("rust".into())];
+        assert_eq!(codes(&reddit_config(""), &rust), ["rules-undated"]);
+        assert_eq!(codes(&reddit_config("2026-01-01"), &rust), ["rules-stale"]);
+        let two = [
+            Destination::Reddit("rust".into()),
+            Destination::Reddit("programming".into()),
+        ];
+        assert_eq!(
+            codes(&reddit_config("2026-10-01"), &two),
+            ["several-communities"]
+        );
+        let long = "y".repeat(301);
+        let d = &kit(Some(&long), &rust, &reddit_config("2026-10-01")).destinations[0];
+        assert_eq!(d.notices[0].code, "title-too-long");
+        assert!(!d.ready());
+        assert!(
+            kit(Some(&"y".repeat(300)), &rust, &reddit_config("2026-10-01")).destinations[0]
+                .ready()
+        );
+    }
+
+    #[test]
+    fn reddit_destinations_and_communities_are_checked() {
+        assert_eq!(
+            Destination::parse("reddit:Rust_Lang").unwrap(),
+            Destination::Reddit("rust_lang".into())
+        );
+        for bad in [
+            "reddit:",
+            "reddit:ab",
+            "reddit:a-b-c",
+            "reddit:r/",
+            "reddit:x/../y",
+            "reddit:abcdefghijklmnopqrstuv",
+        ] {
+            assert_eq!(
+                Destination::parse(bad),
+                Err(SubmissionError::InvalidCommunity),
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            Destination::parse("reddit"),
+            Err(SubmissionError::UnknownDestination)
+        );
+        let bad = |value: serde_json::Value| {
+            serde_json::from_value::<CommunityConfig>(
+                json!({"reddit": {"enabled": true, "communities": value}}),
+            )
+            .unwrap()
+            .validate()
+            .unwrap_err()
+        };
+        assert!(bad(json!({"r/rust": {"rules": ["x"]}})).contains("3 to 21"));
+        assert!(bad(json!({"rust": {"rules": []}})).contains("1 to 30"));
+        assert!(bad(json!({"rust": {"rules": ["a\nb"]}})).contains("one line"));
+        assert!(
+            bad(json!({"rust": {"rules": ["x"], "reviewed": "last week"}})).contains("reviewed")
+        );
+        assert!(bad(json!({"rust": {"rules": ["x"]}, "RUST": {"rules": ["y"]}})).contains("twice"));
+        assert!(serde_json::from_value::<CommunityConfig>(
+            json!({"reddit": {"enabled": true, "token": "x"}})
+        )
+        .is_err());
+    }
+
     #[test]
     fn the_page_is_static_escaped_and_labelled() {
-        let mut request = request(Some("<script>alert(1)</script> & more"));
+        let config = CommunityConfig::default();
+        let mut request = request(Some("<script>alert(1)</script> & more"), HN, &config);
         request.post_title = "<b>Post</b>";
-        let kit = prepare(&request, &[Destination::HackerNews]);
+        let kit = prepare(&request);
         let page = kit_page(&kit);
         assert!(!page.contains("<script>"));
         assert!(!page.contains("<b>Post</b>"));

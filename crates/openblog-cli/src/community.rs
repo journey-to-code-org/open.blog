@@ -13,11 +13,11 @@ use crate::fsutil;
 use crate::syndication::{new_artifact_folder, public_post};
 
 pub const USAGE: &str =
-    "usage: openblog submit <slug> --to hacker-news [--title <text>] [--kit <new folder>]";
+    "usage: openblog submit <slug> --to hacker-news,reddit:<community> [--title <text>] [--kit <new folder>]";
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
-    /// Comma-separated destinations, such as `hacker-news`.
+    /// Comma-separated destinations, such as `hacker-news,reddit:rust`.
     pub to: Option<String>,
     /// The author's own title for this run.
     pub title: Option<String>,
@@ -31,6 +31,7 @@ fn refused(error: SubmissionError) -> String {
 
 /// The destinations named with `--to`, each one the author has turned on.
 fn destinations(config: &SiteConfig, to: Option<&str>) -> Result<Vec<Destination>, String> {
+    config.community.validate()?;
     let list = Destination::parse_list(to.unwrap_or_default()).map_err(refused)?;
     for destination in &list {
         if !config.community.enabled(destination.provider()) {
@@ -52,8 +53,11 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
         title: options.title.as_deref(),
         canonical_url: &post.canonical_url,
         site_title: &config.title,
+        config: &config.community,
+        destinations: &chosen,
+        now_unix: crate::clock::now().unix(),
     };
-    let kit = community_submission::prepare(&request, &chosen);
+    let kit = community_submission::prepare(&request);
     match options.kit.as_deref() {
         None => print!("{}", community_submission::kit_text(&kit)),
         Some(directory) => {
@@ -160,6 +164,40 @@ mod tests {
         assert!(error.contains("community.hackerNews.enabled"), "{error}");
         let error = run(dir.path(), "hello", Options::default()).unwrap_err();
         assert!(error.contains("[no-destination]"), "{error}");
+    }
+
+    #[test]
+    fn a_reddit_kit_needs_the_opt_in_and_the_communitys_rules() {
+        let dir =
+            site(r#"{"reddit":{"enabled":false,"communities":{"rust":{"rules":["On topic"]}}}}"#);
+        let error = run(dir.path(), "hello", options("reddit:rust")).unwrap_err();
+        assert!(error.contains("community.reddit.enabled"), "{error}");
+
+        let dir = site(r#"{"reddit":{"enabled":true,"communities":{"rust":{"rules":[]}}}}"#);
+        let error = run(dir.path(), "hello", options("reddit:rust")).unwrap_err();
+        assert!(
+            error.contains("community.reddit.communities.rust"),
+            "{error}"
+        );
+
+        let dir = site(
+            r#"{"reddit":{"enabled":true,"communities":{"rust":{"rules":["On topic","No memes"],"reviewed":"2026-10-01"}}}}"#,
+        );
+        let mut with_kit = options("reddit:rust,reddit:golang");
+        with_kit.kit = Some("kit".into());
+        run(dir.path(), "hello", with_kit).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("kit/kit.json")).unwrap())
+                .unwrap();
+        let rust = &json["destinations"][0];
+        assert_eq!(rust["destination"], "reddit:rust");
+        assert!(rust["submitUrl"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://www.reddit.com/r/rust/submit?url="));
+        let golang = &json["destinations"][1];
+        assert!(golang["submitUrl"].is_null());
+        assert_eq!(golang["notices"][0]["code"], "community-rules-missing");
     }
 
     #[test]
