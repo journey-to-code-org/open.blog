@@ -1,4 +1,4 @@
-# ADR 0820: A recipe is exported as the same schema.org Recipe node its page carries, and `adaptedFrom` is the only new field
+# ADR 0333: A recipe is exported as the same schema.org Recipe node its page carries, and `adaptedFrom` is the only new field
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -44,7 +44,7 @@ Provider facts, checked on 2026-10-29:
   and units are not converted, because the ingredient line is the author's text and a conversion would be a new fact.
 - **`adaptedFrom` is the only new front matter field** (also `adapted_from`, `basedOn`). When it is an absolute
   `http` or `https` address it becomes `isBasedOn` on both the page and the export; anything else is left out of
-  both and reported by the check (ADR 0821). A recipe without it has exactly the data it had.
+  both and reported by the check (ADR 0334). A recipe without it has exactly the data it had.
 - **The export is a local file.** `openblog export <slug> --format recipe-json-ld [--out <path> --write]` follows
   the other portable exports: published posts only, a dry run by default, `--json` for a versioned plan, never
   overwriting a file, and the publication boundary scan (ADR 0125). It sends nothing and reads no credential, so it

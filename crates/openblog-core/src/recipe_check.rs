@@ -1,4 +1,4 @@
-//! The checks a recipe export must pass (epic #385, story #397, ADR 0821).
+//! The checks a recipe export must pass (epic #385, story #397, ADR 0334).
 //!
 //! [`check`] reads a published recipe and reports every problem in a closed list of codes: the
 //! ingredient amounts the reader's scaling reads, empty or duplicated lines, the times, the yield

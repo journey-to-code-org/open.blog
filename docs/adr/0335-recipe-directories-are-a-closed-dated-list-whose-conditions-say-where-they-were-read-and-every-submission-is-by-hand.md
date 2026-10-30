@@ -1,4 +1,4 @@
-# ADR 0822: Recipe directories are a closed, dated list whose conditions say where they were read, and every submission is by hand
+# ADR 0335: Recipe directories are a closed, dated list whose conditions say where they were read, and every submission is by hand
 
 - Status: Accepted
 - Date: 2026-10-29
@@ -46,7 +46,7 @@ What was found on 2026-10-29:
 - **Unavailable is a named state**: `yummly` (`directory-closed`) and `allrecipes` (`terms-not-verified`) are refused
   with their fixed reason, and any other name is refused as unknown without repeating it. Nothing is read or
   written.
-- **Destination checks, a closed list** (`FindingCode`), on top of the recipe check (ADR 0821):
+- **Destination checks, a closed list** (`FindingCode`), on top of the recipe check (ADR 0334):
   errors `recipe-has-errors`, `canonical-elsewhere` (the post's own `canonical` names another page) and `no-image`
   (every directory here shows the dish's photo); warnings `image-linked-not-included`, `image-size-unknown`,
   `image-below-recommended-size` (Google, under 50,000 pixels), `image-not-square` (Foodgawker, reported crop),

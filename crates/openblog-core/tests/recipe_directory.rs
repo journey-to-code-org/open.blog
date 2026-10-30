@@ -1,4 +1,4 @@
-//! Recipe directory packages (epic #385, story #398, ADRs 0822 and 0823): each directory's checks,
+//! Recipe directory packages (epic #385, story #398, ADRs 0335 and 0336): each directory's checks,
 //! the files a package holds, the attribution it carries, and the static guide page.
 
 use openblog_core::recipe_check;

@@ -116,7 +116,7 @@ pub struct Recipe {
     pub anchor: Option<String>,
     /// Where the recipe comes from when it is adapted from another, as written in `adaptedFrom`
     /// (also `adapted_from`, `basedOn`). Exported as schema.org `isBasedOn` only when it is an
-    /// http(s) address (ADR 0820).
+    /// http(s) address (ADR 0333).
     pub adapted_from: Option<String>,
 }
 

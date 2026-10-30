@@ -2937,23 +2937,23 @@ _Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a por
 A published recipe post as one schema.org `Recipe` JSON-LD document: exactly the `Recipe` node its page carries, plus
 the schema.org context, written locally by `openblog export <slug> --format recipe-json-ld`. It carries the author's
 lines and times as written or leaves them out, never a converted or guessed value; `adaptedFrom` becomes `isBasedOn`
-(ADR 0820).
+(ADR 0333).
 _Avoid_: Recipe card (the summary on the page), recipe feed, submission (sending it to a directory)
 
 **Recipe check**:
 The closed list of problems a recipe export is checked against: unreadable, zero or backwards amounts, empty or
 missing lists, inconsistent times and a missing canonical address are errors that stop the export; gaps such as no
-photo or no author are warnings. A problem names the ingredient, step or field, never the author's words (ADR 0821).
+photo or no author are warnings. A problem names the ingredient, step or field, never the author's words (ADR 0334).
 _Avoid_: Validation error, lint
 
 **Recipe directory**:
 A site that lists recipes from other sites (Google Search recipe results, Pinterest, Foodgawker), in a closed, dated
 list with each condition marked as read in its own documentation or not verified. open.blog never submits to one;
-the author does, by hand (ADR 0822).
+the author does, by hand (ADR 0335).
 _Avoid_: Destination (a cross-posting or social target with an adapter), aggregator, recipe app (an importer)
 
 **Recipe package**:
 A new folder prepared by `openblog export <slug> --format recipe-package` for the recipe directories the author
 chose: the page's `Recipe` JSON-LD, the text to paste, the credit, the cover when it is a static file, a plan and a
-static guide to the author's steps. Prepared, never sent (ADR 0823).
+static guide to the author's steps. Prepared, never sent (ADR 0336).
 _Avoid_: Submission (the author's own act in the directory), recipe export (the single JSON-LD file)

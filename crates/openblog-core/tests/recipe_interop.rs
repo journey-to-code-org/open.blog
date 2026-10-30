@@ -1,4 +1,4 @@
-//! Recipe interoperability (epic #385, story #397, ADRs 0820 and 0821): the page and the export
+//! Recipe interoperability (epic #385, story #397, ADRs 0333 and 0334): the page and the export
 //! carry one schema.org `Recipe`, importers that read the page find it the way they look for it,
 //! the visible lists say what the data says, and the export check names problems without
 //! repeating the author's words.

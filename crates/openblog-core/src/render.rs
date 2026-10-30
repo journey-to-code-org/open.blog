@@ -2953,7 +2953,7 @@ impl<'a> Renderer<'a> {
     }
 
     /// schema.org `Recipe` for search engines' recipe results; the same node the recipe export
-    /// writes (ADR 0820).
+    /// writes (ADR 0333).
     fn recipe_json_ld(&self, post: &Post, recipe: &crate::recipe::Recipe) -> serde_json::Value {
         crate::recipe_schema::recipe_node(&self.site.config, post, recipe)
     }

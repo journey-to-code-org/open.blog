@@ -1,5 +1,5 @@
 //! `openblog export <slug> --format recipe-package [--directory a,b] --out <new folder> --write`
-//! (epic #385, story #398, ADRs 0822 and 0823): a folder with everything a recipe directory's own
+//! (epic #385, story #398, ADRs 0335 and 0336): a folder with everything a recipe directory's own
 //! submission needs, and a static guide to the author's steps. Nothing is sent and no credential
 //! is read; every submission is the author's act, by hand.
 

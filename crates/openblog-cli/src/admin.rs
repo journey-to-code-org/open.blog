@@ -19938,11 +19938,11 @@ mod tests {
                     ));
                 }
             }
-            // A recipe's schema.org export (ADR 0820).
+            // A recipe's schema.org export (ADR 0333).
             if let Ok((content, _)) = crate::portable_export::recipe_export(&site, post) {
                 artifacts.push((format!("recipe export of {}", post.slug), content));
             }
-            // Every text file of a recipe directory package and its guide page (ADR 0823).
+            // Every text file of a recipe directory package and its guide page (ADR 0336).
             if let Ok(package) = crate::recipe_package::package(
                 root,
                 &site,
@@ -19967,7 +19967,7 @@ mod tests {
     #[test]
     fn a_sentinel_in_every_private_store_reaches_no_public_artifact_and_approved_fields_do() {
         let f = boundary_fixture("boundary-corpus");
-        // A recipe, so its schema.org export is scanned too (ADR 0820).
+        // A recipe, so its schema.org export is scanned too (ADR 0333).
         fs::write(
             f.dir.join("content/posts/soup.md"),
             "---\ntitle: Soup\ndate: 2026-10-02\nprofile: recipe\nservings: 2\n---\n\n## Ingredients\n\n- 1 leek\n\n## Steps\n\n1. Simmer.\n",

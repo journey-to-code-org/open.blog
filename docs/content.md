@@ -729,8 +729,8 @@ with its own number (`Step 1:`), a time written as text, only one of `prep` and 
 `adaptedFrom` that is not a web address, no site author, and no `cover` image (search engines
 show recipe results only with a photo). Each problem names the ingredient or step number or the
 field, never your text. See ADRs
-[0820](adr/0820-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md)
-and [0821](adr/0821-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md).
+[0333](adr/0333-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md)
+and [0334](adr/0334-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md).
 
 ### Preparing a recipe for recipe directories
 
@@ -761,8 +761,8 @@ not downloaded. Without `--directory` the folder holds the recipe files only.
 terms could not be verified. A recipe check error (above), a missing cover, or a post whose
 `canonical` names another page stops the package, and nothing is written. The facts were
 checked on 2026-10-29; see ADRs
-[0822](adr/0822-recipe-directories-are-a-closed-dated-list-whose-conditions-say-where-they-were-read-and-every-submission-is-by-hand.md)
-and [0823](adr/0823-a-recipe-package-is-a-new-folder-of-the-pages-recipe-the-text-to-paste-the-cover-and-a-static-guide-and-nothing-is-sent.md).
+[0335](adr/0335-recipe-directories-are-a-closed-dated-list-whose-conditions-say-where-they-were-read-and-every-submission-is-by-hand.md)
+and [0336](adr/0336-a-recipe-package-is-a-new-folder-of-the-pages-recipe-the-text-to-paste-the-cover-and-a-static-guide-and-nothing-is-sent.md).
 
 ## Series
 

@@ -18,9 +18,9 @@ pub enum Format {
     CslJson,
     /// The post's cited references as BibTeX (ADR 0050).
     Bibtex,
-    /// A recipe post as the schema.org `Recipe` its page carries (ADRs 0820 and 0821).
+    /// A recipe post as the schema.org `Recipe` its page carries (ADRs 0333 and 0334).
     RecipeJsonLd,
-    /// A folder for recipe directories' own submission steps (ADRs 0822 and 0823).
+    /// A folder for recipe directories' own submission steps (ADRs 0335 and 0336).
     RecipePackage,
 }
 
@@ -60,7 +60,7 @@ pub fn run(
     run_with_directories(root, slug, format, output, None, write, json)
 }
 
-/// [`run`], with `--directory` for a recipe package (ADR 0823).
+/// [`run`], with `--directory` for a recipe package (ADR 0336).
 pub fn run_with_directories(
     root: &Path,
     slug: &str,
@@ -306,7 +306,7 @@ fn run_bibliography(
     Ok(())
 }
 
-/// A recipe post's schema.org `Recipe` document and the recipe check's problems (ADR 0821).
+/// A recipe post's schema.org `Recipe` document and the recipe check's problems (ADR 0334).
 /// `Err` when the post is not a recipe.
 pub fn recipe_export(
     site: &Site,

@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { removeTree } from "./teardown.mjs";
 
-// A recipe directory package (story #398, ADRs 0822 and 0823) is a folder written by
+// A recipe directory package (story #398, ADRs 0335 and 0336) is a folder written by
 // `openblog export <slug> --format recipe-package`: no server, no directory, no credential, and a
 // static guide page with no script.
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");

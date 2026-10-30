@@ -1,4 +1,4 @@
-//! A recipe as schema.org `Recipe` data (epic #385, story #397, ADR 0820).
+//! A recipe as schema.org `Recipe` data (epic #385, story #397, ADR 0333).
 //!
 //! One mapping serves both the `Recipe` node in a recipe page's JSON-LD graph and the standalone
 //! recipe export (`openblog export <slug> --format recipe-json-ld`), so an importer that reads the
@@ -6,7 +6,7 @@
 //! says: a time written as text, a servings line that is not a number, or an "adapted from" that is
 //! not a web address is left out rather than guessed.
 //!
-//! `crate::recipe_check` holds the checks an export must pass (ADR 0821).
+//! `crate::recipe_check` holds the checks an export must pass (ADR 0334).
 //!
 //! Pure: no environment, no network.
 

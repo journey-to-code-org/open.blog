@@ -1,4 +1,4 @@
-//! Recipe directory submission packages (epic #385, story #398, ADRs 0822 and 0823).
+//! Recipe directory submission packages (epic #385, story #398, ADRs 0335 and 0336).
 //!
 //! No recipe directory offers an API that open.blog may call on the author's behalf, so a
 //! "submission" is always the author's own act, by hand, in the directory. This module says, per
@@ -324,7 +324,7 @@ pub enum Cover {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FindingCode {
-    /// The recipe check (ADR 0821) found an error.
+    /// The recipe check (ADR 0334) found an error.
     RecipeHasErrors,
     /// The post names another page as its canonical copy.
     CanonicalElsewhere,

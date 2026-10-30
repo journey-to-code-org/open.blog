@@ -1,4 +1,4 @@
-# ADR 0821: A recipe export is checked against a closed list of problems, and an error stops it
+# ADR 0334: A recipe export is checked against a closed list of problems, and an error stops it
 
 - Status: Accepted
 - Date: 2026-10-29

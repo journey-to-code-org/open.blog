@@ -1,4 +1,4 @@
-//! Tests of recipe directory packages (story #398, ADRs 0822 and 0823).
+//! Tests of recipe directory packages (story #398, ADRs 0335 and 0336).
 
 use super::*;
 use crate::clock;
