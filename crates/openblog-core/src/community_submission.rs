@@ -1113,7 +1113,7 @@ pub fn kit_page(kit: &SubmissionKit) -> String {
         out.push_str("</ul>\n<p class=\"code\">The boxes are for you; they are not saved or sent.</p>\n</fieldset>\n");
         match &d.submit_url {
             Some(url) => out.push_str(&format!(
-                "<p><a class=\"submit\" href=\"{}\" rel=\"noopener noreferrer\">Open the {} submit form</a> (you check it and submit it there yourself)</p>\n",
+                "<p><a class=\"submit\" href=\"{}\" rel=\"noopener noreferrer\">Open the submit form for {}</a> (you check it and submit it there yourself)</p>\n",
                 a(url),
                 t(&d.label)
             )),
@@ -1623,7 +1623,7 @@ mod tests {
         assert!(page.contains("Prepared, not submitted."));
         assert!(page.contains("aria-label=\"Title for Hacker News\""));
         assert!(page.contains("<legend>Before you submit to Hacker News</legend>"));
-        assert!(page.contains("Open the Hacker News submit form"));
+        assert!(page.contains("Open the submit form for Hacker News"));
         assert!(page.contains("aria-label=\"Command that records your submission to Hacker News\""));
         assert!(page.contains("openblog submit a-post --confirm hacker-news --permalink"));
         assert!(page.contains("rel=\"noopener noreferrer\""));
