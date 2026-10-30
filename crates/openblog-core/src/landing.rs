@@ -55,9 +55,12 @@ pub fn version_for_page(page: &Map<String, Value>) -> u64 {
         .get("sections")
         .and_then(Value::as_array)
         .is_some_and(|sections| {
-            sections
-                .iter()
-                .any(|s| s.get("type").and_then(Value::as_str) == Some("business-facts"))
+            sections.iter().any(|s| {
+                matches!(
+                    s.get("type").and_then(Value::as_str),
+                    Some("business-facts" | "quote-form")
+                )
+            })
         });
     if needs_business {
         LANDING_VERSION_BUSINESS
@@ -176,6 +179,9 @@ pub enum SectionKind {
     /// The business facts from `openblog.json`, placed on the page (ADR 0306). Needs landing
     /// version 2.
     BusinessFacts(BusinessFacts),
+    /// A quote request form placed on the page (ADR 0901). Shown only while quote requests are
+    /// switched on in `openblog.json`. Needs landing version 2.
+    QuoteForm(QuoteForm),
 }
 
 impl SectionKind {
@@ -197,12 +203,13 @@ impl SectionKind {
             Self::Faq(_) => "faq",
             Self::Callout(_) => "callout",
             Self::BusinessFacts(_) => "business-facts",
+            Self::QuoteForm(_) => "quote-form",
         }
     }
 }
 
 /// Every type name this release defines.
-pub const SECTION_TYPES: [&str; 15] = [
+pub const SECTION_TYPES: [&str; 16] = [
     "welcome",
     "rich-text",
     "latest-posts",
@@ -218,12 +225,20 @@ pub const SECTION_TYPES: [&str; 15] = [
     "faq",
     "callout",
     "business-facts",
+    "quote-form",
 ];
 
 /// The business facts section: the facts live in `openblog.json`, so the section holds only the
 /// heading it is placed under.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BusinessFacts {
+    pub heading: String,
+}
+
+/// The quote form section: the form's fields, endpoint and notice come from `openblog.json` and the
+/// site's services and areas, so the section holds only the heading it is placed under.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuoteForm {
     pub heading: String,
 }
 
@@ -451,7 +466,7 @@ fn known_keys(kind: &str) -> &'static [&'static str] {
         "welcome" => &["heading", "subheading", "image", "button"],
         "rich-text" => &["markdown"],
         "latest-posts" => &["heading", "count"],
-        "series" | "business-facts" => &["heading"],
+        "series" | "business-facts" | "quote-form" => &["heading"],
         "featured-post" => &["post", "heading"],
         "buttons" | "social-links" | "faq" => &["items"],
         "image" => &["src", "alt", "caption"],
@@ -540,6 +555,7 @@ impl Section {
             "social-links" => SectionKind::SocialLinks(from_fields(fields).map_err(wrong)?),
             "faq" => SectionKind::Faq(from_fields(fields).map_err(wrong)?),
             "business-facts" => SectionKind::BusinessFacts(from_fields(fields).map_err(wrong)?),
+            "quote-form" => SectionKind::QuoteForm(from_fields(fields).map_err(wrong)?),
             _ => SectionKind::Callout(from_fields(fields).map_err(wrong)?),
         };
         Ok(Self {
@@ -567,6 +583,7 @@ impl Section {
             SectionKind::Faq(v) => serde_json::to_value(v),
             SectionKind::Callout(v) => serde_json::to_value(v),
             SectionKind::BusinessFacts(v) => serde_json::to_value(v),
+            SectionKind::QuoteForm(v) => serde_json::to_value(v),
         };
         let mut object = Map::new();
         // Unknown fields first so a known field always wins a name clash.
@@ -652,12 +669,16 @@ impl LandingPage {
             match Section::from_value(index, item) {
                 Ok(section) => {
                     if version < LANDING_VERSION_BUSINESS
-                        && matches!(section.kind, SectionKind::BusinessFacts(_))
+                        && matches!(
+                            section.kind,
+                            SectionKind::BusinessFacts(_) | SectionKind::QuoteForm(_)
+                        )
                     {
                         problems.push(LandingProblem::in_section(
                             &section.id,
                             format!(
-                                "the business-facts section needs `version` {LANDING_VERSION_BUSINESS}"
+                                "the {} section needs `version` {LANDING_VERSION_BUSINESS}",
+                                section.kind.name()
                             ),
                         ));
                     }
@@ -702,11 +723,12 @@ impl LandingPage {
 
     /// The stored version this page is written as (ADR 0306).
     pub fn stored_version(&self) -> u64 {
-        if self
-            .sections
-            .iter()
-            .any(|s| matches!(s.kind, SectionKind::BusinessFacts(_)))
-        {
+        if self.sections.iter().any(|s| {
+            matches!(
+                s.kind,
+                SectionKind::BusinessFacts(_) | SectionKind::QuoteForm(_)
+            )
+        }) {
             LANDING_VERSION_BUSINESS
         } else {
             LANDING_VERSION
@@ -1061,6 +1083,9 @@ pub(crate) fn validate_section(section: &Section, problems: &mut Vec<LandingProb
         SectionKind::BusinessFacts(v) => {
             check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
         }
+        SectionKind::QuoteForm(v) => {
+            check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
+        }
         SectionKind::FeaturedPost(v) => {
             if !valid_id(&v.post) {
                 problems.push(LandingProblem::in_section(
@@ -1344,7 +1369,8 @@ mod tests {
     use serde_json::json;
 
     fn file(sections: Value) -> String {
-        let version = if sections.to_string().contains("business-facts") {
+        let text = sections.to_string();
+        let version = if text.contains("business-facts") || text.contains("quote-form") {
             LANDING_VERSION_BUSINESS
         } else {
             LANDING_VERSION
@@ -1382,7 +1408,8 @@ mod tests {
             {"id": "social", "type": "social-links", "items": [{"label": "Mastodon", "href": "https://example.social/@me"}]},
             {"id": "faq", "type": "faq", "items": [{"question": "Why?", "answer": "Because."}]},
             {"id": "note", "type": "callout", "tone": "warning", "title": "Heads up", "body": "Careful"},
-            {"id": "business", "type": "business-facts", "heading": "Contact and hours"}
+            {"id": "business", "type": "business-facts", "heading": "Contact and hours"},
+            {"id": "quote", "type": "quote-form", "heading": "Ask for a quote"}
         ])
     }
 

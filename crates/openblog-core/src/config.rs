@@ -143,6 +143,10 @@ pub struct SiteConfig {
     /// while none are stated, so a site that never sets it builds exactly as before.
     #[serde(skip_serializing_if = "ServiceAreasConfig::is_default")]
     pub service_areas: ServiceAreasConfig,
+    /// Quote requests (ADR 0900). Omitted from the written file while off and unset, so a site
+    /// that never sets it builds exactly as before.
+    #[serde(skip_serializing_if = "crate::quote::QuoteConfig::is_default")]
+    pub quote: crate::quote::QuoteConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -577,6 +581,7 @@ impl Default for SiteConfig {
             extra_trades: Vec::new(),
             business: BusinessConfig::default(),
             service_areas: ServiceAreasConfig::default(),
+            quote: crate::quote::QuoteConfig::default(),
         }
     }
 }
@@ -1064,6 +1069,10 @@ impl SiteConfig {
             claim_evidence_section: false,
             supplements: false,
             concept_links: false,
+            quote: self
+                .quote
+                .enabled
+                .then_some((&self.quote, &self.service_areas)),
         }
     }
 
@@ -1209,6 +1218,7 @@ impl SiteConfig {
             }
         }
         contributor::normalize_registry(&mut self.contributors)?;
+        self.quote.normalize()?;
         if !self.business.trade.is_empty() {
             self.business.trade =
                 crate::job::normalize_trade(&self.business.trade, &self.extra_trades)

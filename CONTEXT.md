@@ -2698,6 +2698,25 @@ _Avoid_: Slider, gallery
 **Quote request**:
 A bounded inbound message from a prospective customer, stored server-side with explicit export and erase. It
 is not a lead pipeline, a booking or an estimate.
+A visitor sends one through the `quote` form (a fence in a post, or the quote-form landing section) to the site's
+own hosted function, which stores it in the private Supabase workspace and never in a static file (ADRs 0900,
+0901). The form is off until `quote.enabled` is set in `openblog.json`. A request has a name, phone, optional
+email, town, service, description, up to five photos in a private bucket, a status (`new` or `handled`) and an
+owner notification state (ADR 0902).
+_Avoid_: Lead, booking, ticket
+
+**Quote form fence**:
+The `quote` fence (`service: <name>` lines optional) that places the quote form in a post. With quote requests
+off it renders nothing, and a portable copy never carries it.
+
+**Form token**:
+The signed, single-use value a quote form carries so the hosted function can tell a person who took a few
+seconds from a script; one token sends one request. A form posted without JavaScript is answered once with the
+same form and a fresh token (ADR 0900).
+
+**Owner notification**:
+The one email a configured provider sends to the site owner's own fixed address when a request is stored. It
+never goes to a visitor, carries no phone number or description, and its failure never loses the request (ADR 0902).
 _Avoid_: Lead, booking, ticket
 
 **Proof**:

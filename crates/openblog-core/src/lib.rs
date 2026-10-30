@@ -126,6 +126,7 @@ pub mod provider_manifest;
 pub mod publication_boundary;
 pub mod publication_review;
 pub mod published_moment;
+pub mod quote;
 mod raw_html;
 pub mod reader_references;
 pub mod reading_depth;
