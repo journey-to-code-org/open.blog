@@ -31,9 +31,13 @@ destination here is a manifest provider (a link preview is the page's own metada
   File sizes are read as decimal megabytes, the stricter reading.
 - **Facts come from the file's header, never from a download.** `image_facts::read` reads JPEG, PNG, GIF and WebP
   headers without decoding pixels or adding a dependency: the format, the displayed size (a JPEG whose Exif
-  orientation turns it a quarter has its sides swapped), the file size and whether an Exif GPS record is present.
-  The CLI reads at most the first megabyte of a regular file inside the static folder, never through a symbolic link
-  and never a private file. An image on another site is never fetched; its card is `check` (`image-unmeasured`).
+  orientation turns it a quarter has its sides swapped), the file size and whether a GPS record is present, in Exif data or in an XMP packet (`GPSLatitude` or
+  `GPSLongitude`, in a JPEG APP1 segment, a PNG `iTXt` chunk, a WebP `XMP ` chunk or anywhere in a GIF). Metadata
+  may follow the image data (WebP always puts EXIF and XMP after it, and PNG may), so the CLI reads the whole of a
+  regular file inside the static folder, up to 64 MiB (`INSPECT_BYTES`, above every destination's limit), never
+  through a symbolic link and never a private file. When part of the file where metadata may sit was not read (a
+  file cut short or over that size, a metadata chunk running past the data, or a WebP whose VP8X header promises an
+  EXIF or XMP chunk the walk did not reach), the facts say `metadataUnread` rather than "no location". An image on another site is never fetched; its card is `check` (`image-unmeasured`).
 - **Checks and their weight.** Blocking: a file type the destination does not take (`image-type-unsupported`), a
   file over its size (`image-too-large`), below its stated minimum (`image-too-small`), a file the site does not
   serve (`image-not-found`) or that cannot be read (`image-unreadable`), text over a limit (`title-too-long`,
@@ -42,9 +46,10 @@ destination here is a manifest provider (a link preview is the page's own metada
   (`below-recommended-size`, by width, since the shape is its own notice), a shape more than 3% from the
   destination's (`shape-differs`) and a title feeds shorten (`title-shortened-in-feeds`). Text is never truncated or
   rewritten to fit.
-- **A photograph's location stays private on a private travel post.** An image with an Exif GPS record is `check`
+- **A photograph's location stays private on a private travel post.** An image with a GPS record is `check`
   (`image-location-metadata`); on a `field-journal` post whose `locationPrivacy` is not `exact` it is blocking, so a
-  photograph cannot undo the route privacy the author chose.
+  photograph cannot undo the route privacy the author chose. An image whose metadata could not all be read
+  (`image-metadata-unread`) is held to the same rule, since an unread location is not an absent one.
 - **Fallbacks, image by image.** A candidate (ADR 0780) with any blocking problem is passed over and recorded with
   its reasons, and the next is tried. A Pin with no usable image is blocked (`image-missing` or
   `no-eligible-image`); a link preview with no declared image is a text-only preview (`no-preview-image`, a notice),

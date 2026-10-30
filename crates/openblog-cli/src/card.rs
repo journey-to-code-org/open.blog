@@ -7,7 +7,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use openblog_core::frontmatter;
-use openblog_core::image_facts::{self, HEADER_BYTES};
+use openblog_core::image_facts::{self, INSPECT_BYTES};
 use openblog_core::portability::PortableProjection;
 use openblog_core::visual_card::{
     self, CardFiles, CardFormat, CardPlan, CardSource, ImageCandidate, Measurement,
@@ -143,7 +143,7 @@ fn facts(file: &Path) -> Option<openblog_core::image_facts::ImageFacts> {
     let mut prefix = Vec::new();
     fs::File::open(file)
         .ok()?
-        .take(HEADER_BYTES as u64)
+        .take(INSPECT_BYTES as u64)
         .read_to_end(&mut prefix)
         .ok()?;
     image_facts::read(&prefix, total)
@@ -421,6 +421,47 @@ mod tests {
             }
         )
         .is_err());
+        fs::remove_dir_all(root).ok();
+    }
+
+    fn codes(card: &openblog_core::visual_card::VisualCard) -> Vec<&'static str> {
+        card.problems.iter().map(|p| p.code).collect()
+    }
+
+    #[test]
+    fn a_large_photographs_location_stored_after_its_image_data_still_keeps_a_travel_post_private()
+    {
+        let post = "---\ntitle: Ridge walk\nslug: tart\ndate: 2026-01-01\nprofile: field-journal\nlocationPrivacy: approximate\ndescription: Up the ridge.\ncover: /img/ridge.webp\ncoverAlt: The ridge at dawn\n---\nTrail notes.\n\n![The summit cairn](/img/summit.png)\n";
+        let root = site(post);
+        // Over a megabyte each, with the GPS record after the image data, where WebP and
+        // (optionally) PNG keep it.
+        let big = 2 * 1024 * 1024;
+        fs::write(
+            root.join("static/img/ridge.webp"),
+            samples::webp(1200, 630, big, true),
+        )
+        .unwrap();
+        fs::write(
+            root.join("static/img/summit.png"),
+            samples::png_with_trailing_gps(1000, 1500, big),
+        )
+        .unwrap();
+        let (plan, _) = build(&root, "tart", &CardFormat::ALL).unwrap();
+        let pin = &plan.cards[0];
+        assert_eq!(pin.status, CardStatus::Blocked, "{:?}", codes(pin));
+        assert!(pin.image.is_none());
+        assert!(pin.skipped.iter().any(|s| s.src == "/img/summit.png"
+            && s.problems
+                .iter()
+                .any(|p| p.code == "image-location-metadata")));
+        for link in &plan.cards[1..] {
+            assert_eq!(link.status, CardStatus::Blocked, "{:?}", codes(link));
+            assert!(link.image.is_none());
+            assert!(link.skipped.iter().any(|s| s.src == "/img/ridge.webp"
+                && s.problems
+                    .iter()
+                    .any(|p| p.code == "image-location-metadata")));
+        }
         fs::remove_dir_all(root).ok();
     }
 

@@ -84,9 +84,11 @@ Two more checks protect you and your readers:
 
 - **Alternative text is never invented.** A Pin will not use an image you have not described; it moves on to the next
   image, and if none is described the card is blocked until you add `cardImageAlt` or `coverAlt`.
-- **Where a photograph was taken.** If an image file carries an Exif GPS location, the card asks you to check it. On a
-  `field-journal` post whose `locationPrivacy` is anything but `exact`, such an image is never used: remove the
-  location from the file first.
+- **Where a photograph was taken.** If an image file carries a GPS location, in its Exif data or in an XMP packet
+  (as Lightroom-style editors write it), the card asks you to check it. On a `field-journal` post whose
+  `locationPrivacy` is anything but `exact`, such an image is never used: remove the location from the file first.
+  The whole file is read, since WebP (and sometimes PNG) stores this after the picture. If part of a file could not
+  be read (it is cut short or over 64 MiB), the card says so (`image-metadata-unread`) and treats it the same way.
 
 Nothing is shortened or rewritten for you: a title that is too long is reported, and you shorten `cardTitle`.
 

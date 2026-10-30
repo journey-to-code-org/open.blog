@@ -1449,22 +1449,35 @@ fn check_image(
         };
         out.push(CardProblem::new("shape-differs", Severity::Notice, message));
     }
-    if facts.location_metadata {
+    if facts.location_metadata || facts.metadata_unread {
         let travel_hidden = source.profile == crate::profile::FIELD_JOURNAL_ID
             && crate::field_journal::LocationPrivacy::parse(
                 source.front_matter.get("locationPrivacy"),
             ) != crate::field_journal::LocationPrivacy::Exact;
+        // A file whose metadata could not all be read may record a location: it is held to
+        // the same rule as one that does, never taken as having none.
+        let (code, what) = if facts.location_metadata {
+            (
+                "image-location-metadata",
+                "The image file records where it was taken (GPS in its Exif or XMP data)",
+            )
+        } else {
+            (
+                "image-metadata-unread",
+                "Not all of the image file's metadata could be read, so it may record where it was taken",
+            )
+        };
         out.push(if travel_hidden {
             CardProblem::new(
-                "image-location-metadata",
+                code,
                 Severity::Blocking,
-                "The image file records where it was taken (Exif GPS), but this travel post keeps its exact location private. Remove the location from the file first.",
+                format!("{what}, but this travel post keeps its exact location private. Remove the location from the file first."),
             )
         } else {
             CardProblem::new(
-                "image-location-metadata",
+                code,
                 Severity::Check,
-                "The image file records where it was taken (Exif GPS). Remove it unless you mean to share that place.",
+                format!("{what}. Remove it unless you mean to share that place."),
             )
         });
     }
@@ -1633,6 +1646,7 @@ mod tests {
                 height,
                 bytes: 1000,
                 location_metadata: false,
+                metadata_unread: false,
             }),
             None => Measurement::Remote,
         }
@@ -1841,6 +1855,7 @@ mod tests {
             height,
             bytes,
             location_metadata: gps,
+            metadata_unread: false,
         }
     }
 
@@ -1968,6 +1983,34 @@ mod tests {
             Severity::Check
         );
         assert_eq!(severity("title: x", "recipe"), Severity::Check);
+    }
+
+    #[test]
+    fn metadata_that_could_not_all_be_read_is_held_to_the_location_rule() {
+        let unread = ImageFacts {
+            metadata_unread: true,
+            ..facts(MediaType::Webp, 1200, 630, 1, false)
+        };
+        let check = |front: &str, profile: &str| {
+            let front = fm(front);
+            check_image(
+                CardFormat::FacebookLink,
+                &unread,
+                &source(&front, profile, ""),
+            )
+            .into_iter()
+            .find(|p| p.code == "image-metadata-unread")
+            .map(|p| p.severity)
+        };
+        assert_eq!(
+            check("locationPrivacy: hidden", "field-journal"),
+            Some(Severity::Blocking)
+        );
+        assert_eq!(
+            check("locationPrivacy: exact", "field-journal"),
+            Some(Severity::Check)
+        );
+        assert_eq!(check("title: x", "article"), Some(Severity::Check));
     }
 
     #[test]
