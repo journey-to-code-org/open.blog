@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROVIDERS, VERSION_SUPPORT, socialProviders } from "../../netlify/lib/social-providers.mjs";
+import { PROVIDERS, VERSION_SUPPORT, providerDefinition, socialProviders } from "../../netlify/lib/social-providers.mjs";
 import { deliveryPolicy } from "../../netlify/lib/social-delivery.mjs";
 import { opsPolicy } from "../../netlify/lib/social-ops.mjs";
 
@@ -37,8 +37,10 @@ test("every setting the social code reads is documented in the guide", () => {
     for (const match of read(path).matchAll(/\b((?:OPENBLOG|SUPABASE)_[A-Z0-9_]*[A-Z0-9])\b/g)) names.add(match[1]);
   }
   // The per-provider settings are built from a template in social-providers.mjs.
+  // An app-password provider (Bluesky, ADR 0760) reads ENABLED and SERVICE instead of OAuth settings.
   for (const provider of PROVIDERS) {
-    for (const suffix of ["CLIENT_ID", "CLIENT_SECRET", "API_VERSION", "SCOPES", "PKCE"]) names.add(`OPENBLOG_SOCIAL_${provider.toUpperCase()}_${suffix}`);
+    const suffixes = providerDefinition(provider).login === "app-password" ? ["ENABLED", "SERVICE"] : ["CLIENT_ID", "CLIENT_SECRET", "API_VERSION", "SCOPES", "PKCE"];
+    for (const suffix of suffixes) names.add(`OPENBLOG_SOCIAL_${provider.toUpperCase()}_${suffix}`);
   }
   names.delete("OPENBLOG_SOCIAL");
   assert.ok(names.size >= 25, `found ${names.size} settings`);
@@ -153,13 +155,18 @@ test("each default provider API version is still served, as its provider documen
     OPENBLOG_SOCIAL_LINKEDIN_CLIENT_SECRET: "secret-value",
     OPENBLOG_SOCIAL_FACEBOOK_CLIENT_ID: "client",
     OPENBLOG_SOCIAL_FACEBOOK_CLIENT_SECRET: "secret-value",
+    OPENBLOG_SOCIAL_BLUESKY_ENABLED: "true",
+    OPENBLOG_SOCIAL_MASTODON_INSTANCE: "https://mastodon.example",
+    OPENBLOG_SOCIAL_MASTODON_CLIENT_ID: "client",
+    OPENBLOG_SOCIAL_MASTODON_CLIENT_SECRET: "secret-value",
   });
   for (const provider of PROVIDERS) {
     const support = VERSION_SUPPORT[provider];
     assert.ok(support, `${provider} has a recorded support window`);
     assert.equal(configured[provider].version, support.version, `${provider}: the recorded version is the default`);
-    assert.match(support.source, /^https:\/\/(learn\.microsoft\.com|developers\.facebook\.com)\//);
+    assert.match(support.source, /^https:\/\/(learn\.microsoft\.com|developers\.facebook\.com|docs\.bsky\.app|docs\.joinmastodon\.org)\//);
     assert.ok(support.checkedOn <= today, `${provider}: checked on a past date`);
+    if (support.undated) continue; // Nothing retires by date; the source says how it is versioned.
     // If this fails, the provider has retired the default: check its documentation, move the default
     // to a current version, update VERSION_SUPPORT and the fixtures, and say so in the changelog.
     assert.ok(today < support.supportedUntil, `${provider}: default ${support.version} was served only until ${support.supportedUntil}`);
