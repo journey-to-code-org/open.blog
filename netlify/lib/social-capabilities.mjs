@@ -17,7 +17,7 @@
 export const MANIFEST_VERSION = 1;
 export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
-const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social" });
+const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", youtube: "video" });
 const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2"]);
 const CANONICAL = Object.freeze(["sent", "linked", "manual", "not-supported"]);
 const PUBLISHING = Object.freeze(["explicit-approval", "draft-only", "manual"]);
@@ -151,7 +151,7 @@ export function parseManifest(value) {
     (anyAdapter && method === "none") ||
     (manifest.publishing === "manual" && anyAdapter) ||
     (manifest.publishing === "draft-only" && capabilities.draft !== "adapter") ||
-    (manifest.family === "social" && manifest.canonical !== "linked") ||
+    ((manifest.family === "social" || manifest.family === "video") && manifest.canonical !== "linked") ||
     (min !== null && max !== null && min >= max)
   )
     fail("manifest-inconsistent");

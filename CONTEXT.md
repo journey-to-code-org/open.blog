@@ -2938,3 +2938,15 @@ One of the author's own answers a release needs before anything is uploaded: rig
 reported, never assumed.
 _Avoid_: Disclosure (the free-text AI-assistance note), licence
 
+**Video family**:
+The provider family of destinations that receive a video the author made, whose description links the canonical
+post (YouTube). Neither a portable copy of the article nor a queued announcement (ADR 0841).
+_Avoid_: Social video, video syndication
+
+**YouTube preview**:
+The exact metadata a video release would carry to YouTube (title, composed description with the canonical article
+link, tags, thumbnail, chapters, captions, transcript, audience and synthetic-content answers, private visibility),
+its status (blocked, manual or ready), every problem with its code, the guided steps and a digest. Written by
+`openblog video --preview`; sends nothing (ADR 0842).
+_Avoid_: Release kit (Admin's copy helper), upload plan
+

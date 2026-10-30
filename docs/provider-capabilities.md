@@ -1,8 +1,9 @@
 # Provider capabilities
 
-open.blog can reach other platforms in two ways: [cross-posting](cross-posting.md) sends a portable copy of an
-article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), and optional
-[social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page. Both are off
+open.blog can reach other platforms in three ways: [cross-posting](cross-posting.md) sends a portable copy of an
+article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), optional
+[social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page, and a
+[video release](video-production.md#prepare-a-youtube-release) prepares a video post's YouTube upload. All are off
 until you set them up, and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
@@ -22,18 +23,18 @@ Anything open.blog does not recognise (a capability, a provider, a manifest form
 
 ## The destinations (policy version 2026-10-29)
 
-| Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter |
-| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter |
-| Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported |
-| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual |
-| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual |
-| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported |
-| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) |
-| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth |
-| Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it |
-| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval |
+| Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | YouTube |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | manual (in the description) |
+| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | manual (title and description) |
+| Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported |
+| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | manual (thumbnail) |
+| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual (you upload it) |
+| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | manual (a private upload) |
+| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | manual (scheduled in YouTube) |
+| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | none (nothing is sent) |
+| Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the description links it |
+| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | by hand |
 
 Limits enforced before anything is sent: DEV takes 4 tags of at most 30 characters; Hashnode 15 tags and a request
 of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters. Announcements are scheduled between one
@@ -58,6 +59,15 @@ Checked on 2026-10-29 against the providers' own documentation:
   there is no scheduling field.
 - WordPress: [posts reference](https://developer.wordpress.org/rest-api/reference/posts/). `status` accepts
   `future`, which you can use in WordPress; open.blog sends drafts only unless you publish.
+- YouTube: [videos resource](https://developers.google.com/youtube/v3/docs/videos),
+  [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert),
+  [thumbnails.set](https://developers.google.com/youtube/v3/docs/thumbnails/set),
+  [captions.insert](https://developers.google.com/youtube/v3/docs/captions/insert) and
+  [chapters](https://support.google.com/youtube/answer/9884579). A title takes at most 100 characters and a
+  description 5,000 bytes, neither with `<` or `>`; tags take 500 characters in all; chapters need three or more,
+  the first at `00:00`, each at least ten seconds. This release uploads nothing: `openblog video` prepares the
+  metadata and you enter it in YouTube Studio (ADRs [0841](adr/0841-youtube-is-a-video-family-provider-declared-as-a-guided-workflow-until-an-adapter-uploads.md),
+  [0842](adr/0842-a-youtube-preview-is-the-exact-metadata-with-the-canonical-article-link-checked-against-youtubes-rules.md)).
 - Ghost, Hashnode and Medium: as verified for [cross-posting](cross-posting.md). Scheduling there was not
   re-verified, so it is listed as unsupported.
 

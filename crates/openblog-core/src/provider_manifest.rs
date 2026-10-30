@@ -47,10 +47,11 @@ pub enum ProviderId {
     Medium,
     Linkedin,
     Facebook,
+    Youtube,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 7] = [
+    pub const ALL: [ProviderId; 8] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -58,6 +59,7 @@ impl ProviderId {
         Self::Medium,
         Self::Linkedin,
         Self::Facebook,
+        Self::Youtube,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -76,12 +78,14 @@ impl ProviderId {
             Self::Medium => "medium",
             Self::Linkedin => "linkedin",
             Self::Facebook => "facebook",
+            Self::Youtube => "youtube",
         }
     }
 
     pub fn family(self) -> Family {
         match self {
             Self::Linkedin | Self::Facebook => Family::Social,
+            Self::Youtube => Family::Video,
             _ => Family::Syndication,
         }
     }
@@ -109,12 +113,14 @@ impl From<social_schedule::Provider> for ProviderId {
 }
 
 /// Which seam a provider is reached through: a full copy of the article (`openblog syndicate`,
-/// ADR 0004) or an announcement that links the canonical post (social publishing, epic #353).
+/// ADR 0004), an announcement that links the canonical post (social publishing, epic #353), or
+/// an authored video whose description links the canonical post (video release, epic #386).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Family {
     Syndication,
     Social,
+    Video,
 }
 
 /// What a distribution can ask of a destination. The list is closed: a name that is not here is
@@ -554,6 +560,7 @@ impl ProviderManifest {
         let family = match raw.family.as_str() {
             "syndication" => Family::Syndication,
             "social" => Family::Social,
+            "video" => Family::Video,
             _ => return Err(ManifestError::FamilyMismatch),
         };
         if family != provider.family() {
@@ -626,7 +633,8 @@ impl ProviderManifest {
             && (self.login.method == LoginMethod::None || self.publishing == Publishing::Manual))
             || (self.publishing == Publishing::DraftOnly
                 && self.support(Capability::Draft) != Support::Adapter)
-            || (self.family == Family::Social && self.canonical != CanonicalLink::Linked)
+            || (matches!(self.family, Family::Social | Family::Video)
+                && self.canonical != CanonicalLink::Linked)
             || matches!(
                 (
                     self.constraints.schedule_min_lead_seconds,
@@ -919,6 +927,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 sources: sources(docs),
             }
         }
+        Family::Video => youtube_manifest(),
         Family::Social => {
             // Scheduling is open.blog's own queue (ADRs 0308, 0316), so its window is the queue's.
             let schedule = Constraints {
@@ -978,6 +987,50 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 sources: sources(docs),
             }
         }
+    }
+}
+
+/// YouTube as a guided workflow (epic #386, story #399): open.blog prepares the title, description,
+/// thumbnail, captions and transcript, and the author uploads and publishes them in YouTube Studio.
+/// Every limit lives in [`crate::video_release`], because none of them is one of the manifest's
+/// generic constraints (a title, a description in bytes, tags in total characters).
+fn youtube_manifest() -> ProviderManifest {
+    use Capability::*;
+    use Support::*;
+    ProviderManifest {
+        manifest_version: MANIFEST_VERSION,
+        provider: ProviderId::Youtube,
+        family: Family::Video,
+        label: "YouTube".to_string(),
+        policy_version: BUILTIN_POLICY_VERSION.to_string(),
+        capabilities: [
+            (Link, Manual),
+            (Text, Manual),
+            (Article, Unsupported),
+            (Image, Manual),
+            (Video, Manual),
+            (Draft, Manual),
+            (Schedule, Manual),
+        ]
+        .into_iter()
+        .collect(),
+        login: Login {
+            method: LoginMethod::None,
+            scopes: Vec::new(),
+        },
+        constraints: Constraints::default(),
+        canonical: CanonicalLink::Linked,
+        publishing: Publishing::Manual,
+        sources: [
+            "https://developers.google.com/youtube/v3/docs/videos",
+            "https://developers.google.com/youtube/v3/docs/videos/insert",
+            "https://developers.google.com/youtube/v3/docs/thumbnails/set",
+            "https://developers.google.com/youtube/v3/docs/captions/insert",
+            "https://support.google.com/youtube/answer/9884579",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect(),
     }
 }
 

@@ -39,6 +39,7 @@ mod source_store;
 mod syndication;
 mod transaction;
 mod url_context;
+mod video_release;
 mod voice_assistant;
 mod voice_capture;
 mod voice_cli;
@@ -78,6 +79,9 @@ COMMANDS
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
+    video <slug>               Check a video post's YouTube release: title, description with the
+                               article link, thumbnail, chapters, captions, transcript and consent;
+                               uploads nothing (see video OPTIONS)
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -118,6 +122,11 @@ syndicate OPTIONS
                                index.html preview with eligibility errors; sends nothing
     --approve <digest>         Approve exactly the previewed plan (sends nothing); with
                                syndication.requireApproval, --write sends only what is approved
+
+video OPTIONS
+    --json                     Print the YouTube preview as JSON
+    --preview <new folder>     Write title.txt, description.txt, tags.txt, transcript.txt, the
+                               thumbnail, preview.json and an accessible index.html; uploads nothing
 
 export OPTIONS
     --format markdown|csl-json|bibtex
@@ -468,6 +477,20 @@ fn run(raw: &[String]) -> Result<(), String> {
                     json: args.switches.contains("json"),
                     preview: args.options.get("preview").cloned(),
                     approve: args.options.get("approve").cloned(),
+                },
+            )
+        }
+        "video" => {
+            let slug = args
+                .positional
+                .first()
+                .ok_or("usage: openblog video <slug> [--json] [--preview <new folder>]")?;
+            video_release::run(
+                &root,
+                slug,
+                video_release::Options {
+                    json: args.switches.contains("json"),
+                    preview: args.options.get("preview").cloned(),
                 },
             )
         }

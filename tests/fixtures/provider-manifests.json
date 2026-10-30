@@ -1,5 +1,5 @@
 {
-  "about": "The versioned provider capability contract (ADRs 0325 to 0327). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0327).",
+  "about": "The versioned provider capability contract (ADRs 0325 to 0327, and 0841 for the video family). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0327).",
   "manifestVersion": 1,
   "capabilities": [
     "link",
@@ -257,6 +257,43 @@
       "publishing": "explicit-approval",
       "sources": [
         "https://developer.wordpress.org/rest-api/reference/posts/"
+      ]
+    },
+    "youtube": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "manual",
+        "image": "manual",
+        "link": "manual",
+        "schedule": "manual",
+        "text": "manual",
+        "video": "manual"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "video",
+      "label": "YouTube",
+      "login": {
+        "method": "none",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "youtube",
+      "publishing": "manual",
+      "sources": [
+        "https://developers.google.com/youtube/v3/docs/videos",
+        "https://developers.google.com/youtube/v3/docs/videos/insert",
+        "https://developers.google.com/youtube/v3/docs/thumbnails/set",
+        "https://developers.google.com/youtube/v3/docs/captions/insert",
+        "https://support.google.com/youtube/answer/9884579"
       ]
     }
   },
@@ -704,6 +741,46 @@
         }
       ],
       "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a video manifest that claims a canonical copy",
+      "base": "youtube",
+      "changes": [
+        {
+          "set": [
+            "canonical"
+          ],
+          "value": "sent"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a video provider named as social",
+      "base": "youtube",
+      "changes": [
+        {
+          "set": [
+            "family"
+          ],
+          "value": "social"
+        }
+      ],
+      "code": "family-mismatch"
+    },
+    {
+      "name": "a guided video workflow that claims an adapter",
+      "base": "youtube",
+      "changes": [
+        {
+          "set": [
+            "capabilities",
+            "video"
+          ],
+          "value": "adapter"
+        }
+      ],
+      "code": "manifest-inconsistent"
     }
   ],
   "requests": [
@@ -903,6 +980,34 @@
       "request": {
         "capabilities": [
           "link"
+        ]
+      },
+      "codes": [
+        "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "youtube",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "image",
+          "video"
+        ]
+      },
+      "codes": [
+        "capability-manual",
+        "capability-manual",
+        "capability-manual",
+        "capability-manual"
+      ]
+    },
+    {
+      "provider": "youtube",
+      "request": {
+        "capabilities": [
+          "article"
         ]
       },
       "codes": [

@@ -12,7 +12,12 @@
 //! an article is never turned into one. Pure: no file system, no network, no credential. Nothing in
 //! a build, feed or export reads a release.
 
+use blake2::{Blake2b512, Digest};
 use serde::Serialize;
+
+use crate::distribution::{field, hex, Problem, Status, PAGE_STYLE};
+use crate::escape;
+use crate::provider_manifest::{builtin_manifest, Capability, DistributionRequest, ProviderId};
 
 use crate::model::Post;
 
@@ -343,6 +348,602 @@ fn outside_fences_keeping(markdown: &str) -> impl Iterator<Item = (&str, bool)> 
     })
 }
 
+// ---------------------------------------------------------------------------------------------
+// The YouTube-ready preview (task DIST6.1.2, ADR 0842).
+
+/// The preview format this release writes.
+pub const PREVIEW_VERSION: u32 = 1;
+
+/// `snippet.title`: at most 100 characters, and no `<` or `>`
+/// (<https://developers.google.com/youtube/v3/docs/videos>).
+pub const YOUTUBE_TITLE_MAX_CHARS: usize = 100;
+/// `snippet.description`: at most 5,000 bytes, and no `<` or `>` (same source).
+pub const YOUTUBE_DESCRIPTION_MAX_BYTES: usize = 5000;
+/// `snippet.tags`: at most 500 characters, counting the commas between tags and the quotation
+/// marks YouTube adds around a tag with a space (same source).
+pub const YOUTUBE_TAGS_MAX_CHARS: usize = 500;
+
+/// Where a preview comes from: the post and the canonical address its description links.
+pub struct PreviewSource<'a> {
+    pub slug: &'a str,
+    pub source_path: &'a str,
+    pub canonical_url: &'a str,
+    /// Whether the article is live: published, not scheduled for later, and at a public `https`
+    /// address. A video should not link a page that does not exist yet.
+    pub article_public: bool,
+}
+
+/// One caption track as YouTube would list it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionPreview {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<CaptionFormat>,
+}
+
+/// The YouTube-ready preview of one video release: exactly the metadata the author would enter in
+/// YouTube Studio (or a later adapter would send), whether it can go, and the guided steps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoPreview {
+    pub version: u32,
+    pub provider: ProviderId,
+    pub label: String,
+    pub policy_version: String,
+    pub slug: String,
+    pub source_path: String,
+    pub canonical_url: String,
+    pub article_public: bool,
+    pub reference: VideoReference,
+    pub title: String,
+    /// The composed description: the authored opening, the canonical article link, the chapters
+    /// and the AI-assistance note.
+    pub description: String,
+    pub tags: Vec<String>,
+    /// The visibility an upload starts at: always `private`, so nothing is public until the author
+    /// publishes or schedules it.
+    pub privacy: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub made_for_kids: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synthetic_media: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
+    pub chapters: Vec<Chapter>,
+    pub captions: Vec<CaptionPreview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<String>,
+    pub status: Status,
+    /// What keeps the release from going: nothing may be uploaded while any is listed.
+    pub problems: Vec<Problem>,
+    /// What the manifest says only the author can do, by hand.
+    pub manual: Vec<Problem>,
+    /// Facts worth knowing that do not block, such as an article that is not live yet.
+    pub notes: Vec<Problem>,
+    /// The guided workflow, in order.
+    pub steps: Vec<String>,
+    /// BLAKE2b (128 bits) over every field the destination would receive.
+    pub digest: String,
+}
+
+impl VideoPreview {
+    pub fn to_json_value(&self) -> serde_json::Value {
+        serde_json::to_value(self).unwrap_or(serde_json::Value::Null)
+    }
+}
+
+/// The description YouTube receives: the authored opening, the canonical article, the chapters
+/// and the AI-assistance note, each as its own paragraph. The same sections, in the same order,
+/// as Admin's release kit, with the article link added.
+pub fn compose_description(release: &VideoRelease, canonical_url: &str) -> String {
+    let mut sections = Vec::new();
+    let opening = release.description.trim();
+    if !opening.is_empty() {
+        sections.push(opening.to_string());
+    }
+    sections.push(format!("Read the article: {canonical_url}"));
+    if !release.chapters.is_empty() {
+        let lines: Vec<String> = release
+            .chapters
+            .iter()
+            .map(|c| format!("{} {}", c.timestamp, c.label))
+            .collect();
+        sections.push(format!("Chapters\n{}", lines.join("\n")));
+    }
+    if let Some(note) = release.ai_disclosure.as_deref().map(str::trim) {
+        if !note.is_empty() {
+            sections.push(format!("AI assistance: {note}"));
+        }
+    }
+    sections.join("\n\n")
+}
+
+/// The length YouTube counts for a tag list: each tag, two quotation marks around a tag with a
+/// space, and a comma between tags.
+pub fn youtube_tags_chars(tags: &[String]) -> usize {
+    let each: usize = tags
+        .iter()
+        .map(|tag| tag.chars().count() + if tag.contains(' ') { 2 } else { 0 })
+        .sum();
+    each + tags.len().saturating_sub(1)
+}
+
+fn problem(code: &str, message: impl Into<String>) -> Problem {
+    Problem::blocking(code, message)
+}
+
+/// The metadata checks: title, description, tags and chapters against YouTube's own rules.
+fn metadata_problems(release: &VideoRelease, description: &str) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    let title = release.title.trim();
+    if title.is_empty() {
+        problems.push(problem(
+            "title-missing",
+            "Give the video a title with `videoTitle` or the post title.",
+        ));
+    } else if title.chars().count() > YOUTUBE_TITLE_MAX_CHARS {
+        problems.push(problem(
+            "title-too-long",
+            format!("YouTube takes a title of at most {YOUTUBE_TITLE_MAX_CHARS} characters; shorten it with `videoTitle`."),
+        ));
+    }
+    if title.contains(['<', '>']) {
+        problems.push(problem(
+            "title-angle-brackets",
+            "YouTube does not accept < or > in a title.",
+        ));
+    }
+    if description.len() > YOUTUBE_DESCRIPTION_MAX_BYTES {
+        problems.push(problem(
+            "description-too-long",
+            format!("YouTube takes a description of at most {YOUTUBE_DESCRIPTION_MAX_BYTES} bytes, including the article link, chapters and AI-assistance note."),
+        ));
+    }
+    if description.contains(['<', '>']) {
+        problems.push(problem(
+            "description-angle-brackets",
+            "YouTube does not accept < or > in a description; reword the description, chapters or AI-assistance note.",
+        ));
+    }
+    if youtube_tags_chars(&release.tags) > YOUTUBE_TAGS_MAX_CHARS {
+        problems.push(problem(
+            "tags-too-long",
+            format!("YouTube takes at most {YOUTUBE_TAGS_MAX_CHARS} characters of tags; use fewer or shorter tags."),
+        ));
+    }
+    problems.extend(chapter_problems(
+        &release.chapters,
+        release.duration_seconds,
+    ));
+    problems
+}
+
+/// YouTube's chapter rules: the first at `00:00`, at least three, ascending, each at least ten
+/// seconds, the last checked against the duration. No chapters at all is fine.
+pub fn chapter_problems(chapters: &[Chapter], duration: Option<u32>) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    let Some(first) = chapters.first() else {
+        return problems;
+    };
+    if first.seconds != 0 {
+        problems.push(problem(
+            "chapters-first-not-zero",
+            "The first chapter must start at 00:00.",
+        ));
+    }
+    if chapters.len() < CHAPTER_MIN_COUNT {
+        problems.push(problem(
+            "chapters-too-few",
+            format!("YouTube shows chapters only when there are at least {CHAPTER_MIN_COUNT}."),
+        ));
+    }
+    let ascending = chapters
+        .windows(2)
+        .all(|pair| pair[1].seconds > pair[0].seconds);
+    if !ascending {
+        problems.push(problem(
+            "chapters-out-of-order",
+            "List chapters in ascending order of time.",
+        ));
+    }
+    match duration {
+        None => problems.push(problem(
+            "chapters-duration-missing",
+            "Add the video's `duration` so the last chapter can be checked.",
+        )),
+        Some(total) if ascending => {
+            let last = chapters.last().map_or(0, |c| c.seconds);
+            let short = chapters
+                .windows(2)
+                .any(|pair| pair[1].seconds - pair[0].seconds < CHAPTER_MIN_SECONDS)
+                || total < last.saturating_add(CHAPTER_MIN_SECONDS);
+            if short {
+                problems.push(problem(
+                    "chapters-too-short",
+                    format!("Keep every chapter at least {CHAPTER_MIN_SECONDS} seconds long, the last one included."),
+                ));
+            }
+        }
+        Some(_) => {}
+    }
+    problems
+}
+
+/// The guided workflow in YouTube Studio for this release, in order.
+fn steps(release: &VideoRelease, canonical_url: &str) -> Vec<String> {
+    let mut steps = Vec::new();
+    match (&release.reference.youtube_id, &release.reference.file) {
+        (Some(_), _) => {
+            steps.push("Open the video in YouTube Studio and choose Details.".to_string())
+        }
+        (None, Some(file)) => steps.push(format!(
+            "In YouTube Studio, choose Create, then Upload videos, and upload `{file}`."
+        )),
+        (None, None) => steps.push("Upload the video in YouTube Studio.".to_string()),
+    }
+    steps.push(
+        "Paste the title from `title.txt` and the description from `description.txt`.".to_string(),
+    );
+    if release.thumbnail.is_some() {
+        steps.push("Under Thumbnail, upload the thumbnail shown in this preview.".to_string());
+    }
+    if !release.tags.is_empty() {
+        steps.push("Under Show more, paste the tags from `tags.txt`.".to_string());
+    }
+    for track in &release.captions {
+        steps.push(format!(
+            "Under Subtitles, add the {} captions by uploading `{}` with timing.",
+            track.language.as_deref().unwrap_or("unlabelled"),
+            track.path
+        ));
+    }
+    if release.captions.is_empty() && release.transcript.is_some() {
+        steps.push("Under Subtitles, upload `transcript.txt` as a file without timing, and review the synchronised captions.".to_string());
+    }
+    let answer = |value: Declared<bool>, yes: &str, no: &str| match value {
+        Declared::Value(true) => yes.to_string(),
+        Declared::Value(false) => no.to_string(),
+        _ => "the answer you declare in the post".to_string(),
+    };
+    steps.push(format!(
+        "Under Audience, choose {}.",
+        answer(
+            release.consent.made_for_kids,
+            "\u{201c}Yes, it is made for kids\u{201d}",
+            "\u{201c}No, it is not made for kids\u{201d}"
+        )
+    ));
+    steps.push(format!(
+        "Under Altered content, answer {}.",
+        answer(release.consent.synthetic_media, "Yes", "No")
+    ));
+    steps.push(format!(
+        "Keep the video Private until the article at {canonical_url} is live, then publish it or schedule it."
+    ));
+    steps
+}
+
+/// The YouTube-ready preview of `release`: the exact metadata, checked against YouTube's rules
+/// and its manifest. Sends nothing and reads nothing.
+pub fn youtube_preview(release: &VideoRelease, source: PreviewSource<'_>) -> VideoPreview {
+    let manifest = builtin_manifest(ProviderId::Youtube);
+    let description = compose_description(release, source.canonical_url);
+    let problems = metadata_problems(release, &description);
+    let mut capabilities = vec![Capability::Video, Capability::Text, Capability::Link];
+    if release.thumbnail.is_some() {
+        capabilities.push(Capability::Image);
+    }
+    let manual: Vec<Problem> = manifest
+        .check(&DistributionRequest::new(capabilities))
+        .iter()
+        .map(|i| Problem::from_ineligibility(i, &manifest.label))
+        .collect();
+    let mut notes = Vec::new();
+    if !source.article_public {
+        notes.push(problem(
+            "article-not-public",
+            "The article is not live at its public address yet; keep the video private until it is.",
+        ));
+    }
+    let status = if !problems.is_empty() {
+        Status::Blocked
+    } else if !manual.is_empty() {
+        Status::Manual
+    } else {
+        Status::Ready
+    };
+    let captions: Vec<CaptionPreview> = release
+        .captions
+        .iter()
+        .map(|t| CaptionPreview {
+            path: t.path.clone(),
+            language: t.language.clone(),
+            format: t.format,
+        })
+        .collect();
+    let title = release.title.trim().to_string();
+    let mut hasher = Blake2b512::new();
+    field(&mut hasher, "openblog-video-preview-v1");
+    field(&mut hasher, ProviderId::Youtube.as_str());
+    field(&mut hasher, source.canonical_url);
+    field(&mut hasher, release.reference.file.as_deref().unwrap_or(""));
+    field(
+        &mut hasher,
+        release.reference.youtube_id.as_deref().unwrap_or(""),
+    );
+    field(&mut hasher, &title);
+    field(&mut hasher, &description);
+    field(&mut hasher, &release.tags.len().to_string());
+    for tag in &release.tags {
+        field(&mut hasher, tag);
+    }
+    field(&mut hasher, "private");
+    for value in [
+        release.consent.made_for_kids,
+        release.consent.synthetic_media,
+    ] {
+        field(
+            &mut hasher,
+            match value.value() {
+                Some(true) => "yes",
+                Some(false) => "no",
+                None => "",
+            },
+        );
+    }
+    field(&mut hasher, release.thumbnail.as_deref().unwrap_or(""));
+    field(&mut hasher, &captions.len().to_string());
+    for track in &captions {
+        field(&mut hasher, &track.path);
+    }
+    field(
+        &mut hasher,
+        release
+            .transcript
+            .as_ref()
+            .map_or("", |t| t.markdown.as_str()),
+    );
+    VideoPreview {
+        version: PREVIEW_VERSION,
+        provider: ProviderId::Youtube,
+        label: manifest.label.clone(),
+        policy_version: manifest.policy_version.clone(),
+        slug: source.slug.to_string(),
+        source_path: source.source_path.to_string(),
+        canonical_url: source.canonical_url.to_string(),
+        article_public: source.article_public,
+        reference: release.reference.clone(),
+        title,
+        description,
+        tags: release.tags.clone(),
+        privacy: "private",
+        made_for_kids: release.consent.made_for_kids.value(),
+        synthetic_media: release.consent.synthetic_media.value(),
+        thumbnail: release.thumbnail.clone(),
+        chapters: release.chapters.clone(),
+        captions,
+        transcript: release.transcript.as_ref().map(|t| t.markdown.clone()),
+        status,
+        problems,
+        manual,
+        notes,
+        steps: steps(release, source.canonical_url),
+        digest: hex(hasher),
+    }
+}
+
+fn status_words(status: Status) -> &'static str {
+    match status {
+        Status::Ready => "Ready: open.blog can upload this",
+        Status::Manual => {
+            "By hand: ready for you to upload in YouTube Studio; open.blog sends nothing"
+        }
+        Status::Blocked => "Blocked: fix the problems below before uploading",
+    }
+}
+
+fn list_section(out: &mut String, id: &str, heading: &str, items: &[Problem]) {
+    if items.is_empty() {
+        return;
+    }
+    let t = escape::text;
+    out.push_str(&format!(
+        "<h3 id=\"{id}\">{heading}</h3>\n<ul aria-labelledby=\"{id}\">\n"
+    ));
+    for item in items {
+        out.push_str(&format!(
+            "<li>{} <span class=\"code\">({})</span></li>\n",
+            t(&item.message),
+            t(&item.code)
+        ));
+    }
+    out.push_str("</ul>\n");
+}
+
+/// The static preview page: script-free HTML a person can open from disk with a keyboard or a
+/// screen reader. `thumbnail_file` is the copy of the thumbnail beside the page, when there is one.
+pub fn preview_page(preview: &VideoPreview, thumbnail_file: Option<&str>) -> String {
+    let t = escape::text;
+    let a = escape::attr;
+    let mut out = String::new();
+    out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+    out.push_str(&format!(
+        "<title>YouTube preview: {}</title>\n",
+        t(&preview.title)
+    ));
+    out.push_str(PAGE_STYLE);
+    out.push_str("<style>img{max-width:100%;height:auto;border:1px solid var(--line)}figure{margin:0}ol li{margin-bottom:.35rem}</style>\n");
+    out.push_str("</head>\n<body>\n<main>\n");
+    out.push_str(&format!(
+        "<h1>YouTube preview: {}</h1>\n",
+        t(&preview.title)
+    ));
+    out.push_str("<p class=\"notice\"><strong>Preview, not sent.</strong> Nothing in this folder was uploaded to YouTube, and no credential was read.</p>\n");
+    out.push_str("<dl>\n");
+    out.push_str(&format!(
+        "<dt>Canonical article</dt><dd><a href=\"{}\">{}</a>{}</dd>\n",
+        a(&preview.canonical_url),
+        t(&preview.canonical_url),
+        if preview.article_public {
+            ""
+        } else {
+            " (not live yet)"
+        }
+    ));
+    let video = match (&preview.reference.url, &preview.reference.file) {
+        (Some(url), _) => format!("<a href=\"{}\">{}</a>", a(url), t(url)),
+        (None, Some(file)) => format!("<code>{}</code>", t(file)),
+        (None, None) => "<em>none</em>".to_string(),
+    };
+    out.push_str(&format!("<dt>Video</dt><dd>{video}</dd>\n"));
+    out.push_str(&format!(
+        "<dt>Source</dt><dd>{}</dd>\n<dt>Preview digest</dt><dd><code>{}</code></dd>\n<dt>Provider policy</dt><dd>{} of {}</dd>\n",
+        t(&preview.source_path),
+        t(&preview.digest),
+        t(&preview.label),
+        t(&preview.policy_version)
+    ));
+    out.push_str("</dl>\n");
+
+    out.push_str(
+        "<section aria-labelledby=\"status-title\">\n<h2 id=\"status-title\">Status</h2>\n",
+    );
+    out.push_str(&format!(
+        "<p><strong>Status:</strong> {}.</p>\n",
+        status_words(preview.status)
+    ));
+    list_section(
+        &mut out,
+        "problems-title",
+        "What keeps it from going",
+        &preview.problems,
+    );
+    list_section(
+        &mut out,
+        "manual-title",
+        "What only you can do, in YouTube Studio",
+        &preview.manual,
+    );
+    list_section(&mut out, "notes-title", "Worth knowing", &preview.notes);
+    out.push_str("</section>\n");
+
+    out.push_str("<section aria-labelledby=\"metadata-title\">\n<h2 id=\"metadata-title\">Title and description</h2>\n");
+    out.push_str(&format!(
+        "<p>Title, {} of {YOUTUBE_TITLE_MAX_CHARS} characters, saved as <a href=\"title.txt\">title.txt</a>:</p>\n<pre tabindex=\"0\" aria-label=\"Video title\">{}</pre>\n",
+        preview.title.chars().count(),
+        t(&preview.title)
+    ));
+    out.push_str(&format!(
+        "<p>Description, {} of {YOUTUBE_DESCRIPTION_MAX_BYTES} bytes, saved as <a href=\"description.txt\">description.txt</a>:</p>\n<pre tabindex=\"0\" aria-label=\"Video description\">{}</pre>\n",
+        preview.description.len(),
+        t(&preview.description)
+    ));
+    if preview.tags.is_empty() {
+        out.push_str("<p>Tags: <em>none</em>.</p>\n");
+    } else {
+        out.push_str(&format!(
+            "<p>Tags, {} of {YOUTUBE_TAGS_MAX_CHARS} characters as YouTube counts them, saved as <a href=\"tags.txt\">tags.txt</a>:</p>\n<ul>\n",
+            youtube_tags_chars(&preview.tags)
+        ));
+        for tag in &preview.tags {
+            out.push_str(&format!("<li><code>{}</code></li>\n", t(tag)));
+        }
+        out.push_str("</ul>\n");
+    }
+    out.push_str("</section>\n");
+
+    out.push_str(
+        "<section aria-labelledby=\"thumbnail-title\">\n<h2 id=\"thumbnail-title\">Thumbnail</h2>\n",
+    );
+    match (&preview.thumbnail, thumbnail_file) {
+        (Some(path), Some(file)) => out.push_str(&format!(
+            "<figure>\n<img src=\"{}\" alt=\"The thumbnail chosen for {}\">\n<figcaption>From <code>{}</code>.</figcaption>\n</figure>\n",
+            a(file),
+            a(&preview.title),
+            t(path)
+        )),
+        (Some(path), None) => out.push_str(&format!(
+            "<p>The thumbnail <code>{}</code> is not in this folder; check it before uploading.</p>\n",
+            t(path)
+        )),
+        (None, _) => {
+            out.push_str("<p>No thumbnail: YouTube will offer frames from the video.</p>\n")
+        }
+    }
+    out.push_str("</section>\n");
+
+    out.push_str(
+        "<section aria-labelledby=\"chapters-title\">\n<h2 id=\"chapters-title\">Chapters</h2>\n",
+    );
+    if preview.chapters.is_empty() {
+        out.push_str("<p>No chapters are written in the post.</p>\n");
+    } else {
+        out.push_str("<table>\n<caption>Chapters as they appear in the description</caption>\n<thead><tr><th scope=\"col\">Starts at</th><th scope=\"col\">Chapter</th></tr></thead>\n<tbody>\n");
+        for chapter in &preview.chapters {
+            out.push_str(&format!(
+                "<tr><th scope=\"row\">{}</th><td>{}</td></tr>\n",
+                t(&chapter.timestamp),
+                t(&chapter.label)
+            ));
+        }
+        out.push_str("</tbody>\n</table>\n");
+    }
+    out.push_str("</section>\n");
+
+    out.push_str("<section aria-labelledby=\"access-title\">\n<h2 id=\"access-title\">Captions and transcript</h2>\n");
+    if preview.captions.is_empty() {
+        out.push_str("<p>No caption files are listed.</p>\n");
+    } else {
+        out.push_str("<ul>\n");
+        for track in &preview.captions {
+            out.push_str(&format!(
+                "<li><code>{}</code>: {}, {}</li>\n",
+                t(&track.path),
+                t(track
+                    .language
+                    .as_deref()
+                    .unwrap_or("no language in the file name")),
+                match track.format {
+                    Some(CaptionFormat::Webvtt) => "WebVTT",
+                    Some(CaptionFormat::Subrip) => "SubRip",
+                    None => "an unsupported format",
+                }
+            ));
+        }
+        out.push_str("</ul>\n");
+    }
+    match &preview.transcript {
+        Some(text) => out.push_str(&format!(
+            "<p>The transcript from the post, saved as <a href=\"transcript.txt\">transcript.txt</a>:</p>\n<pre tabindex=\"0\" aria-label=\"Transcript\">{}</pre>\n",
+            t(text)
+        )),
+        None => out.push_str("<p>The post has no Transcript section.</p>\n"),
+    }
+    out.push_str("</section>\n");
+
+    out.push_str("<section aria-labelledby=\"audience-title\">\n<h2 id=\"audience-title\">Audience and disclosures</h2>\n<dl>\n");
+    let answer = |value: Option<bool>| match value {
+        Some(true) => "Yes",
+        Some(false) => "No",
+        None => "Not declared",
+    };
+    out.push_str(&format!(
+        "<dt>Made for kids</dt><dd>{}</dd>\n<dt>Realistic altered or synthetic content</dt><dd>{}</dd>\n<dt>Visibility when uploaded</dt><dd>Private</dd>\n</dl>\n</section>\n",
+        answer(preview.made_for_kids),
+        answer(preview.synthetic_media)
+    ));
+
+    out.push_str("<section aria-labelledby=\"steps-title\">\n<h2 id=\"steps-title\">By hand in YouTube Studio</h2>\n<ol>\n");
+    for step in &preview.steps {
+        out.push_str(&format!("<li>{}</li>\n", t(step)));
+    }
+    out.push_str("</ol>\n</section>\n</main>\n</body>\n</html>\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,5 +1011,192 @@ mod tests {
             Declared::read(Some("  "), yes_no),
             Declared::<bool>::Missing
         );
+    }
+
+    fn release() -> VideoRelease {
+        VideoRelease {
+            title: "Episode <one>".into(),
+            description: "A walk to the gate.".into(),
+            reference: VideoReference {
+                file: Some("media/episode-1.mp4".into()),
+                url: None,
+                youtube_id: None,
+            },
+            duration_seconds: Some(200),
+            chapters: chapters("00:00 Road\n00:42 Ash\n01:36 Gate"),
+            transcript: transcript("## Transcript\nHello <b>there</b>."),
+            captions: vec![CaptionTrack::from_path("media/episode-1.en.vtt")],
+            thumbnail: Some("/images/episode.png".into()),
+            consent: Consent {
+                rights: Declared::Value(Rights::Owned),
+                people: Declared::Value(People::None),
+                made_for_kids: Declared::Value(false),
+                synthetic_media: Declared::Value(false),
+            },
+            ai_disclosure: Some("Concept art was AI-assisted.".into()),
+            tags: vec!["animation".into(), "behind the scenes".into()],
+        }
+    }
+
+    fn source(public: bool) -> PreviewSource<'static> {
+        PreviewSource {
+            slug: "episode-1",
+            source_path: "content/posts/episode-1.md",
+            canonical_url: "https://blog.example.org/posts/episode-1/",
+            article_public: public,
+        }
+    }
+
+    fn codes(problems: &[Problem]) -> Vec<&str> {
+        problems.iter().map(|p| p.code.as_str()).collect()
+    }
+
+    #[test]
+    fn the_description_carries_the_opening_the_article_the_chapters_and_the_disclosure() {
+        let mut ok = release();
+        ok.title = "Episode one".into();
+        assert_eq!(
+            compose_description(&ok, "https://blog.example.org/posts/episode-1/"),
+            "A walk to the gate.\n\nRead the article: https://blog.example.org/posts/episode-1/\n\nChapters\n00:00 Road\n00:42 Ash\n01:36 Gate\n\nAI assistance: Concept art was AI-assisted."
+        );
+        ok.description = " ".into();
+        ok.chapters.clear();
+        ok.ai_disclosure = None;
+        assert_eq!(
+            compose_description(&ok, "https://a.example.org/"),
+            "Read the article: https://a.example.org/"
+        );
+    }
+
+    #[test]
+    fn tags_are_counted_as_youtube_counts_them() {
+        assert_eq!(youtube_tags_chars(&[]), 0);
+        // "animation" (9) + quoted "behind the scenes" (17 + 2) + one comma.
+        assert_eq!(
+            youtube_tags_chars(&["animation".into(), "behind the scenes".into()]),
+            29
+        );
+    }
+
+    #[test]
+    fn chapters_follow_youtubes_rules() {
+        let check = |body: &str, duration| {
+            chapter_problems(&chapters(body), duration)
+                .into_iter()
+                .map(|p| p.code)
+                .collect::<Vec<_>>()
+        };
+        assert!(check("", None).is_empty());
+        assert!(check("00:00 A\n00:10 B\n00:20 C", Some(30)).is_empty());
+        assert_eq!(
+            check("00:05 A\n00:20 B", Some(60)),
+            ["chapters-first-not-zero", "chapters-too-few"]
+        );
+        assert_eq!(
+            check("00:00 A\n00:30 B\n00:20 C", Some(60)),
+            ["chapters-out-of-order"]
+        );
+        assert_eq!(
+            check("00:00 A\n00:09 B\n00:30 C", Some(60)),
+            ["chapters-too-short"]
+        );
+        assert_eq!(
+            check("00:00 A\n00:10 B\n00:20 C", Some(25)),
+            ["chapters-too-short"]
+        );
+        assert_eq!(
+            check("00:00 A\n00:10 B\n00:20 C", None),
+            ["chapters-duration-missing"]
+        );
+    }
+
+    #[test]
+    fn a_ready_release_is_a_guided_workflow_under_the_youtube_manifest() {
+        let mut ok = release();
+        ok.title = "Episode one".into();
+        let preview = youtube_preview(&ok, source(true));
+        assert_eq!(preview.status, Status::Manual);
+        assert!(preview.problems.is_empty(), "{:?}", preview.problems);
+        assert_eq!(
+            codes(&preview.manual),
+            ["capability-manual"; 4],
+            "link, text, image and video are by hand"
+        );
+        assert!(preview.notes.is_empty());
+        assert_eq!(preview.privacy, "private");
+        assert_eq!(preview.policy_version, "2026-10-29");
+        assert!(preview
+            .description
+            .contains("Read the article: https://blog.example.org/posts/episode-1/"));
+        assert!(preview.steps[0].contains("media/episode-1.mp4"));
+        assert!(preview
+            .steps
+            .iter()
+            .any(|s| s.contains("media/episode-1.en.vtt")));
+        assert!(preview.steps.last().unwrap().contains("Private"));
+        let json = preview.to_json_value();
+        assert_eq!(json["provider"], "youtube");
+        assert_eq!(json["madeForKids"], false);
+    }
+
+    #[test]
+    fn metadata_youtube_refuses_blocks_the_release_and_a_draft_article_is_a_note() {
+        let mut long = release();
+        long.title = "x".repeat(101);
+        long.description = "y".repeat(5000);
+        long.tags = (0..60).map(|i| format!("tag-number-{i}")).collect();
+        let preview = youtube_preview(&long, source(false));
+        assert_eq!(preview.status, Status::Blocked);
+        assert_eq!(
+            codes(&preview.problems),
+            ["title-too-long", "description-too-long", "tags-too-long"]
+        );
+        assert_eq!(codes(&preview.notes), ["article-not-public"]);
+        let brackets = youtube_preview(&release(), source(true));
+        assert_eq!(codes(&brackets.problems), ["title-angle-brackets"]);
+    }
+
+    #[test]
+    fn the_digest_binds_every_field_youtube_receives() {
+        let base = youtube_preview(&release(), source(true)).digest;
+        assert_eq!(base, youtube_preview(&release(), source(true)).digest);
+        let changes: Vec<Box<dyn Fn(&mut VideoRelease)>> = vec![
+            Box::new(|r| r.title.push('!')),
+            Box::new(|r| r.description.push('!')),
+            Box::new(|r| r.tags.push("more".into())),
+            Box::new(|r| r.thumbnail = None),
+            Box::new(|r| r.captions.clear()),
+            Box::new(|r| r.transcript = None),
+            Box::new(|r| r.consent.made_for_kids = Declared::Value(true)),
+            Box::new(|r| r.consent.synthetic_media = Declared::Missing),
+            Box::new(|r| r.reference.file = Some("media/other.mp4".into())),
+        ];
+        for change in changes {
+            let mut changed = release();
+            change(&mut changed);
+            assert_ne!(youtube_preview(&changed, source(true)).digest, base);
+        }
+        let mut moved = source(true);
+        moved.canonical_url = "https://blog.example.org/posts/moved/";
+        assert_ne!(youtube_preview(&release(), moved).digest, base);
+    }
+
+    #[test]
+    fn the_preview_page_is_static_escaped_and_labelled() {
+        let preview = youtube_preview(&release(), source(false));
+        let page = preview_page(&preview, Some("thumbnail.png"));
+        assert!(page.starts_with("<!doctype html>\n<html lang=\"en\">"));
+        assert!(!page.contains("<script") && !page.contains("<form"));
+        assert_eq!(page.matches("<h1>").count(), 1);
+        assert!(page.contains("Episode &lt;one&gt;"));
+        assert!(!page.contains("<b>there</b>"));
+        assert!(page.contains(
+            "<img src=\"thumbnail.png\" alt=\"The thumbnail chosen for Episode &lt;one&gt;\">"
+        ));
+        assert!(page.contains("(not live yet)"));
+        assert!(page.contains("title-angle-brackets"));
+        assert!(page.contains("<pre tabindex=\"0\" aria-label=\"Video description\">"));
+        let without = preview_page(&preview, None);
+        assert!(without.contains("is not in this folder"));
     }
 }

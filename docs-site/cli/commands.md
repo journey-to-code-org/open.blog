@@ -45,9 +45,12 @@ openblog publish setup
 ```bash
 openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
 openblog syndicate <slug> [--target a,b] [--write] [--publish]
+openblog video <slug> [--json] [--preview <new folder>]
 ```
 
-Use these for cross-platform content reuse and external publication workflows.
+Use these for cross-platform content reuse and external publication workflows. `video` checks a video post's
+YouTube release and writes its title, description, tags, transcript, thumbnail and an accessible preview page;
+it uploads nothing.
 
 ## Users and analytics
 
