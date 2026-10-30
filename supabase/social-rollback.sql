@@ -8,8 +8,8 @@
 --   select * from public.openblog_social_posts order by scheduled_for;
 --   select * from public.openblog_social_attempts order by started_at;
 --
--- This drops only what social.sql, social-queue.sql, social-history.sql and social-ops.sql added (the history
--- trigger and its event table too): the connection, credential, attempt,
+-- This drops only what social.sql, social-queue.sql, social-history.sql, social-ops.sql and social-cron.sql
+-- added (the cron job, its ping function, the history trigger and its event table too): the connection, credential, attempt,
 -- queue and account tables (their rows go with them) and the schema version
 -- table. It touches no comment, feedback, subscription or workspace table, and
 -- no post. Nothing already published to LinkedIn or Facebook is removed there.
@@ -20,6 +20,17 @@
 -- It leaves the pgcrypto extension, which other files in this folder use.
 
 begin;
+
+-- The schedule (social-cron.sql) first, so nothing calls the worker with its key while the tables go
+-- (ADR 0332). Only where pg_cron is installed; the Vault secrets stay (see social-cron-rollback.sql).
+do $rollback$
+begin
+  if to_regclass('cron.job') is not null then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'openblog-social-worker';
+  end if;
+end
+$rollback$;
+drop function if exists public.openblog_social_worker_ping();
 
 -- Operations (social-ops.sql) and the history (social-history.sql) first, then the delivery queue
 -- functions (social-queue.sql), which return the queue table's row type, then the tables.

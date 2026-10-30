@@ -664,6 +664,7 @@ A few words about the dish.
 | `prep`, `cook`, `total` | One length of time: `15 min`, `1 hr 30 min`, `1.5 hours`, `1 1/2 hours`, `1h30m`, `1:30` (1 hour 30 minutes), or `PT1H30M`. Anything else, such as `overnight` or `10-15 min`, is shown on the card as written and left out of the search-engine data. `total` defaults to prep plus cook when both are given. Also `prepTime`, `cookTime`, `totalTime`. |
 | `cuisine`, `course` | Shown on the card and given to search engines. `category` also works for `course`. |
 | `calories` | Free text, per serving, such as `520 kcal`. |
+| `adaptedFrom` | The web address of the recipe yours is adapted from, such as `https://example.org/original`. Given to search engines and recipe apps as the source (`isBasedOn`); not shown on the page, so credit the original in your text too. Also `adapted_from`, `basedOn`. Anything that is not an `http(s)` address is left out. |
 
 **Sections.** The labels must be headings (`## Ingredients`), not bold text, and each
 ingredient and step must be a list item (`- ` or `1. `); `openblog check` warns about a
@@ -699,6 +700,69 @@ put an image in the post.
 
 Each extra can be switched off for the whole blog under `recipes` in
 [Configuration](configuration.md#recipes).
+
+### Exporting a recipe
+
+Recipe apps such as Mealie import a recipe from its page address: they read the schema.org
+data the page already carries, so sharing the canonical link is usually all an importer needs.
+For an app that takes a file or pasted JSON, export the same data:
+
+```sh
+openblog export lemon-garlic-pasta --format recipe-json-ld                 # preview and check
+openblog export lemon-garlic-pasta --format recipe-json-ld --json          # versioned plan with the problems
+openblog export lemon-garlic-pasta --format recipe-json-ld --out exports/pasta.recipe.json --write
+```
+
+The file is exactly the `Recipe` the page carries, with `"@context": "https://schema.org"`:
+the same ingredients and steps as written, the times that are one length of time, the yield,
+the canonical address, the site author and, when set, `adaptedFrom`. Nothing is added: amounts
+are not converted and a time written as text is left out. Only published posts are exported,
+nothing is sent anywhere, and an existing file is never replaced.
+
+Before exporting, the recipe is checked. These **stop the export** until fixed: no ingredients
+or no steps, an empty ingredient or step, an amount that cannot be read (`1/0 cup`, `1//2 cup`),
+a zero amount (`0 eggs`), a range written backwards (`3-2 cloves`), a zero time, a `total`
+shorter than `prep` and `cook` together, or a site `url` that is not an `http(s)` address.
+These are **listed** and the export goes ahead: a repeated ingredient line, a step that starts
+with its own number (`Step 1:`), a time written as text, only one of `prep` and `cook` without a
+`total`, `servings` that is not a number, `calories` without `servings` or `makes`, an
+`adaptedFrom` that is not a web address, no site author, and no `cover` image (search engines
+show recipe results only with a photo). Each problem names the ingredient or step number or the
+field, never your text. See ADRs
+[0333](adr/0333-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md)
+and [0334](adr/0334-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md).
+
+### Preparing a recipe for recipe directories
+
+No recipe directory lets open.blog submit for you, so open.blog never does: it prepares a
+folder with everything a directory's own form or check needs, and a page listing your steps.
+You choose the directories, and you make each submission yourself, by hand, if you want to.
+
+```sh
+openblog export lemon-garlic-pasta --format recipe-package --directory google-search,pinterest   # preview and check
+openblog export lemon-garlic-pasta --format recipe-package --directory foodgawker --json          # versioned plan
+openblog export lemon-garlic-pasta --format recipe-package --directory google-search,pinterest,foodgawker   --out exports/pasta-package --write
+```
+
+The new folder holds `recipe.json` (the same schema.org data as the page), `title.txt`,
+`description.txt`, `ingredients.txt`, `steps.txt`, `link.txt` (the canonical address),
+`credit.txt` (your title, the site author, the canonical address and, when set, `adaptedFrom`),
+the cover image when it is a file in your static folder, `package.json`, and `index.html`: open it
+in a browser for each directory's conditions and steps. A cover given as a web address is linked,
+not downloaded. Without `--directory` the folder holds the recipe files only.
+
+| Directory | How it receives your recipe | Checked here |
+| --- | --- | --- |
+| `google-search` | Reads your page; test it with the Rich Results Test and ask for indexing in Search Console | Needs a cover; warns under the 50,000 pixels Google recommends |
+| `pinterest` | Reads your page's recipe data when you save a Pin from it | Needs a cover |
+| `foodgawker` | You submit a photo, title, description and link from your account; editors review it | Needs a cover; warns when it is not square or there is no `description`. Its pages could not be read directly, so every condition is marked "not verified": check them on Foodgawker |
+
+`yummly` is refused because it closed in December 2024, and `allrecipes` because its submission
+terms could not be verified. A recipe check error (above), a missing cover, or a post whose
+`canonical` names another page stops the package, and nothing is written. The facts were
+checked on 2026-10-29; see ADRs
+[0335](adr/0335-recipe-directories-are-a-closed-dated-list-whose-conditions-say-where-they-were-read-and-every-submission-is-by-hand.md)
+and [0336](adr/0336-a-recipe-package-is-a-new-folder-of-the-pages-recipe-the-text-to-paste-the-cover-and-a-static-guide-and-nothing-is-sent.md).
 
 ## Series
 

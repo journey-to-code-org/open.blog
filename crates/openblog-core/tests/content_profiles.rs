@@ -74,7 +74,8 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             "totalTime",
             "cuisine",
             "category",
-            "calories"
+            "calories",
+            "adaptedFrom"
         ]
     );
     assert_eq!(profiles[2].label, "Research");

@@ -2871,6 +2871,19 @@ The opt-in deletion, after a configured 30 to 3650 days, of announcements that e
 finished handshakes and unreferenced disconnected accounts. Nothing scheduled, sending or unknown is ever removed.
 _Avoid_: Cleanup (the sweep only changes state), archiving
 
+**Social switch**:
+One of the three independent places social publishing is turned on (ADR 0331): `OPENBLOG_SOCIAL_ENABLED=true` with
+valid settings on the hosted functions, `OPENBLOG_SOCIAL_ENDPOINT` with the admin key on the machine running Admin,
+and the cron job with its Vault secrets in Supabase. Each is off by default and undone on its own; none lives in
+`openblog.json`.
+_Avoid_: Feature flag (there is no flag in the site file), toggle
+
+**Social release gate**:
+An automated check that must pass before a release touching social publishing: builds, feeds, exports, cross-posting
+plans and offline authoring unchanged by the settings; every hosted route a 404 when off; no Supabase or hosted social
+address in a browser file; and the guide, settings, SQL and provider versions in agreement (ADRs 0331 and 0332).
+_Avoid_: Readiness check (that is the publication readiness report), smoke test
+
 ## Distribution
 
 **Provider manifest**:
@@ -2954,3 +2967,28 @@ The author's explicit consent to one distribution plan, given by its digest: bou
 canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
 under. Private; with `requireApproval` a write sends only what it covers (ADR 0329).
 _Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)
+
+**Recipe export**:
+A published recipe post as one schema.org `Recipe` JSON-LD document: exactly the `Recipe` node its page carries, plus
+the schema.org context, written locally by `openblog export <slug> --format recipe-json-ld`. It carries the author's
+lines and times as written or leaves them out, never a converted or guessed value; `adaptedFrom` becomes `isBasedOn`
+(ADR 0333).
+_Avoid_: Recipe card (the summary on the page), recipe feed, submission (sending it to a directory)
+
+**Recipe check**:
+The closed list of problems a recipe export is checked against: unreadable, zero or backwards amounts, empty or
+missing lists, inconsistent times and a missing canonical address are errors that stop the export; gaps such as no
+photo or no author are warnings. A problem names the ingredient, step or field, never the author's words (ADR 0334).
+_Avoid_: Validation error, lint
+
+**Recipe directory**:
+A site that lists recipes from other sites (Google Search recipe results, Pinterest, Foodgawker), in a closed, dated
+list with each condition marked as read in its own documentation or not verified. open.blog never submits to one;
+the author does, by hand (ADR 0335).
+_Avoid_: Destination (a cross-posting or social target with an adapter), aggregator, recipe app (an importer)
+
+**Recipe package**:
+A new folder prepared by `openblog export <slug> --format recipe-package` for the recipe directories the author
+chose: the page's `Recipe` JSON-LD, the text to paste, the credit, the cover when it is a static file, a plan and a
+static guide to the author's steps. Prepared, never sent (ADR 0336).
+_Avoid_: Submission (the author's own act in the directory), recipe export (the single JSON-LD file)

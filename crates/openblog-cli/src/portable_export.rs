@@ -5,6 +5,7 @@ use openblog_core::model::Post;
 use openblog_core::portability::PortableProjection;
 use openblog_core::source_interchange::{self, Export, ExportLoss};
 use openblog_core::Site;
+use openblog_core::{recipe_check, recipe_schema};
 
 use crate::{clock, fsutil, site};
 
@@ -17,6 +18,10 @@ pub enum Format {
     CslJson,
     /// The post's cited references as BibTeX (ADR 0050).
     Bibtex,
+    /// A recipe post as the schema.org `Recipe` its page carries (ADRs 0333 and 0334).
+    RecipeJsonLd,
+    /// A folder for recipe directories' own submission steps (ADRs 0335 and 0336).
+    RecipePackage,
 }
 
 impl Format {
@@ -25,6 +30,8 @@ impl Format {
             "markdown" => Some(Self::Markdown),
             "csl-json" => Some(Self::CslJson),
             "bibtex" => Some(Self::Bibtex),
+            "recipe-json-ld" => Some(Self::RecipeJsonLd),
+            "recipe-package" => Some(Self::RecipePackage),
             _ => None,
         }
     }
@@ -34,10 +41,14 @@ impl Format {
             Self::Markdown => "portable-markdown",
             Self::CslJson => "csl-json",
             Self::Bibtex => "bibtex",
+            Self::RecipeJsonLd => "recipe-json-ld",
+            Self::RecipePackage => "recipe-package",
         }
     }
 }
 
+/// [`run_with_directories`] without `--directory`, as the tests of other exports call it.
+#[cfg(test)]
 pub fn run(
     root: &Path,
     slug: &str,
@@ -46,6 +57,26 @@ pub fn run(
     write: bool,
     json: bool,
 ) -> Result<(), String> {
+    run_with_directories(root, slug, format, output, None, write, json)
+}
+
+/// [`run`], with `--directory` for a recipe package (ADR 0336).
+pub fn run_with_directories(
+    root: &Path,
+    slug: &str,
+    format: Format,
+    output: Option<&str>,
+    directories: Option<&str>,
+    write: bool,
+    json: bool,
+) -> Result<(), String> {
+    if directories.is_some() && format != Format::RecipePackage {
+        return Err(
+            "--directory applies to --format recipe-package only; no files were changed".into(),
+        );
+    }
+    // An unknown or unavailable directory is refused before anything is read.
+    let directories = crate::recipe_package::parse_directories(directories)?;
     if json && write {
         return Err("--json is available for dry runs only; no files were changed".into());
     }
@@ -65,6 +96,20 @@ pub fn run(
         .iter()
         .find(|post| post.slug == slug)
         .ok_or_else(|| format!("published post `{slug}` was not found"))?;
+    if format == Format::RecipePackage {
+        return crate::recipe_package::run(
+            root,
+            &site,
+            post,
+            destination.as_deref(),
+            &directories,
+            write,
+            json,
+        );
+    }
+    if format == Format::RecipeJsonLd {
+        return run_recipe(root, &site, post, destination.as_deref(), write, json);
+    }
     if format != Format::Markdown {
         let export = bibliography_export(post, curated_references(&site, post), format)?;
         for warning in crate::boundary::check_export(
@@ -257,6 +302,102 @@ fn run_bibliography(
             ),
         }
         print!("{}", export.content);
+    }
+    Ok(())
+}
+
+/// A recipe post's schema.org `Recipe` document and the recipe check's problems (ADR 0334).
+/// `Err` when the post is not a recipe.
+pub fn recipe_export(
+    site: &Site,
+    post: &Post,
+) -> Result<(String, Vec<recipe_check::Problem>), String> {
+    let recipe = post.recipe.as_ref().ok_or_else(|| {
+        format!(
+            "`{}` is not a recipe, so there is no recipe to export; add `profile: recipe` to its front matter. No files were changed.",
+            post.source
+        )
+    })?;
+    let document = recipe_schema::recipe_document(&site.config, post, recipe);
+    let mut content = serde_json::to_string_pretty(&document)
+        .map_err(|error| format!("cannot serialize the recipe: {error}"))?;
+    content.push('\n');
+    Ok((content, recipe_check::check(&site.config, post, recipe)))
+}
+
+fn run_recipe(
+    root: &Path,
+    site: &Site,
+    post: &Post,
+    destination: Option<&Path>,
+    write: bool,
+    json: bool,
+) -> Result<(), String> {
+    let (content, problems) = recipe_export(site, post)?;
+    // The publication boundary (ADR 0125), as for every other export.
+    for warning in crate::boundary::check_export(
+        root,
+        site,
+        &format!("the recipe export of `{}`", post.slug),
+        &content,
+        // Every field comes from the post's own published text, as in the portable article.
+        false,
+    )? {
+        eprintln!("warning: {warning}");
+    }
+    let blocked = recipe_check::has_errors(&problems);
+    if json {
+        let plan = serde_json::json!({
+            "version": 1,
+            "sourcePath": post.source,
+            "canonicalUrl": site.config.absolute(&post.url),
+            "representation": Format::RecipeJsonLd.key(),
+            "outputFile": destination,
+            "bytes": content.len(),
+            "writeRequested": false,
+            "offline": true,
+            "exportable": !blocked,
+            "problems": problems,
+            "content": if blocked { serde_json::Value::Null } else { serde_json::Value::String(content) },
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&plan)
+                .map_err(|error| format!("cannot serialize export plan: {error}"))?
+        );
+        return Ok(());
+    }
+    for problem in &problems {
+        println!("{}: {}", post.source, problem.line());
+    }
+    if blocked {
+        let errors = problems
+            .iter()
+            .filter(|p| p.severity == recipe_check::Severity::Error)
+            .count();
+        return Err(format!(
+            "the recipe in `{}` has {errors} error(s) to fix before it can be exported; no files were changed",
+            post.source
+        ));
+    }
+    if write {
+        let destination =
+            destination.ok_or("--write requires --out <path>; no files were changed")?;
+        refuse_existing(destination)?;
+        fsutil::write_new_atomic(destination, content.as_bytes())?;
+        println!("Recipe JSON-LD written to {}", destination.display());
+    } else {
+        match destination {
+            Some(destination) => {
+                println!("Would write recipe JSON-LD to {}", destination.display())
+            }
+            None => println!(
+                "Recipe JSON-LD preview for `{}` ({})",
+                post.title,
+                site.config.absolute(&post.url)
+            ),
+        }
+        print!("{content}");
     }
     Ok(())
 }
@@ -837,5 +978,118 @@ mod tests {
         );
         assert!(!none.exists());
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// A site with one good recipe, one with an error, and one article.
+    fn recipe_site() -> std::path::PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "openblog-export-recipe-{}",
+            crate::auth::random_token().unwrap()
+        ));
+        let posts = directory.join("content/posts");
+        std::fs::create_dir_all(&posts).unwrap();
+        std::fs::write(
+            directory.join("openblog.json"),
+            r#"{"url":"https://kitchen.example","postPath":"/{slug}/","author":{"name":"The Cook"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("pasta.md"),
+            "---\ntitle: Pasta\nslug: pasta\ndate: 2020-01-01\nprofile: recipe\nservings: 2\nprep: 5 min\ncook: 10 min\ncover: /p.jpg\n---\n## Ingredients\n\n- 200 g pasta\n\n## Steps\n\n1. Boil.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("stew.md"),
+            "---\ntitle: Stew\nslug: stew\ndate: 2020-01-02\nprofile: recipe\ncover: /s.jpg\n---\n## Ingredients\n\n- 0 carrots\n\n## Steps\n\n1. Simmer.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("notes.md"),
+            "---\ntitle: Notes\nslug: notes\ndate: 2020-01-03\n---\nJust words.\n",
+        )
+        .unwrap();
+        directory
+    }
+
+    #[test]
+    fn a_checked_recipe_is_written_once_as_the_json_ld_its_page_carries() {
+        let root = recipe_site();
+        assert_eq!(Format::parse("recipe-json-ld"), Some(Format::RecipeJsonLd));
+        let destination = root.join("exports/pasta.recipe.json");
+        let out = destination.to_str().unwrap();
+        // A dry run writes nothing.
+        run(
+            &root,
+            "pasta",
+            Format::RecipeJsonLd,
+            Some(out),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(!destination.exists());
+        run(&root, "pasta", Format::RecipeJsonLd, Some(out), true, false).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&destination).unwrap()).unwrap();
+        assert_eq!(written["@context"], "https://schema.org");
+        assert_eq!(written["@type"], "Recipe");
+        assert_eq!(
+            written["recipeIngredient"],
+            serde_json::json!(["200 g pasta"])
+        );
+        assert_eq!(written["url"], "https://kitchen.example/pasta/");
+        assert_eq!(written["totalTime"], "PT15M");
+        // The file is the page's own node plus the context.
+        let (site, _) = site::load_site(&root, false, Some(clock::now())).unwrap();
+        let post = site.posts.iter().find(|p| p.slug == "pasta").unwrap();
+        let mut node = openblog_core::recipe_schema::recipe_node(
+            &site.config,
+            post,
+            post.recipe.as_ref().unwrap(),
+        );
+        node["@context"] = serde_json::json!("https://schema.org");
+        assert_eq!(written, node);
+        // An existing file is never replaced.
+        assert!(
+            run(&root, "pasta", Format::RecipeJsonLd, Some(out), true, false)
+                .unwrap_err()
+                .contains("refusing to overwrite")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_recipe_with_an_error_or_a_post_that_is_no_recipe_is_not_exported() {
+        let root = recipe_site();
+        let destination = root.join("exports/stew.recipe.json");
+        let error = run(
+            &root,
+            "stew",
+            Format::RecipeJsonLd,
+            Some(destination.to_str().unwrap()),
+            true,
+            false,
+        )
+        .unwrap_err();
+        assert!(error.contains("1 error(s)"), "{error}");
+        assert!(error.contains("no files were changed"), "{error}");
+        assert!(!destination.exists());
+        let (site, _) = site::load_site(&root, false, Some(clock::now())).unwrap();
+        let stew = site.posts.iter().find(|p| p.slug == "stew").unwrap();
+        let (_, problems) = recipe_export(&site, stew).unwrap();
+        assert_eq!(
+            problems.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(),
+            vec!["zero-quantity"]
+        );
+        let notes = site.posts.iter().find(|p| p.slug == "notes").unwrap();
+        assert!(recipe_export(&site, notes)
+            .unwrap_err()
+            .contains("is not a recipe"));
+        assert!(
+            run(&root, "notes", Format::RecipeJsonLd, None, false, false)
+                .unwrap_err()
+                .contains("is not a recipe")
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

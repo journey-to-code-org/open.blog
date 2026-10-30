@@ -2952,69 +2952,10 @@ impl<'a> Renderer<'a> {
         tag
     }
 
-    /// schema.org `Recipe` for search engines' recipe results.
+    /// schema.org `Recipe` for search engines' recipe results; the same node the recipe export
+    /// writes (ADR 0333).
     fn recipe_json_ld(&self, post: &Post, recipe: &crate::recipe::Recipe) -> serde_json::Value {
-        use crate::recipe::iso_duration;
-        let c = &self.site.config;
-        let mut r = serde_json::json!({
-            "@type": "Recipe",
-            "name": post.title,
-            "description": post.description,
-            "datePublished": post.date.rfc3339(),
-            "url": c.absolute(&post.url),
-            "mainEntityOfPage": c.absolute(&post.url),
-            "recipeIngredient": recipe.ingredients,
-            "recipeInstructions": recipe.steps.iter().enumerate().map(|(i, s)| serde_json::json!({
-                "@type": "HowToStep",
-                "position": i + 1,
-                "text": s,
-            })).collect::<Vec<_>>(),
-            "keywords": post.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>().join(", "),
-        });
-        let obj = r.as_object_mut().expect("json object");
-        if let Some(author) = author_json_ld(c) {
-            obj.insert("author".into(), author);
-        }
-        if let Some(image) = &post.cover {
-            obj.insert("image".into(), serde_json::json!([c.absolute(image)]));
-        }
-        for (key, minutes) in [
-            ("prepTime", recipe.prep),
-            ("cookTime", recipe.cook),
-            ("totalTime", recipe.total),
-        ] {
-            if let Some(m) = minutes {
-                obj.insert(key.into(), serde_json::json!(iso_duration(m)));
-            }
-        }
-        let yields: Vec<String> = recipe
-            .servings_text
-            .iter()
-            .map(|s| {
-                if recipe.servings.is_some_and(|n| s.parse::<u32>() == Ok(n)) {
-                    format!("{s} servings")
-                } else {
-                    s.clone()
-                }
-            })
-            .chain(recipe.yield_text.clone())
-            .collect();
-        if !yields.is_empty() {
-            obj.insert("recipeYield".into(), serde_json::json!(yields));
-        }
-        if let Some(v) = &recipe.cuisine {
-            obj.insert("recipeCuisine".into(), serde_json::json!(v));
-        }
-        if let Some(v) = &recipe.category {
-            obj.insert("recipeCategory".into(), serde_json::json!(v));
-        }
-        if let Some(v) = &recipe.calories {
-            obj.insert(
-                "nutrition".into(),
-                serde_json::json!({ "@type": "NutritionInformation", "calories": v }),
-            );
-        }
-        r
+        crate::recipe_schema::recipe_node(&self.site.config, post, recipe)
     }
 
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
@@ -4985,7 +4926,7 @@ fn _keep_cdata(s: &str) -> String {
     cdata(s)
 }
 
-fn author_json_ld(config: &SiteConfig) -> Option<serde_json::Value> {
+pub(crate) fn author_json_ld(config: &SiteConfig) -> Option<serde_json::Value> {
     let name = config.author.name.trim();
     if name.is_empty() {
         return None;
