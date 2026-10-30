@@ -1,4 +1,4 @@
-// Mastodon helpers of the Mastodon destination (epic #382, story #392, ADRs 0762 to 0764). Pure: no
+// Mastodon helpers of the Mastodon destination (epic #382, story #392, ADRs 0762 and 0763). Pure: no
 // network, no clock of its own, no secret kept. social-publish.mjs builds and checks a status with
 // them; the Admin composer (web/admin/announcements.js) repeats the counting rule for its preview.
 //

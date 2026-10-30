@@ -1,5 +1,5 @@
 // Provider publishing adapters of optional social publishing (epic #353, story #358, ADRs 0319 to
-// 0321; Bluesky: epic #382, story #391, ADR 0761; Mastodon: story #392, ADRs 0763, 0764): the
+// 0321; Bluesky: epic #382, story #391, ADR 0761; Mastodon: story #392, ADR 0763): the
 // LinkedIn Posts API, the Facebook Pages feed, a Bluesky post record and a Mastodon status, each
 // implementing the adapter
 // interface the delivery worker calls (documented at the top of social-delivery.mjs, ADRs 0316 to
@@ -380,7 +380,7 @@ export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = (
   });
 }
 
-// ---- Mastodon (story #392, ADRs 0763, 0764)
+// ---- Mastodon (story #392, ADR 0763)
 //
 // One `POST /api/v1/statuses` from the connected account: the caption, a blank line and the
 // canonical link (Mastodon makes its own preview card from it), at the visibility the deployer
