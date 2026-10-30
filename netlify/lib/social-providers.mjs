@@ -9,6 +9,7 @@
 // a client secret cannot reach a log, and nothing a provider says can inject text into a page.
 
 import { ProviderTokenError } from "./social-credentials.mjs";
+import { DID, HANDLE, SESSION_TOKEN, appPassword, blueskyIdentifier, tokenSecondsLeft, validAppPassword, xrpcError } from "./social-atproto.mjs";
 
 export class ProviderError extends Error {
   // `code` is a fixed slug; `status` is the provider's HTTP status when there was one.
@@ -27,9 +28,11 @@ const MESSAGES = {
   "provider-invalid": "The provider sent a reply that could not be read.",
   "code-rejected": "The provider did not accept the authorization code.",
   "provider-failed": "The provider request failed.",
+  "credentials-rejected": "The provider did not accept that sign-in.",
+  "rate-limited": "The provider asked us to slow down.",
 };
 
-export const PROVIDERS = Object.freeze(["linkedin", "facebook"]);
+export const PROVIDERS = Object.freeze(["linkedin", "facebook", "bluesky"]);
 export const validProvider = (value) => typeof value === "string" && PROVIDERS.includes(value);
 
 // The provider endpoints and defaults. Versions and scopes are overridable; hosts are not, so a
@@ -64,6 +67,19 @@ const DEFINITIONS = Object.freeze({
     optionalScopes: Object.freeze(["pages_read_engagement"]),
     extraScopes: Object.freeze(["pages_read_engagement"]),
     scopeSeparator: ",",
+  }),
+  // Bluesky (story #391, ADR 0760): an AT Protocol session made from an app password, not OAuth.
+  // There is no client id or secret; the deployer turns it on and may name the service that signs
+  // the author in (the bsky.social entryway by default, or their own PDS).
+  bluesky: Object.freeze({
+    label: "Bluesky",
+    login: "app-password",
+    defaultService: "https://bsky.social",
+    // The XRPC API is not versioned by date; this names the protocol so Admin has something to show.
+    version: "atproto",
+    baseScopes: Object.freeze([]),
+    organizationScopes: Object.freeze([]),
+    optionalScopes: Object.freeze([]),
   }),
 });
 
@@ -105,6 +121,11 @@ export function socialProviders(env = {}) {
     const upper = provider.toUpperCase();
     const definition = DEFINITIONS[provider];
     const name = (suffix) => `OPENBLOG_SOCIAL_${upper}_${suffix}`;
+    if (definition.login === "app-password") {
+      const settings = appPasswordProvider(provider, definition, env, name, problems);
+      if (settings) providers[provider] = settings;
+      continue;
+    }
     const clientId = text(env[name("CLIENT_ID")]);
     const clientSecret = text(env[name("CLIENT_SECRET")]);
     if (!clientId && !clientSecret) continue;
@@ -131,6 +152,7 @@ export function socialProviders(env = {}) {
     const publicFields = {
       provider,
       label: definition.label,
+      login: "oauth",
       clientId,
       redirectUri: `${base}/callback/${provider}`,
       version,
@@ -150,6 +172,52 @@ export function socialProviders(env = {}) {
   return Object.freeze(providers);
 }
 
+// An app-password provider is offered only when the deployer turns it on with
+// OPENBLOG_SOCIAL_<PROVIDER>_ENABLED=true. Its one other setting is the service that signs the
+// author in: an https origin with nothing else in it, so a misconfiguration cannot send an app
+// password to a path, a query or a host with credentials in it.
+function appPasswordProvider(provider, definition, env, name, problems) {
+  const enabled = text(env[name("ENABLED")]);
+  if (!enabled) return null;
+  const bad = [];
+  if (enabled !== "true") bad.push(name("ENABLED"));
+  const service = serviceOrigin(text(env[name("SERVICE")]) || definition.defaultService);
+  if (!service) bad.push(name("SERVICE"));
+  if (bad.length) {
+    problems.push(...bad);
+    return null;
+  }
+  return hideSecrets(
+    {
+      provider,
+      label: definition.label,
+      login: "app-password",
+      redirectUri: null,
+      version: definition.version,
+      scopes: Object.freeze([]),
+      requiredScopes: Object.freeze([]),
+      organizations: false,
+      pkce: false,
+      authorizeUrl: null,
+      tokenUrl: null,
+      revokeUrl: null,
+      apiBase: service,
+    },
+    {},
+  );
+}
+
+// An https origin and nothing more (no credentials, path, query or fragment), without a trailing slash.
+export function serviceOrigin(value) {
+  try {
+    const url = new URL(value);
+    const clean = url.protocol === "https:" && !url.username && !url.password && (url.pathname === "/" || url.pathname === "") && !url.search && !url.hash && !url.hostname.endsWith(".") && url.hostname.includes(".");
+    return clean && value.length <= 200 ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 function hideSecrets(publicFields, secrets) {
   const settings = { ...publicFields };
   for (const [name, value] of Object.entries(secrets)) Object.defineProperty(settings, name, { value, enumerable: false });
@@ -163,6 +231,7 @@ export function describeProvider(settings) {
   return Object.freeze({
     provider: settings.provider,
     label: settings.label,
+    login: settings.login,
     redirectUri: settings.redirectUri,
     version: settings.version,
     scopes: [...settings.scopes],
@@ -284,6 +353,7 @@ export function checkScopes(settings, granted) {
 // that shares it, so the author removes the app in Facebook's settings (docs/social-publishing.md).
 // Failure is a boolean, never detail.
 export async function revokeAtProvider(settings, secrets, fetchImpl) {
+  if (settings.provider === "bluesky") return deleteBlueskySession(settings, secrets, fetchImpl);
   if (settings.provider !== "linkedin" || !settings.revokeUrl) return false;
   try {
     const response = await fetchImpl(settings.revokeUrl, { ...form({ client_id: settings.clientId, client_secret: settings.clientSecret, token: secrets.refreshToken || secrets.accessToken }), redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -293,8 +363,11 @@ export async function revokeAtProvider(settings, secrets, fetchImpl) {
   }
 }
 
-// The LinkedIn refresh grant, in the shape createCredentialStore's `refresh` expects.
-export function refreshWith(settings, fetchImpl) {
+// The provider's refresh, in the shape createCredentialStore's `refresh` expects, or undefined for
+// a provider whose tokens are not refreshed (a Facebook Page token does not expire).
+export function refreshWith(settings, fetchImpl, now = () => Date.now()) {
+  if (settings?.provider === "bluesky") return refreshBlueskySession(settings, fetchImpl, now);
+  if (settings?.provider !== "linkedin") return undefined;
   return async (refreshToken) => {
     let reply;
     try {
@@ -310,4 +383,108 @@ export function refreshWith(settings, fetchImpl) {
       refreshExpiresIn: seconds(reply.refresh_token_expires_in),
     };
   };
+}
+
+// ---- Bluesky: an AT Protocol session made from an app password (story #391, ADR 0760)
+//
+// The author gives Admin a handle and an app password once. The function opens a session with
+// com.atproto.server.createSession and keeps only the session's two tokens, sealed like any other
+// credential; the app password itself is never stored, logged or sent anywhere but the service.
+// The access token is short-lived and is refreshed with com.atproto.server.refreshSession, which
+// also rotates the refresh token (single-flight, ADR 0295). Disconnecting ends the session with
+// com.atproto.server.deleteSession. A refresh token the service no longer honours makes the
+// account "needs reconnecting", like any other provider.
+
+// If a token's expiry cannot be read, it is treated as short, so it is refreshed early, not late.
+const FALLBACK_ACCESS_SECONDS = 15 * 60;
+// Bluesky's InvalidToken, ExpiredToken and AccountTakedown mean the session is over for good.
+const SESSION_OVER = new Set(["InvalidToken", "ExpiredToken", "AccountTakedown", "AuthenticationRequired"]);
+
+const xrpc = (settings, method) => `${settings.apiBase}/xrpc/${method}`;
+
+// One XRPC call: { status, body, retryAfter } or a ProviderError for a network failure. The body
+// is parsed for its fields and never quoted.
+async function xrpcCall(fetchImpl, url, init) {
+  let response;
+  try {
+    response = await fetchImpl(url, { redirect: "manual", ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch {
+    throw new ProviderError("provider-unreachable", { retryable: true });
+  }
+  const status = Number(response.status) || 0;
+  let body = null;
+  try {
+    const raw = await response.text();
+    body = raw && raw.length <= MAX_REPLY_CHARS ? JSON.parse(raw) : null;
+  } catch {
+    body = null;
+  }
+  return { status, body: body && typeof body === "object" ? body : null };
+}
+
+// The session's tokens and identity, checked for shape. Anything missing is "provider-invalid".
+function readSession(body, now) {
+  if (!body || typeof body.accessJwt !== "string" || typeof body.refreshJwt !== "string") throw new ProviderError("provider-invalid");
+  if (!SESSION_TOKEN.test(body.accessJwt) || !SESSION_TOKEN.test(body.refreshJwt) || body.accessJwt.length > 4096 || body.refreshJwt.length > 4096) throw new ProviderError("provider-invalid");
+  if (typeof body.did !== "string" || !DID.test(body.did)) throw new ProviderError("provider-invalid");
+  const handle = typeof body.handle === "string" && HANDLE.test(body.handle) ? body.handle : null;
+  return {
+    accessToken: body.accessJwt,
+    refreshToken: body.refreshJwt,
+    expiresIn: tokenSecondsLeft(body.accessJwt, now()) ?? FALLBACK_ACCESS_SECONDS,
+    refreshExpiresIn: tokenSecondsLeft(body.refreshJwt, now()),
+    did: body.did,
+    handle,
+    // A takendown, suspended or deactivated account says active: false and cannot post.
+    active: body.active !== false,
+    granted: [],
+  };
+}
+
+// Opens a session from a handle (or DID) and an app password. Refuses, before any call, an
+// identifier that is not one and a password that is not an app password.
+export async function openBlueskySession(settings, { identifier, password }, fetchImpl, now = () => Date.now()) {
+  const who = blueskyIdentifier(identifier);
+  if (!who || !validAppPassword(password)) throw new ProviderError("credentials-rejected");
+  const { status, body } = await xrpcCall(fetchImpl, xrpc(settings, "com.atproto.server.createSession"), {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ identifier: who, password: appPassword(password) }),
+  });
+  if (status === 200) return readSession(body, now);
+  if (status === 429) throw new ProviderError("rate-limited", { status, retryable: true });
+  if (status === 401 || status === 400 || status === 403) throw new ProviderError("credentials-rejected", { status });
+  throw new ProviderError(status >= 500 ? "provider-unreachable" : "provider-failed", { status, retryable: status >= 500 });
+}
+
+function refreshBlueskySession(settings, fetchImpl, now) {
+  return async (refreshToken) => {
+    let reply;
+    try {
+      reply = await xrpcCall(fetchImpl, xrpc(settings, "com.atproto.server.refreshSession"), { method: "POST", headers: { authorization: `Bearer ${refreshToken}`, accept: "application/json" } });
+    } catch {
+      throw new ProviderTokenError(false);
+    }
+    const { status, body } = reply;
+    if (status === 200) {
+      try {
+        const session = readSession(body, now);
+        return { accessToken: session.accessToken, refreshToken: session.refreshToken, expiresIn: session.expiresIn, refreshExpiresIn: session.refreshExpiresIn };
+      } catch {
+        throw new ProviderTokenError(false);
+      }
+    }
+    // Only the service's own word that the session is over ends it; anything else is tried again.
+    throw new ProviderTokenError((status === 400 || status === 401) && SESSION_OVER.has(xrpcError(body)));
+  };
+}
+
+async function deleteBlueskySession(settings, secrets, fetchImpl) {
+  if (typeof secrets?.refreshToken !== "string" || !secrets.refreshToken) return false;
+  try {
+    const response = await fetchImpl(xrpc(settings, "com.atproto.server.deleteSession"), { method: "POST", headers: { authorization: `Bearer ${secrets.refreshToken}`, accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
+    return Boolean(response.ok);
+  } catch {
+    return false;
+  }
 }

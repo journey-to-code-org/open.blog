@@ -24,6 +24,7 @@ export const REASONS = Object.freeze({
   "no-posting-role": "Your role on this Page does not let you create posts.",
   "role-unverified": "Facebook did not say what you may do on this Page, so it cannot be offered.",
   "no-page-token": "Facebook gave no access for this Page.",
+  "account-inactive": "Bluesky says this account is not active (deactivated, suspended or taken down), so it cannot post.",
 });
 
 export const NOTES = Object.freeze({
@@ -108,7 +109,15 @@ async function facebook(settings, tokens, fetchImpl) {
   return { destinations, notes, secrets };
 }
 
+// A Bluesky session belongs to exactly one account, which createSession named and the service
+// vouched for: that account is the only destination, offered only while the service says it is active.
+function bluesky(tokens) {
+  const name = tokens.handle ? `@${tokens.handle}` : tokens.did;
+  return { destinations: [{ id: tokens.did, kind: "account", name: cleanName(name, "Bluesky account"), eligible: tokens.active, reason: tokens.active ? null : "account-inactive" }], notes: [], secrets: {} };
+}
+
 // Lists the destinations a grant can reach. Resolves to { destinations, notes, secrets } or throws a ProviderError.
 export function discover(settings, tokens, fetchImpl) {
+  if (settings.provider === "bluesky") return Promise.resolve(bluesky(tokens));
   return settings.provider === "linkedin" ? linkedin(settings, tokens, fetchImpl) : facebook(settings, tokens, fetchImpl);
 }

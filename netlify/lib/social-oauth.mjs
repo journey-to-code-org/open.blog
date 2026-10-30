@@ -17,7 +17,8 @@ import { SocialScopeError, scopedQuery } from "./social-scope.mjs";
 import { SocialCredentialError, createCredentialStore } from "./social-credentials.mjs";
 import { NOTES, REASONS, discover } from "./social-discovery.mjs";
 import { SocialTokenError, openCredential, sealCredential } from "./social-tokens.mjs";
-import { ProviderError, authorizationUrl, checkScopes, exchangeCode, pkceChallenge, randomToken, revokeAtProvider, sha256Hex, validProvider } from "./social-providers.mjs";
+import { ProviderError, authorizationUrl, checkScopes, exchangeCode, openBlueskySession, pkceChallenge, randomToken, revokeAtProvider, sha256Hex, validProvider } from "./social-providers.mjs";
+import { blueskyIdentifier, validAppPassword } from "./social-atproto.mjs";
 
 export const PENDING_TTL_MS = 10 * 60 * 1000;
 export const AUTHORIZED_TTL_MS = 30 * 60 * 1000;
@@ -53,7 +54,13 @@ export const OUTCOMES = Object.freeze({
   "no-destination": "Nothing this app may post to was found for that account.",
   "storage-failed": "The connection could not be saved. Try again.",
   canceled: "This connection attempt was canceled.",
+  "credentials-rejected": "Bluesky did not accept that handle and app password. Check both, or make a new app password in Bluesky's settings.",
+  "provider-rate-limited": "The provider asked us to slow down. Wait a few minutes and try again.",
 });
+
+// The HTTP status an app-password sign-in failure is answered with: a refusal of what the author
+// typed is theirs to fix (400), the rest is the provider's or ours.
+const APP_PASSWORD_STATUS = Object.freeze({ "credentials-rejected": 400, "provider-rate-limited": 429, "identity-mismatch": 409, "no-destination": 409, "provider-unavailable": 503 });
 
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -112,6 +119,8 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
   // Withdraw a grant after a failed handshake, but never while a live account of the provider could
   // share it (the same rule as disconnect). A failed attempt must not cut off working accounts.
   const withdraw = async (provider, tokens) => {
+    // A Bluesky session is this attempt's own and is shared with nothing: always end it.
+    if (provider.login === "app-password") return revokeAtProvider(provider, tokens, fetchImpl);
     const live = owned(await rest("GET", ACCOUNTS, scopedQuery(settings, { provider: `eq.${provider.provider}`, status: "neq.disconnected", select: "id" }).toString()));
     if (live.length === 0) await revokeAtProvider(provider, tokens, fetchImpl);
   };
@@ -155,7 +164,12 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
     return provider;
   };
 
-  const failureFor = (error) => (error instanceof ProviderError ? (error.code === "code-rejected" ? "code-rejected" : error.retryable || error.code === "provider-unreachable" ? "provider-unavailable" : "provider-error") : "storage-failed");
+  const failureFor = (error) => {
+    if (!(error instanceof ProviderError)) return "storage-failed";
+    if (error.code === "code-rejected" || error.code === "credentials-rejected") return error.code;
+    if (error.code === "rate-limited") return "provider-rate-limited";
+    return error.retryable || error.code === "provider-unreachable" ? "provider-unavailable" : "provider-error";
+  };
 
   const remaining = (stamp) => (stamp ? Math.max(1, Math.floor((Date.parse(stamp) - now()) / 1000)) : undefined);
 
@@ -242,9 +256,54 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
     credentials,
     accountOf,
 
+    // Signs in to an app-password provider (Bluesky, ADR 0760) and leaves the connection waiting
+    // for the author's choice, as an OAuth callback would; when reconnecting, it finishes at once
+    // for the same account only. The password is used for this one call and kept nowhere. A
+    // failure throws a SocialOAuthError with the fixed outcome text, and the attempt is recorded.
+    async appPassword({ provider: name, identifier, password, actor, reauthAccountId = null }) {
+      const provider = providerOf(name);
+      if (provider.login !== "app-password") throw new SocialOAuthError(400, "invalid-request", "That provider is connected through its own sign-in page.");
+      if (reauthAccountId !== null && !UUID.test(String(reauthAccountId))) throw new SocialOAuthError(400, "invalid-account", "That is not an account id.");
+      if (!blueskyIdentifier(identifier)) throw new SocialOAuthError(400, "invalid-identifier", "Enter your Bluesky handle, such as name.bsky.social.");
+      if (!validAppPassword(password)) throw new SocialOAuthError(400, "invalid-app-password", "Enter an app password (four groups of four letters or digits, made in Bluesky's settings), never your account password.");
+      await expireDue();
+      const openRows = await read({ status: "in.(pending,exchanging)", expires_at: `gt.${iso(now())}`, select: "id" });
+      if (openRows.length >= MAX_OPEN_CONNECTIONS) throw new SocialOAuthError(429, "too-many-attempts", "Too many connection attempts are open. Finish or cancel one, or wait ten minutes.");
+      const [row] = owned(
+        await rest("POST", CONNECTIONS, "", {
+          id: crypto.randomUUID(),
+          site_id: settings.siteId,
+          provider: provider.provider,
+          status: "exchanging",
+          // No redirect happens; the state is random and never leaves this function.
+          state_hash: await sha256Hex(randomToken(random)),
+          redirect_uri: provider.apiBase,
+          requested_scopes: "",
+          pkce: false,
+          reauth_account_id: reauthAccountId,
+          created_by: actor,
+          expires_at: iso(now() + EXCHANGE_LEASE_MS),
+        }),
+      );
+      const refuse = (code) => new SocialOAuthError(APP_PASSWORD_STATUS[code] || 500, code, OUTCOMES[code] || OUTCOMES["storage-failed"]);
+      let tokens;
+      try {
+        tokens = await openBlueskySession(provider, { identifier, password }, fetchImpl, now);
+      } catch (error) {
+        const code = failureFor(error);
+        await finish(row, "failed", code).catch(() => {});
+        throw refuse(code);
+      }
+      const next = await authorize({ connection: row, provider, tokens });
+      if (!next.ok) throw refuse(next.code);
+      const [done] = await read({ id: `eq.${row.id}` });
+      return { connection: connectionOf(done || row) };
+    },
+
     // Begins a handshake. Returns what Admin may show and the URL to send the author's browser to.
     async start({ provider: name, actor, reauthAccountId = null }) {
       const provider = providerOf(name);
+      if (provider.login === "app-password") throw new SocialOAuthError(400, "app-password-required", "Bluesky is connected with your handle and an app password.");
       if (reauthAccountId !== null && !UUID.test(String(reauthAccountId))) throw new SocialOAuthError(400, "invalid-account", "That is not an account id.");
       await expireDue();
       const openRows = await read({ status: "in.(pending,exchanging)", expires_at: `gt.${iso(now())}`, select: "id" });
@@ -391,6 +450,15 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
       const [row] = await read({ id: `eq.${id}` });
       if (!row) throw new SocialOAuthError(404, "not-found", "No such connection.");
       if (!["pending", "authorized", "exchanging"].includes(row.status)) return connectionOf(row);
+      // An app-password attempt holds a live session of its own: end it at the provider first (best effort).
+      const provider = validProvider(row.provider) ? providers?.[row.provider] : null;
+      if (provider?.login === "app-password" && row.envelope && !row.reauth_account_id) {
+        try {
+          await revokeAtProvider(provider, await open(row), fetchImpl);
+        } catch {
+          // The tokens are erased below either way; the session lapses at the provider.
+        }
+      }
       const done = await finish(row, "canceled", "canceled");
       if (!done) throw new SocialOAuthError(409, "conflict", "The connection changed; try again.");
       return connectionOf(done);

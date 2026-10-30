@@ -329,3 +329,102 @@ test("a view that left the page stops polling on the next focus, even if destroy
   assert.equal(api.calls.length, before, "no social request once the view is detached");
   assert.equal(listeners.has("focus"), false);
 }));
+
+// ---- Bluesky (story #391, ADR 0760): a handle and an app password, never a redirect.
+
+const bluesky = { provider: "bluesky", label: "Bluesky", login: "app-password", redirectUri: null, version: "atproto", scopes: [], requiredScopes: [], organizations: false, pkce: false };
+const DID = "did:plc:abcdefghijklmnopqrstuvwx";
+const PASSWORD = "abcd-efgh-ijkl-mnop";
+
+function blueskyServer(initial = {}) {
+  const api = server({ overview: on([linkedin, bluesky]), ...initial });
+  const base = api.call.bind(api);
+  api.call = async (method, path, options = {}) => {
+    if (method === "POST" && path === "social/connections" && options.json?.provider === "bluesky") {
+      api.calls.push({ method, path, body: options.json });
+      if (api.failWith) {
+        const error = api.failWith;
+        api.failWith = null;
+        throw error;
+      }
+      const signed = connection({ id: ID(6), provider: "bluesky", status: "authorized", destinations: [{ id: DID, kind: "account", name: "@ada.bsky.social", eligible: true, reason: null }] });
+      api.state.connections = [signed, ...api.state.connections];
+      return { connection: signed };
+    }
+    const again = /^social\/accounts\/(.+)\/reconnect$/.exec(path);
+    if (again && options.json?.appPassword) {
+      api.calls.push({ method, path, body: options.json });
+      return { connection: connection({ id: ID(7), provider: "bluesky", status: "completed", reauthAccountId: again[1] }) };
+    }
+    return base(method, path, options);
+  };
+  return api;
+}
+const inputOf = (root, field) => all(root, "input").find((input) => input.dataset.field === field);
+const submit = async (form) => {
+  await form.dispatch("submit", { preventDefault() {} });
+  await flush();
+};
+
+test("Bluesky offers a labelled handle and app-password form, not a redirect, and says to use an app password", withDom(async () => {
+  const { root } = await mount(blueskyServer());
+  const card = all(root, "li").find((li) => li.dataset.provider === "bluesky");
+  assert.equal(all(card, "a").length, 0);
+  assert.equal(all(card, "code").length, 0, "no redirect to register");
+  const handle = inputOf(card, "identifier");
+  const secret = inputOf(card, "app-password");
+  assert.equal(secret.attributes.type, "password");
+  assert.equal(secret.attributes.autocomplete, "off");
+  for (const input of [handle, secret]) assert.ok(all(card, "label").some((label) => label.attributes.for === input.id), "every field has a label");
+  assert.ok(text(card).includes("never your account password"));
+  assert.equal(text(buttons(card, "social-sign-in")[0]), "Connect Bluesky");
+}));
+
+test("connecting Bluesky posts the handle and app password once, empties the field, and moves to the account choice", withDom(async (dom) => {
+  const api = blueskyServer();
+  const { root } = await mount(api);
+  const form = all(root, "form").find((f) => f.dataset.signIn === "bluesky");
+  inputOf(form, "identifier").value = " ada.bsky.social ";
+  const secret = inputOf(form, "app-password");
+  secret.value = PASSWORD;
+  await submit(form);
+  assert.deepEqual(api.calls.filter((c) => c.method === "POST"), [{ method: "POST", path: "social/connections", body: { provider: "bluesky", identifier: "ada.bsky.social", appPassword: PASSWORD } }]);
+  assert.equal(secret.value, "", "the password is gone from the page as soon as it is sent");
+  assert.ok(!JSON.stringify(text(root)).includes(PASSWORD));
+  const heading = all(root, "h4").find((h) => h.dataset.socialChooseTitle);
+  assert.equal(dom.document.activeElement, heading);
+  assert.match(text(root), /Signed in to Bluesky\. Choose the account to connect/);
+  assert.ok(all(root, "input").some((input) => input.dataset.destination === DID));
+}));
+
+test("an empty field is said beside the form and nothing is sent; a refusal is announced and the field stays empty", withDom(async () => {
+  const api = blueskyServer();
+  const { root } = await mount(api);
+  const form = () => all(root, "form").find((f) => f.dataset.signIn === "bluesky");
+  inputOf(form(), "identifier").value = "ada.bsky.social";
+  await submit(form());
+  assert.equal(api.calls.filter((c) => c.method === "POST").length, 0);
+  assert.match(text(all(form(), "p").find((p) => p.dataset.signInProblem)), /Enter an app password/);
+  api.failWith = new ApiError("Bluesky did not accept that handle and app password.", 400);
+  inputOf(form(), "identifier").value = "ada.bsky.social";
+  inputOf(form(), "app-password").value = PASSWORD;
+  await submit(form());
+  assert.match(text(root), /did not accept that handle/);
+  assert.equal(inputOf(form(), "app-password").value, "");
+}));
+
+test("reconnecting a Bluesky account opens its own sign-in form, prefilled with the handle, and sends it to that account", withDom(async (dom) => {
+  const api = blueskyServer({ accounts: [account({ provider: "bluesky", kind: "account", externalId: DID, displayName: "@ada.bsky.social", health: "needs-reauth" })] });
+  const { root } = await mount(api);
+  const toggle = buttons(root, "social-reconnect")[0];
+  assert.equal(text(toggle), "Reconnect…");
+  assert.equal(toggle.attributes["aria-expanded"], "false");
+  await click(toggle);
+  const form = all(root, "form").find((f) => f.dataset.signIn === "bluesky" && all(f, "button").some((b) => b.dataset.action === "social-sign-in-reconnect"));
+  assert.equal(inputOf(form, "identifier").value, "ada.bsky.social");
+  assert.equal(dom.document.activeElement, inputOf(form, "app-password"));
+  inputOf(form, "app-password").value = PASSWORD;
+  await submit(form);
+  assert.deepEqual(api.calls.filter((c) => c.method === "POST").at(-1), { method: "POST", path: `social/accounts/${ID(1)}/reconnect`, body: { identifier: "ada.bsky.social", appPassword: PASSWORD } });
+  assert.match(text(root), /@ada\.bsky\.social is reconnected/);
+}));

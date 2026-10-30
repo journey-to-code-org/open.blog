@@ -101,7 +101,9 @@ export function createAccounts({ connector, settings, providers, fetchImpl = glo
       if (row.status !== "disconnected") {
         const others = (await rest("GET", ACCOUNTS, scopedQuery(settings, { provider: `eq.${row.provider}`, status: "neq.disconnected", id: `neq.${row.id}`, select: "id" }).toString())).length;
         const provider = providers?.[row.provider];
-        const withdraw = provider && row.provider === "linkedin" && others === 0 ? (secrets) => revokeAtProvider(provider, secrets, fetchImpl) : undefined;
+        // A Bluesky session is this account's alone, so it is always ended (ADR 0760).
+        const own = provider?.login === "app-password";
+        const withdraw = provider && (own || (row.provider === "linkedin" && others === 0)) ? (secrets) => revokeAtProvider(provider, secrets, fetchImpl) : undefined;
         await connector.credentials.revoke(row.id, { revokeAtProvider: withdraw });
         // A stuck handshake of this provider may still hold a sealed copy of these tokens: erase it.
         await rest("PATCH", "openblog_social_connections", scopedQuery(settings, { provider: `eq.${row.provider}`, status: "in.(exchanging,authorized)" }).toString(), { status: "expired", error_code: "expired", envelope: null, key_id: null, completed_at: new Date(now()).toISOString(), updated_at: new Date(now()).toISOString() });
@@ -118,10 +120,16 @@ export function createAccounts({ connector, settings, providers, fetchImpl = glo
       return canceled === null ? view : Object.freeze({ ...view, canceledAnnouncements: canceled });
     },
 
-    // Reconnect: a new handshake bound to this account. It can finish only for the same provider identity.
-    async reconnect(id, actor) {
+    // Reconnect: a new handshake bound to this account. It can finish only for the same provider
+    // identity. An app-password provider signs in again with the handle and app password given.
+    async reconnect(id, actor, signIn = null) {
       const row = await readAccount(id);
       if (row.status === "disconnected") throw new SocialOAuthError(409, "disconnected", "This account was disconnected. Connect it as a new account.");
+      if (providers?.[row.provider]?.login === "app-password") {
+        if (!signIn) throw new SocialOAuthError(400, "app-password-required", "Reconnect Bluesky with the account's handle and an app password.");
+        return connector.appPassword({ provider: row.provider, identifier: signIn.identifier, password: signIn.password, actor, reauthAccountId: row.id });
+      }
+      if (signIn) throw new SocialOAuthError(400, "invalid-request", "That provider is reconnected through its own sign-in page.");
       return connector.start({ provider: row.provider, actor, reauthAccountId: row.id });
     },
   };

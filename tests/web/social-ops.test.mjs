@@ -172,7 +172,7 @@ test("each worker run logs one line of counts; with operations on it sweeps, che
   const body = JSON.parse((await on.call()).body);
   assert.deepEqual(body.ops, { alerts: ["needs-review"] });
   const asked = on.ops.calls.find((c) => c.name === "rpc/openblog_social_health");
-  assert.deepEqual(asked.body.p_skip_providers, ["facebook"], "health leaves out what the claim leaves out: the providers without an adapter");
+  assert.deepEqual(asked.body.p_skip_providers, ["facebook", "bluesky"], "health leaves out what the claim leaves out: the providers without an adapter");
   assert.deepEqual(on.sink.lines.map(([level, line]) => [level, JSON.parse(line).event]), [["info", "openblog-social-worker"], ["warn", "openblog-social-ops"]]);
   for (const [, line] of [...plain.sink.lines, ...on.sink.lines]) {
     for (const secret of [ACCESS, SERVICE_KEY, WORKER_KEY, ADMIN_KEY, "A new post is live.", "blog.example.org", "urn:li:person"]) assert.equal(line.includes(secret), false, secret);
@@ -199,7 +199,7 @@ test("the hosted health route answers the admin key only, for this site only", a
   assert.equal(health.overdueMinutes, 45);
   assert.deepEqual(health.alerts, ["backlog-overdue"]);
   assert.equal(storage.calls[0].body.p_site_id, SITE);
-  assert.deepEqual(storage.calls[0].body.p_skip_providers, ["linkedin", "facebook"], "Admin's health uses the worker's rule: no provider is set up here, so none has an adapter");
+  assert.deepEqual(storage.calls[0].body.p_skip_providers, ["linkedin", "facebook", "bluesky"], "Admin's health uses the worker's rule: no provider is set up here, so none has an adapter");
   assert.equal((await ask({ authorization: `Bearer ${WORKER_KEY}` })).statusCode, 403);
   assert.equal((await ask({})).statusCode, 401);
   assert.equal((await ask({ authorization: `Bearer ${ADMIN_KEY}`, "x-openblog-actor": "mikey" }, "site_id=other")).statusCode, 400);

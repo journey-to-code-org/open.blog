@@ -2706,7 +2706,7 @@ _Avoid_: Rating (the number alone), social proof
 
 **Social publishing**:
 An optional, off-by-default outward announcement of an already-published canonical post to a connected LinkedIn
-identity or Facebook Page, on a schedule. It never replaces the post or cross-posting. Everything about it is
+identity, Facebook Page or Bluesky account, on a schedule. It never replaces the post or cross-posting. Everything about it is
 server-side; builds and exports do not know it exists.
 _Avoid_: Syndication (a full copy of the article on another platform)
 
@@ -2724,6 +2724,12 @@ _Avoid_: User, owner
 A connected LinkedIn identity or Facebook Page that a site may announce to. It is stored per site; its credentials
 are never part of the account row. Disconnecting keeps the row for history.
 _Avoid_: Profile, channel
+
+**App-password session**:
+How a Bluesky account is connected (ADR 0760): the author types a handle and a Bluesky app password once, the hosted
+function opens an AT Protocol session with it, and only the session's two tokens are kept, sealed. The password is
+never stored, and a password that is not shaped like an app password is refused before it is sent.
+_Avoid_: Bluesky login, Bluesky OAuth (not used yet), account password
 
 **Scheduled social post**:
 One queued announcement of one canonical post to one social account, with a time, a lease while a worker holds it

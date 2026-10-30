@@ -50,7 +50,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
 
   const accessTokenFor = (account) => {
     const configured = providers[account.provider];
-    const refresh = configured && account.provider === "linkedin" ? refreshWith(configured, fetchImpl) : undefined;
+    const refresh = configured ? refreshWith(configured, fetchImpl, now) : undefined;
     return tokens.accessToken(account.id, { refresh });
   };
 
