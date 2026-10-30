@@ -17,7 +17,7 @@
 export const MANIFEST_VERSION = 1;
 export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
-const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social" });
+const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community" });
 const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2"]);
 const CANONICAL = Object.freeze(["sent", "linked", "manual", "not-supported"]);
 const PUBLISHING = Object.freeze(["explicit-approval", "draft-only", "manual"]);
@@ -152,6 +152,9 @@ export function parseManifest(value) {
     (manifest.publishing === "manual" && anyAdapter) ||
     (manifest.publishing === "draft-only" && capabilities.draft !== "adapter") ||
     (manifest.family === "social" && manifest.canonical !== "linked") ||
+    // A community destination is submitted to by the author, by hand, never by open.blog (ADR 0800).
+    (manifest.family === "community" &&
+      (anyAdapter || method !== "none" || manifest.publishing !== "manual" || manifest.canonical !== "linked" || capabilities.link !== "manual")) ||
     (min !== null && max !== null && min >= max)
   )
     fail("manifest-inconsistent");

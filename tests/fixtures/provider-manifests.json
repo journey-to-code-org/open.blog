@@ -1,5 +1,5 @@
 {
-  "about": "The versioned provider capability contract (ADRs 0325 to 0327). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0327).",
+  "about": "The versioned provider capability contract (ADRs 0325 to 0327, and 0800 for the community family). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0327).",
   "manifestVersion": 1,
   "capabilities": [
     "link",
@@ -121,6 +121,42 @@
         "https://ghost.org/changelog/canonical-urls/"
       ]
     },
+    "hacker-news": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "unsupported",
+        "link": "manual",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "community",
+      "label": "Hacker News",
+      "login": {
+        "method": "none",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "hacker-news",
+      "publishing": "manual",
+      "sources": [
+        "https://news.ycombinator.com/newsguidelines.html",
+        "https://news.ycombinator.com/newsfaq.html",
+        "https://news.ycombinator.com/bookmarklet.html",
+        "https://github.com/HackerNews/API"
+      ]
+    },
     "hashnode": {
       "canonical": "sent",
       "capabilities": {
@@ -224,6 +260,41 @@
       "publishing": "manual",
       "sources": [
         "https://help.medium.com/hc/en-us/articles/214550207-Importing-a-post-to-Medium"
+      ]
+    },
+    "reddit": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "unsupported",
+        "link": "manual",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "community",
+      "label": "Reddit",
+      "login": {
+        "method": "none",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "reddit",
+      "publishing": "manual",
+      "sources": [
+        "https://redditinc.com/policies/reddit-rules",
+        "https://support.reddithelp.com/hc/en-us/articles/360043504051-Spam",
+        "https://redditinc.com/policies/data-api-terms"
       ]
     },
     "wordpress": {
@@ -704,6 +775,86 @@
         }
       ],
       "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a community destination that open.blog would submit to",
+      "base": "hacker-news",
+      "changes": [
+        {
+          "set": [
+            "capabilities",
+            "link"
+          ],
+          "value": "adapter"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a community destination that publishes on approval",
+      "base": "reddit",
+      "changes": [
+        {
+          "set": [
+            "publishing"
+          ],
+          "value": "explicit-approval"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a community destination that does not link the canonical post",
+      "base": "reddit",
+      "changes": [
+        {
+          "set": [
+            "canonical"
+          ],
+          "value": "sent"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a community destination with no link to submit",
+      "base": "hacker-news",
+      "changes": [
+        {
+          "set": [
+            "capabilities",
+            "link"
+          ],
+          "value": "unsupported"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
+    {
+      "name": "a community provider in another family",
+      "base": "hacker-news",
+      "changes": [
+        {
+          "set": [
+            "family"
+          ],
+          "value": "social"
+        }
+      ],
+      "code": "family-mismatch"
+    },
+    {
+      "name": "a cross-posting provider in the community family",
+      "base": "dev",
+      "changes": [
+        {
+          "set": [
+            "family"
+          ],
+          "value": "community"
+        }
+      ],
+      "code": "family-mismatch"
     }
   ],
   "requests": [
@@ -906,6 +1057,30 @@
         ]
       },
       "codes": [
+        "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "hacker-news",
+      "request": {
+        "capabilities": [
+          "link"
+        ]
+      },
+      "codes": [
+        "capability-manual"
+      ]
+    },
+    {
+      "provider": "reddit",
+      "request": {
+        "capabilities": [
+          "link",
+          "text"
+        ]
+      },
+      "codes": [
+        "capability-manual",
         "capability-unsupported"
       ]
     }

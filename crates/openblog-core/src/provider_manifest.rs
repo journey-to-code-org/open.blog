@@ -47,10 +47,12 @@ pub enum ProviderId {
     Medium,
     Linkedin,
     Facebook,
+    HackerNews,
+    Reddit,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 7] = [
+    pub const ALL: [ProviderId; 9] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -58,6 +60,8 @@ impl ProviderId {
         Self::Medium,
         Self::Linkedin,
         Self::Facebook,
+        Self::HackerNews,
+        Self::Reddit,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -76,12 +80,15 @@ impl ProviderId {
             Self::Medium => "medium",
             Self::Linkedin => "linkedin",
             Self::Facebook => "facebook",
+            Self::HackerNews => "hacker-news",
+            Self::Reddit => "reddit",
         }
     }
 
     pub fn family(self) -> Family {
         match self {
             Self::Linkedin | Self::Facebook => Family::Social,
+            Self::HackerNews | Self::Reddit => Family::Community,
             _ => Family::Syndication,
         }
     }
@@ -109,12 +116,14 @@ impl From<social_schedule::Provider> for ProviderId {
 }
 
 /// Which seam a provider is reached through: a full copy of the article (`openblog syndicate`,
-/// ADR 0004) or an announcement that links the canonical post (social publishing, epic #353).
+/// ADR 0004), an announcement that links the canonical post (social publishing, epic #353), or a
+/// guided submission the author makes by hand to a community (`openblog submit`, ADR 0800).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Family {
     Syndication,
     Social,
+    Community,
 }
 
 /// What a distribution can ask of a destination. The list is closed: a name that is not here is
@@ -554,6 +563,7 @@ impl ProviderManifest {
         let family = match raw.family.as_str() {
             "syndication" => Family::Syndication,
             "social" => Family::Social,
+            "community" => Family::Community,
             _ => return Err(ManifestError::FamilyMismatch),
         };
         if family != provider.family() {
@@ -619,11 +629,20 @@ impl ProviderManifest {
     }
 
     // Facts that cannot hold together: a remote adapter that needs no login, a manual-only
-    // destination that claims an adapter, a schedule window that closes before it opens.
+    // destination that claims an adapter, a schedule window that closes before it opens, a
+    // community destination that open.blog would submit to itself (ADR 0800).
     fn consistent(&self) -> Result<(), ManifestError> {
         let any_adapter = self.capabilities.values().any(|s| *s == Support::Adapter);
-        let incoherent = (any_adapter
-            && (self.login.method == LoginMethod::None || self.publishing == Publishing::Manual))
+        let community_by_hand = self.family != Family::Community
+            || (!any_adapter
+                && self.login.method == LoginMethod::None
+                && self.publishing == Publishing::Manual
+                && self.canonical == CanonicalLink::Linked
+                && self.support(Capability::Link) == Support::Manual);
+        let incoherent = !community_by_hand
+            || (any_adapter
+                && (self.login.method == LoginMethod::None
+                    || self.publishing == Publishing::Manual))
             || (self.publishing == Publishing::DraftOnly
                 && self.support(Capability::Draft) != Support::Adapter)
             || (self.family == Family::Social && self.canonical != CanonicalLink::Linked)
@@ -975,6 +994,56 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 constraints,
                 canonical: CanonicalLink::Linked,
                 publishing: Publishing::ExplicitApproval,
+                sources: sources(docs),
+            }
+        }
+        Family::Community => {
+            // Neither community offers open.blog a way to submit, and both ask that a person, not
+            // a tool, decides each submission: the author opens the provider's own form and
+            // submits by hand (ADR 0800). The title limits are the guided kit's, not a
+            // capability's (ADR 0801).
+            let (label, docs): (_, &[&str]) = if provider == ProviderId::HackerNews {
+                (
+                    "Hacker News",
+                    &[
+                        "https://news.ycombinator.com/newsguidelines.html",
+                        "https://news.ycombinator.com/newsfaq.html",
+                        "https://news.ycombinator.com/bookmarklet.html",
+                        "https://github.com/HackerNews/API",
+                    ],
+                )
+            } else {
+                (
+                    "Reddit",
+                    &[
+                        "https://redditinc.com/policies/reddit-rules",
+                        "https://support.reddithelp.com/hc/en-us/articles/360043504051-Spam",
+                        "https://redditinc.com/policies/data-api-terms",
+                    ],
+                )
+            };
+            ProviderManifest {
+                manifest_version: MANIFEST_VERSION,
+                provider,
+                family: Family::Community,
+                label: label.to_string(),
+                policy_version: BUILTIN_POLICY_VERSION.to_string(),
+                capabilities: support([
+                    (Link, Manual),
+                    (Text, Unsupported),
+                    (Article, Unsupported),
+                    (Image, Unsupported),
+                    (Video, Unsupported),
+                    (Draft, Unsupported),
+                    (Schedule, Unsupported),
+                ]),
+                login: Login {
+                    method: LoginMethod::None,
+                    scopes: Vec::new(),
+                },
+                constraints: Constraints::default(),
+                canonical: CanonicalLink::Linked,
+                publishing: Publishing::Manual,
                 sources: sources(docs),
             }
         }
