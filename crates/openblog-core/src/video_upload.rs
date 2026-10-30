@@ -195,12 +195,16 @@ pub fn approve(
 }
 
 /// Whether `approval` still covers uploading `preview` from a file that is now `file`, under the
-/// current YouTube manifest, at `now`. Checked before a credential is read or a request is sent.
+/// current YouTube manifest, at `now`, for an article whose date is now `not_before`. The approved
+/// publication time is checked against the article's date again here, since the preview digest
+/// does not hold that date and the article may have been moved later since the approval. Checked
+/// before a credential is read or a request is sent.
 pub fn covers(
     approval: Option<&VideoApproval>,
     preview: &VideoPreview,
     file: &FileFingerprint,
     now: DateTime,
+    not_before: DateTime,
 ) -> Result<(), ApprovalError> {
     if preview.status == Status::Blocked {
         return Err(ApprovalError::Blocked);
@@ -227,7 +231,10 @@ pub fn covers(
         return Err(ApprovalError::PolicyChanged);
     }
     if let Some(at) = &approval.publish_at {
-        parse_schedule(at, now).map_err(ApprovalError::Schedule)?;
+        let at = parse_schedule(at, now).map_err(ApprovalError::Schedule)?;
+        if at.unix() < not_before.unix() {
+            return Err(ApprovalError::ScheduleBeforeArticle);
+        }
     }
     Ok(())
 }

@@ -392,6 +392,40 @@ fn a_scheduled_release_sends_publish_at_and_stays_private_until_then() {
 }
 
 #[test]
+fn an_article_moved_after_the_approved_time_refuses_the_upload_and_sends_nothing() {
+    let root = project("moved", 32);
+    connected(&root);
+    let prepared = video_release::prepare(&root, "episode").unwrap();
+    let at = DateTime::from_unix(real_now().unix() + 86_400);
+    approve_at(
+        &root,
+        &prepared,
+        &prepared.preview.digest.clone(),
+        Some(&at.rfc3339()),
+        real_now(),
+    )
+    .unwrap();
+
+    // The author moves the article to two days after the approved publication time. The preview
+    // digest does not hold the date, so the approval still matches the preview.
+    let path = root.join("content/posts/2026-10-01-episode.md");
+    let later = DateTime::from_unix(at.unix() + 2 * 86_400).rfc3339();
+    let text = fs::read_to_string(&path)
+        .unwrap()
+        .replace("date: 2026-10-01", &format!("date: {}", &later[..10]));
+    fs::write(&path, text).unwrap();
+    let moved = video_release::prepare(&root, "episode").unwrap();
+    assert_eq!(moved.preview.digest, prepared.preview.digest);
+    assert!(moved.post_date.unix() > at.unix());
+
+    let script = Script::new(vec![token(), session(), created(), reply(200, "{}")]);
+    let error = upload_with(&root, &moved, &env(&script, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "time-before-article");
+    assert!(script.sent.borrow().is_empty(), "{:?}", script.urls());
+    assert_eq!(record(&root).state, UploadState::NotUploaded);
+}
+
+#[test]
 fn a_lost_reply_to_the_last_chunk_is_asked_about_never_sent_twice() {
     let (root, prepared) = ready("lost-final", 64);
     let script = Script::new(vec![

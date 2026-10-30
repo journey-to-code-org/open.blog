@@ -19,8 +19,9 @@ and scheduling, and every external action must be opt-in, authorized and report 
   under. It sends nothing, and refuses a blocked release, a release with no file, a digest that is not the current
   one (`plan-changed`) and a canonical address that is not public `https` (`canonical-not-public`). Before any
   credential is read, `--upload` refuses with `not-approved`, `preview-changed`, `source-changed` (the file was
-  replaced), `policy-changed` (ADR 0327) or a publication time that has passed, and refuses a draft post
-  (`article-draft`).
+  replaced), `policy-changed` (ADR 0327), a publication time that has passed, or one now earlier than the article's date
+  (`time-before-article`: the preview digest does not hold the date, so a post moved later after the approval is
+  caught here), and refuses a draft post (`article-draft`).
 - **Always private, scheduled by YouTube.** `videos.insert` receives the previewed title, description and tags,
   `privacyStatus: private`, the author's made-for-kids and altered-content answers, and, when approved with
   `--publish-at`, `publishAt`. The time must name its zone and be at least a minute and at most a year ahead (the same

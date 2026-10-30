@@ -889,7 +889,14 @@ pub(crate) fn upload_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Re
     let file = fingerprint(video)?;
     let approvals = load_approvals(root)?;
     let approval = approvals.approvals.get(slug);
-    video_upload::covers(approval, &prepared.preview, &file, (env.now)()).map_err(refused)?;
+    video_upload::covers(
+        approval,
+        &prepared.preview,
+        &file,
+        (env.now)(),
+        prepared.post_date,
+    )
+    .map_err(refused)?;
     let Some(approval) = approval else {
         return Err(refused(ApprovalError::NotApproved));
     };
