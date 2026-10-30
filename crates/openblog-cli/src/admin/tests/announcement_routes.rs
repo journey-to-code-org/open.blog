@@ -284,6 +284,24 @@ fn a_preview_reports_every_problem_at_once_and_stores_nothing() {
     );
     assert_eq!(long.1["problems"][0]["code"], "caption-too-long");
     assert_eq!(long.1["characters"], 3001);
+    // Bluesky takes 300 characters (ADR 0761), and the preview says so.
+    let bluesky = call(
+        &f,
+        &fake(&calls, 200, json!({})),
+        "POST",
+        "/admin/api/social/preview",
+        Some(json!({"provider": "bluesky", "caption": "a".repeat(301)})),
+    );
+    assert_eq!(bluesky.1["limit"], 300);
+    assert_eq!(bluesky.1["problems"][0]["code"], "caption-too-long");
+    let fits = call(
+        &f,
+        &fake(&calls, 200, json!({})),
+        "POST",
+        "/admin/api/social/preview",
+        Some(json!({"provider": "bluesky", "caption": "é".repeat(300)})),
+    );
+    assert_eq!(fits.1["problems"], json!([]));
     assert!(calls.lock().unwrap().is_empty());
 }
 

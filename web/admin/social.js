@@ -241,10 +241,18 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
         },
       },
       el("p", { class: "oba-small", id: `${base}-hint` }, APP_PASSWORD_HINT),
-      el("label", { for: `${base}-handle` }, `${label} handle`),
-      el("input", { id: `${base}-handle`, type: "text", name: "identifier", "data-field": "identifier", autocomplete: "username", autocapitalize: "none", spellcheck: "false", placeholder: "name.bsky.social", value: account ? String(account.displayName || "").replace(/^@/, "") : "" }),
-      el("label", { for: `${base}-password` }, "App password"),
-      el("input", { id: `${base}-password`, type: "password", name: "app-password", "data-field": "app-password", autocomplete: "off", autocapitalize: "none", spellcheck: "false", "aria-describedby": `${base}-hint` }),
+      el(
+        "div",
+        { class: "oba-field" },
+        el("label", { for: `${base}-handle` }, `${label} handle`),
+        el("input", { id: `${base}-handle`, type: "text", name: "identifier", "data-field": "identifier", autocomplete: "username", autocapitalize: "none", spellcheck: "false", placeholder: "name.bsky.social", value: account ? String(account.displayName || "").replace(/^@/, "") : "" }),
+      ),
+      el(
+        "div",
+        { class: "oba-field" },
+        el("label", { for: `${base}-password` }, "App password"),
+        el("input", { id: `${base}-password`, type: "password", name: "app-password", "data-field": "app-password", autocomplete: "off", autocapitalize: "none", spellcheck: "false", "aria-describedby": `${base}-hint` }),
+      ),
       problem,
       el("div", { class: "oba-landing-actions" }, el("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-action": account ? "social-sign-in-reconnect" : "social-sign-in", "data-provider": provider }, account ? `Reconnect ${account.displayName}` : `Connect ${label}`)),
     );
@@ -343,8 +351,9 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
       "li",
       { class: "oba-social-pending", "data-connection": connection.id, "data-status": "authorized" },
       el("h4", { tabindex: "-1", "data-social-choose-title": "true" }, `${label} approved. Choose a destination.`),
-      el("p", { class: "oba-small" }, "Permissions actually granted:"),
-      scopeList(connection.grantedScopes),
+      // An app-password sign-in grants no named permissions; there is nothing to list.
+      connection.grantedScopes.length ? el("p", { class: "oba-small" }, "Permissions actually granted:") : null,
+      connection.grantedScopes.length ? scopeList(connection.grantedScopes) : null,
       connection.notes.length ? el("ul", { class: "oba-social-notes" }, connection.notes.map((note) => el("li", { class: "oba-small", "data-note": note.code }, note.text))) : null,
       form,
     );

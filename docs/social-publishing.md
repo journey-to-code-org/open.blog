@@ -1,12 +1,12 @@
 # Scheduled social publishing (optional)
 
-Social publishing announces an already-published post on a connected LinkedIn identity or Facebook Page, at a
-time you choose. It is off by default. Your site, its exports and cross-posting work exactly the same without it,
+Social publishing announces an already-published post on a connected LinkedIn identity, Facebook Page or Bluesky
+account, at a time you choose. It is off by default. Your site, its exports and cross-posting work exactly the same without it,
 and nothing in this guide is needed to read, build or publish a blog.
 
 This page covers the identity and storage foundation (epic #353, story #354), scheduling announcements (story
 #356), the delivery queue and worker (story #357), the LinkedIn and Facebook adapters (story #358), and delivery
-status, monitoring and operations (story #359).
+status, monitoring and operations (story #359), and Bluesky (epic #382, story #391).
 
 ## Who is allowed to do what
 
@@ -106,6 +106,37 @@ and `<CALLBACK_BASE>/callback/facebook`. Nothing in a request can change the red
 Each attempt expires after ten minutes, works once, and at most ten may be open. If the author declines a
 permission, the attempt fails with a plain message and nothing is stored. The scopes shown in Admin are the ones
 the provider actually granted. Client secrets are sent in the request body to the provider, never in a URL.
+
+## Connecting Bluesky (app password)
+
+Bluesky is off until you set `OPENBLOG_SOCIAL_BLUESKY_ENABLED=true` in the function's environment
+([ADR 0760](adr/0760-a-bluesky-account-is-connected-from-an-app-password-session-and-only-the-session-is-kept.md)).
+There is no app to register and no redirect: Admin asks for your handle (such as `name.bsky.social`) and an **app
+password**, and the function signs in once with them.
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENBLOG_SOCIAL_BLUESKY_ENABLED` | Exactly `true` to offer Bluesky. Unset means no Bluesky, and nothing changes. |
+| `OPENBLOG_SOCIAL_BLUESKY_SERVICE` | Optional. The `https://` origin that signs you in and receives posts. Default `https://bsky.social`; set your own PDS if you host one. No path, query or credentials. |
+
+1. In Bluesky, open **Settings, Privacy and security, App passwords** and add one (it looks like
+   `xxxx-xxxx-xxxx-xxxx`). Do not allow direct messages for it; posting does not need them.
+2. In Admin, open **Social accounts**, type your handle and the app password under **Bluesky**, and choose
+   **Connect Bluesky**.
+3. Choose the account under **Connections in progress**. Nothing is connected until you do.
+
+What happens to the password: Admin and the function both refuse anything that is not shaped like an app password, so
+your account password is never sent. The app password is used for that one sign-in and is never stored, logged or
+shown again; the field is emptied as soon as you submit. What is kept is the session Bluesky returns (an access token
+and a refresh token), encrypted like any other provider token. The access token is refreshed shortly before it
+expires; Bluesky rotates the refresh token each time. If nothing posts for the refresh token's whole lifetime, or you
+revoke the app password, the account shows **Needs reconnecting**: choose **Reconnect…** on it and give an app
+password for the same account (a different account is refused). **Disconnect** ends the session at Bluesky too.
+
+Limits to know (checked on 2026-10-29, see [Provider capabilities](provider-capabilities.md)): signing in is limited
+to 30 times in 5 minutes and 300 a day per account, which is why the session is kept rather than signing in per post;
+a post costs 3 of 5,000 points an hour. Bluesky's OAuth (with DPoP) is not used yet; a deployment that must not use
+app passwords leaves Bluesky off.
 
 ## Choosing where to post
 
@@ -254,7 +285,7 @@ that may have posted (a server error, a timeout, a dropped connection, a success
 again automatically.
 
 Neither LinkedIn nor Facebook accepts an idempotency key on these calls, so none is sent: only an answer that means
-"definitely not processed" is ever retried.
+"definitely not processed" is ever retried. Bluesky gets a record key of the announcement's own instead (below).
 
 **Looking up an unclear outcome.** Facebook: the worker looks at the Page's own published posts since the attempt, read
 only, made between just before the attempt started and just after it ended, and settles the announcement only when
@@ -288,9 +319,25 @@ Verify at setup, because Meta changes them: the Graph version (`OPENBLOG_SOCIAL_
 `v23.0`; old versions are retired), that your app has `pages_manage_posts` (and `pages_show_list`), and App Review:
 until the app has Advanced access, only people with a role on the app can post to Pages.
 
+### Bluesky
+
+Writes one post record to your own repository (`com.atproto.repo.createRecord` of an `app.bsky.feed.post`)
+([ADR 0761](adr/0761-a-bluesky-announcement-is-one-post-record-with-facets-and-a-link-card-under-a-record-key-derived-from-the-announcement.md)):
+the caption as the text, full `https://` links and `#hashtags` in it as clickable facets, and the post link as a link
+card titled with the caption's first line (no picture yet). `@mentions` stay plain text, so nobody is notified by
+mistake. A Bluesky caption is at most 300 characters; Admin counts against that as soon as you choose a Bluesky
+destination, and the preview says how the card and the links will look.
+
+Every try of one announcement writes the same record key, made from its scheduled time and its key, so a retry
+after a try that did land is refused by Bluesky instead of posting twice. The post's `at://` address is kept as the
+provider post id. An unclear outcome is looked up by reading exactly that record: found with the same caption and
+link, it is published; Bluesky saying it does not exist is a sure "not there"; anything else comes to you as **Needs
+checking**. An expired or revoked session asks you to reconnect, and a rate limit is tried again after the time
+Bluesky gives.
+
 ### How the adapters are tested
 
-Both adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0321](adr/0321-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-and-by-the-real-worker-over-a-scripted-provider.md)):
+All the adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0321](adr/0321-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-and-by-the-real-worker-over-a-scripted-provider.md)):
 success, 401, 403, 429, 5xx, a redirect, a network failure, a refused connection, a timeout and ambiguous successes.
 The real worker is also run with the real adapters over a scripted provider, from the reply to the stored
 announcement, with a check that no token or provider wording reaches a stored error, a summary or a log. No test uses

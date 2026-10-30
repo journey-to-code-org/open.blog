@@ -24,7 +24,9 @@ let hosted;
 let hostedPort;
 let configured;
 let plain;
-const state = { accounts: [], connections: [], seen: [] };
+const state = { accounts: [], connections: [], seen: [], signIns: [] };
+const APP_PASSWORD = "abcd-efgh-ijkl-mnop";
+const DID = "did:plc:abcdefghijklmnopqrstuvwx";
 
 const freePort = async () => {
   const listener = createServer();
@@ -50,7 +52,7 @@ function handleHosted(request, response, body) {
   };
   if (url.pathname.startsWith("/__")) {
     const payload = body ? JSON.parse(body) : {};
-    if (url.pathname === "/__reset") Object.assign(state, { accounts: [], connections: [], seen: [] });
+    if (url.pathname === "/__reset") Object.assign(state, { accounts: [], connections: [], seen: [], signIns: [] });
     if (url.pathname === "/__authorize") {
       const pending = state.connections.find((c) => c.status === "pending" && !c.reauthAccountId);
       Object.assign(pending, {
@@ -83,11 +85,19 @@ function handleHosted(request, response, body) {
       providers: [
         { provider: "linkedin", label: "LinkedIn", redirectUri: "https://blog.example.com/api/social/callback/linkedin", version: "202510", scopes: ["openid", "profile", "w_member_social"], requiredScopes: ["openid", "profile", "w_member_social"], organizations: false, pkce: false, clientSecret: TOKEN },
         { provider: "facebook", label: "Facebook", redirectUri: "https://blog.example.com/api/social/callback/facebook", version: "v23.0", scopes: ["pages_show_list", "pages_manage_posts"], requiredScopes: ["pages_show_list", "pages_manage_posts"], organizations: false, pkce: false },
+        { provider: "bluesky", label: "Bluesky", login: "app-password", redirectUri: null, version: "atproto", scopes: [], requiredScopes: [], organizations: false, pkce: false },
       ],
     });
   }
   if (request.method === "GET" && route === "accounts") return send(200, { accounts: state.accounts.map((a) => ({ ...a, accessToken: TOKEN })) });
   if (request.method === "GET" && route === "connections") return send(200, { connections: state.connections });
+  // Bluesky signs in at once with a handle and an app password (ADR 0760): no provider link.
+  if (request.method === "POST" && route === "connections" && input.appPassword) {
+    state.signIns.push(input);
+    const connection = { id: uuid(), provider: "bluesky", status: "authorized", expiresAt: new Date(Date.now() + 1800000).toISOString(), createdAt: new Date().toISOString(), createdBy: "writer", reauthAccountId: null, requestedScopes: [], grantedScopes: [], errorCode: null, message: null, destinations: [{ id: DID, kind: "account", name: `@${input.identifier}`, eligible: true, reason: null }], notes: [] };
+    state.connections.unshift(connection);
+    return send(201, { connection, accessJwt: TOKEN });
+  }
   if (request.method === "POST" && route === "connections") {
     const connection = { id: uuid(), provider: input.provider, status: "pending", expiresAt: new Date(Date.now() + 600000).toISOString(), createdAt: new Date().toISOString(), createdBy: "writer", reauthAccountId: null, requestedScopes: [], grantedScopes: [], errorCode: null, message: null, destinations: [], notes: [] };
     state.connections.unshift(connection);
@@ -312,5 +322,52 @@ test("on a phone the page has no sideways scroll, even with a very long name and
     // Every control is a comfortable touch target.
     const heights = await page.locator("ob-social-accounts button, ob-social-accounts a.oba-btn").evaluateAll((nodes) => nodes.filter((n) => n.offsetParent).map((n) => n.getBoundingClientRect().height));
     for (const height of heights) expect(height).toBeGreaterThanOrEqual(43);
+  }
+});
+
+test("connect Bluesky by keyboard with a handle and an app password: the password is sent once and never shown again", async ({ page }) => {
+  await openSocial(page, configured);
+  const bluesky = page.locator('li[data-provider="bluesky"]');
+  await expect(bluesky).toContainText("never your account password");
+  await expect(bluesky.locator("[data-social-redirect]")).toHaveCount(0);
+  const handle = bluesky.getByLabel("Bluesky handle");
+  const secret = bluesky.getByLabel("App password");
+  await expect(secret).toHaveAttribute("type", "password");
+  await handle.focus();
+  await page.keyboard.type("ada.bsky.social");
+  await page.keyboard.press("Tab");
+  await expect(secret).toBeFocused();
+  await page.keyboard.type(APP_PASSWORD);
+  await page.keyboard.press("Enter");
+  const heading = page.getByRole("heading", { level: 4, name: "Bluesky approved. Choose a destination." });
+  await expect(heading).toBeFocused();
+  expect(state.signIns).toEqual([{ provider: "bluesky", identifier: "ada.bsky.social", appPassword: APP_PASSWORD }]);
+  await expect(page.locator("[data-social-status]")).toContainText("Signed in to Bluesky.");
+  await expect(secret).toHaveValue("");
+  const group = page.getByRole("group", { name: "Choose where Bluesky posts may go" });
+  await group.getByRole("radio", { name: /@ada\.bsky\.social/ }).check();
+  await page.getByRole("button", { name: "Connect this destination" }).click();
+  const card = page.locator("li[data-account]");
+  await expect(card).toContainText("@ada.bsky.social");
+  await expect(card).toContainText(DID);
+  for (const text of [await page.locator("body").innerText(), await page.content()]) {
+    expect(text).not.toContain(APP_PASSWORD);
+    expect(text).not.toContain(TOKEN);
+  }
+  // The account's reconnect opens its own labelled sign-in form, prefilled with the handle.
+  await card.getByRole("button", { name: "Reconnect @ada.bsky.social" }).click();
+  const again = page.getByRole("group", { name: "Reconnect @ada.bsky.social" });
+  await expect(again.getByLabel("Bluesky handle")).toHaveValue("ada.bsky.social");
+  await expect(again.getByLabel("App password")).toBeFocused();
+});
+
+test("on a phone the Bluesky sign-in form has no sideways scroll", async ({ page }) => {
+  for (const width of [320, 360]) {
+    await page.setViewportSize({ width, height: 800 });
+    await openSocial(page, configured);
+    await expect(page.locator('li[data-provider="bluesky"]').getByLabel("App password")).toBeVisible();
+    const overflow = await sideways(page, "ob-social-accounts");
+    expect(overflow.region, `sign-in at ${width}px`).toBeLessThanOrEqual(1);
+    expect(overflow.page, `page at ${width}px`).toBeLessThanOrEqual(1);
   }
 });
