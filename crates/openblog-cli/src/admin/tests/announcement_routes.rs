@@ -954,3 +954,36 @@ fn delivery_health_is_counts_and_alert_codes_only() {
         "nothing from the browser is passed on"
     );
 }
+
+#[test]
+fn a_preview_names_the_cover_and_description_the_public_page_carries_and_counts_mastodon_against_475(
+) {
+    let f = social_site("cover");
+    fs::write(
+        f.dir.join("content/posts/2026-01-05-lantern.md"),
+        "---\ntitle: Lantern\ndate: 2026-01-05\ncover: /images/lantern.png\ncoverAlt: A lantern on a quay at dusk\n---\nBody.\n",
+    )
+    .unwrap();
+    let calls = Calls::default();
+    let preview = |work: &str, caption: String| {
+        call(
+            &f,
+            &fake(&calls, 200, json!({})),
+            "POST",
+            "/admin/api/social/preview",
+            Some(json!({"provider": "mastodon", "caption": caption, "work": work})),
+        )
+        .1
+    };
+    let covered = preview("/posts/lantern/", "a".repeat(475));
+    assert_eq!(covered["limit"], 475);
+    assert_eq!(covered["problems"], json!([]));
+    assert_eq!(
+        covered["cover"],
+        json!({ "image": true, "description": "A lantern on a quay at dusk" })
+    );
+    assert_eq!(preview("/posts/hello/", "Hi".into())["cover"], Json::Null);
+    let long = preview("/posts/hello/", "a".repeat(476));
+    assert_eq!(long["problems"][0]["code"], "caption-too-long");
+    assert!(calls.lock().unwrap().is_empty());
+}

@@ -10,14 +10,14 @@ export const providers = (overrides) => socialProviders(env(overrides));
 /** Every provider configured, Bluesky (off unless turned on) included. */
 export const allProviders = (overrides) => providers({ OPENBLOG_SOCIAL_BLUESKY_ENABLED: "true", ...overrides });
 
-// A reply is { status, headers, body }, an Error to throw, or a function of (call number, url, init).
+// A reply is { status, headers, body } (a string and bytes are sent as they are), an Error to throw, or a function of (call number, url, init).
 export function scripted(reply) {
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
     calls.push({ url: String(url), method: init.method, headers: { ...init.headers }, body: init.body, redirect: init.redirect, signal: init.signal, hasSignal: Boolean(init.signal) });
     const next = typeof reply === "function" ? await reply(calls.length, String(url), init) : reply;
     if (next instanceof Error) throw next;
-    const body = next.body === undefined ? null : typeof next.body === "string" ? next.body : JSON.stringify(next.body);
+    const body = next.body === undefined ? null : typeof next.body === "string" || next.body instanceof Uint8Array ? next.body : JSON.stringify(next.body);
     return new Response(body, { status: next.status, headers: next.headers });
   };
   return { fetchImpl, calls };

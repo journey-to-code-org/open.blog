@@ -2,7 +2,7 @@
 
 open.blog can reach other platforms in two ways: [cross-posting](cross-posting.md) sends a portable copy of an
 article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), and optional
-[social publishing](social-publishing.md) announces a published post on LinkedIn, a Facebook Page or Bluesky. Both are off
+[social publishing](social-publishing.md) announces a published post on LinkedIn, a Facebook Page, Bluesky or Mastodon. Both are off
 until you set them up, and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
@@ -22,21 +22,21 @@ Anything open.blog does not recognise (a capability, a provider, a manifest form
 
 ## The destinations (policy version 2026-10-29)
 
-| Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | Bluesky |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter (link card) |
-| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter |
-| Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported |
-| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | manual |
-| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual |
-| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported |
-| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) |
-| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | app password |
-| Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the post links it |
-| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | your approval |
+| Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | Bluesky | Mastodon |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter (link card) | adapter (in the text) |
+| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter | adapter |
+| Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported |
+| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | manual | manual (the deployer may attach the cover, with its description) |
+| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual | manual |
+| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported |
+| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) |
+| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | app password | OAuth (one instance) |
+| Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the post links it | the post links it |
+| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | your approval | your approval |
 
 Limits enforced before anything is sent: DEV takes 4 tags of at most 30 characters; Hashnode 15 tags and a request
-of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters; a Bluesky caption at most 300. Announcements are scheduled between one
+of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters; a Bluesky caption at most 300; a Mastodon caption at most 475, and the whole status within the instance's own limit. Announcements are scheduled between one
 minute and one year and a day ahead. Video in an article becomes a link in the portable copy
 ([portable fallback](cross-posting.md)).
 
@@ -62,6 +62,16 @@ Checked on 2026-10-29 against the providers' own documentation:
   ([XRPC](https://atproto.com/specs/xrpc)); creating a record costs 3 of 5,000 points an hour and 35,000 a day, and
   signing in is limited to 30 per 5 minutes and 300 a day per account
   ([rate limits](https://docs.bsky.app/docs/advanced-guides/rate-limits)).
+- Mastodon: a [status](https://docs.joinmastodon.org/methods/statuses/) is one text, with the link written into it
+  (every URL counts as 23 characters, [guidelines](https://docs.joinmastodon.org/api/guidelines/)) and a visibility
+  of `public`, `unlisted`, `private` or `direct`; an `Idempotency-Key` header is honoured for an hour. A default
+  instance takes 500 characters, and each instance says its own limits at
+  [`/api/v2/instance`](https://docs.joinmastodon.org/methods/instance/). Images are uploaded first with a plain-text
+  description ([media](https://docs.joinmastodon.org/methods/media/)); the adapter can attach the post's cover that
+  way when the deployer turns it on, but an announcement cannot ask for an image of its own, so images stay
+  `manual`. There are no remote drafts, and open.blog's queue schedules. Login is OAuth 2 against one instance with
+  granular scopes ([OAuth](https://docs.joinmastodon.org/methods/oauth/)); 300 calls per 5 minutes per account, media
+  uploads 30 per 30 minutes ([rate limits](https://docs.joinmastodon.org/api/rate-limits/)).
 - DEV: [Forem API v1, articles](https://developers.forem.com/api/v1#tag/articles). `published: false` keeps a draft;
   there is no scheduling field.
 - WordPress: [posts reference](https://developer.wordpress.org/rest-api/reference/posts/). `status` accepts

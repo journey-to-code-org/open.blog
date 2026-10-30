@@ -229,6 +229,46 @@
         "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema"
       ]
     },
+    "mastodon": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "manual",
+        "link": "adapter",
+        "schedule": "adapter",
+        "text": "adapter",
+        "video": "manual"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": 475,
+        "scheduleMaxHorizonSeconds": 31622400,
+        "scheduleMinLeadSeconds": 60
+      },
+      "family": "social",
+      "label": "Mastodon",
+      "login": {
+        "method": "oauth2",
+        "scopes": [
+          "read:accounts",
+          "write:statuses"
+        ]
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "mastodon",
+      "publishing": "explicit-approval",
+      "sources": [
+        "https://docs.joinmastodon.org/methods/statuses/",
+        "https://docs.joinmastodon.org/methods/oauth/",
+        "https://docs.joinmastodon.org/methods/media/",
+        "https://docs.joinmastodon.org/methods/instance/",
+        "https://docs.joinmastodon.org/api/rate-limits/"
+      ]
+    },
     "medium": {
       "canonical": "manual",
       "capabilities": {
@@ -989,6 +1029,34 @@
       "codes": [
         "capability-manual"
       ]
+    },
+    {
+      "provider": "mastodon",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "schedule"
+        ],
+        "textChars": 476,
+        "scheduleLeadSeconds": 3600
+      },
+      "codes": [
+        "text-too-long"
+      ]
+    },
+    {
+      "provider": "mastodon",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "schedule"
+        ],
+        "textChars": 475,
+        "scheduleLeadSeconds": 3600
+      },
+      "codes": []
     }
   ],
   "unknownRequests": [

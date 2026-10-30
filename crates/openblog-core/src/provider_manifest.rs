@@ -48,10 +48,11 @@ pub enum ProviderId {
     Linkedin,
     Facebook,
     Bluesky,
+    Mastodon,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 8] = [
+    pub const ALL: [ProviderId; 9] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -60,6 +61,7 @@ impl ProviderId {
         Self::Linkedin,
         Self::Facebook,
         Self::Bluesky,
+        Self::Mastodon,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -79,12 +81,13 @@ impl ProviderId {
             Self::Linkedin => "linkedin",
             Self::Facebook => "facebook",
             Self::Bluesky => "bluesky",
+            Self::Mastodon => "mastodon",
         }
     }
 
     pub fn family(self) -> Family {
         match self {
-            Self::Linkedin | Self::Facebook | Self::Bluesky => Family::Social,
+            Self::Linkedin | Self::Facebook | Self::Bluesky | Self::Mastodon => Family::Social,
             _ => Family::Syndication,
         }
     }
@@ -108,6 +111,7 @@ impl From<social_schedule::Provider> for ProviderId {
             social_schedule::Provider::LinkedIn => Self::Linkedin,
             social_schedule::Provider::Facebook => Self::Facebook,
             social_schedule::Provider::Bluesky => Self::Bluesky,
+            social_schedule::Provider::Mastodon => Self::Mastodon,
         }
     }
 }
@@ -973,6 +977,24 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                             "https://docs.bsky.app/docs/advanced-guides/rate-limits",
                             "https://atproto.com/specs/xrpc",
                             "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+                        ],
+                    ),
+                    // A status of at most 500 characters on a default instance, the link written
+                    // into it as 23 (ADRs 0762, 0763).
+                    ProviderId::Mastodon => (
+                        "Mastodon",
+                        LoginMethod::Oauth2,
+                        &["read:accounts", "write:statuses"],
+                        Constraints {
+                            max_text_chars: Some(social_schedule::MASTODON_CAPTION_CHARS as u32),
+                            ..schedule
+                        },
+                        &[
+                            "https://docs.joinmastodon.org/methods/statuses/",
+                            "https://docs.joinmastodon.org/methods/oauth/",
+                            "https://docs.joinmastodon.org/methods/media/",
+                            "https://docs.joinmastodon.org/methods/instance/",
+                            "https://docs.joinmastodon.org/api/rate-limits/",
                         ],
                     ),
                     _ => (

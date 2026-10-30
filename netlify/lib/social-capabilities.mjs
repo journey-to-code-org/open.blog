@@ -17,7 +17,7 @@
 export const MANIFEST_VERSION = 1;
 export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
-const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", bluesky: "social" });
+const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", bluesky: "social", mastodon: "social" });
 const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2", "app-password"]);
 const CANONICAL = Object.freeze(["sent", "linked", "manual", "not-supported"]);
 const PUBLISHING = Object.freeze(["explicit-approval", "draft-only", "manual"]);
@@ -247,6 +247,27 @@ export const MANIFESTS = Object.freeze({
       "https://docs.bsky.app/docs/advanced-guides/rate-limits",
       "https://atproto.com/specs/xrpc",
       "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+    ],
+  }),
+  // A status of at most 500 characters on a default instance, the link written into it as 23
+  // (ADRs 0762, 0763). The instance's own limits are read again before every post.
+  mastodon: parseManifest({
+    canonical: "linked",
+    capabilities: SOCIAL_CAPABILITIES,
+    constraints: { ...none, maxTextChars: 475, ...SCHEDULE },
+    family: "social",
+    label: "Mastodon",
+    login: { method: "oauth2", scopes: ["read:accounts", "write:statuses"] },
+    manifestVersion: 1,
+    policyVersion: "2026-10-29",
+    provider: "mastodon",
+    publishing: "explicit-approval",
+    sources: [
+      "https://docs.joinmastodon.org/methods/statuses/",
+      "https://docs.joinmastodon.org/methods/oauth/",
+      "https://docs.joinmastodon.org/methods/media/",
+      "https://docs.joinmastodon.org/methods/instance/",
+      "https://docs.joinmastodon.org/api/rate-limits/",
     ],
   }),
 });

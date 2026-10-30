@@ -10,6 +10,7 @@ import {
   CAPTION_LIMITS,
   blueskyCardTitle,
   blueskyNotes,
+  mastodonNotes,
   DELIVERY_BADGES,
   STATUS_BADGES,
   captionCount,
@@ -120,6 +121,7 @@ const dest = [
   { id: "d-1", provider: "linkedin", kind: "member", displayName: "Mikey Nichols", status: "connected" },
   { id: "d-2", provider: "facebook", kind: "page", displayName: "Lantern Page", status: "connected" },
   { id: "d-3", provider: "bluesky", kind: "account", displayName: "@ada.bsky.social", status: "connected" },
+  { id: "d-4", provider: "mastodon", kind: "account", displayName: "@ada@social.example.org", status: "connected" },
 ];
 const found = [
   { work: "/posts/hello/", title: "Hello", eligible: true, canonicalUrl: "https://blog.example.org/posts/hello/", reason: null },
@@ -156,7 +158,7 @@ function fakeAdmin({ queue = [row()], fail = {}, history = {}, health } = {}) {
       if (route === "GET social/destinations") return { destinations: dest };
       if (route === "GET social/posts") return { posts: found, now: "2026-11-01T12:00:00Z" };
       if (route === "GET social/announcements") return { announcements: current };
-      if (route === "POST social/preview") return { ok: true, caption: options.json.caption.trim(), link: "https://blog.example.org/posts/hello/", scheduledFor: options.json.scheduledFor || null, problems: [] };
+      if (route === "POST social/preview") return { ok: true, caption: options.json.caption.trim(), link: "https://blog.example.org/posts/hello/", cover: { image: true, description: "A lantern at dusk" }, scheduledFor: options.json.scheduledFor || null, problems: [] };
       if (route === "POST social/announcements") {
         const made = row({ id: "a-2", caption: options.json.caption, scheduledFor: options.json.scheduledFor });
         current = [made, ...current];
@@ -225,7 +227,7 @@ test("the screen loads destinations and posts into labelled fields and explains 
   assert.deepEqual(labels.slice(0, 4), ["Destination", "Post to announce", "Caption", "Date and time (America/New_York)"]);
   for (const control of all(root, "select, textarea, input")) assert.ok(control.id, "every control has an id its label points at");
   const destination = all(root, "select")[0];
-  assert.deepEqual(destination.children.map(text), ["Choose where to post", "Mikey Nichols (LinkedIn profile)", "Lantern Page (Facebook Page)", "@ada.bsky.social (Bluesky account)"]);
+  assert.deepEqual(destination.children.map(text), ["Choose where to post", "Mikey Nichols (LinkedIn profile)", "Lantern Page (Facebook Page)", "@ada.bsky.social (Bluesky account)", "@ada@social.example.org (Mastodon account)"]);
   const options = all(root, "option").filter((node) => node.parentNode.tagName === "OPTGROUP" || node.disabled);
   assert.match(text(options[0]), /Secret draft - Only a published post can be announced\./);
   assert.equal(options[0].disabled, true, "an unavailable post cannot be chosen");
@@ -250,7 +252,7 @@ test("a load that fails says so with a way to try again", withDom(async () => {
   await button(error, "social-retry").dispatch("click");
   await flush();
   assert.equal(error.hidden, true);
-  assert.equal(all(panel.element, "select")[0].children.length, 4);
+  assert.equal(all(panel.element, "select")[0].children.length, 5);
 }));
 
 test("typing a caption shows the count, and too long is said in words beside the field", withDom(async () => {
@@ -658,7 +660,7 @@ test("captions, paths and codes from the queue are only ever text (no markup is 
 // ---- Bluesky (story #391, task DIST2.1.3): its own caption limit and what the post will look like.
 
 test("Bluesky's caption limit is 300, the others' 3000, the same as the server's", () => {
-  assert.deepEqual(CAPTION_LIMITS, { linkedin: 3000, facebook: 3000, bluesky: 300 });
+  assert.deepEqual(CAPTION_LIMITS, { linkedin: 3000, facebook: 3000, bluesky: 300, mastodon: 475 });
   assert.equal(CAPTION_LIMIT, 3000);
   assert.equal(destinationLabel(dest[2]), "@ada.bsky.social (Bluesky account)");
   assert.equal(blueskyCardTitle("First line\nsecond"), "First line");
@@ -691,4 +693,40 @@ test("the Bluesky preview says the link becomes a card, which words become links
   assert.match(notes, /a card titled "New post #lanterns, thanks @ada\.bsky\.social" that shows blog\.example\.org/);
   assert.match(notes, /#hashtags in the caption become clickable/);
   assert.match(notes, /@mentions stay plain text/);
+}));
+
+// ---- Mastodon (story #392, task DIST2.2.2): its own caption limit and what the status will look like.
+
+test("Mastodon's caption limit is 475, and the notes say where the link goes, what notifies and how the cover is described", () => {
+  assert.equal(destinationLabel(dest[3]), "@ada@social.example.org (Mastodon account)");
+  const link = "https://blog.example.org/posts/hello/";
+  assert.deepEqual(mastodonNotes("Plain words", link), ["On Mastodon the link goes after the caption, on its own line; it counts as 23 characters, and Mastodon shows its own preview of it."]);
+  assert.deepEqual(mastodonNotes(`Read ${link} now`, link), [],"a caption that holds the link is not given it twice");
+  const notes = mastodonNotes("New #rust post, thanks @ada@social.example.org", link, { image: true, description: "A lantern at dusk" });
+  assert.equal(notes.length, 4);
+  assert.match(notes[1], /#hashtags/);
+  assert.match(notes[2], /notifies that person/);
+  assert.match(notes[3], /described as: "A lantern at dusk"/);
+  assert.match(mastodonNotes("x", link, { image: true, description: null }).at(-1), /no description \(coverAlt\), so it is never attached/);
+});
+
+test("choosing Mastodon counts against 475, and its preview says where the link goes and how the cover is described", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root, { caption: "a".repeat(476) });
+  fill(root, "destination", "d-4");
+  const caption = all(root, "textarea").find((node) => node.id.endsWith("-caption"));
+  await caption.dispatch("input");
+  assert.match(text(byData(root, "data-social-count")[0]), /1 characters too many \(476 of 475\)/);
+  await submit(root);
+  assert.ok(!api.calls.some((call) => call.method === "POST" && call.path === "social/announcements"), "nothing is sent");
+  caption.value = "New post #lanterns";
+  await caption.dispatch("input");
+  await timers.last();
+  await flush();
+  const preview = byData(root, "data-social-preview")[0];
+  assert.match(text(byData(preview, "data-preview-to")[0]), /To @ada@social\.example\.org \(Mastodon account\)/);
+  const notes = text(byData(preview, "data-preview-notes")[0]);
+  assert.match(notes, /the link goes after the caption, on its own line/);
+  assert.match(notes, /#hashtags in the caption become clickable on Mastodon/);
+  assert.match(notes, /described as: "A lantern at dusk"/);
 }));

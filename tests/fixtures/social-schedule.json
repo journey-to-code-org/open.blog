@@ -2,8 +2,8 @@
   "about": "Announcement rules for optional social publishing (ADR 0308). crates/openblog-core/src/social_schedule.rs and netlify/lib/social-schedule.mjs must accept and refuse exactly these.",
   "now": "2026-11-01T12:00:00Z",
   "captionLimit": 3000,
-  "captionLimits": { "linkedin": 3000, "facebook": 3000, "bluesky": 300 },
-  "providers": { "accepted": ["linkedin", "facebook", "bluesky"], "refused": ["", "LinkedIn", "twitter", "x", "threads", "instagram", "linkedin ", "facebook\n"] },
+  "captionLimits": { "linkedin": 3000, "facebook": 3000, "bluesky": 300, "mastodon": 475 },
+  "providers": { "accepted": ["linkedin", "facebook", "bluesky", "mastodon"], "refused": ["", "LinkedIn", "twitter", "x", "threads", "instagram", "linkedin ", "facebook\n"] },
   "captions": {
     "accepted": [
       ["New post: why lanterns glow", "New post: why lanterns glow"],
