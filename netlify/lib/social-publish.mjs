@@ -1,5 +1,6 @@
 // Provider publishing adapters of optional social publishing (epic #353, story #358, ADRs 0319 to
-// 0321): the LinkedIn Posts API and the Facebook Pages feed, each implementing the adapter
+// 0321; Bluesky: epic #382, story #391, ADR 0761): the LinkedIn Posts API, the Facebook Pages feed
+// and a Bluesky post record, each implementing the adapter
 // interface the delivery worker calls (documented at the top of social-delivery.mjs, ADRs 0316 to
 // 0318). social-adapters.mjs registers an adapter only for a provider this deployment configured.
 // Server-only. Every provider call goes through an injected `fetchImpl` with the worker's abort
@@ -22,6 +23,7 @@
 
 import { checkCaption, ScheduleError } from "./social-schedule.mjs";
 import { DeliveryError, kindOfStatus, parseRetryAfter } from "./social-delivery.mjs";
+import { DID, POST_COLLECTION, announcementKey, cardTitle, facetsFor, withinPostLimits, xrpcError } from "./social-atproto.mjs";
 
 // Only used when a caller gives no signal; the worker always gives its own provider timeout.
 export const PUBLISH_TIMEOUT_MS = 15_000;
@@ -279,4 +281,99 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
   });
 }
 
-export const ADAPTER_FACTORIES = Object.freeze({ linkedin: linkedinAdapter, facebook: facebookAdapter });
+// ---- Bluesky (story #391, ADR 0761)
+//
+// One `com.atproto.repo.createRecord` of an `app.bsky.feed.post` in the author's own repository:
+// the caption as the text, its links and hashtags as facets (UTF-8 byte offsets), and the canonical
+// post as an `app.bsky.embed.external` link card. The record key is derived from the announcement
+// (social-atproto.mjs), so every attempt of one announcement names the same record: a retry after
+// an attempt that did land is refused by the repository instead of posting twice, and reconcile can
+// ask for exactly that record. The post's `at://` URI is the provider post id.
+
+const BLUESKY_AUTH = new Set(["ExpiredToken", "InvalidToken", "AuthenticationRequired", "AuthMissing"]);
+const BLUESKY_THROTTLE = new Set(["RateLimitExceeded"]);
+
+// When a 429 may be tried again: Retry-After if the service sent one, else RateLimit-Reset, read as
+// an epoch second or, if small, as seconds from now. Anything else is no hint.
+function blueskyRetryAfter(response, nowMs) {
+  const hinted = parseRetryAfter(header(response, "retry-after"), nowMs);
+  if (hinted !== null) return hinted;
+  const reset = String(header(response, "ratelimit-reset")).trim();
+  if (!/^\d{1,12}$/.test(reset)) return null;
+  const value = Number(reset);
+  return value > 1e9 ? Math.max(0, value * 1000 - nowMs) : value * 1000;
+}
+
+function blueskyError(status, body, response, now) {
+  const name = xrpcError(body);
+  if (status === 401 || ((status === 400 || status === 403) && BLUESKY_AUTH.has(name))) return new DeliveryError("auth", { status });
+  if (status === 429 || BLUESKY_THROTTLE.has(name)) return new DeliveryError("rate-limited", { status, retryAfterMs: blueskyRetryAfter(response, now()) });
+  return statusError(status, response, now);
+}
+
+export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
+  const repoOf = (account) => {
+    const did = String(account?.externalId ?? "");
+    if (!DID.test(did) || (account.kind && account.kind !== "account")) throw new DeliveryError("rejected");
+    return did;
+  };
+  // Everything the record is built from, checked before any request.
+  const plan = async ({ post, account, accessToken }) => {
+    const repo = repoOf(account);
+    const { caption, url } = prepare("bluesky", { post, accessToken });
+    if (!withinPostLimits(caption)) throw new DeliveryError("rejected");
+    const rkey = await announcementKey(post ?? {});
+    if (!rkey) throw new DeliveryError("rejected");
+    return { repo, caption, url, rkey, uri: `at://${repo}/${POST_COLLECTION}/${rkey}` };
+  };
+  const headers = (accessToken, extra = {}) => ({ authorization: `Bearer ${accessToken}`, accept: "application/json", ...extra });
+  return Object.freeze({
+    provider: "bluesky",
+    async publish({ post, account, accessToken, signal } = {}) {
+      const { repo, caption, url, rkey, uri } = await plan({ post, account, accessToken });
+      const record = { $type: POST_COLLECTION, text: caption, createdAt: new Date(now()).toISOString() };
+      const facets = facetsFor(caption);
+      if (facets.length) record.facets = facets;
+      record.embed = { $type: "app.bsky.embed.external", external: { uri: url, title: cardTitle(caption), description: "" } };
+      const response = await send(
+        fetchImpl,
+        `${settings.apiBase}/xrpc/com.atproto.repo.createRecord`,
+        { method: "POST", headers: headers(accessToken, { "content-type": "application/json" }), body: JSON.stringify({ repo, collection: POST_COLLECTION, rkey, record }) },
+        signal,
+      );
+      const status = Number(response?.status) || 0;
+      const body = await readJson(response);
+      if (status === 200) {
+        // The service names the record it wrote; only the one this announcement asked for counts.
+        if (body?.uri === uri && typeof body.cid === "string" && body.cid) return { providerPostId: uri };
+        throw new DeliveryError("uncertain", { status });
+      }
+      if (status >= 200 && status < 300) throw new DeliveryError("uncertain", { status });
+      throw blueskyError(status, body, response, now);
+    },
+    // Asks for exactly this announcement's record. It is "published" only when it is there and is
+    // the caption with the canonical link; "absent" is conclusive because the record key is this
+    // announcement's alone and the repository answers RecordNotFound for it. Anything else, a
+    // record that differs included, is "unknown" and goes to a person.
+    async reconcile({ post, account, accessToken, signal } = {}) {
+      try {
+        const { repo, caption, url, rkey, uri } = await plan({ post, account, accessToken });
+        const query = new URLSearchParams({ repo, collection: POST_COLLECTION, rkey });
+        const response = await send(fetchImpl, `${settings.apiBase}/xrpc/com.atproto.repo.getRecord?${query}`, { method: "GET", headers: headers(accessToken) }, signal);
+        const status = Number(response?.status) || 0;
+        const body = await readJson(response);
+        if (status === 200) {
+          const value = body?.value;
+          const same = body?.uri === uri && value?.$type === POST_COLLECTION && value.text === caption && value.embed?.external?.uri === url;
+          return same ? { state: "published", providerPostId: uri } : { state: "unknown" };
+        }
+        if (status === 400 && xrpcError(body) === "RecordNotFound") return { state: "absent", conclusive: true };
+        return { state: "unknown" };
+      } catch {
+        return { state: "unknown" };
+      }
+    },
+  });
+}
+
+export const ADAPTER_FACTORIES = Object.freeze({ linkedin: linkedinAdapter, facebook: facebookAdapter, bluesky: blueskyAdapter });

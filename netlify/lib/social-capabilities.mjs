@@ -17,8 +17,8 @@
 export const MANIFEST_VERSION = 1;
 export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
-const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social" });
-const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2"]);
+const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", bluesky: "social" });
+const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2", "app-password"]);
 const CANONICAL = Object.freeze(["sent", "linked", "manual", "not-supported"]);
 const PUBLISHING = Object.freeze(["explicit-approval", "draft-only", "manual"]);
 const CONSTRAINTS = Object.freeze(["maxTextChars", "maxTags", "maxTagNameChars", "maxRequestBodyBytes", "scheduleMinLeadSeconds", "scheduleMaxHorizonSeconds"]);
@@ -229,6 +229,25 @@ export const MANIFESTS = Object.freeze({
     provider: "facebook",
     publishing: "explicit-approval",
     sources: ["https://developers.facebook.com/docs/pages-api/posts", "https://developers.facebook.com/docs/graph-api/reference/page/feed"],
+  }),
+  // app.bsky.feed.post takes at most 300 graphemes; the link is an app.bsky.embed.external card (ADRs 0760, 0761).
+  bluesky: parseManifest({
+    canonical: "linked",
+    capabilities: SOCIAL_CAPABILITIES,
+    constraints: { ...none, maxTextChars: 300, ...SCHEDULE },
+    family: "social",
+    label: "Bluesky",
+    login: { method: "app-password", scopes: [] },
+    manifestVersion: 1,
+    policyVersion: "2026-10-29",
+    provider: "bluesky",
+    publishing: "explicit-approval",
+    sources: [
+      "https://docs.bsky.app/docs/advanced-guides/posts",
+      "https://docs.bsky.app/docs/advanced-guides/rate-limits",
+      "https://atproto.com/specs/xrpc",
+      "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+    ],
   }),
 });
 

@@ -7,6 +7,8 @@ import { env } from "./social-oauth-fakes.mjs";
 export const LI_TOKEN = "AQX-publish-access-token-0001";
 export const PAGE_TOKEN = "EAApage-publish-token-0002";
 export const providers = (overrides) => socialProviders(env(overrides));
+/** Every provider configured, Bluesky (off unless turned on) included. */
+export const allProviders = (overrides) => providers({ OPENBLOG_SOCIAL_BLUESKY_ENABLED: "true", ...overrides });
 
 // A reply is { status, headers, body }, an Error to throw, or a function of (call number, url, init).
 export function scripted(reply) {
@@ -33,10 +35,11 @@ export const networkFailure = (kind, secret = "") => {
 export const ACCOUNTS = {
   linkedin: { provider: "linkedin", kind: "member", externalId: "urn:li:person:abc123", displayName: "Ada" },
   facebook: { provider: "facebook", kind: "page", externalId: "10987654321", displayName: "Lantern Page" },
+  bluesky: { provider: "bluesky", kind: "account", externalId: "did:plc:abcdefghijklmnopqrstuvwx", displayName: "@ada.bsky.social" },
 };
 
 export const call = (provider = "linkedin", { post = {}, account = {}, accessToken, signal } = {}) => ({
-  post: { id: "aaaaaaaa-aaaa-4aaa-8aaa-000000000001", idempotencyKey: "idem-key-0001", caption: "A new post is up.", canonicalUrl: "https://blog.example.com/posts/hello/", work: "/posts/hello/", ...post },
+  post: { id: "aaaaaaaa-aaaa-4aaa-8aaa-000000000001", idempotencyKey: "idem-key-0001", caption: "A new post is up.", canonicalUrl: "https://blog.example.com/posts/hello/", work: "/posts/hello/", scheduledFor: "2026-11-01T12:00:00Z", ...post },
   account: { ...ACCOUNTS[provider], ...account },
   accessToken: accessToken === undefined ? (provider === "facebook" ? PAGE_TOKEN : LI_TOKEN) : accessToken,
   signal: signal === undefined ? AbortSignal.timeout(5000) : signal,

@@ -36,7 +36,7 @@
 //     reconcile({ post, account, accessToken, attemptedAt, finishedAt, signal }),
 //   }
 //
-// `post` is { id, idempotencyKey, caption, canonicalUrl, work }; `account` is { provider, kind,
+// `post` is { id, idempotencyKey, caption, canonicalUrl, work, scheduledFor }; `account` is { provider, kind,
 // externalId, displayName }. The worker never gives an adapter a service key, an admin key, a lease
 // or another account's data. No message here repeats anything a provider said.
 

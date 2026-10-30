@@ -29,16 +29,23 @@ pub const MAX_URL_CHARS: usize = 2000;
 pub enum Provider {
     LinkedIn,
     Facebook,
+    Bluesky,
 }
+
+/// Bluesky's post text limit: `app.bsky.feed.post` takes at most 300 graphemes (and 3,000 bytes).
+/// Characters are counted here, which are never fewer than graphemes, so a caption within this
+/// bound is always within Bluesky's (and 300 characters are at most 1,200 bytes).
+pub const BLUESKY_CAPTION_CHARS: usize = 300;
 
 impl Provider {
     /// Every supported destination.
-    pub const ALL: [Provider; 2] = [Self::LinkedIn, Self::Facebook];
+    pub const ALL: [Provider; 3] = [Self::LinkedIn, Self::Facebook, Self::Bluesky];
 
     pub fn parse(value: &str) -> Result<Self, ScheduleError> {
         match value {
             "linkedin" => Ok(Self::LinkedIn),
             "facebook" => Ok(Self::Facebook),
+            "bluesky" => Ok(Self::Bluesky),
             _ => Err(ScheduleError::UnsupportedProvider),
         }
     }
@@ -47,16 +54,18 @@ impl Provider {
         match self {
             Self::LinkedIn => "linkedin",
             Self::Facebook => "facebook",
+            Self::Bluesky => "bluesky",
         }
     }
 
     /// The caption bound for this provider. LinkedIn commentary is limited to 3,000 characters;
     /// Facebook allows far more, but the stored caption is bounded by the schema, so both stop
     /// at the lower of the two limits. The link is attached by the adapter, not typed into the
-    /// caption, so it does not count against it.
+    /// caption, so it does not count against it. Bluesky's limit is far lower (ADR 0761).
     pub fn caption_limit(self) -> usize {
         match self {
             Self::LinkedIn | Self::Facebook => MAX_CAPTION_CHARS,
+            Self::Bluesky => BLUESKY_CAPTION_CHARS,
         }
     }
 }

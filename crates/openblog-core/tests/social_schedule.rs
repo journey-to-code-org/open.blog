@@ -54,8 +54,13 @@ fn providers_match_the_fixture_and_unsupported_ones_fail_explicitly() {
 #[test]
 fn captions_match_the_fixture_and_are_bounded_per_provider() {
     let f = fixture();
-    let limit = f["captionLimit"].as_u64().unwrap() as usize;
-    for provider in [Provider::LinkedIn, Provider::Facebook] {
+    let store = f["captionLimit"].as_u64().unwrap() as usize;
+    for provider in Provider::ALL {
+        let limit = f["captionLimits"][provider.as_str()].as_u64().unwrap() as usize;
+        assert!(
+            limit <= store,
+            "no provider takes more than the store keeps"
+        );
         assert_eq!(provider.caption_limit(), limit);
         for (input, stored) in pairs(&f["captions"]["accepted"]) {
             assert_eq!(check_caption(provider, &input).unwrap(), stored);

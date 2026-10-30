@@ -55,7 +55,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
   };
 
   const view = (post, account) => ({
-    post: { id: post.id, idempotencyKey: post.idempotency_key, caption: post.body, canonicalUrl: post.canonical_url, work: post.work },
+    post: { id: post.id, idempotencyKey: post.idempotency_key, caption: post.body, canonicalUrl: post.canonical_url, work: post.work, scheduledFor: post.scheduled_for },
     account: { provider: account.provider, kind: account.kind, externalId: account.external_id, displayName: account.display_name },
   });
 

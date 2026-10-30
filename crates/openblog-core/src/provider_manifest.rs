@@ -47,10 +47,11 @@ pub enum ProviderId {
     Medium,
     Linkedin,
     Facebook,
+    Bluesky,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 7] = [
+    pub const ALL: [ProviderId; 8] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -58,6 +59,7 @@ impl ProviderId {
         Self::Medium,
         Self::Linkedin,
         Self::Facebook,
+        Self::Bluesky,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -76,12 +78,13 @@ impl ProviderId {
             Self::Medium => "medium",
             Self::Linkedin => "linkedin",
             Self::Facebook => "facebook",
+            Self::Bluesky => "bluesky",
         }
     }
 
     pub fn family(self) -> Family {
         match self {
-            Self::Linkedin | Self::Facebook => Family::Social,
+            Self::Linkedin | Self::Facebook | Self::Bluesky => Family::Social,
             _ => Family::Syndication,
         }
     }
@@ -104,6 +107,7 @@ impl From<social_schedule::Provider> for ProviderId {
         match provider {
             social_schedule::Provider::LinkedIn => Self::Linkedin,
             social_schedule::Provider::Facebook => Self::Facebook,
+            social_schedule::Provider::Bluesky => Self::Bluesky,
         }
     }
 }
@@ -210,6 +214,9 @@ pub enum LoginMethod {
     EnvironmentCredential,
     /// An OAuth 2.0 grant the author makes, sealed server-side (ADRs 0295, 0299).
     Oauth2,
+    /// A session the author opens once with an app password made at the provider; only the
+    /// session is kept, sealed server-side (ADR 0760).
+    AppPassword,
 }
 
 impl LoginMethod {
@@ -218,6 +225,7 @@ impl LoginMethod {
             "none" => Ok(Self::None),
             "environment-credential" => Ok(Self::EnvironmentCredential),
             "oauth2" => Ok(Self::Oauth2),
+            "app-password" => Ok(Self::AppPassword),
             _ => Err(ManifestError::InvalidLogin),
         }
     }
@@ -935,11 +943,11 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 (Draft, Unsupported),
                 (Schedule, Adapter),
             ]);
-            let (label, scopes, constraints, docs): (_, &[&str], _, &[&str]) = if provider
-                == ProviderId::Linkedin
-            {
-                (
+            let (label, method, scopes, constraints, docs): (_, _, &[&str], _, &[&str]) =
+                match provider {
+                    ProviderId::Linkedin => (
                         "LinkedIn",
+                        LoginMethod::Oauth2,
                         &["openid", "profile", "w_member_social"],
                         Constraints {
                             max_text_chars: Some(3000),
@@ -949,18 +957,35 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                             "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api",
                             "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema",
                         ],
-                    )
-            } else {
-                (
-                    "Facebook",
-                    &["pages_show_list", "pages_manage_posts"],
-                    schedule,
-                    &[
-                        "https://developers.facebook.com/docs/pages-api/posts",
-                        "https://developers.facebook.com/docs/graph-api/reference/page/feed",
-                    ],
-                )
-            };
+                    ),
+                    // app.bsky.feed.post: at most 300 graphemes of text; the link travels as an
+                    // app.bsky.embed.external card (ADRs 0760, 0761).
+                    ProviderId::Bluesky => (
+                        "Bluesky",
+                        LoginMethod::AppPassword,
+                        &[],
+                        Constraints {
+                            max_text_chars: Some(social_schedule::BLUESKY_CAPTION_CHARS as u32),
+                            ..schedule
+                        },
+                        &[
+                            "https://docs.bsky.app/docs/advanced-guides/posts",
+                            "https://docs.bsky.app/docs/advanced-guides/rate-limits",
+                            "https://atproto.com/specs/xrpc",
+                            "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+                        ],
+                    ),
+                    _ => (
+                        "Facebook",
+                        LoginMethod::Oauth2,
+                        &["pages_show_list", "pages_manage_posts"],
+                        schedule,
+                        &[
+                            "https://developers.facebook.com/docs/pages-api/posts",
+                            "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+                        ],
+                    ),
+                };
             ProviderManifest {
                 manifest_version: MANIFEST_VERSION,
                 provider,
@@ -969,7 +994,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 policy_version: BUILTIN_POLICY_VERSION.to_string(),
                 capabilities: social,
                 login: Login {
-                    method: LoginMethod::Oauth2,
+                    method,
                     scopes: scopes.iter().map(|s| (*s).to_string()).collect(),
                 },
                 constraints,
