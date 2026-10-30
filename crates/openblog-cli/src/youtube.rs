@@ -894,12 +894,17 @@ pub(crate) fn upload_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Re
         return Err(refused(ApprovalError::NotApproved));
     };
     let _lock = Lock::take(root)?;
-    let mut token = access_token(root, env)?;
     let resumable = record.state == UploadState::Uploading
         && record.session.is_some()
         && record.file.as_ref() == Some(&file)
         && record.preview_digest == prepared.preview.digest
         && record.publish_at == approval.publish_at;
+    if !resumable && record.state == UploadState::Uploading && record.final_sent {
+        // The last chunk of the earlier attempt may have created the video, and the release
+        // changed since: starting over could upload it twice, so it is settled first.
+        return unknown(root, slug, env, &mut record, "release-changed");
+    }
+    let mut token = access_token(root, env)?;
     if !resumable {
         record = UploadRecord {
             preview_digest: prepared.preview.digest.clone(),
@@ -932,6 +937,9 @@ pub(crate) fn upload_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Re
             )?;
             ask_first = false;
         }
+        // A reply to a status query, not to a chunk: a refusal then says nothing about whether
+        // the last chunk, sent earlier, created the video.
+        let asked = ask_first;
         let step = if ask_first {
             ask_first = false;
             asks += 1;
@@ -977,15 +985,18 @@ pub(crate) fn upload_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Re
             }
             Step::Failed(Failure::SessionGone, code) => {
                 if record.final_sent {
-                    record.state = UploadState::Unknown;
-                    record.session = None;
-                    record.failure = Some(code.into());
-                    record.log((env.now)(), "unknown", Some(code));
-                    save_record(root, slug, &record)?;
-                    return Err(format!("[upload-unknown] The whole file was sent but YouTube's reply was lost and the session ended, so the video may exist. Run `openblog video {slug} --lookup`, or check YouTube Studio and use --settle. Nothing more was sent."));
+                    return unknown(root, slug, env, &mut record, code);
                 }
                 if restarted {
-                    return stop(root, slug, env, &mut record, Failure::SessionGone, code);
+                    return stop(
+                        root,
+                        slug,
+                        env,
+                        &mut record,
+                        Failure::SessionGone,
+                        code,
+                        false,
+                    );
                 }
                 // A session that ended before its last byte holds no video: start a new one once.
                 restarted = true;
@@ -995,7 +1006,8 @@ pub(crate) fn upload_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Re
                 save_record(root, slug, &record)?;
             }
             Step::Failed(failure, code) => {
-                return stop(root, slug, env, &mut record, failure, code);
+                let may_exist = asked && record.final_sent;
+                return stop(root, slug, env, &mut record, failure, code, may_exist);
             }
         }
     }
@@ -1006,8 +1018,27 @@ pub(crate) fn upload_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Re
     Ok(())
 }
 
+/// Marks the release unknown: the last chunk may have created the video, so nothing more is sent
+/// until `--lookup` or `--settle` says whether it exists.
+fn unknown(
+    root: &Path,
+    slug: &str,
+    env: &Env<'_>,
+    record: &mut UploadRecord,
+    code: &str,
+) -> Result<(), String> {
+    record.state = UploadState::Unknown;
+    record.session = None;
+    record.failure = Some(code.into());
+    record.log((env.now)(), "unknown", Some(code));
+    save_record(root, slug, record)?;
+    Err(format!("[upload-unknown] The whole file of `{slug}` was sent but YouTube's reply was lost, so the video may exist. Run `openblog video {slug} --lookup`, or check YouTube Studio and run `openblog video {slug} --settle uploaded:<video id>` or `--settle not-uploaded`. Nothing more was sent."))
+}
+
 /// Stops the run on a failure YouTube gave: the record says what happened and whether running
-/// again may succeed. A reply refusing a chunk means that chunk did not complete the video.
+/// again may succeed. A reply refusing a chunk means that chunk did not complete the video, but a
+/// refusal of a status query after the last chunk's reply was lost (`may_exist`) does not: then
+/// the release is unknown, and any other failure keeps `final_sent` for the next run to ask.
 fn stop(
     root: &Path,
     slug: &str,
@@ -1015,11 +1046,19 @@ fn stop(
     record: &mut UploadRecord,
     failure: Failure,
     code: &'static str,
+    may_exist: bool,
 ) -> Result<(), String> {
-    record.final_sent = false;
+    let refused = matches!(failure, Failure::SessionGone | Failure::Rejected);
+    if refused && may_exist {
+        return unknown(root, slug, env, record, code);
+    }
+    if !may_exist {
+        // The refusal answered the chunk itself, so that chunk did not complete the video.
+        record.final_sent = false;
+    }
     record.failure = Some(code.into());
     let kept = record.session.is_some();
-    if matches!(failure, Failure::SessionGone | Failure::Rejected) {
+    if refused {
         record.state = UploadState::Failed;
         record.session = None;
         record.received = 0;
@@ -1103,7 +1142,7 @@ fn open_session(
             *token = access_token(root, env)?;
             continue;
         }
-        return stop(root, slug, env, record, failure, code);
+        return stop(root, slug, env, record, failure, code, false);
     }
 }
 

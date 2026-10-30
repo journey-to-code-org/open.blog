@@ -191,12 +191,14 @@ Every failure says what happened, with a code, and whether anything was sent:
 - `upload-limit-reached`: your channel reached YouTube's own daily upload limit.
 - `rate-limited` or `provider-unavailable`: try again later; the upload resumes.
 - `grant-revoked`, `permission-missing` or `client-changed`: run `openblog youtube connect` again.
-- `rejected` or `forbidden`: YouTube refused the release and no video was created.
+- `rejected` or `forbidden`: YouTube refused the release and no video was created. (A refusal that
+  comes after the whole file was sent makes the release unknown instead, as below.)
 - A thumbnail YouTube refuses (custom thumbnails need a verified channel) leaves the video uploaded;
   `--upload` retries only the thumbnail.
 
 If the whole file was sent but YouTube's reply was lost, open.blog cannot know whether the video
-exists, so the release becomes **unknown** and nothing more is sent. Run
+exists, so the release becomes **unknown** and nothing more is sent. That holds even if you change
+the release, approve it again or re-encode the file before the next `--upload`. Run
 `openblog video <slug> --lookup`: it records the video if exactly one upload since the attempt has
 your title and description, and says nothing was uploaded only if the channel has no upload at all
 since then (and at least fifteen minutes have passed). Otherwise check YouTube Studio and record

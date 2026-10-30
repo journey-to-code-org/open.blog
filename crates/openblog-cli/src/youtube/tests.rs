@@ -881,3 +881,80 @@ fn an_approval_given_under_the_guided_workflow_does_not_cover_an_upload() {
     assert_eq!(code(&error), "policy-changed");
     assert!(script.sent.borrow().is_empty());
 }
+
+#[test]
+fn a_changed_release_after_a_lost_final_reply_is_unknown_and_never_uploaded_again() {
+    let (root, _) = ready("changed-after-final", 32);
+    let prepared = video_release::prepare(&root, "episode").unwrap();
+    let mut replies = vec![token(), session(), Err(NoReply)];
+    replies.extend((0..MAX_ATTEMPTS).map(|_| Err(NoReply)));
+    let script = Script::new(replies);
+    let error = upload_with(&root, &prepared, &env(&script, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "provider-unavailable");
+    let kept = record(&root);
+    assert_eq!(kept.state, UploadState::Uploading);
+    assert!(kept.final_sent);
+
+    // The author fixes the description, previews and approves the new digest, then uploads.
+    let path = root.join("content/posts/2026-10-01-episode.md");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        text.replace("A walk to the gate.", "A walk to the old gate."),
+    )
+    .unwrap();
+    let changed = approved(&root);
+    assert_ne!(changed.preview.digest, prepared.preview.digest);
+    let none = Script::new(vec![]);
+    let error = upload_with(&root, &changed, &env(&none, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "upload-unknown");
+    assert!(none.sent.borrow().is_empty(), "no second session is opened");
+    let unknown = record(&root);
+    assert_eq!(unknown.state, UploadState::Unknown);
+    assert_eq!(unknown.failure.as_deref(), Some("release-changed"));
+}
+
+#[test]
+fn a_refused_status_query_after_the_last_chunk_keeps_the_video_possible() {
+    // A forbidden status query after the final reply was lost: unknown, not failed.
+    let (root, prepared) = ready("query-forbidden", 32);
+    let script = Script::new(vec![
+        token(),
+        session(),
+        Err(NoReply),
+        google_error(403, "forbidden"),
+    ]);
+    let error = upload_with(&root, &prepared, &env(&script, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "upload-unknown");
+    assert!(!error.contains("no video was created"));
+    assert_eq!(record(&root).state, UploadState::Unknown);
+
+    // A rate limit on the status query keeps the session and `final_sent`; a session that has
+    // expired by the next run is then unknown, not a fresh upload.
+    let (root, prepared) = ready("query-rate", 32);
+    let script = Script::new(vec![token(), session(), Err(NoReply), reply(429, "")]);
+    let error = upload_with(&root, &prepared, &env(&script, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "rate-limited");
+    let kept = record(&root);
+    assert_eq!(kept.state, UploadState::Uploading);
+    assert!(kept.final_sent, "the last chunk may have arrived");
+    assert!(kept.session.is_some());
+    let script = Script::new(vec![token(), reply(404, "")]);
+    let error = upload_with(&root, &prepared, &env(&script, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "upload-unknown");
+    assert!(script
+        .sent
+        .borrow()
+        .iter()
+        .all(|r| !r.url.ends_with("part=snippet,status")));
+    assert_eq!(record(&root).state, UploadState::Unknown);
+
+    // A refusal of the final chunk itself means that chunk did not complete the video.
+    let (root, prepared) = ready("chunk-forbidden", 32);
+    let script = Script::new(vec![token(), session(), google_error(403, "forbidden")]);
+    let error = upload_with(&root, &prepared, &env(&script, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "forbidden");
+    let failed = record(&root);
+    assert_eq!(failed.state, UploadState::Failed);
+    assert!(!failed.final_sent);
+}

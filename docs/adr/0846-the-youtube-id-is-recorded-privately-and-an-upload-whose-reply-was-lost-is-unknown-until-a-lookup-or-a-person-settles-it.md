@@ -23,9 +23,13 @@ again would publish the release twice under the author's name.
   for JSON) and sends nothing.
 - **Five states.** `not-uploaded`, `uploading` (a session is open; `--upload` resumes it), `uploaded` (the id is
   recorded), `failed` (YouTube refused before creating anything) and `unknown`.
-- **Unknown, precisely.** A release becomes `unknown` only when its last chunk was sent and the session then answers
-  `404` or `410`, or answers with success but names no readable video id. While unknown, `--upload` refuses
-  (`upload-unknown`) and sends nothing.
+- **Unknown, precisely.** A release becomes `unknown` only when its last chunk was sent and then the session answers
+  `404` or `410`, answers with success but names no readable video id, or refuses a status query (such as a `403`);
+  or when the release, its approval or its file changed (`release-changed`) while an upload whose last chunk was sent
+  is still open. While unknown, `--upload` refuses (`upload-unknown`) and sends nothing.
+- **Whether the last chunk was sent is cleared only by evidence.** A `308` naming fewer bytes than the file, or a
+  refusal that answers the chunk itself, clears it. A rate limit, a spent quota or a refused token on a status query
+  keeps it with the session, so the next run asks the session again before sending anything.
 - **Looked up, then settled by a person.** `--lookup` lists the channel's uploads playlist (one page of 50, with
   `youtube.readonly`) and reads only uploads added since five minutes before the attempt began:
   - exactly one carrying exactly the release's title and description is recorded as `uploaded` (`lookup-found`);
