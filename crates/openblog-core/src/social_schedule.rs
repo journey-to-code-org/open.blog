@@ -168,15 +168,19 @@ pub fn check_caption(provider: Provider, caption: &str) -> Result<String, Schedu
     Ok(text.to_string())
 }
 
-/// A caption that every supported destination accepts: the Admin checks this before it knows
+/// A caption that some supported destination accepts: the Admin checks this before it knows
 /// which destination the hosted function will resolve, and the hosted function then applies the
-/// destination's own bound. Returns the text to send, and the tightest limit.
-pub fn check_caption_for_all(caption: &str) -> Result<String, ScheduleError> {
-    let mut stored = None;
+/// destination's own bound (Bluesky's is far tighter than the others', ADR 0761). Returns the text
+/// to send. Every refusal but length is the same for every destination.
+pub fn check_caption_for_any(caption: &str) -> Result<String, ScheduleError> {
+    let mut refused = ScheduleError::UnsupportedProvider;
     for provider in Provider::ALL {
-        stored = Some(check_caption(provider, caption)?);
+        match check_caption(provider, caption) {
+            Ok(text) => return Ok(text),
+            Err(error) => refused = error,
+        }
     }
-    stored.ok_or(ScheduleError::UnsupportedProvider)
+    Err(refused)
 }
 
 /// An idempotency key is 16 to 128 of `A-Z a-z 0-9 _ -` (the schema's check).

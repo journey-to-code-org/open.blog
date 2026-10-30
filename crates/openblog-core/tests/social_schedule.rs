@@ -242,3 +242,28 @@ fn a_site_under_a_folder_keeps_the_site_relative_post_path_as_its_work() {
         "https://user.github.io/blog/posts/hello/"
     );
 }
+
+#[test]
+fn admin_checks_a_caption_against_the_loosest_destination_and_leaves_the_tight_one_to_the_function()
+{
+    let store = fixture()["captionLimit"].as_u64().unwrap() as usize;
+    // Longer than Bluesky takes, within LinkedIn's: Admin must not refuse it before it knows the account.
+    assert!(check_caption_for_any(&"a".repeat(400)).is_ok());
+    assert!(check_caption_for_any(&"a".repeat(store)).is_ok());
+    assert_eq!(
+        check_caption_for_any(&"a".repeat(store + 1))
+            .unwrap_err()
+            .code(),
+        "caption-too-long"
+    );
+    assert_eq!(
+        check_caption_for_any("  ").unwrap_err().code(),
+        "caption-empty"
+    );
+    assert_eq!(
+        check_caption_for_any("bell\u{7}").unwrap_err().code(),
+        "caption-characters"
+    );
+    assert_eq!(check_caption_for_any("  Hello  ").unwrap(), "Hello");
+    assert!(check_caption(Provider::Bluesky, &"a".repeat(301)).is_err());
+}

@@ -46,7 +46,10 @@ What Bluesky's records require, checked on 2026-10-29 against the lexicons and g
 - **The caption limit is Bluesky's.** The announcement model gives Bluesky a caption limit of 300 characters in both
   halves (`social_schedule.rs`, `social-schedule.mjs`, held to `tests/fixtures/social-schedule.json`). Characters
   (code points) are never fewer than graphemes, and 300 of them are at most 1,200 bytes, so a caption Admin accepts is
-  always within Bluesky's limits; the adapter checks graphemes and bytes again before sending. The manifest declares
+  always within Bluesky's limits; the adapter checks graphemes and bytes again before sending. The Rust Admin checks
+  a new or edited caption before it knows the account's provider, so it now accepts one that *some* destination
+  takes (`check_caption_for_any`, formerly every destination), and the hosted function, which resolves the account,
+  applies that destination's own limit; the composer counts against the chosen destination's limit as you type. The manifest declares
   `maxTextChars: 300` and the new `app-password` login method (ADR 0760) in both halves and the fixture.
 - **A record key per announcement.** The record key is a TID (atproto's 13-character timestamp identifier) made from
   the announcement's scheduled instant (milliseconds, plus three digits of microseconds) and a 10-bit clock id, the

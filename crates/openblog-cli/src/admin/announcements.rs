@@ -13,7 +13,7 @@
 //! hosted function itself stays off unless `OPENBLOG_SOCIAL_ENABLED=true` there.
 
 use openblog_core::social_schedule::{
-    announceable, check_canonical_url, check_caption, check_caption_for_all, check_idempotency_key,
+    announceable, check_canonical_url, check_caption, check_caption_for_any, check_idempotency_key,
     check_time_zone, parse_schedule, parse_schedule_with, utc_instant, Provider, ScheduleError,
 };
 use openblog_core::LoadOptions;
@@ -413,7 +413,7 @@ fn create(state: &AppState, transport: &dyn Transport, user: &str, req: &Request
         if let Some(zone) = body.time_zone.as_deref() {
             check_time_zone(zone)?;
         }
-        let caption = check_caption_for_all(&body.caption)?;
+        let caption = check_caption_for_any(&body.caption)?;
         // Shape only: the hosted function applies the lead and horizon after it has looked for a
         // request it already holds, so a retry whose time has passed still replays.
         let at = parse_schedule_with(&body.scheduled_for, now, false)?;
@@ -547,7 +547,7 @@ fn checked_change(
         payload["timeZone"] = Json::String(zone.clone());
     }
     if let Some(caption) = caption {
-        payload["caption"] = Json::String(check_caption_for_all(caption).map_err(problem)?);
+        payload["caption"] = Json::String(check_caption_for_any(caption).map_err(problem)?);
     }
     if let Some(value) = scheduled_for {
         let at = parse_schedule(value, clock::now()).map_err(problem)?;
