@@ -46,3 +46,12 @@ hosted schema change that is hard to take back, for a feature that must work on 
   are not part of this decision; they would be a new announcement kind with its own consent and are deferred.
 - Because nothing is stored on a schedule, there is nothing to migrate or roll back: turning reminders off
   removes the setting, and the private record can be deleted at any time.
+
+## Acceptance criteria change
+
+Stories #489 and #526 say the social queue (SP4) fires the reminders. This decision changes that criterion:
+reminders are derived from the date when Admin loads and are not queued, so `netlify/lib/social-delivery.mjs`
+and the `socialAdapters` seam are untouched. The cost is real: an owner who does not open Admin during a
+window gets no nudge. That gap is accepted for now and tracked as a follow-up, "Queue-driven nudge for seasonal
+reminders" (an owner-consented push or email kind on the SP4 worker, with its own hosted schema decision). The
+queue-driven acceptance box on #489 and #526 is therefore closed as changed, not as met.
