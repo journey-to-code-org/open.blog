@@ -2919,3 +2919,22 @@ The author's explicit consent to one distribution plan, given by its digest: bou
 canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
 under. Private; with `requireApproval` a write sends only what it covers (ADR 0329).
 _Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)
+
+**Video release**:
+What a video destination is prepared from, read only from a video-profile post: the video reference (a project
+master file and/or the YouTube address), a title and description written for the destination, the chapters and
+transcript written in the body, caption files, the thumbnail, and the author's consent declarations (ADR 0840).
+Never generated from an article.
+_Avoid_: Video export, slideshow, release kit (Admin's copy helper for the description)
+
+**Video reference**:
+Where a release's video is: `videoFile`, a project-relative master file to upload, and/or `videoUrl`, a video already
+on YouTube.
+_Avoid_: Embed, media URL
+
+**Consent declaration**:
+One of the author's own answers a release needs before anything is uploaded: rights (`owned` or `licensed`), people
+(`consented` or `none`), made for kids and realistic synthetic content (`yes` or `no`). Missing or unknown answers are
+reported, never assumed.
+_Avoid_: Disclosure (the free-text AI-assistance note), licence
+

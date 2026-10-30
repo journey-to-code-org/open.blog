@@ -23,6 +23,32 @@ pub struct VideoMetadata {
     pub duration_seconds: Option<u32>,
     pub thumbnail: Option<String>,
     pub ai_disclosure: Option<String>,
+    /// The authored release metadata a YouTube release is prepared from (epic #386, ADR 0840).
+    /// Read verbatim here and interpreted by [`crate::video_release`]; nothing in a build reads
+    /// them, so a site that does not use them renders exactly as before.
+    pub release: ReleaseFields,
+}
+
+/// The release fields of a video post's front matter, as authored. Validation and meaning live in
+/// [`crate::video_release`], so an unknown value is kept to be reported rather than dropped.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReleaseFields {
+    /// `videoFile`: the project-relative master file to upload.
+    pub file: Option<String>,
+    /// `videoTitle`: the title written for YouTube, when it differs from the post's.
+    pub title: Option<String>,
+    /// `videoDescription`: the opening of the YouTube description, when it differs from the post's.
+    pub description: Option<String>,
+    /// `captions`: project-relative caption files, `name.<language>.vtt` or `.srt`.
+    pub captions: Vec<String>,
+    /// `videoRights`: `owned` or `licensed`.
+    pub rights: Option<String>,
+    /// `videoPeople`: `consented` or `none`.
+    pub people: Option<String>,
+    /// `madeForKids`: `yes` or `no`.
+    pub made_for_kids: Option<String>,
+    /// `syntheticMedia`: `yes` or `no`.
+    pub synthetic_media: Option<String>,
 }
 
 impl VideoMetadata {
@@ -45,6 +71,21 @@ impl VideoMetadata {
                 .and_then(parse_duration_seconds),
             thumbnail: value("thumbnail"),
             ai_disclosure: value("aiDisclosure"),
+            release: ReleaseFields {
+                file: value("videoFile"),
+                title: value("videoTitle"),
+                description: value("videoDescription"),
+                captions: fm
+                    .get_list("captions")
+                    .into_iter()
+                    .map(|item| item.trim().to_string())
+                    .filter(|item| !item.is_empty())
+                    .collect(),
+                rights: value("videoRights"),
+                people: value("videoPeople"),
+                made_for_kids: value("madeForKids"),
+                synthetic_media: value("syntheticMedia"),
+            },
             url,
         }
     }

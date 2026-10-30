@@ -101,7 +101,15 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             "videoUrl",
             "duration",
             "thumbnail",
-            "aiDisclosure"
+            "aiDisclosure",
+            "videoFile",
+            "videoTitle",
+            "videoDescription",
+            "captions",
+            "videoRights",
+            "videoPeople",
+            "madeForKids",
+            "syntheticMedia"
         ]
     );
     assert_eq!(profiles[4].label, "Field journal");
