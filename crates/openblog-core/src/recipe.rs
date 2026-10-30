@@ -114,6 +114,10 @@ pub struct Recipe {
     pub steps: Vec<String>,
     /// Id of the first recipe heading, the target of "Jump to recipe".
     pub anchor: Option<String>,
+    /// Where the recipe comes from when it is adapted from another, as written in `adaptedFrom`
+    /// (also `adapted_from`, `basedOn`). Exported as schema.org `isBasedOn` only when it is an
+    /// http(s) address (ADR 0333).
+    pub adapted_from: Option<String>,
 }
 
 /// True when the front matter marks the post as a recipe.
@@ -224,6 +228,7 @@ impl Recipe {
             ingredients,
             steps,
             anchor: None,
+            adapted_from: get(&["adaptedFrom", "adapted_from", "basedOn"]).map(str::to_string),
         }
     }
 }
@@ -263,9 +268,14 @@ const UNICODE_FRACTIONS: &[(char, f64)] = &[
     ('⅞', 0.875),
 ];
 
+/// True for the single-character fractions an amount may be written with (`½`, `¾`).
+pub(crate) fn is_unicode_fraction(c: char) -> bool {
+    UNICODE_FRACTIONS.iter().any(|(u, _)| *u == c)
+}
+
 /// A number at the start of `s`: `2`, `1.5`, `1,5`, `1/2`, `1 1/2`, `1½`,
 /// `1 ½`, or `½`. Returns the value and the rest of the text.
-fn leading_number(s: &str) -> Option<(f64, &str)> {
+pub(crate) fn leading_number(s: &str) -> Option<(f64, &str)> {
     let unicode = |c: char| {
         UNICODE_FRACTIONS
             .iter()
