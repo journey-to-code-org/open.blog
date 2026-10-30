@@ -21,13 +21,14 @@ use std::time::{Duration, Instant};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use blake2::{Blake2b512, Digest};
+use openblog_core::social_schedule::parse_schedule_with;
 use openblog_core::video_upload::{
-    self, ApprovalError, Failure, FileFingerprint, ThumbnailState, UploadRecord, UploadState,
-    VideoApproval,
+    self, ApprovalError, Failure, FileFingerprint, LookupOutcome, Settlement, ThumbnailState,
+    Upload, UploadRecord, UploadState, VideoApproval,
 };
 use openblog_core::DateTime;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::Sha256;
 use ureq::config::Config;
 
@@ -47,6 +48,9 @@ const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
 const UPLOAD_URL: &str =
     "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status";
 const THUMBNAIL_URL: &str = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
+const CHANNELS_URL: &str =
+    "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true";
+const PLAYLIST_ITEMS_URL: &str = "https://www.googleapis.com/youtube/v3/playlistItems";
 /// A resumable session address is only ever followed on this origin, so the access token is
 /// never sent anywhere a reply pointed.
 const SESSION_PREFIX: &str = "https://www.googleapis.com/upload/youtube/v3/videos?";
@@ -1264,6 +1268,214 @@ fn report_uploaded(record: &UploadRecord) {
         None => println!("It stays private until you publish it in YouTube Studio."),
     }
     println!("Add captions in YouTube Studio, then set `videoUrl: {url}` on the post to embed it.");
+}
+
+// ---------------------------------------------------------------------------------------------
+// `--lookup`, `--settle`, `--status`
+
+pub fn lookup(root: &Path, prepared: &Prepared) -> Result<(), String> {
+    network_env(|env| lookup_with(root, prepared, env))
+}
+
+fn get_json(env: &Env<'_>, token: &str, url: String) -> Result<Value, String> {
+    let request = Request {
+        method: "GET",
+        url,
+        headers: vec![bearer(token)],
+        body: Vec::new(),
+        timeout: API_TIMEOUT,
+    };
+    match send_with_retries(env, &request) {
+        Some(reply) if reply.status == 200 => Ok(reply.json()),
+        Some(reply) => {
+            let (failure, code) = video_upload::classify(reply.status, &reply.body);
+            Err(match failure {
+                Failure::Reconnect | Failure::Unauthorized => reconnect(code),
+                _ => format!("[{code}] YouTube did not list the channel's uploads; the release stays unknown. Try again later."),
+            })
+        }
+        None => Err("[provider-unavailable] YouTube did not answer; the release stays unknown. Try again later.".into()),
+    }
+}
+
+pub(crate) fn lookup_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Result<(), String> {
+    let slug = prepared.slug.as_str();
+    let mut record = load_record(root, slug)?;
+    if record.state != UploadState::Unknown {
+        println!(
+            "The upload of `{slug}` is {}; there is nothing to look up. No request was sent.",
+            record.state.as_str()
+        );
+        return Ok(());
+    }
+    let _lock = Lock::take(root)?;
+    let token = access_token(root, env)?;
+    let channels = get_json(env, &token, CHANNELS_URL.into())?;
+    let playlist = channels["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        .as_str()
+        .filter(|id| {
+            !id.is_empty()
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+        .ok_or_else(|| "[no-channel] The connected Google account has no YouTube channel to look in; the release stays unknown.".to_string())?
+        .to_string();
+    let mut url = url::Url::parse(PLAYLIST_ITEMS_URL).expect("a fixed address");
+    url.query_pairs_mut()
+        .append_pair("part", "snippet")
+        .append_pair("maxResults", "50")
+        .append_pair("playlistId", &playlist);
+    let items = get_json(env, &token, url.into())?;
+    let now = (env.now)();
+    let listed = items["items"].as_array().cloned().unwrap_or_default();
+    let uploads: Vec<Upload> = listed
+        .iter()
+        .filter_map(|item| {
+            let snippet = &item["snippet"];
+            let id = snippet["resourceId"]["videoId"].as_str()?;
+            let at = parse_schedule_with(snippet["publishedAt"].as_str()?, now, false).ok()?;
+            Some(Upload {
+                video_id: id.to_string(),
+                title: snippet["title"].as_str().unwrap_or_default().to_string(),
+                description: snippet["description"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                published_at: at.unix(),
+            })
+        })
+        .collect();
+    let window_start = record.started_at - video_upload::LOOKUP_SKEW_SECONDS;
+    // Every listed item must be read, and the list must reach back before the attempt.
+    let complete = uploads.len() == listed.len()
+        && (items["nextPageToken"].as_str().is_none()
+            || uploads.iter().any(|u| u.published_at < window_start));
+    let outcome = video_upload::lookup(
+        &uploads,
+        complete,
+        &prepared.preview.title,
+        &prepared.preview.description,
+        record.started_at,
+        record.last_sent_at,
+        now.unix(),
+    );
+    match outcome {
+        LookupOutcome::Found(id) => {
+            record.uploaded(now, &id, "lookup-found");
+            if prepared.thumbnail.is_some() && record.thumbnail != ThumbnailState::Set {
+                record.thumbnail = ThumbnailState::Pending;
+            }
+            save_record(root, slug, &record)?;
+            println!("YouTube has the upload: video {id} ({}). Run `openblog video {slug} --upload` to set its thumbnail, if it has one.", video_upload::watch_url(&id));
+            Ok(())
+        }
+        LookupOutcome::Absent => {
+            record.state = UploadState::NotUploaded;
+            record.session = None;
+            record.received = 0;
+            record.final_sent = false;
+            record.failure = None;
+            record.log(now, "lookup-absent", None);
+            save_record(root, slug, &record)?;
+            println!("The channel has no upload since the attempt began, so no video was created. Upload it again with `openblog video {slug} --upload`.");
+            Ok(())
+        }
+        LookupOutcome::TooEarly => {
+            record.log(now, "lookup-too-early", None);
+            save_record(root, slug, &record)?;
+            Err("[lookup-too-early] Nothing is listed yet, but the upload ended less than 15 minutes ago and may still appear. Look again later; the release stays unknown.".into())
+        }
+        LookupOutcome::NeedsPerson(ids) => {
+            record.log(now, "lookup-needs-person", None);
+            save_record(root, slug, &record)?;
+            Err(format!(
+                "[needs-person] The channel has uploads since the attempt began that may be this release{}. Check YouTube Studio, then run `openblog video {slug} --settle uploaded:<video id>` or `--settle not-uploaded`.",
+                if ids.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", ids.join(", "))
+                }
+            ))
+        }
+    }
+}
+
+pub fn settle(root: &Path, slug: &str, input: &str) -> Result<(), String> {
+    settle_at(root, slug, input, crate::clock::now())
+}
+
+pub(crate) fn settle_at(root: &Path, slug: &str, input: &str, now: DateTime) -> Result<(), String> {
+    let settlement = video_upload::settlement(input).ok_or_else(|| {
+        "--settle takes `uploaded:<11-character video id>` or `not-uploaded`; nothing was changed"
+            .to_string()
+    })?;
+    let mut record = load_record(root, slug)?;
+    if record.state != UploadState::Unknown {
+        return Err(format!("[not-unknown] The upload of `{slug}` is {}, not unknown; only an unknown upload is settled by hand. Nothing was changed.", record.state.as_str()));
+    }
+    match settlement {
+        Settlement::Uploaded(id) => {
+            record.uploaded(now, &id, "settled-uploaded");
+            if record.thumbnail == ThumbnailState::Failed {
+                record.thumbnail = ThumbnailState::Pending;
+            }
+            println!("Recorded `{slug}` as YouTube video {id}. No request was sent.");
+        }
+        Settlement::NotUploaded => {
+            record.state = UploadState::NotUploaded;
+            record.session = None;
+            record.received = 0;
+            record.final_sent = false;
+            record.failure = None;
+            record.log(now, "settled-not-uploaded", None);
+            println!("Recorded that `{slug}` was not uploaded; `--upload` may send it again. No request was sent.");
+        }
+    }
+    save_record(root, slug, &record)
+}
+
+pub fn print_status(root: &Path, slug: &str, as_json: bool) -> Result<(), String> {
+    let record = load_records(root)?.releases.remove(slug);
+    let approved = load_approvals(root)?.approvals.contains_key(slug);
+    if as_json {
+        let value = json!({
+            "slug": slug,
+            "approved": approved,
+            "record": record.as_ref().map(UploadRecord::public_view),
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?
+        );
+        return Ok(());
+    }
+    let record = record.unwrap_or_default();
+    println!("YouTube release of `{slug}`: {}", record.state.as_str());
+    println!("  approved: {}", if approved { "yes" } else { "no" });
+    if let Some(url) = &record.url {
+        println!("  video: {url}");
+    }
+    if record.state == UploadState::Uploading {
+        if let Some(file) = &record.file {
+            println!("  received: {} of {} bytes", record.received, file.bytes);
+        }
+    }
+    if let Some(at) = &record.publish_at {
+        println!("  public at: {at}");
+    }
+    if let Some(code) = &record.failure {
+        println!("  last failure: {code}");
+    }
+    for entry in &record.history {
+        let code = entry
+            .code
+            .as_deref()
+            .map(|c| format!(" ({c})"))
+            .unwrap_or_default();
+        println!("  {} {}{code}", entry.at, entry.event);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

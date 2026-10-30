@@ -537,6 +537,116 @@ fn quota_limits_and_refusals_are_reliable_states_and_never_echo_googles_words() 
 }
 
 #[test]
+fn a_session_that_disappears_after_the_last_byte_is_unknown_until_looked_up_or_settled() {
+    let (root, prepared) = ready("unknown", 32);
+    let start = real_now().unix();
+    let script = Script::new(vec![token(), session(), Err(NoReply), reply(404, "")]);
+    let error = upload_with(&root, &prepared, &env(&script, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "upload-unknown");
+    assert_eq!(record(&root).state, UploadState::Unknown);
+
+    // No new upload while unknown.
+    let none = Script::new(vec![]);
+    let error = upload_with(&root, &prepared, &env(&none, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "upload-unknown");
+    assert!(none.sent.borrow().is_empty());
+
+    let channels = reply(
+        200,
+        r#"{"items":[{"contentDetails":{"relatedPlaylists":{"uploads":"UUchannel"}}}]}"#,
+    );
+    let item = |id: &str, title: &str, description: &str, at: i64| {
+        json!({"snippet": {
+            "title": title,
+            "description": description,
+            "publishedAt": DateTime::from_unix(at).rfc3339(),
+            "resourceId": {"videoId": id}
+        }})
+    };
+    let older = item("aaaaaaaaaaa", "Old", "", start - 86_400);
+
+    // Too soon to conclude absence from an empty window.
+    let soon = || DateTime::from_unix(start + 60);
+    let script = Script::new(vec![
+        token(),
+        channels.clone(),
+        reply(200, &json!({"items": [older.clone()]}).to_string()),
+    ]);
+    let error = lookup_with(&root, &prepared, &env(&script, &soon)).unwrap_err();
+    assert_eq!(code(&error), "lookup-too-early");
+    assert!(script.sent.borrow()[2].url.contains("playlistId=UUchannel"));
+
+    // An edited upload inside the window is never read as absence.
+    let later = || DateTime::from_unix(start + 3_600);
+    let edited = item("eeeeeeeeeee", "Episode one (edited)", "", start + 5);
+    let script = Script::new(vec![
+        token(),
+        channels.clone(),
+        reply(200, &json!({"items": [edited, older.clone()]}).to_string()),
+    ]);
+    let error = lookup_with(&root, &prepared, &env(&script, &later)).unwrap_err();
+    assert_eq!(code(&error), "needs-person");
+    assert!(error.contains("eeeeeeeeeee"));
+    assert_eq!(record(&root).state, UploadState::Unknown);
+
+    // Exactly the release, inside the window: found and recorded.
+    let mine = item(
+        VIDEO_ID,
+        &prepared.preview.title,
+        &prepared.preview.description,
+        start + 5,
+    );
+    let script = Script::new(vec![
+        token(),
+        channels.clone(),
+        reply(200, &json!({"items": [mine, older.clone()]}).to_string()),
+    ]);
+    lookup_with(&root, &prepared, &env(&script, &later)).unwrap();
+    let found = record(&root);
+    assert_eq!(found.state, UploadState::Uploaded);
+    assert_eq!(found.video_id.as_deref(), Some(VIDEO_ID));
+    assert_eq!(found.thumbnail, ThumbnailState::Pending);
+    // The next upload run only sets the thumbnail.
+    let script = Script::new(vec![token(), reply(200, "{}")]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap();
+    assert_eq!(
+        script.urls()[1],
+        "POST https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
+    );
+    assert_eq!(record(&root).thumbnail, ThumbnailState::Set);
+}
+
+#[test]
+fn an_empty_settled_window_means_not_uploaded_and_a_person_can_settle_either_way() {
+    let (root, prepared) = ready("absent", 32);
+    let start = real_now().unix();
+    let script = Script::new(vec![token(), session(), Err(NoReply), reply(410, "")]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap_err();
+    let later = || DateTime::from_unix(start + 3_600);
+    let script = Script::new(vec![
+        token(),
+        reply(
+            200,
+            r#"{"items":[{"contentDetails":{"relatedPlaylists":{"uploads":"UUchannel"}}}]}"#,
+        ),
+        reply(200, r#"{"items":[]}"#),
+    ]);
+    lookup_with(&root, &prepared, &env(&script, &later)).unwrap();
+    assert_eq!(record(&root).state, UploadState::NotUploaded);
+    let error = settle_at(&root, "episode", "not-uploaded", later()).unwrap_err();
+    assert_eq!(code(&error), "not-unknown");
+
+    let (root, prepared) = ready("settle", 32);
+    let script = Script::new(vec![token(), session(), Err(NoReply), reply(404, "")]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap_err();
+    assert!(settle_at(&root, "episode", "uploaded:nope", later()).is_err());
+    settle_at(&root, "episode", &format!("uploaded:{VIDEO_ID}"), later()).unwrap();
+    let settled = record(&root);
+    assert_eq!(settled.state, UploadState::Uploaded);
+    assert_eq!(settled.history.last().unwrap().event, "settled-uploaded");
+}
+
+#[test]
 fn a_refused_thumbnail_leaves_the_video_uploaded_and_is_retried_alone() {
     let (root, prepared) = ready("thumbnail", 32);
     let script = Script::new(vec![

@@ -135,6 +135,10 @@ video OPTIONS
                                nothing); add --publish-at <RFC 3339 time> to have YouTube publish it
     --upload                   Upload the approved release as a private video, resume an
                                interrupted upload, or retry its thumbnail
+    --lookup                   After an upload whose outcome is unknown, look in the channel's uploads
+    --settle uploaded:<id>|not-uploaded
+                               Settle an unknown upload by hand after checking YouTube Studio
+    --status                   Show the release's private upload record (add --json for JSON)
 
 export OPTIONS
     --format markdown|csl-json|bibtex
@@ -250,6 +254,8 @@ const SWITCHES: &[&str] = &[
     "stdin",
     "yes",
     "upload",
+    "lookup",
+    "status",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -503,6 +509,9 @@ fn run(raw: &[String]) -> Result<(), String> {
                     approve: args.options.get("approve").cloned(),
                     publish_at: args.options.get("publish-at").cloned(),
                     upload: args.switches.contains("upload"),
+                    lookup: args.switches.contains("lookup"),
+                    settle: args.options.get("settle").cloned(),
+                    status: args.switches.contains("status"),
                 },
             )
         }

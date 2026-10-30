@@ -309,6 +309,13 @@ fn uploading_is_off_without_an_oauth_client_and_an_approval_changes_no_build_out
         status.contains("not set") && status.contains("Connected: no"),
         "{status}"
     );
+    let record = run_without_youtube(&root, &["video", "episode", "--status", "--json"]);
+    assert!(record.status.success(), "{}", text(&record.stderr));
+    let record: Value = serde_json::from_slice(&record.stdout).unwrap();
+    assert_eq!(record["approved"], true);
+    assert_eq!(record["record"], Value::Null);
+    let settle = run_without_youtube(&root, &["video", "episode", "--settle", "not-uploaded"]);
+    assert!(text(&settle.stderr).contains("[not-unknown]"));
     let both = run_without_youtube(&root, &["video", "episode", "--upload", "--lookup"]);
     assert!(!both.status.success());
 

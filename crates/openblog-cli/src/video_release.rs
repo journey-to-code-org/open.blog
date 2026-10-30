@@ -28,6 +28,12 @@ pub struct Options {
     pub publish_at: Option<String>,
     /// Upload the approved release, or resume its upload.
     pub upload: bool,
+    /// Look in the channel's uploads after an upload whose outcome is unknown.
+    pub lookup: bool,
+    /// Settle an unknown upload by hand: `uploaded:<video id>` or `not-uploaded`.
+    pub settle: Option<String>,
+    /// Print the release's private upload record.
+    pub status: bool,
 }
 
 /// Everything an approval or an upload needs about one release, read once.
@@ -50,18 +56,25 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
         options.preview.is_some(),
         options.approve.is_some(),
         options.upload,
+        options.lookup,
+        options.settle.is_some(),
+        options.status,
     ]
     .iter()
     .filter(|on| **on)
     .count();
-    if actions > 1 {
-        return Err(
-            "--json, --preview, --approve and --upload each run alone; nothing was written or sent"
-                .into(),
-        );
+    let json_status = options.json && options.status;
+    if actions > 1 && !json_status {
+        return Err("--json, --preview, --approve, --upload, --lookup, --settle and --status each run alone (--status may add --json); nothing was written or sent".into());
     }
     if options.publish_at.is_some() && options.approve.is_none() {
         return Err("--publish-at is given with --approve, which records it with the approval; nothing was written or sent".into());
+    }
+    if options.status {
+        return crate::youtube::print_status(root, slug, options.json);
+    }
+    if let Some(settlement) = &options.settle {
+        return crate::youtube::settle(root, slug, settlement);
     }
     let prepared = prepare(root, slug)?;
     if let Some(digest) = &options.approve {
@@ -69,6 +82,9 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
     }
     if options.upload {
         return crate::youtube::upload(root, &prepared);
+    }
+    if options.lookup {
+        return crate::youtube::lookup(root, &prepared);
     }
     let preview = &prepared.preview;
     if options.json {
