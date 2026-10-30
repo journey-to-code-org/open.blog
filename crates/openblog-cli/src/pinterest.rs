@@ -769,7 +769,14 @@ fn run_pin_with(
             .map_err(|error| format!("cannot print: {error}"))
     };
     if options.reconcile || options.forget_attempt {
-        return settle(&settings, &built.plan, options.reconcile, context, &mut say);
+        return settle(
+            &settings,
+            slug,
+            &built.plan,
+            options.reconcile,
+            context,
+            &mut say,
+        );
     }
     if options.json {
         let text = serde_json::to_string_pretty(&built.plan)
@@ -779,7 +786,23 @@ fn run_pin_with(
     if !options.write {
         return say(text_report(slug, &built.plan));
     }
-    write(&settings, built, options, context, &mut say)
+    write(&settings, slug, built, options, context, &mut say)
+}
+
+/// The exact `openblog pinterest pin` command for this post, board and section, ending in `tail`.
+/// Every command open.blog suggests names the board (and section) the run used, so following it
+/// rebuilds the same Pin and looks up the same record even when they came from the command line.
+fn pin_command(slug: &str, board: Option<&str>, section: Option<&str>, tail: &str) -> String {
+    let mut command = format!("openblog pinterest pin {slug}");
+    if let Some(board) = board {
+        command.push_str(&format!(" --board {board}"));
+    }
+    if let Some(section) = section {
+        command.push_str(&format!(" --section {section}"));
+    }
+    command.push(' ');
+    command.push_str(tail);
+    command
 }
 
 fn text_report(slug: &str, plan: &PinPlan) -> String {
@@ -816,13 +839,14 @@ fn text_report(slug: &str, plan: &PinPlan) -> String {
     }
     if plan.ready {
         out.push_str(&format!(
-            "\nPin digest: {}\nTo send exactly this Pin, run:\n  openblog pinterest pin {slug}{} --write --confirm {}\n",
+            "\nPin digest: {}\nTo send exactly this Pin, run:\n  {}\n",
             plan.digest,
-            plan.board_id
-                .as_ref()
-                .map(|b| format!(" --board {b}"))
-                .unwrap_or_default(),
-            plan.digest
+            pin_command(
+                slug,
+                plan.board_id.as_deref(),
+                plan.board_section_id.as_deref(),
+                &format!("--write --confirm {}", plan.digest)
+            )
         ));
     } else {
         out.push_str("\nThis Pin cannot be sent yet:\n");
@@ -835,6 +859,7 @@ fn text_report(slug: &str, plan: &PinPlan) -> String {
 
 fn write(
     settings: &Settings,
+    slug: &str,
     built: Built,
     options: &Options,
     context: &Context<'_>,
@@ -865,6 +890,7 @@ fn write(
         return Err(format!("This Pin has no board or image. {NOTHING_SENT}"));
     };
     let key = record_key(plan.environment, &board, &plan.source_path);
+    let reconcile_command = pin_command(slug, Some(&board), None, "--reconcile");
     let mut state = PinState::load(&settings.state_path)?;
     match state.pins.get(&key) {
         Some(record) if record.status == RecordStatus::Posted => {
@@ -875,7 +901,7 @@ fn write(
         }
         Some(record) if record.status == RecordStatus::Unknown => {
             return Err(format!(
-                "An earlier attempt to pin this post to that board may have created a Pin. Run `openblog pinterest pin <slug> --reconcile` to look for it before sending again. {NOTHING_SENT}"
+                "An earlier attempt to pin this post to board {board} may have created a Pin. Run `{reconcile_command}` to look for it before sending again. {NOTHING_SENT}"
             ))
         }
         _ => {}
@@ -940,7 +966,7 @@ fn write(
         Outcome::Unknown { code } => {
             record.failure = Some((*code).into());
             Err(format!(
-                "Pin status unknown: {} Check board {board} in Pinterest, then run `openblog pinterest pin <slug> --reconcile`; it will not be sent again until then.",
+                "Pin status unknown: {} Check board {board} in Pinterest, then run `{reconcile_command}`; it will not be sent again until then.",
                 failure_words(code)
             ))
         }
@@ -959,6 +985,7 @@ const NOTHING_SENT_PIN: &str = "No Pin was sent.";
 /// author, having checked the board, allow it to be sent again.
 fn settle(
     settings: &Settings,
+    slug: &str,
     plan: &PinPlan,
     reconcile: bool,
     context: &Context<'_>,
@@ -969,8 +996,39 @@ fn settle(
     })?;
     let key = record_key(plan.environment, &board, &plan.source_path);
     let mut state = PinState::load(&settings.state_path)?;
+    let forget_command = pin_command(slug, Some(&board), None, "--forget-attempt");
     let Some(record) = state.pins.get(&key).cloned() else {
-        return say("No attempt to pin this post to that board is recorded.\n".into());
+        // The attempt may have taken its board from `--board` and this run from the config:
+        // name every unsettled attempt for this post, with the exact command that settles it.
+        let mut text = format!(
+            "No attempt to pin this post to board {board} ({}) is recorded.\n",
+            plan.environment.as_str()
+        );
+        let tail = if reconcile {
+            "--reconcile"
+        } else {
+            "--forget-attempt"
+        };
+        let others: Vec<&PinRecord> = state
+            .pins
+            .values()
+            .filter(|r| {
+                r.source_path == plan.source_path
+                    && r.environment == plan.environment.as_str()
+                    && r.status == RecordStatus::Unknown
+            })
+            .collect();
+        if !others.is_empty() {
+            text.push_str("This post has an unsettled attempt elsewhere:\n");
+            for other in others {
+                text.push_str(&format!(
+                    "  board {}: run `{}`\n",
+                    other.board_id,
+                    pin_command(slug, Some(&other.board_id), None, tail)
+                ));
+            }
+        }
+        return say(text);
     };
     if record.status != RecordStatus::Unknown {
         return say(match record.status {
@@ -1011,11 +1069,11 @@ fn settle(
             state.save(&settings.state_path)?;
             say(format!("Found the Pin: {url}. It is recorded as posted.\n"))
         }
-        [] => Err(
-            "No Pin linking this post was found on that board since the attempt. The attempt stays unsettled: check the board yourself, and if the Pin is not there run with --forget-attempt to allow sending it again.".into(),
-        ),
+        [] => Err(format!(
+            "No Pin linking this post was found on board {board} since the attempt. The attempt stays unsettled: check the board yourself, and if the Pin is not there run `{forget_command}` to allow sending it again."
+        )),
         _ => Err(format!(
-            "{} Pins linking this post were made on that board since the attempt; the attempt stays unsettled. Remove any duplicate in Pinterest, then run with --forget-attempt or keep it.",
+            "{} Pins linking this post were made on board {board} since the attempt; the attempt stays unsettled. Remove any duplicate in Pinterest, then run `{forget_command}` or keep it.",
             found.len()
         )),
     }
@@ -1425,6 +1483,55 @@ mod tests {
         assert_eq!(calls[1].body["board_section_id"], "55");
         fs::remove_dir_all(root).ok();
     }
+
+    /// The options a printed `openblog pinterest pin ...` command line stands for.
+    pub(super) fn parse_command(command: &str) -> Options {
+        let words: Vec<&str> = command.split_whitespace().collect();
+        assert_eq!(&words[..4], ["openblog", "pinterest", "pin", "tart"]);
+        let mut options = Options::default();
+        let mut rest = words[4..].iter();
+        while let Some(word) = rest.next() {
+            let mut value = || Some(rest.next().expect("a value").to_string());
+            match *word {
+                "--board" => options.board = value(),
+                "--section" => options.section = value(),
+                "--confirm" => options.confirm = value(),
+                "--write" => options.write = true,
+                "--reconcile" => options.reconcile = true,
+                "--forget-attempt" => options.forget_attempt = true,
+                other => panic!("unexpected word {other}"),
+            }
+        }
+        options
+    }
+
+    #[test]
+    fn the_printed_send_command_rebuilds_the_previewed_pin_with_its_board_and_section() {
+        // The config names neither the board nor a section: both come from the command line.
+        let root = site(r#"{"enabled":true,"board":"","boardSection":"77"}"#);
+        let preview = Options {
+            board: Some("111".into()),
+            section: Some("55".into()),
+            ..Options::default()
+        };
+        let (result, printed) = run(&root, &preview, &Scripted::new(vec![]));
+        result.unwrap();
+        let command = printed
+            .lines()
+            .map(str::trim)
+            .find(|line| line.starts_with("openblog pinterest pin"))
+            .expect("a send command")
+            .to_string();
+        assert!(
+            command.contains("--board 111 --section 55 --write --confirm"),
+            "{command}"
+        );
+        let transport = Scripted::new(vec![boards(&["111"]), reply(201, json!({"id": "9"}))]);
+        let (result, _) = run(&root, &parse_command(&command), &transport);
+        result.unwrap();
+        assert_eq!(transport.calls.borrow()[1].body["board_section_id"], "55");
+        fs::remove_dir_all(root).ok();
+    }
 }
 
 /// Failure reporting, unsettled attempts and source address preservation (task DIST3.2.3), run
@@ -1432,7 +1539,8 @@ mod tests {
 #[cfg(test)]
 mod failure_tests {
     use super::tests::{
-        boards, confirmed, key, plan as pin_plan, reply, run, site, state, Scripted, ON,
+        boards, confirmed, key, parse_command, plan as pin_plan, reply, run, site, state, Scripted,
+        ON,
     };
     use super::*;
     use openblog_core::image_facts::samples;
@@ -1569,6 +1677,59 @@ mod failure_tests {
         let (result, _) = run(&root, &confirmed(&plan.digest), &again);
         assert!(result.unwrap_err().contains("may have created a Pin"));
         assert!(again.calls.borrow().is_empty());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn an_unknown_attempt_names_the_exact_command_that_settles_it_on_its_board() {
+        // The config names board 111; the attempt goes to 222 from the command line.
+        let root = site(ON);
+        let preview = Options {
+            board: Some("222".into()),
+            ..Options::default()
+        };
+        let (result, printed) = run(&root, &preview, &Scripted::new(vec![]));
+        result.unwrap();
+        let command = printed
+            .lines()
+            .map(str::trim)
+            .find(|line| line.starts_with("openblog pinterest pin"))
+            .unwrap()
+            .to_string();
+        let transport = Scripted::new(vec![boards(&["222"]), reply(502, json!({}))]);
+        let (result, _) = run(&root, &parse_command(&command), &transport);
+        let error = result.unwrap_err();
+        let wanted = "`openblog pinterest pin tart --board 222 --reconcile`";
+        assert!(error.contains(wanted), "{error}");
+
+        // Sending again names the same command.
+        let (result, _) = run(&root, &parse_command(&command), &Scripted::new(vec![]));
+        assert!(result.unwrap_err().contains(wanted));
+
+        // Reconciling against the configured board points at the real attempt.
+        let (result, printed) = run(
+            &root,
+            &parse_command("openblog pinterest pin tart --reconcile"),
+            &Scripted::new(vec![]),
+        );
+        result.unwrap();
+        assert!(printed.contains("No attempt to pin this post to board 111"));
+        assert!(
+            printed.contains(&format!("board 222: run {wanted}")),
+            "{printed}"
+        );
+
+        // Following the printed command reconciles the real attempt.
+        let plan = pin_plan(&root);
+        let found = Scripted::new(vec![reply(
+            200,
+            json!({"items": [{"id": "8", "link": plan.link, "created_at": "2026-10-29T12:00:01"}], "bookmark": null}),
+        )]);
+        let (result, _) = run(&root, &parse_command(wanted.trim_matches('`')), &found);
+        result.unwrap();
+        assert!(found.calls.borrow()[0].url.contains("/boards/222/pins?"));
+        let record = &state(&root).pins[&format!("sandbox/222/{}", plan.source_path)];
+        assert_eq!(record.status, RecordStatus::Posted);
         fs::remove_dir_all(root).ok();
     }
 

@@ -128,6 +128,11 @@ openblog pinterest pin lemon-tart --reconcile        # look on the board for the
 openblog pinterest pin lemon-tart --forget-attempt   # after checking yourself that there is none
 ```
 
+An attempt is kept per board, so if you chose the board with `--board`, give the same `--board` here. Every message
+open.blog prints names the exact command, board included (and the send command it suggests after a preview carries
+`--board` and `--section` too, so it rebuilds the Pin you previewed). If you ask about a board with no recorded
+attempt, it says so and lists the boards where this post has an unsettled one.
+
 `--reconcile` records the Pin when exactly one Pin on the board links your post and was made since the attempt.
 If it finds none or several, the attempt stays unsettled: look at the board in Pinterest, delete any duplicate, and
 only if there is no Pin run `--forget-attempt`, which allows sending it again.
