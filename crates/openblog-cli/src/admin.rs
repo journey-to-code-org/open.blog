@@ -19942,6 +19942,24 @@ mod tests {
             if let Ok((content, _)) = crate::portable_export::recipe_export(&site, post) {
                 artifacts.push((format!("recipe export of {}", post.slug), content));
             }
+            // Every text file of a recipe directory package and its guide page (ADR 0823).
+            if let Ok(package) = crate::recipe_package::package(
+                root,
+                &site,
+                post,
+                &openblog_core::recipe_directory::Directory::ALL,
+            ) {
+                for file in &package.files {
+                    artifacts.push((
+                        format!("recipe package {} of {}", file.name, post.slug),
+                        String::from_utf8_lossy(&file.contents).into_owned(),
+                    ));
+                }
+                artifacts.push((
+                    format!("recipe package guide of {}", post.slug),
+                    openblog_core::recipe_directory::guide_page(&package),
+                ));
+            }
         }
         artifacts
     }

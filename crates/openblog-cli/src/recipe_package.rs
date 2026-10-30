@@ -292,3 +292,7 @@ fn write_package(
     )?;
     Ok(folder.to_path_buf())
 }
+
+#[cfg(test)]
+#[path = "recipe_package_tests.rs"]
+mod tests;
