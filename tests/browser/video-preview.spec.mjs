@@ -60,7 +60,7 @@ test("the YouTube preview is keyboard operable, labelled, script-free and fits a
   for (const name of ["Status", "Title and description", "Thumbnail", "Chapters", "Captions and transcript", "Audience and disclosures", "By hand in YouTube Studio"]) {
     await expect(page.getByRole("region", { name })).toBeVisible();
   }
-  await expect(page.getByRole("region", { name: "Status" })).toContainText("By hand: ready for you to upload in YouTube Studio");
+  await expect(page.getByRole("region", { name: "Status" })).toContainText("Ready: approve this digest to upload it privately with open.blog");
   await expect(page.getByRole("link", { name: "https://studio.example.org/posts/episode/" })).toBeVisible();
   await expect(page.getByLabel("Video description", { exact: true })).toContainText("Read the article: https://studio.example.org/posts/episode/");
   await expect(page.getByRole("img", { name: "The thumbnail chosen for The Gate of Embers" })).toBeVisible();

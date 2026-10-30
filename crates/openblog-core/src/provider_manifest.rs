@@ -515,11 +515,13 @@ pub fn policy_version_key(value: &str) -> Option<(String, u8)> {
     Some((date.to_string(), revision))
 }
 
+/// A scope in the provider's spelling: a plain name, or a URL such as Google's
+/// `https://www.googleapis.com/auth/youtube.upload` (ADR 0844). Never a space or a quote.
 fn valid_scope(scope: &str) -> bool {
     (1..=80).contains(&scope.len())
         && scope
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-' | b'/'))
 }
 
 fn valid_source(source: &str) -> bool {
@@ -990,10 +992,17 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
     }
 }
 
-/// YouTube as a guided workflow (epic #386, story #399): open.blog prepares the title, description,
-/// thumbnail, captions and transcript, and the author uploads and publishes them in YouTube Studio.
-/// Every limit lives in [`crate::video_release`], because none of them is one of the manifest's
-/// generic constraints (a title, a description in bytes, tags in total characters).
+/// YouTube's policy version: raised above [`BUILTIN_POLICY_VERSION`] when story #400 moved it from
+/// a guided workflow to an uploading adapter (ADR 0844), so nothing approved under the guided
+/// workflow is carried over silently (ADR 0327).
+pub const YOUTUBE_POLICY_VERSION: &str = "2026-10-29.2";
+
+/// YouTube as an uploading adapter (epic #386, stories #399 and #400): open.blog uploads the video
+/// private through a resumable session, sets the thumbnail and can schedule `publishAt`, after the
+/// author connects a Google account and approves the previewed release. Captions stay in YouTube
+/// Studio (ADR 0844). Every limit lives in [`crate::video_release`], because none of them is one
+/// of the manifest's generic constraints (a title, a description in bytes, tags in total
+/// characters).
 fn youtube_manifest() -> ProviderManifest {
     use Capability::*;
     use Support::*;
@@ -1002,30 +1011,36 @@ fn youtube_manifest() -> ProviderManifest {
         provider: ProviderId::Youtube,
         family: Family::Video,
         label: "YouTube".to_string(),
-        policy_version: BUILTIN_POLICY_VERSION.to_string(),
+        policy_version: YOUTUBE_POLICY_VERSION.to_string(),
         capabilities: [
-            (Link, Manual),
-            (Text, Manual),
+            (Link, Adapter),
+            (Text, Adapter),
             (Article, Unsupported),
-            (Image, Manual),
-            (Video, Manual),
-            (Draft, Manual),
-            (Schedule, Manual),
+            (Image, Adapter),
+            (Video, Adapter),
+            (Draft, Adapter),
+            (Schedule, Adapter),
         ]
         .into_iter()
         .collect(),
         login: Login {
-            method: LoginMethod::None,
-            scopes: Vec::new(),
+            method: LoginMethod::Oauth2,
+            scopes: crate::video_upload::SCOPES
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
         },
         constraints: Constraints::default(),
         canonical: CanonicalLink::Linked,
-        publishing: Publishing::Manual,
+        publishing: Publishing::ExplicitApproval,
         sources: [
             "https://developers.google.com/youtube/v3/docs/videos",
             "https://developers.google.com/youtube/v3/docs/videos/insert",
+            "https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol",
             "https://developers.google.com/youtube/v3/docs/thumbnails/set",
             "https://developers.google.com/youtube/v3/docs/captions/insert",
+            "https://developers.google.com/youtube/v3/docs/errors",
+            "https://developers.google.com/identity/protocols/oauth2/native-app",
             "https://support.google.com/youtube/answer/9884579",
         ]
         .iter()

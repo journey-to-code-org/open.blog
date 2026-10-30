@@ -89,9 +89,13 @@ fn a_complete_release_writes_the_youtube_preview_folder_and_uploads_nothing() {
     let root = project("complete");
     post(&root, &RELEASE.replace(" <cut>", ""), false);
     let preview = json(&root);
-    assert_eq!(preview["status"], "manual", "{preview:#}");
+    assert_eq!(preview["status"], "ready", "{preview:#}");
     assert!(codes(&preview, "problems").is_empty());
-    assert!(codes(&preview, "notes").is_empty(), "{preview:#}");
+    assert_eq!(
+        codes(&preview, "notes"),
+        ["captions-by-hand"],
+        "{preview:#}"
+    );
     assert_eq!(preview["privacy"], "private");
     assert_eq!(
         preview["canonicalUrl"],
@@ -149,7 +153,10 @@ fn a_draft_is_previewed_with_a_note_and_youtubes_refusals_block_it() {
     let preview = json(&root);
     assert_eq!(preview["status"], "blocked");
     assert_eq!(codes(&preview, "problems"), ["title-angle-brackets"]);
-    assert_eq!(codes(&preview, "notes"), ["article-not-public"]);
+    assert_eq!(
+        codes(&preview, "notes"),
+        ["article-not-public", "captions-by-hand"]
+    );
     let out = run(&root, &["video", "episode"]);
     assert!(out.status.success());
     let summary = text(&out.stdout);

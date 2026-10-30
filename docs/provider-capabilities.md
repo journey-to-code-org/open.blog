@@ -3,7 +3,8 @@
 open.blog can reach other platforms in three ways: [cross-posting](cross-posting.md) sends a portable copy of an
 article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), optional
 [social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page, and a
-[video release](video-production.md#prepare-a-youtube-release) prepares a video post's YouTube upload. All are off
+[video release](video-production.md#prepare-a-youtube-release) prepares a video post's YouTube upload and, once
+you connect a channel and approve it, uploads it. All are off
 until you set them up, and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
@@ -21,20 +22,20 @@ there. You do not edit it; it is part of the code, and it decides what open.blog
 
 Anything open.blog does not recognise (a capability, a provider, a manifest format) is refused, never guessed at.
 
-## The destinations (policy version 2026-10-29)
+## The destinations (policy version 2026-10-29; YouTube 2026-10-29.2)
 
 | Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | YouTube |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | manual (in the description) |
-| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | manual (title and description) |
+| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter (in the description) |
+| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter (title and description) |
 | Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported |
-| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | manual (thumbnail) |
-| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual (you upload it) |
-| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | manual (a private upload) |
-| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | manual (scheduled in YouTube) |
-| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | none (nothing is sent) |
+| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | adapter (thumbnail) |
+| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | adapter (uploaded private) |
+| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | adapter (a private upload) |
+| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (`publishAt`, kept by YouTube) |
+| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | OAuth (on your computer) |
 | Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the description links it |
-| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | by hand |
+| Becomes public | your approval | draft only | your approval | your approval | your approval | your approval | your approval | by hand |
 
 Limits enforced before anything is sent: DEV takes 4 tags of at most 30 characters; Hashnode 15 tags and a request
 of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters. Announcements are scheduled between one
@@ -65,9 +66,17 @@ Checked on 2026-10-29 against the providers' own documentation:
   [captions.insert](https://developers.google.com/youtube/v3/docs/captions/insert) and
   [chapters](https://support.google.com/youtube/answer/9884579). A title takes at most 100 characters and a
   description 5,000 bytes, neither with `<` or `>`; tags take 500 characters in all; chapters need three or more,
-  the first at `00:00`, each at least ten seconds. This release uploads nothing: `openblog video` prepares the
-  metadata and you enter it in YouTube Studio (ADRs [0841](adr/0841-youtube-is-a-video-family-provider-declared-as-a-guided-workflow-until-an-adapter-uploads.md),
-  [0842](adr/0842-a-youtube-preview-is-the-exact-metadata-with-the-canonical-article-link-checked-against-youtubes-rules.md)).
+  the first at `00:00`, each at least ten seconds. Uploads use the
+  [resumable upload protocol](https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol),
+  start private, and may carry `publishAt` only while private; quota errors are read from
+  [the API errors](https://developers.google.com/youtube/v3/docs/errors) and reset at midnight Pacific Time
+  ([quota costs](https://developers.google.com/youtube/v3/determine_quota_cost)). Captions need a scope that manages
+  the whole account, so they stay by hand in YouTube Studio. The login is
+  [OAuth for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app) with your own client
+  (ADRs [0841](adr/0841-youtube-is-a-video-family-provider-declared-as-a-guided-workflow-until-an-adapter-uploads.md),
+  [0842](adr/0842-a-youtube-preview-is-the-exact-metadata-with-the-canonical-article-link-checked-against-youtubes-rules.md),
+  [0844](adr/0844-youtube-uploads-use-the-deployers-own-google-client-a-loopback-pkce-grant-and-a-refresh-token-protected-on-the-authors-machine.md),
+  [0845](adr/0845-an-approved-release-is-uploaded-private-through-a-recorded-resumable-session-and-youtube-not-open-blog-schedules-its-publication.md)).
 - Ghost, Hashnode and Medium: as verified for [cross-posting](cross-posting.md). Scheduling there was not
   re-verified, so it is listed as unsupported.
 

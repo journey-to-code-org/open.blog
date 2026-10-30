@@ -1,6 +1,6 @@
 # ADR 0841: YouTube is a video-family provider, declared as a guided workflow until an adapter uploads
 
-- Status: Accepted
+- Status: Accepted; the guided-workflow manifest is superseded by ADR 0844 (story #400)
 - Date: 2026-10-29
 - Parent epic: [#386](https://github.com/journey-to-code-org/open.blog/issues/386)
 - Story: #399 (task DIST6.1.2)

@@ -656,6 +656,13 @@ pub fn youtube_preview(
             "The article is not live at its public address yet; keep the video private until it is.",
         ));
     }
+    if !release.captions.is_empty() {
+        // The adapter asks for no permission to manage captions (ADR 0844).
+        notes.push(problem(
+            "captions-by-hand",
+            "open.blog does not upload caption files; add them in YouTube Studio after the upload.",
+        ));
+    }
     notes.extend(asset_notes);
     let status = if !problems.is_empty() {
         Status::Blocked
@@ -746,7 +753,9 @@ pub fn youtube_preview(
 
 fn status_words(status: Status) -> &'static str {
     match status {
-        Status::Ready => "Ready: open.blog can upload this",
+        Status::Ready => {
+            "Ready: approve this digest to upload it privately with open.blog, or follow the steps in YouTube Studio"
+        }
         Status::Manual => {
             "By hand: ready for you to upload in YouTube Studio; open.blog sends nothing"
         }
@@ -1536,20 +1545,19 @@ mod tests {
     }
 
     #[test]
-    fn a_ready_release_is_a_guided_workflow_under_the_youtube_manifest() {
+    fn a_ready_release_can_be_uploaded_under_the_youtube_manifest() {
         let mut ok = release();
         ok.title = "Episode one".into();
         let preview = youtube_preview(&ok, source(true), &good);
-        assert_eq!(preview.status, Status::Manual);
+        assert_eq!(preview.status, Status::Ready);
         assert!(preview.problems.is_empty(), "{:?}", preview.problems);
-        assert_eq!(
-            codes(&preview.manual),
-            ["capability-manual"; 4],
-            "link, text, image and video are by hand"
+        assert!(
+            preview.manual.is_empty(),
+            "link, text, image and video go through the adapter"
         );
-        assert!(preview.notes.is_empty());
+        assert_eq!(codes(&preview.notes), ["captions-by-hand"]);
         assert_eq!(preview.privacy, "private");
-        assert_eq!(preview.policy_version, "2026-10-29");
+        assert_eq!(preview.policy_version, "2026-10-29.2");
         assert!(preview
             .description
             .contains("Read the article: https://blog.example.org/posts/episode-1/"));
@@ -1576,7 +1584,10 @@ mod tests {
             codes(&preview.problems),
             ["title-too-long", "description-too-long", "tags-too-long"]
         );
-        assert_eq!(codes(&preview.notes), ["article-not-public"]);
+        assert_eq!(
+            codes(&preview.notes),
+            ["article-not-public", "captions-by-hand"]
+        );
         let brackets = youtube_preview(&release(), source(true), &good);
         assert_eq!(codes(&brackets.problems), ["title-angle-brackets"]);
     }

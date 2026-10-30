@@ -263,12 +263,12 @@
       "canonical": "linked",
       "capabilities": {
         "article": "unsupported",
-        "draft": "manual",
-        "image": "manual",
-        "link": "manual",
-        "schedule": "manual",
-        "text": "manual",
-        "video": "manual"
+        "draft": "adapter",
+        "image": "adapter",
+        "link": "adapter",
+        "schedule": "adapter",
+        "text": "adapter",
+        "video": "adapter"
       },
       "constraints": {
         "maxRequestBodyBytes": null,
@@ -281,18 +281,24 @@
       "family": "video",
       "label": "YouTube",
       "login": {
-        "method": "none",
-        "scopes": []
+        "method": "oauth2",
+        "scopes": [
+          "https://www.googleapis.com/auth/youtube.upload",
+          "https://www.googleapis.com/auth/youtube.readonly"
+        ]
       },
       "manifestVersion": 1,
-      "policyVersion": "2026-10-29",
+      "policyVersion": "2026-10-29.2",
       "provider": "youtube",
-      "publishing": "manual",
+      "publishing": "explicit-approval",
       "sources": [
         "https://developers.google.com/youtube/v3/docs/videos",
         "https://developers.google.com/youtube/v3/docs/videos/insert",
+        "https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol",
         "https://developers.google.com/youtube/v3/docs/thumbnails/set",
         "https://developers.google.com/youtube/v3/docs/captions/insert",
+        "https://developers.google.com/youtube/v3/docs/errors",
+        "https://developers.google.com/identity/protocols/oauth2/native-app",
         "https://support.google.com/youtube/answer/9884579"
       ]
     }
@@ -769,15 +775,17 @@
       "code": "family-mismatch"
     },
     {
-      "name": "a guided video workflow that claims an adapter",
+      "name": "a video adapter that names no login",
       "base": "youtube",
       "changes": [
         {
           "set": [
-            "capabilities",
-            "video"
+            "login"
           ],
-          "value": "adapter"
+          "value": {
+            "method": "none",
+            "scopes": []
+          }
         }
       ],
       "code": "manifest-inconsistent"
@@ -996,12 +1004,7 @@
           "video"
         ]
       },
-      "codes": [
-        "capability-manual",
-        "capability-manual",
-        "capability-manual",
-        "capability-manual"
-      ]
+      "codes": []
     },
     {
       "provider": "youtube",

@@ -70,7 +70,8 @@ export function policyVersionKey(value) {
   return [`${year}-${month}-${day}`, revision ? Number(revision) : 0];
 }
 
-const validScope = (scope) => /^[A-Za-z0-9_.:-]{1,80}$/.test(scope);
+// A plain name, or a URL such as Google's https://www.googleapis.com/auth/youtube.upload (ADR 0844).
+const validScope = (scope) => /^[A-Za-z0-9_.:\/-]{1,80}$/.test(scope);
 
 function validSource(source) {
   if (source.length > 500) return false;
