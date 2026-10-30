@@ -1,4 +1,5 @@
-//! `openblog submit`: guided community submissions (epic #384, story #395, ADRs 0800 to 0803).
+//! `openblog submit`: guided community submissions and Product Hunt launch kits (epic #384,
+//! stories #395 and #396, ADRs 0800 to 0807).
 //!
 //! Prepares, for one production-visible post, what the author needs to submit it by hand to a
 //! community, and records the submissions the author says they made. Nothing here sends a
@@ -11,11 +12,13 @@ use openblog_core::community_submission::{
     self, Confirmation, Destination, KitRequest, SubmissionError, SubmissionRecords,
 };
 use openblog_core::config::SiteConfig;
+use openblog_core::launch_kit::{self, ImageProbe, LaunchPlan, LaunchRequest};
 
 use crate::fsutil;
 use crate::syndication::{new_artifact_folder, public_post};
 
 pub const USAGE: &str = "usage: openblog submit <slug> --to hacker-news,reddit:<community> [--title <text>] [--kit <new folder>] [--again]
+       openblog submit <slug> --to product-hunt [--kit <new folder>] [--again]
        openblog submit <slug> --confirm <destination> [--permalink <address>] [--title <text>] [--again]
        openblog submit <slug> --list";
 
@@ -116,6 +119,12 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
     if options.confirm.is_some() && chosen.len() != 1 {
         return Err("--confirm records one destination at a time".into());
     }
+    let launching = options.to.is_some() && chosen.contains(&Destination::ProductHunt);
+    if launching && (chosen.len() != 1 || options.title.is_some()) {
+        return Err(
+            "product-hunt is prepared on its own, from its launch plan: run --to product-hunt without other destinations or --title".into(),
+        );
+    }
     let (config, post) = public_post(root, slug)?;
     let path = records_path(root, &config)?;
     let mut records = load_records(&path)?;
@@ -149,6 +158,9 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
                 .unwrap_or_default()
         );
         return Ok(());
+    }
+    if launching {
+        return launch(root, slug, &config, &post, &records, &options);
     }
     let request = KitRequest {
         slug,
@@ -203,6 +215,141 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Prepares a Product Hunt launch kit from the maker's launch plan (ADRs 0805, 0806). It reads the
+/// plan and the images it names inside the project, and writes only into a new folder.
+fn launch(
+    root: &Path,
+    slug: &str,
+    config: &SiteConfig,
+    post: &crate::syndication::SyndicationPost,
+    records: &SubmissionRecords,
+    options: &Options,
+) -> Result<(), String> {
+    let relative = format!(
+        "{}/{slug}.json",
+        config
+            .community
+            .product_hunt
+            .launch_dir
+            .trim_end_matches(['/', '\\'])
+    );
+    let plan_path = root.join(&relative);
+    let text = match fs::read_to_string(&plan_path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(format!(
+                "[launch-plan-missing] There is no launch plan at {relative}. Write the product's name, tagline, description, thumbnail and gallery there (see docs/community-submissions.md). Nothing was prepared."
+            ))
+        }
+        Err(error) => return Err(format!("cannot read {relative}: {error}")),
+    };
+    let plan = LaunchPlan::from_json(&text).map_err(|error| {
+        format!("[launch-plan-invalid] {relative}: {error}. Nothing was prepared.")
+    })?;
+    let (images, found) = probe_images(root, &plan)?;
+    let kit = launch_kit::prepare(&LaunchRequest {
+        slug,
+        source_id: &post.source_id,
+        post_title: &post.title,
+        canonical_url: &post.canonical_url,
+        plan: &plan,
+        images: &images,
+        now_unix: crate::clock::now().unix(),
+        records,
+        again: options.again,
+    });
+    let Some(directory) = options.kit.as_deref() else {
+        print!("{}", launch_kit::kit_text(&kit));
+        return Ok(());
+    };
+    let folder = new_artifact_folder(root, directory, "launch kit")?;
+    let write = |name: &str, bytes: &[u8]| {
+        fsutil::create_new_file(&folder.join(name), bytes)
+            .map_err(|cause| format!("cannot write {name} in {}: {cause}", folder.display()))
+    };
+    let copies: Vec<(&str, &PathBuf)> = kit
+        .thumbnail
+        .iter()
+        .chain(&kit.gallery)
+        .filter_map(|image| Some((image.file.as_deref()?, found.get(&image.source)?)))
+        .collect();
+    if !copies.is_empty() {
+        fs::create_dir(folder.join("images"))
+            .map_err(|error| format!("cannot create images in {}: {error}", folder.display()))?;
+    }
+    for (name, source) in copies {
+        let bytes = fs::read(source)
+            .map_err(|error| format!("cannot read {}: {error}", source.display()))?;
+        write(name, &bytes)?;
+    }
+    write("kit.json", launch_kit::kit_json(&kit).as_bytes())?;
+    write("index.html", launch_kit::kit_page(&kit).as_bytes())?;
+    let codes: Vec<&str> = kit.notices.iter().map(|n| n.code).collect();
+    println!(
+        "Launch kit for `{}` written to {}. Nothing was launched, scheduled or uploaded; open index.html, copy each field into Product Hunt's form and launch it there yourself.
+- Product Hunt: {}{}",
+        post.title,
+        folder.display(),
+        if kit.ready() {
+            "ready to enter by hand"
+        } else {
+            "blocked"
+        },
+        if codes.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", codes.join(", "))
+        }
+    );
+    Ok(())
+}
+
+/// What is at each image path the plan names, and the real file of each image found inside the
+/// project. A path whose real location (after links) is outside the project is never read.
+fn probe_images(
+    root: &Path,
+    plan: &LaunchPlan,
+) -> Result<
+    (
+        std::collections::BTreeMap<String, ImageProbe>,
+        std::collections::BTreeMap<String, PathBuf>,
+    ),
+    String,
+> {
+    let mut probes = std::collections::BTreeMap::new();
+    let mut found = std::collections::BTreeMap::new();
+    let project = fs::canonicalize(root)
+        .map_err(|error| format!("cannot resolve {}: {error}", root.display()))?;
+    for file in plan.image_files() {
+        if !launch_kit::project_relative(file) {
+            continue;
+        }
+        let probe = match fs::canonicalize(root.join(file)) {
+            Err(_) => ImageProbe::Missing,
+            Ok(real) if !real.starts_with(&project) => ImageProbe::Outside,
+            Ok(real) => match fs::metadata(&real) {
+                Ok(meta) if meta.is_file() => {
+                    let mut head = Vec::new();
+                    use std::io::Read;
+                    fs::File::open(&real)
+                        .and_then(|f| f.take(256 * 1024).read_to_end(&mut head))
+                        .map_err(|error| format!("cannot read {file}: {error}"))?;
+                    let (format, size) = launch_kit::sniff_image(&head);
+                    found.insert(file.to_string(), real);
+                    ImageProbe::Found {
+                        bytes: meta.len(),
+                        format,
+                        size,
+                    }
+                }
+                _ => ImageProbe::Missing,
+            },
+        };
+        probes.insert(file.to_string(), probe);
+    }
+    Ok((probes, found))
 }
 
 fn list_text(records: &SubmissionRecords, source_id: &str, slug: &str) -> String {
@@ -430,6 +577,154 @@ mod tests {
         assert!(
             error.contains("refusing to write a submission kit into existing"),
             "{error}"
+        );
+    }
+
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        bytes.extend(w.to_be_bytes());
+        bytes.extend(h.to_be_bytes());
+        bytes.extend([8, 6, 0, 0, 0]);
+        bytes
+    }
+
+    fn launch_site(plan: &str) -> Site {
+        let dir = site(r#"{"productHunt":{"enabled":true}}"#);
+        let root = dir.path();
+        fs::create_dir_all(root.join("launches/shots")).unwrap();
+        fs::write(root.join("launches/shots/thumb.png"), png(240, 240)).unwrap();
+        fs::write(root.join("launches/shots/one.png"), png(1270, 760)).unwrap();
+        fs::write(root.join("launches/shots/two.png"), png(1270, 760)).unwrap();
+        fs::write(root.join("launches/hello.json"), plan).unwrap();
+        dir
+    }
+
+    const PLAN: &str = r#"{
+        "name": "Field Notes",
+        "tagline": "A notebook that publishes itself",
+        "description": "Write in Markdown, publish a fast static site.",
+        "thumbnail": {"file": "launches/shots/thumb.png", "alt": "Logo"},
+        "gallery": [
+            {"file": "launches/shots/one.png", "alt": "The editor"},
+            {"file": "launches/shots/two.png", "alt": "A post"}
+        ],
+        "tags": ["Writing"],
+        "firstComment": "Why I made it: https://notes.example.org/posts/hello/"
+    }"#;
+
+    #[test]
+    fn the_copy_script_is_the_one_the_page_policy_allows() {
+        use base64::Engine;
+        use sha2::Digest;
+        let digest = sha2::Sha256::digest(launch_kit::COPY_SCRIPT.as_bytes());
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD.encode(digest),
+            launch_kit::COPY_SCRIPT_SHA256
+        );
+    }
+
+    #[test]
+    fn a_launch_kit_needs_the_opt_in_a_plan_and_to_be_prepared_alone() {
+        let dir = site("{}");
+        let error = run(dir.path(), "hello", options("product-hunt")).unwrap_err();
+        assert!(error.contains("community.productHunt.enabled"), "{error}");
+
+        let dir = site(r#"{"productHunt":{"enabled":true},"hackerNews":{"enabled":true}}"#);
+        let error = run(dir.path(), "hello", options("product-hunt")).unwrap_err();
+        assert!(error.contains("[launch-plan-missing]"), "{error}");
+        assert!(error.contains("launches/hello.json"), "{error}");
+        let error = run(dir.path(), "hello", options("product-hunt,hacker-news")).unwrap_err();
+        assert!(error.contains("on its own"), "{error}");
+
+        let dir = launch_site(r#"{"name":"x","pitch":"unknown"}"#);
+        let error = run(dir.path(), "hello", options("product-hunt")).unwrap_err();
+        assert!(error.contains("[launch-plan-invalid]"), "{error}");
+        let dir = site(r#"{"productHunt":{"enabled":true,"launchDir":"../elsewhere"}}"#);
+        let error = run(dir.path(), "hello", options("product-hunt")).unwrap_err();
+        assert!(error.contains("launchDir"), "{error}");
+    }
+
+    #[test]
+    fn a_launch_kit_copies_only_the_named_images_beside_its_page() {
+        let dir = launch_site(PLAN);
+        fs::write(dir.path().join("launches/shots/unrelated.png"), png(1, 1)).unwrap();
+        let mut with_kit = options("product-hunt");
+        with_kit.kit = Some("kit".into());
+        run(dir.path(), "hello", with_kit.clone()).unwrap();
+        let kit = dir.path().join("kit");
+        assert_eq!(
+            fs::read(kit.join("images/thumbnail.png")).unwrap(),
+            png(240, 240)
+        );
+        assert!(kit.join("images/gallery-01.png").is_file());
+        assert!(kit.join("images/gallery-02.png").is_file());
+        assert_eq!(fs::read_dir(kit.join("images")).unwrap().count(), 3);
+        let page = fs::read_to_string(kit.join("index.html")).unwrap();
+        assert!(page.contains("Prepared, not launched."));
+        assert!(page.contains("https://www.producthunt.com/posts/new"));
+        assert!(!page.contains("Secret draft body"));
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(kit.join("kit.json")).unwrap()).unwrap();
+        assert_eq!(
+            json["canonicalUrl"],
+            "https://notes.example.org/posts/hello/"
+        );
+        assert_eq!(json["notices"].as_array().unwrap().len(), 1, "{json}");
+        assert_eq!(json["notices"][0]["code"], "no-launch-day");
+        let error = run(dir.path(), "hello", with_kit).unwrap_err();
+        assert!(
+            error.contains("refusing to write a launch kit into existing"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_missing_or_escaping_image_blocks_and_is_not_copied() {
+        let plan = PLAN
+            .replace("launches/shots/two.png", "launches/shots/gone.png")
+            .replace("launches/shots/thumb.png", "../thumb.png");
+        let dir = launch_site(&plan);
+        let mut with_kit = options("product-hunt");
+        with_kit.kit = Some("kit".into());
+        run(dir.path(), "hello", with_kit).unwrap();
+        let kit = dir.path().join("kit");
+        let json = fs::read_to_string(kit.join("kit.json")).unwrap();
+        assert!(json.contains("\"image-missing\""), "{json}");
+        assert!(json.contains("\"image-outside-project\""), "{json}");
+        assert!(json.contains("\"submitUrl\": null"), "{json}");
+        assert_eq!(fs::read_dir(kit.join("images")).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_confirmed_launch_is_not_prepared_again_without_again() {
+        let dir = launch_site(PLAN);
+        let confirm = |permalink: &str| {
+            run(
+                dir.path(),
+                "hello",
+                Options {
+                    confirm: Some("product-hunt".into()),
+                    permalink: Some(permalink.into()),
+                    ..Options::default()
+                },
+            )
+        };
+        let error = confirm("https://www.producthunt.com/@ada").unwrap_err();
+        assert!(error.contains("[invalid-permalink]"), "{error}");
+        confirm("https://www.producthunt.com/posts/field-notes").unwrap();
+        let mut again = options("product-hunt");
+        again.kit = Some("kit".into());
+        run(dir.path(), "hello", again.clone()).unwrap();
+        let json = fs::read_to_string(dir.path().join("kit/kit.json")).unwrap();
+        assert!(json.contains("\"already-launched\""), "{json}");
+        again.kit = Some("kit-2".into());
+        again.again = true;
+        run(dir.path(), "hello", again).unwrap();
+        let json = fs::read_to_string(dir.path().join("kit-2/kit.json")).unwrap();
+        assert!(json.contains("\"relaunch\""), "{json}");
+        assert!(
+            json.contains("https://www.producthunt.com/posts/new"),
+            "{json}"
         );
     }
 }

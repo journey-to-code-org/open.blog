@@ -79,8 +79,8 @@ COMMANDS
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
-    submit <slug> --to <where>  Prepare a community submission to make by hand (Hacker News,
-                               Reddit); open.blog never submits for you
+    submit <slug> --to <where>  Prepare a community submission or Product Hunt launch kit to
+                               make by hand; open.blog never submits for you
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -127,14 +127,17 @@ submit OPTIONS
                                Where to prepare a submission (each must be enabled under
                                community in openblog.json; a Reddit community needs the rules
                                you wrote down for it)
+    --to product-hunt          Prepare a launch kit, alone, from launches/<slug>.json: the
+                               fields to copy, the screenshots, a preview and Product Hunt's
+                               own form
     --title <text>             Your own title for this submission instead of the post's
     --kit <new folder>         Write an accessible index.html checklist and kit.json there
                                instead of printing the kit
     --confirm <destination>    Record that you submitted it there by hand (your word; open.blog
                                never checks), so it is not prepared again
     --permalink <address>      With --confirm: the address of your submission
-    --again                    Prepare an HN repost after a quiet year, or record a second
-                               submission
+    --again                    Prepare an HN repost after a quiet year or a Product Hunt
+                               relaunch, or record a second submission
     --list                     Show the submissions you confirmed for the post
 
 export OPTIONS

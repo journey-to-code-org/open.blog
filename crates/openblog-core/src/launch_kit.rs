@@ -941,6 +941,452 @@ fn kit_image(
     kit
 }
 
+/// The only script on the launch kit page: it reveals the copy buttons and copies a field's text.
+/// It reads nothing else, sends nothing, and the page's policy allows no request at all; without
+/// it, every field is still a labelled, selectable text box (ADR 0806).
+pub const COPY_SCRIPT: &str = "document.querySelectorAll('button[data-copy]').forEach(function(b){b.hidden=false;b.addEventListener('click',function(){var f=document.getElementById(b.getAttribute('data-copy'));var s=document.getElementById('copy-status');var done=function(){s.textContent=b.getAttribute('data-done')};var byHand=function(){f.focus();f.select();try{if(document.execCommand('copy')){done();return}}catch(e){}s.textContent='Selected; copy it with your keyboard.'};if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(f.value).then(done,byHand)}else{byHand()}})})";
+/// The base64 SHA-256 of [`COPY_SCRIPT`], which the page's policy allows and nothing else. A
+/// test in the CLI, which has the hash, holds the two together.
+pub const COPY_SCRIPT_SHA256: &str = "gbgfEm71LyXrJTu9ndiVs4n9He9eNLaPjCmGiNNoL/8=";
+
+/// The page's policy: no request of any kind, images from the kit folder only, and the one script.
+pub fn page_policy() -> String {
+    format!(
+        "default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; script-src 'sha256-{COPY_SCRIPT_SHA256}'; base-uri 'none'; form-action 'none'"
+    )
+}
+
+/// The launch kit as plain text for the terminal.
+pub fn kit_text(kit: &LaunchKit) -> String {
+    let mut out = format!(
+        "Product Hunt launch kit for `{}` ({}). Nothing was launched, scheduled or uploaded; open.blog never does.\n\n[{}]\n",
+        kit.slug,
+        kit.canonical_url,
+        if kit.ready() {
+            "ready for you to enter by hand"
+        } else {
+            "blocked"
+        }
+    );
+    for notice in &kit.notices {
+        out.push_str(&format!(
+            "  {} [{}] {}\n",
+            if notice.blocking {
+                "blocked:"
+            } else {
+                "advice: "
+            },
+            notice.code,
+            notice.message
+        ));
+    }
+    for field in &kit.fields {
+        let limit = field
+            .limit
+            .map(|limit| format!(" ({} of {limit} characters)", field.chars))
+            .unwrap_or_default();
+        out.push_str(&format!("\n{}{limit}:\n{}\n", field.label, field.value));
+    }
+    out.push_str(&format!(
+        "\nproduct address: {}\ncanonical post:  {}\n",
+        kit.product_url, kit.canonical_url
+    ));
+    if let Some(demo) = &kit.demo {
+        out.push_str(&format!("demo video:      {demo}\n"));
+    }
+    if !kit.tags.is_empty() {
+        out.push_str(&format!("launch tags:     {}\n", kit.tags.join(", ")));
+    }
+    if !kit.makers.is_empty() {
+        out.push_str(&format!("co-makers:       {}\n", kit.makers.join(", ")));
+    }
+    if let Some(day) = &kit.launch_day {
+        out.push_str(&format!("launch day:      {day} (12:01 a.m. Pacific)\n"));
+    }
+    for image in kit.thumbnail.iter().chain(&kit.gallery) {
+        out.push_str(&format!("image:           {}\n", image.source));
+    }
+    out.push_str("\nbefore you launch:\n");
+    for rule in &kit.rules {
+        out.push_str(&format!("  - [ ] {}\n", rule.text));
+    }
+    match &kit.submit_url {
+        Some(url) => out.push_str(&format!(
+            "\nsign in, enter it in Product Hunt's form yourself, and launch or schedule it there: {url}\nthen record it: {}\n",
+            crate::community_submission::confirm_command(&kit.slug, &kit.destination)
+        )),
+        None => out.push_str("\nno link to Product Hunt's form while it is blocked\n"),
+    }
+    out
+}
+
+fn image_tag(image: &KitImage, fallback_alt: &str) -> String {
+    let a = crate::escape::attr;
+    let alt = if image.alt.is_empty() {
+        fallback_alt
+    } else {
+        &image.alt
+    };
+    match &image.file {
+        Some(file) => format!(
+            "<img src=\"{}\" alt=\"{}\"{}{}>",
+            a(file),
+            a(alt),
+            image
+                .width
+                .map(|w| format!(" width=\"{w}\""))
+                .unwrap_or_default(),
+            image
+                .height
+                .map(|h| format!(" height=\"{h}\""))
+                .unwrap_or_default()
+        ),
+        None => format!(
+            "<p class=\"missing\">Not available: {}</p>",
+            crate::escape::text(&image.source)
+        ),
+    }
+}
+
+fn image_facts(image: &KitImage) -> String {
+    let mut facts = Vec::new();
+    if let (Some(w), Some(h)) = (image.width, image.height) {
+        facts.push(format!("{w} by {h} pixels"));
+    }
+    if let Some(bytes) = image.bytes {
+        facts.push(format!("{:.1} KB", bytes as f64 / 1024.0));
+    }
+    if let Some(format) = image.format {
+        facts.push(format.extension().to_ascii_uppercase());
+    }
+    facts.join(", ")
+}
+
+/// One text the maker copies: its element id, label, value and character count, if limited.
+struct Copyable {
+    id: String,
+    label: String,
+    value: String,
+    count: Option<String>,
+}
+
+fn copyables(kit: &LaunchKit) -> Vec<Copyable> {
+    let mut list: Vec<Copyable> = kit
+        .fields
+        .iter()
+        .map(|field| Copyable {
+            id: format!("field-{}", field.id),
+            label: capitalize(field.label),
+            value: field.value.clone(),
+            count: field
+                .limit
+                .map(|limit| format!("{} of {limit} characters", field.chars)),
+        })
+        .collect();
+    let mut push = |id: &str, label: &str, value: String| {
+        list.push(Copyable {
+            id: id.into(),
+            label: label.into(),
+            value,
+            count: None,
+        })
+    };
+    push(
+        "field-product-url",
+        "Product address",
+        kit.product_url.clone(),
+    );
+    push(
+        "field-canonical",
+        "Link to your post",
+        kit.canonical_url.clone(),
+    );
+    if let Some(demo) = &kit.demo {
+        push("field-demo", "Demo video", demo.clone());
+    }
+    if !kit.tags.is_empty() {
+        push("field-tags", "Launch tags", kit.tags.join(", "));
+    }
+    list
+}
+
+/// The launch kit page: static HTML in the style of the distribution preview (ADR 0330), with one
+/// hashed script for copy buttons that stay hidden without it (ADR 0806).
+pub fn kit_page(kit: &LaunchKit) -> String {
+    let t = crate::escape::text;
+    let a = crate::escape::attr;
+    let name = kit
+        .field("name")
+        .map(|f| f.value.as_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or(&kit.post_title);
+    let mut out = String::new();
+    out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<meta name=\"robots\" content=\"noindex, nofollow\">\n");
+    out.push_str(&format!(
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"{}\">\n",
+        a(&page_policy())
+    ));
+    out.push_str(&format!("<title>Launch kit: {}</title>\n", t(name)));
+    out.push_str(crate::distribution::PAGE_STYLE);
+    out.push_str(crate::community_submission::KIT_STYLE);
+    out.push_str(LAUNCH_STYLE);
+    out.push_str("</head>\n<body>\n<main>\n");
+    out.push_str(&format!("<h1>Launch kit: {}</h1>\n", t(name)));
+    out.push_str("<p class=\"notice\"><strong>Prepared, not launched.</strong> open.blog creates, schedules, uploads and submits nothing on Product Hunt. You sign in there, enter the launch yourself, and launch it, schedule it, or not at all.</p>\n");
+    out.push_str(&format!(
+        "<dl>\n<dt>Your post (the original)</dt><dd><a href=\"{}\">{}</a></dd>\n<dt>Product address</dt><dd><a href=\"{}\" rel=\"noopener noreferrer\">{}</a></dd>\n",
+        a(&kit.canonical_url),
+        t(&kit.canonical_url),
+        a(&kit.product_url),
+        t(&kit.product_url)
+    ));
+    if let Some(day) = &kit.launch_day {
+        out.push_str(&format!(
+            "<dt>Launch day</dt><dd>{} at 12:01 a.m. Pacific time</dd>\n",
+            t(day)
+        ));
+    }
+    out.push_str("</dl>\n");
+
+    // Status first, so a blocked kit says why before anything else.
+    out.push_str("<section aria-labelledby=\"status\">\n<h2 id=\"status\">Status</h2>\n");
+    out.push_str(&format!(
+        "<p><strong>{}</strong></p>\n",
+        if kit.ready() {
+            "Ready for you to enter by hand."
+        } else {
+            "Blocked: there is no link to Product Hunt's form until this is fixed."
+        }
+    ));
+    let (blocking, advice): (Vec<&Notice>, Vec<&Notice>) =
+        kit.notices.iter().partition(|notice| notice.blocking);
+    for (list, heading, id) in [
+        (&blocking, "Why it is blocked", "blocked"),
+        (&advice, "Worth a second look", "advice"),
+    ] {
+        if list.is_empty() {
+            continue;
+        }
+        out.push_str(&format!(
+            "<h3 id=\"{id}\">{heading}</h3>\n<ul aria-labelledby=\"{id}\">\n"
+        ));
+        for notice in list {
+            out.push_str(&format!(
+                "<li>{} <span class=\"code\">({})</span></li>\n",
+                t(&notice.message),
+                t(notice.code)
+            ));
+        }
+        out.push_str("</ul>\n");
+    }
+    out.push_str("</section>\n");
+
+    // An approximation of the launch, so the maker sees the pieces together.
+    out.push_str("<section aria-labelledby=\"preview\">\n<h2 id=\"preview\">Preview</h2>\n<p class=\"code\">An approximation from your launch plan, not Product Hunt's page.</p>\n<article class=\"launch\" aria-label=\"Preview of the launch\">\n<div class=\"head\">");
+    if let Some(thumbnail) = &kit.thumbnail {
+        out.push_str(&format!(
+            "<div class=\"thumb\">{}</div>",
+            image_tag(thumbnail, "Thumbnail")
+        ));
+    }
+    out.push_str(&format!(
+        "<div><h3>{}</h3><p class=\"tagline\">{}</p>",
+        t(name),
+        t(kit.field("tagline").map_or("", |f| f.value.as_str()))
+    ));
+    if !kit.tags.is_empty() {
+        out.push_str("<ul class=\"tags\" aria-label=\"Launch tags\">");
+        for tag in &kit.tags {
+            out.push_str(&format!("<li>{}</li>", t(tag)));
+        }
+        out.push_str("</ul>");
+    }
+    out.push_str("</div></div>\n");
+    if !kit.gallery.is_empty() {
+        out.push_str("<ul class=\"gallery\" aria-label=\"Gallery\">\n");
+        for (index, image) in kit.gallery.iter().enumerate() {
+            out.push_str(&format!(
+                "<li>{}</li>\n",
+                image_tag(image, &format!("Gallery image {}", index + 1))
+            ));
+        }
+        out.push_str("</ul>\n");
+    }
+    out.push_str(&format!(
+        "<p class=\"description\">{}</p>\n",
+        t(kit.field("description").map_or("", |f| f.value.as_str()))
+    ));
+    if !kit.makers.is_empty() {
+        out.push_str(&format!(
+            "<p><strong>Co-makers:</strong> {}</p>\n",
+            t(&kit.makers.join(", "))
+        ));
+    }
+    out.push_str("</article>\n</section>\n");
+
+    // Every text the maker types into Product Hunt's form, with a copy action.
+    out.push_str("<section aria-labelledby=\"fields\">\n<h2 id=\"fields\">Text to copy into Product Hunt</h2>\n<p id=\"copy-status\" role=\"status\" aria-live=\"polite\" class=\"code\"></p>\n");
+    for field in copyables(kit) {
+        let id = &field.id;
+        let rows =
+            (field.value.chars().count() / 60 + field.value.matches('\n').count() + 1).clamp(1, 12);
+        let described = field
+            .count
+            .as_ref()
+            .map(|_| format!(" aria-describedby=\"{id}-count\""))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "<div class=\"field\">\n<label for=\"{id}\">{}</label>\n<textarea id=\"{id}\" readonly rows=\"{rows}\"{described}>{}</textarea>\n",
+            t(&field.label),
+            t(&field.value)
+        ));
+        if let Some(count) = &field.count {
+            out.push_str(&format!(
+                "<p id=\"{id}-count\" class=\"code\">{}</p>\n",
+                t(count)
+            ));
+        }
+        out.push_str(&format!(
+            "<button type=\"button\" data-copy=\"{id}\" data-done=\"{} copied.\" hidden>Copy {}</button>\n</div>\n",
+            a(&field.label),
+            t(&field.label.to_lowercase())
+        ));
+    }
+    out.push_str("</section>\n");
+
+    // The images, which the maker uploads by hand from this folder.
+    out.push_str("<section aria-labelledby=\"images\">\n<h2 id=\"images\">Images to upload</h2>\n<p>Upload these from the kit's <code>images</code> folder in Product Hunt's form. open.blog uploads nothing.</p>\n<ul class=\"files\">\n");
+    let labelled = kit
+        .thumbnail
+        .iter()
+        .map(|i| ("Thumbnail".to_string(), i))
+        .chain(
+            kit.gallery
+                .iter()
+                .enumerate()
+                .map(|(n, i)| (format!("Gallery image {}", n + 1), i)),
+        );
+    for (label, image) in labelled {
+        let facts = image_facts(image);
+        match &image.file {
+            Some(file) => out.push_str(&format!(
+                "<li><a href=\"{}\">Open {} ({})</a>{}</li>\n",
+                a(file),
+                t(&label.to_lowercase()),
+                t(file),
+                if facts.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", t(&facts))
+                }
+            )),
+            None => out.push_str(&format!(
+                "<li>{}: not in the kit (<code>{}</code>)</li>\n",
+                t(&label),
+                t(&image.source)
+            )),
+        }
+    }
+    out.push_str("</ul>\n</section>\n");
+
+    out.push_str("<section aria-labelledby=\"checklist\">\n<h2 id=\"checklist\">Before you launch</h2>\n<fieldset>\n<legend>Product Hunt's rules for this launch</legend>\n<ul class=\"checklist\">\n");
+    for (index, rule) in kit.rules.iter().enumerate() {
+        let id = format!("rule-{}", index + 1);
+        let source = rule
+            .source
+            .as_ref()
+            .map(|s| {
+                format!(
+                    " <a href=\"{}\" rel=\"noopener noreferrer\">(source)</a>",
+                    a(s)
+                )
+            })
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "<li><input type=\"checkbox\" id=\"{id}\"> <label for=\"{id}\">{}</label>{source}</li>\n",
+            t(&rule.text)
+        ));
+    }
+    out.push_str("</ul>\n<p class=\"code\">The boxes are for you; they are not saved or sent.</p>\n</fieldset>\n</section>\n");
+
+    out.push_str("<section aria-labelledby=\"open\">\n<h2 id=\"open\">Open Product Hunt</h2>\n");
+    match &kit.submit_url {
+        Some(url) => out.push_str(&format!(
+            "<p><a class=\"submit\" href=\"{}\" rel=\"noopener noreferrer\">Open Product Hunt's new launch form</a> (you sign in, enter the launch, and launch or schedule it there yourself)</p>\n",
+            a(url)
+        )),
+        None => out.push_str("<p>No link to Product Hunt's form while this kit is blocked.</p>\n"),
+    }
+    if let Some(demo) = &kit.demo {
+        out.push_str(&format!(
+            "<p><a href=\"{}\" rel=\"noopener noreferrer\">Open the demo video on YouTube</a></p>\n",
+            a(demo)
+        ));
+    }
+    out.push_str(&format!(
+        "<p><a href=\"{LAUNCH_GUIDE}\" rel=\"noopener noreferrer\">Read Product Hunt's launch guide</a></p>\n</section>\n"
+    ));
+    if !kit.confirmed.is_empty() {
+        out.push_str("<section aria-labelledby=\"before\">\n<h2 id=\"before\">You confirmed launching it before</h2>\n<ul>\n");
+        for c in &kit.confirmed {
+            out.push_str(&format!(
+                "<li>On {} (your word; open.blog did not check){}</li>\n",
+                t(c.confirmed_at.get(..10).unwrap_or("")),
+                c.permalink
+                    .as_deref()
+                    .map(|p| format!(
+                        ": <a href=\"{}\" rel=\"noopener noreferrer\">{}</a>",
+                        a(p),
+                        t(p)
+                    ))
+                    .unwrap_or_default()
+            ));
+        }
+        out.push_str("</ul>\n</section>\n");
+    }
+    if kit.ready() {
+        out.push_str(&format!(
+            "<section aria-labelledby=\"after\">\n<h2 id=\"after\">After you launch</h2>\n<p>open.blog cannot see whether you launched. If you did, record it, with the address of your launch if you have it, so it is not prepared again by mistake:</p>\n<pre tabindex=\"0\" aria-label=\"Command that records your launch\"><code>{}</code></pre>\n</section>\n",
+            t(&crate::community_submission::confirm_command(&kit.slug, &kit.destination))
+        ));
+    }
+    out.push_str(&format!(
+        "<p class=\"code\">Checked under the Product Hunt provider policy of {}.</p>\n</main>\n<script>{COPY_SCRIPT}</script>\n</body>\n</html>\n",
+        t(&kit.policy_version)
+    ));
+    out
+}
+
+fn capitalize(label: &str) -> String {
+    let mut chars = label.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+const LAUNCH_STYLE: &str = "<style>
+.launch{border:1px solid var(--line);padding:.75rem;background:var(--panel)}
+.launch .head{display:flex;gap:.75rem;align-items:flex-start;min-width:0}
+.launch .head>div{min-width:0;overflow-wrap:anywhere}
+.launch h3{margin:0}
+.thumb img{width:4rem;height:4rem;object-fit:cover;border:1px solid var(--line)}
+.tagline{margin:.25rem 0;color:var(--muted)}
+.tags{list-style:none;padding:0;margin:.25rem 0;display:flex;flex-wrap:wrap;gap:.25rem}
+.tags li{border:1px solid var(--line);padding:0 .4rem;font-size:.9rem}
+.gallery{list-style:none;padding:0;margin:.75rem 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(10rem,100%),1fr));gap:.5rem}
+.gallery img{display:block;width:100%;height:auto;border:1px solid var(--line)}
+.description{white-space:pre-wrap;overflow-wrap:anywhere}
+.field{margin:1rem 0}
+.field label{display:block;font-weight:600}
+textarea{box-sizing:border-box;width:100%;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);padding:.5rem}
+textarea:focus-visible,button:focus-visible{outline:3px solid var(--link);outline-offset:2px}
+button{font:inherit;margin-top:.25rem;padding:.35rem .75rem}
+.files li{overflow-wrap:anywhere}
+.missing{color:var(--muted)}
+</style>
+";
+
 /// The kit's data file, as written next to the page.
 pub fn kit_json(kit: &LaunchKit) -> String {
     let mut value = kit.to_json_value();
@@ -1295,5 +1741,53 @@ mod tests {
         ] {
             assert!(!project_relative(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn the_page_escapes_the_plan_allows_only_its_own_script_and_hides_copy_buttons_without_it() {
+        let mut p = plan();
+        p.name = "Field <Notes> & \"Co\"".into();
+        p.description = "<script>alert(1)</script>".into();
+        let kit = kit_for(&p, &probes(), &SubmissionRecords::default(), false);
+        let page = kit_page(&kit);
+        assert!(page.contains("Launch kit: Field &lt;Notes&gt; &amp; &quot;Co&quot;"));
+        assert!(!page.contains("<script>alert"));
+        assert_eq!(page.matches("<script>").count(), 1);
+        assert!(page.contains(&format!("<script>{COPY_SCRIPT}</script>")));
+        assert!(page.contains("script-src &#39;sha256-"));
+        assert!(page.contains("default-src &#39;none&#39;"));
+        assert!(page.contains("data-copy=\"field-tagline\" data-done=\"Tagline copied.\" hidden>Copy tagline</button>"));
+        assert!(page.contains("<label for=\"field-tagline\">Tagline</label>"));
+        assert!(page.contains("32 of 60 characters"));
+        assert!(page.contains(
+            "src=\"images/gallery-01.png\" alt=\"The editor\" width=\"1270\" height=\"760\""
+        ));
+        assert!(page.contains(&format!("href=\"{SUBMIT_URL}\"")));
+        assert!(page.contains("openblog submit hello --confirm product-hunt"));
+        assert!(page.contains(CANONICAL));
+        let text = kit_text(&kit);
+        assert!(text.contains("ready for you to enter by hand"), "{text}");
+        assert!(text.contains(SUBMIT_URL));
+        let json: Json = serde_json::from_str(&kit_json(&kit)).unwrap();
+        assert_eq!(json["destination"], "product-hunt");
+        assert_eq!(json["canonicalUrl"], CANONICAL);
+        assert_eq!(json["thumbnail"]["file"], "images/thumbnail.png");
+    }
+
+    #[test]
+    fn a_blocked_page_says_why_first_and_offers_no_form() {
+        let kit = kit_for(
+            &LaunchPlan::default(),
+            &BTreeMap::new(),
+            &SubmissionRecords::default(),
+            false,
+        );
+        let page = kit_page(&kit);
+        assert!(page.contains("Blocked: there is no link to Product Hunt"));
+        assert!(!page.contains(SUBMIT_URL));
+        assert!(!page.contains("After you launch"));
+        assert!(page.find("Why it is blocked").unwrap() < page.find("Preview").unwrap());
+        assert!(page.contains("<title>Launch kit: Hello community</title>"));
+        assert!(kit_text(&kit).contains("no link to Product Hunt's form while it is blocked"));
     }
 }
