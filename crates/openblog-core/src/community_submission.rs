@@ -1,4 +1,4 @@
-//! Guided community submissions (epic #384, story #395, ADRs 0800 to 0803).
+//! Guided community submissions (epic #384, stories #395 and #396, ADRs 0800 to 0807).
 //!
 //! A **submission kit** prepares, for one published post, what the author needs to submit it by
 //! hand to a community: the title and the exact canonical link, the community's rules as a
@@ -52,6 +52,8 @@ const REDDIT_SPAM: &str = "https://support.reddithelp.com/hc/en-us/articles/3600
 pub struct CommunityConfig {
     pub hacker_news: HackerNewsConfig,
     pub reddit: RedditConfig,
+    /// Product Hunt launch kits (ADR 0805).
+    pub product_hunt: crate::launch_kit::ProductHuntConfig,
     /// Private record of the submissions the author confirmed, relative to the project root.
     pub state_file: String,
 }
@@ -61,6 +63,7 @@ impl Default for CommunityConfig {
         Self {
             hacker_news: HackerNewsConfig::default(),
             reddit: RedditConfig::default(),
+            product_hunt: crate::launch_kit::ProductHuntConfig::default(),
             state_file: ".openblog/community-submissions.json".into(),
         }
     }
@@ -76,6 +79,7 @@ impl CommunityConfig {
         match provider {
             ProviderId::HackerNews => self.hacker_news.enabled,
             ProviderId::Reddit => self.reddit.enabled,
+            ProviderId::ProductHunt => self.product_hunt.enabled,
             _ => false,
         }
     }
@@ -92,6 +96,7 @@ impl CommunityConfig {
     /// Checks what the author wrote down. Only `openblog submit` calls it, so a mistake here never
     /// stops a build.
     pub fn validate(&self) -> Result<(), String> {
+        self.product_hunt.validate()?;
         let mut seen: Vec<String> = Vec::new();
         for (name, community) in &self.reddit.communities {
             if !valid_community_name(name) {
@@ -208,7 +213,7 @@ impl std::fmt::Display for SubmissionError {
                 "Name where to submit with --to, such as --to hacker-news or --to reddit:rust.",
             ),
             Self::UnknownDestination => f.write_str(
-                "A destination is not one open.blog prepares submissions for; use hacker-news or reddit:<community>.",
+                "A destination is not one open.blog prepares submissions for; use hacker-news, reddit:<community> or product-hunt.",
             ),
             Self::TooManyDestinations => write!(
                 f,
@@ -223,9 +228,15 @@ impl std::fmt::Display for SubmissionError {
             Self::Disabled(ProviderId::HackerNews) => f.write_str(
                 "Hacker News submissions are off. Set community.hackerNews.enabled to true in openblog.json to prepare them.",
             ),
+            Self::Disabled(ProviderId::ProductHunt) => f.write_str(
+                "Product Hunt launch kits are off. Set community.productHunt.enabled to true in openblog.json and write the launch in launches/<slug>.json to prepare one.",
+            ),
             Self::Disabled(_) => f.write_str("Submissions to this destination are off."),
             Self::InvalidPermalink(ProviderId::Reddit) => f.write_str(
                 "The address must be your post in that community, such as https://www.reddit.com/r/rust/comments/abc123/; open.blog does not open it.",
+            ),
+            Self::InvalidPermalink(ProviderId::ProductHunt) => f.write_str(
+                "The address must be your launch on Product Hunt, such as https://www.producthunt.com/posts/field-notes; open.blog does not open it.",
             ),
             Self::InvalidPermalink(_) => f.write_str(
                 "The address must be your submission on Hacker News, such as https://news.ycombinator.com/item?id=123; open.blog does not open it.",
@@ -248,6 +259,8 @@ pub enum Destination {
     HackerNews,
     /// A Reddit community, by its name in lower case.
     Reddit(String),
+    /// A Product Hunt launch, prepared on its own as a launch kit (ADR 0805).
+    ProductHunt,
 }
 
 impl Destination {
@@ -256,6 +269,9 @@ impl Destination {
         let value = value.trim();
         if value == "hacker-news" {
             return Ok(Self::HackerNews);
+        }
+        if value == "product-hunt" {
+            return Ok(Self::ProductHunt);
         }
         let Some(community) = value.strip_prefix("reddit:") else {
             return Err(SubmissionError::UnknownDestination);
@@ -290,6 +306,7 @@ impl Destination {
         match self {
             Self::HackerNews => "hacker-news".into(),
             Self::Reddit(community) => format!("reddit:{community}"),
+            Self::ProductHunt => "product-hunt".into(),
         }
     }
 
@@ -297,6 +314,7 @@ impl Destination {
         match self {
             Self::HackerNews => ProviderId::HackerNews,
             Self::Reddit(_) => ProviderId::Reddit,
+            Self::ProductHunt => ProviderId::ProductHunt,
         }
     }
 
@@ -305,6 +323,7 @@ impl Destination {
         match self {
             Self::HackerNews => "Hacker News".into(),
             Self::Reddit(community) => format!("r/{community} on Reddit"),
+            Self::ProductHunt => "Product Hunt".into(),
         }
     }
 }
@@ -319,7 +338,7 @@ pub struct Notice {
 }
 
 impl Notice {
-    fn blocking(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn blocking(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -327,7 +346,7 @@ impl Notice {
         }
     }
 
-    fn advice(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn advice(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -345,7 +364,7 @@ pub struct Rule {
     pub source: Option<String>,
 }
 
-fn provider_rule(text: &str, source: &str) -> Rule {
+pub(crate) fn provider_rule(text: &str, source: &str) -> Rule {
     Rule {
         text: text.to_string(),
         source: Some(source.to_string()),
@@ -521,6 +540,15 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
                 ),
             )
         }
+        // A launch is not a link and a title: it has its own kit (ADR 0805), so a submission
+        // kit never offers Product Hunt's form.
+        Destination::ProductHunt => {
+            notices.push(Notice::blocking(
+                "launch-kit-only",
+                "Product Hunt is prepared on its own, as a launch kit: run openblog submit <slug> --to product-hunt alone.",
+            ));
+            (Vec::new(), String::new())
+        }
     };
     let mut kit = DestinationKit {
         destination: destination.key(),
@@ -578,6 +606,7 @@ fn repeat_notices(
                 )]
             }
         }
+        Destination::ProductHunt => Vec::new(),
         Destination::Reddit(_) => vec![Notice::blocking(
             "already-submitted",
             format!(
@@ -967,6 +996,33 @@ pub fn normalize_permalink(
                 _ => Err(refused),
             }
         }
+        Destination::ProductHunt => {
+            if !matches!(host, "www.producthunt.com" | "producthunt.com") {
+                return Err(refused);
+            }
+            let segments: Vec<&str> = url
+                .path_segments()
+                .map(Iterator::collect)
+                .unwrap_or_default();
+            let slug_ok = |slug: &str| {
+                (1..=80).contains(&slug.len())
+                    && slug
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            };
+            match segments.as_slice() {
+                [kind @ ("posts" | "products"), slug]
+                | [kind @ ("posts" | "products"), slug, ""]
+                    if slug_ok(slug) =>
+                {
+                    Ok(format!("https://www.producthunt.com/{kind}/{slug}"))
+                }
+                ["products", slug, "launches", launch] if slug_ok(slug) && slug_ok(launch) => Ok(
+                    format!("https://www.producthunt.com/products/{slug}/launches/{launch}"),
+                ),
+                _ => Err(refused),
+            }
+        }
     }
 }
 
@@ -1161,7 +1217,7 @@ pub fn confirm_command(slug: &str, destination: &str) -> String {
     )
 }
 
-const KIT_STYLE: &str = "<style>
+pub(crate) const KIT_STYLE: &str = "<style>
 fieldset{border:1px solid var(--line);margin:1rem 0;padding:.5rem .75rem}
 legend{font-weight:600;padding:0 .25rem}
 .checklist{list-style:none;padding:0;margin:0}

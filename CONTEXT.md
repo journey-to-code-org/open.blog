@@ -2926,6 +2926,18 @@ title, the exact canonical link, the rules as a checklist, blocking reasons and 
 own submit form shown only when nothing blocks. Written by `openblog submit`; never a submission (ADRs 0801, 0802).
 _Avoid_: Launch kit (the Product Hunt kit of story #396), submission, campaign
 
+**Launch plan**:
+What the maker writes down for one post's Product Hunt launch, in `launches/<slug>.json`: name, tagline, short pitch,
+product address, thumbnail and gallery screenshots, YouTube demo, launch tags, co-makers, first comment and launch
+day. Outside `content/`, so nothing public reads it (ADR 0805).
+_Avoid_: Launch (the event on Product Hunt), product page, front matter
+
+**Launch kit**:
+A launch plan checked against Product Hunt's written limits, with blocking reasons and advice, the images copied
+beside a preview page with copy and open actions, and a link to Product Hunt's own form shown only when nothing
+blocks. Written by `openblog submit <slug> --to product-hunt`; never a launch (ADRs 0805, 0806).
+_Avoid_: Submission kit (the Hacker News and Reddit kit), press kit, scheduled launch
+
 **Community rules**:
 The rules of one Reddit community as the author copied them into `community.reddit.communities`, with the day they
 last read them. open.blog never reads them from Reddit; without them a Reddit kit is blocked (ADR 0802).

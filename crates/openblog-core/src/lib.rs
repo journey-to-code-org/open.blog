@@ -106,6 +106,7 @@ pub mod job_archive;
 pub mod job_draft;
 pub mod knowledge_atlas;
 pub mod landing;
+pub mod launch_kit;
 pub mod look;
 pub mod look_contrast;
 pub mod look_css;
