@@ -72,6 +72,31 @@ Set `OPENBLOG_QUOTE_ADMIN_KEY` (32 or more characters, different from every othe
 `GET /api/quote/notifications` and retry them with `POST /api/quote/notifications/retry`, both with
 `Authorization: Bearer <key>`. A request is tried at most five times.
 
+## Managing requests in Admin
+
+Run `supabase/quote-v2.sql` once after `quote.sql` (it adds the `archived` status; `quote-v2-rollback.sql` undoes it).
+Set `OPENBLOG_QUOTE_ADMIN_KEY` on the hosted function, then where Admin runs set the same key and the function
+address:
+
+| Variable | Value |
+| --- | --- |
+| `OPENBLOG_QUOTE_ENDPOINT` | `https://your-site.example/api/quote` (`http://127.0.0.1` is allowed for local development) |
+| `OPENBLOG_QUOTE_ADMIN_KEY` | the same key as on the function (32 or more characters) |
+
+A **Quote requests** page then appears in Admin. Requests are newest first; each shows its status as a word, photo
+thumbnails and one-tap **copy** buttons for the phone and email. **Mark handled**, **Archive** and **Mark as new**
+are the only workflow there is.
+
+- **Export**: choose days (both inclusive) or none for everything, and download a CSV of up to 5000 requests. It holds
+  names, phone numbers and details, so keep it private. Cells starting with `=`, `+`, `-` or `@` are made text.
+- **Erase**: tick requests, press **Erase**, read the count and photos, then confirm. Photos are removed first, then
+  the records in one step, then a check confirms none remain. If anything fails, every request stays. A preview is
+  good for 10 minutes and only for the exact list you saw.
+- **Retention**: set `OPENBLOG_QUOTE_RETENTION_DAYS` (1 to 3650) on the function to erase archived requests that
+  many days after you archived them. Each archived request shows its countdown. A scheduled function
+  (`quote-retention`, daily) does it; **Erase expired now** does it on demand. Unset, archived requests are kept
+  until you erase them. New and handled requests are never erased automatically.
+
 ## Privacy
 
 Visitor values are never logged, never returned by the function and never placed in a page, feed or export.
@@ -80,4 +105,5 @@ Photos are kept in a private bucket. Tell visitors what you do with their detail
 ## Checks
 
 `node --test tests/web/netlify-quote.test.mjs tests/web/netlify-quote-notify.test.mjs tests/web/quote-form.test.mjs`
+`tests/web/netlify-quote-admin.test.mjs`, `tests/web/admin-quotes.test.mjs`, `cargo test -p openblog-cli --bin openblog quote_routes`
 and `cargo test -p openblog-core --test quote_form` run against fakes; no real provider is called.

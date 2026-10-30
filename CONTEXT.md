@@ -2701,7 +2701,7 @@ is not a lead pipeline, a booking or an estimate.
 A visitor sends one through the `quote` form (a fence in a post, or the quote-form landing section) to the site's
 own hosted function, which stores it in the private Supabase workspace and never in a static file (ADRs 0900,
 0901). The form is off until `quote.enabled` is set in `openblog.json`. A request has a name, phone, optional
-email, town, service, description, up to five photos in a private bucket, a status (`new` or `handled`) and an
+email, town, service, description, up to five photos in a private bucket, a status (`new`, `handled` or `archived`) and an
 owner notification state (ADR 0902).
 _Avoid_: Lead, booking, ticket
 
@@ -2713,6 +2713,20 @@ off it renders nothing, and a portable copy never carries it.
 The signed, single-use value a quote form carries so the hosted function can tell a person who took a few
 seconds from a script; one token sends one request. A form posted without JavaScript is answered once with the
 same form and a fresh token (ADR 0900).
+
+**Requests view**:
+The Admin screen (`#/quotes`) where the owner reads stored quote requests newest first, copies a phone number or
+email, marks a request handled or archived, exports a range as CSV and erases requests. It has no scoring, pipeline
+or automation beyond the status, and exists only where Admin has quote settings (ADR 0903).
+
+**Erase**:
+Permanent removal of chosen quote requests and their photos. It is previewed (count and photos), confirmed with a
+sealed token that fits exactly that list, and reported only after a read shows none remain; a failure keeps every
+request (ADR 0903).
+
+**Retention**:
+The optional number of days (`OPENBLOG_QUOTE_RETENTION_DAYS`) after which an archived request is erased by the
+daily sweep. Off by default; new and handled requests are never erased automatically (ADR 0903).
 
 **Owner notification**:
 The one email a configured provider sends to the site owner's own fixed address when a request is stored. It

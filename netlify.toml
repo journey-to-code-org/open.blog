@@ -51,6 +51,10 @@
 [functions."quote"]
   node_bundler = "esbuild"
 
+# The daily retention sweep of archived quote requests (ADR 0903); does nothing unless retention is set.
+[functions."quote-retention"]
+  node_bundler = "esbuild"
+
 [[redirects]]
   from = "/api/quote/*"
   to = "/.netlify/functions/quote/:splat"

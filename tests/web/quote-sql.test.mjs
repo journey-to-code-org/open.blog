@@ -42,3 +42,22 @@ test("the rollback drops only what quote.sql made", () => {
   assert.deepEqual(down.match(/drop table if exists public\.\w+/g), ["drop table if exists public.openblog_quote_requests", "drop table if exists public.openblog_quote_schema"]);
   assert.equal(down, "begin; drop table if exists public.openblog_quote_requests; drop table if exists public.openblog_quote_schema; commit;");
 });
+
+const v2 = strip(read("quote-v2.sql"));
+const v2down = strip(read("quote-v2-rollback.sql"));
+
+test("quote-v2 only admits archived, adds one column and stays in one transaction", () => {
+  assert.ok(v2.startsWith("begin;") && v2.endsWith("commit;"));
+  assert.match(v2, /add column if not exists archived_at timestamptz/);
+  assert.match(v2, /status in \('new', 'handled', 'archived'\)/);
+  assert.ok(!/drop table|drop column|truncate|delete from/.test(v2), "it drops no table or data");
+  assert.match(v2, /insert into public\.openblog_quote_schema \(version\) values \(2\) on conflict do nothing/);
+  assert.ok(!/create policy|grant /.test(v2), "it widens no access");
+});
+
+test("quote-v2 rollback keeps every request and restores the first shape", () => {
+  assert.match(v2down, /update public\.openblog_quote_requests set status = 'handled'.* where status = 'archived'/);
+  assert.ok(!/drop table|delete from public\.openblog_quote_requests|truncate/.test(v2down));
+  assert.match(v2down, /status in \('new', 'handled'\)/);
+  assert.match(v2down, /drop column if exists archived_at/);
+});
