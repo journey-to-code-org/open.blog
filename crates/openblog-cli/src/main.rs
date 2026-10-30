@@ -71,8 +71,9 @@ COMMANDS
     user add|passwd|remove|list <name>
                                Manage who can sign in to the admin editor
     check                      Validate content and themes without writing anything
-    export <slug>              Preview or write a portable Markdown article, or the
-                               post's cited references as CSL JSON or BibTeX
+    export <slug>              Preview or write a portable Markdown article, the post's
+                               cited references as CSL JSON or BibTeX, or a recipe as
+                               schema.org Recipe JSON-LD
     paths export|import        Export reading paths to one file, or check and import one
                                (dry run unless --write)
     publish [summary]          Commit changed content with git and push (deploys via CI)
@@ -120,10 +121,12 @@ syndicate OPTIONS
                                syndication.requireApproval, --write sends only what is approved
 
 export OPTIONS
-    --format markdown|csl-json|bibtex
+    --format markdown|csl-json|bibtex|recipe-json-ld
                                Portable format (default: markdown); csl-json and bibtex
                                export the public description of the references the post
-                               cites, and list what the format leaves out
+                               cites, and list what the format leaves out; recipe-json-ld
+                               checks a recipe and exports the schema.org Recipe its page
+                               carries, refusing while the check finds an error
     --out <path>               Output file for an explicit --write
     --write                    Write the export (otherwise print a dry-run preview)
     --json                     Print a versioned dry-run manifest with exact content
@@ -490,7 +493,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "export" => {
             let slug = args.positional.first().ok_or(
-                "usage: openblog export <slug> [--format markdown|csl-json|bibtex] [--out <path>] [--json] [--write]",
+                "usage: openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld] [--out <path>] [--json] [--write]",
             )?;
             let format = args
                 .options
@@ -499,7 +502,7 @@ fn run(raw: &[String]) -> Result<(), String> {
                 .unwrap_or("markdown");
             let format = portable_export::Format::parse(format).ok_or_else(|| {
                 format!(
-                    "unsupported portable export format `{format}`; expected `markdown`, `csl-json` or `bibtex`"
+                    "unsupported portable export format `{format}`; expected `markdown`, `csl-json`, `bibtex` or `recipe-json-ld`"
                 )
             })?;
             portable_export::run(

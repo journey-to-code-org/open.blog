@@ -5,6 +5,7 @@ use openblog_core::model::Post;
 use openblog_core::portability::PortableProjection;
 use openblog_core::source_interchange::{self, Export, ExportLoss};
 use openblog_core::Site;
+use openblog_core::{recipe_check, recipe_schema};
 
 use crate::{clock, fsutil, site};
 
@@ -17,6 +18,8 @@ pub enum Format {
     CslJson,
     /// The post's cited references as BibTeX (ADR 0050).
     Bibtex,
+    /// A recipe post as the schema.org `Recipe` its page carries (ADRs 0820 and 0821).
+    RecipeJsonLd,
 }
 
 impl Format {
@@ -25,6 +28,7 @@ impl Format {
             "markdown" => Some(Self::Markdown),
             "csl-json" => Some(Self::CslJson),
             "bibtex" => Some(Self::Bibtex),
+            "recipe-json-ld" => Some(Self::RecipeJsonLd),
             _ => None,
         }
     }
@@ -34,6 +38,7 @@ impl Format {
             Self::Markdown => "portable-markdown",
             Self::CslJson => "csl-json",
             Self::Bibtex => "bibtex",
+            Self::RecipeJsonLd => "recipe-json-ld",
         }
     }
 }
@@ -65,6 +70,9 @@ pub fn run(
         .iter()
         .find(|post| post.slug == slug)
         .ok_or_else(|| format!("published post `{slug}` was not found"))?;
+    if format == Format::RecipeJsonLd {
+        return run_recipe(root, &site, post, destination.as_deref(), write, json);
+    }
     if format != Format::Markdown {
         let export = bibliography_export(post, curated_references(&site, post), format)?;
         for warning in crate::boundary::check_export(
@@ -257,6 +265,102 @@ fn run_bibliography(
             ),
         }
         print!("{}", export.content);
+    }
+    Ok(())
+}
+
+/// A recipe post's schema.org `Recipe` document and the recipe check's problems (ADR 0821).
+/// `Err` when the post is not a recipe.
+pub fn recipe_export(
+    site: &Site,
+    post: &Post,
+) -> Result<(String, Vec<recipe_check::Problem>), String> {
+    let recipe = post.recipe.as_ref().ok_or_else(|| {
+        format!(
+            "`{}` is not a recipe, so there is no recipe to export; add `profile: recipe` to its front matter. No files were changed.",
+            post.source
+        )
+    })?;
+    let document = recipe_schema::recipe_document(&site.config, post, recipe);
+    let mut content = serde_json::to_string_pretty(&document)
+        .map_err(|error| format!("cannot serialize the recipe: {error}"))?;
+    content.push('\n');
+    Ok((content, recipe_check::check(&site.config, post, recipe)))
+}
+
+fn run_recipe(
+    root: &Path,
+    site: &Site,
+    post: &Post,
+    destination: Option<&Path>,
+    write: bool,
+    json: bool,
+) -> Result<(), String> {
+    let (content, problems) = recipe_export(site, post)?;
+    // The publication boundary (ADR 0125), as for every other export.
+    for warning in crate::boundary::check_export(
+        root,
+        site,
+        &format!("the recipe export of `{}`", post.slug),
+        &content,
+        // Every field comes from the post's own published text, as in the portable article.
+        false,
+    )? {
+        eprintln!("warning: {warning}");
+    }
+    let blocked = recipe_check::has_errors(&problems);
+    if json {
+        let plan = serde_json::json!({
+            "version": 1,
+            "sourcePath": post.source,
+            "canonicalUrl": site.config.absolute(&post.url),
+            "representation": Format::RecipeJsonLd.key(),
+            "outputFile": destination,
+            "bytes": content.len(),
+            "writeRequested": false,
+            "offline": true,
+            "exportable": !blocked,
+            "problems": problems,
+            "content": if blocked { serde_json::Value::Null } else { serde_json::Value::String(content) },
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&plan)
+                .map_err(|error| format!("cannot serialize export plan: {error}"))?
+        );
+        return Ok(());
+    }
+    for problem in &problems {
+        println!("{}: {}", post.source, problem.line());
+    }
+    if blocked {
+        let errors = problems
+            .iter()
+            .filter(|p| p.severity == recipe_check::Severity::Error)
+            .count();
+        return Err(format!(
+            "the recipe in `{}` has {errors} error(s) to fix before it can be exported; no files were changed",
+            post.source
+        ));
+    }
+    if write {
+        let destination =
+            destination.ok_or("--write requires --out <path>; no files were changed")?;
+        refuse_existing(destination)?;
+        fsutil::write_new_atomic(destination, content.as_bytes())?;
+        println!("Recipe JSON-LD written to {}", destination.display());
+    } else {
+        match destination {
+            Some(destination) => {
+                println!("Would write recipe JSON-LD to {}", destination.display())
+            }
+            None => println!(
+                "Recipe JSON-LD preview for `{}` ({})",
+                post.title,
+                site.config.absolute(&post.url)
+            ),
+        }
+        print!("{content}");
     }
     Ok(())
 }

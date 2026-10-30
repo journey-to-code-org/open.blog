@@ -701,6 +701,37 @@ put an image in the post.
 Each extra can be switched off for the whole blog under `recipes` in
 [Configuration](configuration.md#recipes).
 
+### Exporting a recipe
+
+Recipe apps such as Mealie import a recipe from its page address: they read the schema.org
+data the page already carries, so sharing the canonical link is usually all an importer needs.
+For an app that takes a file or pasted JSON, export the same data:
+
+```sh
+openblog export lemon-garlic-pasta --format recipe-json-ld                 # preview and check
+openblog export lemon-garlic-pasta --format recipe-json-ld --json          # versioned plan with the problems
+openblog export lemon-garlic-pasta --format recipe-json-ld --out exports/pasta.recipe.json --write
+```
+
+The file is exactly the `Recipe` the page carries, with `"@context": "https://schema.org"`:
+the same ingredients and steps as written, the times that are one length of time, the yield,
+the canonical address, the site author and, when set, `adaptedFrom`. Nothing is added: amounts
+are not converted and a time written as text is left out. Only published posts are exported,
+nothing is sent anywhere, and an existing file is never replaced.
+
+Before exporting, the recipe is checked. These **stop the export** until fixed: no ingredients
+or no steps, an empty ingredient or step, an amount that cannot be read (`1/0 cup`, `1//2 cup`),
+a zero amount (`0 eggs`), a range written backwards (`3-2 cloves`), a zero time, a `total`
+shorter than `prep` and `cook` together, or a site `url` that is not an `http(s)` address.
+These are **listed** and the export goes ahead: a repeated ingredient line, a step that starts
+with its own number (`Step 1:`), a time written as text, only one of `prep` and `cook` without a
+`total`, `servings` that is not a number, `calories` without `servings` or `makes`, an
+`adaptedFrom` that is not a web address, no site author, and no `cover` image (search engines
+show recipe results only with a photo). Each problem names the ingredient or step number or the
+field, never your text. See ADRs
+[0820](adr/0820-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md)
+and [0821](adr/0821-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md).
+
 ## Series
 
 A series groups posts in reading order and gets its own page. Create

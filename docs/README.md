@@ -149,7 +149,7 @@ openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
 openblog check [--json]                 Validate content, themes, and the private source library, notebook, Knowledge Atlas and claims, write nothing;
                                         --json prints the research readiness report as JSON
-openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
+openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld] [--out path] [--write]
                                         Preview or write portable Markdown, or the post's
                                         cited references as CSL JSON or BibTeX
 openblog syndicate <slug> [--target a,b] [--write] [--publish]

@@ -2919,3 +2919,16 @@ The author's explicit consent to one distribution plan, given by its digest: bou
 canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
 under. Private; with `requireApproval` a write sends only what it covers (ADR 0329).
 _Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)
+
+**Recipe export**:
+A published recipe post as one schema.org `Recipe` JSON-LD document: exactly the `Recipe` node its page carries, plus
+the schema.org context, written locally by `openblog export <slug> --format recipe-json-ld`. It carries the author's
+lines and times as written or leaves them out, never a converted or guessed value; `adaptedFrom` becomes `isBasedOn`
+(ADR 0820).
+_Avoid_: Recipe card (the summary on the page), recipe feed, submission (sending it to a directory)
+
+**Recipe check**:
+The closed list of problems a recipe export is checked against: unreadable, zero or backwards amounts, empty or
+missing lists, inconsistent times and a missing canonical address are errors that stop the export; gaps such as no
+photo or no author are warnings. A problem names the ingredient, step or field, never the author's words (ADR 0821).
+_Avoid_: Validation error, lint
