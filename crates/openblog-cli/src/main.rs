@@ -9,6 +9,7 @@ mod assistant_storage;
 mod atlas_store;
 mod auth;
 mod boundary;
+mod card;
 mod claims_store;
 mod clock;
 mod comparison_store;
@@ -78,6 +79,8 @@ COMMANDS
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
+    card <slug>                Build and check a published post's visual cards for Pinterest
+                               and link previews from its own images; sends nothing
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -118,6 +121,12 @@ syndicate OPTIONS
                                index.html preview with eligibility errors; sends nothing
     --approve <digest>         Approve exactly the previewed plan (sends nothing); with
                                syndication.requireApproval, --write sends only what is approved
+
+card OPTIONS
+    --format a,b               pinterest-pin, facebook-link, linkedin-link (default: all)
+    --json                     Print the card plan with every check and the chosen images
+    --preview <new folder>     Write cards.json, an SVG layout preview per card and an
+                               accessible index.html; reads only the site's own image files
 
 export OPTIONS
     --format markdown|csl-json|bibtex
@@ -441,6 +450,20 @@ fn run(raw: &[String]) -> Result<(), String> {
                 println!("No files changed. Re-run with --write to apply this plan.");
             }
             Ok(())
+        }
+        "card" => {
+            let slug = args.positional.first().ok_or(
+                "usage: openblog card <slug> [--format pinterest-pin,facebook-link,linkedin-link] [--json] [--preview <new folder>]",
+            )?;
+            card::run(
+                &root,
+                slug,
+                card::Options {
+                    formats: args.options.get("format").cloned(),
+                    json: args.switches.contains("json"),
+                    preview: args.options.get("preview").cloned(),
+                },
+            )
         }
         "syndicate" => {
             let slug = args.positional.first().ok_or(

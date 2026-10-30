@@ -863,7 +863,7 @@ fn write_preview(
     Ok(directory)
 }
 
-fn unavailable_post_error(root: &Path, slug: &str) -> Result<String, String> {
+pub(crate) fn unavailable_post_error(root: &Path, slug: &str) -> Result<String, String> {
     let (preview, _) = site::load_site(root, true, None)?;
     if preview.posts.iter().any(|post| post.slug == slug) {
         Ok(format!(

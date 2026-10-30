@@ -7,11 +7,13 @@
 //! recipes and travel logs the photographs in the body), and the words are the post's own or the
 //! author's explicit card fields. This module chooses and checks; it never sends.
 
+use blake2::{Blake2b512, Digest};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use serde::Serialize;
 use url::Url;
 
 use crate::frontmatter::FrontMatter;
+pub use crate::image_facts::{ImageFacts, MediaType};
 
 /// At most this many body images are considered for a recipe or travel card.
 pub const MAX_BODY_IMAGES: usize = 8;
@@ -463,10 +465,926 @@ pub fn one_line(input: &str) -> String {
     input.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+// ----------------------------------------------------------------------------------------------
+// Cards: the words, the alternative text, the chosen image and a deterministic preview (ADR 0781).
+
+/// The version of the card plan written by `openblog card --json` and `--preview`.
+pub const CARD_PLAN_VERSION: u32 = 1;
+
+/// The destinations a card is built for, a closed list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CardFormat {
+    /// A Pinterest Pin: an image with its own title, description, alternative text and link.
+    PinterestPin,
+    /// A Facebook link preview: what Facebook shows of the page's own link metadata.
+    FacebookLink,
+    /// A LinkedIn link preview: what LinkedIn shows of the page's own link metadata.
+    LinkedinLink,
+}
+
+impl CardFormat {
+    pub const ALL: [CardFormat; 3] = [
+        CardFormat::PinterestPin,
+        CardFormat::FacebookLink,
+        CardFormat::LinkedinLink,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PinterestPin => "pinterest-pin",
+            Self::FacebookLink => "facebook-link",
+            Self::LinkedinLink => "linkedin-link",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::PinterestPin => "Pinterest Pin",
+            Self::FacebookLink => "Facebook link preview",
+            Self::LinkedinLink => "LinkedIn link preview",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|format| format.as_str() == name)
+    }
+
+    /// A comma-separated list of formats, in the fixed order, each once; empty means all. One
+    /// unknown name refuses the list.
+    pub fn parse_list(list: &str) -> Result<Vec<Self>, String> {
+        let mut out = Vec::new();
+        for name in list.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+            let format = Self::parse(name).ok_or_else(|| {
+                "unknown card format; use pinterest-pin, facebook-link or linkedin-link".to_string()
+            })?;
+            if !out.contains(&format) {
+                out.push(format);
+            }
+        }
+        out.sort();
+        Ok(if out.is_empty() {
+            Self::ALL.to_vec()
+        } else {
+            out
+        })
+    }
+
+    /// Whether the destination takes the card's own words. A Pin does, so `cardTitle` and
+    /// `cardDescription` apply; a link preview shows the page's own title and description, which
+    /// a card cannot change without changing the site.
+    pub fn takes_card_text(self) -> bool {
+        matches!(self, Self::PinterestPin)
+    }
+
+    /// Whether the destination needs an image at all.
+    pub fn requires_image(self) -> bool {
+        matches!(self, Self::PinterestPin)
+    }
+
+    /// The size the preview draws the image at: the destination's recommended size (ADR 0782).
+    pub fn canvas(self) -> (u32, u32) {
+        let spec = self.spec();
+        spec.recommended
+    }
+}
+
+/// Where a card's title or description came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextSource {
+    /// `cardTitle` or `cardDescription`, written by the author for cards.
+    Card,
+    /// The post's own title or description.
+    Post,
+}
+
+/// What open.blog could learn about one candidate image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Measurement {
+    /// Read from the file the site serves.
+    Measured(ImageFacts),
+    /// The site does not serve a file at that path.
+    NotFound,
+    /// The file is there but is not a JPEG, PNG, GIF or WebP image open.blog can read.
+    Unreadable,
+    /// On another site: open.blog never fetches it, so nothing about it is known.
+    Remote,
+}
+
+/// A card's overall state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CardStatus {
+    /// Every checked fact holds.
+    Ready,
+    /// Nothing blocks it, but a fact could not be verified and a person must confirm it.
+    Check,
+    /// It cannot be used as it is.
+    Blocked,
+}
+
+impl CardStatus {
+    pub fn words(self) -> &'static str {
+        match self {
+            Self::Ready => "Ready: every checked fact holds",
+            Self::Check => "Check: a fact could not be verified",
+            Self::Blocked => "Blocked: this card cannot be used as it is",
+        }
+    }
+}
+
+/// The image a card uses, and what is known about it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardImage {
+    #[serde(flatten)]
+    pub candidate: ImageCandidate,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub facts: Option<ImageFacts>,
+}
+
+/// A candidate passed over, and why: the fallback the card took is visible.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedImage {
+    pub origin: ImageOrigin,
+    pub src: String,
+    pub problems: Vec<CardProblem>,
+}
+
+/// One destination's card.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualCard {
+    pub format: CardFormat,
+    pub label: &'static str,
+    pub status: CardStatus,
+    pub title: String,
+    pub title_source: TextSource,
+    pub description: String,
+    pub description_source: TextSource,
+    /// The chosen image's alternative text, exactly as the author wrote it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alt: Option<String>,
+    /// The canonical address of the post: every card links back to the original.
+    pub link: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<CardImage>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<SkippedImage>,
+    pub problems: Vec<CardProblem>,
+    /// The day the destination's requirements were checked (ADR 0782).
+    pub policy_version: &'static str,
+    /// Binds the format, words, alternative text, link, image address and credit (ADR 0781).
+    pub digest: String,
+}
+
+/// Every chosen destination's card for one published post.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardPlan {
+    pub version: u32,
+    pub title: String,
+    pub source_path: String,
+    pub canonical_url: String,
+    /// Always false: building cards never sends, uploads or fetches anything.
+    pub remote_request_sent: bool,
+    pub cards: Vec<VisualCard>,
+    pub digest: String,
+}
+
+/// Builds every chosen destination's card. `measure` reports on one candidate image; it is
+/// asked only about images whose address resolved, in the candidate order, and stops at the
+/// first one a destination accepts.
+pub fn plan(
+    source: &CardSource<'_>,
+    source_path: &str,
+    formats: &[CardFormat],
+    measure: &mut dyn FnMut(&ImageCandidate) -> Measurement,
+) -> CardPlan {
+    let cards: Vec<VisualCard> = formats
+        .iter()
+        .map(|format| build_card(*format, source, measure))
+        .collect();
+    let mut hasher = Blake2b512::new();
+    for value in ["openblog-card-plan-v1", source_path, source.canonical_url] {
+        crate::distribution::field(&mut hasher, value);
+    }
+    for card in &cards {
+        crate::distribution::field(&mut hasher, card.format.as_str());
+        crate::distribution::field(&mut hasher, &card.digest);
+        crate::distribution::field(&mut hasher, status_code(card.status));
+    }
+    CardPlan {
+        version: CARD_PLAN_VERSION,
+        title: one_line(source.title),
+        source_path: source_path.to_string(),
+        canonical_url: source.canonical_url.to_string(),
+        remote_request_sent: false,
+        cards,
+        digest: crate::distribution::hex(hasher),
+    }
+}
+
+fn status_code(status: CardStatus) -> &'static str {
+    match status {
+        CardStatus::Ready => "ready",
+        CardStatus::Check => "check",
+        CardStatus::Blocked => "blocked",
+    }
+}
+
+/// One destination's card: its words, then the first candidate image the destination accepts.
+pub fn build_card(
+    format: CardFormat,
+    source: &CardSource<'_>,
+    measure: &mut dyn FnMut(&ImageCandidate) -> Measurement,
+) -> VisualCard {
+    let fm = source.front_matter;
+    let text = |key: &str, fallback: &str| -> (String, TextSource) {
+        match scalar(fm, &[key]).filter(|_| format.takes_card_text()) {
+            Some(written) => (one_line(written), TextSource::Card),
+            None => (one_line(fallback), TextSource::Post),
+        }
+    };
+    let (title, title_source) = text("cardTitle", source.title);
+    let (description, description_source) = text("cardDescription", source.description);
+    let candidates: Vec<ImageCandidate> = if format.takes_card_text() {
+        image_candidates(source)
+    } else {
+        page_image_candidate(source).into_iter().collect()
+    };
+
+    let mut problems = Vec::new();
+    let mut skipped = Vec::new();
+    let mut image = None;
+    for candidate in candidates {
+        let mut found = candidate.problems.clone();
+        let facts = if blocks(&found) || candidate.url.is_none() {
+            None
+        } else {
+            match measure(&candidate) {
+                Measurement::Measured(facts) => {
+                    found.extend(check_image(format, &facts, source));
+                    Some(facts)
+                }
+                Measurement::NotFound => {
+                    found.push(CardProblem::new(
+                        "image-not-found",
+                        Severity::Blocking,
+                        "The site's static folder has no file at this image's path, so the image would not load.",
+                    ));
+                    None
+                }
+                Measurement::Unreadable => {
+                    found.push(CardProblem::new(
+                        "image-unreadable",
+                        Severity::Blocking,
+                        "The file is not a JPEG, PNG, GIF or WebP image open.blog can read.",
+                    ));
+                    None
+                }
+                Measurement::Remote => {
+                    found.push(CardProblem::new(
+                        "image-unmeasured",
+                        Severity::Check,
+                        "The image is on another site, which open.blog never fetches: check its size and format yourself.",
+                    ));
+                    None
+                }
+            }
+        };
+        found.extend(check_alt(format, candidate.alt.as_deref()));
+        if blocks(&found) {
+            skipped.push(SkippedImage {
+                origin: candidate.origin,
+                src: candidate.src.clone(),
+                problems: found,
+            });
+            continue;
+        }
+        problems.extend(found);
+        image = Some(CardImage { candidate, facts });
+        break;
+    }
+    if image.is_none() {
+        problems.push(match (format.requires_image(), skipped.is_empty()) {
+            (true, true) => CardProblem::new(
+                "image-missing",
+                Severity::Blocking,
+                "This destination needs an image: set `cardImage` or `cover`, or for a recipe or travel post add a photograph.",
+            ),
+            (true, false) => CardProblem::new(
+                "no-eligible-image",
+                Severity::Blocking,
+                "None of the post's images can be used here; each one skipped says why.",
+            ),
+            (false, true) => CardProblem::new(
+                "no-preview-image",
+                Severity::Notice,
+                "The page declares no link preview image, so the preview shows text only. Set `cover`, or `ogImage` for the site.",
+            ),
+            (false, false) => CardProblem::new(
+                "page-image-unusable",
+                Severity::Blocking,
+                "The page's link preview image would not be shown as it is; see why, then change the cover or the site's `ogImage`.",
+            ),
+        });
+    }
+    problems.extend(check_text(
+        format,
+        &title,
+        &description,
+        source.canonical_url,
+    ));
+    problems.sort_by_key(|problem| problem.severity);
+    let status = if blocks(&problems) {
+        CardStatus::Blocked
+    } else if problems.iter().any(|p| p.severity == Severity::Check) {
+        CardStatus::Check
+    } else {
+        CardStatus::Ready
+    };
+    let alt = image.as_ref().and_then(|i| i.candidate.alt.clone());
+    let digest = card_digest(
+        format,
+        &title,
+        &description,
+        alt.as_deref(),
+        source.canonical_url,
+        image.as_ref(),
+    );
+    VisualCard {
+        format,
+        label: format.label(),
+        status,
+        title,
+        title_source,
+        description,
+        description_source,
+        alt,
+        link: source.canonical_url.to_string(),
+        image,
+        skipped,
+        problems,
+        policy_version: CARD_POLICY_VERSION,
+        digest,
+    }
+}
+
+fn blocks(problems: &[CardProblem]) -> bool {
+    problems.iter().any(|p| p.severity == Severity::Blocking)
+}
+
+fn check_alt(format: CardFormat, alt: Option<&str>) -> Vec<CardProblem> {
+    let mut out = Vec::new();
+    match alt {
+        None if format.requires_image() => out.push(CardProblem::new(
+            "alt-missing",
+            Severity::Blocking,
+            "This image has no alternative text: describe it in `cardImageAlt`, `coverAlt`, or the image's Markdown description.",
+        )),
+        None => out.push(CardProblem::new(
+            "alt-missing",
+            Severity::Notice,
+            "The link preview image has no alternative text: describe it in `coverAlt`.",
+        )),
+        Some(alt) => {
+            if let Some(max) = format.spec().max_alt_chars {
+                if alt.chars().count() > max {
+                    out.push(CardProblem::new(
+                        "alt-too-long",
+                        Severity::Blocking,
+                        format!("The alternative text is longer than the {max} characters this destination accepts."),
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn check_text(format: CardFormat, title: &str, description: &str, link: &str) -> Vec<CardProblem> {
+    let mut out = Vec::new();
+    let spec = format.spec();
+    let link_ok = Url::parse(link)
+        .ok()
+        .is_some_and(|url| url.scheme() == "https" && url.host_str().is_some());
+    if !link_ok {
+        out.push(CardProblem::new(
+            "link-not-public",
+            Severity::Blocking,
+            "The canonical address must be a public https:// address; set the site's `url`.",
+        ));
+    }
+    if title.is_empty() {
+        out.push(CardProblem::new(
+            "title-missing",
+            Severity::Blocking,
+            "The card has no title.",
+        ));
+    }
+    let limits = [
+        (
+            "title-too-long",
+            "title",
+            title,
+            spec.max_title_chars,
+            "`cardTitle`",
+        ),
+        (
+            "description-too-long",
+            "description",
+            description,
+            spec.max_description_chars,
+            "`cardDescription`",
+        ),
+        (
+            "link-too-long",
+            "link",
+            link,
+            spec.max_link_chars,
+            "the post's address",
+        ),
+    ];
+    for (code, what, value, max, field) in limits {
+        if let Some(max) = max {
+            if value.chars().count() > max {
+                out.push(CardProblem::new(
+                    code,
+                    Severity::Blocking,
+                    format!("The {what} is longer than the {max} characters this destination accepts; shorten {field}."),
+                ));
+            }
+        }
+    }
+    if let Some(shown) = spec.feed_title_chars {
+        if title.chars().count() > shown
+            && spec
+                .max_title_chars
+                .is_none_or(|max| title.chars().count() <= max)
+        {
+            out.push(CardProblem::new(
+                "title-shortened-in-feeds",
+                Severity::Notice,
+                format!("Feeds may show only about the first {shown} characters of the title; put the words that matter first."),
+            ));
+        }
+    }
+    out
+}
+
+fn card_digest(
+    format: CardFormat,
+    title: &str,
+    description: &str,
+    alt: Option<&str>,
+    link: &str,
+    image: Option<&CardImage>,
+) -> String {
+    let mut hasher = Blake2b512::new();
+    let candidate = image.map(|i| &i.candidate);
+    for value in [
+        "openblog-visual-card-v1",
+        format.as_str(),
+        title,
+        description,
+        alt.unwrap_or(""),
+        link,
+        candidate.and_then(|c| c.url.as_deref()).unwrap_or(""),
+        candidate
+            .and_then(|c| c.credit.text.as_deref())
+            .unwrap_or(""),
+        candidate
+            .and_then(|c| c.credit.url.as_deref())
+            .unwrap_or(""),
+    ] {
+        crate::distribution::field(&mut hasher, value);
+    }
+    crate::distribution::hex(hasher)
+}
+
+/// Greedy word wrap by characters, breaking a word longer than a line. Deterministic.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let mut word: Vec<char> = word.chars().collect();
+        while word.len() > width {
+            if !line.is_empty() {
+                lines.push(std::mem::take(&mut line));
+            }
+            lines.push(word.drain(..width).collect());
+        }
+        let word: String = word.into_iter().collect();
+        if word.is_empty() {
+            continue;
+        }
+        let needed = line.chars().count() + usize::from(!line.is_empty()) + word.chars().count();
+        if !line.is_empty() && needed > width {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(&word);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// At most `max` lines, the last ending in an ellipsis when text was left out.
+fn clamp(mut lines: Vec<String>, max: usize, width: usize) -> Vec<String> {
+    if lines.len() > max {
+        lines.truncate(max);
+        if let Some(last) = lines.last_mut() {
+            let keep: String = last.chars().take(width.saturating_sub(1)).collect();
+            *last = format!("{}…", keep.trim_end());
+        }
+    }
+    lines
+}
+
+/// A layout preview of the card as the destination presents it: the image cropped to the
+/// destination's shape, and its words beneath. `image_href` is where the preview finds the
+/// image file (beside it); without one a labelled placeholder is drawn and nothing is loaded.
+/// Every value is escaped; the same card always gives the same bytes.
+pub fn card_svg(card: &VisualCard, id: &str, image_href: Option<&str>) -> String {
+    let t = crate::escape::text;
+    let (width, height) = card.format.canvas();
+    let size = 44u32;
+    let chars = (width / (size * 11 / 20)) as usize;
+    let host = Url::parse(&card.link)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .unwrap_or_default();
+    let mut words: Vec<(u32, &str, &str, String)> = Vec::new();
+    if !card.format.takes_card_text() {
+        words.push((28, "400", "#4a4a55", host.to_uppercase()));
+    }
+    for line in clamp(wrap(&card.title, chars), 2, chars) {
+        words.push((size, "700", "#1b1b1f", line));
+    }
+    let small_chars = (width / (30 * 11 / 20)) as usize;
+    if !card.format.takes_card_text() && !card.description.is_empty() {
+        for line in clamp(wrap(&card.description, small_chars), 1, small_chars) {
+            words.push((30, "400", "#4a4a55", line));
+        }
+    }
+    if card.format.takes_card_text() {
+        words.push((28, "400", "#4a4a55", host.clone()));
+    }
+    if let Some(credit) = card.image.as_ref().and_then(|i| i.candidate.credit.line()) {
+        for line in clamp(wrap(&credit, small_chars), 1, small_chars) {
+            words.push((26, "400", "#4a4a55", line));
+        }
+    }
+    let panel: u32 = 40 + words.iter().map(|(s, ..)| s * 3 / 2).sum::<u32>() + 24;
+    let total = height + panel;
+    let alt = card.alt.as_deref().unwrap_or("No image");
+    let mut out = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {width} {total}\" width=\"{width}\" height=\"{total}\" role=\"img\" aria-labelledby=\"{id}-title {id}-desc\">\n<title id=\"{id}-title\">{} layout preview</title>\n<desc id=\"{id}-desc\">{}</desc>\n<rect width=\"{width}\" height=\"{total}\" fill=\"#ffffff\"/>\n",
+        t(card.label),
+        t(alt)
+    );
+    match image_href {
+        Some(href) => out.push_str(&format!(
+            "<image href=\"{}\" x=\"0\" y=\"0\" width=\"{width}\" height=\"{height}\" preserveAspectRatio=\"xMidYMid slice\"/>\n",
+            t(href)
+        )),
+        None => {
+            let note = match &card.image {
+                Some(image) if image.candidate.is_remote() => {
+                    "Image on another site: not loaded in this preview"
+                }
+                Some(_) => "Image not copied into this preview",
+                None => "No image",
+            };
+            out.push_str(&format!(
+                "<rect width=\"{width}\" height=\"{height}\" fill=\"#d9d9de\"/>\n<text x=\"{}\" y=\"{}\" font-family=\"system-ui, sans-serif\" font-size=\"36\" fill=\"#1b1b1f\" text-anchor=\"middle\">{note}</text>\n",
+                width / 2,
+                height / 2
+            ));
+        }
+    }
+    let mut y = height + 40;
+    for (font, weight, fill, line) in &words {
+        y += font;
+        out.push_str(&format!(
+            "<text x=\"32\" y=\"{y}\" font-family=\"system-ui, sans-serif\" font-size=\"{font}\" font-weight=\"{weight}\" fill=\"{fill}\">{}</text>\n",
+            t(line)
+        ));
+        y += font / 2;
+    }
+    out.push_str("</svg>\n");
+    out
+}
+
+/// The files written beside a card's preview.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CardFiles {
+    /// The layout preview, `NN-<format>.svg`.
+    pub svg: String,
+    /// A copy of the chosen image from the site's static folder, when there is one.
+    pub image: Option<String>,
+}
+
+/// The dry-run page: static, script-free HTML with each card's layout preview, its exact words,
+/// its alternative text, its image and credit, and every problem and skipped image in words.
+pub fn preview_page(plan: &CardPlan, files: &[CardFiles]) -> String {
+    let t = crate::escape::text;
+    let mut out = String::new();
+    out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+    out.push_str(&format!(
+        "<title>Visual cards: {}</title>\n",
+        t(&plan.title)
+    ));
+    out.push_str(crate::distribution::PAGE_STYLE);
+    out.push_str("<style>\nfigure{margin:1rem 0}figure svg{display:block;width:100%;max-width:24rem;height:auto;border:1px solid var(--line)}figcaption{color:var(--muted)}\n</style>\n");
+    out.push_str("</head>\n<body>\n<main>\n");
+    out.push_str(&format!("<h1>Visual cards: {}</h1>\n", t(&plan.title)));
+    out.push_str("<p class=\"notice\"><strong>Preview, not sent.</strong> No image was generated, uploaded or sent, nothing was fetched from another site, and no credential was read.</p>\n<dl>\n");
+    out.push_str(&format!(
+        "<dt>Canonical address</dt><dd><a href=\"{}\">{}</a></dd>\n<dt>Source</dt><dd>{}</dd>\n<dt>Card plan digest</dt><dd><code>{}</code></dd>\n</dl>\n",
+        crate::escape::attr(&plan.canonical_url),
+        t(&plan.canonical_url),
+        t(&plan.source_path),
+        t(&plan.digest)
+    ));
+    out.push_str("<section aria-labelledby=\"summary-title\">\n<h2 id=\"summary-title\">Destinations</h2>\n<table>\n<caption>Each destination's card and whether it can be used</caption>\n<thead><tr><th scope=\"col\">Destination</th><th scope=\"col\">Status</th></tr></thead>\n<tbody>\n");
+    for (index, card) in plan.cards.iter().enumerate() {
+        out.push_str(&format!(
+            "<tr><th scope=\"row\"><a href=\"#card-{}\">{}</a></th><td>{}</td></tr>\n",
+            index + 1,
+            t(card.label),
+            card.status.words()
+        ));
+    }
+    out.push_str("</tbody>\n</table>\n</section>\n");
+    for (index, card) in plan.cards.iter().enumerate() {
+        let id = format!("card-{}", index + 1);
+        let file = files.get(index).cloned().unwrap_or_default();
+        out.push_str(&format!(
+            "<section aria-labelledby=\"{id}\">\n<h2 id=\"{id}\">{}</h2>\n<p><strong>Status:</strong> {}.</p>\n",
+            t(card.label),
+            card.status.words()
+        ));
+        out.push_str(&format!(
+            "<figure>\n{}<figcaption>Layout preview at the destination's recommended size; the destination draws its own card.</figcaption>\n</figure>\n",
+            card_svg(card, &format!("{id}-svg"), file.image.as_deref())
+        ));
+        out.push_str(&format!(
+            "<table>\n<caption>What the {} card holds</caption>\n<tbody>\n",
+            t(card.label)
+        ));
+        let from = |source: TextSource, key: &str, own: &str| match source {
+            TextSource::Card => format!(" <span class=\"code\">(from <code>{key}</code>)</span>"),
+            TextSource::Post => format!(" <span class=\"code\">(the post's {own})</span>"),
+        };
+        let row = |out: &mut String, name: &str, value: String| {
+            out.push_str(&format!(
+                "<tr><th scope=\"row\">{name}</th><td>{value}</td></tr>\n"
+            ));
+        };
+        row(
+            &mut out,
+            "Title",
+            format!(
+                "{}{}",
+                t(&card.title),
+                from(card.title_source, "cardTitle", "title")
+            ),
+        );
+        row(
+            &mut out,
+            "Description",
+            if card.description.is_empty() {
+                "<em>none</em>".to_string()
+            } else {
+                format!(
+                    "{}{}",
+                    t(&card.description),
+                    from(card.description_source, "cardDescription", "description")
+                )
+            },
+        );
+        row(
+            &mut out,
+            "Alternative text",
+            card.alt
+                .as_deref()
+                .map(t)
+                .unwrap_or_else(|| "<em>none</em>".to_string()),
+        );
+        row(
+            &mut out,
+            "Link",
+            format!(
+                "<a href=\"{}\">{}</a>",
+                crate::escape::attr(&card.link),
+                t(&card.link)
+            ),
+        );
+        match &card.image {
+            Some(image) => {
+                let facts = image
+                    .facts
+                    .map(|f| {
+                        format!(
+                            ", {} {} × {} pixels, {} bytes",
+                            f.media_type.label(),
+                            f.width,
+                            f.height,
+                            f.bytes
+                        )
+                    })
+                    .unwrap_or_default();
+                row(
+                    &mut out,
+                    "Image",
+                    format!(
+                        "{}: <code>{}</code>{facts}",
+                        image.candidate.origin.describe(),
+                        t(&image.candidate.src)
+                    ),
+                );
+                let credit = match (&image.candidate.credit.text, &image.candidate.credit.url) {
+                    (None, None) => "<em>none recorded</em>".to_string(),
+                    (text, url) => {
+                        let words = t(text.as_deref().unwrap_or("Image source"));
+                        match url {
+                            Some(url) => {
+                                format!("<a href=\"{}\">{words}</a>", crate::escape::attr(url))
+                            }
+                            None => words,
+                        }
+                    }
+                };
+                row(&mut out, "Image credit", credit);
+            }
+            None => row(&mut out, "Image", "<em>none</em>".to_string()),
+        }
+        out.push_str("</tbody>\n</table>\n");
+        if !card.problems.is_empty() {
+            out.push_str(&format!(
+                "<h3 id=\"{id}-problems\">What to fix or check</h3>\n<ul aria-labelledby=\"{id}-problems\">\n"
+            ));
+            for problem in &card.problems {
+                out.push_str(&format!(
+                    "<li><strong>{}:</strong> {} <span class=\"code\">({})</span></li>\n",
+                    severity_words(problem.severity),
+                    t(&problem.message),
+                    problem.code
+                ));
+            }
+            out.push_str("</ul>\n");
+        }
+        if !card.skipped.is_empty() {
+            out.push_str(&format!(
+                "<h3 id=\"{id}-skipped\">Images passed over</h3>\n<ul aria-labelledby=\"{id}-skipped\">\n"
+            ));
+            for skipped in &card.skipped {
+                let reasons: Vec<String> = skipped
+                    .problems
+                    .iter()
+                    .filter(|p| p.severity == Severity::Blocking)
+                    .map(|p| format!("{} <span class=\"code\">({})</span>", t(&p.message), p.code))
+                    .collect();
+                out.push_str(&format!(
+                    "<li>{} <code>{}</code>: {}</li>\n",
+                    skipped.origin.describe(),
+                    t(&skipped.src),
+                    reasons.join(" ")
+                ));
+            }
+            out.push_str("</ul>\n");
+        }
+        out.push_str(&format!(
+            "<p>Checked under the requirements of {}. Card digest <code>{}</code>. Saved as <a href=\"{}\">{}</a>.</p>\n</section>\n",
+            card.policy_version,
+            card.digest,
+            crate::escape::attr(&file.svg),
+            t(&file.svg)
+        ));
+    }
+    out.push_str("<section aria-labelledby=\"next-title\">\n<h2 id=\"next-title\">Change a card</h2>\n<p>Nothing here is sent. To change a card, edit <code>cardTitle</code>, <code>cardDescription</code>, <code>cardImage</code>, <code>cardImageAlt</code>, <code>coverAlt</code> or the credit fields in the post's front matter, then preview again. A link preview shows the page's own title, description and cover.</p>\n</section>\n</main>\n</body>\n</html>\n");
+    out
+}
+
+fn severity_words(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Blocking => "Blocking",
+        Severity::Check => "Check",
+        Severity::Notice => "Note",
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Destination requirements (ADR 0782).
+
+/// The day every destination's requirements below were checked against its own documentation.
+pub const CARD_POLICY_VERSION: &str = "2026-10-29";
+
+/// What a destination requires of a card, as verified on [`CARD_POLICY_VERSION`]. `None` means
+/// the destination's documentation states no such limit, so open.blog checks none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FormatSpec {
+    /// The size the destination recommends, and the shape (width, height) it displays.
+    pub recommended: (u32, u32),
+    pub ratio: (u32, u32),
+    /// Below this the destination does not show the image as a card.
+    pub minimum: Option<(u32, u32)>,
+    /// Below this the destination shows the image small.
+    pub large_minimum: Option<(u32, u32)>,
+    pub max_bytes: Option<u64>,
+    pub media_types: Option<&'static [MediaType]>,
+    pub max_title_chars: Option<usize>,
+    pub max_description_chars: Option<usize>,
+    pub max_alt_chars: Option<usize>,
+    pub max_link_chars: Option<usize>,
+    /// About how much of the title feeds show.
+    pub feed_title_chars: Option<usize>,
+    pub sources: &'static [&'static str],
+}
+
+impl CardFormat {
+    pub fn spec(self) -> FormatSpec {
+        match self {
+            // Pinterest API v5 `POST /v5/pins` (PinCreate: title 100, description 800,
+            // alt_text 500, link 2048; image media types image/jpeg and image/png) and the
+            // Pinterest product specs (2:3, 1000 x 1500, up to 20 MB, about 40 title
+            // characters in feeds).
+            Self::PinterestPin => FormatSpec {
+                recommended: (1000, 1500),
+                ratio: (2, 3),
+                minimum: None,
+                large_minimum: None,
+                max_bytes: Some(20_000_000),
+                media_types: Some(&[MediaType::Jpeg, MediaType::Png]),
+                max_title_chars: Some(100),
+                max_description_chars: Some(800),
+                max_alt_chars: Some(500),
+                max_link_chars: Some(2048),
+                feed_title_chars: Some(40),
+                sources: &[
+                    "https://developers.pinterest.com/docs/api/v5/pins-create/",
+                    "https://github.com/pinterest/api-description/blob/main/v5/openapi.json",
+                    "https://help.pinterest.com/en/business/article/pinterest-product-specs",
+                ],
+            },
+            // Meta's sharing guide for webmasters: at least 200 x 200, 600 x 315 for a large
+            // image, 1200 x 630 recommended, about 1.91:1, up to 8 MB.
+            Self::FacebookLink => FormatSpec {
+                recommended: (1200, 630),
+                ratio: (191, 100),
+                minimum: Some((200, 200)),
+                large_minimum: Some((600, 315)),
+                max_bytes: Some(8_000_000),
+                media_types: None,
+                max_title_chars: None,
+                max_description_chars: None,
+                max_alt_chars: None,
+                max_link_chars: None,
+                feed_title_chars: None,
+                sources: &["https://developers.facebook.com/docs/sharing/webmasters/images/"],
+            },
+            // LinkedIn Help, "Make your website shareable on LinkedIn": at least 1200 x 627,
+            // 1.91:1, up to 5 MB.
+            Self::LinkedinLink => FormatSpec {
+                recommended: (1200, 627),
+                ratio: (191, 100),
+                minimum: Some((1200, 627)),
+                large_minimum: None,
+                max_bytes: Some(5_000_000),
+                media_types: None,
+                max_title_chars: None,
+                max_description_chars: None,
+                max_alt_chars: None,
+                max_link_chars: None,
+                feed_title_chars: None,
+                sources: &["https://www.linkedin.com/help/linkedin/answer/a521928"],
+            },
+        }
+    }
+}
+
+/// Checks a measured image against a destination's requirements.
+fn check_image(
+    _format: CardFormat,
+    _facts: &ImageFacts,
+    _source: &CardSource<'_>,
+) -> Vec<CardProblem> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::frontmatter;
+    use crate::image_facts::{ImageFacts, MediaType};
 
     fn fm(text: &str) -> FrontMatter {
         frontmatter::parse(&format!("---\n{text}\n---\n"))
@@ -614,5 +1532,214 @@ mod tests {
         assert_eq!(page.credit.text.as_deref(), Some("Ana Ruiz"));
         card.page_image = Some("/default.png");
         assert!(page_image_candidate(&card).unwrap().credit.is_empty());
+    }
+
+    fn measured(width: u32, height: u32) -> impl FnMut(&ImageCandidate) -> Measurement {
+        move |candidate: &ImageCandidate| match candidate.site_path {
+            Some(_) => Measurement::Measured(ImageFacts {
+                media_type: MediaType::Png,
+                width,
+                height,
+                bytes: 1000,
+                location_metadata: false,
+            }),
+            None => Measurement::Remote,
+        }
+    }
+
+    #[test]
+    fn a_pin_takes_the_card_words_and_a_link_preview_keeps_the_pages_own() {
+        let front = fm("cover: /c.png\ncoverAlt: A tart\ncardTitle: \"  Lemon tart,  sharp \"\ncardDescription: Bake it tonight.");
+        let source = source(&front, "article", "");
+        let pin = build_card(CardFormat::PinterestPin, &source, &mut measured(1000, 1500));
+        assert_eq!(
+            (pin.title.as_str(), pin.title_source),
+            ("Lemon tart, sharp", TextSource::Card)
+        );
+        assert_eq!(
+            (pin.description.as_str(), pin.description_source),
+            ("Bake it tonight.", TextSource::Card)
+        );
+        assert_eq!(pin.alt.as_deref(), Some("A tart"));
+        assert_eq!(pin.status, CardStatus::Ready, "{:?}", pin.problems);
+        let link = build_card(CardFormat::FacebookLink, &source, &mut measured(1200, 630));
+        assert_eq!(
+            (link.title.as_str(), link.title_source),
+            ("Lemon tart", TextSource::Post)
+        );
+        assert_eq!(link.description, "A sharp, short tart.");
+    }
+
+    #[test]
+    fn a_pin_passes_over_an_image_without_alternative_text_and_says_why() {
+        let front = fm("cardImage: /card.png\ncover: /c.png\ncoverAlt: A tart");
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &source(&front, "article", ""),
+            &mut measured(1000, 1500),
+        );
+        assert_eq!(
+            pin.image.as_ref().unwrap().candidate.origin,
+            ImageOrigin::Cover
+        );
+        assert_eq!(pin.skipped.len(), 1);
+        assert_eq!(pin.skipped[0].problems[0].code, "alt-missing");
+        let front = fm("cardImage: /card.png");
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &source(&front, "article", ""),
+            &mut measured(1000, 1500),
+        );
+        assert_eq!(pin.status, CardStatus::Blocked);
+        assert_eq!(pin.problems[0].code, "no-eligible-image");
+        let front = fm("title: x");
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &source(&front, "article", ""),
+            &mut measured(1000, 1500),
+        );
+        assert_eq!(pin.problems[0].code, "image-missing");
+        let link = build_card(
+            CardFormat::LinkedinLink,
+            &source(&front, "article", ""),
+            &mut measured(1200, 627),
+        );
+        assert_eq!(link.status, CardStatus::Ready);
+        assert_eq!(link.problems[0].code, "no-preview-image");
+    }
+
+    #[test]
+    fn a_remote_image_is_never_fetched_and_asks_a_person_to_check() {
+        let front = fm("cover: https://cdn.example.net/tart.jpg\ncoverAlt: A tart");
+        let mut asked = 0;
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &source(&front, "article", ""),
+            &mut |candidate: &ImageCandidate| {
+                asked += 1;
+                assert!(candidate.is_remote());
+                Measurement::Remote
+            },
+        );
+        assert_eq!(asked, 1);
+        assert_eq!(pin.status, CardStatus::Check);
+        assert_eq!(pin.problems[0].code, "image-unmeasured");
+    }
+
+    #[test]
+    fn pin_text_limits_are_the_providers_and_messages_never_repeat_the_text() {
+        let long = "w".repeat(101);
+        let front = fm(&format!(
+            "cover: /c.png\ncoverAlt: {}\ncardTitle: {long}\ncardDescription: {}",
+            "a".repeat(501),
+            "d".repeat(801)
+        ));
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &source(&front, "article", ""),
+            &mut measured(1000, 1500),
+        );
+        // The only image is passed over for its alternative text, so the card has no image.
+        let codes: Vec<_> = pin.problems.iter().map(|p| p.code).collect();
+        assert_eq!(
+            codes,
+            [
+                "no-eligible-image",
+                "title-too-long",
+                "description-too-long"
+            ]
+        );
+        assert_eq!(pin.skipped[0].problems[0].code, "alt-too-long");
+        for problem in pin.problems.iter().chain(&pin.skipped[0].problems) {
+            assert!(!problem.message.contains("www") && !problem.message.contains("ddd"));
+        }
+        let front = fm("cover: /c.png\ncoverAlt: A tart\ncardTitle: A title long enough to be cut short in a feed");
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &source(&front, "article", ""),
+            &mut measured(1000, 1500),
+        );
+        let codes: Vec<_> = pin.problems.iter().map(|p| p.code).collect();
+        assert_eq!(codes, ["title-shortened-in-feeds"]);
+        assert_eq!(pin.status, CardStatus::Ready);
+    }
+
+    #[test]
+    fn the_digest_binds_every_word_the_image_and_the_credit() {
+        let base = "cover: /c.png\ncoverAlt: A tart\ncoverCredit: Ana";
+        let digest = |extra: &str| {
+            let front = fm(&format!("{base}{extra}"));
+            build_card(
+                CardFormat::PinterestPin,
+                &source(&front, "article", ""),
+                &mut measured(1000, 1500),
+            )
+            .digest
+        };
+        let first = digest("");
+        assert_eq!(first, digest(""));
+        assert_eq!(first.len(), 32);
+        for change in [
+            "\ncardTitle: Other",
+            "\ncardDescription: Other",
+            "\ncoverCreditUrl: https://a.example.net",
+            "\ncardImage: /d.png\ncardImageAlt: A tart",
+        ] {
+            assert_ne!(first, digest(change), "{change}");
+        }
+    }
+
+    #[test]
+    fn the_preview_is_deterministic_escaped_and_script_free() {
+        let front = fm("cover: /c.png\ncoverAlt: \"<img src=x onerror=alert(1)>\"\ncoverCredit: \"Ana & <b>Co</b>\"\ncardTitle: \"</text><script>alert(1)</script>\"");
+        let card_source = source(&front, "article", "");
+        let one = plan(
+            &card_source,
+            "content/posts/tart.md",
+            &CardFormat::ALL,
+            &mut measured(1000, 1500),
+        );
+        let two = plan(
+            &card_source,
+            "content/posts/tart.md",
+            &CardFormat::ALL,
+            &mut measured(1000, 1500),
+        );
+        assert_eq!(one, two);
+        let files: Vec<CardFiles> = (1..=3)
+            .map(|i| CardFiles {
+                svg: format!("0{i}.svg"),
+                image: Some(format!("0{i}.png")),
+            })
+            .collect();
+        let page = preview_page(&one, &files);
+        assert_eq!(page, preview_page(&two, &files));
+        assert!(!page.contains("<script"));
+        assert!(!page.contains("<img src=x"));
+        assert!(!page.contains("<b>Co</b>"));
+        assert!(page.contains("&lt;/text&gt;&lt;script&gt;"));
+        let svg = card_svg(&one.cards[0], "c1", Some("01.png"));
+        assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 "));
+        assert!(svg.contains("role=\"img\" aria-labelledby=\"c1-title c1-desc\""));
+        assert!(svg.contains("<desc id=\"c1-desc\">&lt;img src=x onerror=alert(1)&gt;</desc>"));
+        assert!(svg.contains("Image: Ana &amp; &lt;b&gt;Co&lt;/b&gt;"));
+        assert!(!card_svg(&one.cards[0], "c1", None).contains("<image"));
+        let order: Vec<_> = one.cards.iter().map(|c| c.format.as_str()).collect();
+        assert_eq!(order, ["pinterest-pin", "facebook-link", "linkedin-link"]);
+    }
+
+    #[test]
+    fn formats_are_a_closed_list_and_wrapping_is_greedy_and_bounded() {
+        assert_eq!(CardFormat::parse_list("").unwrap(), CardFormat::ALL);
+        assert_eq!(
+            CardFormat::parse_list(" linkedin-link,pinterest-pin,linkedin-link ").unwrap(),
+            [CardFormat::PinterestPin, CardFormat::LinkedinLink]
+        );
+        assert!(CardFormat::parse_list("pinterest-pin,tiktok")
+            .unwrap_err()
+            .contains("unknown card format"));
+        assert_eq!(wrap("one two three four", 9), ["one two", "three", "four"]);
+        assert_eq!(wrap("abcdefghij k", 4), ["abcd", "efgh", "ij k"]);
+        assert_eq!(clamp(wrap("aaa bbb ccc ddd", 7), 1, 7), ["aaa bb\u{2026}"]);
     }
 }
