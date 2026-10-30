@@ -10,6 +10,7 @@ use crate::look::LookSettings;
 use crate::participation::ParticipationConfig;
 use crate::reading_depth::ReadingMode;
 use crate::service_area::ServiceAreasConfig;
+use crate::webmention::WebmentionConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -143,6 +144,10 @@ pub struct SiteConfig {
     /// while none are stated, so a site that never sets it builds exactly as before.
     #[serde(skip_serializing_if = "ServiceAreasConfig::is_default")]
     pub service_areas: ServiceAreasConfig,
+    /// Outbound Webmentions from canonical posts (ADR 0860). Off by default and omitted from the
+    /// written file while it has its defaults, so a site that never sets it is unchanged.
+    #[serde(skip_serializing_if = "WebmentionConfig::is_default")]
+    pub webmention: WebmentionConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -577,6 +582,7 @@ impl Default for SiteConfig {
             extra_trades: Vec::new(),
             business: BusinessConfig::default(),
             service_areas: ServiceAreasConfig::default(),
+            webmention: WebmentionConfig::default(),
         }
     }
 }

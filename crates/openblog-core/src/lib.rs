@@ -159,6 +159,7 @@ pub mod theme;
 pub mod third_perspective;
 pub mod video;
 pub mod voice;
+pub mod webmention;
 
 pub use config::SiteConfig;
 pub use date::DateTime;

@@ -56,7 +56,7 @@ pub struct Options {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SyndicationPost {
     source_id: String,
-    source_path: String,
+    pub(crate) source_path: String,
     slug: String,
     title: String,
     subtitle: Option<String>,
@@ -65,7 +65,7 @@ pub(crate) struct SyndicationPost {
     pub(crate) markdown: String,
     pub(crate) html: String,
     tags: Vec<String>,
-    canonical_url: String,
+    pub(crate) canonical_url: String,
     pub(crate) revision: String,
     portable_diagnostics: Vec<openblog_core::portability::PortabilityDiagnostic>,
     content_plans: Vec<DestinationContentPlan>,
@@ -863,7 +863,7 @@ fn write_preview(
     Ok(directory)
 }
 
-fn unavailable_post_error(root: &Path, slug: &str) -> Result<String, String> {
+pub(crate) fn unavailable_post_error(root: &Path, slug: &str) -> Result<String, String> {
     let (preview, _) = site::load_site(root, true, None)?;
     if preview.posts.iter().any(|post| post.slug == slug) {
         Ok(format!(
@@ -906,9 +906,21 @@ fn verify_live_canonical(transport: &dyn Transport, canonical_url: &str) -> Resu
         ));
     }
     let html = String::from_utf8_lossy(&response.body);
+    if !declares_canonical(&html, canonical_url)? {
+        return Err(format!(
+            "canonical preflight failed: {canonical_url} is reachable but does not declare itself in a <link rel=\"canonical\">"
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a fetched page declares `canonical_url` in a `<link rel="canonical">` of its head,
+/// resolved against its `<base>` if it has one. Shared by every preflight that must not act on a
+/// canonical post before it is live (cross-posting and Webmention, ADR 0861).
+pub(crate) fn declares_canonical(html: &str, canonical_url: &str) -> Result<bool, String> {
     let expected = Url::parse(canonical_url)
         .map_err(|_| "canonical preflight received an invalid source URL".to_string())?;
-    let head = head_link_metadata(&html);
+    let head = head_link_metadata(html);
     let document_base = head
         .base_href
         .as_deref()
@@ -928,12 +940,7 @@ fn verify_live_canonical(transport: &dyn Transport, canonical_url: &str) -> Resu
             })
             .unwrap_or(false)
     });
-    if !matches {
-        return Err(format!(
-            "canonical preflight failed: {canonical_url} is reachable but does not declare itself in a <link rel=\"canonical\">"
-        ));
-    }
-    Ok(())
+    Ok(matches)
 }
 
 #[derive(Default)]

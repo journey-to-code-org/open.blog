@@ -47,6 +47,7 @@ mod voice_exchange;
 mod voice_prompts;
 mod voice_session;
 mod voice_store;
+mod webmention;
 mod workspace;
 
 use std::collections::{HashMap, HashSet};
@@ -78,6 +79,8 @@ COMMANDS
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
+    webmention [slug]          Plan Webmentions to the sites a post links (add --write to send;
+                               needs webmention.enabled in openblog.json)
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -118,6 +121,13 @@ syndicate OPTIONS
                                index.html preview with eligibility errors; sends nothing
     --approve <digest>         Approve exactly the previewed plan (sends nothing); with
                                syndication.requireApproval, --write sends only what is approved
+
+webmention OPTIONS
+    [slug]                     One post (default: every published post)
+    --write                    Check the post is live, then discover each linked site's endpoint and
+                               send the due Webmentions; outcomes go to the private queue
+                               (webmention.stateFile) and failures are retried later with back-off
+    --json                     Print the dry-run plan as JSON
 
 export OPTIONS
     --format markdown|csl-json|bibtex
@@ -471,6 +481,14 @@ fn run(raw: &[String]) -> Result<(), String> {
                 },
             )
         }
+        "webmention" => webmention::run(
+            &root,
+            webmention::Options {
+                slug: args.positional.first().cloned(),
+                write: args.switches.contains("write"),
+                json: args.switches.contains("json"),
+            },
+        ),
         "paths" => {
             let options = paths_exchange::Options {
                 file: args
