@@ -142,7 +142,7 @@ export const VERSION_SUPPORT = Object.freeze({
     version: "atproto",
     undated: "XRPC methods are versioned by name, not by date",
     checkedOn: "2026-10-29",
-    source: "https://docs.bsky.app/docs/advanced-guides/api-directory",
+    source: "https://atproto.com/specs/xrpc",
   }),
   mastodon: Object.freeze({
     version: "v1",

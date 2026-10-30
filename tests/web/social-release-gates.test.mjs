@@ -164,7 +164,7 @@ test("each default provider API version is still served, as its provider documen
     const support = VERSION_SUPPORT[provider];
     assert.ok(support, `${provider} has a recorded support window`);
     assert.equal(configured[provider].version, support.version, `${provider}: the recorded version is the default`);
-    assert.match(support.source, /^https:\/\/(learn\.microsoft\.com|developers\.facebook\.com|docs\.bsky\.app|docs\.joinmastodon\.org)\//);
+    assert.match(support.source, /^https:\/\/(learn\.microsoft\.com|developers\.facebook\.com|atproto\.com|docs\.joinmastodon\.org)\//);
     assert.ok(support.checkedOn <= today, `${provider}: checked on a past date`);
     if (support.undated) continue; // Nothing retires by date; the source says how it is versioned.
     // If this fails, the provider has retired the default: check its documentation, move the default
