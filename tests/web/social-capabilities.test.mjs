@@ -44,6 +44,11 @@ test("a manifest that is missing, broken, unknown or narrowed gets no adapter", 
   assert.deepEqual(Object.keys(socialAdapters({ providers: providers(), manifests: null })), []);
   assert.equal(admittedManifest("constructor"), null);
   assert.equal(admittedManifest("__proto__", { __proto__: MANIFESTS.linkedin }), null);
+  // Pinterest Pins are sent by `openblog pinterest`, never by the hosted worker (ADR 0783): its
+  // manifest reads, but it schedules nothing, so it is never admitted as an announcement adapter.
+  assert.equal(parseManifest(fixture.manifests.pinterest).family, "social");
+  assert.equal(admittedManifest("pinterest", fixture.manifests), null);
+  assert.equal(MANIFESTS.pinterest, undefined);
 });
 
 test("a refused manifest makes no request and is off by default with no provider configured", async () => {

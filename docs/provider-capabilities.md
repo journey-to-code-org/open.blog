@@ -2,8 +2,9 @@
 
 open.blog can reach other platforms in two ways: [cross-posting](cross-posting.md) sends a portable copy of an
 article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), and optional
-[social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page. Both are off
-until you set them up, and your Markdown and your own site stay the original.
+[social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page. A third,
+[Pinterest Pins](pinterest.md), sends a post's visual card to one of your boards. All are off until you set them
+up, and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
 there. You do not edit it; it is part of the code, and it decides what open.blog will and will not attempt
@@ -40,6 +41,12 @@ of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters. Announcem
 minute and one year and a day ahead. Video in an article becomes a link in the portable copy
 ([portable fallback](cross-posting.md)).
 
+Pinterest (a Pin from `openblog pinterest`, [ADR 0783](adr/0783-pinterest-pins-are-a-social-destination-sent-from-the-cli-under-the-authors-own-oauth-token-sandbox-first.md)):
+link, short text (the Pin's title and description), and one image are done by the adapter; video is by hand in
+Pinterest; whole articles, remote drafts and scheduling are not possible. Login is OAuth (`boards:read`,
+`boards:write`, `pins:read`, `pins:write`), the Pin links your post, and it becomes public only with your
+confirmation. A description is at most 800 characters.
+
 ## What was checked, and where
 
 Checked on 2026-10-29 against the providers' own documentation:
@@ -58,6 +65,17 @@ Checked on 2026-10-29 against the providers' own documentation:
   there is no scheduling field.
 - WordPress: [posts reference](https://developer.wordpress.org/rest-api/reference/posts/). `status` accepts
   `future`, which you can use in WordPress; open.blog sends drafts only unless you publish.
+- Pinterest: the official [API v5 description](https://github.com/pinterest/api-description/blob/main/v5/openapi.json)
+  (version 5.28.0), [access tiers](https://developers.pinterest.com/docs/key-concepts/access-tiers/) and
+  [sandbox](https://dev.pinterest.com/docs/developer-tools/sandbox/). `POST /v5/pins` takes `board_id`, an optional
+  `board_section_id`, `title` (100), `description` (800), `alt_text` (500), `link` (2,048) and a `media_source`
+  (`image_base64` as JPEG or PNG, `image_url`, or video by a separately uploaded `video_id`); it has no draft or
+  publishing-time field. The schema lists `boards:read`, `boards:write`, `pins:read` and `pins:write` for it.
+  A new app gets Trial access, whose Pins and boards are sandbox entities visible only to their creator, through
+  `api-sandbox.pinterest.com`; a sandbox token generated in the app console lasts 30 days and does not work in
+  production. Pins visible to everyone need Standard access, which Pinterest grants after reviewing a video of
+  the app. Trial apps are rate limited per app per day and Standard apps per user per minute; no numbers are
+  published there, so open.blog only reports a rate limit when Pinterest returns one.
 - Ghost, Hashnode and Medium: as verified for [cross-posting](cross-posting.md). Scheduling there was not
   re-verified, so it is listed as unsupported.
 

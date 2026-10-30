@@ -226,6 +226,46 @@
         "https://help.medium.com/hc/en-us/articles/214550207-Importing-a-post-to-Medium"
       ]
     },
+    "pinterest": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "adapter",
+        "link": "adapter",
+        "schedule": "unsupported",
+        "text": "adapter",
+        "video": "manual"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": 800,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "social",
+      "label": "Pinterest",
+      "login": {
+        "method": "oauth2",
+        "scopes": [
+          "boards:read",
+          "boards:write",
+          "pins:read",
+          "pins:write"
+        ]
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "pinterest",
+      "publishing": "explicit-approval",
+      "sources": [
+        "https://github.com/pinterest/api-description/blob/main/v5/openapi.json",
+        "https://developers.pinterest.com/docs/key-concepts/access-tiers/",
+        "https://dev.pinterest.com/docs/developer-tools/sandbox/"
+      ]
+    },
     "wordpress": {
       "canonical": "not-supported",
       "capabilities": {
@@ -907,6 +947,36 @@
       },
       "codes": [
         "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "pinterest",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "image"
+        ],
+        "textChars": 800
+      },
+      "codes": []
+    },
+    {
+      "provider": "pinterest",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "image",
+          "video",
+          "schedule"
+        ],
+        "textChars": 801
+      },
+      "codes": [
+        "capability-manual",
+        "capability-unsupported",
+        "text-too-long"
       ]
     }
   ],
