@@ -17,7 +17,7 @@
 export const MANIFEST_VERSION = 1;
 export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
-const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community" });
+const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community", "product-hunt": "community" });
 const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2"]);
 const CANONICAL = Object.freeze(["sent", "linked", "manual", "not-supported"]);
 const PUBLISHING = Object.freeze(["explicit-approval", "draft-only", "manual"]);

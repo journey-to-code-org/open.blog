@@ -262,6 +262,42 @@
         "https://help.medium.com/hc/en-us/articles/214550207-Importing-a-post-to-Medium"
       ]
     },
+    "product-hunt": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "manual",
+        "image": "manual",
+        "link": "manual",
+        "schedule": "manual",
+        "text": "manual",
+        "video": "manual"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "community",
+      "label": "Product Hunt",
+      "login": {
+        "method": "none",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-10-29",
+      "provider": "product-hunt",
+      "publishing": "manual",
+      "sources": [
+        "https://www.producthunt.com/launch",
+        "https://www.producthunt.com/launch/preparing-for-launch",
+        "https://help.producthunt.com/en/articles/479557-how-to-post-a-product",
+        "https://api.producthunt.com/v2/docs"
+      ]
+    },
     "reddit": {
       "canonical": "linked",
       "capabilities": {
@@ -855,6 +891,20 @@
         }
       ],
       "code": "family-mismatch"
+    },
+    {
+      "name": "a Product Hunt launch that open.blog would upload images for",
+      "base": "product-hunt",
+      "changes": [
+        {
+          "set": [
+            "capabilities",
+            "image"
+          ],
+          "value": "adapter"
+        }
+      ],
+      "code": "manifest-inconsistent"
     }
   ],
   "requests": [
@@ -1082,6 +1132,21 @@
       "codes": [
         "capability-manual",
         "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "product-hunt",
+      "request": {
+        "capabilities": [
+          "link",
+          "image",
+          "article"
+        ]
+      },
+      "codes": [
+        "capability-manual",
+        "capability-unsupported",
+        "capability-manual"
       ]
     }
   ],

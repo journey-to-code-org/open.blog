@@ -49,10 +49,11 @@ pub enum ProviderId {
     Facebook,
     HackerNews,
     Reddit,
+    ProductHunt,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 9] = [
+    pub const ALL: [ProviderId; 10] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -62,6 +63,7 @@ impl ProviderId {
         Self::Facebook,
         Self::HackerNews,
         Self::Reddit,
+        Self::ProductHunt,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -82,13 +84,14 @@ impl ProviderId {
             Self::Facebook => "facebook",
             Self::HackerNews => "hacker-news",
             Self::Reddit => "reddit",
+            Self::ProductHunt => "product-hunt",
         }
     }
 
     pub fn family(self) -> Family {
         match self {
             Self::Linkedin | Self::Facebook => Family::Social,
-            Self::HackerNews | Self::Reddit => Family::Community,
+            Self::HackerNews | Self::Reddit | Self::ProductHunt => Family::Community,
             _ => Family::Syndication,
         }
     }
@@ -998,12 +1001,13 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
             }
         }
         Family::Community => {
-            // Neither community offers open.blog a way to submit, and both ask that a person, not
-            // a tool, decides each submission: the author opens the provider's own form and
-            // submits by hand (ADR 0800). The title limits are the guided kit's, not a
-            // capability's (ADR 0801).
-            let (label, docs): (_, &[&str]) = if provider == ProviderId::HackerNews {
-                (
+            // No community offers open.blog a way to submit, and each asks that a person, not a
+            // tool, decides each submission: the author opens the provider's own form and submits
+            // by hand (ADR 0800). The title limits are the guided kit's, not a capability's (ADR
+            // 0801). A Product Hunt launch also takes text, images, a demo video, a draft and a
+            // launch day, all of which the maker enters in Product Hunt's form (ADR 0804).
+            let (label, docs): (_, &[&str]) = match provider {
+                ProviderId::HackerNews => (
                     "Hacker News",
                     &[
                         "https://news.ycombinator.com/newsguidelines.html",
@@ -1011,16 +1015,29 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                         "https://news.ycombinator.com/bookmarklet.html",
                         "https://github.com/HackerNews/API",
                     ],
-                )
-            } else {
-                (
+                ),
+                ProviderId::ProductHunt => (
+                    "Product Hunt",
+                    &[
+                        "https://www.producthunt.com/launch",
+                        "https://www.producthunt.com/launch/preparing-for-launch",
+                        "https://help.producthunt.com/en/articles/479557-how-to-post-a-product",
+                        "https://api.producthunt.com/v2/docs",
+                    ],
+                ),
+                _ => (
                     "Reddit",
                     &[
                         "https://redditinc.com/policies/reddit-rules",
                         "https://support.reddithelp.com/hc/en-us/articles/360043504051-Spam",
                         "https://redditinc.com/policies/data-api-terms",
                     ],
-                )
+                ),
+            };
+            let launch = if provider == ProviderId::ProductHunt {
+                Manual
+            } else {
+                Unsupported
             };
             ProviderManifest {
                 manifest_version: MANIFEST_VERSION,
@@ -1030,12 +1047,12 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 policy_version: BUILTIN_POLICY_VERSION.to_string(),
                 capabilities: support([
                     (Link, Manual),
-                    (Text, Unsupported),
+                    (Text, launch),
                     (Article, Unsupported),
-                    (Image, Unsupported),
-                    (Video, Unsupported),
-                    (Draft, Unsupported),
-                    (Schedule, Unsupported),
+                    (Image, launch),
+                    (Video, launch),
+                    (Draft, launch),
+                    (Schedule, launch),
                 ]),
                 login: Login {
                     method: LoginMethod::None,

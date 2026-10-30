@@ -2915,9 +2915,9 @@ destination it holds the portable copy as a fallback (ADRs 0328, 0330).
 _Avoid_: Campaign, schedule, dry-run output (the existing text and JSON plans)
 
 **Community destination**:
-A place the author submits a post to by hand, such as Hacker News or a Reddit community. Its provider manifest
-(family `community`) says the link is manual and nothing else is possible, so open.blog only prepares and never
-submits (ADR 0800).
+A place the author submits a post to by hand, such as Hacker News, a Reddit community or Product Hunt. Its provider
+manifest (family `community`) says the link is manual, nothing is done by an adapter and there is no login, so
+open.blog only prepares and never submits (ADRs 0800, 0804).
 _Avoid_: Social network (an adapter destination), auto-post, share target
 
 **Submission kit**:

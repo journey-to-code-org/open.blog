@@ -3,8 +3,8 @@
 open.blog can reach other platforms in two ways: [cross-posting](cross-posting.md) sends a portable copy of an
 article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), and optional
 [social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page. A third,
-[community submissions](community-submissions.md), prepares a post for you to submit by hand to Hacker News or a
-Reddit community. All three are off until you set them up, and your Markdown and your own site stay the original.
+[community submissions](community-submissions.md), prepares a post for you to submit by hand to Hacker News, a
+Reddit community or Product Hunt. All three are off until you set them up, and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
 there. You do not edit it; it is part of the code, and it decides what open.blog will and will not attempt
@@ -41,7 +41,11 @@ Hacker News and Reddit are *community* destinations (policy version 2026-10-29,
 the link is **manual** (you submit it yourself on the community's own form) and every other capability is
 **unsupported**; there is no login and nothing becomes public except by your own submission. A community manifest that
 claims anything open.blog would do there is refused. Their title limits and rules are in
-[Community submissions](community-submissions.md#what-was-checked-and-where-2026-10-29).
+[Community submissions](community-submissions.md#what-was-checked-and-where-2026-10-29). Product Hunt is a community
+destination too
+([ADR 0804](adr/0804-product-hunt-is-a-community-destination-whose-launch-the-maker-enters-and-submits-by-hand.md)):
+its link, text, images, video, draft and launch day are all **manual**, because the maker enters each in Product
+Hunt's own form, and it has no login; see [Product Hunt launch kits](community-submissions.md#product-hunt-launch-kits).
 
 Limits enforced before anything is sent: DEV takes 4 tags of at most 30 characters; Hashnode 15 tags and a request
 of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters. Announcements are scheduled between one
