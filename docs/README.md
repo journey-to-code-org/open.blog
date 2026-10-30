@@ -41,6 +41,7 @@ If you are new, read these in order; each one stands alone otherwise.
 19. [Interpretation comparisons](interpretation-comparisons.md): attributing readings, recording uncertainty,
    audience explanations, and your responsibility for AI-drafted text.
 20. [Jobs](jobs.md): finished trade work as posts, with a documented `job` front matter.
+21. [Services](services.md): each service described once, with a price band, a timeline and FAQs.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

@@ -185,8 +185,36 @@ stands, the reader's evidence beside the claim it names, duplicate cues and "Rec
 ## Out of scope
 
 - Reader accounts, email collection, avatars, reactions, notifications, nested replies, rich-text
-  comments, automatic spam scoring, CAPTCHA, real-time subscriptions, and multi-tenant management UI.
+  comments, automatic spam scoring, real-time subscriptions, and multi-tenant management UI.
 - Storing Supabase service-role credentials in `openblog.json`, Admin browser storage, generated HTML,
   or the repository.
 - Automatic Netlify environment mutation; Admin explains the required server values but does not
   call Netlify's management API.
+
+## Comment captcha
+
+Hosted comments can optionally require a Cloudflare Turnstile challenge before storage (epic #296,
+ADR 0322). It is off unless both `engagement.captcha.provider` and `OPENBLOG_CAPTCHA_PROVIDER` are
+`turnstile`; sites that do nothing behave, and build, exactly as before.
+
+12. As a site owner, I want the server to refuse an unverified comment before anything is stored, so that bots cannot fill the moderation queue by calling the API directly.
+13. As a reader, I want to be checked at most once per visit and only when I start writing, so that commenting stays quick and the page stays fast.
+14. As a reader using a keyboard, a screen reader or an ad blocker, I want the check to work or fail with plain next steps and my words kept.
+15. As a site owner, I want only public values (provider, site key, scope) in `openblog.json`, built pages and Admin, so that no credential can leak.
+
+Contract (`POST /comments`, checks in this order: origin, policy, field validation, captcha, rate limit, insert):
+
+- `captchaToken` is verified with the provider and exchanged for a pass in the response
+  (`captchaPass`, `captchaPassExpiresAt`); `captchaPass` is validated locally with HMAC-SHA256 and a
+  constant-time compare. Neither, or an invalid one: `403 {code: "captcha_required"}`; an expired pass:
+  `403 {code: "captcha_expired"}`. Both happen before any database write.
+- Every verification attempt (a token or a bad pass) spends the `captcha` rate-limit bucket, before the provider is called, through the existing
+  `openblog_consume_rate_limit` function (10 per client and 1,000 per site per hour, no SQL migration);
+  over the limit answers `429 {code: "captcha_rate_limited"}`. Successful comments are counted by the
+  `comments` bucket as before.
+- Enabled but misconfigured answers `503 {code: "captcha_unconfigured"}` naming the variable, never a value.
+- `OPENBLOG_CAPTCHA_SCOPE=every-comment` never issues or accepts a pass.
+- With the provider off, request and response shapes are unchanged.
+
+See [setup](../../netlify/functions/README.md#comment-captcha-optional) and ADR 0322. Local comments
+are unchanged.

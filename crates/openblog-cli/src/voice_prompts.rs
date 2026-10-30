@@ -53,6 +53,34 @@ mod tests {
     }
 
     #[test]
+    fn the_trades_pack_ships_with_its_eight_prompts_and_can_be_disabled() {
+        let catalog = openblog_core::voice::catalog::Catalog::parse_bundled(BUNDLED).unwrap();
+        let pack = catalog.packs.iter().find(|p| p.id == "trades").unwrap();
+        let ids: Vec<&str> = pack.prompts.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "a-job-that-went-sideways",
+                "the-question-every-customer-asks",
+                "the-tool-i-would-never-give-up",
+                "a-myth-about-my-trade",
+                "how-i-price-a-job-honestly",
+                "the-best-customer-i-ever-had",
+                "what-i-check-before-i-start",
+                "the-day-i-knew-i-was-good-at-this",
+            ]
+        );
+        assert!(pack.prompts.iter().all(|p| p.words_min < p.words_max));
+        let hidden = openblog_core::voice::catalog::Catalog::load(
+            BUNDLED,
+            Some("---\ndisabled: [trades]\n---\n"),
+        )
+        .unwrap();
+        assert!(hidden.pack("trades").is_none());
+        assert!(catalog.pack("trades").is_some());
+    }
+
+    #[test]
     fn the_standing_rule_is_stored_once_not_per_prompt() {
         assert_eq!(BUNDLED.matches("the way you would say it").count(), 1);
         assert!(BUNDLED.starts_with("---\nversion: 1\nrule: "));

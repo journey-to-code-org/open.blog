@@ -97,7 +97,7 @@ test("Add a section lists every type in plain words with a sample, and adds the 
   await page.getByRole("button", { name: "Add a section" }).click();
   const picker = page.locator("#oba-landing-picker");
   await expect(picker.getByRole("heading", { name: "What would you like to add?" })).toBeVisible();
-  await expect(picker.locator("[data-add-type]")).toHaveCount(14);
+  await expect(picker.locator("[data-add-type]")).toHaveCount(15);
   await expect(picker.locator('[data-add-type="welcome"]')).toContainText("A big welcome with a button.");
   await expect(picker.locator('[data-add-type="welcome"]')).toContainText("For example:");
   await picker.locator('[data-add-type="rich-text"]').click();

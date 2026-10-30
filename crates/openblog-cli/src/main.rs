@@ -12,6 +12,7 @@ mod boundary;
 mod claims_store;
 mod clock;
 mod comparison_store;
+mod config_text;
 mod contributor_migration;
 mod fsutil;
 mod git;
@@ -184,6 +185,11 @@ new OPTIONS
     --service <id>             With --profile job: the service, such as hardwood-install
     --town <name>              With --profile job: the town (never an address)
     --region <name>            With --profile job: the region or state
+    --profile service          Start a service in content/services/: a draft with version 1 front
+                               matter (id, name, summary, price band) until you fill it in
+    --id <id>                  With --profile service: the id (default: the name, as a slug)
+    --price-band <band>        With --profile service: under-500, 500-2k, 2k-10k, 10k-50k, over-50k
+                               or ask
 
 import hashnode OPTIONS
     --source public|graphql    public (default) reads your live site and needs no account;
@@ -337,6 +343,22 @@ fn run(raw: &[String]) -> Result<(), String> {
             let profile = args.options.get("profile").map(|p| p.trim().to_lowercase());
             let job_option = |name: &str| args.options.get(name).map(String::as_str);
             let created = match profile.as_deref() {
+                Some("service") if !recipe => {
+                    if ["trade", "service", "town", "region", "series", "tags"]
+                        .iter()
+                        .any(|name| args.options.contains_key(*name))
+                    {
+                        return Err("a service takes only a name, --id and --price-band".into());
+                    }
+                    let start = scaffold::ServiceStart {
+                        id: job_option("id"),
+                        price_band: job_option("price-band"),
+                    };
+                    scaffold::new_service(&root, title, &start)?
+                }
+                Some("service") => {
+                    return Err("--recipe and --profile service cannot be combined".into())
+                }
                 Some("job") if !recipe => {
                     let start = scaffold::JobStart {
                         trade: job_option("trade"),
@@ -367,13 +389,16 @@ fn run(raw: &[String]) -> Result<(), String> {
                 }
                 Some(other) => {
                     return Err(format!(
-                        "`--profile {other}` is not supported by `new`; use article, recipe or job"
+                        "`--profile {other}` is not supported by `new`; use article, recipe, job or service"
                     ))
                 }
             };
             println!("created {created}");
             if profile.as_deref() == Some("job") {
                 println!("It is a draft until you fill in the job's details; `openblog check` lists what is missing.");
+            }
+            if profile.as_deref() == Some("service") {
+                println!("It is a draft until you write its summary and remove `draft`; `openblog check` lists what is missing.");
             }
             Ok(())
         }

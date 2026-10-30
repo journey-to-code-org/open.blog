@@ -70,3 +70,37 @@ test("rejects credential-bearing origins before making requests", async () => {
   await assert.rejects(smoke({ ...options, origin: "https://user:secret@blog.example" }));
   assert.equal(calls.length, 0);
 });
+
+const PROTECTED_POST = '<article><ob-comments path="/posts/test/" endpoint="https://blog.example/api" captcha-provider="turnstile" captcha-site-key="public" captcha-scope="session"></ob-comments></article>';
+const refusal = [403, "application/json", '{"code":"captcha_required"}'];
+
+test("optional captcha smoke requires a machine-readable rejection of unverified and forged submissions", async () => {
+  const { options, calls } = fixture({ "https://blog.example/posts/test/": [200, "text/html", PROTECTED_POST], "https://blog.example/api/comments": refusal });
+  await smoke({ ...options, captcha: true });
+  const posts = calls.filter(([, request]) => request.method === "POST");
+  assert.equal(posts.length, 2);
+  assert.equal(JSON.parse(posts[0][1].body).path, "/posts/test/");
+  assert.equal(JSON.parse(posts[1][1].body).captchaPass, "forged.pass");
+  assert.ok(posts.every(([, request]) => request.headers.Authorization === undefined && !("captchaToken" in JSON.parse(request.body))));
+});
+
+test("captcha smoke detects a site that accepts unverified comments or lacks the public attributes", async () => {
+  const accepted = fixture({ "https://blog.example/posts/test/": [200, "text/html", PROTECTED_POST], "https://blog.example/api/comments": [202, "application/json", '{"status":"pending"}'] });
+  await assert.rejects(smoke({ ...accepted.options, captcha: true }), /accepted an unverified comment/);
+  const unprotectedPage = fixture({ "https://blog.example/api/comments": refusal });
+  await assert.rejects(smoke({ ...unprotectedPage.options, captcha: true }), /public captcha attributes/);
+  const wrongCode = fixture({ "https://blog.example/posts/test/": [200, "text/html", PROTECTED_POST], "https://blog.example/api/comments": [403, "application/json", '{"error":"Origin is not allowed."}'] });
+  await assert.rejects(smoke({ ...wrongCode.options, captcha: true }), /captcha_required/);
+});
+
+test("captcha smoke explains a misconfigured function and never sends a secret", async () => {
+  const body = '{"code":"captcha_unconfigured","error":"Comment verification is enabled but OPENBLOG_TURNSTILE_SECRET is not set correctly."}';
+  const broken = fixture({ "https://blog.example/posts/test/": [200, "text/html", PROTECTED_POST], "https://blog.example/api/comments": [503, "application/json", body] });
+  await assert.rejects(smoke({ ...broken.options, captcha: true }), /misconfigured.*captcha_unconfigured.*OPENBLOG_TURNSTILE_SECRET/s);
+});
+
+test("without --captcha the smoke never POSTs, even to a protected site", async () => {
+  const { options, calls } = fixture({ "https://blog.example/posts/test/": [200, "text/html", PROTECTED_POST] });
+  await smoke(options);
+  assert.ok(!calls.some(([, request]) => request.method === "POST"));
+});

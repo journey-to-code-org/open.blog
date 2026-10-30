@@ -1437,6 +1437,176 @@ ob-quiz legend {
   color: var(--ob-color-callout-caution, #cf222e);
 }
 
+/* ---------- Before and after: ```compare (<ob-compare> adds the reveal control) ---------- */
+
+/* Tokens a theme may set. Each falls back to a token every theme already has. */
+ob-compare {
+  --ob-compare-radius: var(--ob-radius);
+  --ob-compare-gap: var(--ob-space-4, 1rem);
+  --ob-compare-line: #fff;
+  --ob-compare-line-width: 2px;
+  --ob-compare-handle: var(--ob-color-accent);
+  --ob-compare-handle-ink: var(--ob-color-accent-contrast);
+  --ob-compare-handle-size: 2.75rem;
+  --ob-compare-focus: var(--ob-color-accent);
+  --ob-compare-tag-bg: rgb(0 0 0 / 0.7);
+  --ob-compare-tag-ink: #fff;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ob-compare-gap);
+  margin: 1.5rem 0;
+}
+
+@media (max-width: 36rem) {
+  ob-compare {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ob-compare-pane {
+  margin: 0;
+  min-width: 0;
+}
+
+.ob-compare-pane img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: var(--ob-compare-radius);
+}
+
+.ob-compare-pane figcaption {
+  margin-top: 0.4rem;
+  color: var(--ob-color-muted);
+  font-size: 0.9em;
+}
+
+.ob-compare-label {
+  color: var(--ob-color-text);
+  font-weight: 700;
+}
+
+ob-compare[data-enhanced] {
+  display: block;
+}
+
+ob-compare[data-enhanced] .ob-compare-pane {
+  margin-top: 0.4rem;
+}
+
+ob-compare[data-enhanced] .ob-compare-pane figcaption {
+  margin-top: 0;
+}
+
+.ob-compare-stage {
+  position: relative;
+  aspect-ratio: var(--ob-compare-ratio, 4 / 3);
+  overflow: hidden;
+  border-radius: var(--ob-compare-radius);
+  background: var(--ob-color-surface-raised);
+  /* Horizontal drags move the reveal; vertical ones still scroll the page. */
+  touch-action: pan-y;
+  user-select: none;
+  cursor: ew-resize;
+}
+
+.ob-compare-stage img,
+.ob-compare-over {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ob-compare-stage img {
+  display: block;
+  margin: 0;
+  object-fit: cover;
+  border-radius: 0;
+  pointer-events: none;
+}
+
+.ob-compare-over {
+  clip-path: inset(0 0 0 var(--ob-compare-pos, 50%));
+}
+
+.ob-compare-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ob-compare-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--ob-compare-pos, 50%);
+  width: var(--ob-compare-line-width);
+  transform: translateX(-50%);
+  background: var(--ob-compare-line);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+}
+
+.ob-compare-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: var(--ob-compare-handle-size);
+  height: var(--ob-compare-handle-size);
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--ob-compare-line);
+  border-radius: 50%;
+  background: var(--ob-compare-handle);
+  color: var(--ob-compare-handle-ink);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.45);
+}
+
+.ob-compare-knob::before {
+  content: "\2194";
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.ob-compare-range:focus-visible ~ .ob-compare-bar .ob-compare-knob {
+  outline: 3px solid var(--ob-compare-focus);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px #fff, 0 1px 4px rgb(0 0 0 / 0.45);
+}
+
+.ob-compare-tag {
+  position: absolute;
+  top: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-compare-tag-bg);
+  color: var(--ob-compare-tag-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.ob-compare-tag-before {
+  left: 0.5rem;
+}
+
+.ob-compare-tag-after {
+  right: 0.5rem;
+}
+
+.ob-compare-error {
+  padding: 0.75rem 1rem;
+  border-left: 4px solid var(--ob-color-callout-caution, #cf222e);
+  color: var(--ob-color-callout-caution, #cf222e);
+}
+
 /* ---------- Recipes (posts with `recipe: true`; controls added by <ob-recipe>) ---------- */
 
 .ob-recipe-card {
@@ -1776,6 +1946,12 @@ ob-comments {
 .ob-comments-form input,
 .ob-comments-form textarea { font: inherit; padding: .65rem; border: 1px solid var(--ob-color-border); border-radius: .35rem; background: var(--ob-color-surface); color: inherit; }
 .ob-comments-form button { justify-self: start; }
+/* Optional captcha (ADR 0322). No motion, no fixed widths: the provider's widget may be
+   wider than a 320px screen, so its box scrolls instead of the page. */
+.ob-comments-captcha-note { margin: 0; font-size: .875rem; overflow-wrap: anywhere; opacity: .85; }
+.ob-comments-captcha { max-width: 100%; overflow-x: auto; min-height: 1px; }
+.ob-comments-captcha[hidden],
+.ob-comments-captcha-retry[hidden] { display: none; }
 
 /* Passage feedback (ADR 0082): a single-column form that fits 320px, a
    status line outside the form, a copy-and-send fallback, and a button
@@ -2808,6 +2984,80 @@ ob-future-suggestion [hidden] {
   flex-basis: 100%;
   color: var(--ob-color-subtle);
   font-size: 0.8rem;
+}
+
+/* ---------- Business facts (ADR 0306) ----------
+   One block for every theme: the footer on each page and the Landing page's Business facts
+   section both write `.ob-business`. Tokens only, so a theme restyles it by changing tokens. */
+
+.ob-footer-business {
+  flex-basis: 100%;
+  padding-bottom: 1rem;
+  border-bottom: var(--ob-row-border-width) solid var(--ob-color-border);
+}
+
+.ob-business {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.75rem 2rem;
+  color: var(--ob-color-text);
+}
+
+.ob-business > * {
+  margin: 0;
+}
+
+.ob-business-name {
+  font-weight: 700;
+}
+
+.ob-business-name,
+.ob-business-badge {
+  grid-column: 1 / -1;
+}
+
+.ob-badge {
+  display: inline-block;
+  padding: 0.2rem 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-soft);
+  border-radius: var(--ob-radius-sm);
+  color: var(--ob-color-accent-soft);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ob-business-contact,
+.ob-business-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-business-contact li,
+.ob-business-notes li {
+  margin: 0.25rem 0;
+}
+
+.ob-business-contact a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.ob-business-hours div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.2rem 0;
+}
+
+.ob-business-hours dt {
+  font-weight: 600;
+}
+
+.ob-business-hours dd {
+  margin: 0;
+  text-align: end;
 }
 
 ob-back-to-top {

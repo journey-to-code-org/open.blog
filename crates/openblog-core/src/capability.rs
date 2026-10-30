@@ -10,6 +10,7 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "runnable-code",
     "web-sandbox",
     "interactive-demo",
+    "before-after",
     "comments",
     "raw-html",
     "citations",
@@ -128,6 +129,11 @@ impl CapabilityDescriptor {
                 "A live demonstration the reader operates, with an authored description of it.",
                 Some("authored-fallback"),
                 PortabilityLevel::GracefullyTransformed,
+            ),
+            "before-after" => (
+                "Two pictures of the same thing, one before and one after, each with a description and an optional caption.",
+                Some("figure-pair"),
+                PortabilityLevel::FullyPortable,
             ),
             "comments" => (
                 "Reader discussion hosted with the canonical article.",

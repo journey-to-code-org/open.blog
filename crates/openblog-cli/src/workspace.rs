@@ -260,6 +260,7 @@ impl Policy {
             format!("{}/posts", self.content),
             format!("{}/pages", self.content),
             format!("{}/series", self.content),
+            format!("{}/services", self.content),
             format!("{}/images/uploads", self.static_dir),
             format!("{}/tracks/uploads", self.static_dir),
             "assistant/skills".into(),
@@ -298,11 +299,13 @@ impl Policy {
             return true;
         }
         if let Some(relative) = path.strip_prefix(&format!("{}/", self.content)) {
-            return ["posts/", "pages/", "series/"].iter().any(|prefix| {
-                relative.starts_with(prefix)
-                    && (extension == "md"
-                        || (*prefix == "posts/" && path.ends_with(".credits.json")))
-            });
+            return ["posts/", "pages/", "series/", "services/"]
+                .iter()
+                .any(|prefix| {
+                    relative.starts_with(prefix)
+                        && (extension == "md"
+                            || (*prefix == "posts/" && path.ends_with(".credits.json")))
+                });
         }
         if path.starts_with(&format!("{}/images/uploads/", self.static_dir)) {
             return matches!(extension, "png" | "jpg" | "gif" | "webp" | "avif");

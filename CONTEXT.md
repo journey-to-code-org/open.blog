@@ -1627,6 +1627,20 @@ contributing author of the work. A response to a published note is stored with i
 item starts pending like everything else. Replying sends nothing to the reader.
 _Avoid_: Revision note, correction, comment by the author, reply notification
 
+**Captcha challenge**:
+The optional human check a reader passes before commenting on a hosted site (ADR 0322). The browser loads
+the provider's script only when the reader first clicks or types in the comment form; the server, never
+the browser, decides whether the result is valid. It guards comment submission only, never reading,
+reports or analytics, and the local `openblog serve` comment store does not use it.
+_Avoid_: Captcha (for the pass), bot check, login
+
+**Session pass**:
+A signed, stateless proof that one captcha challenge was passed for this site, valid for 30 minutes by
+default (`OPENBLOG_CAPTCHA_SESSION_TTL_SECONDS`). The browser keeps it in `sessionStorage`, so it ends with the
+tab. It is not a reader identity and authorizes nothing except comment submissions on the same site; with
+`every-comment` scope none is issued. Passes cannot be individually revoked: rotate the signing secret.
+_Avoid_: Session, token (that is the provider's single-use challenge result), cookie, login
+
 **Moderator**:
 The site Admin, or a coordinator for the works of their publications. Contributing authors read
 and respond but do not moderate; readers act only on their own items as submitters.
@@ -2595,6 +2609,14 @@ _Avoid_: Reset, wipe, delete account
 
 ## Trades
 
+**Business facts**:
+The one `business` block in `openblog.json`: legal and display name, trade, phone (E.164), email, hours per
+weekday with closed days, license number and issuer, an insured flag, accepted kinds of payment and the founding
+year. Every page, the footer, the Landing page's Business facts section and the `LocalBusiness` structured data
+read it, so nothing contradicts itself. Unset means nothing changes; it never holds anything about customers
+(ADR 0305).
+_Avoid_: Company profile, contact details (they are one part)
+
 **Job**:
 A dated Post using the `job` content profile that records one piece of completed work: trade, service, place,
 problem, what was found, what was done, result, media. A job is a post, so feeds, tags, series and export treat
@@ -2607,13 +2629,65 @@ core and placed by Admin's Job mode or `openblog new --profile job`. They are or
 locked (ADR 0287).
 _Avoid_: Template, form body
 
+**Before and after pair**:
+Two pictures of the same thing, written as a `compare` fence with a required description for each, an optional
+caption and a label ("Before" and "After" by default). Any post may hold one. The page shows a comparison
+control; feeds, syndicated copies and exports show two captioned figures. Reported as the `before-after`
+capability (ADR 0316).
+_Avoid_: Slider, image diff, gallery
+
+**Capture**:
+Photos and a few lines gathered on site in Admin's Capture
+view (`#/capture`) and saved as one unpublished job draft: the Job form's own keys, the job scaffold, the notes
+under its first heading and the photos after it. A capture is not a new kind of content; it is a faster way into
+a job post. The view remembers the last trade, service and eight towns on the device (ADR 0296).
+_Avoid_: Quick post, field note
+
+**Capture id**:
+A random 128-bit id, 32 lowercase hex digits, made when a capture is started. It is the idempotency key: the
+server saves the draft and each photo at most once per id, so a replay never makes a second draft (ADR 0297).
+_Avoid_: Draft id, session id
+
+**Capture queue**:
+The captures a device has saved locally, in IndexedDB, while they wait to be sent. Each record is a versioned
+format (`v: 1`) with fixed bounds on captures, photos, notes and bytes; nothing is dropped silently and nothing
+outside the bounds is stored (ADR 0297).
+_Avoid_: Outbox, sync
+
+**Voice note**:
+A recording of at most three minutes and 8 MB made in the Capture view with the browser's recorder, started only
+by a tap, kept on the author's server as private media beside the capture and never published. It is sent to a
+provider only when the author asks to transcribe it and has seen the disclosure (ADR 0298, ADR 0302).
+_Avoid_: Dictation
+
+**Transcript**:
+The words of a voice note, made by a provider that takes audio or by a local engine, on the author's request. It is
+untrusted text: kept privately beside the note, cleaned and bounded by the core, and put into the Notes box made
+plain for the author to edit. It is never a draft, never published and never treated as instructions (ADR 0302).
+_Avoid_: Caption, dictation
+
+**Job draft**:
+A title, a one-sentence description and the four scaffold sections written by the Assistant (`job-draft` task)
+from the author's notes and, if selected, their voice guide. It is plain text under a strict schema with no place
+for any `job` field, checked whole by the core, and only ever a proposal: nothing is saved or published until the
+author applies it and saves (ADR 0303).
+_Avoid_: AI post, generated post
+
 **Service**:
-One offering a business sells, kept in a site-level collection with what is included, a starting price band, a
-typical timeline, and FAQs. A job's `service` names one of them.
+One offering a business sells, kept as a Markdown file in the `services/` collection with an `id`, a name, a
+one-sentence summary, what is included, a starting price band, a typical timeline, and FAQs. A job's `service`
+names one of them by id; once a site has any service, a job naming an unknown id is refused with the known ids
+listed. The price band is the jobs' cost band, a label and never a quote (ADR 0311). A site with services gets a
+`/services/` index and a page per service with `Service` structured data, and `FAQPage` data only for a service
+that has questions (ADR 0312). `openblog new --profile service` and Admin's Services screen write them (ADR 0313).
 _Avoid_: Product, category
 
 **Service area**:
-A town or region the business serves, kept in a site-level list and rendered as pages and structured data.
+A town and region the business serves, kept in the versioned `serviceAreas` list in `openblog.json` (ADR 0314)
+and rendered as pages and structured data. It has a town, a region formatted from a bundled list, and an optional
+one-line note about the reach; nothing finer than a town is ever stored. A job is "in" an area when its
+`place.town` and `place.region` match, and its area page shows the job's title, link and date only (ADR 0315);
+an area with no jobs says its work is not yet posted rather than filling the page.
 _Avoid_: Location (ambiguous with a job's place)
 
 **Before/after pair**:
@@ -2629,3 +2703,146 @@ _Avoid_: Lead, booking, ticket
 **Proof**:
 A review or testimonial saved as a provenance-tracked snapshot and optionally linked to a job.
 _Avoid_: Rating (the number alone), social proof
+
+**Social publishing**:
+An optional, off-by-default outward announcement of an already-published canonical post to a connected LinkedIn
+identity or Facebook Page, on a schedule. It never replaces the post or cross-posting. Everything about it is
+server-side; builds and exports do not know it exists.
+_Avoid_: Syndication (a full copy of the article on another platform)
+
+**Site scope**:
+The one site a social deployment acts for, taken from the server's `OPENBLOG_SITE_ID` and never from a request.
+Every social row carries it and every query is filtered by it.
+_Avoid_: Tenant, owner, namespace when the server's choice is meant
+
+**Social actor**:
+The signed-in Admin user the Rust Admin names to the hosted social function, or `@worker` for the scheduled
+worker. It is an audit attribution; the role is decided by which server key authenticated the call.
+_Avoid_: User, owner
+
+**Social account**:
+A connected LinkedIn identity or Facebook Page that a site may announce to. It is stored per site; its credentials
+are never part of the account row. Disconnecting keeps the row for history.
+_Avoid_: Profile, channel
+
+**Scheduled social post**:
+One queued announcement of one canonical post to one social account, with a time, a lease while a worker holds it
+and an idempotency key. It is `published` only with the provider's own response id.
+_Avoid_: Syndicated copy, job
+
+**Announcement**:
+One scheduled social post seen from the author's side: a caption for one account, a link to one already-public
+canonical post, and a UTC time. It can be changed or canceled only while it is `scheduled`, before a worker claims
+it. A cross-posted article, a draft and a post dated in the future cannot be announced.
+_Avoid_: Syndicated copy, campaign
+
+**Schedule instant**:
+The time of an announcement: a full RFC 3339 date and time that names its zone, stored as UTC to the second. The
+author's time zone says how it was chosen and is not stored.
+_Avoid_: Local time, publish date (a post's own date)
+
+**Social screen**:
+The Admin tab (`#/announcements`) where an author composes, previews, schedules, edits and cancels announcements. It exists
+only when social publishing is set up, talks only to Admin's own routes, and shows times in the author's zone.
+_Avoid_: Social dashboard, composer (the form is one part of the screen)
+
+**Delivery attempt**:
+One recorded try to deliver a scheduled social post, with its outcome (`published`, `failed` or `unknown`) and a
+redacted error. Attempts are added and finished, never deleted.
+_Avoid_: Retry (a later attempt)
+
+**Delivery error**:
+What a provider adapter throws when a delivery try did not end in a confirmed, named post: `transient` (the request
+certainly never left), `rate-limited` (with the provider's wait), `rejected`, `auth`, or `uncertain` (it may have
+posted). Only `transient` and `rate-limited` are retried; `uncertain` is looked up, never re-sent. It carries a fixed
+sentence and the HTTP status, never the provider's words.
+_Avoid_: Publish result (an earlier draft's status object), response (the provider's own reply)
+
+**Credential envelope**:
+The encrypted form of a social account's provider tokens: AES-256-GCM ciphertext plus a wrapped data key, bound to
+one site and account, openable only with a key from `OPENBLOG_SOCIAL_TOKEN_KEYS` that is never in the database.
+_Avoid_: Vault secret, encrypted token column
+
+**Refresh lease**:
+A short claim on one account's credential that lets exactly one caller exchange its refresh token, so concurrent
+refreshes cannot burn a rotating refresh token.
+_Avoid_: Lock
+
+**Social connection**:
+One author's OAuth handshake with one provider, from the authorization URL to a finished or failed outcome. It
+holds a hash of a single-use state, never the state, and keeps the provider's tokens sealed only until the
+author chooses a destination or the attempt ends.
+_Avoid_: Login, session
+
+**OAuth state**:
+The unguessable single-use value that ties a provider's redirect back to the connection an authorized Admin
+started. It is the callback's only proof, since the callback carries no key.
+_Avoid_: Nonce, CSRF token (the Admin CSRF token is a different thing)
+
+**Destination**:
+Where a connected account may actually post: a LinkedIn member or organization, or a Facebook Page. It is offered
+only when the provider confirmed the permission and the person's role; otherwise it is listed with the reason and
+cannot be chosen.
+_Avoid_: Channel, target (a cross-posting target is a different thing)
+
+**Reconnect**:
+A new handshake for an existing social account that can finish only for the same provider identity, replacing its
+credential and clearing its needs-reauth flag.
+_Avoid_: Refresh (a silent token renewal), re-add
+
+**Connected accounts screen**:
+The Admin page (`#/social`) where an author connects, reviews, reconnects and disconnects social accounts. It shows
+only what the Admin server rebuilt from the hosted function's reply, and appears in the navigation only when the
+Admin server has social settings.
+_Avoid_: Integrations, social settings
+
+**Claim**:
+The atomic step in which a worker takes a due scheduled social post: one database function moves it to `claimed`
+under a lease, raises its attempt count and version, and opens the attempt row, skipping any row another claim has
+locked. A claim and an author's edit or cancel exclude each other.
+_Avoid_: Pick up, dequeue
+
+**Lease**:
+The time until which one worker may deliver a claimed post. When it runs out, the post is reaped: back to the queue if
+the provider was never called, `unknown` if it might have been.
+_Avoid_: Lock, timeout
+
+**Sending mark**:
+The stamp on a delivery attempt (`sending_at`) made just before the provider call, and only while the lease is valid.
+It separates "nothing was sent" from "it may have been sent", which decides whether an expired lease is retried or
+becomes an unknown outcome.
+_Avoid_: Heartbeat
+
+**Delivery worker**:
+The hosted function (`/api/social-worker`) that runs one bounded batch: it claims due scheduled social posts, delivers
+each through its provider's adapter, and records the outcome. Only the worker key may call it, and pg_cron and pg_net
+wake it from the database with the key kept in Vault.
+_Avoid_: Cron job (that only wakes it), publisher
+
+**Provider adapter**:
+The one narrow interface the delivery worker calls a social provider through: `publish` returns the provider's own post
+id only on confirmed success or throws a typed delivery error; `reconcile` optionally looks a post up. It is given a
+caption, a link, an idempotency key and one access token, nothing else of ours, and is tested against fakes. One is
+registered only for a provider the deployment configured; LinkedIn has no lookup, Facebook looks at the Page's own posts.
+_Avoid_: Driver, integration, publisher
+
+**Unknown outcome**:
+The state of a delivery attempt that may have reached the provider and was not confirmed (a timeout, a dropped
+connection, a 5xx, an unreadable answer, a crash, a success that could not be recorded). It is never sent again by the
+worker; the adapter's lookup, then the author, settles it as posted or not posted.
+_Avoid_: Pending, failed (a failure certainly did not post)
+
+**Reconciliation**:
+The delivery worker's look at an unknown outcome through the provider adapter's optional lookup, on a widening
+schedule, ending in published, failed (`not-delivered`) or, when it cannot tell, review by a person.
+_Avoid_: Retry (a retry sends again)
+
+**Dead letter**:
+A scheduled social post that used up its attempts and is `failed` with `attempts-exhausted`. It keeps its history and
+can be retried by hand, with a fresh allowance of attempts.
+_Avoid_: Error queue
+
+**Account pause**:
+The time until which a rate-limited social account sends nothing, for any of its posts, so one limit is not hit again by
+the next announcement.
+_Avoid_: Cooldown, ban

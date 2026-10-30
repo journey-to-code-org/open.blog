@@ -11,9 +11,13 @@ use std::time::Duration;
 use openblog_core::assistant_guide::{engine_capabilities, ENGINE_GUIDE_VERSION};
 use openblog_core::config::normalize_code_runner_language;
 use openblog_core::frontmatter;
+use openblog_core::job_draft::JobDraft;
 use openblog_core::voice::guide::{self, SampleText, VoiceGuide};
 use serde::Serialize;
 use serde_json::{json, Value as Json};
+
+pub mod job_draft;
+pub mod transcribe;
 
 pub const ASSISTANT_SCHEMA_VERSION: u32 = 1;
 pub const ANTHROPIC_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
@@ -620,6 +624,10 @@ pub enum AssistantTask {
         samples: Vec<ReviewContext>,
         gaps: Json,
     },
+    JobDraft {
+        input: job_draft::JobDraftInput,
+        context: Vec<ReviewContext>,
+    },
 }
 
 impl AssistantTask {
@@ -630,6 +638,7 @@ impl AssistantTask {
             Self::DocumentReview { .. } => ExpectedOutput::ReviewFindings,
             Self::InlineCompletion { .. } => ExpectedOutput::InlineCompletion,
             Self::VoiceGuide { .. } => ExpectedOutput::VoiceGuide,
+            Self::JobDraft { .. } => ExpectedOutput::JobDraft,
         }
     }
 }
@@ -661,6 +670,8 @@ pub enum AssistantSource {
     Completion(AssistantCompletionSource),
     /// The voice-guide task reads only its selected samples; the request carries them.
     Samples,
+    /// The job-draft task carries the author's notes in its task (ADR 0303).
+    JobNotes,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -670,6 +681,7 @@ pub enum ExpectedOutput {
     ReviewFindings,
     InlineCompletion,
     VoiceGuide,
+    JobDraft,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -971,6 +983,7 @@ pub enum AssistantResult {
     Review(ReviewFindingSet),
     Completion(InlineCompletion),
     VoiceGuide(VoiceGuide),
+    JobDraft(JobDraft),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1569,7 +1582,9 @@ fn anthropic_output_schema(request: &AssistantRequest) -> Json {
                 }
                 AssistantTask::KnowledgeChecks { .. } => unreachable!("output kind was checked"),
                 AssistantTask::CodeInteraction { .. } => unreachable!("output kind was checked"),
-                AssistantTask::InlineCompletion { .. } | AssistantTask::VoiceGuide { .. } => {
+                AssistantTask::InlineCompletion { .. }
+                | AssistantTask::VoiceGuide { .. }
+                | AssistantTask::JobDraft { .. } => {
                     unreachable!("output kind was checked")
                 }
             };
@@ -1683,6 +1698,7 @@ fn anthropic_output_schema(request: &AssistantRequest) -> Json {
                 "additionalProperties": false
             })
         }
+        ExpectedOutput::JobDraft => job_draft::schema(),
         ExpectedOutput::InlineCompletion => json!({
             "type": "object",
             "properties": {
@@ -1810,6 +1826,9 @@ fn validate_assistant_result(
         }
         ExpectedOutput::VoiceGuide => {
             validate_voice_guide(value, request).map(AssistantResult::VoiceGuide)
+        }
+        ExpectedOutput::JobDraft => {
+            job_draft::validate_job_draft(value).map(AssistantResult::JobDraft)
         }
     }
 }
@@ -2012,6 +2031,9 @@ pub fn provider_payload(request: &AssistantRequest) -> Result<Json, AssistantErr
                 }
             }))
         }
+        (AssistantTask::JobDraft { input, context }, AssistantSource::JobNotes) => {
+            job_draft::payload(request, input, context)
+        }
         _ => Err(AssistantError::new(
             AssistantErrorKind::InvalidConfiguration,
             "Assistant task and source types do not match",
@@ -2058,7 +2080,8 @@ pub fn legacy_quiz_payload(request: &AssistantRequest) -> Result<Json, Assistant
             ExpectedOutput::CodeInteraction
             | ExpectedOutput::ReviewFindings
             | ExpectedOutput::InlineCompletion
-            | ExpectedOutput::VoiceGuide => {
+            | ExpectedOutput::VoiceGuide
+            | ExpectedOutput::JobDraft => {
                 unreachable!("task was checked above")
             }
         }
