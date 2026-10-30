@@ -1,15 +1,18 @@
-//! `openblog video <slug>`: the YouTube-ready preview of a video post (epic #386, ADR 0842).
+//! `openblog video <slug>`: the YouTube-ready preview of a video post (epic #386, ADRs 0842, 0843).
 //!
 //! Reads the post, its release fields and the files they name, and prints or writes what the
 //! author would enter in YouTube Studio. It sends nothing, reads no credential and writes only into
-//! a new preview folder the author names.
+//! a new preview folder the author names. A file is read only at a clean path inside the project
+//! with no symlink on the way, and only its size and first bytes are read.
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use openblog_core::distribution::Status;
-use openblog_core::portability::PortableProjection;
-use openblog_core::video_release::{self, PreviewSource, VideoPreview, VideoRelease};
+use openblog_core::video_release::{
+    self, AssetFacts, AssetRef, PreviewSource, PublicFolders, VideoPreview, VideoRelease,
+};
 
 use crate::{fsutil, site, url_context};
 
@@ -33,10 +36,12 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
     let release = VideoRelease::from_post(post).ok_or_else(|| {
         format!("post `{slug}` does not use the video profile; a video release is prepared only from a post with `profile: video`")
     })?;
-    let canonical_url = PortableProjection::for_site(&loaded, post)?
-        .canonical_url()
-        .to_string();
+    // The post's own page, as its portable projection names it; a draft has no projection yet,
+    // but its page will be at the same address.
+    let canonical_url = loaded.config.absolute(&post.url);
     let article_public = public_address(&canonical_url) && live(root, slug)?;
+    let paths = &loaded.config.paths;
+    let probe = |asset: &AssetRef<'_>| probe(root, &paths.static_dir, asset);
     let preview = video_release::youtube_preview(
         &release,
         PreviewSource {
@@ -44,7 +49,12 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
             source_path: &post.source,
             canonical_url: &canonical_url,
             article_public,
+            folders: PublicFolders {
+                static_dir: &paths.static_dir,
+                output_dir: &paths.output,
+            },
         },
+        &probe,
     );
     if options.json {
         let text = serde_json::to_string_pretty(&preview.to_json_value())
@@ -53,7 +63,12 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
         return Ok(());
     }
     if let Some(directory) = &options.preview {
-        let thumbnail = thumbnail_source(root, &loaded.config.paths.static_dir, &release);
+        let thumbnail = release
+            .thumbnail
+            .as_deref()
+            .and_then(|url| url.strip_prefix('/'))
+            .and_then(video_release::project_path)
+            .and_then(|path| resolve(root, &paths.static_dir, &AssetRef::Static(path)));
         let written = write_preview(root, directory, &preview, thumbnail.as_deref())?;
         println!(
             "YouTube preview of `{slug}` written to {} ({}). Nothing was uploaded.",
@@ -83,23 +98,45 @@ fn live(root: &Path, slug: &str) -> Result<bool, String> {
     Ok(published.posts.iter().any(|post| post.slug == slug))
 }
 
-/// The file a site-relative thumbnail is served from (`/images/a.png` is `static/images/a.png`).
-/// An absolute address or a path outside the static folder has none.
-fn thumbnail_source(root: &Path, static_dir: &str, release: &VideoRelease) -> Option<PathBuf> {
-    let path = release.thumbnail.as_deref()?.strip_prefix('/')?;
-    let relative = Path::new(path);
-    if path.starts_with('/')
-        || relative
-            .components()
-            .any(|c| !matches!(c, std::path::Component::Normal(_)))
-    {
-        return None;
+/// The regular file an asset names, or `None` when anything on the way from the project root is
+/// a symlink, or the end is not a regular file. Core has already refused any path with `..`.
+fn resolve(root: &Path, static_dir: &str, asset: &AssetRef<'_>) -> Option<PathBuf> {
+    let (base, path) = match asset {
+        AssetRef::Project(path) => (String::new(), *path),
+        AssetRef::Static(path) => (format!("{}/", static_dir.trim_matches('/')), *path),
+    };
+    let relative = format!("{base}{path}");
+    let mut current = root.to_path_buf();
+    for part in relative.split('/') {
+        if matches!(part, "" | "." | "..") {
+            return None;
+        }
+        current.push(part);
+        let meta = fs::symlink_metadata(&current).ok()?;
+        if meta.file_type().is_symlink() {
+            return None;
+        }
     }
-    let file = root.join(static_dir).join(relative);
-    fs::symlink_metadata(&file)
+    fs::symlink_metadata(&current)
         .ok()
         .filter(|meta| meta.is_file())
-        .map(|_| file)
+        .map(|_| current)
+}
+
+/// The size and first bytes of an asset, for core to check.
+fn probe(root: &Path, static_dir: &str, asset: &AssetRef<'_>) -> AssetFacts {
+    let Some(path) = resolve(root, static_dir, asset) else {
+        return AssetFacts::Missing;
+    };
+    let read = || -> std::io::Result<AssetFacts> {
+        let file = fs::File::open(&path)?;
+        let bytes = file.metadata()?.len();
+        let mut head = Vec::new();
+        file.take(video_release::HEAD_BYTES as u64)
+            .read_to_end(&mut head)?;
+        Ok(AssetFacts::File { bytes, head })
+    };
+    read().unwrap_or(AssetFacts::Missing)
 }
 
 fn print_summary(preview: &VideoPreview) {
@@ -182,26 +219,25 @@ fn write_preview(
     if let Some(transcript) = &preview.transcript {
         write("transcript.txt", format!("{transcript}\n").as_bytes())?;
     }
-    // The copy is named by its own extension only, never by the author's file name.
+    // The copy is named by the image kind it is, never by the author's file name.
     let copied = match thumbnail {
-        Some(source) => {
-            let extension = source
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(str::to_ascii_lowercase)
-                .filter(|e| matches!(e.as_str(), "jpg" | "jpeg" | "png"));
-            match extension {
-                Some(extension) => {
-                    let name = format!("thumbnail.{extension}");
-                    let bytes = fs::read(source)
-                        .map_err(|error| format!("cannot read the thumbnail: {error}"))?;
+        // A thumbnail YouTube would refuse for its size is not copied either.
+        Some(source)
+            if fs::metadata(source)
+                .is_ok_and(|meta| meta.len() <= video_release::YOUTUBE_THUMBNAIL_MAX_BYTES) =>
+        {
+            let bytes =
+                fs::read(source).map_err(|error| format!("cannot read the thumbnail: {error}"))?;
+            match video_release::image_size(&bytes) {
+                Some((kind, _, _)) => {
+                    let name = format!("thumbnail.{}", if kind == "png" { "png" } else { "jpg" });
                     write(&name, &bytes)?;
                     Some(name)
                 }
                 None => None,
             }
         }
-        None => None,
+        _ => None,
     };
     let mut json = preview.to_json_value();
     if let Some(name) = &copied {

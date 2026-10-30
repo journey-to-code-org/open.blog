@@ -116,3 +116,23 @@ description of at most 5,000 bytes, neither containing `<` or `>`; tags of at mo
 in all; and the chapter rules above. Anything that would be refused is listed with a code, and
 the release is **Blocked** until you fix it; open.blog never shortens your words to fit. A post
 that is not live yet is noted, so you keep the video private until it is.
+
+### What blocks a release
+
+Before anything can go to YouTube, the preview also checks the files and answers themselves
+([ADR 0843](adr/0843-a-release-is-blocked-until-its-source-is-a-private-video-every-consent-answer-is-given-and-a-text-alternative-exists.md)):
+
+- **The video.** `videoFile` must be a path inside your project, kept out of the static and
+  output folders (anything there is published with your site, before its release), in a format
+  YouTube accepts (mp4, m4v, mov, 3gp, webm, avi, wmv, flv, mpg or mpeg), and actually start like
+  one. A video already on YouTube (`videoUrl`) needs no file.
+- **Your answers.** All four must be given; a missing or misspelt answer blocks the release and
+  is never filled in for you.
+- **A text alternative.** The video needs caption files or a Transcript section. Each caption file
+  must exist, be WebVTT or SubRip text, name its language, and be the only one for that language.
+- **The thumbnail.** A JPEG or PNG in your static folder, at least 640 pixels wide and at most
+  50 MB. A thumbnail that is not 16:9, an `https` thumbnail open.blog cannot check, or no thumbnail
+  at all is noted rather than blocked.
+
+open.blog reads only each file's size and first bytes, never follows a symbolic link, and never
+reads outside your project.

@@ -371,6 +371,8 @@ pub struct PreviewSource<'a> {
     /// Whether the article is live: published, not scheduled for later, and at a public `https`
     /// address. A video should not link a page that does not exist yet.
     pub article_public: bool,
+    /// The folders the site publishes, which a master file must stay out of.
+    pub folders: PublicFolders<'a>,
 }
 
 /// One caption track as YouTube would list it.
@@ -627,11 +629,17 @@ fn steps(release: &VideoRelease, canonical_url: &str) -> Vec<String> {
 }
 
 /// The YouTube-ready preview of `release`: the exact metadata, checked against YouTube's rules
-/// and its manifest. Sends nothing and reads nothing.
-pub fn youtube_preview(release: &VideoRelease, source: PreviewSource<'_>) -> VideoPreview {
+/// and its manifest, with the files it names looked up through `probe` (ADR 0843). Sends nothing.
+pub fn youtube_preview(
+    release: &VideoRelease,
+    source: PreviewSource<'_>,
+    probe: &dyn Fn(&AssetRef<'_>) -> AssetFacts,
+) -> VideoPreview {
     let manifest = builtin_manifest(ProviderId::Youtube);
     let description = compose_description(release, source.canonical_url);
-    let problems = metadata_problems(release, &description);
+    let mut problems = metadata_problems(release, &description);
+    let (release_problems, asset_notes) = release_problems(release, &source.folders, probe);
+    problems.extend(release_problems);
     let mut capabilities = vec![Capability::Video, Capability::Text, Capability::Link];
     if release.thumbnail.is_some() {
         capabilities.push(Capability::Image);
@@ -648,6 +656,7 @@ pub fn youtube_preview(release: &VideoRelease, source: PreviewSource<'_>) -> Vid
             "The article is not live at its public address yet; keep the video private until it is.",
         ));
     }
+    notes.extend(asset_notes);
     let status = if !problems.is_empty() {
         Status::Blocked
     } else if !manual.is_empty() {
@@ -944,6 +953,391 @@ pub fn preview_page(preview: &VideoPreview, thumbnail_file: Option<&str>) -> Str
     out
 }
 
+// ---------------------------------------------------------------------------------------------
+// Media source, consent and accessibility validation (task DIST6.1.3, ADR 0843).
+
+/// `videos.insert` takes a file of at most 256 GB
+/// (<https://developers.google.com/youtube/v3/docs/videos/insert>).
+pub const YOUTUBE_VIDEO_MAX_BYTES: u64 = 256 * 1024 * 1024 * 1024;
+/// `thumbnails.set` takes a JPEG or PNG of at most 50 MB
+/// (<https://developers.google.com/youtube/v3/docs/thumbnails/set>), counted here in decimal so
+/// a file at the edge is never let through.
+pub const YOUTUBE_THUMBNAIL_MAX_BYTES: u64 = 50_000_000;
+/// A video thumbnail is at least 640 pixels wide, and 16:9 is the shape YouTube shows
+/// (<https://support.google.com/youtube/answer/72431>).
+pub const YOUTUBE_THUMBNAIL_MIN_WIDTH: u32 = 640;
+/// `captions.insert` takes a file of at most 100 MB
+/// (<https://developers.google.com/youtube/v3/docs/captions/insert>).
+pub const YOUTUBE_CAPTION_MAX_BYTES: u64 = 100_000_000;
+/// How many leading bytes of a file the caller hands over: enough for a video's signature, a
+/// caption's first cue and a JPEG's frame header after its metadata.
+pub const HEAD_BYTES: usize = 1024 * 1024;
+
+/// Video formats YouTube lists as supported (<https://support.google.com/youtube/troubleshooter/2888402>)
+/// whose signature open.blog can recognise, by extension.
+pub const VIDEO_EXTENSIONS: &[&str] = &[
+    "mp4", "m4v", "mov", "3gp", "webm", "avi", "wmv", "flv", "mpg", "mpeg",
+];
+
+/// A file a release names, for the caller to look up. Only a path that already passed
+/// [`project_path`] is ever asked for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AssetRef<'a> {
+    /// Relative to the project root (`videoFile`, `captions`).
+    Project(&'a str),
+    /// Relative to the static folder, from a site-relative address (`/images/a.png`).
+    Static(&'a str),
+}
+
+/// What the caller found. A symlink, a folder or anything that is not a regular file is
+/// `Missing`: nothing is followed out of the project.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AssetFacts {
+    Missing,
+    /// A regular file: its size and its first bytes (at most [`HEAD_BYTES`]).
+    File {
+        bytes: u64,
+        head: Vec<u8>,
+    },
+}
+
+/// The folders whose contents become public with the site: a master file there would be
+/// published before its release.
+pub struct PublicFolders<'a> {
+    pub static_dir: &'a str,
+    pub output_dir: &'a str,
+}
+
+/// A clean project-relative path: no root, drive, scheme, `..`, `.`, backslash or empty segment.
+pub fn project_path(path: &str) -> Option<&str> {
+    let ok = !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains('\\')
+        && !path.contains(':')
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..");
+    ok.then_some(path)
+}
+
+fn extension(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.rsplit_once('.')
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+/// Whether `path` lies inside the folder `dir` (both project-relative).
+fn inside(path: &str, dir: &str) -> bool {
+    let dir = dir.trim_matches('/');
+    !dir.is_empty()
+        && (path == dir
+            || path
+                .strip_prefix(dir)
+                .is_some_and(|rest| rest.starts_with('/')))
+}
+
+/// Whether the first bytes are those of a video in the format its extension names.
+fn video_signature(extension: &str, head: &[u8]) -> bool {
+    let at = |offset: usize, bytes: &[u8]| head.get(offset..offset + bytes.len()) == Some(bytes);
+    match extension {
+        "mp4" | "m4v" | "mov" | "3gp" => {
+            at(4, b"ftyp")
+                || (extension == "mov"
+                    && [b"moov", b"mdat", b"wide", b"free"]
+                        .iter()
+                        .any(|atom| at(4, *atom)))
+        }
+        "webm" => at(0, &[0x1a, 0x45, 0xdf, 0xa3]),
+        "avi" => at(0, b"RIFF") && at(8, b"AVI "),
+        "wmv" => at(0, &[0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11]),
+        "flv" => at(0, b"FLV"),
+        "mpg" | "mpeg" => at(0, &[0, 0, 1, 0xba]) || at(0, &[0, 0, 1, 0xb3]),
+        _ => false,
+    }
+}
+
+/// The kind and size of a PNG or JPEG image from its first bytes.
+pub fn image_size(head: &[u8]) -> Option<(&'static str, u32, u32)> {
+    let be32 = |at: usize| {
+        head.get(at..at + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    let be16 = |at: usize| {
+        head.get(at..at + 2)
+            .map(|b| u32::from(u16::from_be_bytes([b[0], b[1]])))
+    };
+    if head.starts_with(b"\x89PNG\r\n\x1a\n") && head.get(12..16) == Some(b"IHDR") {
+        return Some(("png", be32(16)?, be32(20)?));
+    }
+    if !head.starts_with(&[0xff, 0xd8]) {
+        return None;
+    }
+    let mut at = 2;
+    loop {
+        while head.get(at) == Some(&0xff) && head.get(at + 1) == Some(&0xff) {
+            at += 1;
+        }
+        if head.get(at) != Some(&0xff) {
+            return None;
+        }
+        let marker = *head.get(at + 1)?;
+        if matches!(marker, 0xd0..=0xd9 | 0x01) {
+            at += 2;
+            continue;
+        }
+        let length = be16(at + 2)? as usize;
+        if matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf) {
+            let (height, width) = (be16(at + 5)?, be16(at + 7)?);
+            return Some(("jpeg", width, height));
+        }
+        if length < 2 {
+            return None;
+        }
+        at += 2 + length;
+    }
+}
+
+/// Whether the first bytes start a caption file of `format`: UTF-8 text that opens with `WEBVTT`,
+/// or with a SubRip cue number followed by a timing line.
+fn caption_signature(format: CaptionFormat, head: &[u8]) -> bool {
+    // A cut in the middle of a character at the end of the head is not a fault.
+    let text = match std::str::from_utf8(head) {
+        Ok(text) => text,
+        Err(error) if error.error_len().is_none() => {
+            std::str::from_utf8(&head[..error.valid_up_to()]).unwrap_or("")
+        }
+        Err(_) => return false,
+    };
+    let text = text.trim_start_matches('\u{feff}');
+    match format {
+        CaptionFormat::Webvtt => {
+            text.starts_with("WEBVTT")
+                && text[6..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| matches!(c, ' ' | '\t' | '\n' | '\r'))
+        }
+        CaptionFormat::Subrip => {
+            let mut lines = text.trim_start().lines();
+            lines.next().is_some_and(|l| {
+                !l.trim().is_empty() && l.trim().chars().all(|c| c.is_ascii_digit())
+            }) && lines.next().is_some_and(|l| l.contains("-->"))
+        }
+    }
+}
+
+/// Everything about the video source, the consent answers, the text alternative, the captions and
+/// the thumbnail that keeps a release from going (`problems`) or is worth knowing (`notes`).
+pub fn release_problems(
+    release: &VideoRelease,
+    folders: &PublicFolders<'_>,
+    probe: &dyn Fn(&AssetRef<'_>) -> AssetFacts,
+) -> (Vec<Problem>, Vec<Problem>) {
+    let mut problems = Vec::new();
+    let mut notes = Vec::new();
+    let reference = &release.reference;
+
+    // The media source.
+    if reference.file.is_none() && reference.url.is_none() {
+        problems.push(problem(
+            "source-missing",
+            "Name the video: `videoFile` for a file in your project, or `videoUrl` for a video already on YouTube.",
+        ));
+    }
+    if reference.url.is_some() && reference.youtube_id.is_none() {
+        problems.push(problem(
+            "source-url-unsupported",
+            "`videoUrl` must be a YouTube watch, youtu.be or Shorts address.",
+        ));
+    }
+    if let Some(file) = reference.file.as_deref() {
+        let ext = extension(file);
+        match project_path(file) {
+            None => problems.push(problem(
+                "source-path-invalid",
+                "`videoFile` must be a path inside your project, such as media/episode-1.mp4, without `..`.",
+            )),
+            Some(_) if !VIDEO_EXTENSIONS.contains(&ext.as_str()) => problems.push(problem(
+                "source-format-unsupported",
+                format!("`videoFile` must be one of: {}.", VIDEO_EXTENSIONS.join(", ")),
+            )),
+            Some(path) if inside(path, folders.static_dir) || inside(path, folders.output_dir) => {
+                problems.push(problem(
+                    "source-public",
+                    "`videoFile` is in a folder your site publishes, so it would be public before its release; move it outside the static and output folders.",
+                ))
+            }
+            Some(path) => match probe(&AssetRef::Project(path)) {
+                AssetFacts::Missing => problems.push(problem(
+                    "source-not-found",
+                    "`videoFile` is not a file in your project.",
+                )),
+                AssetFacts::File { bytes, .. } if bytes > YOUTUBE_VIDEO_MAX_BYTES => {
+                    problems.push(problem("source-too-large", "YouTube takes a video file of at most 256 GB."))
+                }
+                AssetFacts::File { head, .. } if !video_signature(&ext, &head) => problems.push(problem(
+                    "source-not-video",
+                    format!("`videoFile` does not start like a .{ext} video; check that it is the exported video."),
+                )),
+                AssetFacts::File { .. } => {}
+            },
+        }
+    }
+
+    // The author's answers.
+    let consent = &release.consent;
+    let answers: [(&str, &str, &str, bool, bool); 4] = [
+        (
+            "rights",
+            "videoRights",
+            "owned or licensed",
+            consent.rights == Declared::Missing,
+            consent.rights == Declared::Invalid,
+        ),
+        (
+            "people",
+            "videoPeople",
+            "consented or none",
+            consent.people == Declared::Missing,
+            consent.people == Declared::Invalid,
+        ),
+        (
+            "audience",
+            "madeForKids",
+            "yes or no",
+            consent.made_for_kids == Declared::Missing,
+            consent.made_for_kids == Declared::Invalid,
+        ),
+        (
+            "synthetic",
+            "syntheticMedia",
+            "yes or no",
+            consent.synthetic_media == Declared::Missing,
+            consent.synthetic_media == Declared::Invalid,
+        ),
+    ];
+    for (name, key, values, missing, invalid) in answers {
+        if missing {
+            problems.push(problem(
+                &format!("consent-{name}-missing"),
+                format!("Answer `{key}` ({values}) in the post; open.blog never assumes it."),
+            ));
+        } else if invalid {
+            problems.push(problem(
+                &format!("consent-{name}-invalid"),
+                format!("`{key}` must be {values}."),
+            ));
+        }
+    }
+
+    // A text alternative: captions or a transcript.
+    if release.captions.is_empty() && release.transcript.is_none() {
+        problems.push(problem(
+            "accessibility-no-text-alternative",
+            "Add caption files with `captions`, or a Transcript section to the post, so the video can be followed without sound.",
+        ));
+    }
+    let mut languages = std::collections::BTreeSet::new();
+    for track in &release.captions {
+        let Some(path) = project_path(&track.path) else {
+            problems.push(problem(
+                "caption-path-invalid",
+                "Every caption file must be a path inside your project, without `..`.",
+            ));
+            continue;
+        };
+        let Some(format) = track.format else {
+            problems.push(problem(
+                "caption-format-unsupported",
+                "Caption files must be WebVTT (.vtt) or SubRip (.srt).",
+            ));
+            continue;
+        };
+        match &track.language {
+            None => problems.push(problem(
+                "caption-language-missing",
+                "Name each caption file for its language, such as episode-1.en.vtt.",
+            )),
+            Some(language) if !languages.insert(language.to_ascii_lowercase()) => {
+                problems.push(problem(
+                    "caption-language-duplicate",
+                    "List one caption file per language.",
+                ))
+            }
+            Some(_) => {}
+        }
+        match probe(&AssetRef::Project(path)) {
+            AssetFacts::Missing => problems.push(problem(
+                "caption-not-found",
+                "A caption file is not a file in your project.",
+            )),
+            AssetFacts::File { bytes, .. } if bytes > YOUTUBE_CAPTION_MAX_BYTES => problems.push(problem(
+                "caption-too-large",
+                "YouTube takes a caption file of at most 100 MB.",
+            )),
+            AssetFacts::File { head, .. } if !caption_signature(format, &head) => problems.push(problem(
+                "caption-unreadable",
+                "A caption file does not start as its format requires (WEBVTT, or a SubRip cue number and timing).",
+            )),
+            AssetFacts::File { .. } => {}
+        }
+    }
+
+    // The thumbnail.
+    match release.thumbnail.as_deref() {
+        None => notes.push(problem(
+            "thumbnail-missing",
+            "No `thumbnail` or `cover`: YouTube will offer frames from the video.",
+        )),
+        Some(url) if url.starts_with("https://") || url.starts_with("http://") => notes.push(problem(
+            "thumbnail-remote",
+            "The thumbnail is a remote address, so open.blog cannot check or copy it; set it by hand.",
+        )),
+        Some(url) => match url.strip_prefix('/').and_then(project_path) {
+            None => problems.push(problem(
+                "thumbnail-path-invalid",
+                "`thumbnail` must be a site address such as /images/episode.jpg, or an https address.",
+            )),
+            Some(path) if !matches!(extension(path).as_str(), "jpg" | "jpeg" | "png") => problems.push(problem(
+                "thumbnail-format-unsupported",
+                "YouTube takes a JPEG or PNG thumbnail.",
+            )),
+            Some(path) => match probe(&AssetRef::Static(path)) {
+                AssetFacts::Missing => problems.push(problem(
+                    "thumbnail-not-found",
+                    "The thumbnail is not a file in your static folder.",
+                )),
+                AssetFacts::File { bytes, .. } if bytes > YOUTUBE_THUMBNAIL_MAX_BYTES => problems.push(problem(
+                    "thumbnail-too-large",
+                    "YouTube takes a thumbnail of at most 50 MB.",
+                )),
+                AssetFacts::File { head, .. } => match image_size(&head) {
+                    None => problems.push(problem(
+                        "thumbnail-unreadable",
+                        "The thumbnail is not a readable JPEG or PNG image.",
+                    )),
+                    Some((_, width, _)) if width < YOUTUBE_THUMBNAIL_MIN_WIDTH => problems.push(problem(
+                        "thumbnail-too-narrow",
+                        format!("YouTube needs a thumbnail at least {YOUTUBE_THUMBNAIL_MIN_WIDTH} pixels wide."),
+                    )),
+                    Some((_, width, height)) => {
+                        // 16:9 within one percent.
+                        let (w, h) = (u64::from(width), u64::from(height));
+                        if (w * 9).abs_diff(h * 16) * 100 > h * 16 {
+                            notes.push(problem(
+                                "thumbnail-not-widescreen",
+                                "The thumbnail is not 16:9, so YouTube will show it letterboxed or cropped.",
+                            ));
+                        }
+                    }
+                },
+            },
+        },
+    }
+    (problems, notes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1044,6 +1438,37 @@ mod tests {
             source_path: "content/posts/episode-1.md",
             canonical_url: "https://blog.example.org/posts/episode-1/",
             article_public: public,
+            folders: PublicFolders {
+                static_dir: "static",
+                output_dir: "dist",
+            },
+        }
+    }
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        bytes.extend(width.to_be_bytes());
+        bytes.extend(height.to_be_bytes());
+        bytes
+    }
+
+    /// Every file the release names exists and is what its name says.
+    fn good(asset: &AssetRef<'_>) -> AssetFacts {
+        let path = match asset {
+            AssetRef::Project(path) | AssetRef::Static(path) => *path,
+        };
+        let head = if path.ends_with(".mp4") {
+            b"\0\0\0\x20ftypisom".to_vec()
+        } else if path.ends_with(".vtt") {
+            b"WEBVTT\n\n00:00.000 --> 00:02.000\nHello".to_vec()
+        } else if path.ends_with(".srt") {
+            b"1\n00:00:00,000 --> 00:00:02,000\nHello".to_vec()
+        } else {
+            png(1280, 720)
+        };
+        AssetFacts::File {
+            bytes: head.len() as u64,
+            head,
         }
     }
 
@@ -1114,7 +1539,7 @@ mod tests {
     fn a_ready_release_is_a_guided_workflow_under_the_youtube_manifest() {
         let mut ok = release();
         ok.title = "Episode one".into();
-        let preview = youtube_preview(&ok, source(true));
+        let preview = youtube_preview(&ok, source(true), &good);
         assert_eq!(preview.status, Status::Manual);
         assert!(preview.problems.is_empty(), "{:?}", preview.problems);
         assert_eq!(
@@ -1145,45 +1570,48 @@ mod tests {
         long.title = "x".repeat(101);
         long.description = "y".repeat(5000);
         long.tags = (0..60).map(|i| format!("tag-number-{i}")).collect();
-        let preview = youtube_preview(&long, source(false));
+        let preview = youtube_preview(&long, source(false), &good);
         assert_eq!(preview.status, Status::Blocked);
         assert_eq!(
             codes(&preview.problems),
             ["title-too-long", "description-too-long", "tags-too-long"]
         );
         assert_eq!(codes(&preview.notes), ["article-not-public"]);
-        let brackets = youtube_preview(&release(), source(true));
+        let brackets = youtube_preview(&release(), source(true), &good);
         assert_eq!(codes(&brackets.problems), ["title-angle-brackets"]);
     }
 
     #[test]
     fn the_digest_binds_every_field_youtube_receives() {
-        let base = youtube_preview(&release(), source(true)).digest;
-        assert_eq!(base, youtube_preview(&release(), source(true)).digest);
-        let changes: Vec<Box<dyn Fn(&mut VideoRelease)>> = vec![
-            Box::new(|r| r.title.push('!')),
-            Box::new(|r| r.description.push('!')),
-            Box::new(|r| r.tags.push("more".into())),
-            Box::new(|r| r.thumbnail = None),
-            Box::new(|r| r.captions.clear()),
-            Box::new(|r| r.transcript = None),
-            Box::new(|r| r.consent.made_for_kids = Declared::Value(true)),
-            Box::new(|r| r.consent.synthetic_media = Declared::Missing),
-            Box::new(|r| r.reference.file = Some("media/other.mp4".into())),
+        let base = youtube_preview(&release(), source(true), &good).digest;
+        assert_eq!(
+            base,
+            youtube_preview(&release(), source(true), &good).digest
+        );
+        let changes: [fn(&mut VideoRelease); 9] = [
+            |r| r.title.push('!'),
+            |r| r.description.push('!'),
+            |r| r.tags.push("more".into()),
+            |r| r.thumbnail = None,
+            |r| r.captions.clear(),
+            |r| r.transcript = None,
+            |r| r.consent.made_for_kids = Declared::Value(true),
+            |r| r.consent.synthetic_media = Declared::Missing,
+            |r| r.reference.file = Some("media/other.mp4".into()),
         ];
         for change in changes {
             let mut changed = release();
             change(&mut changed);
-            assert_ne!(youtube_preview(&changed, source(true)).digest, base);
+            assert_ne!(youtube_preview(&changed, source(true), &good).digest, base);
         }
         let mut moved = source(true);
         moved.canonical_url = "https://blog.example.org/posts/moved/";
-        assert_ne!(youtube_preview(&release(), moved).digest, base);
+        assert_ne!(youtube_preview(&release(), moved, &good).digest, base);
     }
 
     #[test]
     fn the_preview_page_is_static_escaped_and_labelled() {
-        let preview = youtube_preview(&release(), source(false));
+        let preview = youtube_preview(&release(), source(false), &good);
         let page = preview_page(&preview, Some("thumbnail.png"));
         assert!(page.starts_with("<!doctype html>\n<html lang=\"en\">"));
         assert!(!page.contains("<script") && !page.contains("<form"));
@@ -1198,5 +1626,256 @@ mod tests {
         assert!(page.contains("<pre tabindex=\"0\" aria-label=\"Video description\">"));
         let without = preview_page(&preview, None);
         assert!(without.contains("is not in this folder"));
+    }
+
+    fn checked(
+        release: &VideoRelease,
+        probe: &dyn Fn(&AssetRef<'_>) -> AssetFacts,
+    ) -> (Vec<String>, Vec<String>) {
+        let folders = PublicFolders {
+            static_dir: "static",
+            output_dir: "dist",
+        };
+        let (problems, notes) = release_problems(release, &folders, probe);
+        (
+            problems.into_iter().map(|p| p.code).collect(),
+            notes.into_iter().map(|p| p.code).collect(),
+        )
+    }
+
+    #[test]
+    fn a_complete_release_has_nothing_to_report() {
+        assert_eq!(checked(&release(), &good), (vec![], vec![]));
+    }
+
+    #[test]
+    fn the_media_source_must_be_a_private_video_file_or_a_youtube_address() {
+        let mut r = release();
+        r.reference = VideoReference::default();
+        assert_eq!(checked(&r, &good).0, ["source-missing"]);
+        r.reference.url = Some("https://vimeo.com/1".into());
+        assert_eq!(checked(&r, &good).0, ["source-url-unsupported"]);
+        r.reference = VideoReference {
+            file: None,
+            url: Some("https://youtu.be/dQw4w9WgXcQ".into()),
+            youtube_id: Some("dQw4w9WgXcQ".into()),
+        };
+        assert!(
+            checked(&r, &good).0.is_empty(),
+            "an existing video needs no file"
+        );
+        for (file, code) in [
+            ("../outside.mp4", "source-path-invalid"),
+            ("/abs/video.mp4", "source-path-invalid"),
+            ("C:/video.mp4", "source-path-invalid"),
+            ("media\\video.mp4", "source-path-invalid"),
+            ("media/video.mkv", "source-format-unsupported"),
+            ("static/media/video.mp4", "source-public"),
+            ("dist/video.mp4", "source-public"),
+        ] {
+            r.reference.file = Some(file.into());
+            assert_eq!(checked(&r, &good).0, [code], "{file}");
+        }
+        r.reference.file = Some("statics/video.mp4".into());
+        assert!(
+            checked(&r, &good).0.is_empty(),
+            "a sibling folder is not the static folder"
+        );
+        r.reference.file = Some("media/video.mp4".into());
+        assert_eq!(
+            checked(&r, &|_| AssetFacts::Missing).0[0],
+            "source-not-found"
+        );
+        let text = |_: &AssetRef<'_>| AssetFacts::File {
+            bytes: 5,
+            head: b"hello".to_vec(),
+        };
+        assert_eq!(checked(&r, &text).0[0], "source-not-video");
+        let huge = |asset: &AssetRef<'_>| match asset {
+            AssetRef::Project(p) if p.ends_with(".mp4") => AssetFacts::File {
+                bytes: YOUTUBE_VIDEO_MAX_BYTES + 1,
+                head: Vec::new(),
+            },
+            other => good(other),
+        };
+        assert_eq!(checked(&r, &huge).0, ["source-too-large"]);
+    }
+
+    #[test]
+    fn every_consent_answer_is_required_and_never_guessed() {
+        let mut r = release();
+        r.consent = Consent {
+            rights: Declared::Missing,
+            people: Declared::Invalid,
+            made_for_kids: Declared::Missing,
+            synthetic_media: Declared::Invalid,
+        };
+        assert_eq!(
+            checked(&r, &good).0,
+            [
+                "consent-rights-missing",
+                "consent-people-invalid",
+                "consent-audience-missing",
+                "consent-synthetic-invalid"
+            ]
+        );
+        let preview = youtube_preview(&r, source(true), &good);
+        assert_eq!(preview.status, Status::Blocked);
+        assert_eq!(
+            (preview.made_for_kids, preview.synthetic_media),
+            (None, None)
+        );
+        assert!(preview
+            .steps
+            .iter()
+            .any(|s| s.contains("the answer you declare in the post")));
+    }
+
+    #[test]
+    fn a_video_needs_captions_or_a_transcript_and_each_caption_must_be_usable() {
+        let mut r = release();
+        r.captions.clear();
+        assert!(
+            checked(&r, &good).0.is_empty(),
+            "a transcript alone is enough"
+        );
+        r.transcript = None;
+        assert_eq!(checked(&r, &good).0, ["accessibility-no-text-alternative"]);
+        r.transcript = transcript("## Transcript\nHello");
+        r.captions = [
+            "../x.en.vtt",
+            "media/x.en.sbv",
+            "media/x.vtt",
+            "media/x.en.srt",
+            "media/y.EN.vtt",
+        ]
+        .iter()
+        .map(|p| CaptionTrack::from_path(p))
+        .collect();
+        assert_eq!(
+            checked(&r, &good).0,
+            [
+                "caption-path-invalid",
+                "caption-format-unsupported",
+                "caption-language-missing",
+                "caption-language-duplicate"
+            ]
+        );
+        r.captions = vec![CaptionTrack::from_path("media/x.en.vtt")];
+        let no_caption = |asset: &AssetRef<'_>| match asset {
+            AssetRef::Project(p) if p.ends_with(".vtt") => AssetFacts::Missing,
+            other => good(other),
+        };
+        assert_eq!(checked(&r, &no_caption).0, ["caption-not-found"]);
+        let wrong = |asset: &AssetRef<'_>| match asset {
+            AssetRef::Project(p) if p.ends_with(".vtt") => AssetFacts::File {
+                bytes: 9,
+                head: b"WEBVTTX\n".to_vec(),
+            },
+            other => good(other),
+        };
+        assert_eq!(checked(&r, &wrong).0, ["caption-unreadable"]);
+        let latin1 = |asset: &AssetRef<'_>| match asset {
+            AssetRef::Project(p) if p.ends_with(".vtt") => AssetFacts::File {
+                bytes: 9,
+                head: b"WEBVTT\n\xe9t\xe9".to_vec(),
+            },
+            other => good(other),
+        };
+        assert_eq!(checked(&r, &latin1).0, ["caption-unreadable"]);
+        let bom_and_cut = |asset: &AssetRef<'_>| match asset {
+            AssetRef::Project(p) if p.ends_with(".vtt") => AssetFacts::File {
+                bytes: 99,
+                head: b"\xef\xbb\xbfWEBVTT - Episode\n\n\xc3".to_vec(),
+            },
+            other => good(other),
+        };
+        assert!(checked(&r, &bom_and_cut).0.is_empty());
+        let big = |asset: &AssetRef<'_>| match asset {
+            AssetRef::Project(p) if p.ends_with(".vtt") => AssetFacts::File {
+                bytes: YOUTUBE_CAPTION_MAX_BYTES + 1,
+                head: Vec::new(),
+            },
+            other => good(other),
+        };
+        assert_eq!(checked(&r, &big).0, ["caption-too-large"]);
+    }
+
+    #[test]
+    fn the_thumbnail_is_a_wide_enough_jpeg_or_png_in_the_static_folder() {
+        let mut r = release();
+        let with = |head: Vec<u8>| {
+            move |asset: &AssetRef<'_>| match asset {
+                AssetRef::Static(_) => AssetFacts::File {
+                    bytes: head.len() as u64,
+                    head: head.clone(),
+                },
+                other => good(other),
+            }
+        };
+        assert_eq!(
+            checked(&r, &with(png(320, 180))).0,
+            ["thumbnail-too-narrow"]
+        );
+        assert_eq!(
+            checked(&r, &with(png(1000, 1000))),
+            (vec![], vec!["thumbnail-not-widescreen".to_string()])
+        );
+        assert_eq!(
+            checked(&r, &with(b"GIF89a".to_vec())).0,
+            ["thumbnail-unreadable"]
+        );
+        // A JPEG whose frame header follows an APP1 segment.
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1, 0x00, 0x04, 0x00, 0x00];
+        jpeg.extend([0xff, 0xc0, 0x00, 0x11, 0x08, 0x02, 0xd0, 0x05, 0x00]);
+        assert_eq!(image_size(&jpeg), Some(("jpeg", 1280, 720)));
+        assert!(checked(&r, &with(jpeg)).0.is_empty());
+        assert_eq!(image_size(&[0xff, 0xd8, 0xff]), None);
+        let big = |asset: &AssetRef<'_>| match asset {
+            AssetRef::Static(_) => AssetFacts::File {
+                bytes: YOUTUBE_THUMBNAIL_MAX_BYTES + 1,
+                head: png(1280, 720),
+            },
+            other => good(other),
+        };
+        assert_eq!(checked(&r, &big).0, ["thumbnail-too-large"]);
+        let missing = |asset: &AssetRef<'_>| match asset {
+            AssetRef::Static(_) => AssetFacts::Missing,
+            other => good(other),
+        };
+        assert_eq!(checked(&r, &missing).0, ["thumbnail-not-found"]);
+        for (thumbnail, code) in [
+            ("/images/a.gif", "thumbnail-format-unsupported"),
+            ("images/a.png", "thumbnail-path-invalid"),
+            ("/../a.png", "thumbnail-path-invalid"),
+        ] {
+            r.thumbnail = Some(thumbnail.into());
+            assert_eq!(checked(&r, &good).0, [code], "{thumbnail}");
+        }
+        r.thumbnail = Some("https://cdn.example.org/a.png".into());
+        assert_eq!(
+            checked(&r, &good),
+            (vec![], vec!["thumbnail-remote".to_string()])
+        );
+        r.thumbnail = None;
+        assert_eq!(
+            checked(&r, &good),
+            (vec![], vec!["thumbnail-missing".to_string()])
+        );
+    }
+
+    #[test]
+    fn only_clean_relative_paths_are_ever_looked_up() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let mut r = release();
+        r.reference.file = Some("../../etc/passwd.mp4".into());
+        r.captions = vec![CaptionTrack::from_path("/etc/x.en.vtt")];
+        r.thumbnail = Some("/../secret.png".into());
+        let probe = |asset: &AssetRef<'_>| {
+            asked.borrow_mut().push(format!("{asset:?}"));
+            AssetFacts::Missing
+        };
+        let _ = checked(&r, &probe);
+        assert!(asked.borrow().is_empty(), "{:?}", asked.borrow());
     }
 }

@@ -2950,3 +2950,13 @@ its status (blocked, manual or ready), every problem with its code, the guided s
 `openblog video --preview`; sends nothing (ADR 0842).
 _Avoid_: Release kit (Admin's copy helper), upload plan
 
+**Text alternative**:
+What lets a video be followed without sound: caption files or the post's Transcript section. A release without one
+is blocked (ADR 0843).
+_Avoid_: Subtitles (one kind of caption), accessibility metadata
+
+**Asset probe**:
+The caller-supplied lookup that tells core a release file's size and first bytes, asked only about clean
+project-relative paths and treating a symlink or anything but a regular file as missing. Core never reads files.
+_Avoid_: File check, scanner
+
