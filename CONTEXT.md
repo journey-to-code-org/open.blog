@@ -2932,3 +2932,26 @@ The author's explicit consent to one distribution plan, given by its digest: bou
 canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
 under. Private; with `requireApproval` a write sends only what it covers (ADR 0329).
 _Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)
+
+**Webmention**:
+A W3C notification that a canonical post links a page on another site: a form POST of the post's address
+(`source`) and the linked address (`target`) to the endpoint that page advertises. open.blog sends them with
+`openblog webmention --write` when `webmention.enabled` is on; nothing else sends one (ADR 0860).
+_Avoid_: Pingback, trackback, mention (a reader's reply), syndication (a copy of the article)
+
+**Webmention target**:
+A link of a post's public portable HTML to another site that may be told: absolute `http(s)`, no credentials,
+not the post's own host, not excluded, at most 100 per post. Whether it is reachable is decided per request.
+_Avoid_: Destination (a cross-posting or social target), recipient
+
+**Webmention endpoint discovery**:
+Finding where a target accepts Webmentions: its first `Link` header with `rel="webmention"`, else the first
+`<link>` or `<a>` with it, resolved against the address after redirects, with every address checked public
+before use (ADR 0860).
+_Avoid_: Crawling, scraping
+
+**Webmention queue**:
+The private file (`webmention.stateFile`) that records, per canonical post and target, the latest ping's
+status (`sent`, `no-endpoint`, `retrying`, `failed`, `rejected`, `blocked`), the post revision it was for, and
+when a retry is due. It decides what the next run sends (ADR 0861).
+_Avoid_: Outbox, delivery log (the social operations log)

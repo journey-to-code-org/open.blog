@@ -381,6 +381,18 @@ in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup a
 [automated syndication specification](specs/automated-syndication.md) for the exact fields,
 credential names, and safety behavior.
 
+## Webmention
+
+`webmention` is off and absent by default. `enabled: true` lets `openblog webmention --write` send
+Webmentions to the sites a published post links; a dry run works without it. `stateFile` is the
+private queue of outcomes (default `.openblog/webmentions.json`), and `excludeHosts` lists sites
+(with their subdomains) that never receive one. A post opts out with `webmentions: false` in its
+front matter. See [Webmention](webmention.md).
+
+```json
+{ "webmention": { "enabled": true, "excludeHosts": ["tracker.example"] } }
+```
+
 ## Knowledge Atlas
 
 `knowledgeAtlas.publish` (off by default) publishes the approved part of your private
