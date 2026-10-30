@@ -59,7 +59,7 @@ test("LinkedIn: the member and the organizations they administer, with eligibili
   const { id, result } = await connect(handler);
   assert.equal(result.statusCode, 200);
   const orgCall = w.provider.find((entry) => entry.path === "/rest/organizationAcls");
-  assert.equal(orgCall.headers["linkedin-version"], "202510");
+  assert.equal(orgCall.headers["linkedin-version"], "202610");
   assert.equal(orgCall.headers["x-restli-protocol-version"], "2.0.0");
   assert.equal(orgCall.headers.authorization, `Bearer ${ACCESS}`);
   const { connections } = (await call(handler, "GET", "/connections")).body;
