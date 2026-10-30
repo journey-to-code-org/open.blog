@@ -72,25 +72,27 @@ pub(crate) struct SyndicationPost {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct Request {
-    method: &'static str,
-    url: String,
-    headers: Vec<(String, String)>,
-    body: Json,
+pub(crate) struct Request {
+    pub(crate) method: &'static str,
+    pub(crate) url: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Json,
 }
 
 #[derive(Clone, Debug)]
-struct Response {
-    status: u16,
-    body: Vec<u8>,
+pub(crate) struct Response {
+    pub(crate) status: u16,
+    pub(crate) body: Vec<u8>,
 }
 
-trait Transport {
+/// The one way a distribution adapter reaches a provider; tests script it, so no test ever
+/// reaches a real provider. `openblog pinterest` uses it too (ADR 0784).
+pub(crate) trait Transport {
     fn send(&self, request: &Request) -> Result<Response, String>;
 }
 
 #[derive(Default)]
-struct NetworkTransport {
+pub(crate) struct NetworkTransport {
     resolver: safe_http::PublicResolver,
 }
 
@@ -1011,7 +1013,10 @@ fn select_targets<'a>(
     Ok(selected)
 }
 
-fn private_state_path(root: &Path, configured: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn private_state_path(
+    root: &Path,
+    configured: &str,
+) -> Result<std::path::PathBuf, String> {
     let relative = Path::new(configured);
     if relative.is_absolute()
         || relative

@@ -10,7 +10,7 @@ Destinations today:
 
 | Format | What it is | Words on the card |
 | --- | --- | --- |
-| `pinterest-pin` | A Pinterest Pin (sending one comes with the Pinterest connection) | Your `cardTitle` and `cardDescription`, else the post's |
+| `pinterest-pin` | A Pinterest Pin, which [`openblog pinterest`](pinterest.md) can send to your board | Your `cardTitle` and `cardDescription`, else the post's |
 | `facebook-link` | What Facebook shows when someone shares your post's link | The page's own title and description |
 | `linkedin-link` | What LinkedIn shows when someone shares your post's link | The page's own title and description |
 

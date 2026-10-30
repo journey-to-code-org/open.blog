@@ -23,6 +23,7 @@ mod landing_history;
 mod landing_store;
 mod notebook_store;
 mod paths_exchange;
+mod pinterest;
 mod portable_export;
 mod private_guard;
 mod publish;
@@ -81,6 +82,8 @@ COMMANDS
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
     card <slug>                Build and check a published post's visual cards for Pinterest
                                and link previews from its own images; sends nothing
+    pinterest boards           List the Pinterest boards your token can pin to (opt-in)
+    pinterest pin <slug>       Preview a post's Pin; --write --confirm <digest> sends it
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -127,6 +130,14 @@ card OPTIONS
     --json                     Print the card plan with every check and the chosen images
     --preview <new folder>     Write cards.json, an SVG layout preview per card and an
                                accessible index.html; reads only the site's own image files
+
+pinterest OPTIONS (off unless syndication.pinterest.enabled; token in PINTEREST_ACCESS_TOKEN)
+    --board <id>               The board (default: syndication.pinterest.board)
+    --section <id>             An optional board section
+    --json                     Print the Pin plan, or the boards, as JSON
+    --write --confirm <digest> Send exactly the previewed Pin, after checking the board is yours
+    --reconcile                Look for the Pin an unsettled attempt may have created
+    --forget-attempt           After checking the board yourself, allow an unsettled Pin again
 
 export OPTIONS
     --format markdown|csl-json|bibtex
@@ -241,6 +252,8 @@ const SWITCHES: &[&str] = &[
     "scrap",
     "stdin",
     "yes",
+    "reconcile",
+    "forget-attempt",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -464,6 +477,29 @@ fn run(raw: &[String]) -> Result<(), String> {
                     preview: args.options.get("preview").cloned(),
                 },
             )
+        }
+        "pinterest" => {
+            const USAGE: &str = "usage: openblog pinterest boards [--json] | openblog pinterest pin <slug> [--board <id>] [--section <id>] [--json] [--write --confirm <digest>] [--reconcile] [--forget-attempt]";
+            match args.positional.first().map(String::as_str) {
+                Some("boards") => pinterest::run_boards(&root, args.switches.contains("json")),
+                Some("pin") => {
+                    let slug = args.positional.get(1).ok_or(USAGE)?;
+                    pinterest::run_pin(
+                        &root,
+                        slug,
+                        pinterest::Options {
+                            board: args.options.get("board").cloned(),
+                            section: args.options.get("section").cloned(),
+                            json: args.switches.contains("json"),
+                            write: args.switches.contains("write"),
+                            confirm: args.options.get("confirm").cloned(),
+                            reconcile: args.switches.contains("reconcile"),
+                            forget_attempt: args.switches.contains("forget-attempt"),
+                        },
+                    )
+                }
+                _ => Err(USAGE.into()),
+            }
         }
         "syndicate" => {
             let slug = args.positional.first().ok_or(

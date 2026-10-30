@@ -49,9 +49,13 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
 }
 
 /// The images measured for a plan, by site path, so a preview can copy exactly those files.
-type Measured = Vec<(String, PathBuf)>;
+pub(crate) type Measured = Vec<(String, PathBuf)>;
 
-fn build(root: &Path, slug: &str, formats: &[CardFormat]) -> Result<(CardPlan, Measured), String> {
+pub(crate) fn build(
+    root: &Path,
+    slug: &str,
+    formats: &[CardFormat],
+) -> Result<(CardPlan, Measured), String> {
     let config = site::load_config(root)?;
     let sources = site::read_sources(root, &config)?;
     // Only a production-visible post: a draft or a scheduled post never gets a card.
