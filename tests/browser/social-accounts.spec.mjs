@@ -27,6 +27,7 @@ let plain;
 const state = { accounts: [], connections: [], seen: [], signIns: [] };
 const APP_PASSWORD = "abcd-efgh-ijkl-mnop";
 const DID = "did:plc:abcdefghijklmnopqrstuvwx";
+const MASTODON = "https://social.example.net";
 
 const freePort = async () => {
   const listener = createServer();
@@ -86,6 +87,7 @@ function handleHosted(request, response, body) {
         { provider: "linkedin", label: "LinkedIn", redirectUri: "https://blog.example.com/api/social/callback/linkedin", version: "202510", scopes: ["openid", "profile", "w_member_social"], requiredScopes: ["openid", "profile", "w_member_social"], organizations: false, pkce: false, clientSecret: TOKEN },
         { provider: "facebook", label: "Facebook", redirectUri: "https://blog.example.com/api/social/callback/facebook", version: "v23.0", scopes: ["pages_show_list", "pages_manage_posts"], requiredScopes: ["pages_show_list", "pages_manage_posts"], organizations: false, pkce: false },
         { provider: "bluesky", label: "Bluesky", login: "app-password", redirectUri: null, version: "atproto", scopes: [], requiredScopes: [], organizations: false, pkce: false },
+        { provider: "mastodon", label: "Mastodon", login: "oauth", redirectUri: "https://blog.example.com/api/social/callback/mastodon", version: "v1", scopes: ["read:accounts", "write:statuses", "read:statuses", "write:media"], requiredScopes: ["read:accounts", "write:statuses"], organizations: false, pkce: true, instance: MASTODON, visibility: "unlisted", media: "cover" },
       ],
     });
   }
@@ -101,7 +103,8 @@ function handleHosted(request, response, body) {
   if (request.method === "POST" && route === "connections") {
     const connection = { id: uuid(), provider: input.provider, status: "pending", expiresAt: new Date(Date.now() + 600000).toISOString(), createdAt: new Date().toISOString(), createdBy: "writer", reauthAccountId: null, requestedScopes: [], grantedScopes: [], errorCode: null, message: null, destinations: [], notes: [] };
     state.connections.unshift(connection);
-    return send(201, { connection, authorizeUrl: `https://www.${input.provider}.com/oauth/v2/authorization?client_id=x&state=opaque` });
+    const authorizeUrl = input.provider === "mastodon" ? `${MASTODON}/oauth/authorize?client_id=x&state=opaque` : `https://www.${input.provider}.com/oauth/v2/authorization?client_id=x&state=opaque`;
+    return send(201, { connection, authorizeUrl });
   }
   let match = /^connections\/([^/]+)\/select$/.exec(route);
   if (match) {
@@ -368,6 +371,38 @@ test("on a phone the Bluesky sign-in form has no sideways scroll", async ({ page
     await expect(page.locator('li[data-provider="bluesky"]').getByLabel("App password")).toBeVisible();
     const overflow = await sideways(page, "ob-social-accounts");
     expect(overflow.region, `sign-in at ${width}px`).toBeLessThanOrEqual(1);
+    expect(overflow.page, `page at ${width}px`).toBeLessThanOrEqual(1);
+  }
+});
+
+test("connect Mastodon by keyboard: the instance and what it posts are said, and the only link is that instance's sign-in page", async ({ page }) => {
+  await openSocial(page, configured);
+  const mastodon = page.locator('li[data-provider="mastodon"]');
+  await mastodon.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(mastodon.locator("[data-social-instance]")).toHaveText("Instance social.example.net. Posts are quiet public (unlisted), with the post's cover image and its description when it has both.");
+  await expect(mastodon).toContainText("Upload the post's cover image with its description");
+  await expect(mastodon.locator("[data-social-redirect]")).toHaveText("https://blog.example.com/api/social/callback/mastodon");
+  await mastodon.getByRole("button", { name: "Connect Mastodon" }).focus();
+  await page.keyboard.press("Enter");
+  const proceed = page.getByRole("link", { name: /Continue to Mastodon/ });
+  await expect(proceed).toBeFocused();
+  await expect(proceed).toHaveAttribute("href", /^https:\/\/social\.example\.net\/oauth\/authorize\?/);
+  await expect(proceed).toHaveAttribute("rel", "noopener noreferrer");
+  expect(await page.content()).not.toContain(TOKEN);
+});
+
+test("on a phone the Mastodon card has no sideways scroll", async ({ page }) => {
+  for (const width of [320, 360]) {
+    await page.setViewportSize({ width, height: 800 });
+    await openSocial(page, configured);
+    const mastodon = page.locator('li[data-provider="mastodon"]');
+    await mastodon.locator("summary").click();
+    await expect(mastodon.locator("[data-social-instance]")).toBeVisible();
+    const card = await mastodon.evaluate((node) => node.scrollWidth - node.clientWidth);
+    const overflow = await sideways(page, "ob-social-accounts");
+    expect(card, `card at ${width}px`).toBeLessThanOrEqual(1);
+    expect(overflow.region, `region at ${width}px`).toBeLessThanOrEqual(1);
     expect(overflow.page, `page at ${width}px`).toBeLessThanOrEqual(1);
   }
 });
