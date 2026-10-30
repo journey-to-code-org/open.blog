@@ -2914,6 +2914,29 @@ It is identified by a plan digest and written as dry-run artifacts by `openblog 
 destination it holds the portable copy as a fallback (ADRs 0328, 0330).
 _Avoid_: Campaign, schedule, dry-run output (the existing text and JSON plans)
 
+**Community destination**:
+A place the author submits a post to by hand, such as Hacker News or a Reddit community. Its provider manifest
+(family `community`) says the link is manual and nothing else is possible, so open.blog only prepares and never
+submits (ADR 0800).
+_Avoid_: Social network (an adapter destination), auto-post, share target
+
+**Submission kit**:
+For one published post and the community destinations the author chose, what they need to submit it by hand: the
+title, the exact canonical link, the rules as a checklist, blocking reasons and advice, and a link to the community's
+own submit form shown only when nothing blocks. Written by `openblog submit`; never a submission (ADRs 0801, 0802).
+_Avoid_: Launch kit (the Product Hunt kit of story #396), submission, campaign
+
+**Community rules**:
+The rules of one Reddit community as the author copied them into `community.reddit.communities`, with the day they
+last read them. open.blog never reads them from Reddit; without them a Reddit kit is blocked (ADR 0802).
+_Avoid_: Subreddit policy fetched by API, provider rules (Reddit-wide rules, linked from the kit)
+
+**Author-confirmed submission**:
+A submission the author says they made, recorded privately with `--confirm` and `evidence: "author"`. It is never
+checked with the provider and is never shown as verified; it keeps a repeat submission from being prepared
+(ADR 0803).
+_Avoid_: Posted, published, delivered (states a provider confirmed)
+
 **Distribution approval**:
 The author's explicit consent to one distribution plan, given by its digest: bound to the source revision, the
 canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed

@@ -381,6 +381,15 @@ in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup a
 [automated syndication specification](specs/automated-syndication.md) for the exact fields,
 credential names, and safety behavior.
 
+## Community submissions
+
+`community` turns on guided submissions with `openblog submit` (off by default; omitted from the file while unset).
+`hackerNews.enabled` and `reddit.enabled` turn each destination on, and `reddit.communities.<name>` holds the rules you
+copied from each community (`rules`, 1 to 30 lines), the day you last read them (`reviewed`, `YYYY-MM-DD`) and an
+optional `flair` reminder. `stateFile` (default `.openblog/community-submissions.json`) keeps the submissions you
+confirmed. There are no credentials. Only `openblog submit` reads or checks this object. See
+[Community submissions](community-submissions.md).
+
 ## Knowledge Atlas
 
 `knowledgeAtlas.publish` (off by default) publishes the approved part of your private

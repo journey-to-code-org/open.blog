@@ -2,8 +2,9 @@
 
 open.blog can reach other platforms in two ways: [cross-posting](cross-posting.md) sends a portable copy of an
 article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), and optional
-[social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page. Both are off
-until you set them up, and your Markdown and your own site stay the original.
+[social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page. A third,
+[community submissions](community-submissions.md), prepares a post for you to submit by hand to Hacker News or a
+Reddit community. All three are off until you set them up, and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
 there. You do not edit it; it is part of the code, and it decides what open.blog will and will not attempt
@@ -34,6 +35,13 @@ Anything open.blog does not recognise (a capability, a provider, a manifest form
 | Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth |
 | Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it |
 | Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval |
+
+Hacker News and Reddit are *community* destinations (policy version 2026-10-29,
+[ADR 0800](adr/0800-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)):
+the link is **manual** (you submit it yourself on the community's own form) and every other capability is
+**unsupported**; there is no login and nothing becomes public except by your own submission. A community manifest that
+claims anything open.blog would do there is refused. Their title limits and rules are in
+[Community submissions](community-submissions.md#what-was-checked-and-where-2026-10-29).
 
 Limits enforced before anything is sent: DEV takes 4 tags of at most 30 characters; Hashnode 15 tags and a request
 of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters. Announcements are scheduled between one
@@ -79,7 +87,8 @@ instead of being sent.
 ## For developers
 
 - Rust: `openblog_core::provider_manifest` (`builtin_manifest`, `ProviderManifest::from_json`, `check`,
-  `compatibility`, `approval_stands`).
+  `compatibility`, `approval_stands`); `openblog_core::community_submission` checks the community manifests before it
+  prepares a kit.
 - Hosted function: `netlify/lib/social-capabilities.mjs` (`parseManifest`, `checkRequest`, `admittedManifest`), used by
   `socialAdapters`, which puts the admitted manifest on each adapter as `manifest`.
 - Both are held to `tests/fixtures/provider-manifests.json`:
