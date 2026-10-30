@@ -603,3 +603,6 @@ fn print_report(report: &Report) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;
