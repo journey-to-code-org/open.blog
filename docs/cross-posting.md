@@ -49,6 +49,7 @@ openblog export your-post-slug --format markdown
 openblog export your-post-slug --format markdown --json
 openblog export your-post-slug --format markdown --out exports/your-post.md --write
 openblog export your-post-slug --format bibtex --out exports/your-post.bib --write
+openblog export your-recipe-slug --format recipe-json-ld --out exports/your-recipe.json --write
 ```
 
 The export does not replace or modify the canonical post, and it refuses to overwrite an

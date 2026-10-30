@@ -46,7 +46,9 @@ const DEFINITIONS = Object.freeze({
     revokeUrl: "https://www.linkedin.com/oauth/v2/revoke",
     apiBase: "https://api.linkedin.com",
     versionPattern: /^\d{6}$/,
-    defaultVersion: "202510",
+    // Checked 2026-10-29 against LinkedIn's migration table: 202510 was sunset on 2026-10-15, so the
+    // default moved to 202610 (Active, sunset 2027-10-15). See SUPPORT below and ADR 0332.
+    defaultVersion: "202610",
     // The member scopes every connection needs. `openid profile` name the member; `w_member_social` posts as them.
     baseScopes: Object.freeze(["openid", "profile", "w_member_social"]),
     // Only requested when OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS=true: they need the Community
@@ -115,6 +117,40 @@ export const MASTODON_MEDIA_MIN_TIMEOUT_SECONDS = 15;
 // withdrawn at the provider on disconnect or a failed attempt: a Bluesky session (ADR 0760) and a
 // Mastodon token, which the instance issues per authorization (ADR 0762).
 export const ownsGrant = (settings) => settings?.login === "app-password" || settings?.provider === "mastodon";
+
+// When each default API version stops being served, as the provider's own documentation said on the
+// date it was checked (ADR 0332). A release gate test fails once a default's date has passed, so the
+// default is re-verified instead of silently breaking every post. A deployer's own
+// OPENBLOG_SOCIAL_<PROVIDER>_API_VERSION is not checked against this: it is theirs to keep current.
+export const VERSION_SUPPORT = Object.freeze({
+  linkedin: Object.freeze({
+    version: "202610",
+    supportedUntil: "2027-10-15",
+    checkedOn: "2026-10-29",
+    source: "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/migrations",
+  }),
+  facebook: Object.freeze({
+    version: "v23.0",
+    supportedUntil: "2027-10-08",
+    checkedOn: "2026-10-29",
+    source: "https://developers.facebook.com/docs/graph-api/changelog/versions/",
+  }),
+  // Bluesky and Mastodon have no dated API versions to retire: XRPC methods are named, not dated, and
+  // Mastodon versions its REST API by path. `undated` says why, so the release gate checks the source
+  // instead of an end date.
+  bluesky: Object.freeze({
+    version: "atproto",
+    undated: "XRPC methods are versioned by name, not by date",
+    checkedOn: "2026-10-29",
+    source: "https://docs.bsky.app/docs/advanced-guides/api-directory",
+  }),
+  mastodon: Object.freeze({
+    version: "v1",
+    undated: "the REST API is versioned by path, not by date",
+    checkedOn: "2026-10-29",
+    source: "https://docs.joinmastodon.org/api/",
+  }),
+});
 
 export const providerLabel = (provider) => DEFINITIONS[provider]?.label || "Provider";
 export const providerDefinition = (provider) => DEFINITIONS[provider];

@@ -805,7 +805,7 @@ fn intent_words(intent: Intent) -> &'static str {
     }
 }
 
-const PAGE_STYLE: &str = "<style>
+pub(crate) const PAGE_STYLE: &str = "<style>
 :root{color-scheme:light dark;--bg:#ffffff;--fg:#1b1b1f;--muted:#4a4a55;--line:#8a8a96;--panel:#f3f3f6;--link:#0b57c2}
 @media (prefers-color-scheme:dark){:root{--bg:#141418;--fg:#ececf1;--muted:#c3c3cc;--line:#77778a;--panel:#212128;--link:#8ab4ff}}
 body{margin:0;background:var(--bg);color:var(--fg);font:1rem/1.5 system-ui,sans-serif}
