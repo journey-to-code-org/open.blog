@@ -55,17 +55,17 @@ pub struct Options {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SyndicationPost {
-    source_id: String,
+    pub(crate) source_id: String,
     source_path: String,
-    slug: String,
-    title: String,
+    pub(crate) slug: String,
+    pub(crate) title: String,
     subtitle: Option<String>,
     description: String,
     source_markdown: String,
     pub(crate) markdown: String,
     pub(crate) html: String,
     tags: Vec<String>,
-    canonical_url: String,
+    pub(crate) canonical_url: String,
     pub(crate) revision: String,
     portable_diagnostics: Vec<openblog_core::portability::PortabilityDiagnostic>,
     content_plans: Vec<DestinationContentPlan>,
@@ -296,28 +296,7 @@ fn run_with_transport(
     {
         return Err("--preview and --approve each run alone and never send; omit --write and --json. No request was sent.".into());
     }
-    let config = site::load_config(root)?;
-    let sources = site::read_sources(root, &config)?;
-    let (mut loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
-    // The public curated context, while the site publishes it, so the copy sent to a
-    // destination carries it and links back to the canonical page (ADR 0202).
-    crate::boundary::attach_public_curation(root, &mut loaded)?;
-    let post = match loaded.posts.iter().find(|post| post.slug == slug) {
-        Some(post) => post,
-        None => return Err(unavailable_post_error(root, slug)?),
-    };
-    let source = sources
-        .posts
-        .iter()
-        .find(|source| source.path == post.source)
-        .ok_or_else(|| format!("cannot find source `{}`", post.source))?;
-    let syndication_post = syndication_post(
-        post,
-        &source.contents,
-        &config,
-        loaded.series_context(post),
-        loaded.curated_context_for(post),
-    )?;
+    let (config, syndication_post) = public_post(root, slug)?;
 
     if options.preview.is_some() || options.approve.is_some() {
         return distribute(root, slug, &config, &syndication_post, &options);
@@ -809,22 +788,7 @@ fn write_preview(
     directory: &str,
     options: &Options,
 ) -> Result<std::path::PathBuf, String> {
-    let directory = crate::portable_export::output_path(root, directory).map_err(|_| {
-        "the preview folder must be a path without `..` or symlinks; nothing was written"
-            .to_string()
-    })?;
-    match fs::symlink_metadata(&directory) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Ok(_) => {
-            return Err(format!(
-                "refusing to write a preview into existing {}; choose a new folder",
-                directory.display()
-            ))
-        }
-        Err(error) => return Err(format!("cannot inspect {}: {error}", directory.display())),
-    }
-    fs::create_dir_all(&directory)
-        .map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
+    let directory = new_artifact_folder(root, directory, "preview")?;
     // File names come from the provider, never from the author's target names.
     let files: Vec<String> = plan
         .destinations
@@ -860,6 +824,63 @@ fn write_preview(
     write("plan.json", manifest.as_bytes())?;
     let page = distribution::preview_page(plan, &files, &approve_command(slug, plan, options));
     write("index.html", page.as_bytes())?;
+    Ok(directory)
+}
+
+/// The site's configuration and one production-visible post as cross-posting sees it: its
+/// source identity, title and checked public canonical address. A draft, a scheduled post or a
+/// site without a real public address is refused.
+pub(crate) fn public_post(
+    root: &Path,
+    slug: &str,
+) -> Result<(SiteConfig, SyndicationPost), String> {
+    let config = site::load_config(root)?;
+    let sources = site::read_sources(root, &config)?;
+    let (mut loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
+    // The public curated context, while the site publishes it, so the copy sent to a
+    // destination carries it and links back to the canonical page (ADR 0202).
+    crate::boundary::attach_public_curation(root, &mut loaded)?;
+    let post = match loaded.posts.iter().find(|post| post.slug == slug) {
+        Some(post) => post,
+        None => return Err(unavailable_post_error(root, slug)?),
+    };
+    let source = sources
+        .posts
+        .iter()
+        .find(|source| source.path == post.source)
+        .ok_or_else(|| format!("cannot find source `{}`", post.source))?;
+    let syndication_post = syndication_post(
+        post,
+        &source.contents,
+        &config,
+        loaded.series_context(post),
+        loaded.curated_context_for(post),
+    )?;
+    Ok((config, syndication_post))
+}
+
+/// Creates a new folder for dry-run artifacts inside the project, refusing an existing path, a
+/// `..` or a symlink, so nothing an author already has is overwritten.
+pub(crate) fn new_artifact_folder(
+    root: &Path,
+    directory: &str,
+    what: &str,
+) -> Result<std::path::PathBuf, String> {
+    let directory = crate::portable_export::output_path(root, directory).map_err(|_| {
+        format!("the {what} folder must be a path without `..` or symlinks; nothing was written")
+    })?;
+    match fs::symlink_metadata(&directory) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(_) => {
+            return Err(format!(
+                "refusing to write a {what} into existing {}; choose a new folder",
+                directory.display()
+            ))
+        }
+        Err(error) => return Err(format!("cannot inspect {}: {error}", directory.display())),
+    }
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
     Ok(directory)
 }
 

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::business::BusinessConfig;
+use crate::community_submission::CommunityConfig;
 use crate::contributor::{self, Contributor};
 use crate::look::LookSettings;
 use crate::participation::ParticipationConfig;
@@ -82,6 +83,11 @@ pub struct SiteConfig {
     /// Optional server-side cross-posting destinations. Credentials are read from
     /// environment variables and are never serialized here.
     pub syndication: SyndicationConfig,
+    /// Guided community submissions (`openblog submit`, ADRs 0800 to 0803): every destination is
+    /// off by default, nothing is ever submitted for the author, and the object is omitted from
+    /// the written file while it has its defaults.
+    #[serde(skip_serializing_if = "CommunityConfig::is_default")]
+    pub community: CommunityConfig,
     /// Also write a Netlify/Cloudflare-style `_redirects` file with a real 301 for every
     /// `aliases:` address. The meta-refresh pages are always written; this adds the
     /// server-side redirect on hosts that read the file. Do not also keep your own
@@ -564,6 +570,7 @@ impl Default for SiteConfig {
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),
             syndication: SyndicationConfig::default(),
+            community: CommunityConfig::default(),
             redirects_file: false,
             knowledge_atlas: KnowledgeAtlasConfig::default(),
             participation: ParticipationConfig::default(),
