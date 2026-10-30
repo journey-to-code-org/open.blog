@@ -1,7 +1,7 @@
 // The OAuth authorization-code handshake of optional social publishing (epic #353, story #355,
 // ADR 0299). Server-only, behind the site scope of ADR 0293.
 //
-// An author asks Admin to connect LinkedIn or Facebook. `start` makes a connection row holding a
+// An author asks Admin to connect LinkedIn, Facebook or Mastodon (ADR 0762). `start` makes a connection row holding a
 // hash of a single-use `state` (and, where the deployer turned it on, a PKCE verifier sealed like a
 // credential) and returns the provider's authorization URL. The provider sends the browser back to
 // the one exact callback registered for it. `callback` trusts nothing in that request except what
@@ -17,7 +17,7 @@ import { SocialScopeError, scopedQuery } from "./social-scope.mjs";
 import { SocialCredentialError, createCredentialStore } from "./social-credentials.mjs";
 import { NOTES, REASONS, discover } from "./social-discovery.mjs";
 import { SocialTokenError, openCredential, sealCredential } from "./social-tokens.mjs";
-import { ProviderError, authorizationUrl, checkScopes, exchangeCode, openBlueskySession, pkceChallenge, randomToken, revokeAtProvider, sha256Hex, validProvider } from "./social-providers.mjs";
+import { ProviderError, authorizationUrl, checkScopes, exchangeCode, openBlueskySession, ownsGrant, pkceChallenge, randomToken, revokeAtProvider, sha256Hex, validProvider } from "./social-providers.mjs";
 import { blueskyIdentifier, validAppPassword } from "./social-atproto.mjs";
 
 export const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -119,8 +119,8 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
   // Withdraw a grant after a failed handshake, but never while a live account of the provider could
   // share it (the same rule as disconnect). A failed attempt must not cut off working accounts.
   const withdraw = async (provider, tokens) => {
-    // A Bluesky session is this attempt's own and is shared with nothing: always end it.
-    if (provider.login === "app-password") return revokeAtProvider(provider, tokens, fetchImpl);
+    // A Bluesky session or a Mastodon token is this attempt's own and is shared with nothing: always end it.
+    if (ownsGrant(provider)) return revokeAtProvider(provider, tokens, fetchImpl);
     const live = owned(await rest("GET", ACCOUNTS, scopedQuery(settings, { provider: `eq.${provider.provider}`, status: "neq.disconnected", select: "id" }).toString()));
     if (live.length === 0) await revokeAtProvider(provider, tokens, fetchImpl);
   };
@@ -450,9 +450,11 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
       const [row] = await read({ id: `eq.${id}` });
       if (!row) throw new SocialOAuthError(404, "not-found", "No such connection.");
       if (!["pending", "authorized", "exchanging"].includes(row.status)) return connectionOf(row);
-      // An app-password attempt holds a live session of its own: end it at the provider first (best effort).
+      // An app-password attempt holds a live session of its own, and an authorized Mastodon attempt a
+      // token of its own: end it at the provider first (best effort). A pending OAuth row holds only
+      // a PKCE verifier, which revoking would not use.
       const provider = validProvider(row.provider) ? providers?.[row.provider] : null;
-      if (provider?.login === "app-password" && row.envelope && !row.reauth_account_id) {
+      if (ownsGrant(provider) && row.envelope && !row.reauth_account_id && (provider.login === "app-password" || row.status === "authorized")) {
         try {
           await revokeAtProvider(provider, await open(row), fetchImpl);
         } catch {

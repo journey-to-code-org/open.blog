@@ -10,6 +10,7 @@
 
 import { ProviderTokenError } from "./social-credentials.mjs";
 import { DID, HANDLE, SESSION_TOKEN, appPassword, blueskyIdentifier, tokenSecondsLeft, validAppPassword, xrpcError } from "./social-atproto.mjs";
+import { deliveryPolicy } from "./social-delivery.mjs";
 
 export class ProviderError extends Error {
   // `code` is a fixed slug; `status` is the provider's HTTP status when there was one.
@@ -32,7 +33,7 @@ const MESSAGES = {
   "rate-limited": "The provider asked us to slow down.",
 };
 
-export const PROVIDERS = Object.freeze(["linkedin", "facebook", "bluesky"]);
+export const PROVIDERS = Object.freeze(["linkedin", "facebook", "bluesky", "mastodon"]);
 export const validProvider = (value) => typeof value === "string" && PROVIDERS.includes(value);
 
 // The provider endpoints and defaults. Versions and scopes are overridable; hosts are not, so a
@@ -81,7 +82,39 @@ const DEFINITIONS = Object.freeze({
     organizationScopes: Object.freeze([]),
     optionalScopes: Object.freeze([]),
   }),
+  // Mastodon (story #392, ADR 0762): OAuth 2 against one instance the deployer names, with an
+  // application the deployer registered there. Every endpoint is derived from that instance's
+  // https origin, so a client secret can only ever be sent to it. Granular scopes (Mastodon 2.4.3+):
+  // reading the account and writing statuses are required; reading statuses (to look an uncertain
+  // attempt up) and uploading media (the cover image) only narrow what the connection can do.
+  mastodon: Object.freeze({
+    label: "Mastodon",
+    authorizeUrl: "{instance}/oauth/authorize",
+    tokenUrl: "{instance}/oauth/token",
+    revokeUrl: "{instance}/oauth/revoke",
+    apiBase: "{instance}",
+    // The REST API is versioned by path (/api/v1, /api/v2), not by a setting.
+    versionPattern: /^v1$/,
+    defaultVersion: "v1",
+    baseScopes: Object.freeze(["read:accounts", "write:statuses"]),
+    organizationScopes: Object.freeze([]),
+    optionalScopes: Object.freeze(["read:statuses", "write:media"]),
+    extraScopes: Object.freeze(["read:statuses", "write:media"]),
+    scopeSeparator: " ",
+  }),
 });
+
+// Who may see a Mastodon announcement. `direct` is never offered: it would message every person the
+// caption mentions instead of announcing anything.
+export const MASTODON_VISIBILITIES = Object.freeze(["public", "unlisted", "private"]);
+// Attaching the post's cover image takes several provider calls in one delivery, so it is refused
+// unless each delivery may take at least this long (OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS).
+export const MASTODON_MEDIA_MIN_TIMEOUT_SECONDS = 15;
+
+// Whether one connection's credential is its own and shared with no other account, so it is always
+// withdrawn at the provider on disconnect or a failed attempt: a Bluesky session (ADR 0760) and a
+// Mastodon token, which the instance issues per authorization (ADR 0762).
+export const ownsGrant = (settings) => settings?.login === "app-password" || settings?.provider === "mastodon";
 
 export const providerLabel = (provider) => DEFINITIONS[provider]?.label || "Provider";
 export const providerDefinition = (provider) => DEFINITIONS[provider];
@@ -130,6 +163,11 @@ export function socialProviders(env = {}) {
     const clientSecret = text(env[name("CLIENT_SECRET")]);
     if (!clientId && !clientSecret) continue;
     const bad = [];
+    // Mastodon has no fixed host: the deployer names the instance the application is registered on.
+    const mastodon = provider === "mastodon";
+    const instance = mastodon ? serviceOrigin(text(env[name("INSTANCE")])) : null;
+    if (mastodon && !instance) bad.push(name("INSTANCE"));
+    const options = mastodon ? mastodonOptions(env, name, bad, problems) : {};
     if (!CLIENT_ID.test(clientId)) bad.push(name("CLIENT_ID"));
     if (!CLIENT_SECRET.test(clientSecret)) bad.push(name("CLIENT_SECRET"));
     if (!base) bad.push("OPENBLOG_SOCIAL_CALLBACK_BASE");
@@ -147,7 +185,7 @@ export function socialProviders(env = {}) {
       problems.push(...bad);
       continue;
     }
-    const resolve = (template) => template.replace("{version}", version);
+    const resolve = (template) => template.replace("{version}", version).replace("{instance}", instance ?? "");
     const secretFields = { clientSecret };
     const publicFields = {
       provider,
@@ -163,13 +201,30 @@ export function socialProviders(env = {}) {
       pkce: pkceSetting === "true",
       authorizeUrl: resolve(definition.authorizeUrl),
       tokenUrl: resolve(definition.tokenUrl),
-      revokeUrl: definition.revokeUrl || null,
+      revokeUrl: definition.revokeUrl ? resolve(definition.revokeUrl) : null,
       apiBase: resolve(definition.apiBase),
+      ...(mastodon ? { instance, ...options } : {}),
     };
     providers[provider] = hideSecrets(publicFields, secretFields);
   }
   Object.defineProperty(providers, "problems", { value: Object.freeze([...new Set(problems)]), enumerable: false });
   return Object.freeze(providers);
+}
+
+// Mastodon's two posting choices. Visibility defaults to public. Attaching the cover image is off
+// unless OPENBLOG_SOCIAL_MASTODON_MEDIA=cover and each delivery may take long enough for the extra
+// calls; otherwise media stays off and the settings are named as problems, but Mastodon is offered.
+function mastodonOptions(env, name, bad, problems) {
+  const visibility = text(env[name("VISIBILITY")]) || "public";
+  if (!MASTODON_VISIBILITIES.includes(visibility)) bad.push(name("VISIBILITY"));
+  const setting = text(env[name("MEDIA")]);
+  let media = "none";
+  if (setting && !["none", "cover"].includes(setting)) problems.push(name("MEDIA"));
+  else if (setting === "cover") {
+    if (deliveryPolicy(env).providerTimeoutSeconds < MASTODON_MEDIA_MIN_TIMEOUT_SECONDS) problems.push(name("MEDIA"), "OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS");
+    else media = "cover";
+  }
+  return { visibility, media };
 }
 
 // An app-password provider is offered only when the deployer turns it on with
@@ -238,6 +293,8 @@ export function describeProvider(settings) {
     requiredScopes: [...settings.requiredScopes],
     organizations: settings.organizations,
     pkce: settings.pkce,
+    // Mastodon only: the instance the author signs in at, and what the deployer chose to post.
+    ...(settings.provider === "mastodon" ? { instance: settings.instance, visibility: settings.visibility, media: settings.media } : {}),
   });
 }
 
@@ -267,6 +324,9 @@ export function authorizationUrl(settings, { state, challenge, reauthorize = fal
   }
   // Facebook remembers a declined permission and does not ask again unless told to.
   if (settings.provider === "facebook" && reauthorize) params.set("auth_type", "rerequest");
+  // Mastodon signs in whoever is already signed in at the instance; reconnecting asks again, so
+  // the author signs in as the account the connection belongs to.
+  if (settings.provider === "mastodon" && reauthorize) params.set("force_login", "true");
   return url.toString();
 }
 
@@ -307,7 +367,8 @@ export const splitScopes = (value) => [...new Set(text(value).split(/[\s,]+/).fi
 export async function exchangeCode(settings, { code, verifier }, fetchImpl) {
   const fields = { grant_type: "authorization_code", code, redirect_uri: settings.redirectUri, client_id: settings.clientId, client_secret: settings.clientSecret };
   if (verifier) fields.code_verifier = verifier;
-  if (settings.provider === "linkedin") {
+  // LinkedIn and Mastodon: one token request, whose `scope` says what the author granted.
+  if (settings.provider === "linkedin" || settings.provider === "mastodon") {
     let reply;
     try {
       reply = await providerJson(fetchImpl, settings.tokenUrl, form(fields));
@@ -342,9 +403,11 @@ export async function exchangeCode(settings, { code, verifier }, fetchImpl) {
 // and those that only narrow what it can reach.
 export function checkScopes(settings, granted) {
   const have = new Set(granted);
+  // On Mastodon a broad scope grants its granular ones: `write` covers `write:statuses`.
+  const covered = (scope) => have.has(scope) || (settings.provider === "mastodon" && scope.includes(":") && have.has(scope.split(":")[0]));
   return {
-    missingRequired: settings.requiredScopes.filter((scope) => !have.has(scope)),
-    missingOptional: settings.scopes.filter((scope) => !settings.requiredScopes.includes(scope) && !have.has(scope)),
+    missingRequired: settings.requiredScopes.filter((scope) => !covered(scope)),
+    missingOptional: settings.scopes.filter((scope) => !settings.requiredScopes.includes(scope) && !covered(scope)),
   };
 }
 
@@ -354,7 +417,9 @@ export function checkScopes(settings, granted) {
 // Failure is a boolean, never detail.
 export async function revokeAtProvider(settings, secrets, fetchImpl) {
   if (settings.provider === "bluesky") return deleteBlueskySession(settings, secrets, fetchImpl);
-  if (settings.provider !== "linkedin" || !settings.revokeUrl) return false;
+  // A Mastodon token is this connection's own, so revoking it (client credentials and the token,
+  // POST /oauth/revoke) cuts off nothing else.
+  if (!["linkedin", "mastodon"].includes(settings.provider) || !settings.revokeUrl) return false;
   try {
     const response = await fetchImpl(settings.revokeUrl, { ...form({ client_id: settings.clientId, client_secret: settings.clientSecret, token: secrets.refreshToken || secrets.accessToken }), redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
     return Boolean(response.ok);
@@ -367,7 +432,8 @@ export async function revokeAtProvider(settings, secrets, fetchImpl) {
 // a provider whose tokens are not refreshed (a Facebook Page token does not expire).
 export function refreshWith(settings, fetchImpl, now = () => Date.now()) {
   if (settings?.provider === "bluesky") return refreshBlueskySession(settings, fetchImpl, now);
-  if (settings?.provider !== "linkedin") return undefined;
+  // Mastodon tokens do not expire today; one that comes with a refresh token is refreshed the same way.
+  if (settings?.provider !== "linkedin" && settings?.provider !== "mastodon") return undefined;
   return async (refreshToken) => {
     let reply;
     try {

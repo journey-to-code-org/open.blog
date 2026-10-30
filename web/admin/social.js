@@ -1,6 +1,7 @@
 // <ob-social-accounts>: the Connected accounts screen of optional social publishing (ADR 0301).
-// An author connects LinkedIn or Facebook, reviews the permissions asked for, chooses where posts
-// may go, and reconnects or disconnects an account. Bluesky is connected with a handle and an app
+// An author connects LinkedIn, Facebook or Mastodon (on the one instance the server names, ADR
+// 0762), reviews the permissions asked for, chooses where posts may go, and reconnects or
+// disconnects an account. Bluesky is connected with a handle and an app
 // password typed here (ADR 0760): the password field is emptied as soon as it is sent, and it is
 // never shown, kept or put in the page again. Everything here is a request to the Admin
 // server, which holds the key to the hosted function: this page never sees a token, a client
@@ -17,10 +18,13 @@ let uid = 0;
 /** Only these two hosts may be the target of "Continue to the provider"; the server checks too. */
 export const AUTHORIZE_HOSTS = Object.freeze(["www.linkedin.com", "www.facebook.com"]);
 
-export function safeAuthorizeUrl(value) {
+/** The address to continue at, or null. Mastodon's is accepted only at `/oauth/authorize` of `instance`. */
+export function safeAuthorizeUrl(value, instance = null) {
   try {
     const url = new URL(String(value));
-    return url.protocol === "https:" && !url.username && !url.password && !url.port && AUTHORIZE_HOSTS.includes(url.hostname) ? url.toString() : null;
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    if (!url.port && AUTHORIZE_HOSTS.includes(url.hostname)) return url.toString();
+    return instance && url.origin === instance && url.pathname === "/oauth/authorize" ? url.toString() : null;
   } catch {
     return null;
   }
@@ -35,7 +39,14 @@ export const SCOPE_WORDS = Object.freeze({
   pages_show_list: "See the Pages you manage",
   pages_manage_posts: "Create posts on your Pages",
   pages_read_engagement: "Read basic Page details (optional)",
+  "read:accounts": "Read your account's name",
+  "write:statuses": "Post as you",
+  "read:statuses": "Read your posts, to check one whose outcome was not seen",
+  "write:media": "Upload the post's cover image with its description",
 });
+
+/** How a Mastodon announcement is shown to people, in the words of Mastodon's own composer. */
+export const VISIBILITY_WORDS = Object.freeze({ public: "Public", unlisted: "Quiet public (unlisted)", private: "Followers only" });
 
 export const HEALTH = Object.freeze({
   ok: { symbol: "✓", text: "Connected" },
@@ -53,7 +64,7 @@ export const OFF_TEXT = Object.freeze({
 });
 
 const day = (stamp) => (stamp ? String(stamp).slice(0, 10) : "");
-const providerName = (provider) => ({ linkedin: "LinkedIn", facebook: "Facebook", bluesky: "Bluesky" })[provider] || "Provider";
+const providerName = (provider) => ({ linkedin: "LinkedIn", facebook: "Facebook", bluesky: "Bluesky", mastodon: "Mastodon" })[provider] || "Provider";
 
 /** Where Bluesky makes app passwords, said in the words of its settings screen. */
 export const APP_PASSWORD_HINT = "Use an app password, never your account password. Make one in Bluesky under Settings, Privacy and security, App passwords; it looks like xxxx-xxxx-xxxx-xxxx. You can revoke it there at any time.";
@@ -283,7 +294,13 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
         scopeList(provider.scopes, provider.requiredScopes),
         el("p", { class: "oba-small" }, "Redirect address to register in the provider's app, exactly:"),
         el("p", { class: "oba-small oba-social-wrap" }, el("code", { "data-social-redirect": provider.provider }, provider.redirectUri)),
-        el("p", { class: "oba-small" }, `API version ${provider.version}. Verify it is still current when you set up.`),
+        provider.provider === "mastodon"
+          ? el(
+              "p",
+              { class: "oba-small", "data-social-instance": "mastodon" },
+              `Instance ${provider.instance ? new URL(provider.instance).host : "not named"}. Posts are ${(VISIBILITY_WORDS[provider.visibility] || "Public").toLowerCase()}${provider.media === "cover" ? ", with the post's cover image and its description when it has both" : ""}.`,
+            )
+          : el("p", { class: "oba-small" }, `API version ${provider.version}. Verify it is still current when you set up.`),
       ),
       button,
     );
@@ -291,8 +308,10 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
 
   function waitingPanel(connection) {
     const label = providerName(connection.provider);
-    // The link is built only if the server's address is one of the two providers' own hosts.
-    const link = safeAuthorizeUrl(links.get(connection.id));
+    // The link is built only if the server's address is one of the two providers' own hosts, or
+    // the sign-in page of the Mastodon instance the server is set up for.
+    const instance = connection.provider === "mastodon" ? state?.overview?.providers?.find((p) => p.provider === "mastodon")?.instance || null : null;
+    const link = safeAuthorizeUrl(links.get(connection.id), instance);
     return el(
       "li",
       { class: "oba-social-pending", "data-connection": connection.id },
@@ -366,6 +385,7 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
     "role-unverified": "Facebook did not say what you may do on this Page, so it cannot be offered.",
     "no-page-token": "Facebook gave no access for this Page.",
     "account-inactive": "Bluesky says this account is not active, so it cannot post.",
+    "account-suspended": "Mastodon says this account is suspended, so it cannot post.",
   };
   const reasonText = (reason) => REASONS[reason] || "It cannot be used.";
 
@@ -429,7 +449,7 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
   function render() {
     const { overview, accounts, connections } = state;
     const children = [el("h2", { id: `${ids}-title`, tabindex: "-1" }, "Social accounts")];
-    children.push(el("p", {}, "Connect LinkedIn, Facebook or Bluesky so a published post can be announced there. Your blog works the same without this. Access tokens stay on the server and are never shown here."));
+    children.push(el("p", {}, "Connect LinkedIn, Facebook, Bluesky or Mastodon so a published post can be announced there. Your blog works the same without this. Access tokens stay on the server and are never shown here."));
     children.push(status);
     if (!overview.enabled) {
       children.push(el("p", { class: "oba-notice", "data-social-off": overview.state }, overview.message || OFF_TEXT[overview.state] || OFF_TEXT.off));
@@ -442,7 +462,7 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
     children.push(
       providers.length
         ? el("ul", { class: "oba-social-providers", "aria-labelledby": `${ids}-providers` }, providers.map(providerCard))
-        : el("p", { class: "oba-notice", "data-social-no-providers": "true" }, "No provider is set up on the server yet. Add a LinkedIn or Facebook app's client id and secret, or turn on Bluesky (see docs/social-publishing.md)."),
+        : el("p", { class: "oba-notice", "data-social-no-providers": "true" }, "No provider is set up on the server yet. Add a LinkedIn, Facebook or Mastodon app's client id and secret, or turn on Bluesky (see docs/social-publishing.md)."),
     );
     if (overview.problems?.length) {
       children.push(el("p", { class: "oba-small" }, "These provider settings are not valid and were skipped:"));

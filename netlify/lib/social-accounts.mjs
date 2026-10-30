@@ -8,7 +8,7 @@
 
 import { scopedQuery } from "./social-scope.mjs";
 import { SocialOAuthError } from "./social-oauth.mjs";
-import { revokeAtProvider } from "./social-providers.mjs";
+import { ownsGrant, revokeAtProvider } from "./social-providers.mjs";
 
 const ACCOUNTS = "openblog_social_accounts";
 const CREDENTIALS = "openblog_social_credentials";
@@ -101,8 +101,8 @@ export function createAccounts({ connector, settings, providers, fetchImpl = glo
       if (row.status !== "disconnected") {
         const others = (await rest("GET", ACCOUNTS, scopedQuery(settings, { provider: `eq.${row.provider}`, status: "neq.disconnected", id: `neq.${row.id}`, select: "id" }).toString())).length;
         const provider = providers?.[row.provider];
-        // A Bluesky session is this account's alone, so it is always ended (ADR 0760).
-        const own = provider?.login === "app-password";
+        // A Bluesky session (ADR 0760) or a Mastodon token (ADR 0762) is this account's alone, so it is always ended.
+        const own = ownsGrant(provider);
         const withdraw = provider && (own || (row.provider === "linkedin" && others === 0)) ? (secrets) => revokeAtProvider(provider, secrets, fetchImpl) : undefined;
         await connector.credentials.revoke(row.id, { revokeAtProvider: withdraw });
         // A stuck handshake of this provider may still hold a sealed copy of these tokens: erase it.

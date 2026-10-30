@@ -2706,7 +2706,7 @@ _Avoid_: Rating (the number alone), social proof
 
 **Social publishing**:
 An optional, off-by-default outward announcement of an already-published canonical post to a connected LinkedIn
-identity, Facebook Page or Bluesky account, on a schedule. It never replaces the post or cross-posting. Everything about it is
+identity, Facebook Page, Bluesky account or Mastodon account, on a schedule. It never replaces the post or cross-posting. Everything about it is
 server-side; builds and exports do not know it exists.
 _Avoid_: Syndication (a full copy of the article on another platform)
 
@@ -2721,7 +2721,7 @@ worker. It is an audit attribution; the role is decided by which server key auth
 _Avoid_: User, owner
 
 **Social account**:
-A connected LinkedIn identity or Facebook Page that a site may announce to. It is stored per site; its credentials
+A connected LinkedIn identity, Facebook Page, Bluesky account or Mastodon account that a site may announce to. It is stored per site; its credentials
 are never part of the account row. Disconnecting keeps the row for history.
 _Avoid_: Profile, channel
 
@@ -2730,6 +2730,13 @@ How a Bluesky account is connected (ADR 0760): the author types a handle and a B
 function opens an AT Protocol session with it, and only the session's two tokens are kept, sealed. The password is
 never stored, and a password that is not shaped like an app password is refused before it is sent.
 _Avoid_: Bluesky login, Bluesky OAuth (not used yet), account password
+
+**Mastodon instance**:
+The one Mastodon server a deployment connects accounts on (ADR 0762), named by `OPENBLOG_SOCIAL_MASTODON_INSTANCE`
+as an `https` origin, where the deployer registered the application whose client id and secret the hosted function
+holds. Every Mastodon endpoint is derived from it, and Admin follows only its `/oauth/authorize`. Its public limits
+(characters per status, per link, per image description) are read again before every post, never stored.
+_Avoid_: Mastodon server list, fediverse (more than Mastodon), home server when the deployer's setting is meant
 
 **Scheduled social post**:
 One queued announcement of one canonical post to one social account, with a time, a lease while a worker holds it

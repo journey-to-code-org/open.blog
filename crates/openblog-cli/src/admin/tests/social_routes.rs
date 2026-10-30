@@ -590,3 +590,90 @@ fn the_status_marks_bluesky_as_an_app_password_provider_without_a_redirect() {
     assert_eq!(providers[0]["redirectUri"], Json::Null);
     server.join().unwrap();
 }
+
+fn mastodon_status(instance: &str) -> String {
+    json!({ "enabled": true, "problems": [], "providers": [
+        { "provider": "mastodon", "label": "Mastodon", "login": "oauth", "redirectUri": "https://blog.example.com/api/social/callback/mastodon", "version": "v1", "scopes": ["read:accounts", "write:statuses"], "requiredScopes": ["read:accounts", "write:statuses"], "organizations": false, "pkce": true, "instance": instance, "visibility": "unlisted", "media": "none", "clientSecret": "never" },
+    ] })
+    .to_string()
+}
+
+#[test]
+fn the_status_shows_the_mastodon_instance_and_what_it_posts_and_drops_a_bad_one() {
+    let (endpoint, server) = hosted(vec![(200, mastodon_status("https://social.example.org"))]);
+    let body = body_json(&route_with(
+        &env_for(&endpoint),
+        &req("GET", "/x"),
+        "mikey",
+        "status",
+    ));
+    let provider = &body["providers"][0];
+    assert_eq!(provider["instance"], "https://social.example.org");
+    assert_eq!(provider["visibility"], "unlisted");
+    assert_eq!(provider["media"], "none");
+    assert!(provider.get("clientSecret").is_none());
+    server.join().unwrap();
+
+    for bad in [
+        "http://social.example.org",
+        "https://social.example.org/@ada",
+        "https://u:p@social.example.org",
+        "https://localhost",
+    ] {
+        let (endpoint, server) = hosted(vec![(200, mastodon_status(bad))]);
+        let body = body_json(&route_with(
+            &env_for(&endpoint),
+            &req("GET", "/x"),
+            "mikey",
+            "status",
+        ));
+        assert_eq!(body["providers"].as_array().unwrap().len(), 0, "{bad}");
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn a_mastodon_sign_in_address_is_passed_on_only_at_the_instance_the_function_names() {
+    let connection = json!({ "id": ID, "provider": "mastodon", "status": "pending", "expiresAt": "2026-10-29T12:10:00Z", "requestedScopes": ["read:accounts"], "grantedScopes": [], "createdBy": "mikey", "createdAt": "2026-10-29T12:00:00Z", "reauthAccountId": null, "errorCode": null, "message": null, "destinations": [], "notes": [] });
+    let good = "https://social.example.org/oauth/authorize?client_id=1&state=abc";
+    let (endpoint, server) = hosted(vec![
+        (
+            201,
+            json!({ "connection": connection, "authorizeUrl": good }).to_string(),
+        ),
+        (200, mastodon_status("https://social.example.org")),
+    ]);
+    let ok = route_with(
+        &env_for(&endpoint),
+        &json_req("POST", "/x", json!({ "provider": "mastodon" })),
+        "mikey",
+        "connections",
+    );
+    assert_eq!(ok.status, 200);
+    assert_eq!(body_json(&ok)["authorizeUrl"], good);
+    let seen = server.join().unwrap();
+    assert!(seen[1].starts_with("GET /api/social/status"), "{}", seen[1]);
+
+    for bad in [
+        "https://evil.example/oauth/authorize?state=abc",
+        "https://social.example.org/auth/sign_in",
+        "https://social.example.org:8443/oauth/authorize",
+        "https://social.example.org.evil.example/oauth/authorize",
+    ] {
+        let (endpoint, server) = hosted(vec![
+            (
+                201,
+                json!({ "connection": connection, "authorizeUrl": bad }).to_string(),
+            ),
+            (200, mastodon_status("https://social.example.org")),
+        ]);
+        let r = route_with(
+            &env_for(&endpoint),
+            &json_req("POST", "/x", json!({ "provider": "mastodon" })),
+            "mikey",
+            "connections",
+        );
+        assert_eq!(r.status, 502, "{bad}");
+        server.join().unwrap();
+    }
+}

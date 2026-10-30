@@ -428,3 +428,31 @@ test("reconnecting a Bluesky account opens its own sign-in form, prefilled with 
   assert.deepEqual(api.calls.filter((c) => c.method === "POST").at(-1), { method: "POST", path: `social/accounts/${ID(1)}/reconnect`, body: { identifier: "ada.bsky.social", appPassword: PASSWORD } });
   assert.match(text(root), /@ada\.bsky\.social is reconnected/);
 }));
+
+const mastodon = { provider: "mastodon", label: "Mastodon", login: "oauth", redirectUri: "https://blog.example.com/api/social/callback/mastodon", version: "v1", scopes: ["read:accounts", "write:statuses", "read:statuses", "write:media"], requiredScopes: ["read:accounts", "write:statuses"], organizations: false, pkce: true, instance: "https://social.example.org", visibility: "unlisted", media: "cover" };
+
+test("Mastodon names its instance and what it posts, and its sign-in link must be that instance's own", withDom(async () => {
+  assert.equal(safeAuthorizeUrl("https://social.example.org/oauth/authorize?state=x", "https://social.example.org"), "https://social.example.org/oauth/authorize?state=x");
+  for (const [bad, instance] of [
+    ["https://social.example.org/oauth/authorize?state=x", null],
+    ["https://evil.example/oauth/authorize", "https://social.example.org"],
+    ["https://social.example.org/login", "https://social.example.org"],
+    ["https://social.example.org:8443/oauth/authorize", "https://social.example.org"],
+    ["http://social.example.org/oauth/authorize", "https://social.example.org"],
+  ]) assert.equal(safeAuthorizeUrl(bad, instance), null, bad);
+  const api = server({ overview: on([mastodon]) });
+  api.call = new Proxy(api.call, {
+    apply: async (target, self, args) => {
+      const reply = await Reflect.apply(target, self, args);
+      return args[0] === "POST" && args[1] === "social/connections" ? { ...reply, authorizeUrl: "https://social.example.org/oauth/authorize?state=abc" } : reply;
+    },
+  });
+  const { root } = await mount(api);
+  const card = all(root, "li").find((li) => li.dataset.provider === "mastodon");
+  assert.match(text(card), /Instance social\.example\.org\. Posts are quiet public \(unlisted\), with the post's cover image and its description when it has both\./);
+  const scopes = all(card, "li").map(text);
+  assert.ok(scopes.some((line) => line.includes("write:statuses") && line.startsWith(SCOPE_WORDS["write:statuses"]) && !line.includes("(optional)")));
+  assert.ok(scopes.some((line) => line.includes("write:media") && line.includes("(optional)")));
+  await click(buttons(card, "social-connect")[0]);
+  assert.equal(link(root, "social-continue").attributes.href, "https://social.example.org/oauth/authorize?state=abc");
+}));
