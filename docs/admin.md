@@ -964,6 +964,13 @@ does not conflict with it, and it changes only the `business` key of `openblog.j
 place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
 to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
+### Seasonal reminders
+
+Open **Reminders** (`#/reminders`) to turn on prompts that suggest what to write at the right time of year for
+your trade. A reminder only opens an unpublished draft; it never publishes or sends anything. The screen reads and
+saves `GET`/`PUT /admin/api/seasonal` and uses `POST /admin/api/seasonal/snooze` and `/open` (session and CSRF as
+for every write). See [Seasonal reminders](seasonal-reminders.md).
+
 ### Services
 
 Open **Services** (`#/services`) to describe each thing you sell once, with what it includes, a price band, a

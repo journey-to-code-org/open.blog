@@ -2690,6 +2690,18 @@ one-line note about the reach; nothing finer than a town is ever stored. A job i
 an area with no jobs says its work is not yet posted rather than filling the page.
 _Avoid_: Location (ambiguous with a job's place)
 
+**Seasonal reminder**:
+A suggestion, worked out from today's date and the business trade, to write about a topic that fits the time of year
+("Furnace tune-up before the cold", Sep 1 to Oct 31). It is not a scheduled job: nothing runs while Admin is closed. Its
+only action is to open one unpublished draft that starts with the prompt; it can be snoozed or its topic turned off.
+Off until the site turns it on, and never published, posted or sent (ADRs 0920 to 0922).
+_Avoid_: Scheduled post, campaign, auto-post
+
+**Seasonal topic**:
+A date window (`MM-DD` to `MM-DD`, which may cross the new year), a short topic and a prompt. Bundled per trade; a site
+stores only its changes and its own topics under `seasonalPrompts` in `openblog.json` (ADR 0920).
+_Avoid_: Content calendar
+
 **Before/after pair**:
 A publishing capability that shows two images of the same subject with captions, rendered as a comparison on
 the canonical page and as two captioned images everywhere else.
