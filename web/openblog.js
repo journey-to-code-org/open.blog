@@ -15,6 +15,7 @@ import "./components/ob-component-lab.js";
 import "./components/ob-evolution-lab.js";
 import "./components/ob-audio-lab.js";
 import "./components/ob-native-lab.js";
+import "./components/ob-server-lab.js";
 import "./components/ob-recipe.js";
 import "./components/ob-quiz.js";
 import "./components/ob-compare.js";

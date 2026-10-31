@@ -4814,3 +4814,77 @@ ob-practice-lab .ob-practice-pager-keys,
 ob-practice-lab .ob-practice-pager-summary { margin: 0.5rem 0 0; color: var(--ob-color-muted, inherit); font-size: 0.8em; }
 ob-practice-lab .ob-practice-pager-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
 ob-practice-lab [hidden] { display: none; }
+
+/* <ob-server-lab>: deterministic connection, ownership and async scheduling model. */
+ob-server-lab {
+  display: block;
+  margin-block: var(--ob-space-5, 1.5rem);
+  padding: var(--ob-space-4, 1rem);
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+  background: var(--ob-color-surface, transparent);
+}
+ob-server-lab :is(.ob-server-intro, .ob-server-note) { margin: 0 0 0.75rem; }
+ob-server-lab .ob-server-intro,
+ob-server-lab .ob-server-note { color: var(--ob-color-muted, inherit); font-size: 0.9em; }
+ob-server-lab .ob-server-toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem; }
+ob-server-lab .ob-server-field { display: grid; gap: 0.25rem; min-width: min(100%, 15rem); }
+ob-server-lab .ob-server-field label,
+ob-server-lab .ob-server-kicker { color: var(--ob-color-muted, inherit); font-size: 0.75em; letter-spacing: 0.06em; text-transform: uppercase; }
+ob-server-lab select,
+ob-server-lab button {
+  min-height: 2.75rem;
+  padding: 0.45rem 0.7rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-accent-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-surface, transparent);
+  color: var(--ob-color-text, inherit);
+  font: inherit;
+}
+ob-server-lab button { cursor: pointer; }
+ob-server-lab button:hover:not(:disabled) { background: var(--ob-color-accent, currentColor); color: var(--ob-color-accent-contrast, Canvas); }
+ob-server-lab button:disabled { opacity: 0.58; cursor: not-allowed; }
+ob-server-lab :is(button, select):focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-server-lab .ob-server-diagram {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) auto minmax(12rem, 1fr) auto minmax(10rem, 1fr);
+  gap: 0.6rem;
+  align-items: stretch;
+  margin-block: 1rem;
+}
+ob-server-lab :is(.ob-server-clients, .ob-server-queue, .ob-server-trace) { margin: 0; }
+ob-server-lab .ob-server-clients { display: grid; gap: 0.5rem; padding: 0; list-style: none; }
+ob-server-lab .ob-server-clients li,
+ob-server-lab :is(.ob-server-node, .ob-server-queue-panel) {
+  padding: 0.75rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+}
+ob-server-lab .ob-server-clients li { display: grid; gap: 0.15rem; border-left-width: 4px; }
+ob-server-lab .ob-server-clients li[data-state="active"],
+ob-server-lab .ob-server-clients li[data-state="ready"],
+ob-server-lab .ob-server-clients li[data-state="running"] { border-left-color: var(--ob-color-accent, currentColor); }
+ob-server-lab .ob-server-clients li[data-state="waiting"],
+ob-server-lab .ob-server-clients li[data-state="queued"] { border-left-style: dashed; }
+ob-server-lab .ob-server-clients span { font: 0.75rem var(--ob-font-mono, monospace); text-transform: uppercase; }
+ob-server-lab .ob-server-clients small { color: var(--ob-color-muted, inherit); line-height: 1.35; }
+ob-server-lab .ob-server-node { display: grid; align-content: center; gap: 0.35rem; border-width: 2px; text-align: center; }
+ob-server-lab .ob-server-architecture { display: block; }
+ob-server-lab .ob-server-detail { margin: 0; color: var(--ob-color-muted, inherit); font-size: 0.85em; }
+ob-server-lab .ob-server-queue-panel h3,
+ob-server-lab .ob-server-trace-panel h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+ob-server-lab .ob-server-queue { padding-left: 1.25rem; font: 0.8rem/1.45 var(--ob-font-mono, monospace); overflow-wrap: anywhere; }
+ob-server-lab .ob-server-empty { color: var(--ob-color-muted, inherit); }
+ob-server-lab .ob-server-arrow { align-self: center; color: var(--ob-color-accent, currentColor); font-weight: 700; }
+ob-server-lab .ob-server-controls { display: grid; gap: 0.75rem; }
+ob-server-lab .ob-server-control-group { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0; padding: 0.65rem; border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor); }
+ob-server-lab .ob-server-control-group legend { padding-inline: 0.25rem; color: var(--ob-color-muted, inherit); font-size: 0.8em; }
+ob-server-lab .ob-server-status { min-height: 1.5em; margin: 0.75rem 0; font-weight: 700; }
+ob-server-lab .ob-server-trace-panel { padding-top: 0.75rem; border-top: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor); }
+ob-server-lab .ob-server-trace { max-height: 12rem; padding-left: 1.4rem; overflow-y: auto; font-size: 0.85em; }
+ob-server-lab .ob-server-trace li + li { margin-top: 0.35rem; }
+
+@media (max-width: 46rem) {
+  ob-server-lab .ob-server-diagram { grid-template-columns: 1fr; }
+  ob-server-lab .ob-server-arrow { justify-self: center; transform: rotate(90deg); }
+}
