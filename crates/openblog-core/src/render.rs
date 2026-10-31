@@ -183,16 +183,16 @@ fn cover_image(
 
 /// Render a series listing cover with optional smaller sources. Full-size colour variants remain
 /// the fallback, while authored card variants let browsers select a 400w or 800w source.
-fn cover_card_image(
-    cover: &str,
-    light: Option<&str>,
-    dark: Option<&str>,
-    card_light: Option<&str>,
-    card_dark: Option<&str>,
-    card_light_2x: Option<&str>,
-    card_dark_2x: Option<&str>,
-    alt_text: &str,
-) -> String {
+fn cover_card_image(series: &Series, alt_text: &str) -> String {
+    let Some(cover) = series.cover.as_deref() else {
+        return String::new();
+    };
+    let light = series.cover_light.as_deref();
+    let dark = series.cover_dark.as_deref();
+    let card_light = series.cover_card_light.as_deref();
+    let card_dark = series.cover_card_dark.as_deref();
+    let card_light_2x = series.cover_card_light_2x.as_deref();
+    let card_dark_2x = series.cover_card_dark_2x.as_deref();
     if card_light.is_none() && card_dark.is_none() {
         return cover_image(cover, light, dark, alt_text, Some("ob-card-cover"), true);
     }
@@ -2055,18 +2055,7 @@ impl<'a> Renderer<'a> {
                 attr(&own.name),
                 attr(&s.url)
             ));
-            if let Some(cover) = &s.cover {
-                h.push_str(&cover_card_image(
-                    cover,
-                    s.cover_light.as_deref(),
-                    s.cover_dark.as_deref(),
-                    s.cover_card_light.as_deref(),
-                    s.cover_card_dark.as_deref(),
-                    s.cover_card_light_2x.as_deref(),
-                    s.cover_card_dark_2x.as_deref(),
-                    "",
-                ));
-            }
+            h.push_str(&cover_card_image(s, ""));
             h.push_str("<span class=\"ob-card-body\">");
             h.push_str(&format!(
                 "<span class=\"ob-meta\">{} {}</span>",
