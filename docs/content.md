@@ -452,6 +452,7 @@ If both sides edited the same file, Git stops with a conflict.
 | `js-evolution` | Older and newer JavaScript for the same task, side by side, run on the same fixed data across three milestones (2015, 2017, 2020). |
 | `audio-lab` | A real, quiet Web Audio synth: oscillator, low-pass filter, live signal trace. Sound plays only after Start. |
 | `native-lab` | View Transitions, Web Animations, the popover attribute and the Intersection/Resize observers, each reporting browser support. |
+| `server-lab` | An in-memory multiplayer server simulator. Add `lesson="connections"`, `lesson="world"`, `lesson="async"` or `lesson="select"` to focus on connection handling, shared state, waiting tasks or `select!`. |
 
 Everything the demo does runs in the reader's browser against pretend data; nothing is sent or
 stored. The body is plain Markdown, and the same text is used everywhere the demo cannot run:
