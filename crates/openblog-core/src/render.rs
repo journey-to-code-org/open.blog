@@ -150,6 +150,78 @@ struct Renderer<'a> {
     trail_budget: usize,
 }
 
+/// Render one cover everywhere the native site shows it. `cover` remains the canonical image for
+/// feeds, social metadata and portable copies; the optional variants only change the image a reader
+/// sees as the site's colour scheme changes.
+fn cover_image(
+    cover: &str,
+    light: Option<&str>,
+    dark: Option<&str>,
+    alt_text: &str,
+    class: Option<&str>,
+    lazy: bool,
+) -> String {
+    let light = light.unwrap_or(cover);
+    let dark = dark.unwrap_or(cover);
+    let class = class
+        .map(|class| format!(" class=\"{}\"", attr(class)))
+        .unwrap_or_default();
+    let loading = if lazy { " loading=\"lazy\"" } else { "" };
+    let image = format!(
+        "<img{class} src=\"{}\" alt=\"{}\"{loading} decoding=\"async\">",
+        attr(light),
+        attr(alt_text)
+    );
+    if light == dark {
+        return image;
+    }
+    format!(
+        "<picture class=\"ob-cover-picture\"><source data-ob-cover-dark media=\"(prefers-color-scheme: dark)\" srcset=\"{}\">{image}</picture>",
+        attr(dark)
+    )
+}
+
+/// Render a series listing cover with optional smaller sources. Full-size colour variants remain
+/// the fallback, while authored card variants let browsers select a 400w or 800w source.
+fn cover_card_image(series: &Series, alt_text: &str) -> String {
+    let Some(cover) = series.cover.as_deref() else {
+        return String::new();
+    };
+    let light = series.cover_light.as_deref();
+    let dark = series.cover_dark.as_deref();
+    let card_light = series.cover_card_light.as_deref();
+    let card_dark = series.cover_card_dark.as_deref();
+    let card_light_2x = series.cover_card_light_2x.as_deref();
+    let card_dark_2x = series.cover_card_dark_2x.as_deref();
+    if card_light.is_none() && card_dark.is_none() {
+        return cover_image(cover, light, dark, alt_text, Some("ob-card-cover"), true);
+    }
+    let light = light.unwrap_or(cover);
+    let dark = dark.unwrap_or(cover);
+    let image_src = card_light.unwrap_or(light);
+    let image_srcset = card_light
+        .zip(card_light_2x)
+        .map(|(card, card_2x)| format!(" srcset=\"{} 400w, {} 800w\"", attr(card), attr(card_2x)))
+        .unwrap_or_default();
+    let dark_srcset = card_dark
+        .zip(card_dark_2x)
+        .map(|(card, card_2x)| format!("{} 400w, {} 800w", attr(card), attr(card_2x)))
+        .unwrap_or_else(|| attr(dark));
+    let sizes =
+        "(max-width: 40rem) calc(100vw - 2rem), (max-width: 70rem) calc((100vw - 3rem) / 2), 22rem";
+    let image = format!(
+        "<img class=\"ob-card-cover\" src=\"{}\"{image_srcset} sizes=\"{sizes}\" alt=\"{}\" width=\"400\" height=\"225\" loading=\"lazy\" decoding=\"async\">",
+        attr(image_src),
+        attr(alt_text),
+    );
+    if light == dark && card_light == card_dark && card_light_2x == card_dark_2x {
+        return image;
+    }
+    format!(
+        "<picture class=\"ob-cover-picture\"><source data-ob-cover-dark media=\"(prefers-color-scheme: dark)\" srcset=\"{dark_srcset}\" sizes=\"{sizes}\">{image}</picture>"
+    )
+}
+
 /// The most trail markup the whole site may carry (ADR 0175). A site over it
 /// shows every trail one step deep and says so in the build log.
 pub const TRAIL_BUDGET_BYTES: usize = 20 * 1024 * 1024;
@@ -1939,10 +2011,13 @@ impl<'a> Renderer<'a> {
                 h.push_str(&attr(&post.url));
                 h.push_str("\">");
                 if let Some(cover) = &post.cover {
-                    h.push_str(&format!(
-                        "<img class=\"ob-card-cover\" src=\"{}\" alt=\"{}\" loading=\"lazy\" decoding=\"async\">",
-                        attr(cover),
-                        attr(&post.cover_alt)
+                    h.push_str(&cover_image(
+                        cover,
+                        post.cover_light.as_deref(),
+                        post.cover_dark.as_deref(),
+                        &post.cover_alt,
+                        Some("ob-card-cover"),
+                        true,
                     ));
                 }
                 h.push_str("<span class=\"ob-card-body\"><span class=\"ob-meta\">");
@@ -1980,9 +2055,7 @@ impl<'a> Renderer<'a> {
                 attr(&own.name),
                 attr(&s.url)
             ));
-            if let Some(cover) = &s.cover {
-                h.push_str(&format!("<img class=\"ob-card-cover\" src=\"{}\" alt=\"\" loading=\"lazy\" decoding=\"async\">", attr(cover)));
-            }
+            h.push_str(&cover_card_image(s, ""));
             h.push_str("<span class=\"ob-card-body\">");
             h.push_str(&format!(
                 "<span class=\"ob-meta\">{} {}</span>",
@@ -2334,11 +2407,16 @@ impl<'a> Renderer<'a> {
         }
         if theme.post_covers {
             if let Some(cover) = &post.cover {
-                body.push_str(&format!(
-                    "<figure class=\"ob-cover\"><img class=\"u-photo\" src=\"{}\" alt=\"{}\" decoding=\"async\"></figure>\n",
-                    attr(cover),
-                    attr(&post.cover_alt)
+                body.push_str("<figure class=\"ob-cover\">");
+                body.push_str(&cover_image(
+                    cover,
+                    post.cover_light.as_deref(),
+                    post.cover_dark.as_deref(),
+                    &post.cover_alt,
+                    Some("u-photo"),
+                    false,
                 ));
+                body.push_str("</figure>\n");
             }
         }
         if let Some(recipe) = &post.recipe {
@@ -3152,7 +3230,16 @@ impl<'a> Renderer<'a> {
         body.push_str("<p class=\"ob-eyebrow\"><a href=\"/series/\">Series</a></p>\n");
         body.push_str(&self.heading(theme, 1, &series.name, "ob-section-heading"));
         if let Some(cover) = &series.cover {
-            body.push_str(&format!("<figure class=\"ob-cover\"><img src=\"{}\" alt=\"\" decoding=\"async\"></figure>\n", attr(cover)));
+            body.push_str("<figure class=\"ob-cover\">");
+            body.push_str(&cover_image(
+                cover,
+                series.cover_light.as_deref(),
+                series.cover_dark.as_deref(),
+                "",
+                None,
+                false,
+            ));
+            body.push_str("</figure>\n");
         }
         if !series.description_html.trim().is_empty() {
             body.push_str(&format!(
@@ -5413,6 +5500,65 @@ mod tests {
         assert!(page.contains("<meta property=\"og:url\" content=\"/original\">"));
         assert!(page.contains("<meta property=\"og:image\" content=\"https://t.dev/default.png\">"));
         assert!(page.contains("<meta name=\"twitter:card\" content=\"summary_large_image\">"));
+    }
+
+    #[test]
+    fn cover_variants_follow_colour_mode_on_every_native_cover_surface() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","theme":"cards"}"#,
+        )
+        .unwrap();
+        let source = |path: &str, contents: &str| SourceFile {
+            path: path.into(),
+            contents: contents.into(),
+        };
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![source(
+                    "posts/one.md",
+                    "---\ntitle: One\ndate: 2026-01-01\nseries: guide\ncover: /one.jpg\ncoverLight: /one-light.jpg\ncoverDark: /one-dark.jpg\ncoverAlt: One cover\n---\nBody.",
+                )],
+                series: vec![source(
+                    "series/guide.md",
+                    "---\nname: Guide\ncover: /guide.jpg\ncoverLight: /guide-light.jpg\ncoverDark: /guide-dark.jpg\ncoverCardLight: /guide-card-light.jpg\ncoverCardDark: /guide-card-dark.jpg\ncoverCardLight2x: /guide-card-light-2x.jpg\ncoverCardDark2x: /guide-card-dark-2x.jpg\n---\nAbout.",
+                )],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let mut themes = ThemeSet::new();
+        themes.insert(
+            "cards",
+            ThemeFile::from_json(
+                r#"{"extends":"base","options":{"listStyle":"cards","postCovers":true}}"#,
+            )
+            .unwrap(),
+        );
+        let files = generate(&site, &themes).unwrap();
+
+        for path in ["index.html", "one/index.html"] {
+            let html = file(&files, path);
+            assert!(html.contains("srcset=\"/one-dark.jpg\""), "{path}");
+            assert!(html.contains("src=\"/one-light.jpg\""), "{path}");
+            assert!(html.contains("alt=\"One cover\""), "{path}");
+        }
+        let series_index = file(&files, "series/index.html");
+        assert!(series_index
+            .contains("srcset=\"/guide-card-dark.jpg 400w, /guide-card-dark-2x.jpg 800w\""));
+        assert!(series_index.contains("src=\"/guide-card-light.jpg\""));
+        assert!(series_index
+            .contains("srcset=\"/guide-card-light.jpg 400w, /guide-card-light-2x.jpg 800w\""));
+
+        let series_page = file(&files, "series/guide/index.html");
+        assert!(series_page.contains("srcset=\"/guide-dark.jpg\""));
+        assert!(series_page.contains("src=\"/guide-light.jpg\""));
+        assert!(!series_page.contains("guide-card"));
+
+        let post = file(&files, "one/index.html");
+        assert!(post.contains("<meta property=\"og:image\" content=\"https://t.dev/one.jpg\">"));
+        assert!(post.contains("data-ob-cover-dark media=\"(prefers-color-scheme: dark)\""));
     }
 
     fn build_posts(config_json: &str, posts: &[(&str, &str)]) -> Vec<OutputFile> {

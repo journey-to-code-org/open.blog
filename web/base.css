@@ -409,10 +409,15 @@ h2.ob-title {
 }
 
 .ob-card-cover {
+  display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
   background: var(--ob-color-surface-raised);
+}
+
+.ob-cover-picture {
+  display: block;
 }
 
 .ob-card-body {
