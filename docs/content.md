@@ -42,7 +42,8 @@ a `#` heading, which is then used. Everything else is optional:
 | `series` | The slug of a series this post belongs to. |
 | `seriesOrder` | Position within the series. Without it, parts are ordered by date. |
 | `description` | A sentence or two for feeds, search results, and social cards. Defaults to an excerpt. |
-| `cover` | Image shown at the top and used as the social card. Defaults to the first image in the body. |
+| `cover` | Canonical cover shown at the top and used in feeds, exports, and social cards. It is also the on-site fallback for either colour mode. Defaults to the first image in the body. |
+| `coverLight`, `coverDark` | Optional on-site cover variants for light and dark mode. The saved theme toggle and the system preference select the matching image; `cover` is used when a variant is omitted. |
 | `coverAlt` | Alternative text for the cover. |
 | `draft` | `true` keeps the post out of every build and feed. |
 | `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
@@ -711,6 +712,12 @@ name: Getting started
 description: Three short parts that cover the basics.
 theme: paper          # optional: every post in the series uses this theme
 cover: /images/getting-started.png
+coverLight: /images/getting-started-light.png
+coverDark: /images/getting-started-dark.png
+coverCardLight: /images/getting-started-card-light.png
+coverCardDark: /images/getting-started-card-dark.png
+coverCardLight2x: /images/getting-started-card-light-2x.png
+coverCardDark2x: /images/getting-started-card-dark-2x.png
 order: 1              # position on the /series/ page (lower first)
 ---
 
@@ -720,6 +727,13 @@ Optional Markdown shown at the top of the series page.
 Posts join with `series: getting-started`. Each post then shows "Part 2 of 3" with
 previous and next links and a list of all parts. If you reference a series that has no
 file, one is created from the slug and the build prints a warning.
+
+`coverLight` and `coverDark` are optional full-size colour-mode variants; `cover` remains
+the canonical fallback for feeds, social cards, and either missing variant. Series index
+cards can additionally use `coverCardLight` and `coverCardDark` as quarter-resolution
+sources, plus `coverCardLight2x` and `coverCardDark2x` as half-resolution high-density
+sources. The index emits responsive 400w/800w choices while the series page keeps the
+full-size covers.
 
 A series that holds a collaborative work, a published post whose credits name two or more
 authors (such as a shared reflection), also says who wrote what: its page lists the series'
