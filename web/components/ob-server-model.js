@@ -10,9 +10,9 @@ export const SERVER_LESSONS = [
 ];
 
 const CLIENTS = [
-  { id: "alice", label: "Alice" },
-  { id: "bob", label: "Bob" },
-  { id: "cara", label: "Cara" },
+  { id: "bryce", label: "Bryce" },
+  { id: "ryan", label: "Ryan" },
+  { id: "tommy", label: "Tommy" },
 ];
 
 const lessonIds = new Set(SERVER_LESSONS.map(({ id }) => id));
@@ -99,8 +99,8 @@ export function serverActions(state) {
     actions.push(
       action("mode-mutex", "Mutex", "architecture", state.architecture === "mutex"),
       action("mode-actor", "World owner", "architecture", state.architecture === "actor"),
-      action("queue-alice", "Alice: say hello", "event", state.clients.find(({ id }) => id === "alice")?.status !== "ready"),
-      action("queue-bob", "Bob: look", "event", state.clients.find(({ id }) => id === "bob")?.status !== "ready"),
+      action("queue-bryce", "Bryce: say hello", "event", state.clients.find(({ id }) => id === "bryce")?.status !== "ready"),
+      action("queue-ryan", "Ryan: look", "event", state.clients.find(({ id }) => id === "ryan")?.status !== "ready"),
       action("advance", state.current ? "Finish current command" : "Start next command", "event", !state.current && !state.queue.length),
     );
   } else if (state.lesson === "async") {
@@ -170,13 +170,13 @@ function worldAction(state, id) {
   if (id === "mode-mutex") return initialWorld("mutex");
   if (id === "mode-actor") return initialWorld("actor");
   const next = copy(state);
-  if (id === "queue-alice" || id === "queue-bob") {
+  if (id === "queue-bryce" || id === "queue-ryan") {
     const from = id.slice(6);
     if (next.clients.find((entry) => entry.id === from)?.status !== "ready") return state;
-    const command = from === "alice" ? "say hello" : "look";
+    const command = from === "bryce" ? "say hello" : "look";
     next.queue.push({ from, command });
     setClient(next, from, "queued", state.architecture === "mutex" ? "Waiting to lock the World" : "Message waiting in the World's inbox");
-    return addLog(next, `${from === "alice" ? "Alice" : "Bob"} queued ${JSON.stringify(command)}.`);
+    return addLog(next, `${from === "bryce" ? "Bryce" : "Ryan"} queued ${JSON.stringify(command)}.`);
   }
   if (id !== "advance") return state;
   if (!next.current && next.queue.length) {
@@ -229,7 +229,7 @@ function selectAction(state, id) {
     const event = next.events.shift();
     if (event.kind === "shutdown") {
       next.closed = true;
-      setClient(next, "alice", "closed", "Connection task ended cleanly");
+      setClient(next, "bryce", "closed", "Connection task ended cleanly");
       return addLog(next, "select! chose shutdown. The task closed the connection and stopped waiting.");
     }
     return addLog(next, `select! chose the ${event.label} branch. The other ready sources are still waiting.`);

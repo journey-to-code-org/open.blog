@@ -12,28 +12,28 @@ test("an unknown server lesson safely chooses connections", () => {
 });
 
 test("a sequential server leaves the second connection waiting until the first leaves", () => {
-  let state = run(createServerLab("connections"), "connect-alice", "connect-bob", "send-bob");
-  assert.equal(state.clients.find(({ id }) => id === "bob").status, "waiting");
+  let state = run(createServerLab("connections"), "connect-bryce", "connect-ryan", "send-ryan");
+  assert.equal(state.clients.find(({ id }) => id === "ryan").status, "waiting");
   assert.match(state.log.at(-1), /bytes wait/);
-  state = applyServerAction(state, "disconnect-alice");
-  assert.equal(state.clients.find(({ id }) => id === "bob").status, "active");
+  state = applyServerAction(state, "disconnect-bryce");
+  assert.equal(state.clients.find(({ id }) => id === "ryan").status, "active");
 });
 
 test("the waiting connection names whichever client owns the sequential handler", () => {
-  const state = run(createServerLab("connections"), "connect-bob", "connect-alice");
-  assert.match(state.log.at(-1), /Bob's handler/);
-  assert.match(state.clients.find(({ id }) => id === "alice").detail, /Queued by the OS/);
+  const state = run(createServerLab("connections"), "connect-ryan", "connect-bryce");
+  assert.match(state.log.at(-1), /Ryan's handler/);
+  assert.match(state.clients.find(({ id }) => id === "bryce").detail, /Queued by the OS/);
 });
 
 test("a worker per client keeps the accept loop free", () => {
-  const state = run(createServerLab("connections"), "mode-threaded", "connect-alice", "connect-bob");
+  const state = run(createServerLab("connections"), "mode-threaded", "connect-bryce", "connect-ryan");
   assert.deepEqual(state.clients.map(({ status }) => status), ["active", "active"]);
   assert.match(presentServerLab(state).server, /accept loop stays free/);
 });
 
 test("mutex and actor worlds process queued commands one at a time", () => {
   for (const architecture of ["mutex", "actor"]) {
-    let state = run(createServerLab("world", architecture), "queue-alice", "queue-bob", "advance");
+    let state = run(createServerLab("world", architecture), "queue-bryce", "queue-ryan", "advance");
     assert.equal(state.current.command, "say hello");
     assert.equal(state.queue.length, 1);
     state = applyServerAction(state, "advance");
@@ -47,7 +47,7 @@ test("async tasks yield while thread workers remain allocated", () => {
   const tasks = createServerLab("async", "tasks");
   assert.match(presentServerLab(threads).server, /3 worker threads; 3 blocked/);
   assert.match(presentServerLab(tasks).server, /waiting tasks occupy no dedicated thread/);
-  const ready = applyServerAction(tasks, "ready-bob");
+  const ready = applyServerAction(tasks, "ready-ryan");
   assert.match(presentServerLab(ready).server, /1 runnable task/);
 });
 
@@ -64,7 +64,7 @@ test("disabled actions expose why the model cannot advance", () => {
   let state = createServerLab("world");
   const advance = serverActions(state).find(({ id }) => id === "advance");
   assert.equal(advance.disabled, true);
-  state = applyServerAction(state, "queue-alice");
-  assert.equal(serverActions(state).find(({ id }) => id === "queue-alice").disabled, true);
-  assert.equal(applyServerAction(state, "queue-alice"), state);
+  state = applyServerAction(state, "queue-bryce");
+  assert.equal(serverActions(state).find(({ id }) => id === "queue-bryce").disabled, true);
+  assert.equal(applyServerAction(state, "queue-bryce"), state);
 });

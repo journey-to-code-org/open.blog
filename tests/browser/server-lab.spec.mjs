@@ -59,10 +59,10 @@ test("the lab exercises connection and select scheduling models", async ({ page 
   await page.goto(origin);
 
   await expect(page.getByRole("region", { name: "Server" }).getByText("One connection loop", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Connect Alice" }).click();
-  await page.getByRole("button", { name: "Connect Bob" }).click();
-  await expect(page.locator(".ob-server-clients li", { hasText: "Bob" })).toContainText("waiting");
-  await page.getByRole("button", { name: "Bob: look" }).click();
+  await page.getByRole("button", { name: "Connect Bryce" }).click();
+  await page.getByRole("button", { name: "Connect Ryan" }).click();
+  await expect(page.locator(".ob-server-clients li", { hasText: "Ryan" })).toContainText("waiting");
+  await page.getByRole("button", { name: "Ryan: look" }).click();
   await expect(page.getByRole("status")).toContainText("bytes wait");
 
   await page.getByLabel("Lesson view").selectOption("select");
