@@ -308,12 +308,14 @@ test("on a phone the screen is one column with big targets, a sticky bar and no 
       const region = document.querySelector("[data-look-screen]");
       const options = [...region.querySelectorAll(".oba-look-option")];
       const small = options.filter((node) => node.getBoundingClientRect().height < 44).length;
-      const buttons = [...document.querySelectorAll("[data-look-screen] button, [data-landing-bar] button")].filter((node) => node.getBoundingClientRect().height < 44).length;
+      const buttons = [...document.querySelectorAll("[data-look-screen] button, [data-landing-bar] button")]
+        .map((node) => ({ name: node.textContent.trim(), height: node.getBoundingClientRect().height }))
+        .filter(({ height }) => height < 44);
       return { overflow: region.scrollWidth - region.clientWidth, page: document.documentElement.scrollWidth - innerWidth, small, buttons };
     });
     expect(metrics.overflow, `region at ${width}`).toBeLessThanOrEqual(0);
     expect(metrics.small).toBe(0);
-    expect(metrics.buttons).toBe(0);
+    expect(metrics.buttons).toEqual([]);
     const bar = page.locator("[data-landing-bar]");
     await expect(bar).toBeInViewport();
     await choose(page, "textSize", "large");

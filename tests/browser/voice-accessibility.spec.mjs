@@ -261,11 +261,10 @@ test("the session works from the keyboard alone, with names a screen reader can 
 });
 
 test("the clock is not a live region and the view speaks only a few times", async ({ page }) => {
-  await signIn(page, "#/overview");
-  const drawn = await api(page, "POST", "voice/draw", {});
-  const started = await api(page, "POST", "voice/session/start", { promptId: drawn.body.prompts[1].id });
-  expect(started.status).toBe(201);
-  await page.goto(`${origin}/admin/#/voice`);
+  await signIn(page, "#/voice");
+  await expect(cards(page)).toHaveCount(3);
+  await page.getByRole("radio").nth(1).check();
+  await page.getByRole("button", { name: "Start the 3:00 timer" }).click();
   await expect(page.locator("[data-voice-rough]")).toBeVisible();
   // Record everything the live region is given while the clock ticks.
   await page.evaluate(() => {

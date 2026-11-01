@@ -359,6 +359,6 @@ fn a_site_without_a_job_profile_builds_byte_for_byte_unchanged() {
     assert!(files.iter().all(|file| !file.path.starts_with("jobs")));
     assert_eq!(
         (files.len(), format!("{:016x}", fnv(&files))),
-        (23, String::from("c50e9f5e18e3cdbf"))
+        (23, String::from("f90c131d61f6837b"))
     );
 }
