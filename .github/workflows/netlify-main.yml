@@ -1,0 +1,62 @@
+# Publishes main without asking Netlify to clone the repository or run a build.
+# The preparation workflow compiles Rust once and stores the generator plus the
+# pinned Netlify CLI; this workflow turns that exact main commit into dist/ and
+# uploads the finished site directly.
+
+name: Publish main to Netlify
+
+on:
+  workflow_run:
+    workflows: ["Prepare scheduled publisher"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: netlify-production
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Download this commit's prepared publisher
+        uses: actions/download-artifact@v4
+        with:
+          name: scheduled-publisher-linux-x64
+          path: .scheduled-publisher
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Generate the site on GitHub
+        run: |
+          chmod +x .scheduled-publisher/openblog
+          .scheduled-publisher/openblog build
+      - name: Check Netlify credentials
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "NETLIFY_AUTH_TOKEN and NETLIFY_SITE_ID secrets are required." >&2
+            exit 1
+          fi
+      - name: Upload the finished site without a Netlify build
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: >-
+          node .scheduled-publisher/deploy/node_modules/netlify-cli/bin/run.js
+          deploy --no-build --prod
+          --dir=dist --functions=netlify/functions
+          --message="GitHub main publish for ${{ github.event.workflow_run.head_sha }}"

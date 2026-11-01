@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: scheduled-netlify-publish
+  group: netlify-production
   cancel-in-progress: false
 
 jobs:

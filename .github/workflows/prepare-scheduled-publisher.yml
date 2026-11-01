@@ -1,6 +1,6 @@
-# Compile the site generator ahead of time so scheduled publishing never spends
-# its critical path building Rust. Every main commit gets its own artifact; the
-# weekly run refreshes the artifact before GitHub's retention window expires.
+# Compile the site generator on GitHub so neither main publishing nor scheduled
+# publishing asks Netlify to build Rust. Every main commit gets its own artifact;
+# the weekly run refreshes the artifact before GitHub's retention window expires.
 
 name: Prepare scheduled publisher
 

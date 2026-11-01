@@ -10,6 +10,11 @@ const publish = readFileSync(
   new URL("../../.github/workflows/netlify-schedule.yml", import.meta.url),
   "utf8",
 );
+const mainDeploy = readFileSync(
+  new URL("../../.github/workflows/netlify-main.yml", import.meta.url),
+  "utf8",
+);
+const netlify = readFileSync(new URL("../../netlify.toml", import.meta.url), "utf8");
 
 test("main prepares a durable publisher binary for its exact commit", () => {
   assert.match(prepare, /push:\s*\n\s*branches: \[main\]/);
@@ -41,4 +46,27 @@ test("scheduled publishing deploys the generated site without a Netlify build", 
   assert.match(publish, /NETLIFY_AUTH_TOKEN: \$\{\{ secrets\.NETLIFY_AUTH_TOKEN \}\}/);
   assert.match(publish, /NETLIFY_SITE_ID: \$\{\{ secrets\.NETLIFY_SITE_ID \}\}/);
   assert.doesNotMatch(publish, /--auth=/);
+});
+
+test("a successful main preparation builds dist on GitHub and uploads it to Netlify", () => {
+  assert.match(mainDeploy, /workflow_run:/);
+  assert.match(mainDeploy, /workflows: \["Prepare scheduled publisher"\]/);
+  assert.match(mainDeploy, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(mainDeploy, /github\.event\.workflow_run\.event == 'push'/);
+  assert.match(mainDeploy, /github\.event\.workflow_run\.head_branch == 'main'/);
+  assert.match(mainDeploy, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/);
+  assert.match(mainDeploy, /run-id: \$\{\{ github\.event\.workflow_run\.id \}\}/);
+  assert.match(mainDeploy, /\.scheduled-publisher\/openblog build/);
+  assert.match(mainDeploy, /deploy --no-build --prod/);
+  assert.match(mainDeploy, /--dir=dist/);
+  assert.match(mainDeploy, /--functions=netlify\/functions/);
+  assert.match(mainDeploy, /NETLIFY_AUTH_TOKEN: \$\{\{ secrets\.NETLIFY_AUTH_TOKEN \}\}/);
+  assert.match(mainDeploy, /NETLIFY_SITE_ID: \$\{\{ secrets\.NETLIFY_SITE_ID \}\}/);
+  assert.doesNotMatch(mainDeploy, /cargo (?:build|run)/);
+});
+
+test("Netlify configuration never asks Netlify to build Rust", () => {
+  assert.doesNotMatch(netlify, /^\s*command\s*=/m);
+  assert.doesNotMatch(netlify, /cargo (?:build|run)/);
+  assert.doesNotMatch(netlify, /openblog build/);
 });
