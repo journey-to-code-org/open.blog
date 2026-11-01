@@ -80,12 +80,15 @@ it is the natural choice when the repository is private. A clone of the engine r
    `dist/`. The first build takes several minutes; later ones reuse the cache.
 2. Set `"url"` in `openblog.json` to the site's address (the Netlify subdomain, or your
    custom domain once it is configured under *Domain management*).
-3. For scheduled posts, create a build hook under *Site configuration → Build & deploy →
-   Build hooks*, and store its URL as a repository secret named `NETLIFY_BUILD_HOOK`. The
-   included workflow `.github/workflows/netlify-schedule.yml` then triggers a rebuild
-   once a day (06:23 UTC), which is when a due post appears. Every build compiles the
-   engine and counts against Netlify's build minutes (300 a month on the free tier), so
-   the default is deliberately rare; edit the `cron` line for more, and date scheduled
+3. For scheduled posts, create a Netlify personal access token and add it as the GitHub
+   repository secret `NETLIFY_AUTH_TOKEN`. Add the site's **Project ID** (shown under
+   *Project configuration → General → Project information*) as `NETLIFY_SITE_ID`.
+   `.github/workflows/prepare-scheduled-publisher.yml` compiles the Linux generator and
+   packages the pinned deploy client for every `main` commit, then refreshes the artifact
+   weekly. `.github/workflows/netlify-schedule.yml` reuses that exact-commit artifact once
+   a day (06:23 UTC), runs `openblog build`, and uploads `dist/` and the functions directly.
+   Scheduled publication therefore avoids dependency installation, a remote Rust build,
+   and Netlify build minutes. Edit the `cron` line for another cadence, and date scheduled
    posts for the rebuild time.
 
 The file also sets cache headers for assets and CORS headers for the feeds and the
