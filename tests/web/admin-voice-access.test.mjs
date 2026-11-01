@@ -53,14 +53,16 @@ test("the announcer says one minute and thirty seconds once each, then the lock,
 });
 
 test("a resumed session says where it stands once, and a mark inside thirty seconds of that is not repeated", () => {
-  const late = createAnnouncer();
+  const late = createAnnouncer({ resumed: true });
   assert.equal(late.update(20, 0), "Resumed. 20 seconds left.");
   assert.equal(late.update(19, 1000), null);
-  const mid = createAnnouncer();
+  const mid = createAnnouncer({ resumed: true });
   assert.equal(mid.update(45, 0), "Resumed. 45 seconds left.");
   assert.equal(mid.update(30, 15000), null, "the thirty second mark would come only 15 seconds after the last message");
   const fresh = createAnnouncer();
   assert.equal(fresh.update(180, 0), null, "a new session says nothing until the first mark");
+  const freshAfterPageLoad = createAnnouncer();
+  assert.equal(freshAfterPageLoad.update(179, 0), null, "a one-second page load does not turn a new session into a resumed one");
   assert.equal(createAnnouncer().update(0, 0), null);
 });
 
