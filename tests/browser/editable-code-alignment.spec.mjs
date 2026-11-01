@@ -18,12 +18,12 @@ test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "openblog-editable-code-"));
   mkdirSync(join(root, "content", "posts"), { recursive: true });
   mkdirSync(join(root, "themes"));
-  for (const theme of ["base", "mnix", "rustbound"]) {
+  for (const theme of ["base", "demo", "paper"]) {
     cpSync(join(repository, "themes", theme), join(root, "themes", theme), { recursive: true });
   }
   writeFileSync(
     join(root, "openblog.json"),
-    JSON.stringify({ title: "Code editor", url: "https://code.example.org", theme: "rustbound", postPath: "/{slug}/" }),
+    JSON.stringify({ title: "Code editor", url: "https://code.example.org", theme: "paper", postPath: "/{slug}/" }),
   );
   writeFileSync(
     join(root, "content", "posts", "rust.md"),
