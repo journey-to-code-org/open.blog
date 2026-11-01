@@ -26,7 +26,11 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace
+        # This workspace emits many integration-test binaries. Bound concurrent links and
+        # omit test-only debug symbols so a hosted runner does not exhaust memory or disk.
+        env:
+          CARGO_PROFILE_TEST_DEBUG: 0
+        run: cargo test --workspace -j 2
       - name: Test front-end components
         run: node --test tests/web/*.test.mjs tests/portability-contracts.test.mjs
       - name: Test container startup
