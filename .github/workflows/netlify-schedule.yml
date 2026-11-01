@@ -1,27 +1,81 @@
-# Rebuilds the site on Netlify once a day (06:23 UTC) so posts with a future `date`
-# go live. Each build compiles the engine and counts against Netlify's build minutes
-# (300 a month on the free tier), so keep this rare; for same-hour publishing use
-# `0 * * * *` on a paid plan, or schedule posts for the daily time. Does nothing until a repository secret named NETLIFY_BUILD_HOOK holds
-# the URL of a build hook (Netlify: Site configuration > Build & deploy > Build hooks).
+# Publishes due posts once a day (06:23 UTC) with the Linux generator compiled
+# for the exact main commit by prepare-scheduled-publisher.yml. The scheduled
+# path generates the site and uploads it directly; it never compiles Rust or
+# starts a remote Netlify build.
 
-name: Rebuild on Netlify
+name: Publish scheduled posts
 
 on:
   schedule:
     - cron: "23 6 * * *"
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: scheduled-netlify-publish
+  cancel-in-progress: false
 
 jobs:
-  trigger:
+  publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Call the Netlify build hook
+      - uses: actions/checkout@v4
+      - name: Find this commit's prepared publisher
+        id: publisher-run
+        shell: bash
         env:
-          HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$HOOK" ]; then
-            echo "No NETLIFY_BUILD_HOOK secret; nothing to do."; exit 0
+          run_id=""
+          for attempt in {1..30}; do
+            run_id="$(gh api --method GET \
+              "/repos/$GITHUB_REPOSITORY/actions/workflows/prepare-scheduled-publisher.yml/runs" \
+              -f branch=main \
+              -f status=success \
+              -f head_sha="$GITHUB_SHA" \
+              -f per_page=1 \
+              --jq '.workflow_runs[0].id // empty')"
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "No successful publisher artifact exists for $GITHUB_SHA." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+      - name: Download the prepared publisher
+        uses: actions/download-artifact@v4
+        with:
+          name: scheduled-publisher-linux-x64
+          path: .scheduled-publisher
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.publisher-run.outputs.run_id }}
+      - name: Generate the site
+        run: |
+          chmod +x .scheduled-publisher/openblog
+          .scheduled-publisher/openblog build
+      - name: Check Netlify credentials
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "NETLIFY_AUTH_TOKEN and NETLIFY_SITE_ID secrets are required." >&2
+            exit 1
           fi
-          curl --silent --show-error --fail -X POST -d '{}' "$HOOK"
+      - name: Publish the generated site
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: >-
+          node .scheduled-publisher/deploy/node_modules/netlify-cli/bin/run.js
+          deploy --no-build --prod
+          --dir=dist --functions=netlify/functions
+          --message="Scheduled publishing for $GITHUB_SHA"

@@ -3,10 +3,10 @@
 # compiled, then `openblog build` writes dist/. Netlify installs the Rust
 # toolchain named in rust-toolchain.toml.
 #
-# Scheduled posts publish on the first build after their date. Add a build hook
-# in Netlify (Site configuration > Build & deploy > Build hooks) and put its URL
-# in a repository secret named NETLIFY_BUILD_HOOK; the included GitHub workflow
-# then triggers a rebuild once a day.
+# Scheduled posts publish through the included GitHub workflows. One workflow
+# prepares the Linux generator for each main commit; the daily workflow reuses
+# it and uploads the generated site directly with NETLIFY_AUTH_TOKEN and
+# NETLIFY_SITE_ID repository secrets, avoiding a remote Rust build.
 #
 # Caching: Netlify's default (revalidate with an ETag) is kept on purpose.
 # Pages reference stylesheets and scripts with a content-derived ?v= so they
