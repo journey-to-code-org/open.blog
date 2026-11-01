@@ -3030,7 +3030,10 @@ impl<'a> Renderer<'a> {
             } else {
                 series.description_html.clone()
             };
-            body.push_str(&format!("<div class=\"ob-prose\">{description}</div>\n"));
+            body.push_str(&format!(
+                "<ob-code{}><div class=\"ob-prose\">{description}</div></ob-code>\n",
+                self.code_attr(theme, None),
+            ));
         }
         // Only a series holding a collaborative work names its contributors and each part's
         // authors (ADR 0040); every other series keeps exactly the markup it always had.

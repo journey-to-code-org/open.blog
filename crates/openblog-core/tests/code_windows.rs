@@ -11,7 +11,7 @@ fn file(path: &str, contents: &str) -> SourceFile {
     }
 }
 
-fn page(theme_json: Option<&str>, post_body: &str, path: &str) -> String {
+fn page(theme_json: Option<&str>, post_body: &str, series_body: &str, path: &str) -> String {
     let config = SiteConfig::from_json(r#"{"title":"T","postPath":"/{slug}/"}"#).unwrap();
     let theme_line = if theme_json.is_some() {
         "theme: custom\n"
@@ -27,7 +27,9 @@ fn page(theme_json: Option<&str>, post_body: &str, path: &str) -> String {
             )],
             series: vec![file(
                 "series/guides.md",
-                &format!("---\nname: Guides\ncover: /images/guides.jpg\n{theme_line}---\n\nAbout.\n"),
+                &format!(
+                    "---\nname: Guides\ncover: /images/guides.jpg\n{theme_line}---\n\n{series_body}\n"
+                ),
             )],
             ..Sources::default()
         },
@@ -53,6 +55,7 @@ fn a_theme_with_code_windows_frames_plain_blocks() {
     let html = page(
         Some(r#"{"extends":"base","options":{"codeWindows":true}}"#),
         FENCES,
+        "About.",
         "one/index.html",
     );
     assert!(html.contains("<figure class=\"ob-code-block\"><figcaption class=\"ob-code-title\">Terminal</figcaption><pre><code class=\"language-bash\">"), "{html}");
@@ -65,13 +68,34 @@ fn a_theme_with_code_windows_frames_plain_blocks() {
 
 #[test]
 fn other_themes_and_feeds_keep_plain_blocks() {
-    let html = page(None, FENCES, "one/index.html");
+    let html = page(None, FENCES, "About.", "one/index.html");
     assert!(html.contains("<pre><code class=\"language-bash\">"));
     assert_eq!(html.matches("ob-code-title").count(), 1);
     let feed = page(
         Some(r#"{"extends":"base","options":{"codeWindows":true}}"#),
         FENCES,
+        "About.",
         "feed.json",
     );
     assert!(!feed.contains("Terminal"), "a feed is not themed");
+}
+
+#[test]
+fn a_series_landing_code_window_uses_the_shared_code_enhancer_once() {
+    let html = page(
+        Some(r#"{"extends":"base","options":{"codeWindows":true}}"#),
+        FENCES,
+        "```rust title=\"main.rs\"\nfn main() {}\n```",
+        "series/guides/index.html",
+    );
+    assert!(
+        html.contains("<ob-code highlight><div class=\"ob-prose\">")
+            || html.contains("<ob-code highlight line-numbers><div class=\"ob-prose\">"),
+        "series landing code must use the same enhancer as posts and pages: {html}"
+    );
+    assert_eq!(
+        html.matches("ob-code-title").count(),
+        1,
+        "the enhancer must not duplicate the engine-owned caption"
+    );
 }
