@@ -735,6 +735,17 @@ sources, plus `coverCardLight2x` and `coverCardDark2x` as half-resolution high-d
 sources. The index emits responsive 400w/800w choices while the series page keeps the
 full-size covers.
 
+Set `seriesPerPage` in `openblog.json` to limit the series index. The browser changes pages
+without reloading, writes `?series-page=N` into the address for sharing and Back/Forward, and
+keeps the complete list available when JavaScript is off. The default `0` shows every series.
+
+The same `seriesPerPage` setting paginates Series sections on the homepage. Set
+`latestPostsPerPage` to paginate the homepage's Latest posts without reloading; it uses
+`?latest-page=N`. A Latest posts section's `count` still caps its total posts; omit `count`
+to paginate every published post. Both settings default to `0`, preserving the static listing
+and `/page/N/` links.
+
+
 A series that holds a collaborative work, a published post whose credits name two or more
 authors (such as a shared reflection), also says who wrote what: its page lists the series'
 contributors, and every part, ordinary posts included, shows "By ..." on the series page, in the
