@@ -18,6 +18,7 @@ test("main prepares a durable publisher binary for its exact commit", () => {
   assert.match(prepare, /npm install --prefix \.scheduled-publisher\/deploy netlify-cli@26\.2\.0/);
   assert.match(prepare, /name: scheduled-publisher-linux-x64/);
   assert.match(prepare, /path: \.scheduled-publisher/);
+  assert.match(prepare, /include-hidden-files: true/);
   assert.match(prepare, /retention-days: 30/);
 });
 

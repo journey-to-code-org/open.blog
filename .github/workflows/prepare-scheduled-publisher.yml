@@ -39,4 +39,5 @@ jobs:
           name: scheduled-publisher-linux-x64
           path: .scheduled-publisher
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 30
