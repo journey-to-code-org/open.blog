@@ -483,7 +483,8 @@ pub struct Series {
     pub cover_card_light_2x: Option<String>,
     /// Optional half-resolution dark source for high-density series cards.
     pub cover_card_dark_2x: Option<String>,
-    /// Listing order on the series index; lower first, then by name.
+    /// Listing priority on the series index; lower first. Series at the same
+    /// priority are ordered by their most recent post, newest first.
     pub order: u32,
     /// Indices into `Site::posts`, in reading order (first part first).
     pub posts: Vec<usize>,
@@ -1106,7 +1107,14 @@ impl Site {
                 }
             }
         }
-        series.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
+        series.sort_by(|a, b| {
+            let latest =
+                |series: &Series| series.posts.iter().map(|&index| posts[index].date).max();
+            a.order
+                .cmp(&b.order)
+                .then_with(|| latest(b).cmp(&latest(a)))
+                .then_with(|| a.name.cmp(&b.name))
+        });
 
         // Tags.
         let mut tag_map: BTreeMap<String, Tag> = BTreeMap::new();
@@ -2652,6 +2660,47 @@ mod tests {
         assert_eq!(prev.unwrap().slug, "first");
         assert!(next.is_none());
         assert!(s.pages[0].nav);
+    }
+
+    #[test]
+    fn series_with_the_same_priority_are_ordered_by_their_latest_post() {
+        let s = site(Sources {
+            posts: vec![
+                post(
+                    "posts/older.md",
+                    "---\ntitle: Older\ndate: 2026-01-10\nseries: older\n---\nx",
+                ),
+                post(
+                    "posts/newer-first.md",
+                    "---\ntitle: Newer first\ndate: 2026-01-01\nseries: newer\n---\nx",
+                ),
+                post(
+                    "posts/newer-latest.md",
+                    "---\ntitle: Newer latest\ndate: 2026-02-01\nseries: newer\n---\nx",
+                ),
+                post(
+                    "posts/pinned.md",
+                    "---\ntitle: Pinned\ndate: 2025-01-01\nseries: pinned\n---\nx",
+                ),
+            ],
+            series: vec![
+                post("series/older.md", "---\nname: Older\n---\nAbout."),
+                post("series/newer.md", "---\nname: Newer\n---\nAbout."),
+                post(
+                    "series/pinned.md",
+                    "---\nname: Pinned\norder: 1\n---\nAbout.",
+                ),
+            ],
+            ..Default::default()
+        });
+
+        assert_eq!(
+            s.series
+                .iter()
+                .map(|series| series.slug.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pinned", "newer", "older"]
+        );
     }
 
     #[test]

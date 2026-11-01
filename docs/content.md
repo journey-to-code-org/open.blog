@@ -718,7 +718,7 @@ coverCardLight: /images/getting-started-card-light.png
 coverCardDark: /images/getting-started-card-dark.png
 coverCardLight2x: /images/getting-started-card-light-2x.png
 coverCardDark2x: /images/getting-started-card-dark-2x.png
-order: 1              # position on the /series/ page (lower first)
+order: 1              # optional: pin a listing priority (lower first)
 ---
 
 Optional Markdown shown at the top of the series page.
@@ -727,6 +727,10 @@ Optional Markdown shown at the top of the series page.
 Posts join with `series: getting-started`. Each post then shows "Part 2 of 3" with
 previous and next links and a list of all parts. If you reference a series that has no
 file, one is created from the slug and the build prints a warning.
+
+Series with the same `order` are listed by the date of their most recent published post,
+newest first. Since the default `order` is the same for every series, omitting it keeps active
+series at the top automatically. Set `order` only when a series needs a fixed priority.
 
 `coverLight` and `coverDark` are optional full-size colour-mode variants; `cover` remains
 the canonical fallback for feeds, social cards, and either missing variant. Series index
