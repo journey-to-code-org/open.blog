@@ -56,6 +56,11 @@ pub struct Preferences {
     pub editor_mode: EditorMode,
     pub module_order: Vec<String>,
     pub hidden_modules: Vec<String>,
+    /// Whether this admin dismissed the one-time invitation to the Voice view (ADR 0277). Absent until
+    /// dismissed, so a file written before the invitation existed is read unchanged and one that never
+    /// dismissed it is written without the key.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub voice_invitation_dismissed: bool,
 }
 
 impl Default for Preferences {
@@ -70,6 +75,7 @@ impl Default for Preferences {
                 .map(|module| (*module).into())
                 .collect(),
             hidden_modules: Vec::new(),
+            voice_invitation_dismissed: false,
         }
     }
 }

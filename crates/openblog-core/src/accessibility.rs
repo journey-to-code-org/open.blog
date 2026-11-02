@@ -197,6 +197,7 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
     }
     let mut link = None;
     let mut image = None;
+    let mut compare: Option<(usize, String)> = None;
     // Document templates render the front-matter title as H1 before the body.
     let mut previous_heading = 1;
     let mut saw_table = false;
@@ -293,11 +294,42 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                 }
             }
             Event::Text(text) | Event::Code(text) => {
+                if let Some((_, source)) = compare.as_mut() {
+                    source.push_str(&text);
+                }
                 if let Some(link) = link.as_mut() {
                     link.name.push_str(&text);
                 }
                 if let Some(image) = image.as_mut() {
                     image.name.push_str(&text);
+                }
+            }
+            Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Fenced(info)))
+                if info.trim() == crate::compare::FENCE =>
+            {
+                compare = Some((range.start, String::new()));
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                // Alt text is required by the fence itself; a filename or stock word still needs a look.
+                if let Some((offset, source)) = compare.take() {
+                    if let Ok(pair) = crate::compare::parse(&source) {
+                        for side in [&pair.before, &pair.after] {
+                            if placeholder_alt(&side.alt) {
+                                findings.push(finding(
+                                    input,
+                                    offset,
+                                    FindingDetails::new(
+                                        FindingCode::ImageAltPlaceholder,
+                                        AuditOutcome::Potential,
+                                        AuditScope::Content,
+                                        "A before and after picture's description looks like a filename or placeholder.",
+                                        "Review the picture in context and describe what it shows rather than its file name.",
+                                        &["WCAG-2.2-1.1.1"],
+                                    ),
+                                ));
+                            }
+                        }
+                    }
                 }
             }
             Event::End(TagEnd::Image) => {

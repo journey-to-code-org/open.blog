@@ -54,7 +54,18 @@ Every key under `colors.<scheme>` becomes `--ob-color-<kebab-name>`; every key u
 A font face takes `family`, `src` (relative to the theme folder), and optionally `format`,
 `weight` (default `400`), `style` (default `normal`), `display` (default `swap`), and
 `unicodeRange`. Declare one entry per file, so a bold or italic face is its own entry.
+Set `"preload": true` on the faces nearly every page draws (the body and heading text):
+each page then fetches them alongside its stylesheets, so text paints in the theme's font
+from the start instead of shifting when the font swaps in. Leave it off for a subset most
+pages never use, or every page downloads it for nothing. A child theme that draws its first
+screen in fewer of its parent's fonts sets `"fonts": { "preloadOnly": ["Body"] }`: of the
+faces marked `preload`, inherited or its own, only those families are preloaded (the rest stay
+declared) ([ADR 0267](adr/0267-a-theme-preloads-the-fonts-its-first-screen-draws.md)).
 Relative `src`, `stylesheets`, and `scripts` paths resolve against the theme folder.
+A theme may also set top-level `"favicon"` and `"logo"`: pages in the theme (a series theme's
+series page and its posts) then use them instead of the site's `favicon` and `logo`, rendered
+with the page so no script swaps them after it paints. The logo shows only when the site has one
+([ADR 0268](adr/0268-a-theme-may-name-its-own-favicon-and-logo.md)).
 A theme's scripts are linked on every page that uses it; see
 [Adding web components to a theme](theme-components.md) and the `demo` theme.
 
@@ -77,6 +88,9 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 `titleSize`, `sectionTitleSize`, `rowTitleSize`, `shadow`, `focusRing`, `rowBorderWidth`,
 `hoverText`, `motion`. The full defaults are in `themes/base/theme.json`.
 
+The bundled themes intentionally inherit `readingWidth` from `base`. This keeps the desktop
+article width consistent across existing themes and makes new themes use that width automatically.
+
 ### Options
 
 | Option | Effect |
@@ -90,6 +104,7 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 | `codeHighlighting` | Colour code blocks with the built-in highlighter (`codeKeyword`, `codeString`, ... colour tokens); off when the theme brings its own |
 | `codeLineNumbers` | Number the lines of code blocks with two or more lines (default `true`). The numbers are never copied with the code |
 | `seriesPageCover` | Show the series cover on its page (default `true`). Set `false` when the page brings its own hero; hiding the figure with CSS still downloads the image. The cover stays on series cards ([ADR 0270](adr/0270-a-series-page-with-its-own-hero-renders-no-cover.md)) |
+| `codeWindows` | Frame every plain code block like a titled one, `<figure class="ob-code-block">` with a `<figcaption class="ob-code-title">` naming it (Rust, Terminal, Diff, the fence language, or Code). Only pages in the theme; feeds and portable copies keep plain blocks ([ADR 0269](adr/0269-a-theme-may-frame-every-code-block-as-it-writes-the-page.md)) |
 
 ## Look controls
 

@@ -150,6 +150,78 @@ struct Renderer<'a> {
     trail_budget: usize,
 }
 
+/// Render one cover everywhere the native site shows it. `cover` remains the canonical image for
+/// feeds, social metadata and portable copies; the optional variants only change the image a reader
+/// sees as the site's colour scheme changes.
+fn cover_image(
+    cover: &str,
+    light: Option<&str>,
+    dark: Option<&str>,
+    alt_text: &str,
+    class: Option<&str>,
+    lazy: bool,
+) -> String {
+    let light = light.unwrap_or(cover);
+    let dark = dark.unwrap_or(cover);
+    let class = class
+        .map(|class| format!(" class=\"{}\"", attr(class)))
+        .unwrap_or_default();
+    let loading = if lazy { " loading=\"lazy\"" } else { "" };
+    let image = format!(
+        "<img{class} src=\"{}\" alt=\"{}\"{loading} decoding=\"async\">",
+        attr(light),
+        attr(alt_text)
+    );
+    if light == dark {
+        return image;
+    }
+    format!(
+        "<picture class=\"ob-cover-picture\"><source data-ob-cover-dark media=\"(prefers-color-scheme: dark)\" srcset=\"{}\">{image}</picture>",
+        attr(dark)
+    )
+}
+
+/// Render a series listing cover with optional smaller sources. Full-size colour variants remain
+/// the fallback, while authored card variants let browsers select a 400w or 800w source.
+fn cover_card_image(series: &Series, alt_text: &str) -> String {
+    let Some(cover) = series.cover.as_deref() else {
+        return String::new();
+    };
+    let light = series.cover_light.as_deref();
+    let dark = series.cover_dark.as_deref();
+    let card_light = series.cover_card_light.as_deref();
+    let card_dark = series.cover_card_dark.as_deref();
+    let card_light_2x = series.cover_card_light_2x.as_deref();
+    let card_dark_2x = series.cover_card_dark_2x.as_deref();
+    if card_light.is_none() && card_dark.is_none() {
+        return cover_image(cover, light, dark, alt_text, Some("ob-card-cover"), true);
+    }
+    let light = light.unwrap_or(cover);
+    let dark = dark.unwrap_or(cover);
+    let image_src = card_light.unwrap_or(light);
+    let image_srcset = card_light
+        .zip(card_light_2x)
+        .map(|(card, card_2x)| format!(" srcset=\"{} 400w, {} 800w\"", attr(card), attr(card_2x)))
+        .unwrap_or_default();
+    let dark_srcset = card_dark
+        .zip(card_dark_2x)
+        .map(|(card, card_2x)| format!("{} 400w, {} 800w", attr(card), attr(card_2x)))
+        .unwrap_or_else(|| attr(dark));
+    let sizes =
+        "(max-width: 40rem) calc(100vw - 2rem), (max-width: 70rem) calc((100vw - 3rem) / 2), 22rem";
+    let image = format!(
+        "<img class=\"ob-card-cover\" src=\"{}\"{image_srcset} sizes=\"{sizes}\" alt=\"{}\" width=\"400\" height=\"225\" loading=\"lazy\" decoding=\"async\">",
+        attr(image_src),
+        attr(alt_text),
+    );
+    if light == dark && card_light == card_dark && card_light_2x == card_dark_2x {
+        return image;
+    }
+    format!(
+        "<picture class=\"ob-cover-picture\"><source data-ob-cover-dark media=\"(prefers-color-scheme: dark)\" srcset=\"{dark_srcset}\" sizes=\"{sizes}\">{image}</picture>"
+    )
+}
+
 /// The most trail markup the whole site may carry (ADR 0175). A site over it
 /// shows every trail one step deep and says so in the build log.
 pub const TRAIL_BUDGET_BYTES: usize = 20 * 1024 * 1024;
@@ -632,8 +704,49 @@ pub fn generate_with_trail_budget(
         out.add(url_to_file(&tag.url), r.tag_page(default_theme, tag))?;
     }
 
+    let job_plan = crate::job_archive::plan(site);
+    for archive in &job_plan {
+        for page_number in 1..=archive.page_count(c.posts_per_page) {
+            out.add(
+                url_to_file(&archive.page_url(page_number)),
+                r.job_archive_page(
+                    default_theme,
+                    &job_plan,
+                    archive,
+                    page_number,
+                    c.posts_per_page,
+                ),
+            )?;
+        }
+    }
+
     out.add("archive/index.html".into(), r.archive(default_theme))?;
     out.add("search/index.html".into(), r.search_page(default_theme))?;
+    // The services collection (ADR 0312): an index and one page each, only
+    // when the site has services.
+    if !site.services.is_empty() {
+        out.add(
+            url_to_file(crate::service::SERVICES_URL),
+            r.service_index(default_theme, &job_plan),
+        )?;
+        for service in &site.services {
+            out.add(
+                url_to_file(&service.url),
+                r.service_page(service, &job_plan),
+            )?;
+        }
+    }
+    // Service areas (ADR 0315): an index and one page per area, only when the
+    // site lists areas.
+    if !c.service_areas.is_default() {
+        out.add(
+            url_to_file(crate::service_area::AREAS_URL),
+            r.area_index(default_theme, &job_plan),
+        )?;
+        for planned in c.service_areas.plan() {
+            out.add(url_to_file(&planned.url), r.area_page(&planned, &job_plan))?;
+        }
+    }
     for page in &site.pages {
         out.add(url_to_file(&page.url), r.page(page))?;
         for alias in &page.aliases {
@@ -829,6 +942,20 @@ pub fn generate_with_trail_budget(
             extra.push(comparison_publication::COMPARISONS_URL.to_string());
             extra.extend(comparisons.comparisons.iter().map(|c| c.url.clone()));
         }
+        extra.extend(job_plan.iter().map(|archive| archive.url.clone()));
+        if !site.services.is_empty() {
+            extra.push(crate::service::SERVICES_URL.to_string());
+            extra.extend(site.services.iter().map(|service| service.url.clone()));
+        }
+        if !c.service_areas.is_default() {
+            extra.push(crate::service_area::AREAS_URL.to_string());
+            extra.extend(
+                c.service_areas
+                    .plan()
+                    .into_iter()
+                    .map(|planned| planned.url),
+            );
+        }
         out.add("sitemap.xml".into(), feeds::sitemap(site, &extra))?;
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
@@ -918,6 +1045,15 @@ pub fn generate_document(
         (series.url.as_str(), renderer.series_page(series))
     } else if let Some(page) = site.pages.iter().find(|page| page.source == source) {
         (page.url.as_str(), renderer.page(page))
+    } else if let Some(service) = site
+        .services
+        .iter()
+        .find(|service| service.source == source)
+    {
+        (
+            service.url.as_str(),
+            renderer.service_page(service, &crate::job_archive::plan(site)),
+        )
     } else {
         return Err(format!("no content document came from `{source}`"));
     };
@@ -1013,8 +1149,13 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // Interpretation comparisons reserve `/interpretations/` the same way
     // (ADR 0232); `/comparisons/` stays with passage comparisons.
     let publishes_interpretations = site.config.interpretations.publish;
+    // `/services/` is reserved only once the site has services (ADR 0312).
+    let has_services = !site.services.is_empty();
+    let has_areas = !site.config.service_areas.is_default();
     let reserved = |segment: &str| {
         RESERVED.contains(&segment)
+            || (has_services && segment == crate::service::SERVICES_DIR)
+            || (has_areas && segment == crate::service_area::AREAS_DIR)
             || (publishes_atlas && segment == ATLAS_SEGMENT)
             || (publishes_comparisons && segment == COMPARISONS_SEGMENT)
             || (publishes_paths && segment == crate::reading_path::PATHS_SEGMENT)
@@ -1214,15 +1355,27 @@ impl<'a> Renderer<'a> {
         if c.feeds.llms {
             h.push_str("<link rel=\"alternate\" type=\"text/plain\" title=\"Content index for automated readers\" href=\"/llms.txt\">\n");
         }
-        if !c.favicon.is_empty() {
-            h.push_str(&format!(
-                "<link rel=\"icon\" href=\"{}\">\n",
-                attr(&c.favicon)
-            ));
+        // A theme's own icon is written here rather than swapped in by a script.
+        let favicon = theme.favicon.as_deref().unwrap_or(&c.favicon);
+        if !favicon.is_empty() {
+            h.push_str(&format!("<link rel=\"icon\" href=\"{}\">\n", attr(favicon)));
         }
         // Restore a visitor's saved color scheme before first paint.
         if c.color_scheme_toggle.unwrap_or(theme.color_scheme_toggle) {
             h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
+        }
+        // Fonts are found only once tokens.css arrives; a preload starts them
+        // with the stylesheets (fonts are always fetched in CORS mode).
+        for face in theme.faces.iter().filter(|face| face.preload) {
+            let kind = face
+                .format
+                .as_deref()
+                .map(|format| format!(" type=\"font/{}\"", attr(format)))
+                .unwrap_or_default();
+            h.push_str(&format!(
+                "<link rel=\"preload\" href=\"{}\" as=\"font\"{kind} crossorigin>\n",
+                attr(&face.src)
+            ));
         }
         // Order matters: structure, then tokens, then the theme's own rules.
         h.push_str("<link rel=\"stylesheet\" href=\"/assets/base.css\">\n");
@@ -1249,6 +1402,24 @@ impl<'a> Renderer<'a> {
                 // JSON allows these escapes, and without `<` no text from a post
                 // (`</script>`, `<!--<script>`) can end or confuse the element.
                 ld.replace('<', "\\u003c")
+                    .replace('>', "\\u003e")
+                    .replace('&', "\\u0026")
+            ));
+        }
+        if meta.path == "/" && c.business.has_public_facts() {
+            let mut business = c.business.local_business_json_ld(
+                &c.absolute("/#business"),
+                &c.absolute("/"),
+                &c.title,
+            );
+            if let Some(served) = c.service_areas.area_served() {
+                business["areaServed"] = served;
+            }
+            h.push_str(&format!(
+                "<script type=\"application/ld+json\">{}</script>\n",
+                business
+                    .to_string()
+                    .replace('<', "\\u003c")
                     .replace('>', "\\u003e")
                     .replace('&', "\\u0026")
             ));
@@ -1699,6 +1870,28 @@ impl<'a> Renderer<'a> {
         for page in self.site.pages.iter().filter(|p| p.nav) {
             links.push((page.title.clone(), page.url.clone()));
         }
+        // A site with services gets a link to them, unless its own navigation has one (ADR 0312).
+        if !self.site.services.is_empty()
+            && !links
+                .iter()
+                .any(|(_, href)| href.trim_end_matches('/') == "/services")
+        {
+            links.push((
+                "Services".to_string(),
+                crate::service::SERVICES_URL.to_string(),
+            ));
+        }
+        // Likewise a link to the towns served, only when areas are listed.
+        if !c.service_areas.is_default()
+            && !links
+                .iter()
+                .any(|(_, href)| href.trim_end_matches('/') == "/areas")
+        {
+            links.push((
+                "Areas".to_string(),
+                crate::service_area::AREAS_URL.to_string(),
+            ));
+        }
         let mut h = String::new();
         h.push_str("<header class=\"ob-header\">\n<div class=\"ob-header-inner\">\n");
         let brand_inner = if c.logo.is_empty() {
@@ -1706,7 +1899,7 @@ impl<'a> Renderer<'a> {
         } else {
             format!(
                 "<img class=\"ob-brand-logo\" src=\"{}\" alt=\"\" width=\"54\" height=\"40\"><span class=\"ob-brand-name\">{}</span>",
-                attr(&c.logo),
+                attr(theme.logo.as_deref().unwrap_or(&c.logo)),
                 text(&c.title)
             )
         };
@@ -1748,6 +1941,12 @@ impl<'a> Renderer<'a> {
         let c = &self.site.config;
         let year = self.site.latest_update().map(|d| d.year()).unwrap_or(2026);
         let mut h = String::from("<footer class=\"ob-footer\">\n<div class=\"ob-footer-inner\">\n");
+        let business = c.business.block_html();
+        if !business.is_empty() {
+            h.push_str(&format!(
+                "<section class=\"ob-footer-business\" aria-label=\"Business details\">\n{business}</section>\n"
+            ));
+        }
         h.push_str(&format!("<p>{}</p>\n", text(&c.footer_text(year))));
         let mut links: Vec<(String, String)> = c
             .social
@@ -1824,10 +2023,13 @@ impl<'a> Renderer<'a> {
                 h.push_str(&attr(&post.url));
                 h.push_str("\">");
                 if let Some(cover) = &post.cover {
-                    h.push_str(&format!(
-                        "<img class=\"ob-card-cover\" src=\"{}\" alt=\"{}\" loading=\"lazy\" decoding=\"async\">",
-                        attr(cover),
-                        attr(&post.cover_alt)
+                    h.push_str(&cover_image(
+                        cover,
+                        post.cover_light.as_deref(),
+                        post.cover_dark.as_deref(),
+                        &post.cover_alt,
+                        Some("ob-card-cover"),
+                        true,
                     ));
                 }
                 h.push_str("<span class=\"ob-card-body\"><span class=\"ob-meta\">");
@@ -1865,9 +2067,7 @@ impl<'a> Renderer<'a> {
                 attr(&own.name),
                 attr(&s.url)
             ));
-            if let Some(cover) = &s.cover {
-                h.push_str(&format!("<img class=\"ob-card-cover\" src=\"{}\" alt=\"\" loading=\"lazy\" decoding=\"async\">", attr(cover)));
-            }
+            h.push_str(&cover_card_image(s, ""));
             h.push_str("<span class=\"ob-card-body\">");
             h.push_str(&format!(
                 "<span class=\"ob-meta\">{} {}</span>",
@@ -1888,17 +2088,43 @@ impl<'a> Renderer<'a> {
         h
     }
 
-    fn pager(&self, page_number: usize, page_count: usize) -> String {
-        if page_count <= 1 {
-            return String::new();
+    fn client_pagination(
+        &self,
+        list: &str,
+        count: usize,
+        per_page: usize,
+        parameter: &str,
+        item_label: &str,
+    ) -> String {
+        if per_page == 0 || count <= per_page {
+            return list.to_string();
         }
-        let url = |n: usize| {
+        format!(
+            "<ob-list-pagination page-size=\"{per_page}\" page-param=\"{}\" item-label=\"{}\">\n{list}\n</ob-list-pagination>",
+            attr(parameter),
+            attr(item_label)
+        )
+    }
+
+    fn pager(&self, page_number: usize, page_count: usize) -> String {
+        self.pager_with(page_number, page_count, |n| {
             if n == 1 {
                 "/".to_string()
             } else {
                 format!("/page/{n}/")
             }
-        };
+        })
+    }
+
+    fn pager_with(
+        &self,
+        page_number: usize,
+        page_count: usize,
+        url: impl Fn(usize) -> String,
+    ) -> String {
+        if page_count <= 1 {
+            return String::new();
+        }
         let mut h = String::from("<nav class=\"ob-pager\" aria-label=\"Pagination\">");
         if page_number > 1 {
             h.push_str(&format!(
@@ -1933,8 +2159,18 @@ impl<'a> Renderer<'a> {
         per_page: usize,
     ) -> String {
         let c = &self.site.config;
-        let start = (page_number - 1) * per_page;
-        let indices: Vec<usize> = (start..self.site.posts.len().min(start + per_page)).collect();
+        let client_latest = page_number == 1 && c.latest_posts_per_page > 0;
+        let start = if client_latest {
+            0
+        } else {
+            (page_number - 1) * per_page
+        };
+        let end = if client_latest {
+            self.site.posts.len()
+        } else {
+            self.site.posts.len().min(start + per_page)
+        };
+        let indices: Vec<usize> = (start..end).collect();
         let mut body = String::from("<div class=\"ob-container\">\n");
         // A landing page with a visible section replaces the home settings'
         // layout on the first page; every other page, and every site without
@@ -1975,8 +2211,21 @@ impl<'a> Renderer<'a> {
                         "<h1 id=\"latest\" class=\"ob-title\"",
                     ),
             );
-            body.push_str(&self.post_list(theme, &indices));
-            body.push_str(&self.pager(page_number, page_count));
+            let posts = self.post_list(theme, &indices);
+            body.push_str(&self.client_pagination(
+                &posts,
+                indices.len(),
+                if client_latest {
+                    c.latest_posts_per_page
+                } else {
+                    0
+                },
+                "latest-page",
+                "posts",
+            ));
+            if !client_latest {
+                body.push_str(&self.pager(page_number, page_count));
+            }
             body.push_str("\n</section>\n");
             if page_number == 1
                 && c.home.show_series
@@ -1991,7 +2240,20 @@ impl<'a> Renderer<'a> {
                             "<h2 id=\"series\" class=\"ob-title\"",
                         ),
                 );
-                body.push_str(&self.series_cards(theme));
+                let cards = self.series_cards(theme);
+                let count = self
+                    .site
+                    .series
+                    .iter()
+                    .filter(|series| !series.posts.is_empty())
+                    .count();
+                body.push_str(&self.client_pagination(
+                    &cards,
+                    count,
+                    c.series_per_page,
+                    "series-page",
+                    "series",
+                ));
                 body.push_str("\n</section>\n");
             }
         }
@@ -2211,11 +2473,16 @@ impl<'a> Renderer<'a> {
         }
         if theme.post_covers {
             if let Some(cover) = &post.cover {
-                body.push_str(&format!(
-                    "<figure class=\"ob-cover\"><img class=\"u-photo\" src=\"{}\" alt=\"{}\" decoding=\"async\"></figure>\n",
-                    attr(cover),
-                    attr(&post.cover_alt)
+                body.push_str("<figure class=\"ob-cover\">");
+                body.push_str(&cover_image(
+                    cover,
+                    post.cover_light.as_deref(),
+                    post.cover_dark.as_deref(),
+                    &post.cover_alt,
+                    Some("u-photo"),
+                    false,
                 ));
+                body.push_str("</figure>\n");
             }
         }
         if let Some(recipe) = &post.recipe {
@@ -2261,10 +2528,15 @@ impl<'a> Renderer<'a> {
                 "<ob-reading-modes default=\"{default_mode}\"{scope}>"
             ));
         }
+        let prose = self.prose_with_conversations(post);
+        let prose = if theme.code_windows {
+            crate::code_windows::frame(&prose).into()
+        } else {
+            prose
+        };
         body.push_str(&format!(
-            "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
+            "<ob-code{}><div class=\"ob-prose e-content\">{prose}</div></ob-code>\n",
             self.code_attr(theme, Some(post)),
-            self.prose_with_conversations(post)
         ));
         if reading_modes.is_some() {
             body.push_str("</ob-reading-modes>\n");
@@ -2365,13 +2637,25 @@ impl<'a> Renderer<'a> {
             } else {
                 ""
             };
+            let captcha =
+                if c.engagement.captcha.enabled() && comment_mode != ParticipationMode::Locked {
+                    format!(
+                        " captcha-provider=\"{}\" captcha-site-key=\"{}\" captcha-scope=\"{}\"",
+                        attr(&c.engagement.captcha.provider),
+                        attr(&c.engagement.captcha.site_key),
+                        attr(&c.engagement.captcha.scope)
+                    )
+                } else {
+                    String::new()
+                };
             body.push_str(&format!(
-                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,
                 reports,
+                captcha,
             ));
         }
         if !c.snippets.post_footer.trim().is_empty() {
@@ -2995,7 +3279,21 @@ impl<'a> Renderer<'a> {
         body.push_str(&self.heading(theme, 1, "Series", "ob-section-heading"));
         body.push_str("\n<p class=\"ob-lede\">Multi-part guides, in reading order.</p>\n");
         if self.site.series.iter().any(|s| !s.posts.is_empty()) {
-            body.push_str(&self.series_cards(theme));
+            let cards = self.series_cards(theme);
+            let per_page = self.site.config.series_per_page;
+            let count = self
+                .site
+                .series
+                .iter()
+                .filter(|series| !series.posts.is_empty())
+                .count();
+            body.push_str(&self.client_pagination(
+                &cards,
+                count,
+                per_page,
+                "series-page",
+                "series",
+            ));
         } else {
             body.push_str("<p class=\"ob-empty\">No series yet. Add <code>series: my-series</code> to a post's front matter.</p>");
         }
@@ -3017,13 +3315,31 @@ impl<'a> Renderer<'a> {
         body.push_str("<p class=\"ob-eyebrow\"><a href=\"/series/\">Series</a></p>\n");
         body.push_str(&self.heading(theme, 1, &series.name, "ob-section-heading"));
         if let Some(cover) = series.cover.as_ref().filter(|_| theme.series_page_cover) {
-            body.push_str(&format!("<figure class=\"ob-cover\"><img src=\"{}\" alt=\"\" decoding=\"async\"></figure>\n", attr(cover)));
+            body.push_str("<figure class=\"ob-cover\">");
+            body.push_str(&cover_image(
+                cover,
+                series.cover_light.as_deref(),
+                series.cover_dark.as_deref(),
+                "",
+                None,
+                false,
+            ));
+            body.push_str("</figure>\n");
         }
         if !series.description_html.trim().is_empty() {
-            body.push_str(&format!(
-                "<div class=\"ob-prose\">{}</div>\n",
-                series.description_html
-            ));
+            let description = if theme.code_windows {
+                crate::code_windows::frame(&series.description_html)
+            } else {
+                series.description_html.clone()
+            };
+            if theme.code_windows {
+                body.push_str(&format!(
+                    "<ob-code{}><div class=\"ob-prose\">{description}</div></ob-code>\n",
+                    self.code_attr(theme, None),
+                ));
+            } else {
+                body.push_str(&format!("<div class=\"ob-prose\">{description}</div>\n"));
+            }
         }
         // Only a series holding a collaborative work names its contributors and each part's
         // authors (ADR 0040); every other series keeps exactly the markup it always had.
@@ -3099,6 +3415,91 @@ impl<'a> Renderer<'a> {
         )
     }
 
+    fn job_archive_page(
+        &self,
+        theme: &Theme,
+        plan: &[crate::job_archive::JobArchive],
+        archive: &crate::job_archive::JobArchive,
+        page_number: usize,
+        per_page: usize,
+    ) -> String {
+        use crate::job_archive::{JobArchiveKind, JOBS_URL};
+        let page_count = archive.page_count(per_page);
+        let start = if per_page == 0 {
+            0
+        } else {
+            (page_number - 1) * per_page
+        };
+        let end = if per_page == 0 {
+            archive.posts.len()
+        } else {
+            archive.posts.len().min(start + per_page)
+        };
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
+        let eyebrow = match archive.kind {
+            JobArchiveKind::All => format!("<a href=\"{JOBS_URL}\">Jobs</a>"),
+            JobArchiveKind::Trade => {
+                format!("<a href=\"{JOBS_URL}\">Jobs</a> · {}", text(&archive.title))
+            }
+            JobArchiveKind::Service => {
+                let trade = plan.iter().find(|other| {
+                    other.kind == JobArchiveKind::Trade && other.trade == archive.trade
+                });
+                match trade {
+                    Some(trade) => format!(
+                        "<a href=\"{JOBS_URL}\">Jobs</a> · <a href=\"{}\">{}</a>",
+                        attr(&trade.url),
+                        text(&trade.title)
+                    ),
+                    None => format!("<a href=\"{JOBS_URL}\">Jobs</a>"),
+                }
+            }
+        };
+        body.push_str(&format!("<p class=\"ob-eyebrow\">{eyebrow}</p>\n"));
+        body.push_str(&self.heading(theme, 1, &archive.title, "ob-section-heading"));
+        body.push('\n');
+        if page_number == 1 {
+            let children: Vec<&crate::job_archive::JobArchive> = plan
+                .iter()
+                .filter(|child| match archive.kind {
+                    JobArchiveKind::All => child.kind == JobArchiveKind::Trade,
+                    JobArchiveKind::Trade => {
+                        child.kind == JobArchiveKind::Service && child.trade == archive.trade
+                    }
+                    JobArchiveKind::Service => false,
+                })
+                .collect();
+            if !children.is_empty() {
+                body.push_str("<ul class=\"ob-tags ob-tag-cloud\">");
+                for child in children {
+                    body.push_str(&format!(
+                        "<li><a href=\"{}\">{} <span class=\"ob-count\">{}</span></a></li>",
+                        attr(&child.url),
+                        text(&child.title),
+                        child.posts.len()
+                    ));
+                }
+                body.push_str("</ul>\n");
+            }
+        }
+        body.push_str(&self.post_list(theme, &archive.posts[start..end]));
+        body.push_str(&self.pager_with(page_number, page_count, |n| archive.page_url(n)));
+        body.push_str("\n</section>\n</div>");
+        let title = if page_number == 1 {
+            archive.title.clone()
+        } else {
+            format!("{} · Page {page_number}", archive.title)
+        };
+        self.simple(
+            theme,
+            &title,
+            &archive.description,
+            &archive.page_url(page_number),
+            &body,
+        )
+    }
+
     fn archive(&self, theme: &Theme) -> String {
         let mut body =
             String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
@@ -3163,6 +3564,234 @@ impl<'a> Renderer<'a> {
             page.html
         ));
         self.simple(theme, &page.title, &page.description, &page.url, &body)
+    }
+
+    fn service_index(&self, theme: &Theme, plan: &[crate::job_archive::JobArchive]) -> String {
+        let mut body = String::from(
+            "<div class=\"ob-container\">\n<section class=\"ob-section ob-services\">\n",
+        );
+        body.push_str(&self.heading(theme, 1, "Services", "ob-section-heading"));
+        body.push_str("\n<ul class=\"ob-list ob-list-rows ob-service-list\">\n");
+        for service in &self.site.services {
+            body.push_str(&format!(
+                "<li class=\"ob-service\">\n<h2 class=\"ob-row-title\"><a href=\"{}\">{}</a></h2>\n<p>{}</p>\n",
+                attr(&service.url),
+                text(&service.name),
+                text(&service.summary)
+            ));
+            let facts = service_facts(service);
+            if !facts.is_empty() {
+                body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", facts.join(" · ")));
+            }
+            let recent = crate::service::recent_jobs(plan, &service.id, SERVICE_INDEX_JOBS);
+            if !recent.is_empty() {
+                body.push_str("<p class=\"ob-meta\">Recent jobs</p>\n<ul class=\"ob-archive\">\n");
+                for index in recent {
+                    let post = &self.site.posts[index];
+                    body.push_str(&format!(
+                        "<li><a href=\"{}\">{}</a> <span class=\"ob-meta\">{}</span></li>\n",
+                        attr(&post.url),
+                        text(&post.title),
+                        self.time(post)
+                    ));
+                }
+                body.push_str("</ul>\n");
+            }
+            body.push_str("</li>\n");
+        }
+        body.push_str("</ul>\n</section>\n</div>");
+        self.simple(
+            theme,
+            "Services",
+            "What we do, what each service includes, and what it usually takes.",
+            crate::service::SERVICES_URL,
+            &body,
+        )
+    }
+
+    fn service_page(
+        &self,
+        service: &crate::model::Service,
+        plan: &[crate::job_archive::JobArchive],
+    ) -> String {
+        let theme = self.theme(&self.site.config.theme);
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page ob-service\">\n",
+        );
+        body.push_str(&format!(
+            "<p class=\"ob-eyebrow\"><a href=\"{}\">Services</a></p>\n",
+            crate::service::SERVICES_URL
+        ));
+        body.push_str(&self.heading(theme, 1, &service.name, "ob-post-title"));
+        body.push_str(&format!(
+            "\n<p class=\"ob-lede\">{}</p>\n",
+            text(&service.summary)
+        ));
+        let facts = service_facts(service);
+        if !facts.is_empty() {
+            body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", facts.join(" · ")));
+            if service.price_band.is_some() {
+                body.push_str(
+                    "<p class=\"ob-meta\">A price band is a guide, not a quote. Ask us about your job.</p>\n",
+                );
+            }
+        }
+        if !service.includes.is_empty() {
+            body.push_str("<h2>What is included</h2>\n<ul class=\"ob-service-includes\">\n");
+            for item in &service.includes {
+                body.push_str(&format!("<li>{}</li>\n", text(item)));
+            }
+            body.push_str("</ul>\n");
+        }
+        if !service.html.trim().is_empty() {
+            body.push_str(&format!(
+                "<ob-code{}><div class=\"ob-prose\">{}</div></ob-code>\n",
+                self.code_attr(theme, None),
+                service.html
+            ));
+        }
+        if !service.faq.is_empty() {
+            body.push_str("<section class=\"ob-faq\" aria-labelledby=\"ob-faq-title\">\n<h2 id=\"ob-faq-title\">Frequently asked questions</h2>\n");
+            for entry in &service.faq {
+                body.push_str(&format!(
+                    "<h3>{}</h3>\n<p>{}</p>\n",
+                    text(&entry.question),
+                    text(&entry.answer)
+                ));
+            }
+            body.push_str("</section>\n");
+        }
+        let recent = crate::service::recent_jobs(plan, &service.id, SERVICE_PAGE_JOBS);
+        if !recent.is_empty() {
+            body.push_str("<section class=\"ob-service-jobs\" aria-labelledby=\"ob-service-jobs-title\">\n<h2 id=\"ob-service-jobs-title\">Recent jobs</h2>\n");
+            body.push_str(&self.post_list(theme, &recent));
+            body.push_str("\n<ul class=\"ob-archive\">\n");
+            for archive in crate::service::job_archives(plan, &service.id) {
+                body.push_str(&format!(
+                    "<li><a href=\"{}\">All {}</a> <span class=\"ob-meta\">{}</span></li>\n",
+                    attr(&archive.url),
+                    text(&archive.title),
+                    plural_text(archive.posts.len(), "job", "jobs")
+                ));
+            }
+            body.push_str("</ul>\n</section>\n");
+        }
+        body.push_str("</article>\n</div>");
+        let mut meta = self.meta_simple(theme, &service.name, &service.summary, &service.url);
+        meta.json_ld = Some(crate::service::json_ld(self.site, service));
+        self.document(&meta, &body)
+    }
+
+    fn area_index(&self, theme: &Theme, plan: &[crate::job_archive::JobArchive]) -> String {
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section ob-areas\">\n");
+        body.push_str(&self.heading(theme, 1, "Areas we serve", "ob-section-heading"));
+        body.push_str("\n<ul class=\"ob-list ob-list-rows ob-area-list\">\n");
+        for planned in self.site.config.service_areas.plan() {
+            let jobs = crate::service_area::recent_jobs(plan, self.site, planned.area, usize::MAX);
+            body.push_str(&format!(
+                "<li class=\"ob-area\">\n<h2 class=\"ob-row-title\"><a href=\"{}\">{}</a></h2>\n",
+                attr(&planned.url),
+                text(&planned.area.label())
+            ));
+            if !planned.area.note.is_empty() {
+                body.push_str(&format!("<p>{}</p>\n", text(&planned.area.note)));
+            }
+            body.push_str(&format!(
+                "<p class=\"ob-meta\">{}</p>\n</li>\n",
+                if jobs.is_empty() {
+                    "Work here is not yet posted".to_string()
+                } else {
+                    plural_text(jobs.len(), "job posted", "jobs posted")
+                }
+            ));
+        }
+        body.push_str("</ul>\n</section>\n</div>");
+        self.simple(
+            theme,
+            "Areas we serve",
+            "The towns we work in, with the services we offer and recent jobs there.",
+            crate::service_area::AREAS_URL,
+            &body,
+        )
+    }
+
+    fn area_page(
+        &self,
+        planned: &crate::service_area::PlannedArea<'_>,
+        plan: &[crate::job_archive::JobArchive],
+    ) -> String {
+        let theme = self.theme(&self.site.config.theme);
+        let area = planned.area;
+        let label = area.label();
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page ob-area-page\">\n",
+        );
+        body.push_str(&format!(
+            "<p class=\"ob-eyebrow\"><a href=\"{}\">Areas we serve</a></p>\n",
+            crate::service_area::AREAS_URL
+        ));
+        body.push_str(&self.heading(theme, 1, &label, "ob-post-title"));
+        body.push_str(&format!(
+            "\n<p class=\"ob-lede\">Serving {}.</p>\n",
+            text(&label)
+        ));
+        if !area.note.is_empty() {
+            body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", text(&area.note)));
+        }
+        if !self.site.services.is_empty() {
+            body.push_str("<section class=\"ob-area-services\" aria-labelledby=\"ob-area-services-title\">\n<h2 id=\"ob-area-services-title\">Services we offer</h2>\n<ul class=\"ob-list ob-list-rows\">\n");
+            for service in &self.site.services {
+                body.push_str(&format!(
+                    "<li><a href=\"{}\">{}</a> <span class=\"ob-meta\">{}</span></li>\n",
+                    attr(&service.url),
+                    text(&service.name),
+                    text(&service.summary)
+                ));
+            }
+            body.push_str("</ul>\n</section>\n");
+        }
+        let recent = crate::service_area::recent_jobs(plan, self.site, area, AREA_PAGE_JOBS);
+        body.push_str(&format!(
+            "<section class=\"ob-area-jobs\" aria-labelledby=\"ob-area-jobs-title\">\n<h2 id=\"ob-area-jobs-title\">Recent jobs in {}</h2>\n",
+            text(&label)
+        ));
+        if recent.is_empty() {
+            body.push_str(&format!(
+                "<p class=\"ob-empty\">Work in {} is not yet posted. A finished job there will appear on this page.</p>\n",
+                text(&label)
+            ));
+        } else {
+            // Title and date only: a card's summary is text from the job's body.
+            body.push_str("<ul class=\"ob-archive\">\n");
+            for index in recent {
+                let post = &self.site.posts[index];
+                body.push_str(&format!(
+                    "<li><a href=\"{}\">{}</a> <span class=\"ob-meta\">{}</span></li>\n",
+                    attr(&post.url),
+                    text(&post.title),
+                    self.time(post)
+                ));
+            }
+            body.push_str("</ul>\n");
+        }
+        body.push_str("</section>\n");
+        let business = self.site.config.business.block_html();
+        if !business.is_empty() {
+            body.push_str(&format!(
+                "<section class=\"ob-area-business\" aria-label=\"Business details\">\n{business}</section>\n"
+            ));
+        }
+        body.push_str("</article>\n</div>");
+        let description = format!("Services we offer in {label}, and recent jobs there.");
+        let mut meta = self.meta_simple(
+            theme,
+            &format!("Serving {label}"),
+            &description,
+            &planned.url,
+        );
+        meta.json_ld = Some(crate::service_area::json_ld(self.site, area));
+        self.document(&meta, &body)
     }
 
     fn not_found(&self, theme: &Theme) -> String {
@@ -4279,6 +4908,24 @@ impl<'a> Renderer<'a> {
     }
 }
 
+/// How many recent jobs the services index lists per service, and a service page lists.
+const SERVICE_INDEX_JOBS: usize = 3;
+const SERVICE_PAGE_JOBS: usize = 5;
+/// How many recent jobs a service-area page lists.
+const AREA_PAGE_JOBS: usize = 10;
+
+/// The price band and timeline of a service as escaped text, in a fixed order.
+fn service_facts(service: &crate::model::Service) -> Vec<String> {
+    let mut facts = Vec::new();
+    if let Some(band) = service.price_band {
+        facts.push(format!("Price band: {}", text(band.label())));
+    }
+    if let Some(timeline) = &service.typical_timeline {
+        facts.push(format!("Typical timeline: {}", text(timeline)));
+    }
+    facts
+}
+
 /// What the reading paths index says before any path.
 const PATHS_LEDE: &str = "Routes through this site's posts and Knowledge Atlas entries, in an order the author chose, each with a reason for the step that follows.";
 /// What a path page says about its transitions.
@@ -4673,6 +5320,7 @@ mod tests {
                 credits: Vec::new(),
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+                services: Vec::new(),
                 source_library: None,
                 claim_evidence: None,
                 reader_feedback: None,
@@ -4738,6 +5386,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn only_preloaded_font_faces_start_with_the_stylesheets() {
+        let (site, mut themes) = model(r#"{"theme":"fonts","postPath":"/{slug}/"}"#, true);
+        themes.insert(
+            "fonts",
+            ThemeFile::from_json(
+                r#"{"extends":"base","fonts":{"faces":[
+                    {"family":"Body","src":"fonts/body.woff2","format":"woff2","preload":true},
+                    {"family":"Body","src":"fonts/extra.woff2","unicodeRange":"U+100-17F"}]}}"#,
+            )
+            .unwrap(),
+        );
+        let files = generate(&site, &themes).unwrap();
+        for path in ["index.html", "solo/index.html", "404.html"] {
+            let html = file(&files, path);
+            let preload = "<link rel=\"preload\" href=\"/themes/fonts/fonts/body.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>";
+            let at = html
+                .find(preload)
+                .unwrap_or_else(|| panic!("{path}: {html}"));
+            assert!(at < html.find("rel=\"stylesheet\"").unwrap(), "{path}");
+            assert!(!html.contains("extra.woff2"), "{path}");
+        }
+        // The series keeps its own theme, which preloads nothing.
+        assert!(!file(&files, "series/s/index.html").contains("rel=\"preload\""));
     }
 
     #[test]
@@ -4824,6 +5498,53 @@ mod tests {
         ] {
             assert!(files.iter().any(|f| f.path == path), "missing {path}");
         }
+    }
+
+    #[test]
+    fn series_index_opts_into_client_pagination_without_removing_cards_from_html() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","latestPostsPerPage":6,"seriesPerPage":6,"home":{"showSeries":true}}"#,
+        )
+        .unwrap();
+        let posts = (1..=7)
+            .map(|number| SourceFile {
+                path: format!("posts/part-{number}.md"),
+                contents: format!(
+                    "---\ntitle: Part {number}\ndate: 2026-01-{number:02}\nseries: series-{number}\n---\nBody."
+                ),
+            })
+            .collect();
+        let series = (1..=7)
+            .map(|number| SourceFile {
+                path: format!("series/series-{number}.md"),
+                contents: format!("---\nname: Series {number}\n---\nAbout."),
+            })
+            .collect();
+        let site = Site::load(
+            config,
+            Sources {
+                posts,
+                series,
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        let index = file(&files, "series/index.html");
+
+        assert!(index.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"series-page\" item-label=\"series\">"
+        ));
+        assert_eq!(index.matches("class=\"ob-card-title\"").count(), 7);
+        assert!(index.contains("Series 1") && index.contains("Series 7"));
+        let home = file(&files, "index.html");
+        assert!(home.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"latest-page\" item-label=\"posts\">"
+        ));
+        assert!(home.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"series-page\" item-label=\"series\">"
+        ));
     }
 
     #[test]
@@ -4946,6 +5667,65 @@ mod tests {
         assert!(page.contains("<meta property=\"og:url\" content=\"/original\">"));
         assert!(page.contains("<meta property=\"og:image\" content=\"https://t.dev/default.png\">"));
         assert!(page.contains("<meta name=\"twitter:card\" content=\"summary_large_image\">"));
+    }
+
+    #[test]
+    fn cover_variants_follow_colour_mode_on_every_native_cover_surface() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","theme":"cards"}"#,
+        )
+        .unwrap();
+        let source = |path: &str, contents: &str| SourceFile {
+            path: path.into(),
+            contents: contents.into(),
+        };
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![source(
+                    "posts/one.md",
+                    "---\ntitle: One\ndate: 2026-01-01\nseries: guide\ncover: /one.jpg\ncoverLight: /one-light.jpg\ncoverDark: /one-dark.jpg\ncoverAlt: One cover\n---\nBody.",
+                )],
+                series: vec![source(
+                    "series/guide.md",
+                    "---\nname: Guide\ncover: /guide.jpg\ncoverLight: /guide-light.jpg\ncoverDark: /guide-dark.jpg\ncoverCardLight: /guide-card-light.jpg\ncoverCardDark: /guide-card-dark.jpg\ncoverCardLight2x: /guide-card-light-2x.jpg\ncoverCardDark2x: /guide-card-dark-2x.jpg\n---\nAbout.",
+                )],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let mut themes = ThemeSet::new();
+        themes.insert(
+            "cards",
+            ThemeFile::from_json(
+                r#"{"extends":"base","options":{"listStyle":"cards","postCovers":true}}"#,
+            )
+            .unwrap(),
+        );
+        let files = generate(&site, &themes).unwrap();
+
+        for path in ["index.html", "one/index.html"] {
+            let html = file(&files, path);
+            assert!(html.contains("srcset=\"/one-dark.jpg\""), "{path}");
+            assert!(html.contains("src=\"/one-light.jpg\""), "{path}");
+            assert!(html.contains("alt=\"One cover\""), "{path}");
+        }
+        let series_index = file(&files, "series/index.html");
+        assert!(series_index
+            .contains("srcset=\"/guide-card-dark.jpg 400w, /guide-card-dark-2x.jpg 800w\""));
+        assert!(series_index.contains("src=\"/guide-card-light.jpg\""));
+        assert!(series_index
+            .contains("srcset=\"/guide-card-light.jpg 400w, /guide-card-light-2x.jpg 800w\""));
+
+        let series_page = file(&files, "series/guide/index.html");
+        assert!(series_page.contains("srcset=\"/guide-dark.jpg\""));
+        assert!(series_page.contains("src=\"/guide-light.jpg\""));
+        assert!(!series_page.contains("guide-card"));
+
+        let post = file(&files, "one/index.html");
+        assert!(post.contains("<meta property=\"og:image\" content=\"https://t.dev/one.jpg\">"));
+        assert!(post.contains("data-ob-cover-dark media=\"(prefers-color-scheme: dark)\""));
     }
 
     fn build_posts(config_json: &str, posts: &[(&str, &str)]) -> Vec<OutputFile> {
@@ -5550,6 +6330,14 @@ mod tests {
 
     #[test]
     fn hosted_engagement_renders_comments_and_reuses_the_endpoint_for_views() {
+        let protected = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"endpoint":"https://t.dev/api","captcha":{"provider":"turnstile","siteKey":"public-key"}}}"#,
+            true,
+        );
+        let html = file(&protected, "one/index.html");
+        assert!(html.contains("<ob-comments path=\"/one/\" endpoint=\"https://t.dev/api\" captcha-provider=\"turnstile\" captcha-site-key=\"public-key\" captcha-scope=\"session\">"));
+        assert!(!html.contains("challenges.cloudflare.com"));
+
         let files = build(
             r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","analytics":{"builtin":false,"showViews":true},"engagement":{"enabled":true,"comments":true,"analytics":true,"endpoint":"https://t.dev/api/"}}"#,
             true,
@@ -5590,6 +6378,61 @@ mod tests {
             .unwrap()
             .values()
             .all(|policy| policy == "hidden"));
+    }
+
+    #[test]
+    fn captcha_attributes_are_public_scoped_and_absent_when_off_locked_or_hidden() {
+        let site = |captcha: &str| {
+            format!(
+                r#"{{"title":"T","url":"https://t.dev","postPath":"/{{slug}}/","engagement":{{"enabled":true,"endpoint":"https://t.dev/api"{captcha}}}}}"#
+            )
+        };
+        let posts = [
+            (
+                "posts/open.md",
+                "---\ntitle: Open\ndate: 2026-01-01\n---\nText",
+            ),
+            (
+                "posts/locked.md",
+                "---\ntitle: Locked\ndate: 2026-01-01\ncomments: locked\n---\nText",
+            ),
+            (
+                "posts/hidden.md",
+                "---\ntitle: Hidden\ndate: 2026-01-01\ncomments: hidden\n---\nText",
+            ),
+        ];
+        let off = build_posts(&site(""), &posts);
+        let explicit_off = build_posts(
+            &site(r#","captcha":{"provider":"off","siteKey":"ignored-key"}"#),
+            &posts,
+        );
+        for page in ["open/index.html", "locked/index.html", "hidden/index.html"] {
+            assert!(!file(&off, page).contains("captcha"), "{page}");
+            assert!(!file(&explicit_off, page).contains("captcha"), "{page}");
+            assert!(!file(&explicit_off, page).contains("ignored-key"), "{page}");
+        }
+        assert_eq!(
+            file(&off, "open/index.html"),
+            file(&explicit_off, "open/index.html")
+        );
+
+        let on = build_posts(
+            &site(
+                r#","captcha":{"provider":"turnstile","siteKey":" key_1-2 ","scope":"every-comment"}"#,
+            ),
+            &posts,
+        );
+        let open = file(&on, "open/index.html");
+        assert!(open.contains("captcha-provider=\"turnstile\" captcha-site-key=\"key_1-2\" captcha-scope=\"every-comment\""));
+        assert!(!file(&on, "locked/index.html").contains("captcha"));
+        assert!(file(&on, "locked/index.html").contains("mode=\"locked\""));
+        assert!(!file(&on, "hidden/index.html").contains("<ob-comments"));
+        assert!(!file(&on, "hidden/index.html").contains("captcha"));
+        for output in &on {
+            if output.path.ends_with(".xml") || output.path == "openblog-comments.json" {
+                assert!(!output.contents.contains("captcha"), "{}", output.path);
+            }
+        }
     }
 
     #[test]

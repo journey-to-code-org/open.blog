@@ -6,6 +6,7 @@ Everything on the site comes from Markdown files under `content/`:
 content/posts/     one file per post
 content/series/    one file per series (optional)
 content/pages/     one file per page, such as About (optional)
+content/services/  one file per service, for trades and local businesses (optional; see [Services](services.md))
 ```
 
 Files anywhere in `content/posts/` are posts, including in subfolders. A `README.md`, and
@@ -41,7 +42,8 @@ a `#` heading, which is then used. Everything else is optional:
 | `series` | The slug of a series this post belongs to. |
 | `seriesOrder` | Position within the series. Without it, parts are ordered by date. |
 | `description` | A sentence or two for feeds, search results, and social cards. Defaults to an excerpt. |
-| `cover` | Image shown at the top and used as the social card. Defaults to the first image in the body. |
+| `cover` | Canonical cover shown at the top and used in feeds, exports, and social cards. It is also the on-site fallback for either colour mode. Defaults to the first image in the body. |
+| `coverLight`, `coverDark` | Optional on-site cover variants for light and dark mode. The saved theme toggle and the system preference select the matching image; `cover` is used when a variant is omitted. |
 | `coverAlt` | Alternative text for the cover. |
 | `draft` | `true` keeps the post out of every build and feed. |
 | `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
@@ -53,7 +55,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. Works on posts, pages and series pages (a series page in `content/series/`). The engine always writes a redirect page; set `redirectsFile: true` in `openblog.json` to also write a `_redirects` file with real 301s on hosts that read one. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
-| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, and `field-journal`. |
+| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, `field-journal`, and `job`. |
 | `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
 | `doi` | Research profile only. A DOI name or `https://doi.org/` URL for this work. |
 | `license` | Research profile only. An absolute HTTP or HTTPS URL for the work's license. |
@@ -83,7 +85,7 @@ profile in the admin's **Settings** view or write it directly:
 profile: recipe
 ```
 
-The built-in profiles are `article`, `recipe`, `research`, `video`, and `field-journal`. Existing `recipe: true`,
+The built-in profiles are `article`, `recipe`, `research`, `video`, `field-journal`, and `job`. Existing `recipe: true`,
 `type: recipe`, `layout: recipe`, and `kind: recipe` files continue to work. When both a
 canonical `profile` and a legacy recipe marker exist, `profile` wins and the build warns
 if they disagree.
@@ -105,6 +107,8 @@ Admin release kit for validating chapters and composing reusable YouTube copy. S
 
 The `field-journal` profile adds field facts and offline GPX analysis with private-by-default
 route publication. See [Field journals and private-by-default tracks](field-journal.md).
+
+The job profile records one piece of finished trade work (flooring, excavation, auto body, and so on) as an ordinary post. See [Jobs](jobs.md).
 
 The admin editor's **Search & answer readiness** checklist updates while you write. The
 same conservative checks run during a build and warn about weak descriptions, unusually
@@ -248,6 +252,30 @@ anything else is refused with a message, and a piece that is not valid shows an 
 the build. Videos and maps are lazy-loaded, titled, privacy-enhanced frames (`youtube-nocookie.com`, Vimeo with
 `dnt`, OpenStreetMap) with a plain link beside them; in portable copies they are links only. See ADR 0253.
 
+#### Before and after
+
+A `compare` fence pairs two photos, in any post (not only a job). One `key: value` per line; the picture and its
+description are required for each side, and the caption and label are optional (the labels are "Before" and
+"After" unless you change them). Admin's **Add something** writes it for you.
+
+````markdown
+```compare
+before: /images/floor-before.jpg
+before-alt: The old floor, stained and cracked along the door
+before-caption: Day one
+after: /images/floor-after.jpg
+after-alt: The same floor, sanded and sealed
+after-label: Finished
+```
+````
+
+The fields are `before`, `before-alt`, `before-caption`, `before-label` and the same four for `after`. A picture
+is an `https` address or a file on this site. A missing picture or description, an unknown field and a repeated
+field are refused with a plain message; the post shows the error in place and the build reports it. On the page the
+pair is a comparison control (`ob-compare`) where JavaScript runs and motion is welcome. Without JavaScript, in
+feeds, in syndicated copies and in portable export it is two captioned pictures, each with its label, and nothing
+else. The pictures use the same lazy loading as any Markdown image. See ADR 0291.
+
 #### Landing page sections
 
 When `content/landing.json` exists, the home page is built from it instead of the fixed intro, post list and
@@ -264,10 +292,14 @@ before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can 
 
 Each section has a unique `id` (lowercase letters, digits and single hyphens), a `type`, and an optional
 `hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`,
-`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq` and `callout`; the media, hours,
-contact, social, question and call-out types hold the same fields as the
-[pieces](#pieces-buttons-videos-maps-and-more) above. There are at most 40 sections and 256 KiB. The page is
-accepted whole or not at all, and a file from a newer release is never overwritten.
+`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout` and `business-facts`; the
+media, hours, contact, social, question and call-out types hold the same fields as the
+[pieces](#pieces-buttons-videos-maps-and-more) above. The `business-facts` section holds only a `heading`: it
+places the [business facts](configuration.md#business-facts) from `openblog.json` (name, phone, hours, license and
+insurance badge) under that heading, and renders nothing while none are stated. Because it is a new type, a page
+that holds one is stored as `"version": 2` (every other page stays version 1, byte for byte, and a version 1
+file cannot hold it). There are at most 40 sections and 256 KiB. The page is accepted whole or not at all, and
+a file from a newer release is never overwritten.
 
 Landing content never accepts markup. There is no HTML section; a button is a label and an address, a video is
 a provider and an id, a map is coordinates. Only Markdown is rich (the text section, answers, call-out bodies)
@@ -420,6 +452,7 @@ If both sides edited the same file, Git stops with a conflict.
 | `js-evolution` | Older and newer JavaScript for the same task, side by side, run on the same fixed data across three milestones (2015, 2017, 2020). |
 | `audio-lab` | A real, quiet Web Audio synth: oscillator, low-pass filter, live signal trace. Sound plays only after Start. |
 | `native-lab` | View Transitions, Web Animations, the popover attribute and the Intersection/Resize observers, each reporting browser support. |
+| `server-lab` | An in-memory multiplayer server simulator. Add `lesson="connections"`, `lesson="world"`, `lesson="async"` or `lesson="select"` to focus on connection handling, shared state, waiting tasks or `select!`. |
 
 Everything the demo does runs in the reader's browser against pretend data; nothing is sent or
 stored. The body is plain Markdown, and the same text is used everywhere the demo cannot run:
@@ -680,7 +713,13 @@ name: Getting started
 description: Three short parts that cover the basics.
 theme: paper          # optional: every post in the series uses this theme
 cover: /images/getting-started.png
-order: 1              # position on the /series/ page (lower first)
+coverLight: /images/getting-started-light.png
+coverDark: /images/getting-started-dark.png
+coverCardLight: /images/getting-started-card-light.png
+coverCardDark: /images/getting-started-card-dark.png
+coverCardLight2x: /images/getting-started-card-light-2x.png
+coverCardDark2x: /images/getting-started-card-dark-2x.png
+order: 1              # optional: pin a listing priority (lower first)
 ---
 
 Optional Markdown shown at the top of the series page.
@@ -689,6 +728,28 @@ Optional Markdown shown at the top of the series page.
 Posts join with `series: getting-started`. Each post then shows "Part 2 of 3" with
 previous and next links and a list of all parts. If you reference a series that has no
 file, one is created from the slug and the build prints a warning.
+
+Series with the same `order` are listed by the date of their most recent published post,
+newest first. Since the default `order` is the same for every series, omitting it keeps active
+series at the top automatically. Set `order` only when a series needs a fixed priority.
+
+`coverLight` and `coverDark` are optional full-size colour-mode variants; `cover` remains
+the canonical fallback for feeds, social cards, and either missing variant. Series index
+cards can additionally use `coverCardLight` and `coverCardDark` as quarter-resolution
+sources, plus `coverCardLight2x` and `coverCardDark2x` as half-resolution high-density
+sources. The index emits responsive 400w/800w choices while the series page keeps the
+full-size covers.
+
+Set `seriesPerPage` in `openblog.json` to limit the series index. The browser changes pages
+without reloading, writes `?series-page=N` into the address for sharing and Back/Forward, and
+keeps the complete list available when JavaScript is off. The default `0` shows every series.
+
+The same `seriesPerPage` setting paginates Series sections on the homepage. Set
+`latestPostsPerPage` to paginate the homepage's Latest posts without reloading; it uses
+`?latest-page=N`. A Latest posts section's `count` still caps its total posts; omit `count`
+to paginate every published post. Both settings default to `0`, preserving the static listing
+and `/page/N/` links.
+
 
 A series that holds a collaborative work, a published post whose credits name two or more
 authors (such as a shared reflection), also says who wrote what: its page lists the series'
