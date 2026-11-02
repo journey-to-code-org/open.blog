@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { removeTree } from "./teardown.mjs";
 
 // Correction decisions in the Moderation inbox (#217, ADRs 0116 and 0117). The hosted inbox is
 // mocked at the Admin API (the real Admin resolves each item's actor, checks the decision and
@@ -60,7 +61,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 async function signIn(page) {

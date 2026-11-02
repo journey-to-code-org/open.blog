@@ -16,9 +16,18 @@ function currentScheme() {
   return set === "light" || set === "dark" ? set : systemScheme();
 }
 
+function syncCoverPictures() {
+  const set = document.documentElement.dataset.theme;
+  const media = set === "dark" ? "all" : set === "light" ? "not all" : "(prefers-color-scheme: dark)";
+  for (const source of document.querySelectorAll("source[data-ob-cover-dark]")) {
+    source.media = media;
+  }
+}
+
 class ObThemeToggle extends HTMLElement {
   connectedCallback() {
     this.hidden = false;
+    syncCoverPictures();
     this.button = this.querySelector("button");
     if (!this.button) return;
     this.button.addEventListener("click", this.#toggle);
@@ -37,6 +46,7 @@ class ObThemeToggle extends HTMLElement {
     } catch {
       // Storage can be blocked (private windows); the choice just won't persist.
     }
+    syncCoverPictures();
     this.#sync();
     this.dispatchEvent(new CustomEvent("ob-scheme-change", { detail: next, bubbles: true }));
   };

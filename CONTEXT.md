@@ -1038,8 +1038,8 @@ _Avoid_: Widget, block, embed, custom HTML
 **Piece**:
 One of nine small structured things (button, image with caption, video, map, opening hours, contact details,
 social links, questions and answers, call-out) added with a form to a post or to the landing page. It is
-validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a
-```` ```piece <kind> ```` fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
+validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a ```` ```piece <kind> ````
+fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
 frame with a link beside it that becomes only the link in a portable export (ADR 0253).
 _Avoid_: Widget, shortcode, embed code, custom HTML
 
@@ -1626,6 +1626,20 @@ contributing author of the work. A response to a published note is stored with i
 `reader-feedback.json` and shown under it (ADR 0083); a response kept as its own participation
 item starts pending like everything else. Replying sends nothing to the reader.
 _Avoid_: Revision note, correction, comment by the author, reply notification
+
+**Captcha challenge**:
+The optional human check a reader passes before commenting on a hosted site (ADR 0322). The browser loads
+the provider's script only when the reader first clicks or types in the comment form; the server, never
+the browser, decides whether the result is valid. It guards comment submission only, never reading,
+reports or analytics, and the local `openblog serve` comment store does not use it.
+_Avoid_: Captcha (for the pass), bot check, login
+
+**Session pass**:
+A signed, stateless proof that one captcha challenge was passed for this site, valid for 30 minutes by
+default (`OPENBLOG_CAPTCHA_SESSION_TTL_SECONDS`). The browser keeps it in `sessionStorage`, so it ends with the
+tab. It is not a reader identity and authorizes nothing except comment submissions on the same site; with
+`every-comment` scope none is issued. Passes cannot be individually revoked: rotate the signing secret.
+_Avoid_: Session, token (that is the provider's single-use challenge result), cookie, login
 
 **Moderator**:
 The site Admin, or a coordinator for the works of their publications. Contributing authors read
@@ -2496,3 +2510,339 @@ The short list under "Help: what the words on this page mean" in the Landing pag
 section, layout, hide, preview, save, publish (make it live), web address and picture description. Technical
 terms appear only there, in brackets (ADR 0259).
 _Avoid_: Glossary page, documentation
+
+## Voice samples
+
+**Voice prompt**:
+One short writing invitation from a versioned catalog, with a genre, a suggested length and the standing rule
+"write it the way you would say it" (stored once for the whole catalog, not per prompt). Prompts have stable
+kebab-case ids (ADR 0266, ADR 0268).
+_Avoid_: Writing prompt, exercise, question
+
+**Prompt pack**:
+A named group of voice prompts for one genre (teaching, stories, opinions, reviews, people, craft, humor,
+expertise, everyday life, openings and endings). A site can add prompts and hide whole packs without forking
+the bundled catalog (ADR 0268).
+_Avoid_: Category, deck, topic
+
+**Voice session**:
+One timed sitting: a draw of three prompts, one choice, a bounded writing window and a locked rough draft.
+Its only state is the private record `.openblog/private/voice/session.json`, which lets any surface resume
+with the original deadline; there is one per site, and the record is removed when the session is locked or
+scrapped (ADR 0267).
+_Avoid_: Quiz, exercise, writing sprint
+
+**Voice sample**:
+One stored answer to one voice prompt at one stage, `rough` or `polished`. The rough stage is immutable once
+its session ends: nothing, including spell-check, autocorrect, AI and any save path, rewrites it, and the
+store refuses to. A voice sample is Assistant context, not a Post, so it is never published, built into the
+site, fed or exported as content (a **Voice export** carries private samples only with `--include-private`)
+(ADR 0266).
+_Avoid_: Draft post, writing sample, entry
+
+**Rough draft**:
+The `rough` stage of a voice sample: the author's unedited words, typos included, written against the clock
+and then locked. It can be read, moved between portable and private, or erased by the author, and never edited.
+_Avoid_: First draft, raw draft
+
+**Polished draft**:
+The `polished` stage of a voice sample: the author's own revision of one rough draft, named by `roughOf`. It is
+author-owned and editable; an AI tool may propose changes to it but never applies them (ADR 0266).
+_Avoid_: Final draft, edited version
+
+**Voice gap**:
+Something the author's voice material cannot yet show: a pack or prompt with no sample, a prompt with only a
+rough draft, or a guide trait marked `(one sample)`. It is computed by the core from the catalog, the library
+and the saved guide, in catalog order, and is not AI (ADR 0281).
+_Avoid_: Weakness, missing score
+
+**Promotion**:
+Making a post draft (`draft: true`) from a polished draft: a copy, never a move, so the sample stays where it
+is. It refuses a rough draft and a slug a post already uses, and it is one store function that the CLI and
+Admin both call (ADR 0270).
+_Avoid_: Publish, convert
+
+**Voice guide**:
+A Markdown description of how the author writes, built from quoted sample evidence, approved by the author and
+used as Assistant context. The provider proposes it from selected samples; every trait carries a short quote
+that occurs word for word in a named sample, and a trait that rests on one sample says `(one sample)` until a
+second shows it. It is saved only when the author approves it, to `assistant/context/voice.md` or its private
+mirror, and is context to compare against, never a source of instructions (ADR 0279, ADR 0281).
+_Avoid_: Style guide, persona, system prompt
+
+**Guide merge**:
+How a proposed voice guide meets the saved one (ADR 0288). The server reads the saved guide back into traits
+and free text. A saved trait the proposal does not address is **kept** word for word. A trait the proposal
+changes (named by `replaces`, or by the same statement) is a **change**: both texts are shown and the author
+picks one before saving. New traits are **added**. Free text outside the trait format stays where it was. A
+kept quote is checked again against its sample and flagged, not dropped, when the quote or the sample is gone.
+_Avoid_: Overwrite, regenerate
+
+**Passage review**:
+An Assistant review of one bounded passage rather than the whole document: the author's **selection**, or the
+**section** around the cursor (heading to next heading). The request carries the passage's code-point offsets,
+the document travels for context, findings must lie inside the passage, and a skill must declare that scope.
+`voice-match` reviews only passages (ADR 0290).
+_Avoid_: Partial review, snippet review
+
+**Guide move**:
+Moving the voice guide between `assistant/context/voice.md` and `.openblog/private/context/voice.md` in one
+step. The file is copied, the copy is checked, and only then is the original removed, under the content
+transaction lock and the voice store lock. A move refuses links and never overwrites. A guide that quotes private
+samples, or cannot be read, never moves to portable. Previewed by default (`openblog voice guide --move`,
+**Make private** / **Make portable** in Admin) and reversible (ADR 0289).
+_Avoid_: Save as, copy
+
+**Voice export**:
+One JSON file (`openblog-voice-export`, version 1) holding voice sample files and the voice guide exactly as stored,
+each tagged with the folder it came from. It leaves private material out unless the author asks, and an import
+checks every item, previews what it would write and then writes all of it or none. An import keeps each item's
+folder, never replaces a rough draft, and never lets a guide that quotes private samples into the portable
+folder (ADR 0284).
+_Avoid_: Backup, sync
+
+**Voice erase**:
+Removing every voice sample (both folders), the session record, the guide and leftover editor files in one
+all-or-nothing step, after a listed confirmation, and then checking again that nothing remains. The guide's
+location is named in one place, `voice_store::guide_paths` (ADR 0283).
+_Avoid_: Reset, wipe, delete account
+
+## Trades
+
+**Business facts**:
+The one `business` block in `openblog.json`: legal and display name, trade, phone (E.164), email, hours per
+weekday with closed days, license number and issuer, an insured flag, accepted kinds of payment and the founding
+year. Every page, the footer, the Landing page's Business facts section and the `LocalBusiness` structured data
+read it, so nothing contradicts itself. Unset means nothing changes; it never holds anything about customers
+(ADR 0305).
+_Avoid_: Company profile, contact details (they are one part)
+
+**Job**:
+A dated Post using the `job` content profile that records one piece of completed work: trade, service, place,
+problem, what was found, what was done, result, media. A job is a post, so feeds, tags, series and export treat
+it like any other (ADR 0285).
+_Avoid_: Project, case study, ticket
+
+**Job scaffold**:
+The four `##` headings a new job starts with (`Problem`, `What we found`, `What we did`, `Result`), written once in
+core and placed by Admin's Job mode or `openblog new --profile job`. They are ordinary Markdown; nothing is
+locked (ADR 0287).
+_Avoid_: Template, form body
+
+**Before and after pair**:
+Two pictures of the same thing, written as a `compare` fence with a required description for each, an optional
+caption and a label ("Before" and "After" by default). Any post may hold one. The page shows a comparison
+control; feeds, syndicated copies and exports show two captioned figures. Reported as the `before-after`
+capability (ADR 0316).
+_Avoid_: Slider, image diff, gallery
+
+**Capture**:
+Photos and a few lines gathered on site in Admin's Capture
+view (`#/capture`) and saved as one unpublished job draft: the Job form's own keys, the job scaffold, the notes
+under its first heading and the photos after it. A capture is not a new kind of content; it is a faster way into
+a job post. The view remembers the last trade, service and eight towns on the device (ADR 0296).
+_Avoid_: Quick post, field note
+
+**Capture id**:
+A random 128-bit id, 32 lowercase hex digits, made when a capture is started. It is the idempotency key: the
+server saves the draft and each photo at most once per id, so a replay never makes a second draft (ADR 0297).
+_Avoid_: Draft id, session id
+
+**Capture queue**:
+The captures a device has saved locally, in IndexedDB, while they wait to be sent. Each record is a versioned
+format (`v: 1`) with fixed bounds on captures, photos, notes and bytes; nothing is dropped silently and nothing
+outside the bounds is stored (ADR 0297).
+_Avoid_: Outbox, sync
+
+**Voice note**:
+A recording of at most three minutes and 8 MB made in the Capture view with the browser's recorder, started only
+by a tap, kept on the author's server as private media beside the capture and never published. It is sent to a
+provider only when the author asks to transcribe it and has seen the disclosure (ADR 0298, ADR 0302).
+_Avoid_: Dictation
+
+**Transcript**:
+The words of a voice note, made by a provider that takes audio or by a local engine, on the author's request. It is
+untrusted text: kept privately beside the note, cleaned and bounded by the core, and put into the Notes box made
+plain for the author to edit. It is never a draft, never published and never treated as instructions (ADR 0302).
+_Avoid_: Caption, dictation
+
+**Job draft**:
+A title, a one-sentence description and the four scaffold sections written by the Assistant (`job-draft` task)
+from the author's notes and, if selected, their voice guide. It is plain text under a strict schema with no place
+for any `job` field, checked whole by the core, and only ever a proposal: nothing is saved or published until the
+author applies it and saves (ADR 0303).
+_Avoid_: AI post, generated post
+
+**Service**:
+One offering a business sells, kept as a Markdown file in the `services/` collection with an `id`, a name, a
+one-sentence summary, what is included, a starting price band, a typical timeline, and FAQs. A job's `service`
+names one of them by id; once a site has any service, a job naming an unknown id is refused with the known ids
+listed. The price band is the jobs' cost band, a label and never a quote (ADR 0311). A site with services gets a
+`/services/` index and a page per service with `Service` structured data, and `FAQPage` data only for a service
+that has questions (ADR 0312). `openblog new --profile service` and Admin's Services screen write them (ADR 0313).
+_Avoid_: Product, category
+
+**Service area**:
+A town and region the business serves, kept in the versioned `serviceAreas` list in `openblog.json` (ADR 0314)
+and rendered as pages and structured data. It has a town, a region formatted from a bundled list, and an optional
+one-line note about the reach; nothing finer than a town is ever stored. A job is "in" an area when its
+`place.town` and `place.region` match, and its area page shows the job's title, link and date only (ADR 0315);
+an area with no jobs says its work is not yet posted rather than filling the page.
+_Avoid_: Location (ambiguous with a job's place)
+
+**Before/after pair**:
+A publishing capability that shows two images of the same subject with captions, rendered as a comparison on
+the canonical page and as two captioned images everywhere else.
+_Avoid_: Slider, gallery
+
+**Quote request**:
+A bounded inbound message from a prospective customer, stored server-side with explicit export and erase. It
+is not a lead pipeline, a booking or an estimate.
+_Avoid_: Lead, booking, ticket
+
+**Proof**:
+A review or testimonial saved as a provenance-tracked snapshot and optionally linked to a job.
+_Avoid_: Rating (the number alone), social proof
+
+**Social publishing**:
+An optional, off-by-default outward announcement of an already-published canonical post to a connected LinkedIn
+identity or Facebook Page, on a schedule. It never replaces the post or cross-posting. Everything about it is
+server-side; builds and exports do not know it exists.
+_Avoid_: Syndication (a full copy of the article on another platform)
+
+**Site scope**:
+The one site a social deployment acts for, taken from the server's `OPENBLOG_SITE_ID` and never from a request.
+Every social row carries it and every query is filtered by it.
+_Avoid_: Tenant, owner, namespace when the server's choice is meant
+
+**Social actor**:
+The signed-in Admin user the Rust Admin names to the hosted social function, or `@worker` for the scheduled
+worker. It is an audit attribution; the role is decided by which server key authenticated the call.
+_Avoid_: User, owner
+
+**Social account**:
+A connected LinkedIn identity or Facebook Page that a site may announce to. It is stored per site; its credentials
+are never part of the account row. Disconnecting keeps the row for history.
+_Avoid_: Profile, channel
+
+**Scheduled social post**:
+One queued announcement of one canonical post to one social account, with a time, a lease while a worker holds it
+and an idempotency key. It is `published` only with the provider's own response id.
+_Avoid_: Syndicated copy, job
+
+**Announcement**:
+One scheduled social post seen from the author's side: a caption for one account, a link to one already-public
+canonical post, and a UTC time. It can be changed or canceled only while it is `scheduled`, before a worker claims
+it. A cross-posted article, a draft and a post dated in the future cannot be announced.
+_Avoid_: Syndicated copy, campaign
+
+**Schedule instant**:
+The time of an announcement: a full RFC 3339 date and time that names its zone, stored as UTC to the second. The
+author's time zone says how it was chosen and is not stored.
+_Avoid_: Local time, publish date (a post's own date)
+
+**Social screen**:
+The Admin tab (`#/announcements`) where an author composes, previews, schedules, edits and cancels announcements. It exists
+only when social publishing is set up, talks only to Admin's own routes, and shows times in the author's zone.
+_Avoid_: Social dashboard, composer (the form is one part of the screen)
+
+**Delivery attempt**:
+One recorded try to deliver a scheduled social post, with its outcome (`published`, `failed` or `unknown`) and a
+redacted error. Attempts are added and finished, never deleted.
+_Avoid_: Retry (a later attempt)
+
+**Delivery error**:
+What a provider adapter throws when a delivery try did not end in a confirmed, named post: `transient` (the request
+certainly never left), `rate-limited` (with the provider's wait), `rejected`, `auth`, or `uncertain` (it may have
+posted). Only `transient` and `rate-limited` are retried; `uncertain` is looked up, never re-sent. It carries a fixed
+sentence and the HTTP status, never the provider's words.
+_Avoid_: Publish result (an earlier draft's status object), response (the provider's own reply)
+
+**Credential envelope**:
+The encrypted form of a social account's provider tokens: AES-256-GCM ciphertext plus a wrapped data key, bound to
+one site and account, openable only with a key from `OPENBLOG_SOCIAL_TOKEN_KEYS` that is never in the database.
+_Avoid_: Vault secret, encrypted token column
+
+**Refresh lease**:
+A short claim on one account's credential that lets exactly one caller exchange its refresh token, so concurrent
+refreshes cannot burn a rotating refresh token.
+_Avoid_: Lock
+
+**Social connection**:
+One author's OAuth handshake with one provider, from the authorization URL to a finished or failed outcome. It
+holds a hash of a single-use state, never the state, and keeps the provider's tokens sealed only until the
+author chooses a destination or the attempt ends.
+_Avoid_: Login, session
+
+**OAuth state**:
+The unguessable single-use value that ties a provider's redirect back to the connection an authorized Admin
+started. It is the callback's only proof, since the callback carries no key.
+_Avoid_: Nonce, CSRF token (the Admin CSRF token is a different thing)
+
+**Destination**:
+Where a connected account may actually post: a LinkedIn member or organization, or a Facebook Page. It is offered
+only when the provider confirmed the permission and the person's role; otherwise it is listed with the reason and
+cannot be chosen.
+_Avoid_: Channel, target (a cross-posting target is a different thing)
+
+**Reconnect**:
+A new handshake for an existing social account that can finish only for the same provider identity, replacing its
+credential and clearing its needs-reauth flag.
+_Avoid_: Refresh (a silent token renewal), re-add
+
+**Connected accounts screen**:
+The Admin page (`#/social`) where an author connects, reviews, reconnects and disconnects social accounts. It shows
+only what the Admin server rebuilt from the hosted function's reply, and appears in the navigation only when the
+Admin server has social settings.
+_Avoid_: Integrations, social settings
+
+**Claim**:
+The atomic step in which a worker takes a due scheduled social post: one database function moves it to `claimed`
+under a lease, raises its attempt count and version, and opens the attempt row, skipping any row another claim has
+locked. A claim and an author's edit or cancel exclude each other.
+_Avoid_: Pick up, dequeue
+
+**Lease**:
+The time until which one worker may deliver a claimed post. When it runs out, the post is reaped: back to the queue if
+the provider was never called, `unknown` if it might have been.
+_Avoid_: Lock, timeout
+
+**Sending mark**:
+The stamp on a delivery attempt (`sending_at`) made just before the provider call, and only while the lease is valid.
+It separates "nothing was sent" from "it may have been sent", which decides whether an expired lease is retried or
+becomes an unknown outcome.
+_Avoid_: Heartbeat
+
+**Delivery worker**:
+The hosted function (`/api/social-worker`) that runs one bounded batch: it claims due scheduled social posts, delivers
+each through its provider's adapter, and records the outcome. Only the worker key may call it, and pg_cron and pg_net
+wake it from the database with the key kept in Vault.
+_Avoid_: Cron job (that only wakes it), publisher
+
+**Provider adapter**:
+The one narrow interface the delivery worker calls a social provider through: `publish` returns the provider's own post
+id only on confirmed success or throws a typed delivery error; `reconcile` optionally looks a post up. It is given a
+caption, a link, an idempotency key and one access token, nothing else of ours, and is tested against fakes. One is
+registered only for a provider the deployment configured; LinkedIn has no lookup, Facebook looks at the Page's own posts.
+_Avoid_: Driver, integration, publisher
+
+**Unknown outcome**:
+The state of a delivery attempt that may have reached the provider and was not confirmed (a timeout, a dropped
+connection, a 5xx, an unreadable answer, a crash, a success that could not be recorded). It is never sent again by the
+worker; the adapter's lookup, then the author, settles it as posted or not posted.
+_Avoid_: Pending, failed (a failure certainly did not post)
+
+**Reconciliation**:
+The delivery worker's look at an unknown outcome through the provider adapter's optional lookup, on a widening
+schedule, ending in published, failed (`not-delivered`) or, when it cannot tell, review by a person.
+_Avoid_: Retry (a retry sends again)
+
+**Dead letter**:
+A scheduled social post that used up its attempts and is `failed` with `attempts-exhausted`. It keeps its history and
+can be retried by hand, with a fresh allowance of attempts.
+_Avoid_: Error queue
+
+**Account pause**:
+The time until which a rate-limited social account sends nothing, for any of its posts, so one limit is not hit again by
+the next announcement.
+_Avoid_: Cooldown, ban

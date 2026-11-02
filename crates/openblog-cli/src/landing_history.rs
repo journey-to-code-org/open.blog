@@ -14,7 +14,7 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use openblog_core::landing::{LandingPage, LANDING_FORMAT, LANDING_VERSION, MAX_FILE_BYTES};
+use openblog_core::landing::{LandingPage, LANDING_FORMAT, MAX_FILE_BYTES};
 use serde_json::{json, Value};
 
 use crate::source_store;
@@ -90,7 +90,8 @@ fn entry_from(id: u64, value: &Value) -> Option<Entry> {
     }
     let mut page = value["page"].as_object()?.clone();
     page.insert("format".into(), json!(LANDING_FORMAT));
-    page.insert("version".into(), json!(LANDING_VERSION));
+    let version = openblog_core::landing::version_for_page(&page);
+    page.insert("version".into(), json!(version));
     let page = LandingPage::parse(&Value::Object(page).to_string()).ok()?;
     Some(Entry {
         meta: Meta {
@@ -212,9 +213,17 @@ pub fn summarize(previous: Option<&LandingPage>, page: &LandingPage) -> String {
     }
 }
 
-/// Keep `.openblog/private/` out of Git for a project that uses it, as `openblog init` does.
-fn keep_out_of_git(root: &Path) {
-    if !root.join(".git").exists() {
+/// Whether `root` is inside a Git working tree: it, or a folder above it, holds `.git` (a folder,
+/// or the file a worktree or submodule has).
+fn inside_git(root: &Path) -> bool {
+    let start = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    start.ancestors().any(|folder| folder.join(".git").exists())
+}
+
+/// Keep `.openblog/private/` out of Git for a project that uses it, as `openblog init` does. A site
+/// in a subfolder of a repository gets the rule in its own `.gitignore`, which Git honours there.
+pub(crate) fn keep_out_of_git(root: &Path) {
+    if !inside_git(root) {
         return;
     }
     let path = root.join(".gitignore");
@@ -371,8 +380,7 @@ mod tests {
             .map(|(i, h)| json!({"id": format!("s{i}"), "type": "welcome", "heading": h}))
             .collect();
         LandingPage::parse(
-            &json!({"format": LANDING_FORMAT, "version": LANDING_VERSION, "sections": sections})
-                .to_string(),
+            &json!({"format": LANDING_FORMAT, "version": 1, "sections": sections}).to_string(),
         )
         .unwrap()
     }
@@ -525,6 +533,21 @@ mod tests {
             fs::read_to_string(other.join(".gitignore")).unwrap(),
             "/.openblog\n"
         );
+    }
+
+    #[test]
+    fn a_site_in_a_subfolder_of_a_repository_gets_its_own_ignore_rule() {
+        let repository = root("nested");
+        fs::create_dir_all(repository.join(".git")).unwrap();
+        let site = repository.join("blog");
+        fs::create_dir_all(&site).unwrap();
+        keep_out_of_git(&site);
+        assert_eq!(
+            fs::read_to_string(site.join(".gitignore")).unwrap(),
+            "/.openblog/private/
+"
+        );
+        assert!(!repository.join(".gitignore").exists());
     }
 
     #[test]
