@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `openblog.js` imports a component only when its element is on the page, or the moment a script
+  inserts one, instead of importing all 22 on every page. A home page with no labs now downloads
+  one component instead of about 40 modules. Components are listed by element name; the embed test
+  checks each has its file (ADR 0266).
+
 ## [0.52.0] - 2026-10-29
 
 - A provider that refuses an account's sign-in while posting (a 401, or Facebook's expired-token codes) now moves that account to **Needs reconnecting** (story #358; ADR 0319), so its other announcements fail before being sent instead of each being tried with a dead token.
@@ -76,7 +81,6 @@ All notable changes to open.blog are recorded here. Releases follow
   - The voice guide moves between portable and private in one step (ADR 0289). `openblog voice guide --move portable|private` shows what would move (`--yes` moves it), and Admin has Make private or Make portable on the guide's card. The file is copied, checked and only then removed, so it is never lost. Links are refused, and a guide that quotes private samples or cannot be read stays private.
   - Assistant review can cover the selected text or the current section as well as the whole document (ADR 0290). Findings stay inside that passage, a skill is offered only for scopes it declares, and `voice-match` now works on a passage only, so you choose what should sound more like you. Apply and undo work as before.
   - Samples are private unless you choose portable, and you can erase them (ADRs 0282 and 0283): a move between the folders is reversible and a build or publish never carries a private sample. `openblog voice erase [--yes]` and the Admin **Erase all voice data…** button list every sample, the session record, the voice guide and leftover editor files, ask you to confirm (`--yes`, or typing `erase`), remove them all or none, check again that nothing is left, and refuse a linked folder. See [Erase your voice data](docs/admin.md#erase-your-voice-data).
-
 ## [0.50.0] - 2026-10-28
 
 - The landing page and Customize look (epic #314, ADRs 0245 to 0264, overview in ADR 0265): owners arrange their home page and choose their site's colors and fonts from Admin, from a phone, without HTML or CSS. Docs: [the Landing page and Customize look in Admin](docs/admin.md#change-your-home-page-and-your-look), [Landing page sections](docs/content.md#landing-page-sections), [Look controls](docs/themes.md#look-controls) and [the `ob-home-*` classes](docs/theme-components.md#styling-the-landing-page).
