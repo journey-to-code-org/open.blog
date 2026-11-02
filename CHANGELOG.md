@@ -8,6 +8,10 @@ All notable changes to open.blog are recorded here. Releases follow
 - A font face can set `"preload": true`: every page in the theme then fetches it alongside the
   stylesheets, so text paints in the theme's font and never shifts when it swaps in. A child theme
   narrows the inherited preloads with `"fonts": { "preloadOnly": [...] }` (ADR 0267).
+- `openblog.js` imports a component only when its element is on the page, or the moment a script
+  inserts one, instead of importing all 22 on every page. A home page with no labs now downloads
+  one component instead of about 40 modules. Components are listed by element name; the embed test
+  checks each has its file (ADR 0266).
 
 ## [0.52.0] - 2026-10-29
 
