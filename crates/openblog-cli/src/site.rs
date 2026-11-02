@@ -119,6 +119,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-native-model.js"),
     ),
     (
+        "components/ob-server-lab.js",
+        include_str!("../../../web/components/ob-server-lab.js"),
+    ),
+    (
+        "components/ob-server-model.js",
+        include_str!("../../../web/components/ob-server-model.js"),
+    ),
+    (
         "components/ob-highlight.js",
         include_str!("../../../web/components/ob-highlight.js"),
     ),
@@ -131,12 +139,28 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-quiz.js"),
     ),
     (
+        "components/ob-compare.js",
+        include_str!("../../../web/components/ob-compare.js"),
+    ),
+    (
+        "components/ob-compare-model.js",
+        include_str!("../../../web/components/ob-compare-model.js"),
+    ),
+    (
         "components/ob-reading-modes.js",
         include_str!("../../../web/components/ob-reading-modes.js"),
     ),
     (
         "components/reading-modes.js",
         include_str!("../../../web/components/reading-modes.js"),
+    ),
+    (
+        "components/ob-list-pagination.js",
+        include_str!("../../../web/components/ob-list-pagination.js"),
+    ),
+    (
+        "components/list-pagination.js",
+        include_str!("../../../web/components/list-pagination.js"),
     ),
     (
         "components/ob-quantity.js",
@@ -157,6 +181,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     (
         "components/ob-views.js",
         include_str!("../../../web/components/ob-views.js"),
+    ),
+    (
+        "components/comment-captcha.js",
+        include_str!("../../../web/components/comment-captcha.js"),
     ),
     (
         "components/ob-comments.js",
@@ -276,15 +304,61 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     ("admin.css", include_str!("../../../web/admin/admin.css")),
     ("landing.js", include_str!("../../../web/admin/landing.js")),
     ("look.js", include_str!("../../../web/admin/look.js")),
+    (
+        "business.js",
+        include_str!("../../../web/admin/business.js"),
+    ),
+    (
+        "services.js",
+        include_str!("../../../web/admin/services.js"),
+    ),
     ("paste.js", include_str!("../../../web/admin/paste.js")),
     (
         "landing-history.js",
         include_str!("../../../web/admin/landing-history.js"),
     ),
     ("checks.js", include_str!("../../../web/admin/checks.js")),
+    ("voice.js", include_str!("../../../web/admin/voice.js")),
+    (
+        "voice-session.js",
+        include_str!("../../../web/admin/voice-session.js"),
+    ),
+    ("social.js", include_str!("../../../web/admin/social.js")),
+    (
+        "voice-library.js",
+        include_str!("../../../web/admin/voice-library.js"),
+    ),
+    (
+        "announcements.js",
+        include_str!("../../../web/admin/announcements.js"),
+    ),
+    (
+        "voice-polished.js",
+        include_str!("../../../web/admin/voice-polished.js"),
+    ),
     (
         "checks-panel.js",
         include_str!("../../../web/admin/checks-panel.js"),
+    ),
+    (
+        "job-form.js",
+        include_str!("../../../web/admin/job-form.js"),
+    ),
+    (
+        "job-capture.js",
+        include_str!("../../../web/admin/job-capture.js"),
+    ),
+    (
+        "capture-queue.js",
+        include_str!("../../../web/admin/capture-queue.js"),
+    ),
+    (
+        "capture-recorder.js",
+        include_str!("../../../web/admin/capture-recorder.js"),
+    ),
+    (
+        "capture-assistant.js",
+        include_str!("../../../web/admin/capture-assistant.js"),
     ),
 ];
 

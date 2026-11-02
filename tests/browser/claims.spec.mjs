@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio and the real claims API (core validation, revision-checked store, anchors
 // checked against the saved draft) over a small library, notebook and one saved post. Covers
@@ -77,7 +78,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 test.beforeEach(() => writeFixture());

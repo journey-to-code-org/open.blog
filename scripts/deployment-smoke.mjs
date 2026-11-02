@@ -5,8 +5,10 @@ export async function smoke({
   origin,
   adminOrigin,
   postPath,
+  captcha = false,
   fetchImpl = fetch,
   log = console.log,
+  timeoutSignal = timeoutMs => AbortSignal.timeout(timeoutMs),
 }) {
   const site = new URL(origin);
   const admin = new URL(adminOrigin);
@@ -19,10 +21,10 @@ export async function smoke({
   assert.ok(postPath.startsWith("/") && !postPath.startsWith("//"), "Post must be a root-relative path");
   const post = new URL(postPath, site);
   assert.equal(post.origin, site.origin);
-  async function get(url, status, contentType) {
+  async function get(url, status, contentType, { timeoutMs = 30_000 } = {}) {
     const response = await fetchImpl(url, {
       redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
+      signal: timeoutSignal(timeoutMs),
       headers: { "User-Agent": "openblog-deployment-smoke/1" },
     });
     assert.equal(response.status, status, `${new URL(url).pathname}: expected HTTP ${status}, got ${response.status}`);
@@ -57,7 +59,7 @@ export async function smoke({
     const response = await get(new URL(path, site), 302);
     assert.equal(response.headers.get("location"), new URL(destination, admin).href, "Unexpected Admin redirect");
   }
-  await get(new URL("/admin/", admin), 200, /text\/html/i);
+  await get(new URL("/admin/", admin), 200, /text\/html/i, { timeoutMs: 120_000 });
   await get(new URL("/admin/admin.css", admin), 200, /text\/css/i);
   await get(new URL("/admin/admin.js", admin), 200, /javascript/i);
   log("PASS Admin redirect, login page, and assets (no authentication attempted)");
@@ -69,6 +71,24 @@ export async function smoke({
   await get(new URL("/api/admin/analytics?days=7", site), 401);
   await get(new URL("/api/admin/comments?status=pending", site), 401);
   log("PASS public engagement reads and protected moderation endpoints");
+  if (captcha) {
+    assert.match(articleHtml, /<ob-comments\b[^>]*\bcaptcha-provider="turnstile"[^>]*\bcaptcha-site-key="[^"]+"/, "The post must carry the public captcha attributes; enable engagement.captcha and rebuild");
+    const refused = async (extra, what) => {
+      const response = await fetchImpl(new URL("/api/comments", site), {
+        method: "POST", redirect: "manual", signal: AbortSignal.timeout(30_000),
+        headers: { "Content-Type": "application/json", Origin: site.origin },
+        body: JSON.stringify({ path: post.pathname, authorName: "Deployment smoke", body: "Unverified captcha deployment check", ...extra }),
+      });
+      const result = await response.json().catch(() => ({}));
+      assert.notEqual(response.status, 503, `Captcha is enabled but the function is misconfigured (${result.code || "no code"}): ${result.error || "no message"}`);
+      assert.ok(response.status !== 202 && response.status !== 200, `A captcha-enabled site accepted ${what}; check OPENBLOG_CAPTCHA_PROVIDER on the function`);
+      assert.equal(response.status, 403, `${what}: expected HTTP 403, got ${response.status}`);
+      assert.equal(result.code, "captcha_required", `${what}: expected code captcha_required`);
+    };
+    await refused({}, "an unverified comment");
+    await refused({ captchaPass: "forged.pass" }, "a forged pass");
+    log("PASS unverified and forged captcha submissions refused");
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -78,7 +98,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exitCode = 1;
   } else {
     try {
-      await smoke({ origin, adminOrigin, postPath });
+      await smoke({ origin, adminOrigin, postPath, captcha: process.argv.includes("--captcha") });
     } catch (error) {
       console.error(`Deployment smoke test failed: ${error.message}`);
       process.exitCode = 1;

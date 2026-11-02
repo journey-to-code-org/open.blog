@@ -77,6 +77,9 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 `titleSize`, `sectionTitleSize`, `rowTitleSize`, `shadow`, `focusRing`, `rowBorderWidth`,
 `hoverText`, `motion`. The full defaults are in `themes/base/theme.json`.
 
+The bundled themes intentionally inherit `readingWidth` from `base`. This keeps the desktop
+article width consistent across existing themes and makes new themes use that width automatically.
+
 ### Options
 
 | Option | Effect |

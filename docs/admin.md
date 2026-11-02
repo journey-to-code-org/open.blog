@@ -39,7 +39,7 @@ immediately.
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
-| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
+| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. Business facts have their own screen. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
 | **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
 
 ## Workspace layout
@@ -121,10 +121,15 @@ authoring.
 ### Review an unsaved document
 
 Open **Assistant → Review** to review the current unsaved title, metadata, and Markdown without
-saving first. Select one or more review skills and any context the provider should receive, then
-inspect the disclosure: it lists the complete-document scope, approximate source size, every skill
+saving first. Under **What to review**, keep **Complete document** or choose **Selected text** (the text
+selected in the draft) or **Current section** (from the heading before the cursor to the next heading; a `#` line inside fenced code is code, not a heading).
+Findings then stay inside that passage, and a skill that cannot review it is shown as unavailable
+([ADR 0290](adr/0290-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md)).
+Select one or more review skills and any context the provider should receive, then
+inspect the disclosure: it lists the scope, approximate source size, every skill
 and context item, provider model and safe destination origin, and confirms external research is off.
-Nothing is sent until **Run document review** is pressed.
+Nothing is sent until **Run document review** (or **Review selected text**, **Review current section**) is
+pressed.
 
 Validated findings are grouped under their originating skill and visibly labelled **AI-generated
 advice**. Each finding shows its severity, category, exact source evidence, explanation, optional
@@ -226,6 +231,216 @@ Saved references live under `assistant/context/references/` or the matching
 `.openblog/private/context/references/` directory. They are labelled untrusted reference data;
 selecting one uses the saved Markdown snapshot and never silently contacts the URL again.
 
+### Where voice samples are kept
+
+Voice samples are the author's own writing, captured so Assistant tools can learn how you sound
+(see [ADR 0266](adr/0266-voice-samples-are-assistant-context-and-a-rough-draft-is-immutable.md)).
+They are Assistant context, not posts: they are never published, built into the site, added to a
+feed, or exported as content. You write them from the terminal
+([`openblog voice`](#write-a-voice-sample-from-the-terminal)) or in Admin
+([Voice](#write-a-voice-sample-in-admin)), and you can take them with you
+([export and import](#move-your-voice-library-between-projects)).
+
+| What | Portable | Private |
+| --- | --- | --- |
+| Rough and polished drafts | `assistant/context/voice/<YYYY-MM-DD>-<prompt-id>-<stage>.md` | `.openblog/private/context/voice/` (same names) |
+| The open writing session | | `.openblog/private/voice/session.json` (always private) |
+| Your own prompts and hidden packs | `assistant/voice/catalog.md` | |
+
+- **Private is the default.** Everything under `.openblog/private/` is ignored by Git
+  (`openblog init` adds `/.openblog/private/` to `.gitignore`) and excluded from publish staging.
+  The Context view warns, and names the file, if a private voice sample is tracked by Git.
+- **A rough draft never changes.** Once its session ends the store refuses any later write to it;
+  to fix typos, make a polished draft, which is yours to edit. You can move a pair between
+  portable and private, or erase it.
+- **Add prompts or hide packs** with `assistant/voice/catalog.md`: `## pack-id: Title` and
+  `### prompt-id: Title` sections (see the bundled catalog in the open.blog source), and
+  `disabled: [pack-id]` in its front matter to hide a pack. A prompt id the bundled catalog
+  already uses is rejected.
+- A project that has never written a sample has none of these folders, and its builds are
+  identical to before.
+
+### Write a voice sample from the terminal
+
+`openblog voice` is a three-minute writing session. It draws three prompts, you pick one, you write,
+and the clock locks your **rough draft** exactly as typed (typos included). `openblog init` offers one
+session when you run it at a terminal; answer anything but `y` to skip, or pass `--no-voice`. Scripts
+and pipes are never asked.
+
+```text
+openblog voice                     # draw three prompts: pick 1-3, r to draw again, q to quit
+openblog voice a-mistake-i-made    # skip the draw
+openblog voice --list              # packs, how many you have answered, and each prompt's stage
+openblog voice --resume            # carry on with an interrupted session (deadline unchanged)
+openblog voice --scrap --yes       # give up the open session and save nothing
+openblog voice erase [--yes]       # list, then erase ALL voice data (see below)
+```
+
+- **Where you write.** If `$VISUAL` or `$EDITOR` is set, your editor opens a file with the prompt and a
+  marker line; only the text below the marker is saved. The editor command must wait until you close its
+  window: use `code --wait` or `subl -w`, not plain `code` or `subl`. An editor that returns at once without a
+  change locks and discards nothing; the session stays open for `--resume`. Otherwise (or with `--stdin`) you
+  type in the terminal and finish with a line holding only `.`, or Ctrl-D. To pipe text in, name the prompt
+  (`openblog voice <prompt-id> --stdin`); piped text without one starts nothing and exits with an error. The
+  deadline time is shown first.
+- **One window at a time.** A session is written in one terminal. `--resume` in a second window while the
+  first is still writing is refused, and nothing is changed.
+- **The clock.** The deadline is stored when the session starts. Text written after it is not saved, and
+  if you come back after it the saved text is locked. An empty draft saves nothing.
+- **Options.** `--portable` keeps the sample beside shared Assistant context (the default is private),
+  and `--seconds <n>` sets the window (30 to 3600, default 180).
+- **Refine a copy.** `openblog voice polish <sample>` opens a copy of the rough draft in your editor and
+  saves it as the **polished draft** (`--title`, `--slug`, `--description` and `--tags a,b` set its
+  details). Run it again to edit the polished draft. The rough file never changes; `openblog voice diff
+  <sample>` shows what you changed.
+- **Make a post.** `openblog voice promote <sample>` creates a post draft (`draft: true`) in
+  `content/posts/` from the polished draft, refuses a slug a post already uses, and leaves your samples
+  alone. `--dir posts/2026` picks a folder inside `posts`.
+
+`<sample>` is a file name from `voice --list` or a prompt id. Output is plain text.
+
+### Write a voice sample in Admin
+
+The **Voice** view (`#/voice`) does the same job as `openblog voice`, with the same files and the same rules
+(see [ADR 0271](adr/0271-admin-voice-routes-are-thin-calls-to-the-session-and-the-store-and-the-server-owns-the-deadline.md)
+to [0277](adr/0277-the-voice-invitation-is-shown-once-on-the-admin-home-and-a-dismissal-is-an-admin-preference.md)).
+The Admin home offers it once, in a **Gather your voice** card, while you have no samples; **Dismiss** keeps
+it away for good.
+
+1. **Choose what to write about.** **Draw from every pack** shows three prompts; choose one, or
+   **Draw three more**, or **Draw from this pack** in the library.
+2. **Write.** **Start the 3:00 timer**, then write. Spell-check, autocorrect and writing suggestions are off
+   in this box on purpose. The server owns the clock: it is a display, a reload or a lost connection carries on
+   with the original deadline, and text sent after the deadline is refused. Your draft is saved to the server a
+   moment after you stop typing, and a bounded copy stays on the device (cleared after a day, and when you sign
+   out; if your sign-in ends without signing out, signing in again as the same author gets it back). **Finish
+   early** locks it at once. If the time runs out while another window or the terminal is still handing over
+   its last words, this view waits a few seconds instead of locking older text.
+3. **Polish (optional).** The locked rough draft is shown read-only, exactly as written. Below it is a copy
+   to edit: **Reset to rough** starts the copy over and **Save polished draft** saves it, checking that nobody
+   changed it meanwhile. Leaving with unsaved polished edits asks first, and unsaved edits are kept on this
+   device for up to 30 days (cleared on sign-out and by an erase) and offered back after a reload with
+   **Restore** or **Discard**. **Make portable** or **Make private**
+   moves the pair together (the default is private), and **Make a post draft** creates a draft post from the
+   polished draft.
+
+The **Sample library** (`#/voice/library`) groups your samples by prompt pack, newest first (a prompt you
+answered on several days has a row per answer), with Rough and
+Polished badges, length, visibility and date, a coverage line per pack, and a note for any file that cannot
+be read and what to do about it. A rough sample opens read-only. The view works on a phone and from the
+keyboard; the timer is not announced every second, only at its marks and when it locks.
+
+### Erase your voice data
+
+Samples are private unless you choose portable (`--portable`, or "Portable" when you start a session in
+Admin); "Make private" and "Make portable" on a sample move it, with its partner, and moving it back
+restores the same bytes. The voice guide moves the same way. Use **Make private** or **Make portable** on its
+card in the Assistant Context view, or run `openblog voice guide --move private` (it shows what would move;
+add `--yes` to move it). The file is copied, checked and only then removed, so a failed move never loses the
+guide. A guide that quotes private samples, or cannot be read, stays private
+([ADR 0289](adr/0289-the-voice-guide-moves-between-portable-and-private-in-one-locked-copy-verify-remove-step.md)). Private samples are never published, built, fed or exported as content (a voice
+export carries them only with `--include-private`; see below).
+
+`openblog voice erase` lists everything the voice feature stored: samples in both folders, the session
+record, the voice guide and leftover editor files. It stops there; add `--yes` to erase. In Admin, **Your
+voice samples** has **Erase all voice data…**: it shows the same list and enables **Erase everything**
+only after you type `erase`. The erase is all or nothing (if one file cannot be removed, everything is put
+back) and ends with a second look that says "nothing is left" or names what is. Admin also clears the
+copies of drafts kept on that device. Copies in Git history or backups are not touched, and neither are voice
+export files you wrote yourself (for example `.openblog/private/voice-library.json`): delete those by hand.
+
+### Use voice samples and a voice guide with the Assistant
+
+Your samples and a **voice guide** can be chosen as Assistant context, so reviews and suggestions
+sound like you and not like a model (ADRs [0278](adr/0278-voice-samples-and-the-voice-guide-are-selected-as-assistant-context-by-id-and-reloaded-on-the-server.md)
+to [0281](adr/0281-the-engine-guide-teaches-voice-samples-and-gaps-are-computed-by-the-core.md)).
+Nothing is sent unless you select it and run a request, and nothing here changes a project that has no samples.
+
+- **Choose samples.** In the Assistant's Context view a **Voice samples** section lists each sample with its
+  stage, pack, prompt, visibility and size. Tick the ones to send. The disclosure lists them with a running
+  total against the limit of 8 samples and 120,000 characters per request; a selection over it is refused
+  before anything is sent. The server reads the chosen files again for every request, so the browser only ever
+  names a sample. Sample text is sent as data to compare against, never as instructions.
+- **Propose a guide.** Select samples and choose **Propose a voice guide from selected samples**. The provider
+  returns a guide in which every line quotes your own words word for word and names its sample (a result with
+  a quote that is not in the sample is rejected, and nothing is shown). A line that rests on one sample is
+  marked `(one sample)`, and the guide always ends with *What is not yet known*. The proposal is folded into
+  your saved guide ([ADR 0288](adr/0288-a-proposed-voice-guide-is-folded-into-the-saved-guide-on-the-server-and-the-author-decides-each-change.md)).
+  Traits it does not address are kept word for word and labelled **Kept from your current guide**. Your own
+  text outside the traits, such as an introduction, notes or sections under your own headings, stays where it
+  is. A trait the proposal changes is shown with both texts, and you choose **Keep current** or **Take proposed**
+  for each one before you can save. A kept quote is checked again against its sample and flagged, not dropped,
+  when that sample no longer exists or no longer contains it. You see the proposal as
+  changes against your saved guide, can edit it, and it is written only when you choose **Save as portable**
+  (`assistant/context/voice.md`) or **Save as private** (`.openblog/private/context/voice.md`, the default).
+  **Discard** leaves your files as they were. A guide changed elsewhere since you opened it is a conflict, not
+  an overwrite. A guide built from any private sample, from a saved guide that is private, or from a saved guide
+  whose traits quote a sample that is private now, records that on a
+  provenance line under its title (`<!-- openblog:voice-provenance sources=... -->`) and can only be saved as
+  private: **Save as portable** is disabled with the reason. Keep that line if you edit the guide; the
+  portable rule relies on it.
+- **Use the guide.** Select the guide like any context. The `voice-review` skill compares your draft with it and
+  with your samples, and names the sample or guide section behind each finding (a finding that names none is
+  marked unverified advice). The `voice-match` skill works on a passage: select text or put the cursor in a
+  section, choose **Selected text** or **Current section** in Review, and it suggests small replacements inside
+  that passage only. A suggestion that cannot be found exactly in the passage is shown as advice and never
+  applied, and any applied suggestion can be undone. With AI autocomplete on and the guide selected, suggestions lean toward your voice, and turning
+  autocomplete on names the selected context first.
+- **Never your rough text.** The Assistant never edits a rough draft and never applies a change to a polished
+  draft: it proposes, you decide.
+- **What is missing.** `openblog voice --list` also shows packs with no sample yet, prompts with a rough draft and
+  no polished draft, and guide traits that still rest on one sample; the Sample library shows the same list under
+  **What is missing**, and the guide request carries it.
+
+### Move your voice library between projects
+
+`openblog voice export` puts your voice samples and your voice guide in one JSON file; `openblog voice import`
+reads such a file ([ADR 0284](adr/0284-the-voice-library-travels-as-one-previewed-all-or-nothing-export-that-keeps-each-items-folder.md)).
+Neither needs a hosted service.
+
+```text
+openblog voice export                                  # print the portable samples and guide
+openblog voice export --out voice-library.json --write # create the file (never replaces one)
+openblog voice export --include-private --out .openblog/private/voice-library.json --write
+openblog voice import voice-library.json               # preview: what would be created or replaced
+openblog voice import voice-library.json --write       # apply, all or nothing
+```
+
+- **Private stays private.** An export holds only the portable folder unless you pass `--include-private`, and
+  a file with private material is refused inside the project except under `.openblog/private/`.
+- **Limits.** One guide travels: with both a portable and a private guide, the portable one is exported and
+  the export warns that the private one was left out. One export holds at most 100 samples and 8 MiB; a larger
+  library is refused whole, and nothing is written.
+- **Previewed.** Import is a dry run unless `--write`. It lists `create`, `replace` or `unchanged` for each file
+  and the folder it goes to, and it writes nothing at all if any item is invalid, too large, in a newer format
+  or in conflict.
+- **Folders are kept.** An item lands in the folder it came from; an import never moves private text to the
+  portable folder, and `--as private` puts everything in the private folder. When files would go to the
+  portable folder (which Git tracks) the preview says so.
+- **Rough drafts are safe.** A rough draft that differs from the one already saved is a conflict, with or
+  without `--overwrite`. A differing polished draft or guide is replaced only with `--overwrite`.
+- **The guide follows its provenance.** A guide whose provenance line lists private samples is only accepted
+  into the private folder, and is left out of a portable export.
+- A valid file round-trips byte for byte. A library with no samples exports an empty file, and Admin has no
+  import screen: the file moves between projects, and the command line is the place for it.
+
+To remove the whole voice library from a project, see [Erase your voice data](#erase-your-voice-data):
+`openblog voice erase [--yes]`, or **Erase all voice data…** in Admin with the typed confirmation. It is all or
+nothing, checks again afterwards, and refuses a linked folder (see
+[ADR 0282](adr/0282-voice-samples-are-private-until-the-author-chooses-portable-and-a-move-between-the-folders-is-reversible.md)
+and [ADR 0283](adr/0283-erasing-voice-data-is-listed-confirmed-staged-in-a-trash-folder-and-checked-again.md)).
+
+### Write your own prompt packs
+
+Add prompts, or hide whole packs, with `assistant/voice/catalog.md`. It has the same shape as the bundled
+catalog: optional front matter with `disabled: [pack-id]`, then `## pack-id: Title` sections (with an optional
+one-line summary) holding `### prompt-id: Title` sections that begin with `words: low-high` and then the
+invitation. Ids are lowercase kebab-case and are never renamed or reused, because a sample records its prompt
+id; a prompt id the bundled catalog already uses is rejected. Write prompts the way you would ask a friend
+("Tell me about a mistake you made and what it taught you"), keep each to a sentence or two, and give a pack
+at least three so a draw has something to choose from. `openblog voice --list` shows your packs and a warning
+for any section that could not be read.
+
 ### Write visually or in Markdown
 
 The Write view defaults to **Visual**, which behaves like a word processor while keeping
@@ -255,6 +470,13 @@ the details are checked by the same rules as the build, a problem is explained n
 and nothing is inserted until it is fixed. In Visual mode the piece appears as an editable block;
 in Markdown mode its text is written at the caret. Ctrl+Z or **Undo piece** takes it back out.
 There is no option to write your own HTML. See [Pieces](content.md#pieces-buttons-videos-maps-and-more).
+
+**Before and after** is in the same list. It asks for two pictures and a description of each (required, for
+people who cannot see them), and optionally a caption and a label for each side. For each picture you can type
+an address or choose a file; a chosen file is uploaded the same way as any image and its address is filled in.
+**Insert** checks the pair with the build's rules and says what is missing inside the dialog, for example that the
+after picture needs a description. In Visual mode the pair is an editable block (**Edit before and after**); in
+Markdown mode the `compare` fence is written at the caret. See [Before and after](content.md#before-and-after).
 
 ### Cite a source while writing
 
@@ -505,6 +727,13 @@ conditions. Field Review analyzes GPX in the browser and privately stages the so
 only in Exact mode; it becomes public as part of a successful post save. Other modes save
 privacy-filtered derived data. Downgrading a saved Exact route moves its managed GPX to
 `.openblog/trash/tracks/` so the next build retracts it without destroying the source.
+Choosing **Job** shows an **About this job** form in Settings: trade, service, town, region,
+started, finished, price range, and before and after photos (uploaded the same way as any
+image). On an empty body it also writes the four headings `Problem`, `What we found`,
+`What we did` and `Result` as ordinary Markdown, in Visual or Markdown mode; they are never
+locked, never written over words you already have, and switching to another profile leaves the
+Markdown as it is. **Check this job** lists what the build would still ask for. See
+[Jobs](jobs.md).
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is
@@ -719,6 +948,29 @@ takes back the last change. Only the controls your theme honors are shown, with 
 ([Look controls](themes.md#look-controls)). The choices are saved under `appearance` in `openblog.json`
 ([configuration](configuration.md#site)).
 
+### Business facts
+
+Open **Business facts** (`#/business`) to state your name, trade, phone, email, opening hours, license, insurance,
+accepted payments and the year you started, once. The footer of every page, the home page's **Business facts**
+section and the `LocalBusiness` search data all read it ([configuration](configuration.md#business-facts)).
+Type a phone number the way you say it; it is saved with its country code. Each day of the week has its own
+choice (Not shown, Open with an opening and closing time, Open 24 hours, or Closed), and **Copy Monday to
+Tuesday through Friday** saves typing. A problem is said in words beside the field it is about, and a save that
+finds a mistake changes nothing. The screen is one column from 320px with 44px controls.
+
+The screen reads and saves `GET`/`PUT /admin/api/business` (session and CSRF as for every write, bounded to
+8 KiB). A save is checked against the revision of the block you loaded, so an edit made elsewhere in the file
+does not conflict with it, and it changes only the `business` key of `openblog.json`: every other key keeps its
+place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
+to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
+
+### Services
+
+Open **Services** (`#/services`) to describe each thing you sell once, with what it includes, a price band, a
+typical timeline and the questions customers ask. The screen edits the `services/` files through the same
+document routes as posts, pages and series, so sessions, CSRF, the 2 MiB bound, revision checks and the trash all
+apply as they do there. See [Services](services.md).
+
 ### A short phone walkthrough
 
 On a 375px phone: open Admin and choose **Landing page**; tap **Edit** on the welcome banner, change the
@@ -750,6 +1002,37 @@ date: 2026-12-25T09:00:00Z      # offsets work too: 2026-12-25T09:00:00-05:00
 
 `openblog build --drafts` and `serve --drafts` include drafts and scheduled posts, for
 previewing.
+
+## Announce a post on social media (optional)
+
+If your site has [scheduled social publishing](social-publishing.md) set up, Admin shows an **Announcements** tab; without it
+there is no tab and nothing changes. The screen has two parts.
+
+**Announce a post.** Choose a **Destination** (a connected LinkedIn profile or Facebook Page), a **Post to announce**,
+write a **Caption** and pick a **Date and time**. Only published posts can be chosen; a draft, or a post dated in the
+future, is listed as not available with the reason. The count under the caption shows how many characters are left,
+and the **Preview** shows the caption, the link to your post and when it will go out, before you tap **Schedule
+announcement**. Times are in your own time zone and stored in UTC; on the day the clocks change, a time that does not
+exist is refused, and a time that happens twice uses the earlier one (the preview says so). If something is wrong, the
+form lists what to fix, each a link to its field, and says it beside the field too. Tapping the button twice, or again
+after a slow connection, schedules it once.
+
+**Announcements.** Every announcement shows its status in words (Scheduled, Sending, Published, Failed, Needs checking,
+Canceled), its time in your zone, its destination and caption. While it is **Scheduled**, **Edit** changes the caption
+or time and **Cancel announcement** asks "Yes, cancel it / Keep it" before it cancels. Once a sender has picked it up it
+cannot be changed, and the row says why. If it was picked up while you were looking at it, the screen refreshes and
+tells you instead of failing. Use **Show** to filter by status.
+
+It works with a keyboard alone (Tab through the fields, Enter on **Schedule announcement**), every field has a visible
+label, and on a phone it is one column with buttons at least 44px tall. This screen only schedules; the delivery worker
+and the provider adapters do the posting (see [social publishing](social-publishing.md#the-delivery-worker)).
+
+**When a post does not go out.** A **Failed** announcement says why in plain words, with the short code beside it.
+**Try again** asks first, then puts it back in the queue with a fresh allowance of attempts. A **Needs checking**
+announcement is one where the provider did not say whether the post went out. It is never sent again by itself: look
+at the LinkedIn or Facebook account, then choose **Check the result** and say it was posted (with the post id the
+provider shows) or was not (it then becomes Failed, and you can try it again). A **Scheduled** announcement that is
+waiting to try again says when. **What was tried** under each announcement lists every attempt with its result.
 
 ## Running it for real
 
@@ -842,6 +1125,27 @@ native providers; only **Custom HTTPS** accepts an endpoint entered by the autho
 The model field remains editable because provider model catalogs change. OpenRouter restricts
 routing to upstream endpoints that accept the requested structured-output parameters, but the
 upstream service still determines exact schema support.
+
+### Transcribing a voice note
+
+The Capture view can turn a recorded voice note into words, only when you ask and only after it shows what is
+sent and where ([ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)).
+Only the recording is sent: no notes, photos, title or voice guide. Two providers take audio: OpenAI
+(transcribed with `gpt-4o-mini-transcribe`) and Google Gemini (your configured model). Any other provider is
+never sent audio, and Capture says to type your notes instead.
+
+To keep audio on your own machine, set `OPENBLOG_TRANSCRIBE_COMMAND` in the server's environment to a JSON array:
+the program and its fixed arguments. Admin appends the voice note's file path and reads the transcript from the
+program's output.
+
+```sh
+export OPENBLOG_TRANSCRIBE_COMMAND='["whisper-cli", "--model", "/models/base.bin", "--no-timestamps", "--file"]'
+```
+
+It runs without a shell, with a stripped environment (your API keys are not passed), no input, a time limit and a
+bounded output. It is an environment setting, not part of `openblog.json`, so shared site files cannot name a
+program to run. When it is set it is used instead of a provider. The transcript is kept privately beside the
+note (`.openblog/captures/`) and is untrusted text: it goes into the Notes box, made plain, for you to edit.
 
 ```sh
 export ANTHROPIC_API_KEY="your Anthropic key"

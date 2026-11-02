@@ -16,9 +16,9 @@
 
 use crate::escape::{attr, text};
 use crate::landing::{
-    render_inert_markdown, Callout, Contact, Faq, FeaturedPost, ImageSection, LandingPage,
-    LatestPosts, MapSection, OpeningHours, RichText, Section, SectionKind, SeriesSection,
-    SocialLinks, Video, Welcome,
+    render_inert_markdown, BusinessFacts, Callout, Contact, Faq, FeaturedPost, ImageSection,
+    LandingPage, LatestPosts, MapSection, OpeningHours, RichText, Section, SectionKind,
+    SeriesSection, SocialLinks, Video, Welcome,
 };
 use crate::theme::Theme;
 
@@ -152,6 +152,7 @@ impl Renderer<'_> {
             SectionKind::SocialLinks(v) => self.landing_social(section, v),
             SectionKind::Faq(v) => self.landing_faq(section, v),
             SectionKind::Callout(v) => self.landing_callout(section, v),
+            SectionKind::BusinessFacts(v) => self.landing_business(cx, section, v),
         }
     }
 
@@ -187,16 +188,31 @@ impl Renderer<'_> {
         v: &LatestPosts,
         pager_used: &mut bool,
     ) -> String {
-        let shown = v
-            .count
-            .map_or(cx.per_page, |count| count as usize)
-            .min(self.site.posts.len());
+        let client_per_page = self.site.config.latest_posts_per_page;
+        let shown = v.count.map_or_else(
+            || {
+                if client_per_page > 0 {
+                    self.site.posts.len()
+                } else {
+                    cx.per_page
+                }
+            },
+            |count| count as usize,
+        );
+        let shown = shown.min(self.site.posts.len());
         let indices: Vec<usize> = (0..shown).collect();
         let mut inner = self.landing_heading(cx, &section.id, &v.heading);
-        inner.push_str(&self.post_list(cx.theme, &indices));
+        let posts = self.post_list(cx.theme, &indices);
+        inner.push_str(&self.client_pagination(
+            &posts,
+            shown,
+            client_per_page,
+            &format!("{}-page", section.id),
+            "posts",
+        ));
         // The pager continues the list only where page 2 starts after it, and
         // only once, under the first list that does.
-        if !*pager_used && cx.page_count > 1 && shown == cx.per_page {
+        if client_per_page == 0 && !*pager_used && cx.page_count > 1 && shown == cx.per_page {
             *pager_used = true;
             inner.push_str(&self.pager(1, cx.page_count));
         } else if !cx.latest_seen && self.site.posts.len() > shown {
@@ -214,8 +230,37 @@ impl Renderer<'_> {
             return String::new();
         }
         let mut inner = self.landing_heading(cx, &section.id, &v.heading);
-        inner.push_str(&self.series_cards(cx.theme));
+        let cards = self.series_cards(cx.theme);
+        let count = self
+            .site
+            .series
+            .iter()
+            .filter(|series| !series.posts.is_empty())
+            .count();
+        inner.push_str(&self.client_pagination(
+            &cards,
+            count,
+            self.site.config.series_per_page,
+            &format!("{}-page", section.id),
+            "series",
+        ));
         inner.push('\n');
+        self.landing_wrap(section, true, &inner, "")
+    }
+
+    /// The business facts from `openblog.json` under their own heading; nothing when none are stated.
+    fn landing_business(
+        &self,
+        cx: &mut Context<'_>,
+        section: &Section,
+        v: &BusinessFacts,
+    ) -> String {
+        let block = self.site.config.business.block_html();
+        if block.is_empty() {
+            return String::new();
+        }
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        inner.push_str(&block);
         self.landing_wrap(section, true, &inner, "")
     }
 
