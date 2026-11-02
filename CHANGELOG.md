@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- New `codeWindows` theme option: each plain code block on the theme's pages is framed like a titled one,
+  captioned Rust, Terminal, Diff, its language or Code, while the page is written. Titled and runnable
+  blocks, feeds and portable copies are unchanged (ADR 0269).
 - A theme may set top-level `"favicon"` and `"logo"` in `theme.json`; pages in the theme use them
   instead of the site's, rendered with the page rather than swapped in by a script (ADR 0268).
 - A font face can set `"preload": true`: every page in the theme then fetches it alongside the
