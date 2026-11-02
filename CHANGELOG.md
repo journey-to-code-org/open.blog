@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Portable Markdown (a post's `.md` copy, and the body sent to DEV, Hashnode and Medium) keeps an authored
+  native disclosure (`<details>`, `<summary>` and plain `code`, `strong`, `em`, `b`, `i` inside it, without
+  attributes) as markup instead of escaping it to literal text. A closing tag is kept only when its opening
+  tag was; all other raw HTML is still literal source (ADR 0271).
 - New `seriesPageCover` theme option (default `true`): `false` leaves the series cover off its own page,
   for a theme whose series page has its own hero, instead of downloading an image only to hide it (ADR 0270).
 - New `codeWindows` theme option: each plain code block on the theme's pages is framed like a titled one,
