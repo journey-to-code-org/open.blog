@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // The community section of a canonical page (#230, ADRs 0180 to 0184), in the real site served from
 // real content files. The section is static HTML from `community-perspectives.json`: it reads with no
@@ -113,7 +114,7 @@ async function stop() {
 
 test.afterAll(async () => {
   await stop();
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 let dirty = false;

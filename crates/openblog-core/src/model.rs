@@ -38,6 +38,8 @@ pub struct Sources {
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
+    /// The `services/` collection (ADR 0311).
+    pub services: Vec<SourceFile>,
     /// Where the private source library comes from, if anywhere. A load
     /// reads it only when a post that opts in to citations cites something,
     /// and publishes only the cited references' public description (ADR 0048).
@@ -239,6 +241,10 @@ pub struct Post {
     /// Explicit position within the series; otherwise posts are ordered by date.
     pub series_order: Option<u32>,
     pub cover: Option<String>,
+    /// Optional on-site cover used when the reader is in light mode.
+    pub cover_light: Option<String>,
+    /// Optional on-site cover used when the reader is in dark mode.
+    pub cover_dark: Option<String>,
     pub cover_alt: String,
     pub description: String,
     pub draft: bool,
@@ -333,6 +339,8 @@ pub struct Post {
     pub video: Option<VideoMetadata>,
     /// Set for outdoor logs using the field-journal profile.
     pub field_journal: Option<FieldJournalMetadata>,
+    /// Set for posts using the job profile once every field validates.
+    pub job: Option<crate::job::JobMetadata>,
     /// Approved public source attribution of a shared reflection (title, link, type, guiding
     /// question); never any private collaboration state.
     pub shared_attribution: Option<SharedAttribution>,
@@ -465,7 +473,18 @@ pub struct Series {
     pub description_text: String,
     pub theme: Option<String>,
     pub cover: Option<String>,
-    /// Listing order on the series index; lower first, then by name.
+    pub cover_light: Option<String>,
+    pub cover_dark: Option<String>,
+    /// Optional quarter-resolution light cover used by series listing cards.
+    pub cover_card_light: Option<String>,
+    /// Optional quarter-resolution dark cover used by series listing cards.
+    pub cover_card_dark: Option<String>,
+    /// Optional half-resolution light source for high-density series cards.
+    pub cover_card_light_2x: Option<String>,
+    /// Optional half-resolution dark source for high-density series cards.
+    pub cover_card_dark_2x: Option<String>,
+    /// Listing priority on the series index; lower first. Series at the same
+    /// priority are ordered by their most recent post, newest first.
     pub order: u32,
     /// Indices into `Site::posts`, in reading order (first part first).
     pub posts: Vec<usize>,
@@ -527,6 +546,29 @@ pub struct Page {
     pub capabilities: Vec<CapabilityDescriptor>,
 }
 
+/// One offering of the business, from `services/` (ADR 0311). Its address is
+/// `/services/<id>/`.
+#[derive(Clone, Debug)]
+pub struct Service {
+    pub id: String,
+    pub name: String,
+    pub summary: String,
+    pub includes: Vec<String>,
+    pub price_band: Option<crate::job::CostBand>,
+    pub typical_timeline: Option<String>,
+    pub faq: Vec<crate::service::FaqEntry>,
+    /// Not published: only a load that includes drafts holds it.
+    pub draft: bool,
+    pub url: String,
+    /// The rendered body.
+    pub html: String,
+    pub text: String,
+    pub source: String,
+    pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
+    pub(crate) accessibility: Vec<AccessibilityFinding>,
+    pub capabilities: Vec<CapabilityDescriptor>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Site {
     pub config: SiteConfig,
@@ -535,6 +577,9 @@ pub struct Site {
     pub series: Vec<Series>,
     pub tags: Vec<Tag>,
     pub pages: Vec<Page>,
+    /// The `services/` collection (ADR 0311), by name then id. Empty for a
+    /// site without one, which then builds exactly as it always did.
+    pub services: Vec<Service>,
     /// Posts waiting for their publish date, soonest first.
     pub scheduled: Vec<Scheduled>,
     pub warnings: Vec<String>,
@@ -917,6 +962,65 @@ impl Site {
             }
         }
         pages.sort_by(|a, b| a.title.cmp(&b.title));
+        let mut services: Vec<Service> = Vec::new();
+        for file in &sources.services {
+            if !crate::service::declares_service(&file.contents) {
+                continue;
+            }
+            // A draft service is not published, and its problems are warnings,
+            // so a freshly scaffolded one never stops a build.
+            let draft = frontmatter::parse(&file.contents)
+                .is_ok_and(|document| is_draft(&document.front_matter));
+            let shown = !draft
+                || options.include_drafts
+                || options.preview_source.as_deref() == Some(file.path.as_str());
+            match load_service(file, concept_options(render_options)) {
+                Ok(_) if !shown => {}
+                Ok(mut service) => {
+                    let (html, notes) = crate::concept_links::plain_outside_post(
+                        &service.html,
+                        &service.concept_refusals,
+                        &file.path,
+                    );
+                    service.html = html;
+                    warnings.extend(notes);
+                    if let Some(existing) = services.iter().find(|s| s.id == service.id) {
+                        errors.push(format!(
+                            "{}: duplicate service id `{}` (also in {})",
+                            file.path, service.id, existing.source
+                        ));
+                    } else {
+                        accessibility.extend(service.accessibility.iter().cloned());
+                        services.push(service);
+                    }
+                }
+                Err(e) if draft => {
+                    warnings.push(format!("{}: service not ready to publish: {e}", file.path))
+                }
+                Err(e) => errors.push(format!("{}: {e}", file.path)),
+            }
+        }
+        services.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+        // A job names its service by id. Only a site that has a services
+        // collection checks it, so every other site loads as it always did.
+        let mut known_services: Vec<&str> = services.iter().map(|s| s.id.as_str()).collect();
+        known_services.sort_unstable();
+        for post in &posts {
+            let Some(job) = &post.job else { continue };
+            let Some(problem) =
+                crate::service::unknown_service_problem(&known_services, &job.service)
+            else {
+                continue;
+            };
+            if post.draft {
+                warnings.push(format!(
+                    "{}: job not ready to publish: {problem}",
+                    post.source
+                ));
+            } else {
+                errors.push(format!("{}: {problem}", post.source));
+            }
+        }
         if config.home.intro.contains(crate::concept_links::SCHEME) {
             // The home introduction shows an `atlas:` link as its label (the
             // renderer does the same); the author hears about it here.
@@ -962,6 +1066,12 @@ impl Site {
                         description_text: String::new(),
                         theme: None,
                         cover: None,
+                        cover_light: None,
+                        cover_dark: None,
+                        cover_card_light: None,
+                        cover_card_dark: None,
+                        cover_card_light_2x: None,
+                        cover_card_dark_2x: None,
                         order: u32::MAX,
                         posts: Vec::new(),
                         source: None,
@@ -985,10 +1095,26 @@ impl Site {
                 }
             });
             if s.cover.is_none() {
-                s.cover = s.posts.iter().find_map(|&i| posts[i].cover.clone());
+                if let Some(post) = s
+                    .posts
+                    .iter()
+                    .map(|&i| &posts[i])
+                    .find(|post| post.cover.is_some())
+                {
+                    s.cover = post.cover.clone();
+                    s.cover_light = post.cover_light.clone();
+                    s.cover_dark = post.cover_dark.clone();
+                }
             }
         }
-        series.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
+        series.sort_by(|a, b| {
+            let latest =
+                |series: &Series| series.posts.iter().map(|&index| posts[index].date).max();
+            a.order
+                .cmp(&b.order)
+                .then_with(|| latest(b).cmp(&latest(a)))
+                .then_with(|| a.name.cmp(&b.name))
+        });
 
         // Tags.
         let mut tag_map: BTreeMap<String, Tag> = BTreeMap::new();
@@ -1034,6 +1160,7 @@ impl Site {
             series,
             tags,
             pages,
+            services,
             scheduled,
             warnings,
             accessibility,
@@ -1992,6 +2119,23 @@ fn load_post_in(
         (profile.behavior == ProfileBehavior::Video).then(|| VideoMetadata::from_front_matter(fm));
     let field_journal = (profile.behavior == ProfileBehavior::FieldJournal)
         .then(|| FieldJournalMetadata::from_front_matter(fm));
+    let job = if profile.behavior == ProfileBehavior::Job {
+        match crate::job::from_front_matter(fm, &config.extra_trades) {
+            Ok(job) => Some(job),
+            // A draft may be unfinished; a published job must be complete.
+            Err(problems) if is_draft(fm) => {
+                profile.warnings.extend(
+                    problems
+                        .into_iter()
+                        .map(|problem| format!("job not ready to publish: {problem}")),
+                );
+                None
+            }
+            Err(problems) => return Err(problems.join("; ")),
+        }
+    } else {
+        None
+    };
 
     let title = match first(fm, &["title"]) {
         Some(t) => t.to_string(),
@@ -2060,6 +2204,8 @@ fn load_post_in(
         .unwrap_or_else(|| markdown::excerpt(&rendered.prose, 180));
     let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
+    let cover_light = optional_string(first(fm, &["coverLight", "cover_light"]));
+    let cover_dark = optional_string(first(fm, &["coverDark", "cover_dark"]));
     if let Some(video) = &video {
         if video.url.is_none() {
             profile
@@ -2166,6 +2312,8 @@ fn load_post_in(
         series,
         series_order,
         cover,
+        cover_light,
+        cover_dark,
         cover_alt,
         description,
         draft,
@@ -2212,6 +2360,7 @@ fn load_post_in(
         research,
         video,
         field_journal,
+        job,
         shared_attribution,
         code_highlight: fm
             .get_bool("highlight")
@@ -2308,12 +2457,55 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
             .unwrap_or_else(|| markdown::excerpt(&rendered.text, 200)),
         theme: optional_string(first(fm, &["theme"])),
         cover: optional_string(first(fm, &["cover", "image"])),
+        cover_light: optional_string(first(fm, &["coverLight", "cover_light"])),
+        cover_dark: optional_string(first(fm, &["coverDark", "cover_dark"])),
+        cover_card_light: optional_string(first(fm, &["coverCardLight", "cover_card_light"])),
+        cover_card_dark: optional_string(first(fm, &["coverCardDark", "cover_card_dark"])),
+        cover_card_light_2x: optional_string(first(
+            fm,
+            &["coverCardLight2x", "cover_card_light_2x"],
+        )),
+        cover_card_dark_2x: optional_string(first(fm, &["coverCardDark2x", "cover_card_dark_2x"])),
         order: fm.get_u32("order").unwrap_or(1000),
         posts: Vec::new(),
         source: Some(file.path.clone()),
         accessibility,
         capabilities: rendered.capabilities,
         aliases: aliases(fm)?,
+    })
+}
+
+fn load_service(file: &SourceFile, options: RenderOptions<'_>) -> Result<Service, String> {
+    let doc = frontmatter::parse(&file.contents)?;
+    let metadata = crate::service::from_front_matter(&doc.front_matter)
+        .map_err(|problems| problems.join("; "))?;
+    let rendered = markdown::render(&doc.body, options);
+    if !rendered.errors.is_empty() {
+        return Err(rendered.errors.join("; "));
+    }
+    let accessibility = accessibility::audit_document(DocumentAuditInput {
+        path: &file.path,
+        markdown: &doc.body,
+        body_line: doc.body_line,
+        embeds_enabled: options.embeds,
+        cover_alt: None,
+    });
+    Ok(Service {
+        url: format!("{}{}/", crate::service::SERVICES_URL, metadata.id),
+        id: metadata.id,
+        name: metadata.name,
+        summary: metadata.summary,
+        includes: metadata.includes,
+        price_band: metadata.price_band,
+        typical_timeline: metadata.typical_timeline,
+        faq: metadata.faq,
+        draft: is_draft(&doc.front_matter),
+        html: rendered.html,
+        text: rendered.text,
+        source: file.path.clone(),
+        concept_refusals: rendered.concept_refusals,
+        accessibility,
+        capabilities: rendered.capabilities,
     })
 }
 
@@ -2444,6 +2636,7 @@ mod tests {
             credits: Vec::new(),
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+            services: Vec::new(),
             source_library: None,
             claim_evidence: None,
             reader_feedback: None,
@@ -2467,6 +2660,47 @@ mod tests {
         assert_eq!(prev.unwrap().slug, "first");
         assert!(next.is_none());
         assert!(s.pages[0].nav);
+    }
+
+    #[test]
+    fn series_with_the_same_priority_are_ordered_by_their_latest_post() {
+        let s = site(Sources {
+            posts: vec![
+                post(
+                    "posts/older.md",
+                    "---\ntitle: Older\ndate: 2026-01-10\nseries: older\n---\nx",
+                ),
+                post(
+                    "posts/newer-first.md",
+                    "---\ntitle: Newer first\ndate: 2026-01-01\nseries: newer\n---\nx",
+                ),
+                post(
+                    "posts/newer-latest.md",
+                    "---\ntitle: Newer latest\ndate: 2026-02-01\nseries: newer\n---\nx",
+                ),
+                post(
+                    "posts/pinned.md",
+                    "---\ntitle: Pinned\ndate: 2025-01-01\nseries: pinned\n---\nx",
+                ),
+            ],
+            series: vec![
+                post("series/older.md", "---\nname: Older\n---\nAbout."),
+                post("series/newer.md", "---\nname: Newer\n---\nAbout."),
+                post(
+                    "series/pinned.md",
+                    "---\nname: Pinned\norder: 1\n---\nAbout.",
+                ),
+            ],
+            ..Default::default()
+        });
+
+        assert_eq!(
+            s.series
+                .iter()
+                .map(|series| series.slug.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pinned", "newer", "older"]
+        );
     }
 
     #[test]

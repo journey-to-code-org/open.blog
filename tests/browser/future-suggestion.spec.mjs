@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // Suggestions for future work on a published reader page (#227, ADRs 0152 to 0157): keyboard use
 // through native radio groups, a closed set of kinds, a question that is words only, optional
@@ -83,7 +84,7 @@ test.afterAll(async () => {
       server.kill();
       await stopped;
     }
-    rmSync(root, { recursive: true, force: true });
+    removeTree(root);
   }
 });
 

@@ -1,9 +1,12 @@
 // Progressive comments for a hosted open.blog engagement endpoint. Untrusted
 // comment content is assigned only through textContent. With the `reports`
 // attribute (abuse reports open on the post, ADR 0107), each comment offers a
-// private, anonymous report form.
+// private, anonymous report form. With the public `captcha-*` attributes
+// (ADR 0322) the first comment of a session is verified by a hosted challenge
+// that only loads once the reader starts writing.
 
 import { reportForm } from "./ob-abuse-report.js";
+import { MESSAGES, commentCaptcha } from "./comment-captcha.js";
 
 export class ObComments extends HTMLElement {
   async connectedCallback() {
@@ -27,6 +30,11 @@ export class ObComments extends HTMLElement {
     const submit = document.createElement("button");
     submit.type = "submit";
     submit.textContent = "Submit for review";
+    // A test seam: injected clock, storage and provider loader. Never set by the site.
+    const captcha = !locked && this.getAttribute("captcha-provider") === "turnstile"
+      ? commentCaptcha(this, { form, submit, status }, this.captchaOptions) : null;
+    this.captcha = captcha;
+    if (captcha) form.append(...captcha.nodes);
     form.append(submit);
     this.append(heading, status, list);
     if (locked) {
@@ -68,29 +76,67 @@ export class ObComments extends HTMLElement {
     } catch (error) {
       status.textContent = error.message;
     }
-    if (!locked) form.addEventListener("submit", async (event) => {
-      event.preventDefault();
+    if (locked) return;
+    let busy = false;
+    let retryWhenVerified = false;
+    // `retried` is true for the one automatic resend after a fresh challenge.
+    const send = async (retried) => {
+      if (busy) return;
+      busy = true;
       const controls = form.querySelectorAll("input,textarea,button");
       controls.forEach((control) => { control.disabled = true; });
       status.textContent = "Submitting…";
+      let verification = {};
       try {
+        if (captcha) {
+          verification = captcha.proof();
+          if (!verification) {
+            verification = {};
+            captcha.needed();
+            return;
+          }
+        }
         const response = await fetch(`${endpoint}/comments`, {
           method: "POST",
           credentials: "omit",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path, authorName: form.elements.authorName.value, body: form.elements.body.value }),
+          body: JSON.stringify({ path, authorName: form.elements.authorName.value, body: form.elements.body.value, ...verification }),
         });
         const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "The comment could not be submitted.");
+        if (!response.ok) {
+          if (captcha && (result.code === "captcha_required" || result.code === "captcha_expired")) {
+            captcha.rejected();
+            if (!retried) {
+              retryWhenVerified = true;
+              status.textContent = MESSAGES.retrying;
+              return;
+            }
+          } else if (captcha && verification.captchaToken) captcha.spent();
+          throw new Error(result.error || "The comment could not be submitted.");
+        }
+        captcha?.accepted(result);
         form.reset();
         status.textContent = result.status === "approved" ? "Comment published." : "Comment submitted for moderation.";
       } catch (error) {
         status.textContent = error.message;
       } finally {
+        busy = false;
         controls.forEach((control) => { control.disabled = false; });
       }
+    };
+    captcha?.onToken(() => {
+      if (!retryWhenVerified) return;
+      retryWhenVerified = false;
+      void send(true);
+    });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      retryWhenVerified = false;
+      await send(false);
     });
   }
+
+  disconnectedCallback() { this.captcha?.destroy(); }
 
   field(labelText, kind, maximum) {
     const label = document.createElement("label");

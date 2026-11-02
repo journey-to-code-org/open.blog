@@ -32,7 +32,10 @@ export function createCodeEditor({ prefix, language, label, ariaLabel, value = "
   bar.append(element("span", cls("editor-label"), label), live);
 
   const stack = element("div", cls("editor-stack"));
-  const decoration = element("pre", cls("editor-decoration"));
+  // This is a paint layer, not a code block. A neutral element keeps theme
+  // rules for prose `pre` elements from changing its metrics independently
+  // of the textarea and moving the visible text away from the caret.
+  const decoration = element("div", cls("editor-decoration"));
   decoration.setAttribute("aria-hidden", "true");
   const painted = element("code", `language-${language}`);
   for (const name of ["lineNumbers", "lineStart", "highlightLines"]) {
