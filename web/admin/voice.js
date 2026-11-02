@@ -106,9 +106,10 @@ export function createCountdown(now = () => (typeof performance !== "undefined" 
  * What the polite live region says, and when. Thresholds are one minute and thirty seconds; each is said once
  * as the clock passes it, no timer announcement comes within 25 seconds of the last (the two marks are 30 seconds apart, and
  * a save that restates the clock can bring them a little closer, so both are always said), and the lock is said once
- * when it happens (it is an event, not a tick). The first update of a resumed session says where it stands.
+ * when it happens (it is an event, not a tick). The caller explicitly identifies a resumed session, whose
+ * first update says where it stands; elapsed page-load time must not turn a newly started session into one.
  */
-export function createAnnouncer(gapMs = VOICE_LIMITS.announceGapMs) {
+export function createAnnouncer({ gapMs = VOICE_LIMITS.announceGapMs, resumed = false } = {}) {
   const said = new Set();
   let first = true;
   let lastAt = -Infinity;
@@ -120,7 +121,7 @@ export function createAnnouncer(gapMs = VOICE_LIMITS.announceGapMs) {
       if (first) {
         first = false;
         for (const threshold of [60, 30]) if (remaining <= threshold) said.add(threshold);
-        if (remaining < VOICE_LIMITS.defaultSeconds) {
+        if (resumed) {
           message = `Resumed. ${spokenTime(remaining)} left.`;
           lastAt = nowMs;
         }

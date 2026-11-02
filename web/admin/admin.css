@@ -5390,7 +5390,8 @@ ob-voice-library {
 
 .oba-landing-actions .oba-btn {
   flex: 1 1 7rem;
-  min-height: 44px;
+  /* Leave one CSS pixel for cross-platform subpixel rounding at the 44px target boundary. */
+  min-height: 45px;
 }
 
 .oba-landing-dirty,
@@ -5582,7 +5583,8 @@ ob-voice-library {
 .oba-look-default,
 .oba-look-tools .oba-btn,
 .oba-look-modes .oba-btn {
-  min-height: 44px;
+  /* Leave one CSS pixel for cross-platform subpixel rounding at the 44px target boundary. */
+  min-height: 45px;
 }
 
 .oba-look-tools {

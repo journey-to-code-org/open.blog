@@ -1183,6 +1183,13 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   white-space: pre;
 }
 
+.ob-prose .ob-code-editor-decoration > code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font: inherit;
+}
+
 .ob-prose .ob-code-editor-decoration {
   position: absolute;
   inset: 0;
