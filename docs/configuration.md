@@ -19,6 +19,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "colorSchemeToggle": null,                     // null follows theme; true shows button; false uses system preference
   "postPath": "/posts/{slug}/",                  // "/{slug}/" puts posts at the root
   "postsPerPage": 10,                            // 0 shows every post on the home page
+  "latestPostsPerPage": 0,                       // 0 keeps static /page/N/ links; otherwise the homepage uses ?latest-page=N
+  "seriesPerPage": 0,                            // 0 shows every series; otherwise paginate with ?series-page=N
   "redirectsFile": false,                        // true also writes a _redirects file: a real 301 for every `aliases:` address (Netlify, Cloudflare Pages)
   "nav": [
     { "label": "Home", "href": "/" },

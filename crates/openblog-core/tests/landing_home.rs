@@ -189,6 +189,42 @@ fn sections_render_in_order_and_hidden_ones_render_nothing() {
 }
 
 #[test]
+fn latest_posts_and_series_sections_get_independent_client_pagers() {
+    let page = landing(serde_json::json!([
+        {"id": "news", "type": "latest-posts", "heading": "Newest"},
+        {"id": "paths", "type": "series", "heading": "All series"}
+    ]));
+    let mut input = sources(Some(&page));
+    input.posts.push(post("six", 6, "notes"));
+    input.posts.push(post("seven", 7, "thoughts"));
+    input.series.push(SourceFile {
+        path: "series/notes.md".into(),
+        contents: "---\nname: Notes\n---\nAbout.\n".into(),
+    });
+    input.series.push(SourceFile {
+        path: "series/thoughts.md".into(),
+        contents: "---\nname: Thoughts\n---\nAbout.\n".into(),
+    });
+    let site = Site::load(
+        config(r#", "latestPostsPerPage": 2, "seriesPerPage": 2"#),
+        input,
+        LoadOptions::default(),
+    )
+    .unwrap();
+    let html = home(&site);
+
+    assert!(html.contains(
+        "<ob-list-pagination page-size=\"2\" page-param=\"news-page\" item-label=\"posts\">"
+    ));
+    assert!(html.contains(
+        "<ob-list-pagination page-size=\"2\" page-param=\"paths-page\" item-label=\"series\">"
+    ));
+    assert!(html.contains("Post one") && html.contains("Post seven"));
+    assert!(html.contains("The Guide") && html.contains("Notes") && html.contains("Thoughts"));
+    assert!(!html.contains("href=\"/page/2/\""));
+}
+
+#[test]
 fn exactly_one_h1_and_headings_never_skip_a_level() {
     let cases = [
         // A welcome banner owns the h1.

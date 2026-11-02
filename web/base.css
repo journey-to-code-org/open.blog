@@ -2694,6 +2694,14 @@ ob-future-suggestion [hidden] {
 
 /* ---------- Series ---------- */
 
+ob-list-pagination {
+  display: block;
+}
+
+ob-list-pagination .ob-list > [hidden] {
+  display: none;
+}
+
 .ob-series-box {
   margin: 3rem 0 2rem;
   padding: 1.25rem 1.4rem;
@@ -3129,6 +3137,14 @@ ob-back-to-top button:hover {
   ob-back-to-top,
   ob-theme-toggle {
     display: none !important;
+  }
+
+  ob-list-pagination > .ob-pager {
+    display: none !important;
+  }
+
+  ob-list-pagination .ob-list > [hidden] {
+    display: list-item;
   }
 
   body {
