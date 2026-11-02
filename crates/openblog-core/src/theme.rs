@@ -95,6 +95,9 @@ pub struct ThemeOptions {
     pub code_highlighting: Option<bool>,
     /// Number the lines of code blocks that have more than one line.
     pub code_line_numbers: Option<bool>,
+    /// Show the series' cover on its page (default true). Turn off when the page has its own
+    /// hero, so the image is not downloaded only to be hidden.
+    pub series_page_cover: Option<bool>,
     /// Frame every plain code block like a titled one, captioned with its language.
     pub code_windows: Option<bool>,
 }
@@ -123,6 +126,7 @@ pub struct Theme {
     pub post_covers: bool,
     pub code_highlighting: bool,
     pub code_line_numbers: bool,
+    pub series_page_cover: bool,
     pub code_windows: bool,
     /// Absolute site URLs of extra stylesheets, in link order.
     pub stylesheets: Vec<String>,
@@ -212,6 +216,7 @@ impl ThemeSet {
             chain: chain.clone(),
             color_scheme: "dark".into(),
             color_scheme_toggle: true,
+            series_page_cover: true,
             customizable: crate::look::CONTROLS
                 .iter()
                 .map(|c| c.to_string())
@@ -291,6 +296,9 @@ impl ThemeSet {
             }
             if let Some(v) = file.options.code_line_numbers {
                 theme.code_line_numbers = v;
+            }
+            if let Some(v) = file.options.series_page_cover {
+                theme.series_page_cover = v;
             }
             if let Some(v) = file.options.code_windows {
                 theme.code_windows = v;
@@ -505,6 +513,7 @@ impl Theme {
                 "postCovers": self.post_covers,
                 "codeHighlighting": self.code_highlighting,
                 "codeLineNumbers": self.code_line_numbers,
+                "seriesPageCover": self.series_page_cover,
                 "codeWindows": self.code_windows,
             },
             "stylesheets": self.stylesheets,

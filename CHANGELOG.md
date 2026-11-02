@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- New `seriesPageCover` theme option (default `true`): `false` leaves the series cover off its own page,
+  for a theme whose series page has its own hero, instead of downloading an image only to hide it (ADR 0270).
 - New `codeWindows` theme option: each plain code block on the theme's pages is framed like a titled one,
   captioned Rust, Terminal, Diff, its language or Code, while the page is written. Titled and runnable
   blocks, feeds and portable copies are unchanged (ADR 0269).

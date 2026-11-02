@@ -103,6 +103,7 @@ article width consistent across existing themes and makes new themes use that wi
 | `postCovers` | Show the cover image on the post page |
 | `codeHighlighting` | Colour code blocks with the built-in highlighter (`codeKeyword`, `codeString`, ... colour tokens); off when the theme brings its own |
 | `codeLineNumbers` | Number the lines of code blocks with two or more lines (default `true`). The numbers are never copied with the code |
+| `seriesPageCover` | Show the series cover on its page (default `true`). Set `false` when the page brings its own hero; hiding the figure with CSS still downloads the image. The cover stays on series cards ([ADR 0270](adr/0270-a-series-page-with-its-own-hero-renders-no-cover.md)) |
 | `codeWindows` | Frame every plain code block like a titled one, `<figure class="ob-code-block">` with a `<figcaption class="ob-code-title">` naming it (Rust, Terminal, Diff, the fence language, or Code). Only pages in the theme; feeds and portable copies keep plain blocks ([ADR 0269](adr/0269-a-theme-may-frame-every-code-block-as-it-writes-the-page.md)) |
 
 ## Look controls
