@@ -1219,6 +1219,7 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   align-items: center;
   gap: 0.55rem;
   margin-top: 0.65rem;
+  padding-inline: 0.75rem;
 }
 
 .ob-code-editor-controls button,
