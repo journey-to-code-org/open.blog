@@ -62,6 +62,10 @@ screen in fewer of its parent's fonts sets `"fonts": { "preloadOnly": ["Body"] }
 faces marked `preload`, inherited or its own, only those families are preloaded (the rest stay
 declared) ([ADR 0267](adr/0267-a-theme-preloads-the-fonts-its-first-screen-draws.md)).
 Relative `src`, `stylesheets`, and `scripts` paths resolve against the theme folder.
+A theme may also set top-level `"favicon"` and `"logo"`: pages in the theme (a series theme's
+series page and its posts) then use them instead of the site's `favicon` and `logo`, rendered
+with the page so no script swaps them after it paints. The logo shows only when the site has one
+([ADR 0268](adr/0268-a-theme-may-name-its-own-favicon-and-logo.md)).
 A theme's scripts are linked on every page that uses it; see
 [Adding web components to a theme](theme-components.md) and the `demo` theme.
 

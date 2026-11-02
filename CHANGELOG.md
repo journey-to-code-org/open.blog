@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A theme may set top-level `"favicon"` and `"logo"` in `theme.json`; pages in the theme use them
+  instead of the site's, rendered with the page rather than swapped in by a script (ADR 0268).
 - A font face can set `"preload": true`: every page in the theme then fetches it alongside the
   stylesheets, so text paints in the theme's font and never shifts when it swaps in. A child theme
   narrows the inherited preloads with `"fonts": { "preloadOnly": [...] }` (ADR 0267).
