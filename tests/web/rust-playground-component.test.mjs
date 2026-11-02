@@ -111,6 +111,7 @@ test("looks like an editor and can omit the external Playground link", () => {
   const css = fs.readFileSync(new URL("../../web/base.css", import.meta.url), "utf8");
   assert.match(css, /@keyframes ob-code-cursor-blink/);
   assert.match(css, /caret-color:/);
+  assert.match(css, /\.ob-code-editor-controls\s*\{[^}]*padding-inline:\s*0\.75rem;/s);
   assert.match(css, /\.ob-code-editor-controls button\[aria-disabled="true"\]\s*{/);
 });
 

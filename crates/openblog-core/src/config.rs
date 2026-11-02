@@ -43,6 +43,10 @@ pub struct SiteConfig {
     pub post_path: String,
     /// Posts per listing page. `0` disables pagination.
     pub posts_per_page: usize,
+    /// Posts per client-side page in homepage latest-post lists. `0` keeps static pagination.
+    pub latest_posts_per_page: usize,
+    /// Series per page on the series index. `0` shows every series.
+    pub series_per_page: usize,
     /// Header navigation. Pages with `nav: true` in their front matter are appended.
     pub nav: Vec<Link>,
     /// Footer links (GitHub, Mastodon, a personal site, ...).
@@ -524,6 +528,8 @@ impl Default for SiteConfig {
             appearance: LookSettings::default(),
             post_path: "/posts/{slug}/".to_string(),
             posts_per_page: 10,
+            latest_posts_per_page: 0,
+            series_per_page: 0,
             nav: vec![
                 Link {
                     label: "Home".into(),

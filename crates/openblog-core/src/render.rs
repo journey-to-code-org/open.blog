@@ -2076,6 +2076,24 @@ impl<'a> Renderer<'a> {
         h
     }
 
+    fn client_pagination(
+        &self,
+        list: &str,
+        count: usize,
+        per_page: usize,
+        parameter: &str,
+        item_label: &str,
+    ) -> String {
+        if per_page == 0 || count <= per_page {
+            return list.to_string();
+        }
+        format!(
+            "<ob-list-pagination page-size=\"{per_page}\" page-param=\"{}\" item-label=\"{}\">\n{list}\n</ob-list-pagination>",
+            attr(parameter),
+            attr(item_label)
+        )
+    }
+
     fn pager(&self, page_number: usize, page_count: usize) -> String {
         self.pager_with(page_number, page_count, |n| {
             if n == 1 {
@@ -2129,8 +2147,18 @@ impl<'a> Renderer<'a> {
         per_page: usize,
     ) -> String {
         let c = &self.site.config;
-        let start = (page_number - 1) * per_page;
-        let indices: Vec<usize> = (start..self.site.posts.len().min(start + per_page)).collect();
+        let client_latest = page_number == 1 && c.latest_posts_per_page > 0;
+        let start = if client_latest {
+            0
+        } else {
+            (page_number - 1) * per_page
+        };
+        let end = if client_latest {
+            self.site.posts.len()
+        } else {
+            self.site.posts.len().min(start + per_page)
+        };
+        let indices: Vec<usize> = (start..end).collect();
         let mut body = String::from("<div class=\"ob-container\">\n");
         // A landing page with a visible section replaces the home settings'
         // layout on the first page; every other page, and every site without
@@ -2171,8 +2199,21 @@ impl<'a> Renderer<'a> {
                         "<h1 id=\"latest\" class=\"ob-title\"",
                     ),
             );
-            body.push_str(&self.post_list(theme, &indices));
-            body.push_str(&self.pager(page_number, page_count));
+            let posts = self.post_list(theme, &indices);
+            body.push_str(&self.client_pagination(
+                &posts,
+                indices.len(),
+                if client_latest {
+                    c.latest_posts_per_page
+                } else {
+                    0
+                },
+                "latest-page",
+                "posts",
+            ));
+            if !client_latest {
+                body.push_str(&self.pager(page_number, page_count));
+            }
             body.push_str("\n</section>\n");
             if page_number == 1
                 && c.home.show_series
@@ -2187,7 +2228,20 @@ impl<'a> Renderer<'a> {
                             "<h2 id=\"series\" class=\"ob-title\"",
                         ),
                 );
-                body.push_str(&self.series_cards(theme));
+                let cards = self.series_cards(theme);
+                let count = self
+                    .site
+                    .series
+                    .iter()
+                    .filter(|series| !series.posts.is_empty())
+                    .count();
+                body.push_str(&self.client_pagination(
+                    &cards,
+                    count,
+                    c.series_per_page,
+                    "series-page",
+                    "series",
+                ));
                 body.push_str("\n</section>\n");
             }
         }
@@ -3208,7 +3262,21 @@ impl<'a> Renderer<'a> {
         body.push_str(&self.heading(theme, 1, "Series", "ob-section-heading"));
         body.push_str("\n<p class=\"ob-lede\">Multi-part guides, in reading order.</p>\n");
         if self.site.series.iter().any(|s| !s.posts.is_empty()) {
-            body.push_str(&self.series_cards(theme));
+            let cards = self.series_cards(theme);
+            let per_page = self.site.config.series_per_page;
+            let count = self
+                .site
+                .series
+                .iter()
+                .filter(|series| !series.posts.is_empty())
+                .count();
+            body.push_str(&self.client_pagination(
+                &cards,
+                count,
+                per_page,
+                "series-page",
+                "series",
+            ));
         } else {
             body.push_str("<p class=\"ob-empty\">No series yet. Add <code>series: my-series</code> to a post's front matter.</p>");
         }
@@ -5378,6 +5446,53 @@ mod tests {
         ] {
             assert!(files.iter().any(|f| f.path == path), "missing {path}");
         }
+    }
+
+    #[test]
+    fn series_index_opts_into_client_pagination_without_removing_cards_from_html() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","latestPostsPerPage":6,"seriesPerPage":6,"home":{"showSeries":true}}"#,
+        )
+        .unwrap();
+        let posts = (1..=7)
+            .map(|number| SourceFile {
+                path: format!("posts/part-{number}.md"),
+                contents: format!(
+                    "---\ntitle: Part {number}\ndate: 2026-01-{number:02}\nseries: series-{number}\n---\nBody."
+                ),
+            })
+            .collect();
+        let series = (1..=7)
+            .map(|number| SourceFile {
+                path: format!("series/series-{number}.md"),
+                contents: format!("---\nname: Series {number}\n---\nAbout."),
+            })
+            .collect();
+        let site = Site::load(
+            config,
+            Sources {
+                posts,
+                series,
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        let index = file(&files, "series/index.html");
+
+        assert!(index.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"series-page\" item-label=\"series\">"
+        ));
+        assert_eq!(index.matches("class=\"ob-card-title\"").count(), 7);
+        assert!(index.contains("Series 1") && index.contains("Series 7"));
+        let home = file(&files, "index.html");
+        assert!(home.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"latest-page\" item-label=\"posts\">"
+        ));
+        assert!(home.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"series-page\" item-label=\"series\">"
+        ));
     }
 
     #[test]
