@@ -39,7 +39,7 @@ fn landing_css() -> String {
 }
 
 fn every_section_page() -> String {
-    let landing = serde_json::json!({"format": "openblog-landing", "version": 1, "sections": [
+    let landing = serde_json::json!({"format": "openblog-landing", "version": 2, "sections": [
         {"id": "a", "type": "welcome", "heading": "H", "subheading": "S",
          "image": {"src": "/a.png", "alt": "A"}, "button": {"label": "B", "href": "/"}},
         {"id": "b", "type": "rich-text", "markdown": "text"},
@@ -55,10 +55,14 @@ fn every_section_page() -> String {
         {"id": "l", "type": "social-links", "items": [{"label": "L", "href": "https://e.social/@a"}]},
         {"id": "m", "type": "faq", "items": [{"question": "Q", "answer": "A"}]},
         {"id": "n", "type": "callout", "tone": "warning", "title": "T", "body": "B"},
-        {"id": "o", "type": "callout", "tone": "success", "body": "B"}
+        {"id": "o", "type": "callout", "tone": "success", "body": "B"},
+        {"id": "p", "type": "business-facts", "heading": "Find us"}
     ]});
     let site = Site::load(
-        SiteConfig::from_json(r#"{"title": "T", "url": "https://example.com"}"#).unwrap(),
+        SiteConfig::from_json(
+            r#"{"title": "T", "url": "https://example.com", "business": {"displayName": "B", "phone": "+13605550142"}}"#,
+        )
+        .unwrap(),
         Sources {
             posts: vec![SourceFile {
                 path: "posts/one.md".into(),
@@ -89,7 +93,8 @@ fn every_section_page() -> String {
 #[test]
 fn every_class_the_renderer_writes_is_styled_or_a_deliberate_hook() {
     // Section-type classes that only name a section for a theme to hook.
-    const HOOKS: [&str; 14] = [
+    const HOOKS: [&str; 15] = [
+        "ob-home-business-facts",
         "ob-home-rich-text",
         "ob-home-latest-posts",
         "ob-home-series",
@@ -139,6 +144,7 @@ fn every_class_the_renderer_writes_is_styled_or_a_deliberate_hook() {
         "social-links",
         "faq",
         "callout",
+        "business-facts",
     ] {
         assert!(classes.contains(&format!("ob-home-{ty}")), "ob-home-{ty}");
     }
@@ -201,6 +207,33 @@ fn the_landing_styles_use_tokens_only() {
         "motion is opt-in"
     );
     assert!(css.contains("min-height: 44px"), "touch targets");
+}
+
+#[test]
+fn every_bundled_theme_uses_the_shared_desktop_reading_width() {
+    const SHARED_READING_WIDTH: &str = "clamp(46rem, 60vw, 64rem)";
+
+    let themes = repo("themes");
+    let base: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(themes.join("base/theme.json")).unwrap())
+            .unwrap();
+    assert_eq!(base["tokens"]["readingWidth"], SHARED_READING_WIDTH);
+
+    for entry in std::fs::read_dir(themes).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "base" {
+            continue;
+        }
+        let theme: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(entry.path().join("theme.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            theme["tokens"].get("readingWidth").is_none(),
+            "{name} overrides the shared desktop reading width"
+        );
+    }
 }
 
 // ----- contrast --------------------------------------------------------------

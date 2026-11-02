@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // The research review before publication in the real Admin Studio (A8.3, ADR 0123 and ADR 0124):
 // publishing a research post opens the review first; a citation the build would refuse blocks
@@ -86,7 +87,7 @@ test.afterAll(async () => {
     await stopped;
   }
   // Windows can hold the stopped server's files for a moment.
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  removeTree(root);
 });
 
 let dialogs;

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { removeTree } from "./teardown.mjs";
 
 // Accessible attributed perspective conversations (#224, ADRs 0137 and 0138). A published reader's
 // reflection about one author's section, and that author's approved response, are static, labelled
@@ -143,7 +144,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+  removeTree(root);
 });
 
 const conversation = (page, anchor) => page.locator(`#ob-by-${anchor} aside.ob-conversation`);

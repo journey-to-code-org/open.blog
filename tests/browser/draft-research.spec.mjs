@@ -2,11 +2,12 @@ import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // The draft-side research panel in the real Admin Studio (A8.2, ADR 0122): a quotation goes in
 // with its server-checked citation and renders exactly in the production preview; Ctrl+Z undoes
@@ -89,7 +90,7 @@ test.afterAll(async () => {
     await stopped;
   }
   // Windows can hold the stopped server's files for a moment.
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  removeTree(root);
 });
 
 let dialogs;

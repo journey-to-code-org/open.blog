@@ -2781,6 +2781,14 @@ fn portable_fence_markdown(
             &crate::markdown::portable_quiz_markdown(source)
                 .map_err(|error| format!("portable knowledge-check fallback failed: {error}"))?,
         );
+    } else if info.trim() == crate::compare::FENCE {
+        let pair = crate::compare::parse(source).map_err(|problems| {
+            format!(
+                "portable before-after fallback failed: {}",
+                problems.join("; ")
+            )
+        })?;
+        output.push_str(&pair.portable_markdown(&|address| projection.resolve_link(address))?);
     } else if language == "demo" {
         let (kind, body) = crate::markdown::portable_demo_parts(&fence, source)
             .map_err(|error| format!("portable interactive-demo fallback failed: {error}"))?;

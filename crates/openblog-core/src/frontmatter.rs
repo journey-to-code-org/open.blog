@@ -125,7 +125,12 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
         };
         let key = line[..colon].trim().to_string();
         let rest = line[colon + 1..].trim();
-        if rest.is_empty() {
+        if rest.is_empty() && key == NESTED_KEY && next_is_mapping(lines, i) {
+            let indent = indent_of(lines[next_significant(lines, i)])?;
+            parse_nested(lines, &mut i, indent, &key, 1, &mut fields)?;
+        } else if rest.is_empty() && key == FAQ_KEY && next_is_faq_entry(lines, i) {
+            parse_faq(lines, &mut i, &mut fields)?;
+        } else if rest.is_empty() {
             // A block list (or an empty scalar) follows.
             let mut items = Vec::new();
             while i < lines.len() {
@@ -161,6 +166,230 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
         }
     }
     Ok(FrontMatter { fields })
+}
+
+/// The one key whose value may be a nested mapping (the `job` profile, ADR
+/// 0285). It is stored flattened to dotted keys (`job.place.town`), so the
+/// `Value` shape and every other key are exactly as before.
+const NESTED_KEY: &str = "job";
+const MAX_NESTING: usize = 3;
+
+/// The one key whose value may be a list of mappings (a service's questions
+/// and answers, ADR 0311). Entry `n` (counting from 1) is stored flattened as
+/// `faq.<n>.question` and `faq.<n>.answer`, so the `Value` shape is unchanged.
+/// A list whose first entry does not start `- question:` is an ordinary list.
+const FAQ_KEY: &str = "faq";
+const FAQ_PREFIX: &str = "faq.";
+const MAX_FAQ_ENTRIES: usize = 100;
+
+fn next_is_faq_entry(lines: &[&str], from: usize) -> bool {
+    lines
+        .get(next_significant(lines, from))
+        .is_some_and(|line| line.starts_with(' ') && line.trim().starts_with("- question:"))
+}
+
+fn parse_faq(
+    lines: &[&str],
+    i: &mut usize,
+    fields: &mut BTreeMap<String, Value>,
+) -> Result<(), String> {
+    let mut entry = 0;
+    while *i < lines.len() {
+        let line = lines[*i].trim_end();
+        if is_skipped(line) {
+            *i += 1;
+            continue;
+        }
+        if !line.starts_with(' ') {
+            break;
+        }
+        let dash = indent_of(line)?;
+        let Some(first) = line.trim_start().strip_prefix("- ") else {
+            return Err(format!(
+                "each `faq` entry starts with `- question:`, found `{}`",
+                line.trim()
+            ));
+        };
+        entry += 1;
+        if entry > MAX_FAQ_ENTRIES {
+            return Err(format!("`faq` has more than {MAX_FAQ_ENTRIES} entries"));
+        }
+        *i += 1;
+        let mut pending = Some(first.trim().to_string());
+        loop {
+            let text = match pending.take() {
+                Some(text) => text,
+                None => {
+                    let Some(next) = lines.get(*i).map(|l| l.trim_end()) else {
+                        break;
+                    };
+                    if is_skipped(next) {
+                        *i += 1;
+                        continue;
+                    }
+                    if !next.starts_with(' ') || indent_of(next)? != dash + 2 {
+                        break;
+                    }
+                    *i += 1;
+                    next.trim().to_string()
+                }
+            };
+            let Some(colon) = find_key_colon(&text) else {
+                return Err(format!(
+                    "expected `key: value` in a `faq` entry, found `{text}`"
+                ));
+            };
+            let name = text[..colon].trim();
+            fields.insert(
+                format!("{FAQ_PREFIX}{entry}.{name}"),
+                Value::Scalar(unquote(text[colon + 1..].trim())),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Write the flattened `faq.*` keys back as one block list, entry by entry in
+/// numeric order, `question` then `answer` then any other key.
+fn serialize_faq(fields: &[(&str, Value)], out: &mut String) {
+    let mut entries: BTreeMap<usize, Vec<(&str, &str)>> = BTreeMap::new();
+    for (key, value) in fields {
+        let Some(rest) = key.strip_prefix(FAQ_PREFIX) else {
+            continue;
+        };
+        let (Some((number, name)), Value::Scalar(text)) = (rest.split_once('.'), value) else {
+            continue;
+        };
+        if let Ok(number) = number.parse::<usize>() {
+            entries.entry(number).or_default().push((name, text));
+        }
+    }
+    out.push_str(FAQ_KEY);
+    out.push_str(":\n");
+    for (_, mut keys) in entries {
+        keys.sort_by_key(|(name, _)| match *name {
+            "question" => (0, String::new()),
+            "answer" => (1, String::new()),
+            other => (2, other.to_string()),
+        });
+        for (position, (name, text)) in keys.into_iter().enumerate() {
+            let lead = if position == 0 { "  - " } else { "    " };
+            out.push_str(&format!("{lead}{name}: {}\n", quote_scalar(text)));
+        }
+    }
+}
+
+fn is_skipped(line: &str) -> bool {
+    line.trim().is_empty() || line.trim_start().starts_with('#')
+}
+
+fn next_significant(lines: &[&str], from: usize) -> usize {
+    (from..lines.len())
+        .find(|&at| !is_skipped(lines[at]))
+        .unwrap_or(lines.len())
+}
+
+fn next_is_mapping(lines: &[&str], from: usize) -> bool {
+    let at = next_significant(lines, from);
+    let Some(line) = lines.get(at) else {
+        return false;
+    };
+    let trimmed = line.trim();
+    line.starts_with(' ') && !trimmed.starts_with("- ") && trimmed != "-"
+}
+
+fn indent_of(line: &str) -> Result<usize, String> {
+    if line.starts_with('\t') {
+        return Err(format!("use spaces, not tabs, to indent `{}`", line.trim()));
+    }
+    Ok(line.len() - line.trim_start_matches(' ').len())
+}
+
+fn parse_nested(
+    lines: &[&str],
+    i: &mut usize,
+    indent: usize,
+    prefix: &str,
+    depth: usize,
+    fields: &mut BTreeMap<String, Value>,
+) -> Result<(), String> {
+    if depth > MAX_NESTING {
+        return Err(format!("`{prefix}` is nested too deeply"));
+    }
+    while *i < lines.len() {
+        let line = lines[*i].trim_end();
+        if is_skipped(line) {
+            *i += 1;
+            continue;
+        }
+        let here = indent_of(line)?;
+        if here < indent {
+            break;
+        }
+        if here > indent {
+            return Err(format!(
+                "unexpected indentation under `{prefix}`: `{}`",
+                line.trim()
+            ));
+        }
+        let Some(colon) = find_key_colon(line.trim_start()) else {
+            return Err(format!(
+                "expected `key: value` under `{prefix}`, found `{}`",
+                line.trim()
+            ));
+        };
+        let content = line.trim_start();
+        let key = format!("{prefix}.{}", content[..colon].trim());
+        let rest = content[colon + 1..].trim();
+        *i += 1;
+        if !rest.is_empty() {
+            let value = match rest.strip_prefix('[') {
+                Some(inner) => match inner.strip_suffix(']') {
+                    Some(inner) => Value::List(split_inline_list(inner)),
+                    None => return Err(format!("unterminated inline list for `{key}`")),
+                },
+                None => Value::Scalar(unquote(rest)),
+            };
+            fields.insert(key, value);
+            continue;
+        }
+        let at = next_significant(lines, *i);
+        let Some(next) = lines.get(at) else {
+            fields.insert(key, Value::Scalar(String::new()));
+            continue;
+        };
+        let next_indent = indent_of(next)?;
+        let trimmed = next.trim();
+        if next_indent <= indent {
+            fields.insert(key, Value::Scalar(String::new()));
+        } else if let Some(first) = trimmed
+            .strip_prefix("- ")
+            .or((trimmed == "-").then_some(""))
+        {
+            let mut items = vec![unquote(first.trim())];
+            *i = at + 1;
+            while *i < lines.len() {
+                let item_line = lines[*i];
+                if is_skipped(item_line) {
+                    *i += 1;
+                    continue;
+                }
+                let item = item_line.trim();
+                match item.strip_prefix("- ").or((item == "-").then_some("")) {
+                    Some(item) if indent_of(item_line)? > indent => {
+                        items.push(unquote(item.trim()));
+                        *i += 1;
+                    }
+                    _ => break,
+                }
+            }
+            fields.insert(key, Value::List(items));
+        } else {
+            *i = at;
+            parse_nested(lines, i, next_indent, &key, depth + 1, fields)?;
+        }
+    }
+    Ok(())
 }
 
 /// Find the colon that separates key from value. Keys never contain `:`;
@@ -257,7 +486,24 @@ fn unescape_double(s: &str) -> String {
 /// Serialize front matter back to text. Used by the importer and `new`.
 pub fn serialize(fields: &[(&str, Value)]) -> String {
     let mut out = String::from("---\n");
+    let nested_prefix = format!("{NESTED_KEY}.");
+    let mut nested_written = false;
+    let mut faq_written = false;
     for (key, value) in fields {
+        if key.starts_with(FAQ_PREFIX) {
+            if !faq_written {
+                faq_written = true;
+                serialize_faq(fields, &mut out);
+            }
+            continue;
+        }
+        if key.starts_with(&nested_prefix) {
+            if !nested_written {
+                nested_written = true;
+                serialize_nested(fields, &nested_prefix, &mut out);
+            }
+            continue;
+        }
         match value {
             Value::Scalar(s) => {
                 out.push_str(key);
@@ -278,6 +524,48 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
     }
     out.push_str("---\n");
     out
+}
+
+/// Write the flattened `job.*` keys back as one nested mapping, in key order,
+/// so parsing the result gives the same fields.
+fn serialize_nested(fields: &[(&str, Value)], prefix: &str, out: &mut String) {
+    let mut entries: Vec<(Vec<&str>, &Value)> = fields
+        .iter()
+        .filter(|(key, _)| key.starts_with(prefix))
+        .map(|(key, value)| (key.split('.').collect(), value))
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    out.push_str(NESTED_KEY);
+    out.push_str(":\n");
+    let mut open: Vec<&str> = Vec::new();
+    for (path, value) in entries {
+        let parents = &path[1..path.len() - 1];
+        let common = open
+            .iter()
+            .zip(parents)
+            .take_while(|(left, right)| left == right)
+            .count();
+        open.truncate(common);
+        for (depth, name) in parents.iter().enumerate().skip(common) {
+            out.push_str(&"  ".repeat(depth + 1));
+            out.push_str(name);
+            out.push_str(":\n");
+            open.push(name);
+        }
+        let indent = "  ".repeat(path.len() - 1);
+        let name = path[path.len() - 1];
+        match value {
+            Value::Scalar(s) => {
+                out.push_str(&format!("{indent}{name}: {}\n", quote_scalar(s)));
+            }
+            Value::List(items) => {
+                out.push_str(&format!("{indent}{name}:\n"));
+                for item in items {
+                    out.push_str(&format!("{indent}  - {}\n", quote_scalar(item)));
+                }
+            }
+        }
+    }
 }
 
 /// Preferred key order when writing a document, so edits produce stable diffs.
@@ -432,6 +720,37 @@ mod tests {
         fields.insert("title".to_string(), Value::Scalar("T".into()));
         let text = compose(&fields, "body");
         assert!(text.starts_with("---\ntitle: T\nsubtitle: S\n"), "{text}");
+    }
+
+    #[test]
+    fn faq_entries_are_flattened_and_written_back_in_order() {
+        let text = "---\nid: a\nfaq:\n  - question: How long?\n    answer: \"Two days: maybe three.\"\n  - question: Cost?\n    answer: Ask.\nnext: x\n---\nbody";
+        let doc = parse(text).unwrap();
+        let fm = &doc.front_matter;
+        assert_eq!(fm.get("faq.1.question"), Some("How long?"));
+        assert_eq!(fm.get("faq.1.answer"), Some("Two days: maybe three."));
+        assert_eq!(fm.get("faq.2.answer"), Some("Ask."));
+        assert_eq!(fm.get("next"), Some("x"));
+        let mut fields = fm.fields.clone();
+        for n in 3..=10 {
+            fields.insert(format!("faq.{n}.question"), Value::Scalar(format!("Q{n}")));
+            fields.insert(format!("faq.{n}.answer"), Value::Scalar(format!("A{n}")));
+        }
+        let written = compose(&fields, "body");
+        let again = parse(&written).unwrap();
+        assert_eq!(again.front_matter.fields, fields);
+        let order: Vec<&str> = written
+            .lines()
+            .filter(|line| line.contains("question:"))
+            .collect();
+        assert_eq!(order[1], "  - question: Cost?");
+        assert_eq!(order[9], "  - question: Q10");
+    }
+
+    #[test]
+    fn a_plain_faq_list_stays_a_list() {
+        let doc = parse("---\nfaq:\n  - one\n  - two\n---\n").unwrap();
+        assert_eq!(doc.front_matter.get_list("faq"), vec!["one", "two"]);
     }
 
     #[test]

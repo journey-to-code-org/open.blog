@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // The curated research-context projection on a post's page (#197, ADR 0197): built from selections an
 // author made through the real Admin API, then served by the real binary. The section is static, complete
@@ -139,7 +140,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await stop(server);
-  if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  removeTree(root);
 });
 
 const section = (page) => page.locator("section#ob-research-context");
