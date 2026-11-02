@@ -1,0 +1,43 @@
+# Compile the site generator on GitHub so neither main publishing nor scheduled
+# publishing asks Netlify to build Rust. Every main commit gets its own artifact;
+# the weekly run refreshes the artifact before GitHub's retention window expires.
+
+name: Prepare scheduled publisher
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "11 5 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-publisher-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile the publisher
+        run: cargo build --release -p openblog-cli --locked
+      - name: Stage the scheduled publishing tools
+        run: |
+          mkdir -p .scheduled-publisher
+          cp target/release/openblog .scheduled-publisher/openblog
+          npm install --prefix .scheduled-publisher/deploy netlify-cli@26.2.0 --omit=dev --no-audit --no-fund
+      - name: Save the publisher for scheduled deploys
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduled-publisher-linux-x64
+          path: .scheduled-publisher
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
