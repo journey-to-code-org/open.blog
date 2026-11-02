@@ -52,6 +52,19 @@ test("deployment smoke checks assets, posts, routing and auth without writes or 
   assert.ok(!calls.some(([url]) => url.includes("/api/hit")));
 });
 
+test("deployment smoke gives the first Admin read one 120 second cold-start window", async () => {
+  const { options, calls } = fixture();
+  const timeoutSignal = timeoutMs => ({ timeoutMs });
+
+  await smoke({ ...options, timeoutSignal });
+
+  const adminCalls = calls.filter(([url]) => url === "https://admin.example/admin/");
+  assert.equal(adminCalls.length, 1);
+  assert.equal(adminCalls[0][1].signal.timeoutMs, 120_000);
+  assert.ok(calls.filter(([url]) => url !== "https://admin.example/admin/")
+    .every(([, request]) => request.signal.timeoutMs === 30_000));
+});
+
 for (const [name, override] of [
   ["missing stylesheet", { "https://blog.example/assets/base.css?v=1": [404, "text/html", "Not found"] }],
   ["HTML fallback instead of CSS", { "https://blog.example/assets/base.css?v=1": [200, "text/html", "Fallback"] }],
