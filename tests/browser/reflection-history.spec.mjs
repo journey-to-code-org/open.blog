@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // Comparing earlier and later private readings on-device (#233, ADR 0244): saving a reading as a snapshot,
 // following an earlier one, a keyboard-only comparison with no scoring, an article that changed since a
@@ -65,7 +66,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 const KEY = "openblog.reader-annotations";

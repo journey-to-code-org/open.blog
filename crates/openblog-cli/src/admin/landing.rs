@@ -10,7 +10,7 @@
 //! `openblog.json`, changes.
 
 use openblog_core::landing::{
-    LandingPage, LandingProblem, LANDING_FORMAT, LANDING_VERSION, MAX_FILE_BYTES, MAX_SECTIONS,
+    LandingPage, LandingProblem, LANDING_FORMAT, LANDING_VERSION_MAX, MAX_FILE_BYTES, MAX_SECTIONS,
 };
 
 use super::*;
@@ -34,7 +34,7 @@ fn page_json(page: &LandingPage) -> Json {
 }
 
 fn limits() -> Json {
-    json!({ "sections": MAX_SECTIONS, "bytes": MAX_FILE_BYTES, "version": LANDING_VERSION })
+    json!({ "sections": MAX_SECTIONS, "bytes": MAX_FILE_BYTES, "version": LANDING_VERSION_MAX })
 }
 
 /// The page as the editor needs it. A site with no file has none to show;
@@ -184,7 +184,8 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
         return Response::error(400, "Send the landing page as `page` (an object)");
     };
     page.insert("format".into(), json!(LANDING_FORMAT));
-    page.insert("version".into(), json!(LANDING_VERSION));
+    let version = openblog_core::landing::version_for_page(&page);
+    page.insert("version".into(), json!(version));
     let config = match site::load_config(&state.root) {
         Ok(config) => config,
         Err(error) => return Response::error(500, &error),
@@ -386,7 +387,8 @@ pub(super) fn preview(state: &AppState, req: &Request) -> Response {
         return Response::error(400, "Send the landing page as `page` (an object)");
     };
     page.insert("format".into(), json!(LANDING_FORMAT));
-    page.insert("version".into(), json!(LANDING_VERSION));
+    let version = openblog_core::landing::version_for_page(&page);
+    page.insert("version".into(), json!(version));
     let mut config = match site::load_config(&state.root) {
         Ok(config) => config,
         Err(error) => return Response::error(500, &error),

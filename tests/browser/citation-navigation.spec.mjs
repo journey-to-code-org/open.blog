@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTree } from "./teardown.mjs";
 
 // The published reader page of a post with citations, with and without JavaScript: following a
 // marker lands focus on its note, each way back returns to the marker it names (repeated citations
@@ -71,7 +72,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 const marker = (page, number, occurrence = 0) =>

@@ -395,22 +395,25 @@ const toolbeltLinks = (root) =>
   root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes.href?.startsWith("#/") && !hiddenWithin(link, root)).map((link) => link.textContent);
 
 test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
-  const content = ["Overview", "Posts", "Pages", "Series", "Shared reflections", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look"];
+  const content = ["Overview", "Posts", "Pages", "Series", "Services", "Shared reflections", "Capture", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look", "Business facts"];
   const research = "Research workspace";
+  const voice = "Voice";
   const cases = [
     [{ preset: "simple" }, "overview", content],
     [{ preset: "simple" }, "sources", [...content, research]],
-    [{ preset: "guided" }, "posts", [...content, research]],
+    [{ preset: "guided" }, "posts", [...content, voice, research]],
     [{ preset: "simple" }, "appearance", content],
-    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Moderation inbox", research]],
-    [{ preset: "custom", hiddenModules: ["research"] }, "overview", [...content, "Analytics", "Moderation inbox", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["research"] }, "atlas", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "advanced" }, "overview", [...content, voice, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, voice, "Analytics", "Moderation inbox", research]],
+    [{ preset: "custom", hiddenModules: ["research"] }, "overview", [...content, voice, "Analytics", "Moderation inbox", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["research"] }, "atlas", [...content, voice, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["assistant"] }, "overview", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "simple" }, "voice", [...content, voice]],
     [{ preset: "simple" }, "analytics", [...content, "Analytics", "Moderation inbox"]],
     [{ preset: "simple" }, "moderation", [...content, "Analytics", "Moderation inbox"]],
-    [{ preset: "guided" }, "moderation", [...content, "Analytics", "Moderation inbox", research]],
-    [{ preset: "guided" }, "contributors", [...content, research, "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "guided" }, "moderation", [...content, voice, "Analytics", "Moderation inbox", research]],
+    [{ preset: "guided" }, "contributors", [...content, voice, research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, voice, "Analytics", "Moderation inbox", research, "Contributors"]],
   ];
   for (const [preferences, active, expected] of cases) {
     const app = appWith(fakeApi({}));

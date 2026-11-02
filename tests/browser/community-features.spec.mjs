@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { removeTree } from "./teardown.mjs";
 
 // Featuring an approved reflection (#229, ADRs 0176 to 0182). The reader's side, in the real site
 // with the hosted function mocked at its routes: an unticked feature choice on the form that says
@@ -64,7 +65,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "POST, OPTIONS", "access-control-allow-headers": "content-type" };

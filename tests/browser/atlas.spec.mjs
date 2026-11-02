@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio and the real Knowledge Atlas API (core validation, revision-checked
 // store) over a small library, notebook and atlas. Covers keyboard-only authoring, typed endpoint
@@ -84,7 +85,7 @@ test.afterAll(async () => {
     server.kill();
     await stopped;
   }
-  if (root) rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 test.beforeEach(() => writeResearch());
