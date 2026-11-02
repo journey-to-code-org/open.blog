@@ -874,6 +874,12 @@ const DEMO_KINDS: &[DemoKind] = &[
         label: "Native browser APIs playground",
         summary: "Three browser-native features on small examples: View Transitions and the Web Animations API, the popover attribute, and the Intersection and Resize observers, each reporting whether your browser supports it.",
     },
+    DemoKind {
+        id: "server-lab",
+        element: "ob-server-lab",
+        label: "Multiplayer server simulator",
+        summary: "An in-memory multiplayer server model: compare a sequential connection loop with worker threads, a mutex with one world owner, blocked threads with async tasks, and the ready sources handled by `select!`.",
+    },
 ];
 
 const MAX_DEMO_FALLBACK_BYTES: usize = 20_000;
@@ -3383,6 +3389,7 @@ mod tests {
             ),
             ("audio-lab", "ob-audio-lab", "Web Audio synth"),
             ("native-lab", "ob-native-lab", "popover attribute"),
+            ("server-lab", "ob-server-lab", "multiplayer server model"),
         ] {
             let r = render(&format!("```demo {kind}\n```\n"), RenderOptions::default());
             assert!(r.errors.is_empty(), "{kind}: {:?}", r.errors);
