@@ -196,8 +196,11 @@ test("an acknowledgement is keyboard operable, keeps the finding listed and coun
   await expect(context.locator("[data-review-acknowledgement]")).toContainText("stays listed and counted");
   await expect(findings(site(page))).toHaveCount(before);
   expect(existsSync(research("acknowledgements.json"))).toBe(true);
-  // It survives a refresh, and the command line says so in the same words.
+  // It survives a refresh, and the command line says so in the same words. The refresh replaces
+  // the review's elements when it completes, so wait for its status line before reading buttons:
+  // the pre-refresh button also says pressed, and focusing it would press a detached element.
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.locator("[data-boundary-status]")).toContainText("Refreshed.");
   await expect(codeOf(site(page), "context-link-unpublished").getByRole("button", { name: /^Acknowledge/ })).toHaveAttribute("aria-pressed", "true");
   const checked = cli("check");
   expect(checked.stderr).toMatch(/research detected \(acknowledged\): posts\/cave\.md:\d+/);
@@ -212,6 +215,7 @@ test("an acknowledgement is keyboard operable, keeps the finding listed and coun
   await expect(again).toHaveAttribute("aria-pressed", "true");
   writeFileSync(post("cave.md"), POST.replace("/atlas/the-good/", "/atlas/the-good/#dates"));
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.locator("[data-boundary-status]")).toContainText("Refreshed.");
   const stale = codeOf(site(page), "context-link-unpublished");
   await expect(stale.locator("[data-review-acknowledgement]")).toContainText("changed since");
   await expect(stale.getByRole("button", { name: /^Acknowledge/ })).toHaveAttribute("aria-pressed", "false");
