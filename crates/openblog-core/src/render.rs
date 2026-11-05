@@ -3185,12 +3185,22 @@ impl<'a> Renderer<'a> {
             attr(&series.url),
             text(&series.name)
         ));
-        // One cell per part, decorative: the position is already spoken in the eyebrow and the
-        // list below. A theme script may mark cells the reader has completed.
-        h.push_str("<ol class=\"ob-series-path\" aria-hidden=\"true\">");
-        for n in 0..series.posts.len() {
-            let here = if n == position { " data-current" } else { "" };
-            h.push_str(&format!("<li{here}></li>"));
+        // One cell per part. Every other part is a shortcut; the current part is deliberately a
+        // non-link so the strip communicates position without offering a no-op navigation.
+        h.push_str("<ol class=\"ob-series-path\" aria-label=\"Series parts\">");
+        for (n, &part_index) in series.posts.iter().enumerate() {
+            let part = &self.site.posts[part_index];
+            let label = attr(&format!("Part {}: {}", n + 1, part.title));
+            if n == position {
+                h.push_str(&format!(
+                    "<li data-current><span aria-current=\"page\" aria-label=\"{label}\"></span></li>"
+                ));
+            } else {
+                h.push_str(&format!(
+                    "<li><a href=\"{}\" aria-label=\"{label}\"></a></li>",
+                    attr(&part.url)
+                ));
+            }
         }
         h.push_str(
             "</ol>
@@ -5556,17 +5566,17 @@ mod tests {
         let first = file(&files, "one/index.html");
         let last = file(&files, "two/index.html");
         for page in [first, last] {
-            assert!(page.contains("<ol class=\"ob-series-path\" aria-hidden=\"true\">"));
-            assert_eq!(page.matches("<li data-current></li>").count(), 1);
+            assert!(page.contains("<ol class=\"ob-series-path\" aria-label=\"Series parts\">"));
+            assert_eq!(page.matches("aria-current=\"page\"").count(), 2);
             assert_eq!(page.matches("class=\"ob-series-prev").count(), 1);
             assert_eq!(page.matches("class=\"ob-series-next").count(), 1);
             assert!(!page.contains("<div class=\"ob-series-nav\"><span></span>"));
         }
-        assert!(first.contains("<li data-current></li><li></li>"));
+        assert!(first.contains("<li data-current><span aria-current=\"page\" aria-label=\"Part 1: One\"></span></li><li><a href=\"/two/\" aria-label=\"Part 2: Two\"></a></li>"));
         assert!(first.contains("Start of series"));
         assert!(first.contains("rel=\"next\""));
         assert!(!first.contains("End of series"));
-        assert!(last.contains("<li></li><li data-current></li>"));
+        assert!(last.contains("<li><a href=\"/one/\" aria-label=\"Part 1: One\"></a></li><li data-current><span aria-current=\"page\" aria-label=\"Part 2: Two\"></span></li>"));
         assert!(last.contains("End of series"));
         assert!(last.contains("rel=\"prev\""));
         assert!(last.contains("Back to Series S"));

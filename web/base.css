@@ -2750,7 +2750,7 @@ ob-list-pagination .ob-list > [hidden] {
   font-style: italic;
 }
 
-/* Decorative progress cells (aria-hidden): hollow = not marked, ringed = this part, filled = marked complete. */
+/* Series shortcuts: hollow = another part, filled = this part. */
 .ob-series-path {
   display: flex;
   flex-wrap: wrap;
@@ -2761,6 +2761,7 @@ ob-list-pagination .ob-list > [hidden] {
 }
 
 .ob-series-path li {
+  position: relative;
   flex: 1 1 0;
   min-width: 0.75rem;
   max-width: 2.5rem;
@@ -2769,16 +2770,21 @@ ob-list-pagination .ob-list > [hidden] {
   border-radius: 2px;
 }
 
-.ob-series-path li[data-done] {
-  background: var(--ob-color-accent-soft);
-  border-color: var(--ob-color-accent-soft);
+.ob-series-path a,
+.ob-series-path span {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ob-series-path a:focus-visible {
+  outline: var(--ob-focus-ring);
+  outline-offset: 3px;
 }
 
 .ob-series-path li[data-current] {
-  height: 0.95rem;
-  border-style: double;
-  border-width: 4px;
-  border-color: var(--ob-color-text);
+  background: var(--ob-color-accent-soft);
+  border-color: var(--ob-color-accent-soft);
 }
 
 @media (max-width: 40rem) {

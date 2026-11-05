@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-11-03
+
+- Series progress strips now use one orange marker for the current post and link every other block
+  directly to its part. The current block remains a non-link, and reading-completion marks stay in
+  the reading tools and expanded list instead of competing with the position marker.
+
 - Portable Markdown (a post's `.md` copy, and the body sent to DEV, Hashnode and Medium) keeps an authored
   native disclosure (`<details>`, `<summary>` and plain `code`, `strong`, `em`, `b`, `i` inside it, without
   attributes) as markup instead of escaping it to literal text. A closing tag is kept only when its opening
