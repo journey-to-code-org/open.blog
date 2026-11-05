@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-11-05
+
+- Series progress strips preview each part. Hovering or focusing a block opens a native Popover API card
+  with the part's title, description, optional cover, number, date and reading time, plus its credit in a
+  collaborative series. The current part can now take keyboard focus too. Links still navigate on the first
+  click or tap; without JavaScript or Popover API support each block keeps a plain `title` tooltip and the
+  All parts list.
+
 ## [0.53.0] - 2026-11-03
 
 - Series progress strips now use one orange marker for the current post and link every other block
