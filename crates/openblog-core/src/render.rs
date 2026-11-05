@@ -3169,8 +3169,7 @@ impl<'a> Renderer<'a> {
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
         let position = series.posts.iter().position(|&i| i == index).unwrap_or(0);
         let (prev, next) = self.site.series_neighbors(index);
-        // Only a series holding a collaborative work names its parts' authors (ADR 0040); every
-        // other series keeps exactly the markup it always had.
+        // Only a series holding a collaborative work names its parts' authors (ADR 0040).
         let credited = self.site.series_is_collaborative(series);
         let credit = |part: &Post, lead: &str| match credited.then(|| part_credit(part)).flatten() {
             Some(by) => format!("{lead}<span class=\"ob-meta ob-part-credit\">{by}</span>"),
@@ -3187,23 +3186,58 @@ impl<'a> Renderer<'a> {
         ));
         // One cell per part. Every other part is a shortcut; the current part is deliberately a
         // non-link so the strip communicates position without offering a no-op navigation.
-        h.push_str("<ol class=\"ob-series-path\" aria-label=\"Series parts\">");
+        h.push_str("<ob-series-previews><ol class=\"ob-series-path\" aria-label=\"Series parts\">");
         for (n, &part_index) in series.posts.iter().enumerate() {
             let part = &self.site.posts[part_index];
             let label = attr(&format!("Part {}: {}", n + 1, part.title));
+            let id = format!("ob-series-preview-{}", n + 1);
+            let fallback = attr(&format!(
+                "Part {} of {}: {}\n{}\n{} min read",
+                n + 1,
+                series.posts.len(),
+                part.title,
+                part.description,
+                part.reading_minutes
+            ));
+            let preview_attrs =
+                format!("data-series-trigger aria-describedby=\"{id}\" title=\"{fallback}\"");
             if n == position {
                 h.push_str(&format!(
-                    "<li data-current><span aria-current=\"page\" aria-label=\"{label}\"></span></li>"
+                    "<li data-current><span tabindex=\"0\" aria-current=\"page\" aria-label=\"{label}\" {preview_attrs}></span>"
                 ));
             } else {
                 h.push_str(&format!(
-                    "<li><a href=\"{}\" aria-label=\"{label}\"></a></li>",
+                    "<li><a href=\"{}\" aria-label=\"{label}\" {preview_attrs}></a>",
                     attr(&part.url)
                 ));
             }
+            h.push_str(&format!(
+                "<div class=\"ob-series-preview\" id=\"{id}\" role=\"tooltip\" popover=\"manual\">"
+            ));
+            if let Some(cover) = &part.cover {
+                h.push_str(&cover_image(
+                    cover,
+                    part.cover_light.as_deref(),
+                    part.cover_dark.as_deref(),
+                    "",
+                    Some("ob-series-preview-cover"),
+                    true,
+                ));
+            }
+            h.push_str(&format!(
+                "<p class=\"ob-meta\">Part {} of {}{}</p><strong>{}</strong><p>{}</p><p class=\"ob-meta\">{} · {} min read</p>{}</div></li>",
+                n + 1,
+                series.posts.len(),
+                if n == position { " · Current part" } else { "" },
+                text(&part.title),
+                text(&part.description),
+                self.time(part),
+                part.reading_minutes,
+                credit(part, "")
+            ));
         }
         h.push_str(
-            "</ol>
+            "</ol></ob-series-previews>
 <div class=\"ob-series-nav\">",
         );
         // Both slots are always links, so the control looks and behaves the same on every
@@ -5568,19 +5602,69 @@ mod tests {
         for page in [first, last] {
             assert!(page.contains("<ol class=\"ob-series-path\" aria-label=\"Series parts\">"));
             assert_eq!(page.matches("aria-current=\"page\"").count(), 2);
-            assert_eq!(page.matches("class=\"ob-series-prev").count(), 1);
+            assert_eq!(page.matches("<a class=\"ob-series-prev").count(), 1);
             assert_eq!(page.matches("class=\"ob-series-next").count(), 1);
             assert!(!page.contains("<div class=\"ob-series-nav\"><span></span>"));
         }
-        assert!(first.contains("<li data-current><span aria-current=\"page\" aria-label=\"Part 1: One\"></span></li><li><a href=\"/two/\" aria-label=\"Part 2: Two\"></a></li>"));
+        assert!(first.contains("<li data-current><span tabindex=\"0\" aria-current=\"page\" aria-label=\"Part 1: One\" data-series-trigger"));
+        assert!(
+            first.contains("<li><a href=\"/two/\" aria-label=\"Part 2: Two\" data-series-trigger")
+        );
         assert!(first.contains("Start of series"));
         assert!(first.contains("rel=\"next\""));
         assert!(!first.contains("End of series"));
-        assert!(last.contains("<li><a href=\"/one/\" aria-label=\"Part 1: One\"></a></li><li data-current><span aria-current=\"page\" aria-label=\"Part 2: Two\"></span></li>"));
+        assert!(
+            last.contains("<li><a href=\"/one/\" aria-label=\"Part 1: One\" data-series-trigger")
+        );
+        assert!(last.contains("<li data-current><span tabindex=\"0\" aria-current=\"page\" aria-label=\"Part 2: Two\" data-series-trigger"));
         assert!(last.contains("End of series"));
         assert!(last.contains("rel=\"prev\""));
         assert!(last.contains("Back to Series S"));
         assert!(!last.contains("Start of series"));
+    }
+
+    #[test]
+    fn series_previews_escape_metadata_and_include_optional_cover_variants() {
+        let (mut site, themes) = model(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            true,
+        );
+        let part = site.posts.iter_mut().find(|p| p.slug == "one").unwrap();
+        part.title = "<img src=x onerror=alert(1)>".into();
+        part.description = "A \"quote\" & <script>not markup</script>.".into();
+        part.cover = Some("/cover.jpg".into());
+        part.cover_light = Some("/cover-light.jpg".into());
+        part.cover_dark = Some("/cover-dark.jpg".into());
+        let files = generate(&site, &themes).unwrap();
+        let page = file(&files, "two/index.html");
+        let start = page.find("<ob-series-previews>").unwrap();
+        let end = page.find("</ob-series-previews>").unwrap();
+        let previews = &page[start..end];
+        assert_eq!(
+            previews
+                .matches("role=\"tooltip\" popover=\"manual\"")
+                .count(),
+            2
+        );
+        assert_eq!(
+            previews
+                .matches("class=\"ob-series-preview-cover\"")
+                .count(),
+            1
+        );
+        for id in ["ob-series-preview-1", "ob-series-preview-2"] {
+            assert!(previews.contains(&format!("aria-describedby=\"{id}\"")));
+            assert_eq!(previews.matches(&format!("id=\"{id}\"")).count(), 1);
+        }
+        assert!(previews.contains("<strong>&lt;img src=x onerror=alert(1)&gt;</strong>"));
+        assert!(previews.contains("&amp; &lt;script&gt;not markup&lt;/script&gt;."));
+        assert!(!previews.contains("<script>") && !previews.contains("<img src=x"));
+        assert!(previews.contains("src=\"/cover-light.jpg\" alt=\"\" loading=\"lazy\""));
+        assert!(previews.contains("srcset=\"/cover-dark.jpg\""));
+        assert!(previews.contains("Part 2 of 2 · Current part"));
+        assert!(previews
+            .contains("<time datetime=\"2026-01-01T00:00:00Z\">Jan 1, 2026</time> · 1 min read"));
+        assert!(previews.contains("title=\"Part 1 of 2: &lt;img"));
     }
 
     #[test]

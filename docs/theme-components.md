@@ -100,6 +100,24 @@ restyle it, set these custom properties on `ob-compare` or on `:root` in a theme
 The component sets `--ob-compare-pos` (the reveal, `0%` to `100%`) and `--ob-compare-ratio` (the first picture's shape);
 leave those alone. Keep the line and knob visible against light and dark pictures, and the focus ring at 3:1 or better.
 
+## Styling series navigation
+
+The engine's series box is the shared structure for lesson navigation, so themes restyle
+it rather than rebuild it: `.ob-series-box > .ob-eyebrow` (position), `.ob-series-path`
+(shortcut cells, one `li` per part, `data-current` on this part), `.ob-series-nav` with
+`.ob-series-prev` and `.ob-series-next` (both always present; `.ob-series-edge` marks the
+series-overview link used at either end), and the `All parts` list. Keep the eyebrow a
+direct child of the box, because several themes read it.
+
+The strip's `ob-series-previews` enhancement opens a native Popover API tooltip on
+hover or keyboard focus, including the current part (a focusable non-link).
+Each `.ob-series-preview` shows the lesson title, description, optional lazy-loaded
+cover, part number, publication date, reading time, and collaborative credit where
+applicable. Covers reuse the site's light/dark variants. Escape or interacting
+outside dismisses the tooltip; moving onto it keeps it open. Links still navigate
+on the first click or tap. Without JavaScript or Popover API support, the nodes
+keep ordinary `title` tooltips and the All parts list remains available.
+
 ## Try the demo
 
 `openblog init` writes the `demo` theme (and `paper`) into your blog's `themes/` folder,
