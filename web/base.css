@@ -2832,12 +2832,6 @@ ob-series-previews {
   border-radius: var(--ob-radius);
 }
 
-@media print {
-  .ob-series-preview:popover-open {
-    display: none;
-  }
-}
-
 @media (max-width: 40rem) {
   .ob-series-nav {
     flex-direction: column;

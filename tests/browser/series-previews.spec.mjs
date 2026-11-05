@@ -138,6 +138,14 @@ test("disconnect closes the top-layer tooltip and restores titles for reconnecti
   await expect(page.locator("#preview-1")).toBeVisible();
 });
 
+test("an open preview does not print, because the series box does not", async ({ page }) => {
+  await setup(page);
+  await page.locator("[data-series-trigger]").first().focus();
+  await expect(page.locator("#preview-1")).toBeVisible();
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator("#preview-1")).toBeHidden();
+});
+
 test("touch follows a lesson link on the first tap", async ({ browser }) => {
   const context = await browser.newContext({ hasTouch: true, isMobile: true });
   const page = await context.newPage();
