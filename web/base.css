@@ -2770,14 +2770,14 @@ ob-list-pagination .ob-list > [hidden] {
   border-radius: 2px;
 }
 
-.ob-series-path a,
-.ob-series-path span {
+.ob-series-path li > a,
+.ob-series-path li > span {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.ob-series-path a:focus-visible {
+.ob-series-path [data-series-trigger]:focus-visible {
   outline: var(--ob-focus-ring);
   outline-offset: 3px;
 }
@@ -2785,6 +2785,51 @@ ob-list-pagination .ob-list > [hidden] {
 .ob-series-path li[data-current] {
   background: var(--ob-color-accent-soft);
   border-color: var(--ob-color-accent-soft);
+}
+
+ob-series-previews {
+  display: block;
+}
+
+.ob-series-preview {
+  display: none;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  box-sizing: border-box;
+  width: min(22rem, calc(100vw - 1rem));
+  max-height: calc(100dvh - 1rem);
+  overflow: auto;
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: 0 0.5rem 2rem #0003;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.ob-series-preview:popover-open {
+  display: block;
+}
+
+.ob-series-preview p {
+  margin: 0.5rem 0 0;
+}
+
+.ob-series-preview strong {
+  display: block;
+  margin-top: 0.5rem;
+}
+
+.ob-series-preview-cover {
+  display: block;
+  width: 100%;
+  height: 7rem;
+  object-fit: cover;
+  border-radius: var(--ob-radius);
 }
 
 @media (max-width: 40rem) {

@@ -27,6 +27,7 @@ const components = [
   "ob-compare",
   "ob-reading-modes",
   "ob-list-pagination",
+  "ob-series-previews",
   "ob-back-to-top",
   "ob-search",
   "ob-share",

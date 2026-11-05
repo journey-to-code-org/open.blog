@@ -19,6 +19,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     ("base.css", include_str!("../../../web/base.css")),
     ("openblog.js", include_str!("../../../web/openblog.js")),
     (
+        "components/ob-series-previews.js",
+        include_str!("../../../web/components/ob-series-previews.js"),
+    ),
+    (
         "components/ob-theme-toggle.js",
         include_str!("../../../web/components/ob-theme-toggle.js"),
     ),
