@@ -4032,6 +4032,10 @@ fn meta(state: &AppState) -> Response {
             "defaultTheme": config.theme,
             "themes": theme_list,
             "profiles": profiles,
+            "siteUses": {
+                "services": !sources.services.is_empty(),
+                "business": config.business != openblog_core::business::BusinessConfig::default(),
+            },
             "job": job_form,
             "capture": openblog_core::capture::limits_json(config.admin.max_upload_mb),
             "contributors": config.contributors,

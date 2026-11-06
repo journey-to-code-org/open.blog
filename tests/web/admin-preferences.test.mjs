@@ -12,6 +12,8 @@ import {
   editorPaneLayout,
   legacyAdminPreferences,
   normalizeAdminPreferences,
+  simpleHidesPage,
+  SIMPLE_EXTRA_PAGES,
   visibleAdminModules,
 } from "../../web/admin/admin.js";
 
@@ -394,23 +396,37 @@ function hiddenWithin(node, root) {
 const toolbeltLinks = (root) =>
   root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes.href?.startsWith("#/") && !hiddenWithin(link, root)).map((link) => link.textContent);
 
+test("Simple hides a page until the site uses it or it is open, and no other preset hides any", () => {
+  const simple = (page, active = "overview", meta = {}) => simpleHidesPage(page, { preset: "simple", active, meta });
+  for (const page of Object.keys(SIMPLE_EXTRA_PAGES)) {
+    assert.equal(simple(page), true, page);
+    assert.equal(simple(page, page), false, `${page} when open`);
+    for (const preset of ["guided", "advanced", "custom"]) assert.equal(simpleHidesPage(page, { preset, active: "overview", meta: {} }), false, `${page} in ${preset}`);
+  }
+  assert.equal(simple("series", "overview", { series: [{ slug: "a" }] }), false);
+  assert.equal(simple("services", "overview", { siteUses: { services: true } }), false);
+  assert.equal(simple("business", "overview", { siteUses: { business: true } }), false);
+  assert.equal(simple("business", "overview", { siteUses: { services: true } }), true);
+});
+
 test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
   const content = ["Overview", "Posts", "Pages", "Series", "Services", "Shared reflections", "Capture", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look", "Business facts"];
+  const simple = ["Overview", "Posts", "Pages", "Landing page", "Customize look"];
   const research = "Research workspace";
   const voice = "Voice";
   const cases = [
-    [{ preset: "simple" }, "overview", content],
-    [{ preset: "simple" }, "sources", [...content, research]],
+    [{ preset: "simple" }, "overview", simple],
+    [{ preset: "simple" }, "sources", [...simple, research]],
     [{ preset: "guided" }, "posts", [...content, voice, research]],
-    [{ preset: "simple" }, "appearance", content],
+    [{ preset: "simple" }, "appearance", ["Overview", "Posts", "Pages", "Landing page", "Appearance", "Customize look"]],
     [{ preset: "advanced" }, "overview", [...content, voice, "Analytics", "Moderation inbox", research, "Contributors"]],
     [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, voice, "Analytics", "Moderation inbox", research]],
     [{ preset: "custom", hiddenModules: ["research"] }, "overview", [...content, voice, "Analytics", "Moderation inbox", "Contributors"]],
     [{ preset: "custom", hiddenModules: ["research"] }, "atlas", [...content, voice, "Analytics", "Moderation inbox", research, "Contributors"]],
     [{ preset: "custom", hiddenModules: ["assistant"] }, "overview", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
-    [{ preset: "simple" }, "voice", [...content, voice]],
-    [{ preset: "simple" }, "analytics", [...content, "Analytics", "Moderation inbox"]],
-    [{ preset: "simple" }, "moderation", [...content, "Analytics", "Moderation inbox"]],
+    [{ preset: "simple" }, "voice", [...simple, voice]],
+    [{ preset: "simple" }, "analytics", [...simple, "Analytics", "Moderation inbox"]],
+    [{ preset: "simple" }, "moderation", [...simple, "Analytics", "Moderation inbox"]],
     [{ preset: "guided" }, "moderation", [...content, voice, "Analytics", "Moderation inbox", research]],
     [{ preset: "guided" }, "contributors", [...content, voice, research, "Contributors"]],
     [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, voice, "Analytics", "Moderation inbox", research, "Contributors"]],
@@ -634,8 +650,8 @@ test("Advanced tools is a labelled dialog that restores focus to its opener", wi
   assert.equal(dialog.attributes["aria-labelledby"], "oba-advanced-title");
   assert.ok(dialog.querySelector("#oba-advanced-title"));
   const headings = dialog.querySelectorAll("h3").map((heading) => heading.textContent);
-  assert.deepEqual(headings, ["Get writing help", "Check quality and research", "Share and distribute", "Collaborate and understand readers"]);
-  assert.equal(dialog.querySelectorAll("button").filter((button) => button.classList.contains("oba-advanced-tool")).length, ADMIN_OPTIONAL_MODULES.length);
+  assert.deepEqual(headings, ["Get writing help", "Check quality and research", "Share and distribute", "Collaborate and understand readers", "More pages"]);
+  assert.equal(dialog.querySelectorAll("button").filter((button) => button.classList.contains("oba-advanced-tool")).length, ADMIN_OPTIONAL_MODULES.length + Object.keys(SIMPLE_EXTRA_PAGES).length);
   await findByText(dialog, "button", "Close").click();
   await tick();
   assert.equal(dialog.parent, null);

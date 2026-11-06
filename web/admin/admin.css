@@ -500,6 +500,7 @@ kbd {
 
 .oba-progressive-tools[hidden],
 [data-admin-module][hidden],
+[data-simple-page][hidden],
 [data-admin-module-group][hidden],
 .oba-editor-advanced[hidden] {
   display: none;
@@ -1702,6 +1703,7 @@ html[data-admin-density="compact"] .oba-pane {
 
 .oba-protected-block {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   align-items: center;
   justify-content: space-between;
@@ -1713,6 +1715,7 @@ html[data-admin-density="compact"] .oba-pane {
 }
 
 .oba-protected-block > div:first-child {
+  flex: 1 1 10rem;
   display: grid;
   gap: 0.15rem;
 }
@@ -1727,6 +1730,14 @@ html[data-admin-density="compact"] .oba-pane {
   display: flex;
   gap: 0.25rem;
   align-items: center;
+}
+
+.oba-protected-actions {
+  flex-wrap: wrap;
+}
+
+.oba-protected-actions button {
+  white-space: nowrap;
 }
 
 .oba-protected-actions button,
@@ -1897,9 +1908,9 @@ html[data-admin-density="compact"] .oba-pane {
 
 .oba-format-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   padding: 0.45rem 0.55rem;
-  overflow-x: auto;
   border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
   background: var(--ob-color-surface-raised);
 }
@@ -2489,6 +2500,11 @@ html[data-admin-density="compact"] .oba-pane {
     gap: 0.75rem;
     padding-block: 0.6rem;
     overflow-x: auto;
+  }
+
+  html[data-admin-preset="simple"] .oba-toolbelt {
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   .oba-preferences-grid {

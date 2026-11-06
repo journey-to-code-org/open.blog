@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { removeTree } from "./teardown.mjs";
+import { useGuided } from "./guided.mjs";
 
 // The draft-side research panel in the real Admin Studio (A8.2, ADR 0122): a quotation goes in
 // with its server-checked citation and renders exactly in the production preview; Ctrl+Z undoes
@@ -112,6 +113,7 @@ async function openNewPost(page) {
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page.locator('[data-action="logout"]')).toBeVisible();
   }
+  await useGuided(page);
   await page.goto(`${origin}/admin/#/new/posts`);
   await expect(page.getByRole("button", { name: "Research", exact: true })).toBeVisible();
 }
@@ -184,6 +186,29 @@ test("a quotation inserted in Visual mode keeps the same Markdown across mode sw
   await mode(page, "Visual").click();
   await mode(page, "Markdown").click();
   await expect(markdown(page)).toHaveValue(written);
+});
+
+test("a locator typed while the panel is still loading survives the late redraw", async ({ page }) => {
+  let release;
+  const loaded = new Promise((done) => { release = done; });
+  await page.route(/\/admin\/api\/research\/curation/, async (route) => {
+    await loaded;
+    await route.continue();
+  });
+  await openNewPost(page);
+  await useMarkdown(page, "A claim.", 7);
+  await page.getByRole("button", { name: "Research", exact: true }).click();
+  await page.getByLabel("Search research").fill("republic of plato");
+  await item(page, "source:bloom").click();
+  const locators = panel(page).locator("#oba-draft-research-locators");
+  await locators.fill("section: 7");
+  release();
+  await page.waitForLoadState("networkidle");
+  await expect(locators).toHaveValue("section: 7");
+  await expect(locators).toBeFocused();
+  await expect(panel(page).locator("[data-draft-research-citation]")).toHaveText("[@bloom, section 7]");
+  await panel(page).getByRole("button", { name: "Insert citation" }).click();
+  await expect(markdown(page)).toHaveValue("A claim [@bloom, section 7].");
 });
 
 test("one source selection gives a citation with its locator, and nothing else", async ({ page }) => {

@@ -59,7 +59,7 @@ async function openNewPost(page) {
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
   }
   await page.goto(`${origin}/admin/#/new/posts`);
-  await expect(page.getByRole("button", { name: "Cite a source" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add something" })).toBeVisible();
 }
 
 const markdown = (page) => page.getByRole("textbox", { name: "Markdown", exact: true });

@@ -46,7 +46,11 @@ immediately.
 
 The admin is organized like a writing studio. New accounts start in **Simple**, which keeps
 the main navigation focused on content and the essential **Write**, **Site preview**, and
-**Settings** views. Every other document view sits under **More tools** in the editor bar,
+**Settings** views. Its main navigation shows Overview, Posts, Pages, Landing page, and Customize
+look, plus Series, Services, and Business facts once the site uses them. The other pages are under
+**More pages** in **Advanced tools**, and research capture, knowledge checks and research formatting appear in the
+editor from **Guided** up, on a post that is research or publishes citations, or after you open
+the research workspace. Every other document view sits under **More tools** in the editor bar,
 and the header's **Advanced tools** dialog groups every optional tool by goal: getting
 writing help (the optional AI Assistant, including knowledge checks and runnable-code
 proposals), checking quality and research, sharing and distribution, and collaboration and

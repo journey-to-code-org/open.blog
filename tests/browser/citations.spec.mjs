@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
+import { useGuided } from "./guided.mjs";
 
 // The real Admin Studio and the real citation API (core parser and resolver) over a small source
 // library. Covers keyboard search, focus, Unicode, undo, a stale library, mixed hand-written and
@@ -76,6 +77,7 @@ async function openNewPost(page) {
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
   }
+  await useGuided(page);
   await page.goto(`${origin}/admin/#/new/posts`);
   await expect(page.getByRole("button", { name: "Cite a source" })).toBeVisible();
 }

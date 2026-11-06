@@ -118,6 +118,29 @@ export function normalizeAdminPreferences(value) {
   return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules, ...(input.voiceInvitationDismissed === true ? { voiceInvitationDismissed: true } : {}) };
 }
 
+/**
+ * The pages a Simple workspace leaves out of the main navigation (#559), which Advanced tools lists.
+ * The first three appear once the site uses them, so nobody loses a page they rely on.
+ */
+export const SIMPLE_EXTRA_PAGES = Object.freeze({
+  series: "Series",
+  services: "Services",
+  business: "Business facts",
+  shared: "Shared reflections",
+  capture: "Capture",
+  paths: "Reading paths",
+  comparisons: "Comparisons",
+  appearance: "Appearance",
+});
+
+/** Whether a Simple workspace hides this page, or an editor tool, from someone on another page. */
+export function simpleHidesPage(page, { preset, active, meta } = {}) {
+  if (preset !== "simple" || page === active) return false;
+  if (page === "series") return !meta?.series?.length;
+  if (page === "services" || page === "business") return !meta?.siteUses?.[page];
+  return true;
+}
+
 export function visibleAdminModules(preferences, available = ADMIN_OPTIONAL_MODULES) {
   const normalized = normalizeAdminPreferences(preferences);
   const candidates = normalized.moduleOrder.filter((module) => available.includes(module));
@@ -2735,6 +2758,10 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
       renderResults();
       return;
     }
+    // A late curation load redraws the open item, which must not lose what is being typed into it.
+    const redraw = !moveFocus && selected?.type === type && selected?.id === id;
+    const typed = redraw ? [...detail.querySelectorAll("textarea[id]")].map((field) => [field.id, field.value]) : [];
+    const typingIn = redraw && detail.contains(document.activeElement) ? document.activeElement.id : "";
     selected = { type, id };
     const record = item.record;
     const parts =
@@ -2745,6 +2772,13 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
       : type === "interpretation" ? interpretationDetail(record)
       : noteDetail(record);
     detail.replaceChildren(...parts);
+    for (const [fieldId, value] of typed) {
+      const field = detail.querySelector(`#${fieldId}`);
+      if (!field || !value) continue;
+      field.value = value;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    if (typingIn) detail.querySelector(`#${typingIn}`)?.focus();
     detail.hidden = false;
     renderResults();
     if (moveFocus) detail.querySelector(`#${idPrefix}-detail-title`)?.focus();
@@ -11203,6 +11237,10 @@ export class ObAdmin extends AdminElement {
     return visible;
   }
 
+  simpleHides(page, active = this.activeRoute) {
+    return simpleHidesPage(page, { preset: this.preferences?.preset, active, meta: this.meta });
+  }
+
   syncPreferencesWarning() {
     if (!this.preferencesWarning) return;
     this.preferencesWarning.textContent = this.preferencesError;
@@ -11219,6 +11257,9 @@ export class ObAdmin extends AdminElement {
     this.querySelectorAll?.("[data-admin-module-group]").forEach((element) => {
       const modules = element.dataset.adminModuleGroup.split(" ");
       element.hidden = !modules.some((module) => visible.has(module));
+    });
+    this.querySelectorAll?.("[data-simple-page]").forEach((element) => {
+      element.hidden = this.simpleHides(element.dataset.simplePage);
     });
     this.editor?.applyWorkspacePreferences(this.preferences);
     this.syncPreferencesWarning();
@@ -11504,25 +11545,28 @@ export class ObAdmin extends AdminElement {
       h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
     const visibleModules = this.shownShellModules();
     const panel = researchPanelForRoute(active);
+    // Someone working in the research workspace keeps its tools in the drafts they start from it.
+    if (panel) this.researchVisited = true;
     const inDraft = Boolean(KINDS[active]) && workspacePanelKey(globalThis.location?.hash) === "draft";
     // The research workspace's own navigation: always on its panels, and beside a draft when the
     // workspace is part of the chosen layout or holds kept work to return to.
     const showResearchNav = Boolean(panel) || (inDraft && (visibleModules.has("research") || this.kept.size > 0));
+    const simpleOnly = (page) => ({ "data-simple-page": page, hidden: this.simpleHides(page, active) });
     const contentTabs = [
       h("a", { class: "oba-tab", "aria-current": active === "overview" ? "page" : null, href: "#/overview" }, "Overview"),
       ...Object.entries(KINDS).map(([kind, info]) =>
-        h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
+        h("a", { class: "oba-tab", ...(SIMPLE_EXTRA_PAGES[kind] ? simpleOnly(kind) : {}), "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
-      h("a", { class: "oba-tab", "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
-      h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
-      h("a", { class: "oba-tab", "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
+      h("a", { class: "oba-tab", ...simpleOnly("services"), "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
+      h("a", { class: "oba-tab", ...simpleOnly("shared"), "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
+      h("a", { class: "oba-tab", ...simpleOnly("capture"), "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
-      h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
-      h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
-      h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
+      h("a", { class: "oba-tab", ...simpleOnly("paths"), "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
+      h("a", { class: "oba-tab", ...simpleOnly("comparisons"), "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
+      h("a", { class: "oba-tab", ...simpleOnly("appearance"), "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
       ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
-      h("a", { class: "oba-tab", "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
+      h("a", { class: "oba-tab", ...simpleOnly("business"), "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
@@ -11700,6 +11744,15 @@ export class ObAdmin extends AdminElement {
         h("ul", { class: "oba-advanced-grid" }, group.modules.map(tool)),
       ),
     );
+    const extraPages = Object.entries(SIMPLE_EXTRA_PAGES).filter(([page]) => this.simpleHides(page));
+    const pagesGroup = extraPages.length
+      ? h(
+          "section",
+          { class: "oba-advanced-group", "aria-labelledby": "oba-advanced-pages", "data-simple-pages": "true" },
+          h("h3", { id: "oba-advanced-pages" }, "More pages"),
+          h("ul", { class: "oba-advanced-grid" }, extraPages.map(([page, label]) => h("li", {}, h("button", { class: "oba-advanced-tool", type: "button", onClick: () => choose(() => { location.hash = `#/${page}`; }) }, h("strong", {}, label))))),
+        )
+      : null;
     const close = h("button", { class: "oba-btn", type: "button", onClick: () => dialog.close() }, "Close");
     const personalize = h("button", { class: "oba-btn", type: "button", onClick: () => choose(() => this.openWorkspacePreferences()) }, "Personalize workspace");
     const dialog = h(
@@ -11709,6 +11762,7 @@ export class ObAdmin extends AdminElement {
       h("h2", { id: "oba-advanced-title" }, "Advanced tools"),
       h("p", {}, "Everything remains reachable even when your everyday workspace is simple. Choose what you want to do next."),
       groups,
+      pagesGroup,
       h("div", { class: "oba-dialog-actions" }, personalize, h("span", { class: "oba-spacer" }), close),
     );
     this.openWorkspaceDialog(dialog, close);
@@ -11938,7 +11992,7 @@ export class ObAdmin extends AdminElement {
       return;
     }
     if (!st.repo) {
-      box.replaceChildren(h("span", { class: "oba-small", title: "Run `openblog publish setup` to publish with git" }, "Not a git repository"));
+      box.replaceChildren(h("span", { class: "oba-small", title: "Whoever set up this site can run `openblog publish setup` to publish with git" }, "Publishing is not set up yet"));
       return;
     }
     const pending = st.changed.length;
@@ -12182,6 +12236,7 @@ export class ObAdmin extends AdminElement {
         h("span", {}, h("strong", {}, label), h("small", {}, description)),
       );
     const quickCreateKind = (kind, description) => quickCreate(kind, `New ${KINDS[kind].single}`, description);
+    const quickCreatePanel = h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("recipe", "New recipe", "Ingredients and steps, ready to fill in"), quickCreateKind("posts", "Write an article or draft"), quickCreateKind("pages", "Add evergreen site content"), quickCreateKind("series", "Group posts into a collection")));
     const recentList = h(
       "ol",
       { class: "oba-recent-list" },
@@ -12234,6 +12289,8 @@ export class ObAdmin extends AdminElement {
     this.mount(
       this.shell(
         "overview",
+        // Someone on Simple starts here to write, so writing comes before the numbers.
+        this.preferences?.preset === "simple" ? quickCreatePanel : null,
         h(
           "section",
           { class: "oba-overview-metrics", "aria-label": "Publishing pipeline" },
@@ -12245,7 +12302,7 @@ export class ObAdmin extends AdminElement {
         h(
           "div",
           { class: "oba-overview-grid" },
-          h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("recipe", "New recipe", "Ingredients and steps, ready to fill in"), quickCreateKind("posts", "Write an article or draft"), quickCreateKind("pages", "Add evergreen site content"), quickCreateKind("series", "Group posts into a collection"))),
+          this.preferences?.preset === "simple" ? null : quickCreatePanel,
           h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Library"), h("h2", {}, "Content inventory")), h("dl", { class: "oba-inventory" }, h("div", {}, h("dt", {}, "Posts"), h("dd", {}, posts.length)), h("div", {}, h("dt", {}, "Pages"), h("dd", {}, inventories.pages.length)), h("div", {}, h("dt", {}, "Series"), h("dd", {}, inventories.series.length)))),
           h("section", { class: "oba-overview-panel oba-overview-recent" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Continue"), h("h2", {}, "Recent posts"), h("a", { href: "#/posts" }, "View all")), recentList),
           healthPanel,
@@ -12269,6 +12326,8 @@ export class ObAdmin extends AdminElement {
     try {
       const voiceStatus = await this.api.call("GET", "voice/status");
       if (this.viewVersion !== version || !this.workspaceMain) return;
+      // Voice follows the Assistant module (ADR 0272), so a layout without it does not offer Voice either.
+      if (!this.shownShellModules().has("assistant")) return;
       if (!invitationVisible({ dismissed: this.preferences?.voiceInvitationDismissed === true, status: voiceStatus })) return;
       const invitation = buildVoiceInvitation({
         onDismiss: async () => {
@@ -21133,6 +21192,7 @@ export class ObAdmin extends AdminElement {
     this.mount(this.shell(doc.kind, editor.render()));
     this.editor = editor;
     editor.afterMount();
+    editor.syncResearchTools();
     this.openRequestedPane(location.hash);
   }
 }
@@ -21591,6 +21651,7 @@ export class Editor {
         syncProfileFields();
         this.syncJobMode();
         this.startFromProfile(profiles.find((profile) => profile.id === ui.profile.value), ui.profileHelp);
+        this.syncResearchTools();
       });
       syncProfileHelp();
       syncProfileFields();
@@ -21675,13 +21736,13 @@ export class Editor {
       side.push(this.renderCreditEditor());
     }
 
-    ui.saveBtn = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.save() }, this.isNew ? "Create" : "Save");
+    ui.saveBtn = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.save() }, "Save");
     ui.deleteBtn = this.isNew ? null : h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: () => this.remove() }, "Move to trash");
     ui.live = h("span", { class: "oba-small" });
 
     const imageButton = h("button", { class: "oba-btn", type: "button", onClick: () => ui.imageFile.click() }, "Insert image");
-    const captureButton = kind === "posts" ? h("button", { class: "oba-btn", type: "button", "data-research-capture": "true", onClick: () => this.openResearchCapture() }, "Capture research") : null;
-    const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
+    const captureButton = kind === "posts" ? h("button", { class: "oba-btn", type: "button", "data-simple-page": "editor-tool", hidden: this.app.simpleHides?.("editor-tool"), "data-research-capture": "true", onClick: () => this.openResearchCapture() }, "Capture research") : null;
+    const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", "data-simple-page": "editor-tool", hidden: this.app.simpleHides?.("editor-tool"), onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
     ui.imageFile = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", class: "oba-sr", tabindex: "-1", "aria-hidden": "true" });
     ui.imageFile.addEventListener("change", async () => {
       const file = ui.imageFile.files[0];
@@ -21745,12 +21806,12 @@ export class Editor {
       ),
       kind === "posts"
         ? [
-            h("button", { type: "button", class: "oba-format-button", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
-            h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
+            h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
+            h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
             h("button", { type: "button", class: "oba-format-button", title: "Add a button, video, map, image or other piece", "aria-label": "Add something", "aria-haspopup": "dialog", "data-add-something": "true", onClick: () => this.openAddSomething() }, "Add something"),
-            h("button", { type: "button", class: "oba-format-button", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
-            h("button", { type: "button", class: "oba-format-button", title: "Make a claim from the selected words, in Evidence Studio", "aria-label": "Make a claim from the selected words", "data-claim-from-selection": "true", onClick: () => void this.claimFromSelection() }, "Claim"),
-            (ui.draftResearchToggle = h("button", { type: "button", class: "oba-format-button", title: "Search your research and insert quotations, citations and links beside the draft", "aria-expanded": "false", "aria-controls": "oba-draft-research-slot", "data-draft-research-toggle": "true", onClick: () => this.toggleDraftResearch() }, "Research")),
+            h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
+            h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Make a claim from the selected words, in Evidence Studio", "aria-label": "Make a claim from the selected words", "data-claim-from-selection": "true", onClick: () => void this.claimFromSelection() }, "Claim"),
+            (ui.draftResearchToggle = h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Search your research and insert quotations, citations and links beside the draft", "aria-expanded": "false", "aria-controls": "oba-draft-research-slot", "data-draft-research-toggle": "true", onClick: () => this.toggleDraftResearch() }, "Research")),
           ]
         : null,
     );
@@ -22244,8 +22305,18 @@ export class Editor {
     }
   }
 
+  /** Research formatting stays out of a Simple workspace unless this post or this session is about research. */
+  syncResearchTools() {
+    const research = this.app.researchVisited || this.ui.profile?.value === "research" || Boolean(this.f.citations);
+    const hidden = this.app.preferences?.preset === "simple" && !research;
+    this.ui.formatToolbar?.querySelectorAll?.("[data-research-tool]").forEach((button) => {
+      button.hidden = hidden;
+    });
+  }
+
   applyWorkspacePreferences(preferences) {
     if (!this.primaryPaneNav || !this.advancedPaneActions) return;
+    this.syncResearchTools?.();
     const layout = editorPaneLayout(preferences, [...this.paneButtonMap.keys()]);
     this.morePanes = layout.more;
     this.primaryPaneNav.replaceChildren(...layout.primary.map((pane) => this.paneButtonMap.get(pane)));
@@ -24395,7 +24466,7 @@ export class Editor {
       ...(advice.length ? [h("strong", {}, "To finish this recipe"), h("ul", { "data-recipe-advice": "true" }, ...advice.map((line) => h("li", {}, line)))] : []),
       ...(items.length ? [h("strong", {}, "Publishing warnings"), h("ul", {}, ...items)] : []),
       ...(elsewhere.length
-        ? [h("details", { "data-site-warnings": "true" }, h("summary", {}, `Notes about the rest of the site (${elsewhere.length})`), h("ul", {}, ...elsewhere.map((warning) => h("li", {}, warning))))]
+        ? [h("details", { "data-site-warnings": "true" }, h("summary", {}, `Notes about the rest of the site (${elsewhere.length})`), h("p", {}, "These don't stop this post. They're mainly for whoever set up the site."), h("ul", {}, ...elsewhere.map((warning) => h("li", {}, warning))))]
         : []),
     );
     this.ui.previewWarnings.hidden = advice.length + items.length + elsewhere.length === 0;

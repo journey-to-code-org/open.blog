@@ -165,8 +165,8 @@ test("a job is saved as a nested mapping, reopens with its answers, and leaving 
   await form.getByRole("button", { name: "Check this job" }).click();
   await expect(form.getByRole("status").last()).toContainText("everything it needs");
 
-  await page.getByRole("button", { name: "Create", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator(".oba-save-state")).toHaveText("Saved");
 
   const posts = join(root, "content", "posts");
   const saved = readdirSync(posts).filter((name) => name.endsWith("oak-floor-in-maple-falls.md"));
