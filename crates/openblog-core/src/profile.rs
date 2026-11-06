@@ -43,7 +43,26 @@ pub struct ContentProfile {
     pub label: &'static str,
     pub description: &'static str,
     pub fields: &'static [ProfileField],
+    /// The Markdown a new post of this profile starts from, if it has one.
+    pub starter: Option<&'static str>,
 }
+
+/// What a new recipe starts from: the sections the engine turns into a recipe
+/// card, scaling, checklists and timers, ready to fill in.
+const RECIPE_STARTER: &str = "A few words about this dish: where it comes from and why you make it.
+
+## Ingredients
+
+- 2 cups flour
+- 1 tsp salt
+- 1 1/2 cups milk
+
+## Steps
+
+1. Heat the oven to 200 °C (400 °F).
+2. Mix everything into a smooth batter.
+3. Bake for 25 minutes, until golden.
+";
 
 const RECIPE_FIELDS: &[ProfileField] = &[
     ProfileField {
@@ -220,24 +239,28 @@ const PROFILES: &[ContentProfile] = &[
         label: "Article",
         description: "A general-purpose article with standard publishing metadata.",
         fields: &[],
+        starter: None,
     },
     ContentProfile {
         id: RECIPE_ID,
         label: "Recipe",
         description: "A recipe with ingredients, steps, timing, servings, and structured data.",
         fields: RECIPE_FIELDS,
+        starter: Some(RECIPE_STARTER),
     },
     ContentProfile {
         id: RESEARCH_ID,
         label: "Research",
         description: "A research article with portable references and scholarly metadata.",
         fields: RESEARCH_FIELDS,
+        starter: None,
     },
     ContentProfile {
         id: VIDEO_ID,
         label: "Video production",
         description: "A video companion page with production metadata and discovery markup.",
         fields: VIDEO_FIELDS,
+        starter: None,
     },
     ContentProfile {
         id: FIELD_JOURNAL_ID,
@@ -245,12 +268,14 @@ const PROFILES: &[ContentProfile] = &[
         description:
             "An outdoor field note with route, conditions, observations, and location privacy.",
         fields: FIELD_JOURNAL_FIELDS,
+        starter: None,
     },
     ContentProfile {
         id: JOB_ID,
         label: "Job",
         description: "One piece of completed trade work: trade, service, town, dates, and before and after images.",
         fields: &[],
+        starter: None,
     },
 ];
 

@@ -713,6 +713,12 @@ represent and carries advanced blocks through unchanged. Front matter remains in
 outside both body editors. Saving, conflict detection, preview sandboxing, and publishing
 use the same file-based workflow and security checks.
 
+**New recipe**, on Overview, on Posts and in the command palette, opens a post on the Recipe
+profile with sample Ingredients and Steps sections, the same ones `openblog new --recipe` writes.
+Choosing Recipe in Settings adds them to an empty post and never changes one with text. **Site
+preview** lists what a recipe still needs in everyday words, under **To finish this recipe**, and
+keeps notes about the rest of the site in their own collapsed list.
+
 In a post's **Settings** view, **Content profile** defaults to Article. Recipe posts select
 Recipe and continue through the existing recipe renderer and structured-data path. Files
 using `recipe: true` or another legacy recipe alias appear as Recipe but keep that original

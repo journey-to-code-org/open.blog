@@ -118,27 +118,6 @@ pub fn init(dir: &Path, title: Option<&str>, github_pages: bool) -> Result<Vec<S
     Ok(created)
 }
 
-/// The body of `openblog new --recipe`: the sections the engine turns into
-/// a recipe card, scaling, checklists and timers, ready to fill in.
-const RECIPE_BODY: &str = "
-A few words about this dish: where it comes from and why you make it.
-
-> [!TIP]
-> A swap, a shortcut, or something to watch out for.
-
-## Ingredients
-
-- 2 cups flour
-- 1 tsp salt
-- 1 1/2 cups milk
-
-## Steps
-
-1. Heat the oven to 200 °C (400 °F).
-2. Mix everything into a smooth batter.
-3. Bake for 25 minutes, until golden.
-";
-
 /// Create `content/posts/<date>-<slug>.md` and return its path. With `recipe`,
 /// the post starts from a recipe template (servings, times, ingredients, steps).
 pub fn new_post(
@@ -185,11 +164,17 @@ pub fn new_post(
         fields.push(("draft", Value::Scalar("true".into())));
     }
     let mut text = frontmatter::serialize(&fields);
-    text.push_str(if recipe {
-        RECIPE_BODY
-    } else {
-        "\nWrite your post here.\n"
-    });
+    match openblog_core::profile::catalog()
+        .iter()
+        .find(|profile| recipe && profile.id == openblog_core::profile::RECIPE_ID)
+        .and_then(|profile| profile.starter)
+    {
+        Some(starter) => {
+            text.push('\n');
+            text.push_str(starter);
+        }
+        None => text.push_str("\nWrite your post here.\n"),
+    }
     fs::create_dir_all(path.parent().unwrap_or(root)).map_err(|e| e.to_string())?;
     fsutil::write_file(&path, text.as_bytes())?;
     Ok(rel)

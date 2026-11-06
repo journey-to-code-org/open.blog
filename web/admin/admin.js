@@ -270,7 +270,7 @@ export function draftRoute(hash) {
 export function workspacePanelKey(hash) {
   const { head, tail } = parseAdminHash(canonicalAdminHash(hash));
   if (head === "research") return tail.split("/")[0] || null;
-  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series"].includes(tail))) return "draft";
+  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series", "recipe"].includes(tail))) return "draft";
   return null;
 }
 
@@ -7870,8 +7870,77 @@ export function sharedSourceHref(value) {
   return typeof value === "string" && isAbsoluteHttpUrl(value) ? value : "";
 }
 
+/**
+ * A triple click selects a whole block by ending at the start of the next one, so typing over it
+ * would join the two. Ends the selection inside the block it started in.
+ */
+export function keepSelectionInBlock(selection, root) {
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+  const block = start?.closest("li, p, h1, h2, h3, h4, h5, h6, blockquote");
+  if (!block || !root.contains(block) || range.endOffset !== 0 || block.contains(range.endContainer)) return;
+  range.setEnd(block, block.childNodes.length);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
+}
+
+/** The Markdown a new document of this profile starts from, or nothing. */
+export function profileStarter(profiles, id) {
+  return (Array.isArray(profiles) && profiles.find((profile) => profile.id === id)?.starter) || "";
+}
+
+/**
+ * The previewed document's own warnings, without its path, apart from those about the rest of the
+ * site. Recipe advice says what the engine's "recipe has no" warnings say, so they are dropped.
+ */
+export function splitPreviewWarnings(warnings, source, { recipe = false } = {}) {
+  const prefix = source ? `${source}: ` : null;
+  const own = [];
+  const elsewhere = [];
+  for (const warning of warnings) {
+    if (prefix === null) own.push(warning);
+    else if (!warning.startsWith(prefix)) elsewhere.push(warning);
+    else if (!(recipe && warning.startsWith(`${prefix}recipe has no `))) own.push(warning.slice(prefix.length));
+  }
+  return { own, elsewhere };
+}
+
+/**
+ * What to do about each recipe check code, in the author's words (#556). The codes left out are
+ * about the site's setup, not the recipe, and already appear among the site's warnings.
+ */
+export const RECIPE_ADVICE = {
+  "no-ingredients": () => "Add your ingredients. In Write, make a heading called Ingredients and put a bulleted list under it, one ingredient per line.",
+  "no-steps": () => "Add your steps. In Write, make a heading called Steps and put a numbered list under it, one step per line.",
+  "empty-ingredient": (n) => `Ingredient ${n} is empty. Write it or remove the line.`,
+  "empty-step": (n) => `Step ${n} is empty. Write it or remove the line.`,
+  "unreadable-quantity": (n) => `Ingredient ${n} starts with an amount that can't be read, so it won't change with the servings. Write it like 2, 1.5, 1/2 or 1 1/2.`,
+  "zero-quantity": (n) => `Ingredient ${n} has an amount of zero. Give the amount or leave the number out.`,
+  "descending-range": (n) => `Ingredient ${n} has a range that runs backwards. Put the smaller amount first.`,
+  "duplicate-ingredient": (n) => `Ingredient ${n} is listed twice. Remove one of them.`,
+  "numbered-step": (n) => `Step ${n} starts with its own number. Remove it; steps are numbered for you.`,
+  "unreadable-adapted-from": () => "Adapted from, in Settings, should be a web address starting with https://.",
+  "time-not-exported": () => "A time in Settings can't be read as one length of time. Write it like 20 min or 1 hour.",
+  "zero-time": () => "A time in Settings is zero. Give the time or clear it.",
+  "total-shorter-than-parts": () => "Total time, in Settings, is shorter than prep and cook time together.",
+  "incomplete-times": () => "Only one of prep and cook time is filled in. In Settings, add the other or a total time, so readers see how long this takes.",
+  "servings-not-numeric": () => "Servings, in Settings, should start with a number so readers can scale the recipe.",
+  "calories-without-yield": () => "Calories don't say what they're for. In Settings, add the servings or the yield.",
+  "no-image": () => "Add a photo. In Settings, choose Upload cover. Many recipe apps and search results look for one.",
+};
+
+/** The advice for a preview's recipe problems, in the order the check found them. */
+export function recipeAdvice(problems) {
+  if (!Array.isArray(problems)) return [];
+  return problems.flatMap((problem) => {
+    const advice = RECIPE_ADVICE[problem?.code];
+    return advice ? [advice(problem.ingredient ?? problem.step)] : [];
+  });
 }
 
 export function portableDiagnosticsForDisplay(diagnostics) {
@@ -11752,6 +11821,7 @@ export class ObAdmin extends AdminElement {
       { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
+      { label: "New recipe", category: "Create", keywords: "cook food ingredients dish", run: () => go("#/new/recipe") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
       { label: "New series", category: "Create", keywords: "collection", run: () => go("#/new/series") },
@@ -11969,6 +12039,7 @@ export class ObAdmin extends AdminElement {
     const { head, tail, params } = parseAdminHash(nextHash);
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
+      else if (head === "new" && tail === "recipe") await this.showEditor(null, "posts", "recipe");
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
@@ -12103,13 +12174,14 @@ export class ObAdmin extends AdminElement {
       .filter((item) => item.date)
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 5);
-    const quickCreate = (kind, description) =>
+    const quickCreate = (route, label, description) =>
       h(
         "a",
-        { class: "oba-quick-create", href: `#/new/${kind}` },
+        { class: "oba-quick-create", href: `#/new/${route}` },
         h("span", { class: "oba-quick-icon", "aria-hidden": "true" }, "+"),
-        h("span", {}, h("strong", {}, `New ${KINDS[kind].single}`), h("small", {}, description)),
+        h("span", {}, h("strong", {}, label), h("small", {}, description)),
       );
+    const quickCreateKind = (kind, description) => quickCreate(kind, `New ${KINDS[kind].single}`, description);
     const recentList = h(
       "ol",
       { class: "oba-recent-list" },
@@ -12173,7 +12245,7 @@ export class ObAdmin extends AdminElement {
         h(
           "div",
           { class: "oba-overview-grid" },
-          h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("posts", "Write an article or draft"), quickCreate("pages", "Add evergreen site content"), quickCreate("series", "Group posts into a collection"))),
+          h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("recipe", "New recipe", "Ingredients and steps, ready to fill in"), quickCreateKind("posts", "Write an article or draft"), quickCreateKind("pages", "Add evergreen site content"), quickCreateKind("series", "Group posts into a collection"))),
           h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Library"), h("h2", {}, "Content inventory")), h("dl", { class: "oba-inventory" }, h("div", {}, h("dt", {}, "Posts"), h("dd", {}, posts.length)), h("div", {}, h("dt", {}, "Pages"), h("dd", {}, inventories.pages.length)), h("div", {}, h("dt", {}, "Series"), h("dd", {}, inventories.series.length)))),
           h("section", { class: "oba-overview-panel oba-overview-recent" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Continue"), h("h2", {}, "Recent posts"), h("a", { href: "#/posts" }, "View all")), recentList),
           healthPanel,
@@ -12301,7 +12373,7 @@ export class ObAdmin extends AdminElement {
       this.shell(
         kind,
         ...banner,
-        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
+        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), kind === "posts" ? h("a", { class: "oba-btn", href: "#/new/recipe" }, "New recipe") : null, filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
         table,
       ),
     );
@@ -21033,7 +21105,7 @@ export class ObAdmin extends AdminElement {
 
   // ---- editor
 
-  async showEditor(path, newKind) {
+  async showEditor(path, newKind, newProfile = null) {
     let doc;
     if (path) {
       doc = await this.api.call("GET", `document?path=${encodeURIComponent(path)}`);
@@ -21047,7 +21119,13 @@ export class ObAdmin extends AdminElement {
         return;
       }
     } else {
-      doc = { path: null, kind: newKind, etag: null, fields: {}, body: "" };
+      doc = {
+        path: null,
+        kind: newKind,
+        etag: null,
+        fields: newProfile ? { profile: newProfile } : {},
+        body: profileStarter(this.meta?.profiles, newProfile),
+      };
     }
     const editor = new Editor(this, doc);
     // The research workspace returns to this document until another one is opened.
@@ -21512,6 +21590,7 @@ export class Editor {
         syncProfileHelp();
         syncProfileFields();
         this.syncJobMode();
+        this.startFromProfile(profiles.find((profile) => profile.id === ui.profile.value), ui.profileHelp);
       });
       syncProfileHelp();
       syncProfileFields();
@@ -22263,6 +22342,17 @@ export class Editor {
     return paragraph;
   }
 
+  /** Lays an empty post out for the chosen profile. A post with any text is left exactly as it is. */
+  startFromProfile(profile, status) {
+    if (!profile?.starter) return;
+    this.syncRichToMarkdown();
+    if (this.ui.body.value.trim()) return;
+    this.ui.body.value = profile.starter;
+    this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+    if (this.editorMode === "visual") this.renderRichEditor();
+    status.textContent += " Sample sections were added in Write, ready for you to replace.";
+  }
+
   richEditorMarkdown() {
     const blocks = [...this.ui.richBody.children].map(visualBlockMarkdown);
     return blocks.filter((block) => block.length).join("\n\n") + (blocks.length ? "\n" : "");
@@ -22752,6 +22842,7 @@ export class Editor {
     ui.richBody.addEventListener("keydown", citationUndoShortcut);
     // A citation chip opens the citation dialog to edit it: click, Enter or Space.
     ui.richBody.addEventListener("click", (event) => {
+      if (event.detail === 3) keepSelectionInBlock(globalThis.getSelection?.(), ui.richBody);
       const chip = event.target?.closest?.(".oba-citation");
       if (chip && ui.richBody.contains(chip)) {
         event.preventDefault();
@@ -24237,8 +24328,10 @@ export class Editor {
     const staleCount = portable?.sourceRevision
       ? acknowledgements.filter((acknowledgement) => acknowledgement.sourceRevision !== portable.sourceRevision).length
       : 0;
+    const advice = recipeAdvice(preview?.recipeProblems);
+    const { own, elsewhere } = splitPreviewWarnings(previewWarningsForDisplay(preview?.warnings), preview?.warningsSource, { recipe: Array.isArray(preview?.recipeProblems) && this.ui.profile?.value === "recipe" });
     const items = [
-      ...previewWarningsForDisplay(preview?.warnings).map((warning) => h("li", {}, warning)),
+      ...own.map((warning) => h("li", {}, warning)),
       ...(staleCount
         ? [h("li", {}, `${staleCount} previous portability acknowledgement${staleCount === 1 ? " is" : "s are"} stale after source changes. Review the current warnings; stale records never suppress them.`)]
         : []),
@@ -24299,9 +24392,13 @@ export class Editor {
       ...destinationContentForDisplay(portable?.destinationContentPlans, mode).map((warning) => h("li", {}, warning)),
     ];
     this.ui.previewWarnings.replaceChildren(
+      ...(advice.length ? [h("strong", {}, "To finish this recipe"), h("ul", { "data-recipe-advice": "true" }, ...advice.map((line) => h("li", {}, line)))] : []),
       ...(items.length ? [h("strong", {}, "Publishing warnings"), h("ul", {}, ...items)] : []),
+      ...(elsewhere.length
+        ? [h("details", { "data-site-warnings": "true" }, h("summary", {}, `Notes about the rest of the site (${elsewhere.length})`), h("ul", {}, ...elsewhere.map((warning) => h("li", {}, warning))))]
+        : []),
     );
-    this.ui.previewWarnings.hidden = items.length === 0;
+    this.ui.previewWarnings.hidden = advice.length + items.length + elsewhere.length === 0;
   }
 
   navigatePortabilitySource(range, preview) {

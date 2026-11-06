@@ -3990,6 +3990,7 @@ fn meta(state: &AppState) -> Response {
                 "id": profile.id,
                 "label": profile.label,
                 "description": profile.description,
+                "starter": profile.starter,
                 "fields": profile.fields.iter().map(|field| json!({
                     "key": field.key,
                     "label": field.label,
@@ -17931,6 +17932,20 @@ fn preview(state: &AppState, req: &Request) -> Response {
         .filter(|finding| finding.source.path == rel)
         .cloned()
         .collect();
+    // The previewed recipe's problems, as codes Admin words for its author (#556).
+    let recipe_problems = preview_site
+        .posts
+        .iter()
+        .find(|post| post.source == rel)
+        .and_then(|post| {
+            let recipe = post.recipe.as_ref()?;
+            Some(openblog_core::recipe_check::check(
+                &preview_site.config,
+                post,
+                recipe,
+            ))
+        })
+        .unwrap_or_default();
     Response::json(
         200,
         &json!({
@@ -17943,6 +17958,8 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "citationsOptedIn": citations_opted_in,
             "portablePreview": portable_preview,
             "warnings": preview_site.warnings,
+            "warningsSource": rel,
+            "recipeProblems": recipe_problems,
             "accessibility": accessibility,
             "evidence": evidence
         }),
@@ -25535,6 +25552,11 @@ What I read:
         assert_eq!(profiles[0]["id"], "article");
         assert_eq!(profiles[0]["label"], "Article");
         assert_eq!(profiles[1]["id"], "recipe");
+        assert!(profiles[1]["starter"]
+            .as_str()
+            .unwrap()
+            .contains("## Ingredients"));
+        assert!(profiles[0]["starter"].is_null());
         assert_eq!(profiles[1]["fields"][0]["key"], "servings");
         assert_eq!(profiles[1]["fields"][2]["kind"], "duration");
         assert_eq!(profiles[2]["id"], "research");

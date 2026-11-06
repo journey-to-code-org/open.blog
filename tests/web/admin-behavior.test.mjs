@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -35,6 +36,10 @@ import {
   portableDiagnosticsForDisplay,
   portablePreviewArtifact,
   previewWarningsForDisplay,
+  profileStarter,
+  RECIPE_ADVICE,
+  recipeAdvice,
+  splitPreviewWarnings,
   resolveProfileSelection,
   researchSectionIsPresent,
   researchActionIsCurrent,
@@ -843,6 +848,51 @@ test("profile selection honors canonical values and legacy recipes without losin
     value: "field-notes",
     unknown: true,
   });
+});
+
+test("a profile's starter is its own, and other profiles start empty", () => {
+  const profiles = [{ id: "article", starter: null }, { id: "recipe", starter: "## Ingredients" }];
+  assert.equal(profileStarter(profiles, "recipe"), "## Ingredients");
+  assert.equal(profileStarter(profiles, "article"), "");
+  assert.equal(profileStarter(profiles, null), "");
+  assert.equal(profileStarter(undefined, "recipe"), "");
+});
+
+test("preview warnings separate the document's own from the rest of the site", () => {
+  const warnings = [
+    "posts/cake.md: description is short",
+    "posts/cake.md: recipe has no steps; put them in a list under a `## Steps` heading",
+    "posts/other.md: description is short",
+    "openblog.json: author.name is empty",
+  ];
+  assert.deepEqual(splitPreviewWarnings(warnings, "posts/cake.md", { recipe: true }), {
+    own: ["description is short"],
+    elsewhere: ["posts/other.md: description is short", "openblog.json: author.name is empty"],
+  });
+  assert.equal(splitPreviewWarnings(warnings, "posts/cake.md").own.length, 2);
+  assert.deepEqual(splitPreviewWarnings(warnings, undefined), { own: warnings, elsewhere: [] });
+});
+
+test("recipe advice names the line, avoids Markdown and skips setup problems", () => {
+  assert.deepEqual(
+    recipeAdvice([
+      { code: "duplicate-ingredient", ingredient: 3 },
+      { code: "numbered-step", step: 2 },
+      { code: "no-author" },
+      { code: "never-heard-of-it" },
+    ]),
+    ["Ingredient 3 is listed twice. Remove one of them.", "Step 2 starts with its own number. Remove it; steps are numbered for you."],
+  );
+  assert.deepEqual(recipeAdvice(undefined), []);
+});
+
+test("every recipe check code has advice or is a setup problem", () => {
+  const check = readFileSync(new URL("../../crates/openblog-core/src/recipe_check.rs", import.meta.url), "utf8");
+  const codes = [...check.slice(check.indexOf("fn as_str"), check.indexOf("pub fn message")).matchAll(/=> "([a-z-]+)"/g)].map((match) => match[1]);
+  assert.ok(codes.includes("no-ingredients"));
+  const setup = new Set(["no-canonical-address", "no-author"]);
+  assert.deepEqual(codes.filter((code) => !RECIPE_ADVICE[code] && !setup.has(code)), []);
+  for (const advice of Object.values(RECIPE_ADVICE)) assert.doesNotMatch(advice(1), /##|`|front matter|Markdown/);
 });
 
 test("preview warnings preserve profile fallback and contradiction messages for display", () => {

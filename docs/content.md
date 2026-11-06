@@ -626,7 +626,7 @@ ingredients in a list under an `## Ingredients` heading and the steps in a list 
 
 `openblog new "Lemon garlic pasta" --recipe` creates a recipe post (older generated files
 may contain the equivalent `recipe: true` marker),
-`servings: 4`, `prep: 15 min`, `cook: 25 min`, a tip callout, and a placeholder
+`servings: 4`, `prep: 15 min`, `cook: 25 min`, and a placeholder
 Ingredients list and Steps list, ready to fill in. A finished recipe looks like this:
 
 ```markdown
