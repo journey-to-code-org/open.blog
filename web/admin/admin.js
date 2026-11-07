@@ -11148,6 +11148,8 @@ export class ObAdmin extends AdminElement {
   dirty = false;
   editVersion = 0;
   viewVersion = 0;
+  // Every move in Admin takes the next turn; what an earlier turn was loading is dropped (see routeGate).
+  routeTurn = 0;
   // Every mount takes the next serial; a kept view returns with the version it had (ADR 0121).
   viewSerial = 0;
   // The open view's own unsaved-changes test, for views whose forms keep their own state.
@@ -11389,6 +11391,22 @@ export class ObAdmin extends AdminElement {
 
   // ---- views
 
+  /**
+   * What a view awaits before it mounts goes through this, so the view stops when she moves on.
+   * While she is on the page that asked, the answer or the failure comes through. After that
+   * neither ever does: the view never resumes, so it cannot draw, report an error or set up its
+   * state on the page she moved to. `mount` cannot do this itself: it cannot tell which view
+   * called it, and by then `shell` has already changed what the open view holds.
+   */
+  routeGate() {
+    const turn = this.routeTurn;
+    const here = () => turn === this.routeTurn && !this.signedOut;
+    return (work) =>
+      new Promise((resolve, reject) => {
+        Promise.resolve(work).then((value) => here() && resolve(value), (error) => here() && reject(error));
+      });
+  }
+
   mount(...nodes) {
     try {
       this.viewCleanup?.();
@@ -11471,16 +11489,17 @@ export class ObAdmin extends AdminElement {
    * same cookie, and that user never sees them.
    */
   async restoreKept(key, requestedHash) {
+    const whileHere = this.routeGate();
     let session;
     try {
-      session = await this.api.call("GET", "session");
+      session = await whileHere(this.api.call("GET", "session"));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) this.showSessionEnded();
       else this.showFatal(err);
       return;
     }
-    // The page moved on, or signed out, while the session was checked.
-    if (this.signedOut || !this.kept.has(key)) return;
+    // The panel was given up while the session was checked.
+    if (!this.kept.has(key)) return;
     if (!session?.user || session.user !== this.user || session.user !== this.keptOwner) {
       this.forgetWorkspace();
       this.user = "";
@@ -12158,6 +12177,8 @@ export class ObAdmin extends AdminElement {
       if (this.editor && this.workspaceDraft) this.workspaceDraft.hash = location.hash;
       return;
     }
+    // From here on she has asked for another page, or to stay: whatever was loading is not wanted.
+    const turn = ++this.routeTurn;
     const requested = location.hash || "#/overview";
     const nextHash = canonicalAdminHash(requested);
     // Earlier research routes redirect without adding a history entry.
@@ -12189,7 +12210,6 @@ export class ObAdmin extends AdminElement {
     for (const key of plan.discard) this.discardKept(key);
     if (plan.keep) this.keepCurrentView(plan.keep);
     this.dirty = false;
-    const turn = this.routeTurn = (this.routeTurn || 0) + 1;
     if (plan.restore) {
       await this.restoreKept(plan.restore, nextHash);
       return;
@@ -12257,7 +12277,8 @@ export class ObAdmin extends AdminElement {
   }
 
   async showAppearance() {
-    const settings = await this.api.call("GET", "appearance");
+    const whileHere = this.routeGate();
+    const settings = await whileHere(this.api.call("GET", "appearance"));
     const select = h("select", { id: "oba-color-scheme-toggle" },
       h("option", { value: "inherit" }, `Follow theme (site theme: ${settings.themeColorSchemeToggle ? "shown" : "hidden"})`),
       h("option", { value: "show" }, "Show light/dark button"),
@@ -12308,13 +12329,11 @@ export class ObAdmin extends AdminElement {
 
   async showOverview(focus) {
     const kinds = Object.keys(KINDS);
-    const turn = this.routeTurn;
-    const responses = await Promise.all([
+    const whileHere = this.routeGate();
+    const responses = await whileHere(Promise.all([
       ...kinds.map((kind) => this.api.call("GET", `documents?kind=${kind}`)),
       this.api.call("GET", "status"),
-    ]);
-    // She moved on while this loaded: the page she is on now must not be drawn over.
-    if (turn !== this.routeTurn) return;
+    ]));
     const status = responses.pop();
     const inventories = Object.fromEntries(kinds.map((kind, index) => [kind, responses[index].items]));
     const posts = inventories.posts;
@@ -12468,13 +12487,11 @@ export class ObAdmin extends AdminElement {
   }
 
   async showList(kind, initialStatus) {
-    const turn = this.routeTurn;
-    const [list, status] = await Promise.all([
+    const whileHere = this.routeGate();
+    const [list, status] = await whileHere(Promise.all([
       this.api.call("GET", `documents?kind=${kind}`),
       this.api.call("GET", "status"),
-    ]);
-    // She moved on while this loaded: the page she is on now must not be drawn over.
-    if (turn !== this.routeTurn) return;
+    ]));
     const items = list.items;
     const filter = h("input", { class: "oba-search", type: "search", placeholder: `Filter ${KINDS[kind].label.toLowerCase()}…`, "aria-label": "Filter" });
     const stateSel = h(
@@ -12529,8 +12546,9 @@ export class ObAdmin extends AdminElement {
         type: "button",
         onClick: async () => {
           rebuild.disabled = true;
+          const whileHere = this.routeGate();
           try {
-            await this.api.call("POST", "rebuild", { json: {} });
+            await whileHere(this.api.call("POST", "rebuild", { json: {} }));
             this.showList(kind);
           } catch (err) {
             alert(err.data?.error || err.message);
@@ -12562,7 +12580,8 @@ export class ObAdmin extends AdminElement {
   }
 
   async showContributors() {
-    const registry = await this.api.call("GET", "contributors");
+    const whileHere = this.routeGate();
+    const registry = await whileHere(this.api.call("GET", "contributors"));
     let drafts = normalizeContributorDraft(registry.contributors);
     let etag = registry.etag;
     let editVersion = 0;
@@ -12736,9 +12755,10 @@ export class ObAdmin extends AdminElement {
   }
 
   async showReadingPathList() {
+    const whileHere = this.routeGate();
     let list;
     try {
-      list = await this.api.call("GET", "reading-paths");
+      list = await whileHere(this.api.call("GET", "reading-paths"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("paths", h("p", { class: "oba-error", role: "alert" }, readingPathErrorText(error))));
@@ -12773,12 +12793,13 @@ export class ObAdmin extends AdminElement {
   }
 
   async showReadingPathEditor(slug) {
+    const whileHere = this.routeGate();
     const isNew = slug === null;
     let targets;
     let loaded = null;
     try {
-      targets = await this.api.call("GET", "reading-paths/targets");
-      if (!isNew) loaded = await this.api.call("GET", `reading-paths/path?slug=${encodeURIComponent(slug)}`);
+      targets = await whileHere(this.api.call("GET", "reading-paths/targets"));
+      if (!isNew) loaded = await whileHere(this.api.call("GET", `reading-paths/path?slug=${encodeURIComponent(slug)}`));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(
@@ -13389,9 +13410,10 @@ export class ObAdmin extends AdminElement {
    * undone). Nothing is written until Save; the server owns every rule (ADR 0246).
    */
   async showLanding() {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "landing");
+      loaded = await whileHere(this.api.call("GET", "landing"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("landing", h("p", { class: "oba-error", role: "alert" }, landingErrorText(error))));
@@ -13399,14 +13421,14 @@ export class ObAdmin extends AdminElement {
     }
     let posts = null;
     try {
-      const list = await this.api.call("GET", "documents?kind=posts");
+      const list = await whileHere(this.api.call("GET", "documents?kind=posts"));
       posts = (list.items || []).filter((item) => item.status === "published" && item.slug).map((item) => ({ slug: item.slug, title: item.title }));
     } catch {
       // A post is then typed by its address name; everything else works.
     }
     let publishInfo = null;
     try {
-      publishInfo = await this.api.call("GET", "publish");
+      publishInfo = await whileHere(this.api.call("GET", "publish"));
     } catch {
       // Publishing then stays off with its reason; saving and previewing do not need it.
     }
@@ -14399,9 +14421,10 @@ export class ObAdmin extends AdminElement {
    * is written until Save (ADR 0248 holds every rule, this screen only offers its choices).
    */
   async showLook() {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "look");
+      loaded = await whileHere(this.api.call("GET", "look"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("look", h("p", { class: "oba-error", role: "alert" }, lookErrorText(error))));
@@ -14409,7 +14432,7 @@ export class ObAdmin extends AdminElement {
     }
     let publishInfo = null;
     try {
-      publishInfo = await this.api.call("GET", "publish");
+      publishInfo = await whileHere(this.api.call("GET", "publish"));
     } catch {
       // Publishing then stays off with its reason; saving and previewing do not need it.
     }
@@ -14860,9 +14883,10 @@ export class ObAdmin extends AdminElement {
   }
 
   async showComparisonList() {
+    const whileHere = this.routeGate();
     let list;
     try {
-      list = await this.api.call("GET", "comparisons");
+      list = await whileHere(this.api.call("GET", "comparisons"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("comparisons", h("p", { class: "oba-error", role: "alert" }, comparisonErrorText(error))));
@@ -14893,12 +14917,13 @@ export class ObAdmin extends AdminElement {
   }
 
   async showComparisonEditor(slug) {
+    const whileHere = this.routeGate();
     const isNew = slug === null;
     let refs;
     let loaded = null;
     try {
-      refs = await this.api.call("GET", "comparisons/references");
-      if (!isNew) loaded = await this.api.call("GET", `comparisons/item?slug=${encodeURIComponent(slug)}`);
+      refs = await whileHere(this.api.call("GET", "comparisons/references"));
+      if (!isNew) loaded = await whileHere(this.api.call("GET", `comparisons/item?slug=${encodeURIComponent(slug)}`));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(
@@ -15782,9 +15807,10 @@ export class ObAdmin extends AdminElement {
   // ---- research source library
 
   async showSources(focus = "") {
+    const whileHere = this.routeGate();
     let library;
     try {
-      library = await this.api.call("GET", "sources");
+      library = await whileHere(this.api.call("GET", "sources"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       // A damaged library is reported, never replaced: show where to repair it.
@@ -16289,7 +16315,8 @@ export class ObAdmin extends AdminElement {
    * read is reported in its own step while the others still show. Nothing here writes.
    */
   async showResearchOverview() {
-    const [library, notebook] = await Promise.allSettled([this.api.call("GET", "sources"), this.api.call("GET", "research/notebook")]);
+    const whileHere = this.routeGate();
+    const [library, notebook] = await whileHere(Promise.allSettled([this.api.call("GET", "sources"), this.api.call("GET", "research/notebook")]));
     for (const result of [library, notebook]) {
       if (result.status === "rejected" && result.reason?.status === 401) throw result.reason;
     }
@@ -16459,9 +16486,10 @@ export class ObAdmin extends AdminElement {
   // ---- research notebook
 
   async showResearch() {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "research/notebook");
+      loaded = await whileHere(this.api.call("GET", "research/notebook"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       // A damaged notebook (or library) is reported, never replaced: show where to repair it.
@@ -16960,9 +16988,10 @@ export class ObAdmin extends AdminElement {
    * that has no entry yet.
    */
   async showAtlas(focus = "") {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "research/atlas");
+      loaded = await whileHere(this.api.call("GET", "research/atlas"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       // A damaged atlas (or library or notebook) is reported, never replaced.
@@ -17506,9 +17535,10 @@ export class ObAdmin extends AdminElement {
   // ---- comparison workspace
 
   async showCompare(focus = "") {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "research/alignments");
+      loaded = await whileHere(this.api.call("GET", "research/alignments"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       // A damaged alignments file (or library or notebook) is reported, never replaced.
@@ -17972,7 +18002,8 @@ export class ObAdmin extends AdminElement {
   // ---- shared reflections
 
   async showSharedReflections(notice = "") {
-    const { publications = [] } = await this.api.call("GET", "collaboration/publications");
+    const whileHere = this.routeGate();
+    const { publications = [] } = await whileHere(this.api.call("GET", "collaboration/publications"));
     const kindLabel = (value) => SHARED_SOURCE_KINDS.find((kind) => kind.value === value)?.label || "Other";
     const status = h("p", { class: notice ? "oba-ok" : "oba-small", role: "status", "aria-live": "polite" }, notice);
     const cards = publications.map((publication, index) => {
@@ -18023,7 +18054,8 @@ export class ObAdmin extends AdminElement {
   }
 
   async showSharedReflectionForm() {
-    const registry = await this.api.call("GET", "contributors");
+    const whileHere = this.routeGate();
+    const registry = await whileHere(this.api.call("GET", "contributors"));
     const contributors = Object.entries(registry.contributors || {});
     const sources = [emptySharedSource()];
     const status = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
@@ -18187,9 +18219,12 @@ export class ObAdmin extends AdminElement {
           if (problem) return showProblem(problem);
           submit.disabled = true;
           try {
+            const formHash = location.hash;
             await submitSharedReflection(draft, {
               post: (json) => this.api.call("POST", "collaboration/publications", { json }),
               created: async () => {
+                // She left the form while it was sent: it was created, and she stays where she went.
+                if (location.hash !== formHash) return;
                 this.dirty = false;
                 this.skipRoute = true;
                 location.hash = "#/shared";
@@ -20130,14 +20165,18 @@ export class ObAdmin extends AdminElement {
 
   /** The page an invitation link opens. The token is sent only when the person chooses. */
   async showInvitationAccept(token) {
-    const registry = await this.api.call("GET", "contributors");
+    const whileHere = this.routeGate();
+    const registry = await whileHere(this.api.call("GET", "contributors"));
     const profiles = Object.entries(registry.contributors || {});
     const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const profile = h("select", { id: "oba-accept-profile" }, profiles.map(([key, value]) => h("option", { value: key }, value.name || key)));
     const answer = async (path, body, done) => {
       problem.hidden = true;
+      const whileHere = this.routeGate();
       try {
-        await this.api.call("POST", `collaboration/invitations/${path}`, { json: body });
+        await whileHere(this.api.call("POST", `collaboration/invitations/${path}`, { json: body }));
+        // The list drawn here carries the outcome; the route must not load another one over it.
+        this.skipRoute = true;
         location.hash = "#/shared";
         await this.showSharedReflections(done);
       } catch (error) {
@@ -20169,17 +20208,18 @@ export class ObAdmin extends AdminElement {
   // ---- analytics
 
   async showAnalytics(days) {
+    const whileHere = this.routeGate();
     let engagement = null;
     try {
-      engagement = await this.api.call("GET", "engagement/settings");
+      engagement = await whileHere(this.api.call("GET", "engagement/settings"));
     } catch {
       // Older servers still expose the local analytics dashboard.
     }
     let data;
     try {
       data = engagement?.enabled && engagement?.analytics && engagement?.credential?.configured
-        ? await this.api.call("GET", `engagement/analytics?days=${days}`)
-        : await this.api.call("GET", `analytics?days=${days}`);
+        ? await whileHere(this.api.call("GET", `engagement/analytics?days=${days}`))
+        : await whileHere(this.api.call("GET", `analytics?days=${days}`));
     } catch (err) {
       if (err.status === 404 && engagement) {
         data = { days, from: "", to: "", views: 0, uniques: 0, allTimeViews: 0, firstDay: "", series: [], topPosts: [], referrers: [], agentRequests: 0, agents: [], agentPages: [] };
@@ -21301,10 +21341,11 @@ export class ObAdmin extends AdminElement {
   }
 
   async showEditor(path, newKind, newProfile = null) {
-    if (this.suggestionsStale) await this.refreshEditorSuggestions();
+    const whileHere = this.routeGate();
+    if (this.suggestionsStale) await whileHere(this.refreshEditorSuggestions());
     let doc;
     if (path) {
-      doc = await this.api.call("GET", `document?path=${encodeURIComponent(path)}`);
+      doc = await whileHere(this.api.call("GET", `document?path=${encodeURIComponent(path)}`));
       if (doc.raw !== undefined) {
         this.mount(
           this.shell(
