@@ -276,6 +276,24 @@ pub struct LatestPosts {
     /// is what the home page lists today.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
+    /// Which posts to list. Absent means all of them.
+    #[serde(default, skip_serializing_if = "LatestShow::is_all")]
+    pub show: LatestShow,
+}
+
+/// What a latest-posts section lists (ADR 0352).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LatestShow {
+    #[default]
+    All,
+    Recipes,
+}
+
+impl LatestShow {
+    fn is_all(&self) -> bool {
+        *self == Self::All
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -450,7 +468,7 @@ fn known_keys(kind: &str) -> &'static [&'static str] {
     match kind {
         "welcome" => &["heading", "subheading", "image", "button"],
         "rich-text" => &["markdown"],
-        "latest-posts" => &["heading", "count"],
+        "latest-posts" => &["heading", "count", "show"],
         "series" | "business-facts" => &["heading"],
         "featured-post" => &["post", "heading"],
         "buttons" | "social-links" | "faq" => &["items"],
@@ -768,6 +786,7 @@ impl LandingPage {
                     kind: SectionKind::LatestPosts(LatestPosts {
                         heading: home.heading.clone(),
                         count: None,
+                        show: LatestShow::All,
                     }),
                     extra: Extra::new(),
                 },
@@ -795,7 +814,11 @@ impl LandingPage {
                 SectionKind::RichText(intro_text),
                 SectionKind::LatestPosts(posts),
                 SectionKind::Series(_),
-            ) if intro.id == "intro" && latest.id == "latest" && series.id == "series" => {
+            ) if intro.id == "intro"
+                && latest.id == "latest"
+                && series.id == "series"
+                && posts.show == LatestShow::All =>
+            {
                 Some(HomeConfig {
                     heading: posts.heading.clone(),
                     intro: intro_text.markdown.clone(),
@@ -1696,6 +1719,50 @@ mod tests {
         assert!(LandingPage::parse("not json").is_err());
         assert!(LandingPage::parse("[]").is_err());
         assert!(LandingPage::parse("{\"format\":\"openblog-landing\",\"version\":1}").is_err());
+    }
+
+    #[test]
+    fn a_latest_posts_section_can_show_only_recipes() {
+        let recipes = file(json!([
+            {"id": "latest", "type": "latest-posts", "heading": "Latest", "show": "recipes"}
+        ]));
+        let page = LandingPage::parse(&recipes).expect("valid");
+        let SectionKind::LatestPosts(section) = &page.sections[0].kind else {
+            panic!("latest posts");
+        };
+        assert_eq!(section.show, LatestShow::Recipes);
+        assert!(page.sections[0].extra.is_empty());
+        let text = page.to_canonical_json();
+        assert!(text.contains("\"show\": \"recipes\""));
+        assert_eq!(LandingPage::parse(&text).expect("canonical"), page);
+
+        // A page written before the field keeps its bytes, and `all` is the absence of it.
+        let old = LandingPage::parse(&file(json!([
+            {"id": "latest", "type": "latest-posts", "heading": "Latest"}
+        ])))
+        .expect("valid");
+        let explicit = LandingPage::parse(&file(json!([
+            {"id": "latest", "type": "latest-posts", "heading": "Latest", "show": "all"}
+        ])))
+        .expect("valid");
+        assert!(!old.to_canonical_json().contains("show"));
+        assert_eq!(old.to_canonical_json(), explicit.to_canonical_json());
+
+        assert!(LandingPage::parse(&file(json!([
+            {"id": "latest", "type": "latest-posts", "heading": "Latest", "show": "soups"}
+        ])))
+        .is_err());
+    }
+
+    #[test]
+    fn a_layout_that_shows_only_recipes_is_not_the_legacy_home() {
+        let page = LandingPage::parse(&file(json!([
+            {"id": "intro", "type": "rich-text", "markdown": "Hello"},
+            {"id": "latest", "type": "latest-posts", "heading": "Latest", "show": "recipes"},
+            {"id": "series", "type": "series", "heading": "Series"}
+        ])))
+        .expect("valid");
+        assert_eq!(page.legacy_home(), None);
     }
 
     #[test]

@@ -262,8 +262,9 @@ Two things to know:
 
 ## Everything else that is already built in
 
-Recipes (servings scaling, checklists, step timers, cook mode, a print view, and
-schema.org recipe data; see [Writing content](content.md#recipes)), GitHub-style callouts,
+Recipes (servings scaling, checklists, step timers, cook mode, a print view,
+schema.org recipe data, and a list readers can browse by course or cuisine without
+JavaScript; see [Writing content](content.md#recipes)), GitHub-style callouts,
 code-block titles and highlighted lines, reading time, a table of contents for longer
 posts, previous and next links, series
 navigation, tag pages, an archive, client-side search, RSS and JSON feeds, a sitemap,

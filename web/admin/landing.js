@@ -76,6 +76,7 @@ export const SECTION_CATALOG = Object.freeze([
     fields: [
       text("heading", "Heading", { required: true, max: LIMITS.heading }),
       { kind: "number", name: "count", label: "How many posts", optional: true, min: 1, max: LIMITS.latestCount, integer: true, hint: "Leave empty to show the usual number for your blog." },
+      { kind: "select", name: "show", label: "What to show", options: [["all", "All my posts"], ["recipes", "Only my recipes"]], default: "all", omitDefault: true, hint: "Only my recipes stays empty until you publish your first recipe." },
     ],
   },
   {
@@ -243,7 +244,7 @@ export function sectionSummary(section) {
     case "rich-text":
       return shorten(first(section.markdown)) || "No text yet";
     case "latest-posts":
-      return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "post" : "posts"})` : ""}`;
+      return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "post" : "posts"})` : ""}${section.show === "recipes" ? " (only recipes)" : ""}`;
     case "series":
       return shorten(first(section.heading)) || "No heading yet";
     case "featured-post":
@@ -411,7 +412,24 @@ export const STARTERS = Object.freeze([
       { id: "latest", type: "latest-posts", heading: "Recent issues" },
     ],
   },
+  {
+    id: "recipes",
+    label: "Recipes",
+    description: "Your newest recipes up front, with a way to browse them all. They appear once you publish your first recipe.",
+    descriptionWithoutRecipeList: "Your newest recipes up front. They appear once you publish your first recipe.",
+    build: () => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Welcome to my kitchen", subheading: "Sample: a short line about the food you love to make." },
+      { id: "latest", type: "latest-posts", heading: "Newest recipes", show: "recipes", count: 6 },
+      { id: "about", type: "rich-text", markdown: "Sample: Say who taught you to cook and what you make most." },
+    ],
+  },
 ]);
+
+/** What a starter's card says. With the site's recipe list turned off, it promises nothing to browse. */
+export function starterDescription(starter, { recipeListing = true } = {}) {
+  return (recipeListing === false && starter.descriptionWithoutRecipeList) || starter.description;
+}
 
 /** The starter with this id, or null. */
 export function starterById(id) {

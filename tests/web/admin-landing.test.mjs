@@ -292,7 +292,7 @@ test("the Text section is a rich text field and a picture without a description 
 
 // ---------------------------------------------------------------- starter layouts (ADR 0258, #338)
 
-import { STARTERS, applyLayout, replacingNeedsConfirm, starterSections } from "../../web/admin/landing.js";
+import { STARTERS, applyLayout, replacingNeedsConfirm, starterDescription, starterSections } from "../../web/admin/landing.js";
 import { writeFileSync as writeFixture } from "node:fs";
 
 const withPosts = { posts: [{ slug: "one", title: "One" }] };
@@ -302,7 +302,7 @@ const starterCases = () => [
 ];
 
 test("every starter is a valid list of sections with its own ids and clearly marked sample words", () => {
-  assert.deepEqual(STARTERS.map((s) => s.id), ["welcome", "small-business", "portfolio", "newsletter"]);
+  assert.deepEqual(STARTERS.map((s) => s.id), ["welcome", "small-business", "portfolio", "newsletter", "recipes"]);
   for (const [name, sections] of starterCases()) {
     assert.ok(sections.length >= 3 && sections.length <= LIMITS.sections, name);
     assert.equal(new Set(sections.map((s) => s.id)).size, sections.length, `${name}: ids are unique`);
@@ -322,6 +322,33 @@ test("a starter is data only: no markup, and a fresh copy each time", () => {
   assert.notEqual(starterSections("welcome")[0].body, "changed");
   assert.deepEqual(starterSections("scratch"), []);
   assert.deepEqual(starterSections("nonsense"), []);
+});
+
+test("the recipes layout asks for recipes and stores no address that would be empty until the first one", () => {
+  const sections = starterSections("recipes");
+  assert.equal(sections.find((s) => s.type === "latest-posts").show, "recipes");
+  assert.doesNotMatch(JSON.stringify(sections), /\/recipes\//);
+  assert.match(STARTERS.find((s) => s.id === "recipes").description, /once you publish your first recipe/);
+});
+
+test("the recipes layout promises a way to browse only when the site has a recipe list", () => {
+  const recipes = STARTERS.find((s) => s.id === "recipes");
+  assert.match(starterDescription(recipes, { recipeListing: true }), /browse/);
+  assert.match(starterDescription(recipes), /browse/);
+  const off = starterDescription(recipes, { recipeListing: false });
+  assert.doesNotMatch(off, /browse/);
+  assert.match(off, /once you publish your first recipe/);
+  const welcome = STARTERS.find((s) => s.id === "welcome");
+  assert.equal(starterDescription(welcome, { recipeListing: false }), welcome.description);
+});
+
+test("a latest-posts section says when it lists only recipes", () => {
+  const section = { id: "a", type: "latest-posts", heading: "Newest" };
+  assert.equal(sectionSummary(section), "Newest");
+  assert.equal(sectionSummary({ ...section, show: "all" }), "Newest");
+  assert.equal(sectionSummary({ ...section, show: "recipes" }), "Newest (only recipes)");
+  assert.equal(sectionSummary({ ...section, show: "recipes", count: 2 }), "Newest (2 posts) (only recipes)");
+  assert.deepEqual(sectionProblems({ ...section, show: "recipes" }), []);
 });
 
 test("the portfolio features a post only when there is one to feature", () => {

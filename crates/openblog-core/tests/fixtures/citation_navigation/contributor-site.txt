@@ -40,6 +40,7 @@
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -100,6 +101,7 @@
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -187,6 +189,7 @@
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive" aria-current="page">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -315,6 +318,7 @@
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -442,6 +446,7 @@ Abstract Summary [@plato-republic] and a note. References Prior work A note [@in
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -537,6 +542,7 @@ Abstract Summary [@plato-republic] and a note. References Prior work A note [@in
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -641,6 +647,7 @@ Abstract Summary [@plato-republic] and a note. References Prior work A note [@in
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -686,6 +693,75 @@ Abstract Summary [@plato-republic] and a note. References Prior work A note [@in
 </ob-share>
 <nav class="ob-pager ob-post-pager" aria-label="More posts"><span></span><a rel="next" href="/posts/essay/">Essay →</a></nav>
 </article>
+</div>
+</main>
+<footer class="ob-footer">
+<div class="ob-footer-inner">
+<p>© 2026 A</p>
+<nav aria-label="Elsewhere"><ul class="ob-footer-links">
+<li><a href="/rss.xml">RSS</a></li>
+</ul></nav>
+<p class="ob-powered">Powered by <a href="https://github.com/journey-to-code-org/open.blog" rel="noopener">open.blog</a></p>
+</div>
+</footer>
+<ob-back-to-top></ob-back-to-top>
+</body>
+</html>
+
+===== recipes/index.html
+<!doctype html>
+<html lang="en" data-ob-theme="base">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recipes · T</title>
+<meta name="description" content="Every recipe, newest first.">
+<link rel="canonical" href="https://example.test/recipes/">
+<meta name="generator" content="open.blog">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1217" media="(prefers-color-scheme: dark)">
+<meta property="og:site_name" content="T">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Recipes">
+<meta name="twitter:title" content="Recipes">
+<meta property="og:description" content="Every recipe, newest first.">
+<meta name="twitter:description" content="Every recipe, newest first.">
+<meta property="og:url" content="https://example.test/recipes/">
+<meta name="twitter:card" content="summary">
+<link rel="alternate" type="application/rss+xml" title="T" href="/rss.xml">
+<link rel="alternate" type="application/feed+json" title="T" href="/feed.json">
+<link rel="alternate" type="text/plain" title="Content index for automated readers" href="/llms.txt">
+<script>try{var s=localStorage.getItem("ob-scheme");if(s==="light"||s==="dark")document.documentElement.dataset.theme=s}catch(e){}</script>
+<link rel="stylesheet" href="/assets/base.css">
+<link rel="stylesheet" href="/themes/base/tokens.css">
+<script type="module" src="/assets/openblog.js"></script>
+</head>
+<body>
+<a class="ob-skip" href="#main">Skip to content</a>
+<header class="ob-header">
+<div class="ob-header-inner">
+<a class="ob-brand" href="/" aria-label="T home"><span class="ob-brand-name">T</span></a>
+<nav class="ob-nav" aria-label="Main navigation">
+<ul>
+<li><a class="ob-nav-link" href="/" aria-label="Home">Home</a></li>
+<li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
+<li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
+<li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes" aria-current="page">Recipes</a></li>
+</ul>
+</nav>
+<ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
+</div>
+</header>
+<main id="main" tabindex="-1">
+<div class="ob-container">
+<section class="ob-section">
+<div class="ob-heading ob-section-heading"><h1 class="ob-title">Recipes</h1></div>
+<h2 class="ob-visually-hidden">The recipes</h2>
+<ul class="ob-list ob-list-cards">
+<li class="ob-card"><a class="ob-card-link" href="/posts/soup/"><span class="ob-card-body"><span class="ob-meta"><time datetime="2026-09-04T00:00:00Z">Sep 4, 2026</time> · 1 min read</span><h3 class="ob-card-title">Soup</h3><span class="ob-card-summary">Ingredients Water [@plato-republic] Steps Boil.</span></span></a></li>
+</ul>
+</section>
 </div>
 </main>
 <footer class="ob-footer">
@@ -848,6 +924,7 @@ Sitemap: https://example.test/sitemap.xml
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search" aria-current="page">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -918,6 +995,7 @@ Sitemap: https://example.test/sitemap.xml
 <li><a class="ob-nav-link" href="/series/" aria-label="Series" aria-current="page">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -956,6 +1034,7 @@ Sitemap: https://example.test/sitemap.xml
 <url><loc>https://example.test/about/</loc></url>
 <url><loc>https://example.test/search/</loc></url>
 <url><loc>https://example.test/archive/</loc></url>
+<url><loc>https://example.test/recipes/</loc></url>
 </urlset>
 
 ===== tags/a/index.html
@@ -997,6 +1076,7 @@ Sitemap: https://example.test/sitemap.xml
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>
@@ -1065,6 +1145,7 @@ Sitemap: https://example.test/sitemap.xml
 <li><a class="ob-nav-link" href="/series/" aria-label="Series">Series</a></li>
 <li><a class="ob-nav-link" href="/archive/" aria-label="Archive">Archive</a></li>
 <li><a class="ob-nav-link" href="/search/" aria-label="Search">Search</a></li>
+<li><a class="ob-nav-link" href="/recipes/" aria-label="Recipes">Recipes</a></li>
 </ul>
 </nav>
 <ob-theme-toggle hidden><button type="button" class="ob-icon-button" aria-label="Toggle light and dark mode"><span aria-hidden="true">◐</span></button></ob-theme-toggle>

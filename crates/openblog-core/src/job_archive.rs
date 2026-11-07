@@ -32,19 +32,29 @@ impl JobArchive {
     /// How many pages the archive needs at `per_page` posts a page (0 means
     /// one page with everything).
     pub fn page_count(&self, per_page: usize) -> usize {
-        if per_page == 0 {
-            1
-        } else {
-            self.posts.len().div_ceil(per_page).max(1)
-        }
+        page_count(self.posts.len(), per_page)
     }
 
     pub fn page_url(&self, page_number: usize) -> String {
-        if page_number <= 1 {
-            self.url.clone()
-        } else {
-            format!("{}page/{page_number}/", self.url)
-        }
+        page_url(&self.url, page_number)
+    }
+}
+
+/// Pages a list of `posts` needs at `per_page` a page (0 means one page).
+pub(crate) fn page_count(posts: usize, per_page: usize) -> usize {
+    if per_page == 0 {
+        1
+    } else {
+        posts.div_ceil(per_page).max(1)
+    }
+}
+
+/// The address of one page of a list whose first page is at `url`.
+pub(crate) fn page_url(url: &str, page_number: usize) -> String {
+    if page_number <= 1 {
+        url.to_string()
+    } else {
+        format!("{url}page/{page_number}/")
     }
 }
 

@@ -1154,7 +1154,7 @@ impl Site {
 
         scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
         let landing = load_landing(&sources, &posts, &mut warnings);
-        Ok(Site {
+        let mut site = Site {
             config,
             posts,
             series,
@@ -1180,7 +1180,11 @@ impl Site {
             community_features_error,
             continuations_error,
             now: options.now,
-        })
+        };
+        // The owner's address wins over the recipe listing; tell her what moved (ADR 0352).
+        let notes = crate::recipe_listing::plan(&site).notes;
+        site.warnings.extend(notes);
+        Ok(site)
     }
 
     pub fn series_by_slug(&self, slug: &str) -> Option<&Series> {
@@ -2579,7 +2583,9 @@ fn aliases(fm: &FrontMatter) -> Result<Vec<String>, String> {
                 "alias `{value}` must be a site path like /old-slug/"
             ));
         }
-        let trimmed = value.trim_matches('/');
+        // `/old/index.html` names the file that `/old/` is served from. Kept as a
+        // folder of that name, it would stop that file being written at all.
+        let trimmed = without_index_file(value.trim_matches('/'));
         if trimmed.is_empty() {
             return Err("an alias cannot be the site root".into());
         }
@@ -2589,6 +2595,15 @@ fn aliases(fm: &FrontMatter) -> Result<Vec<String>, String> {
         }
     }
     Ok(out)
+}
+
+fn without_index_file(path: &str) -> &str {
+    let (folder, file) = path.rsplit_once('/').unwrap_or(("", path));
+    if file.eq_ignore_ascii_case("index.html") {
+        folder.trim_end_matches('/')
+    } else {
+        path
+    }
 }
 
 /// `rust-game-dev` -> `Rust Game Dev`
@@ -2763,6 +2778,13 @@ mod tests {
         });
         assert_eq!(s.posts[0].aliases, vec!["/old-a/", "/2024/03/old-a/"]);
         assert_eq!(s.pages[0].aliases, vec!["/about-me/"]);
+
+        // An alias naming a file is the address that file serves.
+        let s = site(Sources {
+            posts: vec![post("posts/f.md", "---\ntitle: F\ndate: 2026-01-01\naliases: [/old/index.html, old/INDEX.HTML/, /old/, /other.html]\n---\nx")],
+            ..Default::default()
+        });
+        assert_eq!(s.posts[0].aliases, vec!["/old/", "/other.html/"]);
         let bad = Site::load(
             SiteConfig::default(),
             Sources { posts: vec![post("posts/b.md", "---\ntitle: B\ndate: 2026-01-01\naliases: [https://elsewhere.example/x]\n---\nx")], ..Default::default() },

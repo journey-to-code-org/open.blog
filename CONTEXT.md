@@ -2493,7 +2493,7 @@ _Avoid_: Backups, revisions, undo
 ## Landing starters
 
 **Starter layout**:
-A ready-made list of sample landing sections (Welcome, Small business, Portfolio, Newsletter) or an empty page
+A ready-made list of sample landing sections (Welcome, Small business, Portfolio, Newsletter, Recipes) or an empty page
 (Start from scratch), chosen in the Landing page builder. It is plain section data with every stand-in sentence
 marked "Sample", it is applied like any other unsaved edit, it can be undone, and it never replaces existing
 sections without asking (ADR 0258).
@@ -2967,6 +2967,12 @@ The author's explicit consent to one distribution plan, given by its digest: bou
 canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
 under. Private; with `requireApproval` a write sends only what it covers (ADR 0329).
 _Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)
+
+**Recipe listing**:
+The generated pages that list a site's published recipes: every recipe at `/recipes/`, and one filter page per course
+and per cuisine, joined by plain links. It takes no reserved address: a page of the owner's keeps its address and the
+listing moves or drops that one page, with a warning (ADR 0352).
+_Avoid_: Recipe index, recipe archive (in prose), search
 
 **Recipe export**:
 A published recipe post as one schema.org `Recipe` JSON-LD document: exactly the `Recipe` node its page carries, plus

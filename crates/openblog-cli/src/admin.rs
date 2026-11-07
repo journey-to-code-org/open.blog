@@ -918,6 +918,7 @@ fn authenticated_api(
             answer_invitation(state, req, session, false)
         }
         ("GET", "status") => status(state),
+        ("GET", "recipe-notes") => recipe_notes(state),
         ("GET", "analytics") => {
             if !state.analytics_enabled {
                 return Response::error(404, "The built-in counter is off (analytics.builtin)");
@@ -3985,6 +3986,24 @@ fn meta(state: &AppState) -> Response {
         "services": services,
         "scaffold": openblog_core::job::scaffold_body(),
     });
+    let (owner_courses, owner_cuisines) =
+        openblog_core::recipe_listing::owner_values(&sources.posts);
+    // What the owner has written first, then everyday values, each once.
+    let suggestions = |key: &str| -> Vec<String> {
+        let owner: &[String] = match key {
+            "course" => &owner_courses,
+            "cuisine" => &owner_cuisines,
+            _ => &[],
+        };
+        let builtin = openblog_core::profile::field_suggestions(key).iter();
+        let mut out: Vec<String> = Vec::new();
+        for value in owner.iter().map(String::as_str).chain(builtin.copied()) {
+            if !out.iter().any(|x| x.eq_ignore_ascii_case(value)) {
+                out.push(value.to_string());
+            }
+        }
+        out
+    };
     let profiles: Vec<Json> = openblog_core::profile::catalog()
         .iter()
         .map(|profile| {
@@ -3997,7 +4016,9 @@ fn meta(state: &AppState) -> Response {
                     "key": field.key,
                     "label": field.label,
                     "kind": field.kind.as_str(),
-                    "help": field.help,
+                    "help": openblog_core::profile::field_help(field, config.recipes.listing),
+                    "aliases": openblog_core::profile::field_aliases(field.key),
+                    "suggestions": suggestions(field.key),
                 })).collect::<Vec<_>>(),
             })
         })
@@ -4027,6 +4048,7 @@ fn meta(state: &AppState) -> Response {
         200,
         &json!({
             "siteTitle": config.title,
+            "recipeListing": config.recipes.listing,
             "siteUrl": config.url,
             "authorReady": !config.author.name.trim().is_empty()
                 && !config.author.url.trim().is_empty(),
@@ -11816,6 +11838,37 @@ fn status(state: &AppState) -> Response {
     )
 }
 
+/// What the owner should know about her recipe list on the published site
+/// (ADR 0352). Not a problem with any one document, so it has no other way in.
+///
+/// This loads the whole site, so it has its own route, asked for only by
+/// Overview, and stays out of the content transaction: saves and builds don't
+/// wait for it. A write in progress can at worst make the notes stale or empty
+/// until the next look, and they are only advice.
+fn recipe_notes(state: &AppState) -> Response {
+    Response::json(
+        200,
+        &json!({ "notes": published_recipe_notes(&state.root) }),
+    )
+}
+
+fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
+    let Ok(config) = site::load_config(root) else {
+        return Vec::new();
+    };
+    let Ok(sources) = site::read_sources(root, &config) else {
+        return Vec::new();
+    };
+    let options = LoadOptions {
+        include_drafts: false,
+        now: Some(clock::now()),
+        preview_source: None,
+    };
+    Site::load(config, sources, options)
+        .map(|site| openblog_core::recipe_listing::plan(&site).notes)
+        .unwrap_or_default()
+}
+
 fn list_documents(state: &AppState, req: &Request) -> Response {
     let _content_transaction = lock(&state.build);
     let kind = req.query.get("kind").map(String::as_str).unwrap_or("posts");
@@ -17968,6 +18021,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "warnings": preview_site.warnings,
             "warningsSource": rel,
             "recipeProblems": recipe_problems,
+            "recipeNotes": openblog_core::recipe_listing::plan(preview_site).notes,
             "accessibility": accessibility,
             "evidence": evidence
         }),
@@ -25637,6 +25691,103 @@ What I read:
     }
 
     #[test]
+    fn admin_says_what_moved_in_the_recipe_list_without_holding_up_status_or_saves() {
+        let f = fixture("recipe-notes");
+        let quiet = body_json(&recipe_notes(&f.state));
+        assert_eq!(quiet["notes"], json!([]));
+        std::fs::write(
+            f.dir.join("content/posts/soup.md"),
+            "---\ntitle: Soup\ndate: 2026-10-01\nprofile: recipe\ncourse: \"\u{1F370}\"\n---\nBody.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(f.dir.join("content/pages")).unwrap();
+        std::fs::write(
+            f.dir.join("content/pages/recipes.md"),
+            "---\ntitle: Recipes\n---\nMine.\n",
+        )
+        .unwrap();
+        // Every open of Overview and the Posts list asks for the status, which never loads the site.
+        assert!(body_json(&status(&f.state)).get("recipeNotes").is_none());
+        // Answered while a save holds the content transaction, so a save never waits for it.
+        let held = lock(&f.state.build);
+        let (done, answered) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| done.send(body_json(&recipe_notes(&f.state))).unwrap());
+            let notes = answered
+                .recv_timeout(std::time::Duration::from_secs(60))
+                .expect("the notes wait for nothing");
+            drop(held);
+            let notes = notes["notes"].as_array().unwrap();
+            assert_eq!(notes.len(), 2, "{notes:?}");
+            assert!(notes[0].as_str().unwrap().contains("/recipes/all/"));
+            assert!(notes[0].as_str().unwrap().contains("change its Slug"));
+            assert!(notes[1].as_str().unwrap().contains('\u{1F370}'));
+        });
+    }
+
+    #[test]
+    fn admin_meta_promises_browsing_by_course_only_on_a_site_with_a_recipe_list() {
+        let f = fixture("recipe-listing-off");
+        let help = |state: &AppState| {
+            let meta = body_json(&meta(state));
+            let recipe = meta["profiles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|profile| profile["id"] == "recipe")
+                .unwrap()
+                .clone();
+            let fields = recipe["fields"].as_array().unwrap().clone();
+            let of = |key: &str| {
+                fields.iter().find(|field| field["key"] == key).unwrap()["help"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            };
+            (meta["recipeListing"].clone(), of("course"), of("cuisine"))
+        };
+        let (listing, course, cuisine) = help(&f.state);
+        assert_eq!(listing, json!(true));
+        assert!(course.contains("Readers can browse") && cuisine.contains("Readers can browse"));
+
+        let path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        config["recipes"] = json!({ "listing": false });
+        std::fs::write(&path, config.to_string()).unwrap();
+        let (listing, course, cuisine) = help(&f.state);
+        assert_eq!(listing, json!(false));
+        assert!(!course.contains("browse") && !cuisine.contains("browse"));
+        assert!(course.contains("Use a comma") && cuisine.contains("Use a comma"));
+    }
+
+    #[test]
+    fn admin_meta_offers_the_owners_course_and_cuisine_first_and_once() {
+        let f = fixture("profile-meta-values");
+        std::fs::write(
+            f.dir.join("content/posts/soup.md"),
+            "---\ntitle: Soup\ndate: 2026-10-01\nprofile: recipe\ncategory: Weeknight, dessert\ncuisine: Nordic\n---\nBody.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            f.dir.join("content/posts/news.md"),
+            "---\ntitle: News\ndate: 2026-10-01\ncategory: Politics\n---\nBody.\n",
+        )
+        .unwrap();
+        let profiles = body_json(&meta(&f.state))["profiles"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let course = profiles[1]["fields"][1]["suggestions"].as_array().unwrap();
+        assert_eq!(course[0], "Weeknight");
+        assert_eq!(course[1], "dessert");
+        assert_eq!(course[2], "Breakfast");
+        assert!(!course.iter().any(|value| value == "Dessert"), "once");
+        assert!(!course.iter().any(|value| value == "Politics"));
+        assert_eq!(profiles[1]["fields"][2]["suggestions"][0], "Nordic");
+    }
+
+    #[test]
     fn admin_meta_describes_available_content_profiles() {
         let f = fixture("profile-meta");
         let response = meta(&f.state);
@@ -25652,7 +25803,17 @@ What I read:
             .contains("## Ingredients"));
         assert!(profiles[0]["starter"].is_null());
         assert_eq!(profiles[1]["fields"][0]["key"], "servings");
-        assert_eq!(profiles[1]["fields"][2]["kind"], "duration");
+        assert_eq!(profiles[1]["fields"][4]["kind"], "duration");
+        assert_eq!(profiles[1]["fields"][1]["key"], "course");
+        assert_eq!(
+            profiles[1]["fields"][1]["aliases"],
+            json!(["category", "recipeCategory"])
+        );
+        assert_eq!(profiles[1]["fields"][1]["suggestions"][0], "Breakfast");
+        assert_eq!(profiles[1]["fields"][2]["key"], "cuisine");
+        assert_eq!(profiles[1]["fields"][2]["aliases"], json!([]));
+        assert_eq!(profiles[1]["fields"][2]["suggestions"][0], "American");
+        assert_eq!(profiles[1]["fields"][0]["suggestions"], json!([]));
         assert_eq!(profiles[2]["id"], "research");
         assert_eq!(profiles[2]["fields"][0]["key"], "doi");
         assert_eq!(profiles[2]["fields"][1]["key"], "license");

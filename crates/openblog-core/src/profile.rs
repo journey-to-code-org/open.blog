@@ -72,6 +72,18 @@ const RECIPE_FIELDS: &[ProfileField] = &[
         help: "Number of servings.",
     },
     ProfileField {
+        key: "course",
+        label: "Course",
+        kind: ProfileFieldKind::Text,
+        help: "What kind of dish it is, such as Dinner or Dessert. Readers can browse your recipes by this. Use a comma for more than one.",
+    },
+    ProfileField {
+        key: "cuisine",
+        label: "Cuisine",
+        kind: ProfileFieldKind::Text,
+        help: "Where the dish comes from, such as Italian or Southern. Readers can browse your recipes by this. Use a comma for more than one.",
+    },
+    ProfileField {
         key: "yield",
         label: "Yield",
         kind: ProfileFieldKind::Text,
@@ -94,18 +106,6 @@ const RECIPE_FIELDS: &[ProfileField] = &[
         label: "Total time",
         kind: ProfileFieldKind::Duration,
         help: "Optional total duration.",
-    },
-    ProfileField {
-        key: "cuisine",
-        label: "Cuisine",
-        kind: ProfileFieldKind::Text,
-        help: "Cuisine or food tradition.",
-    },
-    ProfileField {
-        key: "category",
-        label: "Category",
-        kind: ProfileFieldKind::Text,
-        help: "Meal or recipe category.",
     },
     ProfileField {
         key: "calories",
@@ -281,6 +281,64 @@ const PROFILES: &[ContentProfile] = &[
 
 pub fn catalog() -> &'static [ContentProfile] {
     PROFILES
+}
+
+/// What a field says in Admin. On a site with `recipes.listing: false` there is
+/// no list to browse, so Course and Cuisine don't promise one.
+pub fn field_help(field: &ProfileField, recipe_listing: bool) -> &'static str {
+    match field.key {
+        "course" if !recipe_listing => {
+            "What kind of dish it is, such as Dinner or Dessert. Use a comma for more than one."
+        }
+        "cuisine" if !recipe_listing => {
+            "Where the dish comes from, such as Italian or Southern. Use a comma for more than one."
+        }
+        _ => field.help,
+    }
+}
+
+/// Other front matter keys a field's value may have been written under. Admin
+/// shows the value in the field and writes it back under the field's own key.
+pub fn field_aliases(key: &str) -> &'static [&'static str] {
+    match key {
+        "course" => &crate::recipe::COURSE_KEYS[1..],
+        _ => &[],
+    }
+}
+
+/// Everyday values Admin offers for a field, which can still be typed freely.
+pub fn field_suggestions(key: &str) -> &'static [&'static str] {
+    match key {
+        "course" => &[
+            "Breakfast",
+            "Lunch",
+            "Dinner",
+            "Appetizer",
+            "Side dish",
+            "Soup",
+            "Salad",
+            "Main course",
+            "Dessert",
+            "Snack",
+            "Drink",
+            "Bread",
+        ],
+        "cuisine" => &[
+            "American",
+            "Southern",
+            "Mexican",
+            "Italian",
+            "French",
+            "Greek",
+            "Mediterranean",
+            "Middle Eastern",
+            "Indian",
+            "Chinese",
+            "Japanese",
+            "Thai",
+        ],
+        _ => &[],
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

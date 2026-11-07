@@ -45,6 +45,7 @@ import {
   applyLayout,
   createTourStore,
   replacingNeedsConfirm,
+  starterDescription,
   starterSections,
   sectionInfo,
   sectionProblems,
@@ -1110,12 +1111,54 @@ export function preserveProfileFieldDrafts(drafts, controls) {
   return next;
 }
 
-export function applyProfileFieldDrafts(fields, drafts) {
+/** A front matter value as a profile field shows it: a list reads as the comma form the field saves. */
+export function profileFieldText(value) {
+  if (value == null) return "";
+  return Array.isArray(value) ? value.join(", ") : String(value);
+}
+
+/**
+ * Show a value written under another name in the chosen profile's field, where saving writes it
+ * under the field's own name. `seeded` remembers what was put there, so a value she never changed
+ * leaves with the profile that showed it instead of being saved under another one.
+ */
+export function seedProfileFieldAliases(drafts, profile, fields, seeded) {
+  const next = new Map(drafts);
+  for (const [key, value] of seeded) if (next.get(key) === value) next.set(key, "");
+  seeded.clear();
+  for (const field of profile?.fields || []) {
+    const written = (field.aliases || []).find((alias) => profileFieldText(fields[alias]).trim() !== "");
+    if (!written || profileFieldText(next.get(field.key)).trim()) continue;
+    const value = profileFieldText(fields[written]);
+    next.set(field.key, value);
+    seeded.set(field.key, value);
+  }
+  return next;
+}
+
+/** Other names a profile's fields may be written under, by field: the field's own name replaces the one it showed on save. */
+export function profileFieldAliases(profile) {
+  return Object.fromEntries((profile?.fields || []).filter((field) => field.aliases?.length).map((field) => [field.key, field.aliases]));
+}
+
+/**
+ * Write the fields' drafts into the front matter. The field's own name replaces any other name
+ * holding the value it showed or the value saved. A different value under another name was never on
+ * screen, so a save must not lose it: it stays in the file, unread, unless she clears the field.
+ */
+export function applyProfileFieldDrafts(fields, drafts, aliases = {}) {
   const next = { ...fields };
+  const written = (name) => profileFieldText(fields[name]).trim();
   for (const [key, rawValue] of drafts) {
     const value = String(rawValue ?? "").trim();
-    if (value) next[key] = value;
-    else delete next[key];
+    // A field left as it read keeps the file's own form, so a list stays a list.
+    if (!value) delete next[key];
+    else if (value !== written(key)) next[key] = value;
+    const names = aliases[key] || [];
+    const shown = [key, ...names].map(written).find(Boolean);
+    for (const alias of names) {
+      if (!value || !written(alias) || written(alias) === shown || written(alias) === value) delete next[alias];
+    }
   }
   return next;
 }
@@ -7932,11 +7975,12 @@ export function profileStarter(profiles, id) {
  * The previewed document's own warnings, without its path, apart from those about the rest of the
  * site. Recipe advice says what the engine's "recipe has no" warnings say, so they are dropped.
  */
-export function splitPreviewWarnings(warnings, source, { recipe = false } = {}) {
+export function splitPreviewWarnings(warnings, source, { recipe = false, shownApart = [] } = {}) {
   const prefix = source ? `${source}: ` : null;
   const own = [];
   const elsewhere = [];
   for (const warning of warnings) {
+    if (shownApart.includes(warning)) continue;
     if (prefix === null) own.push(warning);
     else if (!warning.startsWith(prefix)) elsewhere.push(warning);
     else if (!(recipe && warning.startsWith(`${prefix}recipe has no `))) own.push(warning.slice(prefix.length));
@@ -7975,6 +8019,29 @@ export function recipeAdvice(problems) {
     const advice = RECIPE_ADVICE[problem?.code];
     return advice ? [advice(problem.ingredient ?? problem.step)] : [];
   });
+}
+
+/**
+ * What to say when a recipe has neither a course nor a cuisine: it is valid, but readers can't
+ * browse to it, and nothing else tells her. One is enough to quiet it, and a site with its recipe
+ * list turned off has nothing to browse, so there is nothing to ask for.
+ */
+export function recipeFilterAdvice(course, cuisine, listing = true) {
+  if (listing === false || String(course ?? "").trim() || String(cuisine ?? "").trim()) return "";
+  return "Add a course, such as Dinner, or a cuisine, such as Italian, so readers can browse your recipes by it. In Settings, fill in Course or Cuisine.";
+}
+
+/** What the Slug field says, in words for someone who has never met the word. */
+export function slugHelp(kind, isNew) {
+  const noun = { posts: "post", pages: "page", series: "series", services: "service" }[kind] || "post";
+  const what = `The last part of this ${noun}'s web address, in plain words joined by hyphens, such as family-favorites.`;
+  return isNew ? what : `${what} Changing it moves the ${noun} to the new address.`;
+}
+
+/** The owner's notes about her recipe list, or nothing. They are for her, so they don't sit folded away. */
+function recipeNotesNotice(notes) {
+  if (!Array.isArray(notes) || !notes.length) return [];
+  return [h("strong", {}, "About your recipe list"), h("ul", { "data-recipe-notes": "true" }, ...notes.map((note) => h("li", {}, note)))];
 }
 
 export function portableDiagnosticsForDisplay(diagnostics) {
@@ -9926,8 +9993,13 @@ function landingField(spec, data, ctx, prefix) {
   } else if (spec.kind === "select") {
     input = h("select", { id }, spec.options.map(([value, text]) => h("option", { value }, text)));
     input.value = data[spec.name] ?? spec.default ?? spec.options[0][0];
-    data[spec.name] = input.value;
-    input.addEventListener("change", () => { data[spec.name] = input.value; });
+    // A field that means nothing when left at its default stays out of the page.
+    const write = (value) => {
+      if (spec.omitDefault && value === spec.default) delete data[spec.name];
+      else data[spec.name] = value;
+    };
+    write(input.value);
+    input.addEventListener("change", () => write(input.value));
   } else if (spec.kind === "post" && Array.isArray(ctx.posts)) {
     const current = data[spec.name] ?? "";
     const known = ctx.posts.some((post) => post.slug === current);
@@ -12117,6 +12189,7 @@ export class ObAdmin extends AdminElement {
     for (const key of plan.discard) this.discardKept(key);
     if (plan.keep) this.keepCurrentView(plan.keep);
     this.dirty = false;
+    const turn = this.routeTurn = (this.routeTurn || 0) + 1;
     if (plan.restore) {
       await this.restoreKept(plan.restore, nextHash);
       return;
@@ -12153,8 +12226,10 @@ export class ObAdmin extends AdminElement {
         this.viewBusy = null;
         this.dirty = false;
         this.showSessionEnded();
-      } else this.showFatal(err);
+      } else if (turn === this.routeTurn) this.showFatal(err);
     }
+    // She moved on while this view loaded: the newer move owns the address and the focus.
+    if (turn !== this.routeTurn) return;
     this.currentHash = location.hash || "#/overview";
     // A link that started this move left with the old view; give focus to the new page's heading
     // unless the view placed it itself.
@@ -12233,10 +12308,13 @@ export class ObAdmin extends AdminElement {
 
   async showOverview(focus) {
     const kinds = Object.keys(KINDS);
+    const turn = this.routeTurn;
     const responses = await Promise.all([
       ...kinds.map((kind) => this.api.call("GET", `documents?kind=${kind}`)),
       this.api.call("GET", "status"),
     ]);
+    // She moved on while this loaded: the page she is on now must not be drawn over.
+    if (turn !== this.routeTurn) return;
     const status = responses.pop();
     const inventories = Object.fromEntries(kinds.map((kind, index) => [kind, responses[index].items]));
     const posts = inventories.posts;
@@ -12317,10 +12395,21 @@ export class ObAdmin extends AdminElement {
       issues,
     );
 
+    // The notes load the whole site and are usually empty, so the page does not wait for them or
+    // fail with them.
+    const recipeNotesBox = h("div", { hidden: true });
+    this.api.call("GET", "recipe-notes").then(({ notes }) => {
+      if (!notes?.length) return;
+      recipeNotesBox.className = "oba-notice";
+      recipeNotesBox.replaceChildren(...recipeNotesNotice(notes));
+      recipeNotesBox.hidden = false;
+    }).catch(() => {});
+
     this.mount(
       this.shell(
         "overview",
         // Someone on Simple starts here to write, so writing comes before the numbers.
+        recipeNotesBox,
         this.preferences?.preset === "simple" ? quickCreatePanel : null,
         h(
           "section",
@@ -12379,10 +12468,13 @@ export class ObAdmin extends AdminElement {
   }
 
   async showList(kind, initialStatus) {
+    const turn = this.routeTurn;
     const [list, status] = await Promise.all([
       this.api.call("GET", `documents?kind=${kind}`),
       this.api.call("GET", "status"),
     ]);
+    // She moved on while this loaded: the page she is on now must not be drawn over.
+    if (turn !== this.routeTurn) return;
     const items = list.items;
     const filter = h("input", { class: "oba-search", type: "search", placeholder: `Filter ${KINDS[kind].label.toLowerCase()}…`, "aria-label": "Filter" });
     const stateSel = h(
@@ -13738,7 +13830,7 @@ export class ObAdmin extends AdminElement {
         "ul",
         { class: "oba-landing-types" },
         [
-          ...STARTERS.map((starter) => ({ id: starter.id, label: starter.label, description: starter.description, name: `the ${starter.label} layout` })),
+          ...STARTERS.map((starter) => ({ id: starter.id, label: starter.label, description: starterDescription(starter, { recipeListing: this.meta.recipeListing }), name: `the ${starter.label} layout` })),
           { id: "scratch", label: "Start from scratch", description: "An empty page. You add the sections you want, one at a time.", name: "an empty page" },
         ].map((entry) =>
           h("li", {}, h("button", { class: "oba-landing-type", type: "button", "data-starter": entry.id, onClick: () => chooseLayout(entry.id, entry.name, () => starterSections(entry.id, layoutContext)) }, h("span", { class: "oba-landing-type-text" }, h("strong", {}, entry.label), h("span", {}, entry.description)))),
@@ -21196,7 +21288,20 @@ export class ObAdmin extends AdminElement {
 
   // ---- editor
 
+  /** A save can add a course, a cuisine or a tag to what the editor offers next (Admin keeps `meta` from sign-in). */
+  async refreshEditorSuggestions() {
+    try {
+      const fresh = await this.api.call("GET", "meta");
+      this.meta.profiles = fresh.profiles;
+      this.meta.tags = fresh.tags;
+      this.suggestionsStale = false;
+    } catch {
+      // The earlier suggestions still work, and the next editor tries again.
+    }
+  }
+
   async showEditor(path, newKind, newProfile = null) {
+    if (this.suggestionsStale) await this.refreshEditorSuggestions();
     let doc;
     if (path) {
       doc = await this.api.call("GET", `document?path=${encodeURIComponent(path)}`);
@@ -21259,7 +21364,9 @@ export class Editor {
   }
 
   field(id, label, control, help) {
-    return h("div", { class: "oba-field" }, h("label", { for: id }, label), control, help ? h("p", { class: "oba-help" }, help) : null);
+    const helpId = help && control?.id === id ? `${id}-help` : null;
+    if (helpId) control.setAttribute("aria-describedby", [control.getAttribute("aria-describedby"), helpId].filter(Boolean).join(" "));
+    return h("div", { class: "oba-field" }, h("label", { for: id }, label), control, help ? h("p", { class: "oba-help", id: helpId }, help) : null);
   }
 
   creditRequestFields(includeEtag = false) {
@@ -21610,7 +21717,7 @@ export class Editor {
     }
 
     ui.slug = h("input", { id: "oba-slug", type: "text", value: f.slug || (this.isNew ? "" : this.slugFromPath()), autocapitalize: "none", spellcheck: "false" });
-    side.push(this.field("oba-slug", "Slug", ui.slug, this.isNew ? "Part of the web address." : "Changing the slug changes the post's address."));
+    side.push(this.field("oba-slug", "Slug", ui.slug, slugHelp(this.kind, this.isNew)));
 
     if (kind === "posts") {
       const profiles = this.meta.profiles || [];
@@ -21619,7 +21726,7 @@ export class Editor {
         for (const field of profile.fields || []) {
           if (!this.profileFieldDrafts.has(field.key)) {
             const value = Object.prototype.hasOwnProperty.call(this.f, field.key) ? this.f[field.key] : "";
-            this.profileFieldDrafts.set(field.key, value == null ? "" : String(value));
+            this.profileFieldDrafts.set(field.key, profileFieldText(value));
           }
         }
       }
@@ -21641,9 +21748,11 @@ export class Editor {
       const syncProfileFields = () => {
         this.profileFieldDrafts = preserveProfileFieldDrafts(this.profileFieldDrafts, ui.profileFieldControls);
         const selected = profiles.find((profile) => profile.id === ui.profile.value);
+        this.seededProfileFields ||= new Map();
+        this.profileFieldDrafts = seedProfileFieldAliases(this.profileFieldDrafts, selected, this.f, this.seededProfileFields);
         ui.profileFieldControls = new Map();
         ui.profileFields.replaceChildren(
-          ...(selected?.fields || []).map((field) => {
+          ...(selected?.fields || []).flatMap((field) => {
             const value = this.profileFieldDrafts.has(field.key) ? this.profileFieldDrafts.get(field.key) : "";
             const control = field.kind === "production-status"
               ? h("select", { id: `oba-profile-${field.key}` },
@@ -21656,6 +21765,8 @@ export class Editor {
                   value,
                   inputmode: field.kind === "number" ? "numeric" : null,
                   step: field.kind === "number" ? "any" : null,
+                  list: field.suggestions?.length ? `oba-profile-${field.key}-list` : null,
+                  autocapitalize: field.suggestions?.length ? "words" : null,
                 });
             control.addEventListener("input", () => {
               this.profileFieldDrafts.set(field.key, control.value);
@@ -21663,7 +21774,10 @@ export class Editor {
               this.schedulePreview();
             });
             ui.profileFieldControls.set(field.key, control);
-            return this.field(`oba-profile-${field.key}`, field.label, control, field.help);
+            const row = this.field(`oba-profile-${field.key}`, field.label, control, field.help);
+            return field.suggestions?.length
+              ? [row, h("datalist", { id: `oba-profile-${field.key}-list` }, field.suggestions.map((value) => h("option", { value })))]
+              : [row];
           }),
         );
       };
@@ -24435,8 +24549,10 @@ export class Editor {
     const staleCount = portable?.sourceRevision
       ? acknowledgements.filter((acknowledgement) => acknowledgement.sourceRevision !== portable.sourceRevision).length
       : 0;
-    const advice = recipeAdvice(preview?.recipeProblems);
-    const { own, elsewhere } = splitPreviewWarnings(previewWarningsForDisplay(preview?.warnings), preview?.warningsSource, { recipe: Array.isArray(preview?.recipeProblems) && this.ui.profile?.value === "recipe" });
+    const filterAdvice = this.recipeFilterNudge();
+    const advice = [...recipeAdvice(preview?.recipeProblems), ...(preview && filterAdvice ? [filterAdvice] : [])];
+    const recipeNotes = Array.isArray(preview?.recipeNotes) ? preview.recipeNotes : [];
+    const { own, elsewhere } = splitPreviewWarnings(previewWarningsForDisplay(preview?.warnings), preview?.warningsSource, { recipe: Array.isArray(preview?.recipeProblems) && this.ui.profile?.value === "recipe", shownApart: recipeNotes });
     const items = [
       ...own.map((warning) => h("li", {}, warning)),
       ...(staleCount
@@ -24500,12 +24616,13 @@ export class Editor {
     ];
     this.ui.previewWarnings.replaceChildren(
       ...(advice.length ? [h("strong", {}, "To finish this recipe"), h("ul", { "data-recipe-advice": "true" }, ...advice.map((line) => h("li", {}, line)))] : []),
+      ...recipeNotesNotice(recipeNotes),
       ...(items.length ? [h("strong", {}, "Publishing warnings"), h("ul", {}, ...items)] : []),
       ...(elsewhere.length
         ? [h("details", { "data-site-warnings": "true" }, h("summary", {}, `Notes about the rest of the site (${elsewhere.length})`), h("p", {}, "These don't stop this post. They're mainly for whoever set up the site."), h("ul", {}, ...elsewhere.map((warning) => h("li", {}, warning))))]
         : []),
     );
-    this.ui.previewWarnings.hidden = advice.length + items.length + elsewhere.length === 0;
+    this.ui.previewWarnings.hidden = advice.length + recipeNotes.length + items.length + elsewhere.length === 0;
   }
 
   navigatePortabilitySource(range, preview) {
@@ -25612,7 +25729,9 @@ export class Editor {
     if (this.kind === "posts") {
       this.profileFieldDrafts = preserveProfileFieldDrafts(this.profileFieldDrafts, ui.profileFieldControls);
     }
-    let fields = this.kind === "posts" ? applyProfileFieldDrafts(this.f, this.profileFieldDrafts) : { ...this.f };
+    // Only the chosen profile's other names are replaced, so an article's own `category` stays.
+    const aliases = this.kind === "posts" ? profileFieldAliases((this.meta.profiles || []).find((profile) => profile.id === ui.profile.value)) : {};
+    let fields = this.kind === "posts" ? applyProfileFieldDrafts(this.f, this.profileFieldDrafts, aliases) : { ...this.f };
     if (this.kind === "posts" && this.jobForm) fields = applyJobDraft(fields, this.jobForm.draft());
     const set = (key, value) => {
       const empty = value === "" || value === null || value === undefined || (Array.isArray(value) && !value.length);
@@ -25919,6 +26038,8 @@ export class Editor {
     const ui = this.ui;
     this.saving = true;
     ui.saveBtn.disabled = true;
+    // Finishing the save settles the profile, so it can't change underneath it.
+    if (ui.profile) ui.profile.disabled = true;
     ui.saveState.textContent = "Saving…";
     const saveVersion = this.app.editVersion;
     const exactTrack = this.pendingTrack && fields.profile === "field-journal" && fields.locationPrivacy === "exact" ? this.pendingTrack : null;
@@ -25928,6 +26049,8 @@ export class Editor {
         ? await this.app.api.call("PUT", `document?path=${encodeURIComponent(this.doc.path)}`, { json: payload })
         : await this.app.api.call("POST", "document", { json: payload });
       this.f = fields;
+      // What was saved is now the file's own value, not one only being shown.
+      this.seededProfileFields?.clear();
       if (res.trackUrl) {
         fields.route = res.trackUrl;
         this.profileFieldDrafts.set("route", res.trackUrl);
@@ -25946,6 +26069,7 @@ export class Editor {
       if (ui.creditError) ui.creditError.hidden = true;
       this.isNew = false;
       this.slugTouched = true;
+      this.app.suggestionsStale = true;
       const savedState = saveStateForVersions(saveVersion, this.app.editVersion);
       this.app.dirty = savedState.dirty;
       ui.saveState.textContent = savedState.label;
@@ -25986,6 +26110,7 @@ export class Editor {
     } finally {
       this.saving = false;
       ui.saveBtn.disabled = false;
+      if (ui.profile) ui.profile.disabled = false;
     }
   }
 
@@ -26000,8 +26125,24 @@ export class Editor {
       this.flash("error", `Saved, but the site build failed: ${res.build.error}`);
     } else {
       this.flash("ok", message, [], link);
+      const nudge = current && (res.status === "published" || res.status === "scheduled") ? this.recipeFilterNudge() : "";
+      if (nudge) {
+        this.ui.status.append(h("p", { class: "oba-notice", "data-recipe-filter-nudge": "true" }, nudge, " ", h("button", { class: "oba-btn", type: "button", onClick: () => this.showCourseField() }, "Add a course")));
+      }
     }
     this.ui.live.textContent = "";
+  }
+
+  /** The advice for a recipe readers can't browse to, or nothing for anything else. */
+  recipeFilterNudge() {
+    if (this.kind !== "posts" || this.ui.profile?.value !== "recipe") return "";
+    const value = (key) => this.ui.profileFieldControls?.get(key)?.value;
+    return recipeFilterAdvice(value("course"), value("cuisine"), this.meta.recipeListing);
+  }
+
+  showCourseField() {
+    this.activatePane?.("settings");
+    this.ui.profileFieldControls?.get("course")?.focus();
   }
 
   async remove() {

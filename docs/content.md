@@ -52,7 +52,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |
 | `guidingQuestion`, `sharedSourceTitle`, `sharedSourceUrl`, `sharedSourceType` | Shared-reflection attribution: the guiding question and the original source's title, HTTP(S) link, and type (`Video`, `Article`, `Podcast`, `Book`, or `Other`), shown beside the post and in feeds and exports. The title is required with a link or type; the source is always a link, never an embed. |
-| `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. Works on posts, pages and series pages (a series page in `content/series/`). The engine always writes a redirect page; set `redirectsFile: true` in `openblog.json` to also write a `_redirects` file with real 301s on hosts that read one. |
+| `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`; `/old-slug/index.html` means the same address. Also accepted as `redirectFrom`. Works on posts, pages and series pages (a series page in `content/series/`). The engine always writes a redirect page; set `redirectsFile: true` in `openblog.json` to also write a `_redirects` file with real 301s on hosts that read one. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
 | `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, `field-journal`, and `job`. |
@@ -294,7 +294,9 @@ Each section has a unique `id` (lowercase letters, digits and single hyphens), a
 `hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`,
 `image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout` and `business-facts`; the
 media, hours, contact, social, question and call-out types hold the same fields as the
-[pieces](#pieces-buttons-videos-maps-and-more) above. The `business-facts` section holds only a `heading`: it
+[pieces](#pieces-buttons-videos-maps-and-more) above. A `latest-posts` section takes `"show": "recipes"` to list
+only [recipes](#browsing-recipes), with a link to all of them, and renders nothing until the first is published;
+any other value than `all` or `recipes` is refused. The `business-facts` section holds only a `heading`: it
 places the [business facts](configuration.md#business-facts) from `openblog.json` (name, phone, hours, license and
 insurance badge) under that heading, and renders nothing while none are stated. Because it is a new type, a page
 that holds one is stored as `"version": 2` (every other page stays version 1, byte for byte, and a version 1
@@ -664,7 +666,7 @@ A few words about the dish.
 | `servings` | How many it serves. A number (`4`) can be scaled; a range (`4-6`) scales from its first number. Also `serves`. Scaling needs a number here. |
 | `makes` | What it makes: `12 cookies`, `1 loaf`. Shown on the card only; to let readers scale a batch, also give `servings` (`servings: 24` and `makes: 24 cookies`). Also `yield`. |
 | `prep`, `cook`, `total` | One length of time: `15 min`, `1 hr 30 min`, `1.5 hours`, `1 1/2 hours`, `1h30m`, `1:30` (1 hour 30 minutes), or `PT1H30M`. Anything else, such as `overnight` or `10-15 min`, is shown on the card as written and left out of the search-engine data. `total` defaults to prep plus cook when both are given. Also `prepTime`, `cookTime`, `totalTime`. |
-| `cuisine`, `course` | Shown on the card and given to search engines. `category` also works for `course`. |
+| `cuisine`, `course` | Shown on the card, given to search engines, and how readers [browse your recipes](#browsing-recipes). Separate two values with a comma, `course: Lunch, Dinner`, or write a list. `category` and `recipeCategory` also work for `course`; saving the recipe in Admin rewrites the one in use as `course`, and leaves a different value under another name unread in the file. |
 | `calories` | Free text, per serving, such as `520 kcal`. |
 | `adaptedFrom` | The web address of the recipe yours is adapted from, such as `https://example.org/original`. Given to search engines and recipe apps as the source (`isBasedOn`); not shown on the page, so credit the original in your text too. Also `adapted_from`, `basedOn`. Anything that is not an `http(s)` address is left out. |
 
@@ -701,6 +703,40 @@ screen does not go to sleep meanwhile.
 put an image in the post.
 
 Each extra can be switched off for the whole blog under `recipes` in
+[Configuration](configuration.md#recipes).
+
+### Browsing recipes
+
+Once a recipe is published, the site gets a list of them and a **Recipes** link in its navigation,
+and the course and cuisine on each recipe's card link to their lists. All of it is plain links, so
+it works without JavaScript:
+
+| Address | Shows |
+| --- | --- |
+| `/recipes/` | Every recipe, newest first |
+| `/recipes/course/dessert/` | The recipes with that `course` |
+| `/recipes/cuisine/italian/` | The recipes with that `cuisine` |
+
+Each list continues at `page/2/` and so on, by `postsPerPage`, and each page's links to the others
+stay at the top of it. First pages are in the sitemap; none of this goes in the feeds. Spellings
+that make the same address share one page, under the newest recipe's spelling, so `Dessert` and
+`dessert` are one list while `Desserts` is another. The course and cuisine filters start folded,
+with the one being read named beside its group, so the recipes stay on a phone's first screen. A
+value with no letters or numbers, such as a
+lone emoji, can't have an address: it still shows on the recipe, and a warning says so. A site with
+no published recipe gets none of it.
+
+**Your own pages come first.** If a page of yours is at `/recipes/`, it stays there and the list
+moves to `/recipes/all/`, with its own navigation link, called **All recipes** if **Recipes** is
+already in use. If that address is yours too, there is no list of every recipe, and the recipe cards
+lead to the filters. A page at a filter's address means that filter is left out. Each case adds a
+warning, shown on Admin's Overview and in **Site preview**, saying what to change to get it back:
+the page's **Slug** in its Settings, because a new title keeps the old address. Moving the page
+moves the list back, so links shared in the meantime stop working. An old address in a page's
+`aliases` has no field in Admin, so that warning says to have someone change the file. A file at
+`static/recipes/index.html` is not one of these: the generated page replaces it.
+
+To turn all of this off, set `recipes.listing` to `false` in
 [Configuration](configuration.md#recipes).
 
 ### Exporting a recipe

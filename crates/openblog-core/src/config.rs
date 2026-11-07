@@ -450,6 +450,9 @@ pub struct RecipesConfig {
     pub print: bool,
     /// A "Jump to recipe" link at the top of the post.
     pub jump_link: bool,
+    /// The list at `/recipes/` with its course and cuisine filter pages, and
+    /// the link to it in the site's navigation (ADR 0352).
+    pub listing: bool,
 }
 
 impl Default for RecipesConfig {
@@ -461,6 +464,7 @@ impl Default for RecipesConfig {
             cook_mode: true,
             print: true,
             jump_link: true,
+            listing: true,
         }
     }
 }

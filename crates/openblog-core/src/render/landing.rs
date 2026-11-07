@@ -17,7 +17,7 @@
 use crate::escape::{attr, text};
 use crate::landing::{
     render_inert_markdown, BusinessFacts, Callout, Contact, Faq, FeaturedPost, ImageSection,
-    LandingPage, LatestPosts, MapSection, OpeningHours, RichText, Section, SectionKind,
+    LandingPage, LatestPosts, LatestShow, MapSection, OpeningHours, RichText, Section, SectionKind,
     SeriesSection, SocialLinks, Video, Welcome,
 };
 use crate::theme::Theme;
@@ -188,6 +188,9 @@ impl Renderer<'_> {
         v: &LatestPosts,
         pager_used: &mut bool,
     ) -> String {
+        if v.show == LatestShow::Recipes {
+            return self.landing_recipes(cx, section, v);
+        }
         let client_per_page = self.site.config.latest_posts_per_page;
         let shown = v.count.map_or_else(
             || {
@@ -222,6 +225,51 @@ impl Renderer<'_> {
 ");
         }
         cx.latest_seen = true;
+        self.landing_wrap(section, true, &inner, "")
+    }
+
+    /// A latest-posts section that lists only recipes; nothing until the first
+    /// one is published. It leaves the home page's pager and "All posts" link
+    /// to the sections that list every post.
+    fn landing_recipes(&self, cx: &mut Context<'_>, section: &Section, v: &LatestPosts) -> String {
+        let recipes: Vec<usize> = self
+            .site
+            .posts
+            .iter()
+            .enumerate()
+            .filter(|(_, post)| post.recipe.is_some() && self.site.is_published(post))
+            .map(|(index, _)| index)
+            .collect();
+        if recipes.is_empty() {
+            return String::new();
+        }
+        let client_per_page = self.site.config.latest_posts_per_page;
+        let shown = v.count.map_or_else(
+            || {
+                if client_per_page > 0 {
+                    recipes.len()
+                } else {
+                    cx.per_page
+                }
+            },
+            |count| count as usize,
+        );
+        let shown = shown.min(recipes.len());
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        let posts = self.post_list(cx.theme, &recipes[..shown]);
+        inner.push_str(&self.client_pagination(
+            &posts,
+            shown,
+            client_per_page,
+            &format!("{}-page", section.id),
+            "recipes",
+        ));
+        if let Some(url) = &self.recipe_plan().all_url {
+            inner.push_str(&format!(
+                "<p class=\"ob-home-all\"><a class=\"ob-home-link\" href=\"{}\">All recipes</a></p>\n",
+                attr(url)
+            ));
+        }
         self.landing_wrap(section, true, &inner, "")
     }
 

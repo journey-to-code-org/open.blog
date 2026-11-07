@@ -68,12 +68,12 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             .collect::<Vec<_>>(),
         vec![
             "servings",
+            "course",
+            "cuisine",
             "yield",
             "prepTime",
             "cookTime",
             "totalTime",
-            "cuisine",
-            "category",
             "calories",
             "adaptedFrom"
         ]

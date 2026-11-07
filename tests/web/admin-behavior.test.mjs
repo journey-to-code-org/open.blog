@@ -14,6 +14,11 @@ import {
   fieldJournalReview,
   applyPaneSelection,
   applyProfileFieldDrafts,
+  profileFieldAliases,
+  profileFieldText,
+  recipeFilterAdvice,
+  seedProfileFieldAliases,
+  slugHelp,
   analyzeGpx,
   buildVideoReleaseKit,
   creditHasAuthor,
@@ -617,6 +622,106 @@ test("profile metadata drafts survive profile switches including explicit clears
   );
 });
 
+test("a recipe's course replaces its other spellings only when the recipe profile asks", () => {
+  const recipe = { id: "recipe", fields: [{ key: "course", aliases: ["category", "recipeCategory"] }, { key: "yield", aliases: [] }] };
+  assert.deepEqual(profileFieldAliases(recipe), { course: ["category", "recipeCategory"] });
+  assert.deepEqual(profileFieldAliases({ id: "article", fields: [] }), {});
+  assert.deepEqual(profileFieldAliases(undefined), {});
+  const fields = { title: "Soup", category: "Soup", recipeCategory: "Old" };
+  const drafts = new Map([["course", "Soup"]]);
+  assert.deepEqual(
+    applyProfileFieldDrafts(fields, drafts, profileFieldAliases(recipe)),
+    { title: "Soup", recipeCategory: "Old", course: "Soup" },
+    "the spelling the field showed moves to its own name, and one it never showed is not lost",
+  );
+  assert.deepEqual(
+    applyProfileFieldDrafts({ course: "Dessert", category: "Wordpress import" }, new Map([["course", "Dessert"]]), profileFieldAliases(recipe)),
+    { course: "Dessert", category: "Wordpress import" },
+    "a save with nothing changed loses nothing",
+  );
+  assert.deepEqual(
+    applyProfileFieldDrafts({ category: "Soup", recipeCategory: "Old" }, new Map([["course", "Stew"]]), profileFieldAliases(recipe)),
+    { recipeCategory: "Old", course: "Stew" },
+    "what she typed replaces the name that was showing, and only that one",
+  );
+  assert.deepEqual(
+    applyProfileFieldDrafts({ course: "Soup", category: "Soup", recipeCategory: ["Lunch", "Dinner"] }, new Map([["course", "Lunch, Dinner"]]), profileFieldAliases(recipe)),
+    { course: "Lunch, Dinner" },
+    "a spelling repeating the value shown or the value saved goes, written as a list or not",
+  );
+  assert.deepEqual(
+    applyProfileFieldDrafts(fields, new Map([["course", ""]]), profileFieldAliases(recipe)),
+    { title: "Soup" },
+    "clearing the field clears every spelling",
+  );
+  assert.deepEqual(
+    applyProfileFieldDrafts({ title: "Notes", course: ["CS101", "CS102"], servings: 4 }, new Map([["course", "CS101, CS102"], ["servings", "4"]])),
+    { title: "Notes", course: ["CS101", "CS102"], servings: 4 },
+    "a field left as it read keeps the file's own form",
+  );
+  assert.deepEqual(
+    applyProfileFieldDrafts({ course: ["Lunch", "Dinner"] }, new Map([["course", "Lunch, Supper"]])),
+    { course: "Lunch, Supper" },
+    "a field she changed is saved in the field's form",
+  );
+  // An article's own `category` is kept: it is not told about the recipe's other names.
+  assert.deepEqual(applyProfileFieldDrafts({ title: "News", category: "Politics" }, new Map([["course", ""]])), { title: "News", category: "Politics" });
+});
+
+test("a value written under another name shows in the field but leaves with the profile unless she changes it", () => {
+  const recipe = { id: "recipe", fields: [{ key: "course", aliases: ["category", "recipeCategory"] }] };
+  const article = { id: "article", fields: [] };
+  const fields = { title: "News", category: "Politics" };
+  const seeded = new Map();
+  let drafts = seedProfileFieldAliases(new Map([["course", ""]]), recipe, fields, seeded);
+  assert.equal(drafts.get("course"), "Politics");
+  // Seeding again on the same profile keeps it, and saving on Recipe moves it to the field's own name.
+  drafts = seedProfileFieldAliases(drafts, recipe, fields, seeded);
+  assert.equal(drafts.get("course"), "Politics");
+  assert.deepEqual(applyProfileFieldDrafts(fields, drafts, profileFieldAliases(recipe)), { title: "News", course: "Politics" });
+  // Tried Recipe, went back to Article: the file is as it was.
+  drafts = seedProfileFieldAliases(drafts, article, fields, seeded);
+  assert.deepEqual(applyProfileFieldDrafts(fields, drafts, profileFieldAliases(article)), fields);
+  // What she typed herself is hers, and is kept across the switch.
+  drafts = seedProfileFieldAliases(drafts, recipe, fields, seeded);
+  drafts.set("course", "Soup");
+  drafts = seedProfileFieldAliases(drafts, article, fields, seeded);
+  assert.equal(drafts.get("course"), "Soup");
+  // A blank in the field's own name hides nothing, as on the site.
+  assert.equal(seedProfileFieldAliases(new Map([["course", "  "]]), recipe, { course: "  ", category: "Stew" }, new Map()).get("course"), "Stew");
+  // A blank under another name is not a value to show.
+  assert.equal(seedProfileFieldAliases(new Map(), recipe, { category: "  " }, new Map()).has("course"), false);
+  // A list reads the way the field saves it.
+  assert.equal(seedProfileFieldAliases(new Map(), recipe, { category: ["Lunch", "Dinner"] }, new Map()).get("course"), "Lunch, Dinner");
+});
+
+test("a list in the front matter shows as the comma form the field saves", () => {
+  assert.equal(profileFieldText(["Lunch", "Dinner"]), "Lunch, Dinner");
+  assert.equal(profileFieldText("Soup"), "Soup");
+  assert.equal(profileFieldText(4), "4");
+  assert.equal(profileFieldText(null), "");
+  assert.equal(profileFieldText(undefined), "");
+});
+
+test("the Slug field says what it is, for the kind of document it is on", () => {
+  assert.match(slugHelp("pages", false), /last part of this page's web address.*moves the page/);
+  assert.doesNotMatch(slugHelp("pages", false), /post/);
+  assert.match(slugHelp("posts", true), /last part of this post's web address/);
+  assert.doesNotMatch(slugHelp("posts", true), /moves/);
+  assert.match(slugHelp("series", false), /this series's web address/);
+});
+
+test("a recipe with neither a course nor a cuisine is told how readers would find it", () => {
+  assert.match(recipeFilterAdvice("", ""), /Add a course.*In Settings/);
+  assert.match(recipeFilterAdvice(undefined, "  "), /Add a course/);
+  assert.doesNotMatch(recipeFilterAdvice("", ""), /##|`|front matter|Markdown/);
+  assert.equal(recipeFilterAdvice("Dinner", ""), "");
+  assert.equal(recipeFilterAdvice("", "Italian"), "");
+  // With the recipe list turned off there is nothing to browse, so nothing to ask for.
+  assert.equal(recipeFilterAdvice("", "", false), "");
+  assert.match(recipeFilterAdvice("", "", undefined), /Add a course/);
+});
+
 test("toggling an open command palette closes it and restores its opener", () => {
   let closed = false;
   let removed = false;
@@ -884,6 +989,13 @@ test("recipe advice names the line, avoids Markdown and skips setup problems", (
     ["Ingredient 3 is listed twice. Remove one of them.", "Step 2 starts with its own number. Remove it; steps are numbered for you."],
   );
   assert.deepEqual(recipeAdvice(undefined), []);
+});
+
+test("the owner's recipe notes are shown apart from the notes about the rest of the site", () => {
+  const note = "A page of yours already uses the address /recipes/, so the automatic list of recipes is at /recipes/all/.";
+  const split = splitPreviewWarnings([note, "openblog.json: no author"], "content/pages/recipes.md", { shownApart: [note] });
+  assert.deepEqual(split, { own: [], elsewhere: ["openblog.json: no author"] });
+  assert.deepEqual(splitPreviewWarnings([note], "content/pages/recipes.md"), { own: [], elsewhere: [note] });
 });
 
 test("every recipe check code has advice or is a setup problem", () => {

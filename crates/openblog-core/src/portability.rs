@@ -877,7 +877,7 @@ impl<'a> PortableProjection<'a> {
             }
         }
         if let Some(recipe) = self.recipe {
-            let facts = recipe.facts_html(false);
+            let facts = recipe.facts_html(false, None);
             if !facts.is_empty() {
                 html.push_str(&format!(
                     "<section class=\"ob-recipe-card\" aria-label=\"Recipe summary\">\n<dl class=\"ob-recipe-facts\">{facts}</dl>\n</section>\n"

@@ -43,7 +43,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
   "code": { "highlight": null, "lineNumbers": null, "copyButton": true, "playgroundLink": true },
   "codeRunner": { "endpoint": "", "languages": [] },
-  "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
+  "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true, "listing": true },
   "knowledgeChecks": { "generationEndpoint": "", "model": "" },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
   "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
@@ -334,6 +334,10 @@ Every option is on by default; set one to `false` to leave that feature out.
 - `print`: a "Print recipe" button that prints only the title, the summary, the
   ingredients, and the steps.
 - `jumpLink`: a "Jump to recipe" link in the summary card.
+- `listing`: the [list of recipes](content.md#browsing-recipes) at `/recipes/`, its course and
+  cuisine pages, and the **Recipes** link in the navigation. A landing section that shows only
+  recipes keeps working when this is off, without its link to the list. Admin then stops asking for
+  a course or cuisine so that readers can browse by it.
 
 ## Paths
 

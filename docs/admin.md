@@ -723,6 +723,18 @@ Choosing Recipe in Settings adds them to an empty post and never changes one wit
 preview** lists what a recipe still needs in everyday words, under **To finish this recipe**, and
 keeps notes about the rest of the site in their own collapsed list.
 
+A recipe's **Settings** ask for its **Course** (such as Dinner or Dessert) and **Cuisine** (such as
+Italian or Southern), with suggestions that start from what you have used before. Readers
+[browse your recipes](content.md#browsing-recipes) by these, so a comma gives a recipe two. A value
+written as `category` or `recipeCategory` shows under Course and is saved as `course`. A different
+value under the other name was never shown, so a save leaves it in the file, unread, until you clear
+Course. A recipe with
+neither is still fine, but readers can't browse to it, so **Site preview** says so under **To finish
+this recipe**, and publishing it offers an **Add a course** button that goes to the field. With
+`recipes.listing` off there is nothing to browse, so Admin doesn't ask. If a page of yours took the
+list's address, or a value can't have one, **Overview** and **Site preview** say so under **About
+your recipe list**, naming the page.
+
 In a post's **Settings** view, **Content profile** defaults to Article. Recipe posts select
 Recipe and continue through the existing recipe renderer and structured-data path. Files
 using `recipe: true` or another legacy recipe alias appear as Recipe but keep that original
@@ -914,11 +926,14 @@ nothing changes on the public site until you save and make it live.
 
 ### The Landing page
 
-Open **Landing page** (`#/landing`) to arrange the home page. A first visit offers four ready-made layouts
-(Welcome, Small business, Portfolio, Newsletter) with clearly marked sample words, or **Start from scratch**;
+Open **Landing page** (`#/landing`) to arrange the home page. A first visit offers five ready-made layouts
+(Welcome, Small business, Portfolio, Newsletter, Recipes) with clearly marked sample words, or **Start from scratch**;
 **Choose a ready-made layout** and **Reset to default** are always there, and nothing you already have is
 replaced without a yes. A site that has never built a landing page starts from what visitors see today, and
 nothing is written until you save.
+
+The Recipes layout shows your newest recipes once you publish the first one. To do the same in any other layout,
+set **What to show** to **Only my recipes** on a Latest posts section.
 
 - **Sections** are cards: a welcome banner, text, latest posts, series, a featured post, buttons, a picture, a
   video, a map, opening hours, contact details, social links, questions and answers, or a call-out. **Add a
