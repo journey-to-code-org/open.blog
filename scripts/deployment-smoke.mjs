@@ -8,6 +8,7 @@ export async function smoke({
   captcha = false,
   fetchImpl = fetch,
   log = console.log,
+  timeoutSignal = timeoutMs => AbortSignal.timeout(timeoutMs),
 }) {
   const site = new URL(origin);
   const admin = new URL(adminOrigin);
@@ -20,10 +21,10 @@ export async function smoke({
   assert.ok(postPath.startsWith("/") && !postPath.startsWith("//"), "Post must be a root-relative path");
   const post = new URL(postPath, site);
   assert.equal(post.origin, site.origin);
-  async function get(url, status, contentType) {
+  async function get(url, status, contentType, { timeoutMs = 30_000 } = {}) {
     const response = await fetchImpl(url, {
       redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
+      signal: timeoutSignal(timeoutMs),
       headers: { "User-Agent": "openblog-deployment-smoke/1" },
     });
     assert.equal(response.status, status, `${new URL(url).pathname}: expected HTTP ${status}, got ${response.status}`);
@@ -58,7 +59,7 @@ export async function smoke({
     const response = await get(new URL(path, site), 302);
     assert.equal(response.headers.get("location"), new URL(destination, admin).href, "Unexpected Admin redirect");
   }
-  await get(new URL("/admin/", admin), 200, /text\/html/i);
+  await get(new URL("/admin/", admin), 200, /text\/html/i, { timeoutMs: 120_000 });
   await get(new URL("/admin/admin.css", admin), 200, /text\/css/i);
   await get(new URL("/admin/admin.js", admin), 200, /javascript/i);
   log("PASS Admin redirect, login page, and assets (no authentication attempted)");

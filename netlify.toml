@@ -1,12 +1,8 @@
-# Netlify settings for a blog that lives in a clone of the open.blog repository.
-# Connect the repository in Netlify and it builds from this file: the engine is
-# compiled, then `openblog build` writes dist/. Netlify installs the Rust
-# toolchain named in rust-toolchain.toml.
-#
-# Scheduled posts publish on the first build after their date. Add a build hook
-# in Netlify (Site configuration > Build & deploy > Build hooks) and put its URL
-# in a repository secret named NETLIFY_BUILD_HOOK; the included GitHub workflow
-# then triggers a rebuild once a day.
+# Netlify receives finished production deploys from GitHub Actions. In Netlify,
+# set Project configuration > Developer settings > Continuous deployment >
+# Build settings > Build status to "Stopped builds". Main pushes and scheduled
+# posts are built on GitHub and uploaded with `netlify deploy --no-build`, so
+# Netlify never clones this repository or installs Rust.
 #
 # Caching: Netlify's default (revalidate with an ETag) is kept on purpose.
 # Pages reference stylesheets and scripts with a content-derived ?v= so they
@@ -14,14 +10,7 @@
 # versioned, so long path-based cache rules would serve stale code after a deploy.
 
 [build]
-  command = "cargo build --release -p openblog-cli --locked && ./target/release/openblog build"
   publish = "dist"
-  # Netlify build minutes are limited. A production build is skipped when the
-  # change since the last deploy touches only tests, docs, top-level Markdown
-  # files (never posts under content/) or GitHub workflows. The ignore command
-  # exits 0 to skip and 1 to build; the first build, with no cached commit,
-  # always builds.
-  ignore = "test -n \"$CACHED_COMMIT_REF\" && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tests' ':(exclude)docs' ':(exclude,glob)*.md' ':(exclude).github'"
 
 # Pull request previews and branch deploys (including `develop`) are not built:
 # GitHub CI tests every change, and only `main` is deployed.

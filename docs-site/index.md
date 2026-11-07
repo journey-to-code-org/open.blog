@@ -32,6 +32,7 @@ This guide is built for people who need to:
 | CLI | Command usage and operational workflows | [CLI Overview](./cli/overview), [Command Reference](./cli/commands), [CLI Workflows](./cli/workflows) |
 | Admin Panel | Browser-based drafting, preview, and publish flow | [Admin Panel Overview](./admin-panel/overview), [Drafting and Preview](./admin-panel/drafts-and-preview), [Publishing and Scheduling](./admin-panel/publishing-and-scheduling) |
 | Content Authoring | Markdown conventions, metadata, and quality | [Markdown Style Guide](./content/markdown-style-guide), [Front Matter Guide](./content/front-matter-guide), [Content Quality Checklist](./content/quality-checklist) |
+| Advanced Capabilities | Deep product features and operational workflows | [Advanced Capabilities](./advanced/overview), [Architecture and Mental Model](./advanced/architecture-and-mental-model), [Research and Evidence Workflows](./advanced/research-and-evidence-workflows) |
 | Operations | Deployment, incidents, and maintenance | [GitHub Pages Deployment](./deployment), [Troubleshooting](./troubleshooting), [Contributing to Docs](./contributing) |
 | Releases and Upgrades | Versioning policy, changelog expectations, and migrations | [Versioning and Migrations](./versioning-and-migrations) |
 | Help | Quick answers for common operator and author questions | [FAQ](./faq) |

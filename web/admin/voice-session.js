@@ -122,7 +122,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     if (answer.state === "finishing") return showFinishing(answer);
     // A session that is over leaves no copy behind: the locked draft is on the server.
     if (answer.state !== "active") drafts.clear();
-    if (answer.state === "active") showWrite(answer);
+    if (answer.state === "active") showWrite(answer, { resumed: true });
     else if (answer.state === "locked") showRefine(answer.sample, { expired: answer.expired, resumed: true });
     else if (answer.state === "discarded") showDraw({ notice: "Your last session ran out of time with nothing written, so it was discarded." });
     else showDraw();
@@ -310,12 +310,12 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   }
 
   // ----- step 2: write
-  function showWrite(session) {
+  function showWrite(session, { resumed = false } = {}) {
     const mine = ++generation;
     finishing = false;
     editor = null;
     const countdown = createCountdown(clock.now);
-    const announcer = createAnnouncer();
+    const announcer = createAnnouncer({ resumed });
     countdown.sync(session.remainingSeconds);
     const sessionId = session.sessionId;
     const roughId = `${base}-rough`;

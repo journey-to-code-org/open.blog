@@ -809,7 +809,7 @@ pub(crate) const PAGE_STYLE: &str = "<style>
 :root{color-scheme:light dark;--bg:#ffffff;--fg:#1b1b1f;--muted:#4a4a55;--line:#8a8a96;--panel:#f3f3f6;--link:#0b57c2}
 @media (prefers-color-scheme:dark){:root{--bg:#141418;--fg:#ececf1;--muted:#c3c3cc;--line:#77778a;--panel:#212128;--link:#8ab4ff}}
 body{margin:0;background:var(--bg);color:var(--fg);font:1rem/1.5 system-ui,sans-serif}
-main{max-width:52rem;margin:0 auto;padding:1rem}
+main{max-width:52rem;margin:0 auto;padding:1rem;overflow-wrap:anywhere}
 a{color:var(--link)}
 a:focus-visible,pre:focus-visible{outline:3px solid var(--link);outline-offset:2px}
 .notice{border:2px solid var(--line);padding:.75rem;background:var(--panel)}

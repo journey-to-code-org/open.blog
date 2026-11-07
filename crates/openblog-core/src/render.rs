@@ -150,6 +150,78 @@ struct Renderer<'a> {
     trail_budget: usize,
 }
 
+/// Render one cover everywhere the native site shows it. `cover` remains the canonical image for
+/// feeds, social metadata and portable copies; the optional variants only change the image a reader
+/// sees as the site's colour scheme changes.
+fn cover_image(
+    cover: &str,
+    light: Option<&str>,
+    dark: Option<&str>,
+    alt_text: &str,
+    class: Option<&str>,
+    lazy: bool,
+) -> String {
+    let light = light.unwrap_or(cover);
+    let dark = dark.unwrap_or(cover);
+    let class = class
+        .map(|class| format!(" class=\"{}\"", attr(class)))
+        .unwrap_or_default();
+    let loading = if lazy { " loading=\"lazy\"" } else { "" };
+    let image = format!(
+        "<img{class} src=\"{}\" alt=\"{}\"{loading} decoding=\"async\">",
+        attr(light),
+        attr(alt_text)
+    );
+    if light == dark {
+        return image;
+    }
+    format!(
+        "<picture class=\"ob-cover-picture\"><source data-ob-cover-dark media=\"(prefers-color-scheme: dark)\" srcset=\"{}\">{image}</picture>",
+        attr(dark)
+    )
+}
+
+/// Render a series listing cover with optional smaller sources. Full-size colour variants remain
+/// the fallback, while authored card variants let browsers select a 400w or 800w source.
+fn cover_card_image(series: &Series, alt_text: &str) -> String {
+    let Some(cover) = series.cover.as_deref() else {
+        return String::new();
+    };
+    let light = series.cover_light.as_deref();
+    let dark = series.cover_dark.as_deref();
+    let card_light = series.cover_card_light.as_deref();
+    let card_dark = series.cover_card_dark.as_deref();
+    let card_light_2x = series.cover_card_light_2x.as_deref();
+    let card_dark_2x = series.cover_card_dark_2x.as_deref();
+    if card_light.is_none() && card_dark.is_none() {
+        return cover_image(cover, light, dark, alt_text, Some("ob-card-cover"), true);
+    }
+    let light = light.unwrap_or(cover);
+    let dark = dark.unwrap_or(cover);
+    let image_src = card_light.unwrap_or(light);
+    let image_srcset = card_light
+        .zip(card_light_2x)
+        .map(|(card, card_2x)| format!(" srcset=\"{} 400w, {} 800w\"", attr(card), attr(card_2x)))
+        .unwrap_or_default();
+    let dark_srcset = card_dark
+        .zip(card_dark_2x)
+        .map(|(card, card_2x)| format!("{} 400w, {} 800w", attr(card), attr(card_2x)))
+        .unwrap_or_else(|| attr(dark));
+    let sizes =
+        "(max-width: 40rem) calc(100vw - 2rem), (max-width: 70rem) calc((100vw - 3rem) / 2), 22rem";
+    let image = format!(
+        "<img class=\"ob-card-cover\" src=\"{}\"{image_srcset} sizes=\"{sizes}\" alt=\"{}\" width=\"400\" height=\"225\" loading=\"lazy\" decoding=\"async\">",
+        attr(image_src),
+        attr(alt_text),
+    );
+    if light == dark && card_light == card_dark && card_light_2x == card_dark_2x {
+        return image;
+    }
+    format!(
+        "<picture class=\"ob-cover-picture\"><source data-ob-cover-dark media=\"(prefers-color-scheme: dark)\" srcset=\"{dark_srcset}\" sizes=\"{sizes}\">{image}</picture>"
+    )
+}
+
 /// The most trail markup the whole site may carry (ADR 0175). A site over it
 /// shows every trail one step deep and says so in the build log.
 pub const TRAIL_BUDGET_BYTES: usize = 20 * 1024 * 1024;
@@ -1283,15 +1355,27 @@ impl<'a> Renderer<'a> {
         if c.feeds.llms {
             h.push_str("<link rel=\"alternate\" type=\"text/plain\" title=\"Content index for automated readers\" href=\"/llms.txt\">\n");
         }
-        if !c.favicon.is_empty() {
-            h.push_str(&format!(
-                "<link rel=\"icon\" href=\"{}\">\n",
-                attr(&c.favicon)
-            ));
+        // A theme's own icon is written here rather than swapped in by a script.
+        let favicon = theme.favicon.as_deref().unwrap_or(&c.favicon);
+        if !favicon.is_empty() {
+            h.push_str(&format!("<link rel=\"icon\" href=\"{}\">\n", attr(favicon)));
         }
         // Restore a visitor's saved color scheme before first paint.
         if c.color_scheme_toggle.unwrap_or(theme.color_scheme_toggle) {
             h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
+        }
+        // Fonts are found only once tokens.css arrives; a preload starts them
+        // with the stylesheets (fonts are always fetched in CORS mode).
+        for face in theme.faces.iter().filter(|face| face.preload) {
+            let kind = face
+                .format
+                .as_deref()
+                .map(|format| format!(" type=\"font/{}\"", attr(format)))
+                .unwrap_or_default();
+            h.push_str(&format!(
+                "<link rel=\"preload\" href=\"{}\" as=\"font\"{kind} crossorigin>\n",
+                attr(&face.src)
+            ));
         }
         // Order matters: structure, then tokens, then the theme's own rules.
         h.push_str("<link rel=\"stylesheet\" href=\"/assets/base.css\">\n");
@@ -1815,7 +1899,7 @@ impl<'a> Renderer<'a> {
         } else {
             format!(
                 "<img class=\"ob-brand-logo\" src=\"{}\" alt=\"\" width=\"54\" height=\"40\"><span class=\"ob-brand-name\">{}</span>",
-                attr(&c.logo),
+                attr(theme.logo.as_deref().unwrap_or(&c.logo)),
                 text(&c.title)
             )
         };
@@ -1939,10 +2023,13 @@ impl<'a> Renderer<'a> {
                 h.push_str(&attr(&post.url));
                 h.push_str("\">");
                 if let Some(cover) = &post.cover {
-                    h.push_str(&format!(
-                        "<img class=\"ob-card-cover\" src=\"{}\" alt=\"{}\" loading=\"lazy\" decoding=\"async\">",
-                        attr(cover),
-                        attr(&post.cover_alt)
+                    h.push_str(&cover_image(
+                        cover,
+                        post.cover_light.as_deref(),
+                        post.cover_dark.as_deref(),
+                        &post.cover_alt,
+                        Some("ob-card-cover"),
+                        true,
                     ));
                 }
                 h.push_str("<span class=\"ob-card-body\"><span class=\"ob-meta\">");
@@ -1980,9 +2067,7 @@ impl<'a> Renderer<'a> {
                 attr(&own.name),
                 attr(&s.url)
             ));
-            if let Some(cover) = &s.cover {
-                h.push_str(&format!("<img class=\"ob-card-cover\" src=\"{}\" alt=\"\" loading=\"lazy\" decoding=\"async\">", attr(cover)));
-            }
+            h.push_str(&cover_card_image(s, ""));
             h.push_str("<span class=\"ob-card-body\">");
             h.push_str(&format!(
                 "<span class=\"ob-meta\">{} {}</span>",
@@ -2001,6 +2086,24 @@ impl<'a> Renderer<'a> {
         }
         h.push_str("</ul>");
         h
+    }
+
+    fn client_pagination(
+        &self,
+        list: &str,
+        count: usize,
+        per_page: usize,
+        parameter: &str,
+        item_label: &str,
+    ) -> String {
+        if per_page == 0 || count <= per_page {
+            return list.to_string();
+        }
+        format!(
+            "<ob-list-pagination page-size=\"{per_page}\" page-param=\"{}\" item-label=\"{}\">\n{list}\n</ob-list-pagination>",
+            attr(parameter),
+            attr(item_label)
+        )
     }
 
     fn pager(&self, page_number: usize, page_count: usize) -> String {
@@ -2056,8 +2159,18 @@ impl<'a> Renderer<'a> {
         per_page: usize,
     ) -> String {
         let c = &self.site.config;
-        let start = (page_number - 1) * per_page;
-        let indices: Vec<usize> = (start..self.site.posts.len().min(start + per_page)).collect();
+        let client_latest = page_number == 1 && c.latest_posts_per_page > 0;
+        let start = if client_latest {
+            0
+        } else {
+            (page_number - 1) * per_page
+        };
+        let end = if client_latest {
+            self.site.posts.len()
+        } else {
+            self.site.posts.len().min(start + per_page)
+        };
+        let indices: Vec<usize> = (start..end).collect();
         let mut body = String::from("<div class=\"ob-container\">\n");
         // A landing page with a visible section replaces the home settings'
         // layout on the first page; every other page, and every site without
@@ -2098,8 +2211,21 @@ impl<'a> Renderer<'a> {
                         "<h1 id=\"latest\" class=\"ob-title\"",
                     ),
             );
-            body.push_str(&self.post_list(theme, &indices));
-            body.push_str(&self.pager(page_number, page_count));
+            let posts = self.post_list(theme, &indices);
+            body.push_str(&self.client_pagination(
+                &posts,
+                indices.len(),
+                if client_latest {
+                    c.latest_posts_per_page
+                } else {
+                    0
+                },
+                "latest-page",
+                "posts",
+            ));
+            if !client_latest {
+                body.push_str(&self.pager(page_number, page_count));
+            }
             body.push_str("\n</section>\n");
             if page_number == 1
                 && c.home.show_series
@@ -2114,7 +2240,20 @@ impl<'a> Renderer<'a> {
                             "<h2 id=\"series\" class=\"ob-title\"",
                         ),
                 );
-                body.push_str(&self.series_cards(theme));
+                let cards = self.series_cards(theme);
+                let count = self
+                    .site
+                    .series
+                    .iter()
+                    .filter(|series| !series.posts.is_empty())
+                    .count();
+                body.push_str(&self.client_pagination(
+                    &cards,
+                    count,
+                    c.series_per_page,
+                    "series-page",
+                    "series",
+                ));
                 body.push_str("\n</section>\n");
             }
         }
@@ -2334,11 +2473,16 @@ impl<'a> Renderer<'a> {
         }
         if theme.post_covers {
             if let Some(cover) = &post.cover {
-                body.push_str(&format!(
-                    "<figure class=\"ob-cover\"><img class=\"u-photo\" src=\"{}\" alt=\"{}\" decoding=\"async\"></figure>\n",
-                    attr(cover),
-                    attr(&post.cover_alt)
+                body.push_str("<figure class=\"ob-cover\">");
+                body.push_str(&cover_image(
+                    cover,
+                    post.cover_light.as_deref(),
+                    post.cover_dark.as_deref(),
+                    &post.cover_alt,
+                    Some("u-photo"),
+                    false,
                 ));
+                body.push_str("</figure>\n");
             }
         }
         if let Some(recipe) = &post.recipe {
@@ -2384,10 +2528,15 @@ impl<'a> Renderer<'a> {
                 "<ob-reading-modes default=\"{default_mode}\"{scope}>"
             ));
         }
+        let prose = self.prose_with_conversations(post);
+        let prose = if theme.code_windows {
+            crate::code_windows::frame(&prose).into()
+        } else {
+            prose
+        };
         body.push_str(&format!(
-            "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
+            "<ob-code{}><div class=\"ob-prose e-content\">{prose}</div></ob-code>\n",
             self.code_attr(theme, Some(post)),
-            self.prose_with_conversations(post)
         ));
         if reading_modes.is_some() {
             body.push_str("</ob-reading-modes>\n");
@@ -2961,8 +3110,7 @@ impl<'a> Renderer<'a> {
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
         let position = series.posts.iter().position(|&i| i == index).unwrap_or(0);
         let (prev, next) = self.site.series_neighbors(index);
-        // Only a series holding a collaborative work names its parts' authors (ADR 0040); every
-        // other series keeps exactly the markup it always had.
+        // Only a series holding a collaborative work names its parts' authors (ADR 0040).
         let credited = self.site.series_is_collaborative(series);
         let credit = |part: &Post, lead: &str| match credited.then(|| part_credit(part)).flatten() {
             Some(by) => format!("{lead}<span class=\"ob-meta ob-part-credit\">{by}</span>"),
@@ -2977,15 +3125,60 @@ impl<'a> Renderer<'a> {
             attr(&series.url),
             text(&series.name)
         ));
-        // One cell per part, decorative: the position is already spoken in the eyebrow and the
-        // list below. A theme script may mark cells the reader has completed.
-        h.push_str("<ol class=\"ob-series-path\" aria-hidden=\"true\">");
-        for n in 0..series.posts.len() {
-            let here = if n == position { " data-current" } else { "" };
-            h.push_str(&format!("<li{here}></li>"));
+        // One cell per part. Every other part is a shortcut; the current part is deliberately a
+        // non-link so the strip communicates position without offering a no-op navigation.
+        h.push_str("<ob-series-previews><ol class=\"ob-series-path\" aria-label=\"Series parts\">");
+        for (n, &part_index) in series.posts.iter().enumerate() {
+            let part = &self.site.posts[part_index];
+            let label = attr(&format!("Part {}: {}", n + 1, part.title));
+            let id = format!("ob-series-preview-{}", n + 1);
+            let fallback = attr(&format!(
+                "Part {} of {}: {}\n{}\n{} min read",
+                n + 1,
+                series.posts.len(),
+                part.title,
+                part.description,
+                part.reading_minutes
+            ));
+            let preview_attrs =
+                format!("data-series-trigger aria-describedby=\"{id}\" title=\"{fallback}\"");
+            if n == position {
+                h.push_str(&format!(
+                    "<li data-current><span tabindex=\"0\" aria-current=\"page\" aria-label=\"{label}\" {preview_attrs}></span>"
+                ));
+            } else {
+                h.push_str(&format!(
+                    "<li><a href=\"{}\" aria-label=\"{label}\" {preview_attrs}></a>",
+                    attr(&part.url)
+                ));
+            }
+            h.push_str(&format!(
+                "<div class=\"ob-series-preview\" id=\"{id}\" role=\"tooltip\" popover=\"manual\">"
+            ));
+            if let Some(cover) = &part.cover {
+                h.push_str(&cover_image(
+                    cover,
+                    part.cover_light.as_deref(),
+                    part.cover_dark.as_deref(),
+                    "",
+                    Some("ob-series-preview-cover"),
+                    true,
+                ));
+            }
+            h.push_str(&format!(
+                "<p class=\"ob-meta\">Part {} of {}{}</p><strong>{}</strong><p>{}</p><p class=\"ob-meta\">{} · {} min read</p>{}</div></li>",
+                n + 1,
+                series.posts.len(),
+                if n == position { " · Current part" } else { "" },
+                text(&part.title),
+                text(&part.description),
+                self.time(part),
+                part.reading_minutes,
+                credit(part, "")
+            ));
         }
         h.push_str(
-            "</ol>
+            "</ol></ob-series-previews>
 <div class=\"ob-series-nav\">",
         );
         // Both slots are always links, so the control looks and behaves the same on every
@@ -3071,7 +3264,21 @@ impl<'a> Renderer<'a> {
         body.push_str(&self.heading(theme, 1, "Series", "ob-section-heading"));
         body.push_str("\n<p class=\"ob-lede\">Multi-part guides, in reading order.</p>\n");
         if self.site.series.iter().any(|s| !s.posts.is_empty()) {
-            body.push_str(&self.series_cards(theme));
+            let cards = self.series_cards(theme);
+            let per_page = self.site.config.series_per_page;
+            let count = self
+                .site
+                .series
+                .iter()
+                .filter(|series| !series.posts.is_empty())
+                .count();
+            body.push_str(&self.client_pagination(
+                &cards,
+                count,
+                per_page,
+                "series-page",
+                "series",
+            ));
         } else {
             body.push_str("<p class=\"ob-empty\">No series yet. Add <code>series: my-series</code> to a post's front matter.</p>");
         }
@@ -3092,14 +3299,32 @@ impl<'a> Renderer<'a> {
         );
         body.push_str("<p class=\"ob-eyebrow\"><a href=\"/series/\">Series</a></p>\n");
         body.push_str(&self.heading(theme, 1, &series.name, "ob-section-heading"));
-        if let Some(cover) = &series.cover {
-            body.push_str(&format!("<figure class=\"ob-cover\"><img src=\"{}\" alt=\"\" decoding=\"async\"></figure>\n", attr(cover)));
+        if let Some(cover) = series.cover.as_ref().filter(|_| theme.series_page_cover) {
+            body.push_str("<figure class=\"ob-cover\">");
+            body.push_str(&cover_image(
+                cover,
+                series.cover_light.as_deref(),
+                series.cover_dark.as_deref(),
+                "",
+                None,
+                false,
+            ));
+            body.push_str("</figure>\n");
         }
         if !series.description_html.trim().is_empty() {
-            body.push_str(&format!(
-                "<div class=\"ob-prose\">{}</div>\n",
-                series.description_html
-            ));
+            let description = if theme.code_windows {
+                crate::code_windows::frame(&series.description_html)
+            } else {
+                series.description_html.clone()
+            };
+            if theme.code_windows {
+                body.push_str(&format!(
+                    "<ob-code{}><div class=\"ob-prose\">{description}</div></ob-code>\n",
+                    self.code_attr(theme, None),
+                ));
+            } else {
+                body.push_str(&format!("<div class=\"ob-prose\">{description}</div>\n"));
+            }
         }
         // Only a series holding a collaborative work names its contributors and each part's
         // authors (ADR 0040); every other series keeps exactly the markup it always had.
@@ -5149,6 +5374,32 @@ mod tests {
     }
 
     #[test]
+    fn only_preloaded_font_faces_start_with_the_stylesheets() {
+        let (site, mut themes) = model(r#"{"theme":"fonts","postPath":"/{slug}/"}"#, true);
+        themes.insert(
+            "fonts",
+            ThemeFile::from_json(
+                r#"{"extends":"base","fonts":{"faces":[
+                    {"family":"Body","src":"fonts/body.woff2","format":"woff2","preload":true},
+                    {"family":"Body","src":"fonts/extra.woff2","unicodeRange":"U+100-17F"}]}}"#,
+            )
+            .unwrap(),
+        );
+        let files = generate(&site, &themes).unwrap();
+        for path in ["index.html", "solo/index.html", "404.html"] {
+            let html = file(&files, path);
+            let preload = "<link rel=\"preload\" href=\"/themes/fonts/fonts/body.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>";
+            let at = html
+                .find(preload)
+                .unwrap_or_else(|| panic!("{path}: {html}"));
+            assert!(at < html.find("rel=\"stylesheet\"").unwrap(), "{path}");
+            assert!(!html.contains("extra.woff2"), "{path}");
+        }
+        // The series keeps its own theme, which preloads nothing.
+        assert!(!file(&files, "series/s/index.html").contains("rel=\"preload\""));
+    }
+
+    #[test]
     fn system_color_scheme_omits_toggle_and_saved_override_on_every_page() {
         let (site, mut themes) = model(
             r#"{"theme":"system","postsPerPage":2,"postPath":"/{slug}/"}"#,
@@ -5235,6 +5486,53 @@ mod tests {
     }
 
     #[test]
+    fn series_index_opts_into_client_pagination_without_removing_cards_from_html() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","latestPostsPerPage":6,"seriesPerPage":6,"home":{"showSeries":true}}"#,
+        )
+        .unwrap();
+        let posts = (1..=7)
+            .map(|number| SourceFile {
+                path: format!("posts/part-{number}.md"),
+                contents: format!(
+                    "---\ntitle: Part {number}\ndate: 2026-01-{number:02}\nseries: series-{number}\n---\nBody."
+                ),
+            })
+            .collect();
+        let series = (1..=7)
+            .map(|number| SourceFile {
+                path: format!("series/series-{number}.md"),
+                contents: format!("---\nname: Series {number}\n---\nAbout."),
+            })
+            .collect();
+        let site = Site::load(
+            config,
+            Sources {
+                posts,
+                series,
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        let index = file(&files, "series/index.html");
+
+        assert!(index.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"series-page\" item-label=\"series\">"
+        ));
+        assert_eq!(index.matches("class=\"ob-card-title\"").count(), 7);
+        assert!(index.contains("Series 1") && index.contains("Series 7"));
+        let home = file(&files, "index.html");
+        assert!(home.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"latest-page\" item-label=\"posts\">"
+        ));
+        assert!(home.contains(
+            "<ob-list-pagination page-size=\"6\" page-param=\"series-page\" item-label=\"series\">"
+        ));
+    }
+
+    #[test]
     fn series_navigation_is_the_same_shape_on_every_part() {
         let files = build(
             r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
@@ -5243,21 +5541,71 @@ mod tests {
         let first = file(&files, "one/index.html");
         let last = file(&files, "two/index.html");
         for page in [first, last] {
-            assert!(page.contains("<ol class=\"ob-series-path\" aria-hidden=\"true\">"));
-            assert_eq!(page.matches("<li data-current></li>").count(), 1);
-            assert_eq!(page.matches("class=\"ob-series-prev").count(), 1);
+            assert!(page.contains("<ol class=\"ob-series-path\" aria-label=\"Series parts\">"));
+            assert_eq!(page.matches("aria-current=\"page\"").count(), 2);
+            assert_eq!(page.matches("<a class=\"ob-series-prev").count(), 1);
             assert_eq!(page.matches("class=\"ob-series-next").count(), 1);
             assert!(!page.contains("<div class=\"ob-series-nav\"><span></span>"));
         }
-        assert!(first.contains("<li data-current></li><li></li>"));
+        assert!(first.contains("<li data-current><span tabindex=\"0\" aria-current=\"page\" aria-label=\"Part 1: One\" data-series-trigger"));
+        assert!(
+            first.contains("<li><a href=\"/two/\" aria-label=\"Part 2: Two\" data-series-trigger")
+        );
         assert!(first.contains("Start of series"));
         assert!(first.contains("rel=\"next\""));
         assert!(!first.contains("End of series"));
-        assert!(last.contains("<li></li><li data-current></li>"));
+        assert!(
+            last.contains("<li><a href=\"/one/\" aria-label=\"Part 1: One\" data-series-trigger")
+        );
+        assert!(last.contains("<li data-current><span tabindex=\"0\" aria-current=\"page\" aria-label=\"Part 2: Two\" data-series-trigger"));
         assert!(last.contains("End of series"));
         assert!(last.contains("rel=\"prev\""));
         assert!(last.contains("Back to Series S"));
         assert!(!last.contains("Start of series"));
+    }
+
+    #[test]
+    fn series_previews_escape_metadata_and_include_optional_cover_variants() {
+        let (mut site, themes) = model(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            true,
+        );
+        let part = site.posts.iter_mut().find(|p| p.slug == "one").unwrap();
+        part.title = "<img src=x onerror=alert(1)>".into();
+        part.description = "A \"quote\" & <script>not markup</script>.".into();
+        part.cover = Some("/cover.jpg".into());
+        part.cover_light = Some("/cover-light.jpg".into());
+        part.cover_dark = Some("/cover-dark.jpg".into());
+        let files = generate(&site, &themes).unwrap();
+        let page = file(&files, "two/index.html");
+        let start = page.find("<ob-series-previews>").unwrap();
+        let end = page.find("</ob-series-previews>").unwrap();
+        let previews = &page[start..end];
+        assert_eq!(
+            previews
+                .matches("role=\"tooltip\" popover=\"manual\"")
+                .count(),
+            2
+        );
+        assert_eq!(
+            previews
+                .matches("class=\"ob-series-preview-cover\"")
+                .count(),
+            1
+        );
+        for id in ["ob-series-preview-1", "ob-series-preview-2"] {
+            assert!(previews.contains(&format!("aria-describedby=\"{id}\"")));
+            assert_eq!(previews.matches(&format!("id=\"{id}\"")).count(), 1);
+        }
+        assert!(previews.contains("<strong>&lt;img src=x onerror=alert(1)&gt;</strong>"));
+        assert!(previews.contains("&amp; &lt;script&gt;not markup&lt;/script&gt;."));
+        assert!(!previews.contains("<script>") && !previews.contains("<img src=x"));
+        assert!(previews.contains("src=\"/cover-light.jpg\" alt=\"\" loading=\"lazy\""));
+        assert!(previews.contains("srcset=\"/cover-dark.jpg\""));
+        assert!(previews.contains("Part 2 of 2 · Current part"));
+        assert!(previews
+            .contains("<time datetime=\"2026-01-01T00:00:00Z\">Jan 1, 2026</time> · 1 min read"));
+        assert!(previews.contains("title=\"Part 1 of 2: &lt;img"));
     }
 
     #[test]
@@ -5354,6 +5702,65 @@ mod tests {
         assert!(page.contains("<meta property=\"og:url\" content=\"/original\">"));
         assert!(page.contains("<meta property=\"og:image\" content=\"https://t.dev/default.png\">"));
         assert!(page.contains("<meta name=\"twitter:card\" content=\"summary_large_image\">"));
+    }
+
+    #[test]
+    fn cover_variants_follow_colour_mode_on_every_native_cover_surface() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","theme":"cards"}"#,
+        )
+        .unwrap();
+        let source = |path: &str, contents: &str| SourceFile {
+            path: path.into(),
+            contents: contents.into(),
+        };
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![source(
+                    "posts/one.md",
+                    "---\ntitle: One\ndate: 2026-01-01\nseries: guide\ncover: /one.jpg\ncoverLight: /one-light.jpg\ncoverDark: /one-dark.jpg\ncoverAlt: One cover\n---\nBody.",
+                )],
+                series: vec![source(
+                    "series/guide.md",
+                    "---\nname: Guide\ncover: /guide.jpg\ncoverLight: /guide-light.jpg\ncoverDark: /guide-dark.jpg\ncoverCardLight: /guide-card-light.jpg\ncoverCardDark: /guide-card-dark.jpg\ncoverCardLight2x: /guide-card-light-2x.jpg\ncoverCardDark2x: /guide-card-dark-2x.jpg\n---\nAbout.",
+                )],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let mut themes = ThemeSet::new();
+        themes.insert(
+            "cards",
+            ThemeFile::from_json(
+                r#"{"extends":"base","options":{"listStyle":"cards","postCovers":true}}"#,
+            )
+            .unwrap(),
+        );
+        let files = generate(&site, &themes).unwrap();
+
+        for path in ["index.html", "one/index.html"] {
+            let html = file(&files, path);
+            assert!(html.contains("srcset=\"/one-dark.jpg\""), "{path}");
+            assert!(html.contains("src=\"/one-light.jpg\""), "{path}");
+            assert!(html.contains("alt=\"One cover\""), "{path}");
+        }
+        let series_index = file(&files, "series/index.html");
+        assert!(series_index
+            .contains("srcset=\"/guide-card-dark.jpg 400w, /guide-card-dark-2x.jpg 800w\""));
+        assert!(series_index.contains("src=\"/guide-card-light.jpg\""));
+        assert!(series_index
+            .contains("srcset=\"/guide-card-light.jpg 400w, /guide-card-light-2x.jpg 800w\""));
+
+        let series_page = file(&files, "series/guide/index.html");
+        assert!(series_page.contains("srcset=\"/guide-dark.jpg\""));
+        assert!(series_page.contains("src=\"/guide-light.jpg\""));
+        assert!(!series_page.contains("guide-card"));
+
+        let post = file(&files, "one/index.html");
+        assert!(post.contains("<meta property=\"og:image\" content=\"https://t.dev/one.jpg\">"));
+        assert!(post.contains("data-ob-cover-dark media=\"(prefers-color-scheme: dark)\""));
     }
 
     fn build_posts(config_json: &str, posts: &[(&str, &str)]) -> Vec<OutputFile> {

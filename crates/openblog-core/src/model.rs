@@ -241,6 +241,10 @@ pub struct Post {
     /// Explicit position within the series; otherwise posts are ordered by date.
     pub series_order: Option<u32>,
     pub cover: Option<String>,
+    /// Optional on-site cover used when the reader is in light mode.
+    pub cover_light: Option<String>,
+    /// Optional on-site cover used when the reader is in dark mode.
+    pub cover_dark: Option<String>,
     pub cover_alt: String,
     pub description: String,
     pub draft: bool,
@@ -469,7 +473,18 @@ pub struct Series {
     pub description_text: String,
     pub theme: Option<String>,
     pub cover: Option<String>,
-    /// Listing order on the series index; lower first, then by name.
+    pub cover_light: Option<String>,
+    pub cover_dark: Option<String>,
+    /// Optional quarter-resolution light cover used by series listing cards.
+    pub cover_card_light: Option<String>,
+    /// Optional quarter-resolution dark cover used by series listing cards.
+    pub cover_card_dark: Option<String>,
+    /// Optional half-resolution light source for high-density series cards.
+    pub cover_card_light_2x: Option<String>,
+    /// Optional half-resolution dark source for high-density series cards.
+    pub cover_card_dark_2x: Option<String>,
+    /// Listing priority on the series index; lower first. Series at the same
+    /// priority are ordered by their most recent post, newest first.
     pub order: u32,
     /// Indices into `Site::posts`, in reading order (first part first).
     pub posts: Vec<usize>,
@@ -1051,6 +1066,12 @@ impl Site {
                         description_text: String::new(),
                         theme: None,
                         cover: None,
+                        cover_light: None,
+                        cover_dark: None,
+                        cover_card_light: None,
+                        cover_card_dark: None,
+                        cover_card_light_2x: None,
+                        cover_card_dark_2x: None,
                         order: u32::MAX,
                         posts: Vec::new(),
                         source: None,
@@ -1074,10 +1095,26 @@ impl Site {
                 }
             });
             if s.cover.is_none() {
-                s.cover = s.posts.iter().find_map(|&i| posts[i].cover.clone());
+                if let Some(post) = s
+                    .posts
+                    .iter()
+                    .map(|&i| &posts[i])
+                    .find(|post| post.cover.is_some())
+                {
+                    s.cover = post.cover.clone();
+                    s.cover_light = post.cover_light.clone();
+                    s.cover_dark = post.cover_dark.clone();
+                }
             }
         }
-        series.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
+        series.sort_by(|a, b| {
+            let latest =
+                |series: &Series| series.posts.iter().map(|&index| posts[index].date).max();
+            a.order
+                .cmp(&b.order)
+                .then_with(|| latest(b).cmp(&latest(a)))
+                .then_with(|| a.name.cmp(&b.name))
+        });
 
         // Tags.
         let mut tag_map: BTreeMap<String, Tag> = BTreeMap::new();
@@ -2167,6 +2204,8 @@ fn load_post_in(
         .unwrap_or_else(|| markdown::excerpt(&rendered.prose, 180));
     let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
+    let cover_light = optional_string(first(fm, &["coverLight", "cover_light"]));
+    let cover_dark = optional_string(first(fm, &["coverDark", "cover_dark"]));
     if let Some(video) = &video {
         if video.url.is_none() {
             profile
@@ -2273,6 +2312,8 @@ fn load_post_in(
         series,
         series_order,
         cover,
+        cover_light,
+        cover_dark,
         cover_alt,
         description,
         draft,
@@ -2416,6 +2457,15 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
             .unwrap_or_else(|| markdown::excerpt(&rendered.text, 200)),
         theme: optional_string(first(fm, &["theme"])),
         cover: optional_string(first(fm, &["cover", "image"])),
+        cover_light: optional_string(first(fm, &["coverLight", "cover_light"])),
+        cover_dark: optional_string(first(fm, &["coverDark", "cover_dark"])),
+        cover_card_light: optional_string(first(fm, &["coverCardLight", "cover_card_light"])),
+        cover_card_dark: optional_string(first(fm, &["coverCardDark", "cover_card_dark"])),
+        cover_card_light_2x: optional_string(first(
+            fm,
+            &["coverCardLight2x", "cover_card_light_2x"],
+        )),
+        cover_card_dark_2x: optional_string(first(fm, &["coverCardDark2x", "cover_card_dark_2x"])),
         order: fm.get_u32("order").unwrap_or(1000),
         posts: Vec::new(),
         source: Some(file.path.clone()),
@@ -2610,6 +2660,47 @@ mod tests {
         assert_eq!(prev.unwrap().slug, "first");
         assert!(next.is_none());
         assert!(s.pages[0].nav);
+    }
+
+    #[test]
+    fn series_with_the_same_priority_are_ordered_by_their_latest_post() {
+        let s = site(Sources {
+            posts: vec![
+                post(
+                    "posts/older.md",
+                    "---\ntitle: Older\ndate: 2026-01-10\nseries: older\n---\nx",
+                ),
+                post(
+                    "posts/newer-first.md",
+                    "---\ntitle: Newer first\ndate: 2026-01-01\nseries: newer\n---\nx",
+                ),
+                post(
+                    "posts/newer-latest.md",
+                    "---\ntitle: Newer latest\ndate: 2026-02-01\nseries: newer\n---\nx",
+                ),
+                post(
+                    "posts/pinned.md",
+                    "---\ntitle: Pinned\ndate: 2025-01-01\nseries: pinned\n---\nx",
+                ),
+            ],
+            series: vec![
+                post("series/older.md", "---\nname: Older\n---\nAbout."),
+                post("series/newer.md", "---\nname: Newer\n---\nAbout."),
+                post(
+                    "series/pinned.md",
+                    "---\nname: Pinned\norder: 1\n---\nAbout.",
+                ),
+            ],
+            ..Default::default()
+        });
+
+        assert_eq!(
+            s.series
+                .iter()
+                .map(|series| series.slug.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pinned", "newer", "older"]
+        );
     }
 
     #[test]

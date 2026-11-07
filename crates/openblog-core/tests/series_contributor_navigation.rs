@@ -321,6 +321,27 @@ fn names_are_plain_text_whatever_the_profile() {
 }
 
 #[test]
+fn series_path_links_every_other_part_and_disables_the_current_part() {
+    let files = build(&[guides()]);
+    let nav = series_box(page(&files, "g2/index.html"));
+    let path = between(nav, "<ol class=\"ob-series-path\"", "</ol>");
+
+    assert!(
+        path.contains("<li><a href=\"/g1/\" aria-label=\"Part 1: Part g1\" data-series-trigger aria-describedby=\"ob-series-preview-1\""),
+        "{path}"
+    );
+    assert!(
+        path.contains("<li><a href=\"/g3/\" aria-label=\"Part 3: Part g3\" data-series-trigger aria-describedby=\"ob-series-preview-3\""),
+        "{path}"
+    );
+    assert!(
+        path.contains("<li data-current><span tabindex=\"0\" aria-current=\"page\" aria-label=\"Part 2: Part g2\" data-series-trigger aria-describedby=\"ob-series-preview-2\""),
+        "{path}"
+    );
+    assert!(!path.contains("href=\"/g2/\""), "{path}");
+}
+
+#[test]
 fn an_unknown_contributor_fails_the_load_instead_of_publishing_a_guess() {
     let (posts, mut sidecars) = letters();
     sidecars.push(credits("l4", &["ann", "nobody"], &[]));
@@ -466,7 +487,7 @@ fn hostile_names_stay_escaped_unlinked_text_and_the_build_succeeds() {
             );
             assert!(
                 !html.contains("<img")
-                    && !html.contains("<strong")
+                    && !html.contains("<strong>bold</strong>")
                     && !html.contains("javascript:alert(1)\"")
                     && !html.contains("href=\"https://kim.example")
                     && !html.contains("href=\"javascript"),

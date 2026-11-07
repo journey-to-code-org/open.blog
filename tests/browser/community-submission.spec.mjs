@@ -84,8 +84,12 @@ test("the kit page is keyboard operable, labelled, script-free and fits a phone"
     "openblog submit portable-lesson --confirm hacker-news --permalink",
   );
 
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(overflow).toBeLessThanOrEqual(0);
+  // A long unbroken configuration name wraps, on any platform's fonts, down to the narrowest phone.
+  for (const width of [375, 320]) {
+    await page.setViewportSize({ width, height: 800 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  }
 });
 
 test("a confirmed submission is the author's word and is not prepared again", async ({ page }) => {

@@ -42,7 +42,8 @@ a `#` heading, which is then used. Everything else is optional:
 | `series` | The slug of a series this post belongs to. |
 | `seriesOrder` | Position within the series. Without it, parts are ordered by date. |
 | `description` | A sentence or two for feeds, search results, and social cards. Defaults to an excerpt. |
-| `cover` | Image shown at the top and used as the social card. Defaults to the first image in the body. |
+| `cover` | Canonical cover shown at the top and used in feeds, exports, and social cards. It is also the on-site fallback for either colour mode. Defaults to the first image in the body. |
+| `coverLight`, `coverDark` | Optional on-site cover variants for light and dark mode. The saved theme toggle and the system preference select the matching image; `cover` is used when a variant is omitted. |
 | `coverAlt` | Alternative text for the cover. |
 | `draft` | `true` keeps the post out of every build and feed. |
 | `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
@@ -451,6 +452,7 @@ If both sides edited the same file, Git stops with a conflict.
 | `js-evolution` | Older and newer JavaScript for the same task, side by side, run on the same fixed data across three milestones (2015, 2017, 2020). |
 | `audio-lab` | A real, quiet Web Audio synth: oscillator, low-pass filter, live signal trace. Sound plays only after Start. |
 | `native-lab` | View Transitions, Web Animations, the popover attribute and the Intersection/Resize observers, each reporting browser support. |
+| `server-lab` | An in-memory multiplayer server simulator. Add `lesson="connections"`, `lesson="world"`, `lesson="async"` or `lesson="select"` to focus on connection handling, shared state, waiting tasks or `select!`. |
 
 Everything the demo does runs in the reader's browser against pretend data; nothing is sent or
 stored. The body is plain Markdown, and the same text is used everywhere the demo cannot run:
@@ -775,7 +777,13 @@ name: Getting started
 description: Three short parts that cover the basics.
 theme: paper          # optional: every post in the series uses this theme
 cover: /images/getting-started.png
-order: 1              # position on the /series/ page (lower first)
+coverLight: /images/getting-started-light.png
+coverDark: /images/getting-started-dark.png
+coverCardLight: /images/getting-started-card-light.png
+coverCardDark: /images/getting-started-card-dark.png
+coverCardLight2x: /images/getting-started-card-light-2x.png
+coverCardDark2x: /images/getting-started-card-dark-2x.png
+order: 1              # optional: pin a listing priority (lower first)
 ---
 
 Optional Markdown shown at the top of the series page.
@@ -784,6 +792,28 @@ Optional Markdown shown at the top of the series page.
 Posts join with `series: getting-started`. Each post then shows "Part 2 of 3" with
 previous and next links and a list of all parts. If you reference a series that has no
 file, one is created from the slug and the build prints a warning.
+
+Series with the same `order` are listed by the date of their most recent published post,
+newest first. Since the default `order` is the same for every series, omitting it keeps active
+series at the top automatically. Set `order` only when a series needs a fixed priority.
+
+`coverLight` and `coverDark` are optional full-size colour-mode variants; `cover` remains
+the canonical fallback for feeds, social cards, and either missing variant. Series index
+cards can additionally use `coverCardLight` and `coverCardDark` as quarter-resolution
+sources, plus `coverCardLight2x` and `coverCardDark2x` as half-resolution high-density
+sources. The index emits responsive 400w/800w choices while the series page keeps the
+full-size covers.
+
+Set `seriesPerPage` in `openblog.json` to limit the series index. The browser changes pages
+without reloading, writes `?series-page=N` into the address for sharing and Back/Forward, and
+keeps the complete list available when JavaScript is off. The default `0` shows every series.
+
+The same `seriesPerPage` setting paginates Series sections on the homepage. Set
+`latestPostsPerPage` to paginate the homepage's Latest posts without reloading; it uses
+`?latest-page=N`. A Latest posts section's `count` still caps its total posts; omit `count`
+to paginate every published post. Both settings default to `0`, preserving the static listing
+and `/page/N/` links.
+
 
 A series that holds a collaborative work, a published post whose credits name two or more
 authors (such as a shared reflection), also says who wrote what: its page lists the series'

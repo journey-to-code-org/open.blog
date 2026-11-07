@@ -209,6 +209,33 @@ fn the_landing_styles_use_tokens_only() {
     assert!(css.contains("min-height: 44px"), "touch targets");
 }
 
+#[test]
+fn every_bundled_theme_uses_the_shared_desktop_reading_width() {
+    const SHARED_READING_WIDTH: &str = "clamp(46rem, 60vw, 64rem)";
+
+    let themes = repo("themes");
+    let base: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(themes.join("base/theme.json")).unwrap())
+            .unwrap();
+    assert_eq!(base["tokens"]["readingWidth"], SHARED_READING_WIDTH);
+
+    for entry in std::fs::read_dir(themes).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "base" {
+            continue;
+        }
+        let theme: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(entry.path().join("theme.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            theme["tokens"].get("readingWidth").is_none(),
+            "{name} overrides the shared desktop reading width"
+        );
+    }
+}
+
 // ----- contrast --------------------------------------------------------------
 
 fn channel(c: u8) -> f64 {

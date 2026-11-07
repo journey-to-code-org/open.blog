@@ -19,6 +19,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     ("base.css", include_str!("../../../web/base.css")),
     ("openblog.js", include_str!("../../../web/openblog.js")),
     (
+        "components/ob-series-previews.js",
+        include_str!("../../../web/components/ob-series-previews.js"),
+    ),
+    (
         "components/ob-theme-toggle.js",
         include_str!("../../../web/components/ob-theme-toggle.js"),
     ),
@@ -119,6 +123,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-native-model.js"),
     ),
     (
+        "components/ob-server-lab.js",
+        include_str!("../../../web/components/ob-server-lab.js"),
+    ),
+    (
+        "components/ob-server-model.js",
+        include_str!("../../../web/components/ob-server-model.js"),
+    ),
+    (
         "components/ob-highlight.js",
         include_str!("../../../web/components/ob-highlight.js"),
     ),
@@ -145,6 +157,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     (
         "components/reading-modes.js",
         include_str!("../../../web/components/reading-modes.js"),
+    ),
+    (
+        "components/ob-list-pagination.js",
+        include_str!("../../../web/components/ob-list-pagination.js"),
+    ),
+    (
+        "components/list-pagination.js",
+        include_str!("../../../web/components/list-pagination.js"),
     ),
     (
         "components/ob-quantity.js",
@@ -1402,6 +1422,28 @@ mod tests {
                 }
             }
         }
+        // openblog.js imports each component by element name when its element
+        // is on the page (`./components/<name>.js`), one quoted name per line.
+        let (_, entry) = EMBEDDED_WEB
+            .iter()
+            .find(|(path, _)| *path == "openblog.js")
+            .unwrap();
+        let mut named = 0;
+        for line in entry.lines() {
+            let Some(name) = line
+                .trim()
+                .strip_prefix("\"ob-")
+                .and_then(|rest| rest.strip_suffix("\","))
+            else {
+                continue;
+            };
+            named += 1;
+            let target = format!("components/ob-{name}.js");
+            if !embedded.contains(target.as_str()) {
+                missing.push(format!("openblog.js loads {target}"));
+            }
+        }
+        assert!(named > 0, "openblog.js names no components");
         assert!(missing.is_empty(), "not embedded: {missing:?}");
     }
 

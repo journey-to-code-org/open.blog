@@ -21,6 +21,38 @@ All notable changes to open.blog are recorded here. Releases follow
 - Social publishing safety tests (story #359, task #378): two delivery workers at once, an author racing a worker, a storage failure injected at every call of a run, and every provider failure the adapter contract allows are run against the real worker; none sends an announcement twice, records a post without the provider's id, leaves work claimed, or lets a key reach a summary or stored row. The history and operations SQL run against a real Postgres in CI, and a browser test covers the status history by keyboard at 320 px. See [Social publishing](docs/social-publishing.md#how-delivery-safety-is-tested).
 - Social publishing operations (story #359, task #377; ADR 0324): every delivery worker run logs one JSON line of counts that cannot carry a token, caption or provider text. The optional `supabase/social-ops.sql` (with `social-ops-rollback.sql`) and `OPENBLOG_SOCIAL_OPS=true` add a queue health check, a sweep of expired leases and abandoned handshakes, and warning-level backlog alerts (late queue, stopped deliveries, a provider not set up, accounts to reconnect, outcomes to check; announcements waiting out an account's rate-limit pause are never counted as late); Admin's Social screen shows the same **Delivery health**. History is deleted only if you also set `OPENBLOG_SOCIAL_RETENTION_DAYS` (30 to 3650), and then only for announcements that ended. Disconnecting an account now cancels its scheduled announcements and says how many. See the [operations runbook](docs/social-publishing.md#operations-runbook).
 - Social announcement status history (story #359, task #376; ADR 0323): each announcement now shows one of seven delivery states (Scheduled, Sending, Retrying, Published, Failed, Needs checking, Canceled), says what happens next when nothing is asked of you, and has a **History** disclosure listing its status changes and every try in your time zone. Run the optional `supabase/social-history.sql` (with `social-history-rollback.sql`) to record every change exactly with a database trigger; without it the history is rebuilt from the tries and says it may be incomplete. Events hold no caption, token or provider text. See [Social publishing](docs/social-publishing.md#status-and-history).
+## [0.54.0] - 2026-11-05
+
+- Series progress strips preview each part. Hovering or focusing a block opens a native Popover API card
+  with the part's title, description, optional cover, number, date and reading time, plus its credit in a
+  collaborative series. The current part can now take keyboard focus too. Links still navigate on the first
+  click or tap; without JavaScript or Popover API support each block keeps a plain `title` tooltip and the
+  All parts list.
+
+## [0.53.0] - 2026-11-03
+
+- Series progress strips now use one orange marker for the current post and link every other block
+  directly to its part. The current block remains a non-link, and reading-completion marks stay in
+  the reading tools and expanded list instead of competing with the position marker.
+
+- Portable Markdown (a post's `.md` copy, and the body sent to DEV, Hashnode and Medium) keeps an authored
+  native disclosure (`<details>`, `<summary>` and plain `code`, `strong`, `em`, `b`, `i` inside it, without
+  attributes) as markup instead of escaping it to literal text. A closing tag is kept only when its opening
+  tag was; all other raw HTML is still literal source (ADR 0351).
+- New `seriesPageCover` theme option (default `true`): `false` leaves the series cover off its own page,
+  for a theme whose series page has its own hero, instead of downloading an image only to hide it (ADR 0350).
+- New `codeWindows` theme option: each plain code block on the theme's pages is framed like a titled one,
+  captioned Rust, Terminal, Diff, its language or Code, while the page is written. Titled and runnable
+  blocks, feeds and portable copies are unchanged (ADR 0349).
+- A theme may set top-level `"favicon"` and `"logo"` in `theme.json`; pages in the theme use them
+  instead of the site's, rendered with the page rather than swapped in by a script (ADR 0348).
+- A font face can set `"preload": true`: every page in the theme then fetches it alongside the
+  stylesheets, so text paints in the theme's font and never shifts when it swaps in. A child theme
+  narrows the inherited preloads with `"fonts": { "preloadOnly": [...] }` (ADR 0347).
+- `openblog.js` imports a component only when its element is on the page, or the moment a script
+  inserts one, instead of importing all 22 on every page. A home page with no labs now downloads
+  one component instead of about 40 modules. Components are listed by element name; the embed test
+  checks each has its file (ADR 0346).
 
 ## [0.52.0] - 2026-10-29
 
@@ -93,7 +125,6 @@ All notable changes to open.blog are recorded here. Releases follow
   - The voice guide moves between portable and private in one step (ADR 0289). `openblog voice guide --move portable|private` shows what would move (`--yes` moves it), and Admin has Make private or Make portable on the guide's card. The file is copied, checked and only then removed, so it is never lost. Links are refused, and a guide that quotes private samples or cannot be read stays private.
   - Assistant review can cover the selected text or the current section as well as the whole document (ADR 0290). Findings stay inside that passage, a skill is offered only for scopes it declares, and `voice-match` now works on a passage only, so you choose what should sound more like you. Apply and undo work as before.
   - Samples are private unless you choose portable, and you can erase them (ADRs 0282 and 0283): a move between the folders is reversible and a build or publish never carries a private sample. `openblog voice erase [--yes]` and the Admin **Erase all voice data…** button list every sample, the session record, the voice guide and leftover editor files, ask you to confirm (`--yes`, or typing `erase`), remove them all or none, check again that nothing is left, and refuse a linked folder. See [Erase your voice data](docs/admin.md#erase-your-voice-data).
-
 ## [0.50.0] - 2026-10-28
 
 - The landing page and Customize look (epic #314, ADRs 0245 to 0264, overview in ADR 0265): owners arrange their home page and choose their site's colors and fonts from Admin, from a phone, without HTML or CSS. Docs: [the Landing page and Customize look in Admin](docs/admin.md#change-your-home-page-and-your-look), [Landing page sections](docs/content.md#landing-page-sections), [Look controls](docs/themes.md#look-controls) and [the `ob-home-*` classes](docs/theme-components.md#styling-the-landing-page).
