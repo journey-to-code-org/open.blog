@@ -132,7 +132,7 @@ test("a recipe with no lists is told what to do in everyday words", async ({ pag
   const advice = page.locator("[data-recipe-advice]");
   await expect(advice).toContainText("make a heading called Ingredients");
   await expect(advice).toContainText("make a heading called Steps");
-  await expect(advice).toContainText("Upload cover");
+  await expect(advice).toContainText("Add cover photo");
   const notice = advice.locator("..");
   await expect(notice).not.toContainText("## Ingredients");
 

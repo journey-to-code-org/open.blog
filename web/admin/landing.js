@@ -50,7 +50,7 @@ export const SECTION_CATALOG = Object.freeze([
         kind: "group", name: "image", label: "Picture", addLabel: "Add a picture", removeLabel: "Remove the picture",
         blank: () => ({ src: "", alt: "" }),
         fields: [
-          address("src", "Picture address", { required: true, schemes: "pictures", hint: "A picture on your site such as /images/me.jpg, or an address starting with https://." }),
+          address("src", "Picture address", { required: true, schemes: "pictures", picture: true, hint: "Choose one of your photos, or type an address starting with https://." }),
           text("alt", "Describe the picture", { required: true, max: LIMITS.alt, hint: "For people who cannot see it. Say what is in the picture." }),
         ],
       },
@@ -116,7 +116,7 @@ export const SECTION_CATALOG = Object.freeze([
     sample: "A photo of the shop front. Caption: Open since 1998.",
     blank: () => ({ src: "", alt: "", caption: "" }),
     fields: [
-      address("src", "Picture address", { required: true, schemes: "pictures", hint: "A picture on your site such as /images/shop.jpg, or an address starting with https://." }),
+      address("src", "Picture address", { required: true, schemes: "pictures", picture: true, hint: "Choose one of your photos, or type an address starting with https://." }),
       text("alt", "Describe the picture", { required: true, max: LIMITS.alt, hint: "For people who cannot see it. Say what is in the picture." }),
       text("caption", "Caption", { max: LIMITS.line, hint: "Optional." }),
     ],

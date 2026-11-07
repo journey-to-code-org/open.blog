@@ -389,11 +389,144 @@ function controlFor(field, value) {
 }
 
 /**
+ * The picture types an upload accepts. Naming them, rather than `image/*`, is what makes an iPhone hand over a
+ * JPEG instead of its own HEIC format, which no web page can show.
+ */
+export const PHOTO_TYPES = "image/png,image/jpeg,image/gif,image/webp,image/avif";
+
+/**
+ * The photo picker: a new photo, or one uploaded before, shown as pictures. `load()` resolves to the Admin's
+ * `{ images, more }`, and `upload(file)` to a new photo's address, throwing with a message that is shown here.
+ * With `describe`, the chosen picture is then described in plain words. Resolves to `{ url, alt }`, or null
+ * when nothing was chosen.
+ */
+export function openPhotoPicker({ load, upload, heading = "Choose a picture", describe = false }) {
+  return new Promise((resolve) => {
+    const titleId = nextId("oba-photo-title");
+    const dialog = el("dialog", { class: "oba-dialog oba-photo-dialog", "aria-labelledby": titleId, "data-photo-picker": "true" });
+    const finish = (chosen) => {
+      dialog.close();
+      dialog.remove();
+      resolve(chosen);
+    };
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      finish(null);
+    });
+    // Keys typed in the dialog are the dialog's, never the editor's behind it.
+    dialog.addEventListener("keydown", (event) => event.stopPropagation());
+    const body = el("div", { class: "oba-photo-body" });
+    const chosen = (url) => (describe ? showDescribe(url) : finish({ url, alt: "" }));
+    const showDescribe = (url) => {
+      const id = nextId("oba-photo-alt");
+      const input = el("input", { id, type: "text", autocomplete: "off", maxlength: 300 });
+      const problem = el("p", { class: "oba-field-error", role: "alert", hidden: true });
+      const add = () => {
+        const alt = input.value.trim();
+        if (!alt) {
+          problem.hidden = false;
+          problem.textContent = "Describe the picture so people who cannot see it know what it shows.";
+          input.focus();
+          return;
+        }
+        finish({ url, alt });
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        add();
+      });
+      body.replaceChildren(
+        el("img", { class: "oba-photo-chosen", src: url, alt: "" }),
+        el(
+          "div",
+          { class: "oba-field" },
+          el("label", { for: id }, "Describe the picture"),
+          input,
+          el("p", { class: "oba-small" }, "A few words for people who cannot see it, such as: A lemon cake on a blue plate."),
+        ),
+        problem,
+        el(
+          "div",
+          { class: "oba-dialog-actions" },
+          actionButton("Back", showChoices),
+          el("span", { class: "oba-spacer" }),
+          actionButton("Cancel", () => finish(null)),
+          actionButton("Add picture", add, { class: "oba-btn oba-btn-primary oba-bf-button", "data-action": "photo-add" }),
+        ),
+      );
+      input.focus();
+    };
+    const showChoices = async () => {
+      const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+      const file = el("input", { type: "file", accept: PHOTO_TYPES, class: "oba-sr", tabindex: "-1", "aria-hidden": "true", "data-photo-file": "true" });
+      const addNew = actionButton("Add a new photo", () => file.click(), { class: "oba-btn oba-btn-primary oba-bf-button", "data-action": "photo-new" });
+      file.addEventListener("change", async () => {
+        const photo = file.files?.[0];
+        if (!photo) return;
+        addNew.disabled = true;
+        status.textContent = `Adding ${photo.name}. A large photo takes a moment…`;
+        try {
+          chosen(await upload(photo));
+        } catch (error) {
+          status.textContent = error.message;
+          addNew.disabled = false;
+          file.value = "";
+        }
+      });
+      const earlier = el("div", { class: "oba-photo-earlier" }, el("p", { class: "oba-small" }, "Looking for your photos…"));
+      body.replaceChildren(
+        addNew,
+        file,
+        status,
+        el("h3", { class: "oba-piece-step" }, "Your photos"),
+        earlier,
+        el("div", { class: "oba-dialog-actions" }, el("span", { class: "oba-spacer" }), actionButton("Cancel", () => finish(null))),
+      );
+      addNew.focus();
+      try {
+        const { images = [], more = false } = await load();
+        if (!earlier.isConnected) return;
+        earlier.replaceChildren(
+          images.length
+            ? el(
+                "ul",
+                { class: "oba-photo-grid" },
+                images.map((image) =>
+                  el(
+                    "li",
+                    {},
+                    el(
+                      "button",
+                      { type: "button", class: "oba-photo-choice", "aria-label": `Use ${image.name}`, title: image.name, "data-photo": image.url, onClick: () => chosen(image.url) },
+                      el("img", { src: image.url, alt: "", loading: "lazy" }),
+                    ),
+                  ),
+                ),
+              )
+            : el("p", { class: "oba-small" }, "No photos yet. The ones you add are kept here to use again."),
+          ...(more ? [el("p", { class: "oba-small" }, "Showing your newest photos.")] : []),
+        );
+      } catch (error) {
+        if (!earlier.isConnected) return;
+        earlier.replaceChildren(
+          el("p", { class: "oba-small", role: "alert" }, `Your photos could not be shown: ${error.message}. You can still add a new one.`),
+        );
+      }
+    };
+    dialog.append(el("h2", { id: titleId }, heading), body);
+    document.body.append(dialog);
+    dialog.showModal();
+    showChoices();
+  });
+}
+
+/**
  * A file picker under a picture's address field: the file is uploaded by the Admin's own upload and its
  * address is written into the field. `upload(file)` resolves to the address, or null when it failed.
  */
-function pictureChooser(field, control, upload) {
-  const picker = el("input", { type: "file", accept: "image/*", id: nextId("oba-bf-file"), "data-picture-for": field.name });
+function pictureChooser(field, control, upload, pick) {
+  const picker = el("input", { type: "file", accept: PHOTO_TYPES, id: nextId("oba-bf-file"), "data-picture-for": field.name });
   const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite" });
   picker.addEventListener("change", async () => {
     const file = picker.files?.[0];
@@ -420,6 +553,14 @@ function pictureChooser(field, control, upload) {
     { class: "oba-field oba-bf-field oba-bf-picture" },
     el("label", { for: picker.id }, `Or choose a file for the ${field.label.toLowerCase()}`),
     picker,
+    pick
+      ? actionButton("Choose from your photos", async () => {
+          const chosen = await pick();
+          if (!chosen) return;
+          control.value = chosen;
+          status.textContent = "Picture chosen.";
+        })
+      : null,
     status,
   );
 }
@@ -429,7 +570,7 @@ function pictureChooser(field, control, upload) {
  * ordered `[field, value]` pairs the engine takes (empty optional fields left out).
  * `showProblems(list)` marks the form with what the engine refused.
  */
-export function buildPieceForm(schema, initialValues = [], { upload = null } = {}) {
+export function buildPieceForm(schema, initialValues = [], { upload = null, pick = null } = {}) {
   const problems = el("div", { class: "oba-error oba-bf-problems", role: "alert", hidden: true });
   const root = el("div", { class: "oba-bf-body" });
   const top = new Map();
@@ -440,7 +581,7 @@ export function buildPieceForm(schema, initialValues = [], { upload = null } = {
     if (field.required) control.setAttribute("aria-required", "true");
     top.set(field.name, control);
     root.append(fieldRow(`${field.label}${required(field)}`, control, field.hint));
-    if (field.input === "image" && upload) root.append(pictureChooser(field, control, upload));
+    if (field.input === "image" && upload) root.append(pictureChooser(field, control, upload, pick));
   }
   let rows = null;
   let listStatus = null;
@@ -539,7 +680,7 @@ const PIECE_BLURB = { callout: "A highlighted note, tip or warning." };
  *
  * The landing page workspace can call this too: pass its own `onInsert` and `build`.
  */
-export function openPieceDialog({ pieces, build, onInsert, onClose, upload = null, heading = "Add something" }) {
+export function openPieceDialog({ pieces, build, onInsert, onClose, upload = null, pick = null, heading = "Add something" }) {
   const dialog = el("dialog", { class: "oba-dialog oba-piece-dialog", "aria-labelledby": "oba-piece-title" });
   const body = el("div", { class: "oba-piece-dialog-body" });
   let closed = false;
@@ -581,7 +722,7 @@ export function openPieceDialog({ pieces, build, onInsert, onClose, upload = nul
   };
   const showForm = (piece) => {
     step.textContent = piece.label;
-    const form = buildPieceForm(piece, [], { upload });
+    const form = buildPieceForm(piece, [], { upload, pick });
     const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     let busy = false;
     const insert = actionButton("Insert", async () => {
@@ -636,7 +777,7 @@ export function openPieceDialog({ pieces, build, onInsert, onClose, upload = nul
  * is the engine's schema list and `build` checks and writes the piece.
  * Returns `{ element, read(), focus() }` where `read()` resolves to `{ markdown }` or `{ problem }`.
  */
-export function blockEditor(kind, source, { pieces = [], build, upload = null } = {}) {
+export function blockEditor(kind, source, { pieces = [], build, upload = null, pick = null } = {}) {
   if (kind === "callout") return wrapRead(calloutEditor(source));
   if (kind === "tasklist") return wrapRead(taskListEditor(source));
   if (kind === "table") return wrapRead(tableEditor(source));
@@ -645,7 +786,7 @@ export function blockEditor(kind, source, { pieces = [], build, upload = null } 
   const schema = pieces.find((piece) => piece.kind === kindOnly?.kind);
   const parsed = schema ? parsePieceFence(source, schema) : null;
   if (!parsed || !schema) return null;
-  const form = buildPieceForm(schema, parsed.values, { upload });
+  const form = buildPieceForm(schema, parsed.values, { upload, pick });
   const snapshot = JSON.stringify(form.values());
   return {
     element: form.element,

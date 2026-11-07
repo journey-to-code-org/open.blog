@@ -357,7 +357,7 @@ Settings for the browser editor; see [The admin editor](admin.md).
 - `sessionHours` is how long a login lasts.
 - `secureCookies` must be `true` when the editor is served over HTTPS (it should be,
   whenever it is reachable from the internet).
-- `maxUploadMb` caps image uploads.
+- `maxUploadMb` caps a picture published as it was sent. A larger photo is reduced to fit rather than refused; see [Photo uploads](admin.md#photo-uploads).
 - `trustedProxies` lists the addresses of reverse proxies in front of the server, so login
   limits and the view counter see real client addresses.
 

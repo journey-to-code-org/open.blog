@@ -102,7 +102,7 @@ test("a capture needs something in it and stays inside its bounds", () => {
   assert.match(captureProblem({ ...empty, fields: { notes: "x".repeat(11) } }, { ...DEFAULT_LIMITS, maxNotesChars: 10 }), /at most 10 characters/);
   assert.equal(photoProblem({ name: "a.jpg", type: "image/jpeg", size: 5 }), "");
   assert.match(photoProblem({ name: "a.pdf", type: "application/pdf", size: 5 }), /is not a photo/);
-  assert.match(photoProblem({ name: "big.jpg", type: "image/jpeg", size: 11 * 1024 * 1024 }), /larger than 10 MB/);
+  assert.match(photoProblem({ name: "big.jpg", type: "image/jpeg", size: 41 * 1024 * 1024 }), /larger than 40 MB/);
 });
 
 test("sending uploads each photo, skips one the server refuses for good, and creates one draft", async () => {

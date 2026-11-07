@@ -23,6 +23,7 @@ mod landing_history;
 mod landing_store;
 mod notebook_store;
 mod paths_exchange;
+mod photo;
 mod portable_export;
 mod private_guard;
 mod publish;

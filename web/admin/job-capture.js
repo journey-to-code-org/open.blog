@@ -3,7 +3,7 @@
 // draft. The first half of this file is plain functions (tested in tests/web/admin-job-capture.test.mjs);
 // the second builds the view. A capture only ever talks to this site's own Admin; the Assistant is used only when the author asks (capture-assistant.js).
 
-import { el } from "./block-forms.js";
+import { el, PHOTO_TYPES } from "./block-forms.js";
 import { audioLimits, clock, createRecorder, START_PROBLEMS } from "./capture-recorder.js";
 import { createDraftBox, createTranscribeBox, draftBody } from "./capture-assistant.js";
 import { createCaptureQueue, openIndexedStore, queueLimits } from "./capture-queue.js";
@@ -17,7 +17,7 @@ const MAX_FIELD = 80;
 export const DEFAULT_LIMITS = Object.freeze({
   maxPhotos: 12,
   maxNotesChars: 8000,
-  maxPhotoBytes: 10 * 1024 * 1024,
+  maxPhotoBytes: 40 * 1024 * 1024,
   maxAudioSeconds: 180,
 });
 
@@ -220,7 +220,7 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
   const pendingList = el("ul", { class: "oba-capture-pending-list" });
   const pending = el("section", { class: "oba-capture-pending", "aria-labelledby": `${id}-pending`, hidden: true, "data-capture-pending-list": "true" }, el("h3", { id: `${id}-pending`, tabindex: "-1" }, "Waiting to send"), pendingList);
 
-  const photoInput = el("input", { id: `${id}-photos`, class: "oba-capture-file", type: "file", accept: "image/*", multiple: true, "data-capture-photos": "true" });
+  const photoInput = el("input", { id: `${id}-photos`, class: "oba-capture-file", type: "file", accept: PHOTO_TYPES, multiple: true, "data-capture-photos": "true" });
   const photoLabel = el("label", { for: `${id}-photos`, class: "oba-btn oba-btn-primary oba-capture-add" }, "Add photos");
   const photoList = el("ul", { class: "oba-capture-photos", "aria-label": "Photos in this capture" });
 

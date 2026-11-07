@@ -103,6 +103,7 @@ use crate::clock;
 use crate::fsutil;
 use crate::http::{Request, Response};
 use crate::notebook_store;
+use crate::photo;
 use crate::research_review;
 use crate::site::{self, BuildOptions, BuildReport};
 use crate::source_store::{self, StoreError};
@@ -496,7 +497,7 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         authenticate(state, req).map_err(secured)?;
         if name == "upload" {
             let config = site::load_config(&state.root).unwrap_or_default();
-            return Ok(config.admin.max_upload_mb as usize * 1024 * 1024);
+            return Ok(upload_intake_bytes(&config));
         }
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
@@ -942,6 +943,7 @@ fn authenticated_api(
         ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
+        ("GET", "images") => list_images(state),
         ("POST", "capture-audio") => upload_capture_audio(state, req),
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
@@ -4037,7 +4039,9 @@ fn meta(state: &AppState) -> Response {
                 "business": config.business != openblog_core::business::BusinessConfig::default(),
             },
             "job": job_form,
-            "capture": openblog_core::capture::limits_json(config.admin.max_upload_mb),
+            "capture": openblog_core::capture::limits_json(
+                (upload_intake_bytes(&config) / (1024 * 1024)) as u32,
+            ),
             "contributors": config.contributors,
             "creditRoles": credit_roles,
             "pieces": openblog_core::piece::schema_json(),
@@ -18114,27 +18118,67 @@ fn sanitize_upload_stem(name: &str) -> String {
     }
 }
 
+/// Whether these are the bytes of an HEIC or HEIF photo, the format iPhones take pictures in.
+fn is_heic(bytes: &[u8]) -> bool {
+    bytes.len() > 12
+        && &bytes[4..8] == b"ftyp"
+        && [
+            b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"mif1", b"msf1",
+        ]
+        .iter()
+        .any(|brand| &bytes[8..12] == *brand)
+}
+
+/// The largest upload that is read: a photo over `admin.maxUploadMb` can still be reduced to fit under it.
+fn upload_intake_bytes(config: &SiteConfig) -> usize {
+    (config.admin.max_upload_mb as usize).max(photo::INTAKE_MB) * 1024 * 1024
+}
+
 fn upload(state: &AppState, req: &Request) -> Response {
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
     };
-    let max = config.admin.max_upload_mb as usize * 1024 * 1024;
     if req.body.is_empty() {
         return Response::error(400, "No image data");
     }
-    if req.body.len() > max {
+    if req.body.len() > upload_intake_bytes(&config) {
         return Response::error(
             413,
-            &format!("Images can be at most {} MB", config.admin.max_upload_mb),
+            &format!(
+                "This picture is over {} MB, which is too large to use. Try a smaller copy.",
+                upload_intake_bytes(&config) / (1024 * 1024)
+            ),
         );
     }
-    let Some(ext) = sniff_image(&req.body) else {
+    let Some(sniffed) = sniff_image(&req.body) else {
+        if is_heic(&req.body) {
+            return Response::error(
+                415,
+                "This photo is in the HEIC format iPhones use, which web pages cannot show. \
+                 Choose it directly from the iPhone, or save a copy as a JPEG and upload that.",
+            );
+        }
         return Response::error(
             415,
             "Only PNG, JPEG, GIF, WebP, and AVIF images can be uploaded",
         );
     };
+    // Reduced before any lock is taken, so a large photo never holds up a save or a build.
+    let fitted = photo::fit_for_web(&req.body, sniffed);
+    let (bytes, ext) = match &fitted {
+        Some(fitted) => (fitted.bytes.as_slice(), fitted.extension),
+        None => (req.body.as_slice(), sniffed),
+    };
+    if bytes.len() > config.admin.max_upload_mb as usize * 1024 * 1024 {
+        return Response::error(
+            413,
+            &format!(
+                "This picture could not be made smaller and is over the {} MB limit. Try a smaller copy.",
+                config.admin.max_upload_mb
+            ),
+        );
+    }
     let name = req.query.get("name").map(String::as_str).unwrap_or("image");
     // A capture's photo has a fixed name per capture id and slot, so sending it again lands on the same
     // file instead of a second copy (ADR 0297).
@@ -18183,20 +18227,66 @@ fn upload(state: &AppState, req: &Request) -> Response {
         n += 1;
     }
     let rel = format!("{dir_rel}/{file_name}");
-    if let Err(e) = fsutil::write_file(&static_dir.join(&rel), &req.body) {
+    if let Err(e) = fsutil::write_file(&static_dir.join(&rel), bytes) {
         return Response::error(500, &e);
     }
     // Make it available immediately without a full rebuild.
     let out = state.out_dir(&config);
     if out.join(fsutil::MARKER).exists() {
-        let _ = fsutil::write_file(&out.join(&rel), &req.body);
+        let _ = fsutil::write_file(&out.join(&rel), bytes);
     }
     let url = format!("/{rel}");
-    eprintln!("admin: uploaded {url} ({} bytes)", req.body.len());
+    eprintln!(
+        "admin: uploaded {url} ({} bytes, {} sent)",
+        bytes.len(),
+        req.body.len()
+    );
     Response::json(
         201,
         &json!({ "url": url, "markdown": format!("![]({url})") }),
     )
+}
+
+/// The most earlier uploads listed for choosing from, newest first.
+const MAX_LISTED_IMAGES: usize = 300;
+
+/// The pictures uploaded so far, newest first, so that a picture can be used again without its address.
+fn list_images(state: &AppState) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(c) => c,
+        Err(e) => return Response::error(500, &e),
+    };
+    let static_dir = state.root.join(&config.paths.static_dir);
+    let mut images: Vec<(std::time::SystemTime, String)> =
+        fsutil::walk(&static_dir.join("images/uploads"))
+            .into_iter()
+            .filter(|path| {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ["png", "jpg", "gif", "webp", "avif"].contains(&ext))
+            })
+            .map(|path| {
+                let modified = fs::metadata(&path)
+                    .and_then(|meta| meta.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                (modified, fsutil::relative(&static_dir, &path))
+            })
+            .collect();
+    images.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let more = images.len() > MAX_LISTED_IMAGES;
+    let images: Vec<Json> = images
+        .into_iter()
+        .take(MAX_LISTED_IMAGES)
+        .map(|(_, rel)| {
+            let name = rel
+                .rsplit('/')
+                .next()
+                .and_then(|file| file.rsplit_once('.'))
+                .map_or(rel.as_str(), |(stem, _)| stem);
+            json!({ "url": format!("/{rel}"), "name": name })
+        })
+        .collect();
+    Response::json(200, &json!({ "images": images, "more": more }))
 }
 
 /// The directory of a site's capture ledger and voice notes: private, never built, never served.
@@ -33997,8 +34087,83 @@ href: /about/
             "existing files are never overwritten"
         );
         let mut big = authed(req("POST", "/admin/api/upload?name=x.png"), &session, true);
-        big.body = vec![0u8; 11 * 1024 * 1024];
-        assert_eq!(handle(&f.state, &big).status, 413);
+        big.body = vec![0u8; 41 * 1024 * 1024];
+        assert_eq!(handle(&f.state, &big).status, 413, "beyond what is read");
+        // Over the site's limit, and not a picture that can be decoded and reduced.
+        big.body = [&png[..], &vec![0u8; 11 * 1024 * 1024]].concat();
+        assert_eq!(handle(&f.state, &big).status, 413, "cannot be reduced");
+    }
+
+    #[test]
+    fn a_large_photo_is_reduced_on_upload_and_listed_for_use_again() {
+        let f = fixture("upload-reduce");
+        let session = login_ok(&f);
+        let mut seed = 1u32;
+        let photo = image::RgbImage::from_fn(5000, 3000, |x, y| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let noise = (seed >> 27) as u8;
+            image::Rgb([(x / 25) as u8 + noise, (y / 25) as u8 + noise, noise])
+        });
+        let mut sent = Vec::new();
+        image::ImageEncoder::write_image(
+            image::codecs::png::PngEncoder::new(&mut sent),
+            &photo,
+            5000,
+            3000,
+            image::ExtendedColorType::Rgb8,
+        )
+        .unwrap();
+        assert!(
+            sent.len() > 11 * 1024 * 1024,
+            "over the 10 MB limit: {}",
+            sent.len()
+        );
+        let send = |name: &str, body: &[u8]| {
+            let mut r = authed(
+                req("POST", &format!("/admin/api/upload?name={name}")),
+                &session,
+                true,
+            );
+            r.body = body.to_vec();
+            handle(&f.state, &r)
+        };
+        let done = send("Lemon Cake.png", &sent);
+        assert_eq!(done.status, 201, "{}", String::from_utf8_lossy(&done.body));
+        let url = body_json(&done)["url"].as_str().unwrap().to_string();
+        assert!(url.ends_with("/lemon-cake.jpg"), "{url}");
+        for root in ["static", "dist"] {
+            let kept = fs::read(f.dir.join(root).join(url.trim_start_matches('/'))).unwrap();
+            assert!(kept.len() < 2 * 1024 * 1024, "{root}: {}", kept.len());
+            assert!(kept.starts_with(&[0xFF, 0xD8, 0xFF]), "{root}");
+        }
+
+        let heic = send("IMG_0001.HEIC", b"\0\0\0\x18ftypheic\0\0\0\0heic");
+        assert_eq!(heic.status, 415);
+        assert!(body_json(&heic)["error"].as_str().unwrap().contains("HEIC"));
+
+        let listed = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/images"), &session, false),
+        );
+        assert_eq!(listed.status, 200);
+        let body = body_json(&listed);
+        assert_eq!(body["images"][0]["url"], url.as_str());
+        assert_eq!(body["images"][0]["name"], "lemon-cake");
+        assert_eq!(body["more"], false);
+        let meta = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/meta"), &session, false),
+        );
+        assert_eq!(
+            body_json(&meta)["capture"]["maxPhotoBytes"],
+            40 * 1024 * 1024,
+            "a phone sends a large photo instead of refusing it first"
+        );
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/images")).status,
+            401,
+            "only for someone signed in"
+        );
     }
 
     #[test]

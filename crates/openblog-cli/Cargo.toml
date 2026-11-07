@@ -28,6 +28,8 @@ blake2 = "0.10"
 hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.23"
+# Uploaded photos are reduced to a web size. Only what a phone or camera sends is compiled in.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Threading"] }

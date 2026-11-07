@@ -3,7 +3,7 @@
 // scaffold headings are ordinary Markdown placed once into an empty draft. The first half of this file
 // is plain functions (tested in tests/web/admin-job-form.test.mjs); the second builds the form.
 
-import { el } from "./block-forms.js";
+import { el, PHOTO_TYPES } from "./block-forms.js";
 
 export const JOB_PROFILE = "job";
 
@@ -128,7 +128,7 @@ export function buildJobForm({ fields, meta = {}, upload, check, onChange = () =
 
   const photos = (name, label) => {
     const items = el("ul", { class: "oba-job-photos", "aria-label": `${label} photos` });
-    const picker = el("input", { id: `${id}-${name}-file`, type: "file", accept: "image/*", multiple: true, "data-job-photos": name });
+    const picker = el("input", { id: `${id}-${name}-file`, type: "file", accept: PHOTO_TYPES, multiple: true, "data-job-photos": name });
     const render = () => {
       items.replaceChildren(
         ...state[name].map((address, index) =>

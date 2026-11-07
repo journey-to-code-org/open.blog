@@ -4,7 +4,7 @@
 // previews are served from an authenticated URL into an opaque-origin sandbox.
 
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
-import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.js";
+import { blockEditor, editableBlockKind, openPhotoPicker, openPieceDialog } from "./block-forms.js";
 import { buildChecksPanel } from "./checks-panel.js";
 import { applyJobDraft, bodyTakesScaffold, buildJobForm, JOB_PROFILE } from "./job-form.js";
 import { buildHistory } from "./landing-history.js";
@@ -7965,7 +7965,7 @@ export const RECIPE_ADVICE = {
   "incomplete-times": () => "Only one of prep and cook time is filled in. In Settings, add the other or a total time, so readers see how long this takes.",
   "servings-not-numeric": () => "Servings, in Settings, should start with a number so readers can scale the recipe.",
   "calories-without-yield": () => "Calories don't say what they're for. In Settings, add the servings or the yield.",
-  "no-image": () => "Add a photo. In Settings, choose Upload cover. Many recipe apps and search results look for one.",
+  "no-image": () => "Add a photo. In Settings, choose Add cover photo. Many recipe apps and search results look for one.",
 };
 
 /** The advice for a preview's recipe problems, in the order the check found them. */
@@ -9960,7 +9960,16 @@ function landingField(spec, data, ctx, prefix) {
   });
   input.addEventListener("input", () => ctx.changed());
   input.addEventListener("change", () => ctx.changed());
-  return h("div", { class: "oba-field oba-landing-field", "data-field": path }, label, input, hint, error);
+  const chooser = spec.picture && ctx.pickPhoto
+    ? h("button", { class: "oba-btn", type: "button", "data-action": "choose-photo", onClick: async () => {
+        const chosen = await ctx.pickPhoto();
+        if (!chosen) return;
+        input.value = chosen.url;
+        data[spec.name] = chosen.url;
+        ctx.changed();
+      } }, "Choose a photo")
+    : null;
+  return h("div", { class: "oba-field oba-landing-field", "data-field": path }, label, input, chooser, hint, error);
 }
 
 // Rich text landing section (ADR 0257, #330). The Visual (word-processor) editor's own Markdown
@@ -10284,7 +10293,20 @@ function landingRichText(spec, data, ctx, path, id) {
     const box = h(
       "div",
       { class: "oba-landing-rich-panel", role: "group", "aria-label": title, "data-rich-panel": name },
-      ...inputs.map(({ field, input }) => h("div", { class: "oba-field" }, h("label", { for: input.id }, field.label), input, field.hint ? h("p", { class: "oba-small" }, field.hint) : null)),
+      ...inputs.map(({ field, input }) => h(
+        "div",
+        { class: "oba-field" },
+        h("label", { for: input.id }, field.label),
+        input,
+        field.pick
+          ? h("button", { class: "oba-btn", type: "button", "data-action": `rich-${name}-choose-photo`, onClick: async () => {
+              const chosen = await field.pick();
+              if (chosen) input.value = chosen.url;
+              input.focus();
+            } }, "Choose a photo")
+          : null,
+        field.hint ? h("p", { class: "oba-small" }, field.hint) : null,
+      )),
       problem,
       h(
         "div",
@@ -10353,7 +10375,7 @@ function landingRichText(spec, data, ctx, path, id) {
   };
   const imagePanel = () => {
     panel("image", "Add an image", [
-      { key: "address", label: "Where the picture is", type: "url", hint: "A web address starting with https:// or a file on your site such as /uploads/photo.jpg." },
+      { key: "address", label: "Where the picture is", type: "url", pick: ctx.pickPhoto, hint: "Choose one of your photos, or type a web address starting with https://." },
       { key: "alt", label: "Describe the picture (needed)", hint: "A short description for people who cannot see it, such as: A cup of tea on a windowsill." },
     ], (values) => {
       if (!values.address) return "Enter where the picture is.";
@@ -11235,6 +11257,15 @@ export class ObAdmin extends AdminElement {
     if (this.activeRoute === "moderation") visible.add("analytics");
     if (this.activeRoute === "voice") visible.add("assistant");
     return visible;
+  }
+
+  /** Choose a photo, a new upload or an earlier one, wherever a picture is asked for. Resolves to `{ url, alt }`, or null. */
+  pickPhoto(options = {}) {
+    return openPhotoPicker({
+      load: () => this.api.call("GET", "images"),
+      upload: async (file) => (await this.api.call("POST", `upload?name=${encodeURIComponent(file.name)}`, { body: file, headers: { "Content-Type": "application/octet-stream" } })).url,
+      ...options,
+    });
   }
 
   simpleHides(page, active = this.activeRoute) {
@@ -13374,6 +13405,7 @@ export class ObAdmin extends AdminElement {
       const ctx = {
         idBase: `oba-landing-${section.id}`,
         posts,
+        pickPhoto: () => this.pickPhoto(),
         fields: [],
         changed: () => {
           refreshCard(section.id);
@@ -21709,30 +21741,39 @@ export class Editor {
     side.push(this.field("oba-theme", "Theme", ui.theme));
 
     if (kind !== "pages") {
-      ui.cover = h("input", { id: "oba-cover", type: "text", value: f.cover || "", placeholder: "/images/…" });
-      ui.coverFile = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", class: "oba-sr", tabindex: "-1", "aria-hidden": "true" });
-      ui.coverFile.addEventListener("change", async () => {
-        const file = ui.coverFile.files[0];
-        if (file) {
-          const url = await this.upload(file);
-          if (url) {
-            ui.cover.value = url;
-            this.app.dirty = true;
-            this.markDirty();
-            this.updateSeoAudit();
-            this.schedulePreview();
-          }
-        }
-        ui.coverFile.value = "";
-      });
-      const coverButton = h("button", { class: "oba-btn", type: "button", onClick: () => ui.coverFile.click() }, "Upload cover");
-      side.push(this.field("oba-cover", "Cover image", ui.cover), coverButton, ui.coverFile);
+      ui.cover = h("input", { id: "oba-cover", type: "text", value: f.cover || "", placeholder: "https://…" });
+      ui.coverPreview = h("div", { class: "oba-cover-preview", "data-cover-preview": "true" });
+      const coverChosen = (url) => {
+        ui.cover.value = url;
+        this.syncCoverPreview();
+        this.app.dirty = true;
+        this.markDirty();
+        this.updateSeoAudit();
+        this.schedulePreview();
+      };
+      ui.coverChoose = h("button", { class: "oba-btn", type: "button", "data-action": "cover-choose", onClick: async () => {
+        const chosen = await this.app.pickPhoto({ heading: "Choose a cover photo" });
+        if (chosen) coverChosen(chosen.url);
+      } }, "Add cover photo");
+      ui.coverRemove = h("button", { class: "oba-btn", type: "button", "data-action": "cover-remove", onClick: () => coverChosen("") }, "Remove");
+      ui.cover.addEventListener("input", () => this.syncCoverPreview());
+      side.push(h(
+        "div",
+        { class: "oba-field oba-cover-field", role: "group", "aria-label": "Cover photo" },
+        h("span", { class: "oba-cover-label" }, "Cover photo"),
+        ui.coverPreview,
+        h("div", { class: "oba-toolbar" }, ui.coverChoose, ui.coverRemove),
+      ));
+      if (kind === "posts") {
+        ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "" });
+        side.push(this.field("oba-cover-alt", "Describe the picture", ui.coverAlt, "A few words for people who cannot see it, such as: A lemon cake on a blue plate."));
+      }
+      side.push(h("details", { class: "oba-cover-address", open: Boolean(f.cover) && !f.cover.startsWith("/") }, h("summary", {}, "Use a web address instead"), this.field("oba-cover", "Picture address", ui.cover)));
+      this.syncCoverPreview();
     }
     if (kind === "posts") {
       ui.canonical = h("input", { id: "oba-canonical", type: "text", value: f.canonical || "", placeholder: "https://…" });
       side.push(this.field("oba-canonical", "Canonical URL", ui.canonical, "Only for posts first published elsewhere."));
-      ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "", placeholder: "Describe the meaningful image content" });
-      side.push(this.field("oba-cover-alt", "Cover alternative text", ui.coverAlt, "Required when the cover conveys information; also helps image discovery."));
       side.push(this.renderCreditEditor());
     }
 
@@ -21740,17 +21781,11 @@ export class Editor {
     ui.deleteBtn = this.isNew ? null : h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: () => this.remove() }, "Move to trash");
     ui.live = h("span", { class: "oba-small" });
 
-    const imageButton = h("button", { class: "oba-btn", type: "button", onClick: () => ui.imageFile.click() }, "Insert image");
+    const imageButton = h("button", { class: "oba-btn", type: "button", "data-action": "insert-image", onClick: () => this.chooseBodyImage() }, "Insert image");
     const captureButton = kind === "posts" ? h("button", { class: "oba-btn", type: "button", "data-simple-page": "editor-tool", hidden: this.app.simpleHides?.("editor-tool"), "data-research-capture": "true", onClick: () => this.openResearchCapture() }, "Capture research") : null;
     const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", "data-simple-page": "editor-tool", hidden: this.app.simpleHides?.("editor-tool"), onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
-    ui.imageFile = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", class: "oba-sr", tabindex: "-1", "aria-hidden": "true" });
-    ui.imageFile.addEventListener("change", async () => {
-      const file = ui.imageFile.files[0];
-      if (file) await this.insertImage(file);
-      ui.imageFile.value = "";
-    });
     const back = h("a", { class: "oba-btn", href: `#/${kind}` }, "← Back");
-    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, captureButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
+    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, captureButton, quizButton, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
 
     let savedPreviewWidth = "wide";
     try {
@@ -22472,7 +22507,7 @@ export class Editor {
    */
   editBlockWithForm(card, label, kind) {
     const source = card.dataset.markdown || "";
-    const editor = blockEditor(kind, source, { pieces: this.pieceSchemas(), build: (pieceKind, values) => this.buildPiece(pieceKind, values), upload: (file) => this.upload(file) });
+    const editor = blockEditor(kind, source, { pieces: this.pieceSchemas(), build: (pieceKind, values) => this.buildPiece(pieceKind, values), upload: (file) => this.upload(file), pick: () => this.pickPhotoAddress() });
     if (!editor) return;
     const original = [...card.childNodes];
     const status = h("p", { class: "oba-error", role: "alert", hidden: true });
@@ -22534,6 +22569,7 @@ export class Editor {
       pieces,
       build: (kind, values) => this.buildPiece(kind, values),
       upload: (file) => this.upload(file),
+      pick: () => this.pickPhotoAddress(),
       onInsert: (markdown) => {
         const refusal = this.insertFromResearch({ kind: "block", markdown: String(markdown).replace(/\n+$/, ""), label: "piece" });
         if (!refusal) inserted = true;
@@ -24623,7 +24659,7 @@ export class Editor {
         body: file,
         headers: { "Content-Type": "application/octet-stream" },
       });
-      this.flash("ok", `Uploaded ${res.url}`);
+      this.flash("ok", "Photo added.");
       return res.url;
     } catch (err) {
       this.flash("error", err.message);
@@ -24655,10 +24691,48 @@ export class Editor {
     }
   }
 
+  /** Show the cover's picture, or say there is none, and offer what can be done next. */
+  syncCoverPreview() {
+    const { ui } = this;
+    const address = ui.cover.value.trim();
+    ui.coverChoose.textContent = address ? "Change cover photo" : "Add cover photo";
+    ui.coverRemove.hidden = !address;
+    if (!address) {
+      ui.coverPreview.replaceChildren(h("span", { class: "oba-small" }, "No cover photo yet."));
+      return;
+    }
+    const picture = h("img", { src: address, alt: "", referrerpolicy: "no-referrer" });
+    picture.addEventListener("error", () => {
+      if (picture.isConnected) ui.coverPreview.replaceChildren(h("span", { class: "oba-small", role: "status" }, "This picture could not be shown. Choose another, or check its address."));
+    });
+    ui.coverPreview.replaceChildren(picture);
+  }
+
+  pickPhotoAddress() {
+    return this.app.pickPhoto().then((chosen) => chosen?.url || null);
+  }
+
+  /** Insert image: a new or earlier photo, described, goes in where the caret was. */
+  async chooseBodyImage() {
+    const selection = getSelection();
+    const caret = this.editorMode === "visual" && selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+    const chosen = await this.app.pickPhoto({ heading: "Insert a picture", describe: true });
+    if (!chosen) return;
+    if (caret && this.ui.richBody.contains(caret.commonAncestorContainer)) {
+      const now = getSelection();
+      now.removeAllRanges();
+      now.addRange(caret);
+    }
+    this.placeImage(chosen.url, chosen.alt);
+  }
+
   async insertImage(file) {
     const url = await this.upload(file);
     if (!url) return;
-    const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+    this.placeImage(url, file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "));
+  }
+
+  placeImage(url, alt) {
     if (this.editorMode === "visual") {
       const image = h("img", { src: url, alt, class: "oba-rich-image" });
       const selection = getSelection();

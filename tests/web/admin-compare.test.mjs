@@ -40,6 +40,24 @@ test("a compare fence is a protected block with its own label and an edit form",
   assert.equal(editableBlockKind("Before and after", FENCE.replace("```\n", "after: /c.jpg\n```\n"), [compare]), "");
 });
 
+test("an earlier photo can be chosen for a picture field, and choosing nothing keeps what was there", async () => {
+  const dom = installDom();
+  try {
+    let answer = "/images/uploads/2026/cake.jpg";
+    const form = buildPieceForm(compare, [], { upload: async () => null, pick: async () => answer });
+    const choose = all(form.element, "button").find((node) => node.textContent === "Choose from your photos");
+    await choose.dispatch("click");
+    assert.equal(field(form.element, "Before picture (required)").value, "/images/uploads/2026/cake.jpg");
+    answer = null;
+    await choose.dispatch("click");
+    assert.equal(field(form.element, "Before picture (required)").value, "/images/uploads/2026/cake.jpg");
+    const noPicker = buildPieceForm(compare, [], { upload: async () => null });
+    assert.equal(all(noPicker.element, "button").some((node) => node.textContent === "Choose from your photos"), false);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("choosing a file uploads it and writes its address into the picture field", async () => {
   const dom = installDom();
   try {

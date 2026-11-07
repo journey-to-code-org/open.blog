@@ -30,3 +30,13 @@ strip = true
 opt-level = 3
 [profile.dev.package.blake2]
 opt-level = 3
+
+# Reducing a photo is slow without optimizations; keep the debug server and its tests usable.
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3

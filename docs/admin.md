@@ -27,7 +27,7 @@ immediately.
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
 | **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
-| **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
+| **Images** | Insert by button, drag and drop, or paste. **Insert image**, a post's cover photo, picture pieces and the landing page builder all open the same picker: add a new photo or choose an earlier upload, shown as pictures. Large photos are reduced as they are uploaded (see [Photo uploads](#photo-uploads)). Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Write in a word-processor-style Visual mode or switch to Markdown. Choose Paragraph or Heading 2–6, then apply bold, italic, links, quotes, numbered or bulleted lists, images, and code. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in either mode. |
 | **Personal workspace** | Start with a calm writing-focused workspace, choose Guided or Advanced, or customize optional tools, their order, spacing, and default writing mode. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
@@ -988,6 +988,23 @@ heading and tap **Add a button**; tap **Done**, then **Preview** to see the page
 editing**; tap **Save**. Open **Customize look**, tap a color and a font style, tap **Preview** to check,
 **Back to choosing**, then **Save**. Tap **Publish** to make it live. The bar stays at the bottom of the
 screen, every control is at least 44px tall, and nothing scrolls sideways down to 320px wide.
+
+## Photo uploads
+
+A photo can be uploaded at any size up to 40 MB. A photo that is wider or taller than 2000 pixels, is heavier
+than 1 MB, or carries camera metadata is replaced as it arrives by a JPEG (a PNG, if it has transparent parts)
+at most 2000 pixels on its longest side. The original is not kept. The copy is turned the right way up, keeps
+the photo's colour profile, and drops the metadata, including the location a phone may have recorded.
+
+Other pictures are published exactly as sent, up to `admin.maxUploadMb`: GIF and AVIF files, animations, light
+pictures without metadata, and photos above about 64 megapixels, which are too large to decode safely on a
+small host. Over that limit they are refused with a message saying so. Only one photo is reduced at a time, so
+two large uploads together cannot run a 512 MB host out of memory.
+
+iPhones take photos in HEIC, which web pages cannot show. An iPhone converts a photo to JPEG when it is chosen
+in Admin. A HEIC file copied to a computer first is refused, with a message asking for a JPEG copy.
+
+Files added some other way, such as a commit to `static/`, are not reduced.
 
 ## Scheduling
 
