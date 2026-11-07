@@ -11416,6 +11416,8 @@ export class ObAdmin extends AdminElement {
     this.viewCleanup = null;
     this.editor?.dispose();
     this.editor = null;
+    // Unsaved work is on screen until here, however long the next view took to load.
+    this.dirty = false;
     this.viewDirty = null;
     this.viewBusy = null;
     this.viewVersion = ++this.viewSerial;
@@ -11461,6 +11463,8 @@ export class ObAdmin extends AdminElement {
       // Taken out of the shell so the next mount does not dispose it.
       this.editor = null;
     }
+    // The record below answers for this work now.
+    this.dirty = false;
     const viewDirty = this.viewDirty;
     this.kept.set(key, {
       key,
@@ -11511,6 +11515,7 @@ export class ObAdmin extends AdminElement {
     this.kept.delete(key);
     this.editor?.dispose();
     this.editor = null;
+    this.dirty = Boolean(record.editor);
     this.viewVersion = record.viewVersion;
     this.viewDirty = record.viewDirty;
     this.viewBusy = record.viewBusy;
@@ -11522,7 +11527,6 @@ export class ObAdmin extends AdminElement {
     const label = key === "draft" ? "Your draft" : researchPanel(key)?.label || "This panel";
     if (record.editor) {
       this.editor = record.editor;
-      this.dirty = true;
       record.editor.resume();
       if (!this.openRequestedPane(hash) && record.editor.root?.dataset.editorView === "write") record.editor.writingSurface().focus();
       else this.focusPageHeading();
@@ -11604,6 +11608,8 @@ export class ObAdmin extends AdminElement {
             if (this.keptOwner !== res.user) this.forgetWorkspace();
             // So are voice copies left by an ended session: only their own author gets them back.
             clearVoiceCopies(undefined, { keepUser: res.user });
+            // Nothing asked for before signing out may arrive now that the gate would open again.
+            this.routeTurn += 1;
             this.signedOut = false;
             pass.value = "";
             await this.enter();
@@ -11626,8 +11632,6 @@ export class ObAdmin extends AdminElement {
       submit,
     );
     this.mount(form);
-    // The open editor, unless it was kept above, went with the view.
-    this.dirty = false;
     user.focus();
   }
 
@@ -12205,11 +12209,13 @@ export class ObAdmin extends AdminElement {
     });
     if (plan.confirm.length && !(await this.confirmLeave(plan.confirm))) {
       history.replaceState(null, "", this.currentHash);
+      // The panel she was moving to is dropped, so the one kept for it is still on screen: take it back.
+      const stayingOn = workspacePanelKey(this.currentHash);
+      if (this.kept.has(stayingOn)) await this.restoreKept(stayingOn, this.currentHash);
       return;
     }
     for (const key of plan.discard) this.discardKept(key);
     if (plan.keep) this.keepCurrentView(plan.keep);
-    this.dirty = false;
     if (plan.restore) {
       await this.restoreKept(plan.restore, nextHash);
       return;
@@ -26083,6 +26089,7 @@ export class Editor {
     if (ui.profile) ui.profile.disabled = true;
     ui.saveState.textContent = "Saving…";
     const saveVersion = this.app.editVersion;
+    const savedFrom = draftRoute(location.hash);
     const exactTrack = this.pendingTrack && fields.profile === "field-journal" && fields.locationPrivacy === "exact" ? this.pendingTrack : null;
     const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind, ...(exactTrack ? { trackToken: exactTrack.token, trackName: exactTrack.name } : {}), ...this.creditRequestFields(true) };
     try {
@@ -26111,6 +26118,8 @@ export class Editor {
       this.isNew = false;
       this.slugTouched = true;
       this.app.suggestionsStale = true;
+      // She left this draft while it saved. It is saved, and the page she is on has nothing to do with it.
+      if (this.disposed) return;
       const savedState = saveStateForVersions(saveVersion, this.app.editVersion);
       this.app.dirty = savedState.dirty;
       ui.saveState.textContent = savedState.label;
@@ -26129,9 +26138,9 @@ export class Editor {
       }
       // Update the address without re-rendering the editor. Only arm the skip flag
       // when the hash really changes; otherwise no event fires and the flag would
-      // swallow the next genuine navigation.
+      // swallow the next genuine navigation. A page she has started moving to keeps the address.
       const target = `#/edit/${encodeURIComponent(res.path)}`;
-      if (location.hash !== target) {
+      if (location.hash !== target && draftRoute(location.hash) === savedFrom) {
         this.app.skipRoute = true;
         location.hash = target;
       }

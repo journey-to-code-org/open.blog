@@ -247,9 +247,14 @@ test("a kept panel she stopped returning to stays kept, and comes back later", a
   // Coming back first checks the session; she moves on before it answers.
   let release;
   const released = new Promise((done) => { release = done; });
-  await page.route("**/admin/api/session", async (route) => { await released; await route.continue(); });
+  let checked = false;
+  await page.route("**/admin/api/session", async (route) => {
+    if (checked) return route.continue();
+    checked = true;
+    await released;
+    await route.continue();
+  });
   await moveTo(page, "#/research/sources");
-  await page.unroute("**/admin/api/session");
   await moveTo(page, "#/research/atlas");
   await expect(heading).toHaveText("Knowledge Atlas");
   await tagPage(page);
@@ -306,6 +311,196 @@ test("signing out while a view loads keeps the sign-in form on screen", async ({
   await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
   await expect(username).toBeVisible();
   await expect(page.locator('[data-action="logout"]')).toHaveCount(0);
+});
+
+test("signing back in does not let an answer from before she signed out draw", async ({ page }) => {
+  await signIn(page);
+  await expect(socialHeading(page)).toBeVisible();
+  let releaseAppearance;
+  const appearanceReleased = new Promise((done) => { releaseAppearance = done; });
+  let asked = 0;
+  await page.route("**/admin/api/appearance", async (route) => {
+    asked += 1;
+    if (asked > 1) return route.continue();
+    const response = await route.fetch();
+    await appearanceReleased;
+    await route.fulfill({ response });
+  });
+  const appearanceAsked = page.waitForRequest("**/admin/api/appearance");
+  await moveTo(page, "#/appearance");
+  await appearanceAsked;
+  await page.locator('[data-action="logout"]').click();
+  const username = page.getByLabel("Username", { exact: true });
+  await expect(username).toBeVisible();
+
+  // Signed in, and Admin is still reading its settings when the old answer arrives.
+  let releaseMeta;
+  const metaReleased = new Promise((done) => { releaseMeta = done; });
+  await page.route("**/admin/api/meta", async (route) => { await metaReleased; await route.continue(); });
+  const metaAsked = page.waitForRequest("**/admin/api/meta");
+  await username.fill("writer");
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await metaAsked;
+  releaseAppearance();
+  await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
+  await expect(username).toBeVisible();
+  await expect(page.locator('[data-action="logout"]')).toHaveCount(0);
+
+  releaseMeta();
+  await expect(page.locator("#oba-page-heading")).toHaveText("Appearance");
+  expect(asked).toBe(2);
+});
+
+const adminState = (page) =>
+  page.evaluate(() => {
+    const admin = document.querySelector("ob-admin");
+    return { editor: Boolean(admin.editor), unsaved: admin.hasUnsavedWork(), view: admin.hasUnsavedView(), kept: [...admin.kept.keys()], hash: admin.currentHash };
+  });
+
+/** Count the questions the page asks, answering each as `answer` says. */
+function answerQuestions(page, answer) {
+  const asked = [];
+  page.on("dialog", (dialog) => {
+    asked.push(dialog.message());
+    return answer.accept ? dialog.accept() : dialog.dismiss();
+  });
+  return asked;
+}
+
+async function typeNewDraft(page, title) {
+  await moveTo(page, "#/new/posts");
+  await page.getByLabel("Title", { exact: true }).fill(title);
+  await expect.poll(() => page.evaluate(() => document.querySelector("ob-admin").hasUnsavedView())).toBe(true);
+}
+
+test("going back to a draft she agreed to leave keeps it protected", async ({ page }) => {
+  await signIn(page);
+  await typeNewDraft(page, "Soup for Tuesday");
+  await tagPage(page);
+  const answer = { accept: true };
+  const asked = answerQuestions(page, answer);
+  const answers = await holdAnswers(page);
+  await moveTo(page, "#/posts");
+  expect(asked).toHaveLength(1);
+  answers.stop();
+  await page.evaluate(() => new Promise((done) => {
+    addEventListener("hashchange", () => setTimeout(done), { once: true });
+    history.back();
+  }));
+  await answers.release();
+  await expect(tagged(page)).toHaveCount(1);
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Soup for Tuesday");
+  expect(await adminState(page)).toEqual({ editor: true, unsaved: true, view: true, kept: [], hash: "#/new/posts" });
+
+  // Leaving again asks again, and the draft stays when she says no.
+  answer.accept = false;
+  await page.evaluate(() => { location.hash = "#/posts"; });
+  await expect.poll(() => asked.length).toBe(2);
+  await expect(page).toHaveURL(/#\/new\/posts$/);
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Soup for Tuesday");
+});
+
+test("staying on a kept draft while a panel loads gives her the working draft back", async ({ page }) => {
+  await signIn(page);
+  await typeNewDraft(page, "Soup for Wednesday");
+  let release;
+  const released = new Promise((done) => { release = done; });
+  await page.route("**/admin/api/research/notebook", async (route) => { await released; await route.continue(); });
+  await moveTo(page, "#/research/notebook");
+  expect((await adminState(page)).kept).toEqual(["draft"]);
+
+  const answer = { accept: false };
+  const asked = answerQuestions(page, answer);
+  await moveTo(page, "#/social");
+  expect(asked).toHaveLength(1);
+  await expect(page).toHaveURL(/#\/new\/posts$/);
+  await expect.poll(() => adminState(page)).toEqual({ editor: true, unsaved: true, view: true, kept: [], hash: "#/new/posts" });
+  release();
+  await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Soup for Wednesday");
+
+  // It saves from the keyboard, and once saved nothing is left to ask about.
+  const saved = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/admin/api/document"));
+  await page.keyboard.press("Control+s");
+  await saved;
+  await expect(page).toHaveURL(/#\/edit\//);
+  await expect.poll(() => adminState(page).then((state) => state.unsaved)).toBe(false);
+  await moveTo(page, "#/social");
+  await expect(socialHeading(page)).toBeVisible();
+  expect(asked).toHaveLength(1);
+});
+
+test("staying on a kept research panel while another loads gives her the panel back", async ({ page }) => {
+  await signIn(page);
+  await moveTo(page, "#/research/sources");
+  await page.getByRole("button", { name: "New source" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Kept and stayed on");
+  let release;
+  const released = new Promise((done) => { release = done; });
+  await page.route("**/admin/api/research/notebook", async (route) => { await released; await route.continue(); });
+  await moveTo(page, "#/research/notebook");
+  expect((await adminState(page)).kept).toEqual(["sources"]);
+
+  const answer = { accept: false };
+  answerQuestions(page, answer);
+  await moveTo(page, "#/social");
+  await expect(page).toHaveURL(/#\/research\/sources$/);
+  await expect.poll(() => adminState(page).then((state) => [state.kept, state.view])).toEqual([[], true]);
+  release();
+  await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Kept and stayed on");
+  answer.accept = true;
+  await moveTo(page, "#/social");
+});
+
+/** Open a draft and start saving it, with the save held until the returned function runs. */
+async function startHeldSave(page, title) {
+  await typeNewDraft(page, title);
+  let release;
+  const released = new Promise((done) => { release = done; });
+  await page.route("**/admin/api/document", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await released;
+    await route.continue();
+  });
+  const asked = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/admin/api/document"));
+  const answered = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/admin/api/document"));
+  await page.keyboard.press("Control+s");
+  await asked;
+  return async () => {
+    release();
+    await answered;
+    await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
+  };
+}
+
+test("a save that finishes after she left leaves her on the page she moved to", async ({ page }) => {
+  await signIn(page);
+  const finishSave = await startHeldSave(page, "Soup saved late");
+  // Typed after the save began, so what it saved is not the latest; none of that is Social's business.
+  await page.getByLabel("Title", { exact: true }).fill("Soup saved later");
+  answerQuestions(page, { accept: true });
+  await moveTo(page, "#/social");
+  await expect(socialHeading(page)).toBeVisible();
+  await tagPage(page);
+  await finishSave();
+  await expectStillOnSocial(page);
+});
+
+test("a save that finishes while the next page loads leaves the address alone", async ({ page }) => {
+  await signIn(page);
+  const finishSave = await startHeldSave(page, "Soup saved midway");
+  let release;
+  const released = new Promise((done) => { release = done; });
+  await page.route("**/admin/api/documents**", async (route) => { await released; await route.continue(); });
+  answerQuestions(page, { accept: true });
+  await moveTo(page, "#/posts");
+  await finishSave();
+  await expect(page).toHaveURL(/#\/posts$/);
+  release();
+  await expect.poll(() => adminState(page)).toMatchObject({ editor: false, unsaved: false, hash: "#/posts" });
+  await expect(page).toHaveURL(/#\/posts$/);
 });
 
 test("a rebuild that finishes after she moved on does not bring the list back", async ({ page }) => {
