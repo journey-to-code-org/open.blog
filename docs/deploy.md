@@ -255,7 +255,7 @@ durability transaction. Filesystem access assumes trusted/cooperating OS process
 does not defend against a hostile local account racing filesystem replacement.
 
 Use Admin's API for mutations in this mode. CLI content creation/import/migration/publish
-commands are disabled when workspace environment variables are present; direct disk edits,
+commands are disabled when any workspace environment variable has a value; direct disk edits,
 external tools, and periodic file-watcher rebuilds are **not durable acknowledgements**.
 Stop the service to perform maintenance, then restart and reconcile before accepting edits.
 The store is a recoverable working overlay, not version history or a full-repository backup.
@@ -441,6 +441,12 @@ The person setting up the blog creates three things:
 Render asks for these four when the Blueprint is created. On an existing service, add them
 under Environment. The three workspace settings go together: blank is fine for all three,
 but filling in only some stops the server from starting, with a message that says why.
+The token may be left blank on a public repository. On a private repository the server needs
+it, or the SSH deploy key, just to start if Render's build leaves out the `.git` folder,
+because it then fetches the shipped commit from GitHub.
+
+On another host that resets its files, the same settings go in that host's own environment.
+Set `OPENBLOG_FILES_RESET=1` there so Admin tells the owner until they are in.
 
 Then check it yourself, following step 4 of
 [the durable workspace guide](#durable-editorial-workspace-on-ephemeral-hosts). No one has

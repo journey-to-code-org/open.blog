@@ -3,7 +3,7 @@
 
 export const FILES_MAY_VANISH_TITLE = "Your saved work is not safe here yet";
 
-export const FILES_MAY_VANISH_BODY = "The server this site runs on starts fresh when it restarts, and that can happen at any time: after a quiet spell, or after you publish. When it does, drafts, saved changes and photos that were not published can vanish. Ask whoever set up this site to follow “Keep your work safe on Render” in its setup guide. Until then, keep your own copy of anything you would hate to lose.";
+export const FILES_MAY_VANISH_BODY = "The server this site runs on starts fresh when it restarts, and that can happen at any time: after a quiet spell, or after you publish. When it does, drafts, saved changes and photos that were not published can vanish. Ask whoever set up this site to look up “Keep your work safe” in its setup guide. Until then, keep your own copy of anything you would hate to lose.";
 
 /** The one line every other page carries. It links to the notice on Overview. */
 export const FILES_MAY_VANISH_SHORT = "Saved work can vanish if the server restarts";
@@ -13,6 +13,11 @@ const SAVED_CAN_VANISH = "It can still vanish if the server restarts. Only what 
 /** A save's own message, with the truth about it added where saving does not keep things. */
 export function savedMessage(message, filesMayVanish) {
   return filesMayVanish ? `${message} ${SAVED_CAN_VANISH}` : message;
+}
+
+/** The line in the bar under Save. The bar is what she is looking at, so a save's warning has to be there too. */
+export function savedLine(filesMayVanish, savedOnThisVisit) {
+  return filesMayVanish && savedOnThisVisit ? "All changes saved. They can vanish if the server restarts, until you publish." : "All changes saved.";
 }
 
 /** The Landing page's words for Save, in its Help list and its tour, where Save does not keep things. */

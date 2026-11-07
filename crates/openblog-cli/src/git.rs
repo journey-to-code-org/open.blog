@@ -4,6 +4,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Where `publish` marks its first commit that has not gone out. Not a branch, so no push takes it.
+const FIRST_UNSENT: &str = "refs/openblog/first-unsent";
+
 pub struct Git {
     root: PathBuf,
 }
@@ -122,7 +125,8 @@ impl Git {
                     let ahead = it.next().and_then(|n| n.parse().ok()).unwrap_or(0);
                     (ahead, behind)
                 }
-                Err(_) => (0, 0),
+                // No remote-tracking ref yet: git cannot compare, so go by publish's own mark.
+                Err(_) => (self.unsent_commits(), 0),
             }
         } else {
             (0, 0)
@@ -134,6 +138,31 @@ impl Git {
             behind,
             has_remote,
         })
+    }
+
+    /// Mark HEAD as the first commit `publish` has not got out, unless an earlier
+    /// one is already marked (ADR 0353). Only a hint for `status`, so a failure here
+    /// must not stop a publish.
+    pub fn mark_first_unsent(&self) {
+        if self
+            .run(&["rev-parse", "--verify", "-q", FIRST_UNSENT])
+            .is_err()
+        {
+            let _ = self.run(&["update-ref", FIRST_UNSENT, "HEAD"]);
+        }
+    }
+
+    /// Everything `publish` had to send has gone out.
+    pub fn clear_first_unsent(&self) {
+        let _ = self.run(&["update-ref", "-d", FIRST_UNSENT]);
+    }
+
+    /// Commits from the mark to HEAD; 0 with no mark.
+    fn unsent_commits(&self) -> u32 {
+        self.run(&["rev-list", "--count", "HEAD", &format!("^{FIRST_UNSENT}")])
+            .ok()
+            .and_then(|later| later.trim().parse::<u32>().ok())
+            .map_or(0, |later| later + 1)
     }
 
     pub fn add(&self, paths: &[String]) -> Result<(), String> {

@@ -504,7 +504,7 @@ export function openPhotoPicker({ load, upload, heading = "Choose a picture", de
                   ),
                 ),
               )
-            : el("p", { class: "oba-small" }, "No photos yet. The ones you add are kept here to use again."),
+            : el("p", { class: "oba-small" }, "No photos yet. The ones you add show here to use again."),
           ...(more ? [el("p", { class: "oba-small" }, "Showing your newest photos.")] : []),
         );
       } catch (error) {

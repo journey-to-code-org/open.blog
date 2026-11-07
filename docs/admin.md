@@ -40,7 +40,7 @@ immediately.
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
 | **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. Business facts have their own screen. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
-| **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
+| **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts are not published. See [publishing.md](publishing.md). |
 
 ## Workspace layout
 
@@ -954,7 +954,7 @@ set **What to show** to **Only my recipes** on a Latest posts section.
   **Use the newer version** or **Compare**; nothing is overwritten silently. **Publish** (the bar calls it
   "make it live") saves first and then publishes, and stops with the reason if the site does not build.
 - **History** under the sections keeps your last twenty saves in private storage (never in the content folder,
-  the build, a feed or an export). Preview an earlier one and **Restore** it; restoring is an ordinary save, so
+  the build, a feed or an export). On a host that resets its files, they go when the server restarts. Preview an earlier one and **Restore** it; restoring is an ordinary save, so
   the page it replaces stays in the list.
 - Unsaved changes are kept on your device, offered back after a reload and warned about when you leave. A short
   three-step tour appears once, can be skipped and never comes back, and **Help** explains the words.
@@ -1008,7 +1008,8 @@ screen, every control is at least 44px tall, and nothing scrolls sideways down t
 
 On a host that resets its files, such as Render with no durable workspace, what you save can vanish
 when the server restarts. Admin says so: a notice on Overview, a short line at the top of every other
-page, and a sentence after a save in the editor, the Landing page, and Customize look. Nothing shows on your own
+page, and a sentence after a save in the editor, the Landing page, and Customize look, where the
+Landing page and Customize look say it in the bar under Save. Nothing shows on your own
 computer or once [the durable workspace](deploy.md#keep-your-work-safe-on-render) is on. If Publish
 cannot reach your site's repository, Admin says what that means in plain words, with git's own
 message folded under "Details for whoever helps you".

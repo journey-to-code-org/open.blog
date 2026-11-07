@@ -59,6 +59,7 @@ import {
   FILES_MAY_VANISH_SHORT,
   FILES_MAY_VANISH_TITLE,
   glossaryFor,
+  savedLine,
   savedMessage,
   tourBodyFor,
 } from "./lasting.js";
@@ -8053,6 +8054,11 @@ function publishFailureDetail(error) {
   return detail ? h("details", { class: "oba-publish-detail", "data-publish-detail": "true" }, h("summary", {}, "Details for whoever helps you"), h("pre", {}, detail)) : null;
 }
 
+/** Bring what she has to read to where she is: Publish sits in a bar that stays put, and its answer does not. */
+function bringIntoSight(element) {
+  element.scrollIntoView({ block: "start", behavior: "instant" });
+}
+
 function recipeNotesNotice(notes) {
   if (!Array.isArray(notes) || !notes.length) return [];
   return [h("strong", {}, "About your recipe list"), h("ul", { "data-recipe-notes": "true" }, ...notes.map((note) => h("li", {}, note)))];
@@ -12166,7 +12172,7 @@ export class ObAdmin extends AdminElement {
     const pending = st.changed.length;
     const drafts = st.drafts.length;
     const summary = [
-      pending ? `${pending} unpublished change${pending === 1 ? "" : "s"}` : st.ahead ? `${st.ahead} commit${st.ahead === 1 ? "" : "s"} to push` : "Everything published",
+      pending ? `${pending} unpublished change${pending === 1 ? "" : "s"}` : st.ahead ? "Some changes are not live yet" : "Everything published",
       drafts ? `${drafts} draft${drafts === 1 ? "" : "s"} not published` : null,
       st.behind ? `${st.behind} new elsewhere` : null,
     ].filter(Boolean).join(" · ");
@@ -14061,10 +14067,11 @@ export class ObAdmin extends AdminElement {
     // ----- saving
     const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: () => save() }, "Save");
     const dirtyNote = h("span", { class: "oba-small oba-landing-dirty", "data-landing-dirty": "true" });
+    let savedOnThisVisit = false;
     const renderBar = () => {
       dirtyNote.textContent = isDirty()
         ? `You have unsaved changes. ${drafts.inMemoryOnly ? "This device would not keep a copy, so they are held only until you close or reload this page." : "A copy is kept on this device."}`
-        : exists ? "All changes saved." : "Not saved yet. Your site still shows your home settings.";
+        : exists ? savedLine(filesMayVanish, savedOnThisVisit) : "Not saved yet. Your site still shows your home settings.";
       scheduleDraft();
     };
     /** What a save or a refused save does to the page the owner is looking at. */
@@ -14106,6 +14113,7 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call("PUT", "landing", { json: { revision, page: pagePayload(sent) } });
         if (this.viewVersion !== mountedView) return false;
         const untouched = applySaved(result, sent);
+        savedOnThisVisit = true;
         if (untouched) {
           drafts.clear();
           clearUndo();
@@ -14143,7 +14151,7 @@ export class ObAdmin extends AdminElement {
     const canPublish = Boolean(publishInfo?.repo);
     const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-landing-publish-note", hidden: canPublish }, "Publishing is off because this site is not a git repository. Run openblog publish setup to turn it on.");
     const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", title: "Publish: make your saved page live", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-landing-publish-note", onClick: () => publish() }, "Publish");
-    const publishFailure = h("div", { class: "oba-publish-failure" });
+    const publishFailure = h("div", { class: "oba-publish-failure", "data-publish-failure": "true" });
     const publish = async () => {
       if (busy || publishing) return;
       if (isDirty() && !(await save())) return;
@@ -14154,11 +14162,14 @@ export class ObAdmin extends AdminElement {
       try {
         const result = await this.api.call("POST", "publish", { json: { summary: "" } });
         if (this.viewVersion !== mountedView) return;
+        savedOnThisVisit = false;
+        renderBar();
         say(result.message || "Published.", "ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(`Publishing did not work. ${error.data?.error || landingErrorText(error)}`, "error");
         publishFailure.replaceChildren(...[publishFailureDetail(error)].filter(Boolean));
+        bringIntoSight(status);
       } finally {
         publishing = false;
         publishButton.disabled = !canPublish;
@@ -14250,7 +14261,7 @@ export class ObAdmin extends AdminElement {
     globalThis.matchMedia?.("(min-width: 64rem)").addEventListener?.("change", () => {
       if (this.viewVersion === mountedView) placePreview();
     });
-    actions.replaceChildren(previewButton, saveButton, publishButton, dirtyNote, publishNote, publishFailure);
+    actions.replaceChildren(previewButton, saveButton, publishButton, dirtyNote, publishNote);
 
     // ----- earlier versions (ADR 0264): the server keeps each save; a restore is a save it makes
     const history = buildHistory({
@@ -14261,13 +14272,14 @@ export class ObAdmin extends AdminElement {
       onConflict: (current) => showConflict(current),
       onRestored: (result) => {
         applySaved(result);
+        savedOnThisVisit = true;
         drafts.clear();
         clearUndo();
         editingId = null;
         renderCards();
         renderBar();
         schedulePreview();
-        say("Restored. The version you replaced is kept in History.", "ok");
+        say("Restored. The version you replaced is in History.", "ok");
       },
     });
 
@@ -14290,6 +14302,7 @@ export class ObAdmin extends AdminElement {
         tour,
         restoreBox,
         status,
+        publishFailure,
         conflictBox,
         h(
           "div",
@@ -14724,10 +14737,11 @@ export class ObAdmin extends AdminElement {
     // ----- saving
     const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: () => save() }, "Save");
     const dirtyNote = h("span", { class: "oba-small oba-landing-dirty", "data-look-dirty": "true" });
+    let savedOnThisVisit = false;
     function renderBar() {
       dirtyNote.textContent = isDirty()
         ? `You have unsaved changes. ${drafts.inMemoryOnly ? "This device would not keep a copy, so they are held only until you close or reload this page." : "A copy is kept on this device."}`
-        : "All changes saved.";
+        : savedLine(publishInfo?.filesMayVanish === true, savedOnThisVisit);
       clearTimeout(draftTimer);
       draftTimer = setTimeout(persistDraft, 250);
     }
@@ -14753,6 +14767,7 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call("PUT", "look", { json: { etag, look: lookPayload(sent) } });
         if (this.viewVersion !== mountedView) return false;
         const untouched = applySaved(result, sent);
+        savedOnThisVisit = true;
         if (untouched) {
           drafts.clear();
           history = [];
@@ -14783,7 +14798,7 @@ export class ObAdmin extends AdminElement {
     const canPublish = Boolean(publishInfo?.repo);
     const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-look-publish-note", hidden: canPublish }, "Making it live is off because this site is not a git repository. Run openblog publish setup to turn it on.");
     const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-look-publish-note", onClick: () => publish() }, "Make it live");
-    const publishFailure = h("div", { class: "oba-publish-failure" });
+    const publishFailure = h("div", { class: "oba-publish-failure", "data-publish-failure": "true" });
     const publish = async () => {
       if (busy || publishing) return;
       if (isDirty() && !(await save())) return;
@@ -14794,11 +14809,14 @@ export class ObAdmin extends AdminElement {
       try {
         const result = await this.api.call("POST", "publish", { json: { summary: "" } });
         if (this.viewVersion !== mountedView) return;
+        savedOnThisVisit = false;
+        renderBar();
         say(result.message || "Your look is live.", "ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(`Making it live did not work. ${error.data?.error || lookErrorText(error)}`, "error");
         publishFailure.replaceChildren(...[publishFailureDetail(error)].filter(Boolean));
+        bringIntoSight(status);
       } finally {
         publishing = false;
         publishButton.disabled = !canPublish;
@@ -14887,7 +14905,7 @@ export class ObAdmin extends AdminElement {
     globalThis.matchMedia?.("(min-width: 64rem)").addEventListener?.("change", () => {
       if (this.viewVersion === mountedView) placePreview();
     });
-    const actions = h("div", { class: "oba-landing-actions", role: "group", "aria-label": "Look actions" }, previewButton, saveButton, publishButton, dirtyNote, publishNote, publishFailure);
+    const actions = h("div", { class: "oba-landing-actions", role: "group", "aria-label": "Look actions" }, previewButton, saveButton, publishButton, dirtyNote, publishNote);
 
     const intro = h("section", { class: "oba-contributor-intro" }, h("p", {}, "Tap the choices you like and watch your site change in the preview. Nothing changes on your site until you save and make it live. There is nothing to type and nothing that can break your site."), unhonored);
     let mountedView = -1;
@@ -14901,6 +14919,7 @@ export class ObAdmin extends AdminElement {
         intro,
         restoreBox,
         status,
+        publishFailure,
         conflictBox,
         h(
           "div",

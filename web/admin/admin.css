@@ -5360,6 +5360,10 @@ ob-voice-library {
   display: none;
 }
 
+.oba-landing-status {
+  scroll-margin-top: 0.5rem;
+}
+
 .oba-landing-toast {
   display: flex;
   flex-wrap: wrap;

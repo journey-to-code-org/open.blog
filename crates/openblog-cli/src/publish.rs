@@ -159,6 +159,7 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
             git.commit(&message)
                 .map_err(|e| format!("git commit failed: {e}"))?,
         );
+        git.mark_first_unsent();
         outcome.committed = to_commit;
     }
 
@@ -173,6 +174,7 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
         }
         git.push(&p.remote, &p.branch)
             .map_err(|e| format!("git push failed: {e}"))?;
+        git.clear_first_unsent();
         outcome.pushed = true;
     } else if outcome.commit.is_some() {
         outcome.message = format!(
@@ -483,6 +485,62 @@ mod tests {
             .run(&["log", "-1", "--format=%B"])
             .unwrap()
             .contains("Publish: Rejected test"));
+    }
+
+    /// A remote with no branch yet, whose hook refuses every push until it is taken away.
+    fn refuse_pushes(fixture: &RemoteFixture) -> std::path::PathBuf {
+        let hook = fixture.remote.join("hooks/pre-receive");
+        fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        hook
+    }
+
+    fn ahead(fixture: &RemoteFixture) -> u64 {
+        status(&fixture.root, &fixture.config).unwrap()["ahead"]
+            .as_u64()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_refused_push_with_no_tracking_ref_still_counts_as_waiting_until_it_goes_out() {
+        let fixture = RemoteFixture::new("unsent");
+        let hook = refuse_pushes(&fixture);
+        assert!(publish(&fixture.root, &fixture.config, Some("First"))
+            .unwrap_err()
+            .contains("git push failed"));
+        assert_eq!(ahead(&fixture), 1);
+
+        // A second commit that is refused too counts from the first.
+        fs::write(
+            fixture.root.join("content/posts/more.md"),
+            "---\ntitle: More\ndate: 2026-10-01\n---\nWords.\n",
+        )
+        .unwrap();
+        assert!(publish(&fixture.root, &fixture.config, Some("Second")).is_err());
+        assert_eq!(ahead(&fixture), 2);
+
+        // Retrying with nothing new to commit, once the remote takes it, clears the mark.
+        fs::remove_file(hook).unwrap();
+        publish(&fixture.root, &fixture.config, None).unwrap();
+        assert_eq!(ahead(&fixture), 0);
+        assert!(Git::new(&fixture.root)
+            .run(&["rev-parse", "--verify", "-q", "refs/openblog/first-unsent"])
+            .is_err());
+    }
+
+    #[test]
+    fn a_shipped_checkout_with_no_tracking_ref_and_nothing_refused_is_not_waiting() {
+        // As a container comes up: history fetched by commit, no remote-tracking ref, no publish yet.
+        let fixture = RemoteFixture::new("shipped");
+        let git = Git::new(&fixture.root);
+        git.run(&["add", "-A"]).unwrap();
+        git.run(&["commit", "-q", "-m", "Shipped"]).unwrap();
+        assert_eq!(ahead(&fixture), 0);
     }
 
     #[test]

@@ -7,6 +7,7 @@ import {
   FILES_MAY_VANISH_BODY,
   FILES_MAY_VANISH_SHORT,
   glossaryFor,
+  savedLine,
   savedMessage,
   tourBodyFor,
 } from "../../web/admin/lasting.js";
@@ -19,12 +20,36 @@ const publishing = read("docs/publishing.md");
 const site = read("crates/openblog-cli/src/site.rs");
 
 test("the notice says what can happen, to what, and who to ask, with no jargon", () => {
-  for (const words of ["restarts", "drafts", "photos", "whoever set up this site", "Keep your work safe on Render"]) {
+  for (const words of ["restarts", "drafts", "photos", "whoever set up this site", "Keep your work safe"]) {
     assert.ok(FILES_MAY_VANISH_BODY.includes(words), words);
   }
   for (const text of [FILES_MAY_VANISH_BODY, FILES_MAY_VANISH_SHORT]) {
     assert.doesNotMatch(text, /\b(git|ephemeral|filesystem|container|Supabase|deploy)\b/i);
   }
+});
+
+test("the notice can be on any host, so it names none, and the guide's heading still answers to its words", () => {
+  assert.doesNotMatch(FILES_MAY_VANISH_BODY, /\bRender\b/);
+  assert.match(deploy, /^### Keep your work safe on Render$/m);
+  const section = deploy.slice(deploy.indexOf("### Keep your work safe on Render"), deploy.indexOf("The Dockerfile assumes the blog lives"));
+  assert.match(section, /On another host/);
+});
+
+test("the bar's line tells the truth about a save, only after one, only where it can vanish", () => {
+  assert.equal(savedLine(false, true), "All changes saved.");
+  assert.equal(savedLine(true, false), "All changes saved.");
+  assert.match(savedLine(true, true), /^All changes saved\. /);
+  assert.match(savedLine(true, true), /can vanish/);
+});
+
+test("no other Admin sentence promises that a saved page or photo is kept", () => {
+  assert.doesNotMatch(read("web/admin/landing-history.js"), /the page is kept here/);
+  assert.doesNotMatch(read("web/admin/block-forms.js"), /are kept here to use again/);
+  assert.doesNotMatch(admin, /is kept in History/);
+});
+
+test("the header's words for what has not gone out are plain", () => {
+  assert.doesNotMatch(admin, /commit\$\{[^}]*\} to push/);
 });
 
 test("a save says it can vanish only where it can", () => {
@@ -65,6 +90,18 @@ test("the blueprint asks for each setting that keeps her work, without a value",
   for (const name of ["OPENBLOG_GIT_TOKEN", "OPENBLOG_WORKSPACE_SUPABASE_URL", "OPENBLOG_WORKSPACE_SECRET_KEY", "OPENBLOG_WORKSPACE_NAMESPACE"]) {
     assert.match(blueprint, new RegExp(`- key: ${name}\\n\\s+sync: false`), name);
   }
+});
+
+test("the blueprint and the guide say a private repository may need the token just to start", () => {
+  assert.doesNotMatch(blueprint, /Those four may be left blank: blank counts as not set\. Filling/);
+  assert.match(blueprint, /private repository/);
+  const section = deploy.slice(deploy.indexOf("### Keep your work safe on Render"), deploy.indexOf("The Dockerfile assumes the blog lives"));
+  assert.match(section, /private repository/);
+});
+
+test("the docs no longer say drafts stay local, or that a blank workspace setting disables the CLI", () => {
+  assert.doesNotMatch(read("docs/admin.md"), /Drafts stay local/);
+  assert.doesNotMatch(deploy, /commands are disabled when workspace environment variables are present/);
 });
 
 test("the blueprint and the docs no longer claim what is false", () => {

@@ -51,8 +51,16 @@ Three claims in the file and the docs were also wrong:
   and writes what happened, what to do, and what it means for her work, which depends on `filesMayVanish`.
   Any other push failure gets its own plain words. Reading git's messages is brittle, but a message it
   does not recognise only gets the general wording, which is still true. Other refusals keep their words.
+- **What she has to read goes where she is looking.** Publish on the Landing page and Customize look sits in
+  the bar at the bottom of a phone screen, and the status box does not, so a refused Publish scrolls that box
+  to the top. A save does not scroll, since she may be midway through editing: the line in the bar under Save
+  says it can vanish, from her first save on that visit until she publishes.
+- **The notice names no host.** It can show on any host through `OPENBLOG_FILES_RESET`. It asks whoever set
+  up the site to look up "Keep your work safe", which the guide's heading answers to, and that section says
+  what to do elsewhere.
 - **The technical text stays one tap away.** The answer has `detail`, folded under "Details for whoever
-  helps you". A password written into a remote address is taken out, since this text is meant to be passed on.
+  helps you". On the Landing page and Customize look the fold sits under the status box, not in the bar: a
+  long refusal would make the bar too tall to float, and it would drop far down the page. A password written into a remote address is taken out, since this text is meant to be passed on.
 - **Where the files do not last, Publish with no remote is refused.** It would otherwise report success for
   a commit that dies with the server, the same reason the workspace refuses it.
 - **Blank counts as not set.** Partly filled workspace settings still stop startup with their reason.
@@ -66,5 +74,13 @@ Three claims in the file and the docs were also wrong:
 - `publish.auto` failures still only reach the server log. This decision does not change that.
 - The analytics branch still cannot carry counts across a Render restart. The docs now say so; fixing it
   would need the container to fetch the branch and the store to read it, which is a separate decision.
-- A push that is rejected after a local commit still leaves that commit, and the header then counts it as
-  waiting. Publish again retries it.
+- A push that is rejected after a local commit still leaves that commit, and the header says some changes are
+  not live yet. Publish again retries it. With no remote-tracking ref, as on an empty remote or when the
+  remote cannot be read, git cannot say how far ahead the site is, and every commit of a shipped checkout
+  looks unsent. So `publish` marks its first commit that has not gone out with `refs/openblog/first-unsent`,
+  which is not pushed, and clears it after a push. The header counts from that mark only when there is no
+  tracking ref. A commit made outside `publish` with no tracking ref still reads as published, because
+  the server does not ask the network each time the header loads.
+- Sentences that promise a saved page or photo is kept were reworded where they could be true on every host.
+  Others, such as the voice note and shared reflections saying they are kept on the server, were not changed;
+  the notice covers them.

@@ -26,23 +26,30 @@ test.use({ viewport: { width: 375, height: 800 } });
 const blanks = { OPENBLOG_GIT_TOKEN: "", OPENBLOG_WORKSPACE_SUPABASE_URL: "", OPENBLOG_WORKSPACE_SECRET_KEY: "", OPENBLOG_WORKSPACE_NAMESPACE: "" };
 
 /** A site in Git with one post waiting to publish, and a remote that refuses the push. */
-async function startSite(folder, hostSettings) {
+async function startSite(folder, hostSettings, { hasMain = false, accepts = false, refusal = "fatal: Authentication failed for 'https://github.com/me/blog.git/'" } = {}) {
   const siteRoot = join(parent, folder);
   execFileSync(binary, ["init", siteRoot, "--no-voice"], { stdio: "pipe" });
   execFileSync(binary, ["user", "add", "writer", "--root", siteRoot], { env: { ...process.env, OPENBLOG_PASSWORD: password }, stdio: "pipe" });
   const remote = join(parent, `${folder}-remote.git`);
   mkdirSync(remote);
   execFileSync("git", ["init", "--bare", "-q"], { cwd: remote, stdio: "pipe" });
-  mkdirSync(join(remote, "hooks"), { recursive: true });
-  const hook = join(remote, "hooks", "pre-receive");
-  writeFileSync(hook, "#!/bin/sh\necho \"fatal: Authentication failed for 'https://github.com/me/blog.git/'\" >&2\nexit 1\n");
-  chmodSync(hook, 0o755);
   const git = (...args) => execFileSync("git", args, { cwd: siteRoot, stdio: "pipe" });
   git("init", "-q");
   git("config", "user.email", "t@example.com");
   git("config", "user.name", "T");
   git("config", "commit.gpgsign", "false");
   git("remote", "add", "origin", remote);
+  if (hasMain) {
+    git("add", "-A");
+    git("commit", "-q", "-m", "Start");
+    git("push", "-q", "origin", "HEAD:main");
+  }
+  mkdirSync(join(remote, "hooks"), { recursive: true });
+  const hook = join(remote, "hooks", "pre-receive");
+  if (!accepts) {
+    writeFileSync(hook, `#!/bin/sh\ncat >&2 <<'SAID'\n${refusal}\nSAID\nexit 1\n`);
+    chmodSync(hook, 0o755);
+  }
   writeFileSync(join(siteRoot, "content", "posts", "soup.md"), "---\ntitle: Soup\ndate: 2026-10-01\n---\nWords.\n");
 
   const listener = createServer();
@@ -79,12 +86,23 @@ const noSidewaysScroll = (page) => page.evaluate(() => document.documentElement.
 let render;
 let local;
 let saidToLast;
+let refusedOnPhone;
+let accepted;
+let longRefusal;
+let emptyRemote;
+let remoteWithMain;
 
 test.beforeAll(async () => {
   parent = mkdtempSync(join(tmpdir(), "openblog-saved-work-"));
   render = await startSite("render", { RENDER: "true" });
   local = await startSite("local", {});
   saidToLast = await startSite("said-to-last", { RENDER: "true", OPENBLOG_FILES_RESET: "0" });
+  refusedOnPhone = await startSite("refused-on-phone", { RENDER: "true" });
+  accepted = await startSite("accepted", { RENDER: "true" }, { accepts: true });
+  const longWords = Array.from({ length: 30 }, (_, line) => `remote: error: GH006: protected branch update failed, rule number ${line} of this repository`).join("\n");
+  longRefusal = await startSite("long-refusal", { RENDER: "true" }, { refusal: longWords });
+  emptyRemote = await startSite("empty-remote", { RENDER: "true" });
+  remoteWithMain = await startSite("remote-with-main", { RENDER: "true" }, { hasMain: true });
 });
 
 test.afterAll(async () => {
@@ -163,8 +181,117 @@ test("the Landing page's Publish says the same when it fails", async ({ page }) 
   await expect(said).toContainText("Publishing did not work.");
   await expect(said).toContainText("does not have permission");
   await expect(said).not.toContainText("git push");
-  await expect(page.locator(".oba-landing-actions [data-publish-detail] summary")).toBeVisible();
+  await expect(page.locator("[data-landing-status] + [data-publish-failure] summary")).toBeVisible();
 });
+
+/** Where a message sits on the phone's screen, and whether a tap at its start would land on it. */
+function placeOf(page, selector) {
+  return page.locator(selector).evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const barTop = document.querySelector("[data-landing-bar]").getBoundingClientRect().top;
+    const hit = document.elementFromPoint(box.left + 10, box.top + 10);
+    return { top: box.top, bottom: box.bottom, barTop, reachable: element === hit || element.contains(hit) };
+  });
+}
+
+async function expectInPlainSight(page, selector) {
+  const place = await placeOf(page, selector);
+  expect(place.top, JSON.stringify(place)).toBeGreaterThanOrEqual(-1);
+  expect(place.bottom, JSON.stringify(place)).toBeLessThanOrEqual(place.barTop);
+  expect(place.reachable, JSON.stringify(place)).toBe(true);
+}
+
+test("on a phone a refused Publish on the Landing page comes into sight wherever she was on the page", async ({ page }) => {
+  await signIn(page, refusedOnPhone);
+  for (const scrolled of [false, true]) {
+    await page.goto(`${refusedOnPhone}/admin/#/landing`);
+    await page.reload();
+    const publish = page.locator('.oba-landing-actions [data-action="publish"]');
+    await expect(publish).toBeEnabled();
+    if (scrolled) await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+    await publish.click();
+    await expect(page.locator("[data-landing-status]")).toContainText("does not have permission");
+    await expectInPlainSight(page, "[data-landing-status]");
+  }
+});
+
+test("on a phone a refused Make it live on Customize look comes into sight", async ({ page }) => {
+  await signIn(page, refusedOnPhone);
+  await page.goto(`${refusedOnPhone}/admin/#/look`);
+  const publish = page.locator('.oba-landing-actions [data-action="publish"]');
+  await expect(publish).toBeEnabled();
+  await publish.click();
+  await expect(page.locator("[data-look-status]")).toContainText("does not have permission");
+  await expectInPlainSight(page, "[data-look-status]");
+});
+
+for (const [route, dirty] of [["landing", "[data-landing-dirty]"], ["look", "[data-look-dirty]"]]) {
+  test(`on a phone a Save on ${route} says it can vanish in the bar, where she is looking`, async ({ page }) => {
+    await signIn(page, refusedOnPhone);
+    await page.goto(`${refusedOnPhone}/admin/#/${route}`);
+    const note = page.locator(dirty);
+    await expect(note).not.toBeEmpty();
+    await expect(note).not.toContainText("can vanish");
+    await page.locator('.oba-landing-actions [data-action="save"]').click();
+    await expect(note).toContainText("can vanish");
+    await expect(page.locator(".oba-landing-bar-static")).toHaveCount(0);
+    expect((await placeOf(page, dirty)).reachable).toBe(true);
+    const box = await note.boundingBox();
+    expect(box.y + box.height).toBeLessThanOrEqual(800);
+  });
+}
+
+test("after a Publish goes through, the bar no longer says the saved work can vanish", async ({ page }) => {
+  await signIn(page, accepted);
+  await page.goto(`${accepted}/admin/#/landing`);
+  const note = page.locator("[data-landing-dirty]");
+  await page.locator('.oba-landing-actions [data-action="save"]').click();
+  await expect(note).toContainText("can vanish");
+  await page.locator('.oba-landing-actions [data-action="publish"]').click();
+  await expect(note).toHaveText("All changes saved.");
+});
+
+test("on a local machine a Save's line in the bar stays as it was", async ({ page }) => {
+  await signIn(page, local);
+  await page.goto(`${local}/admin/#/landing`);
+  await page.locator('.oba-landing-actions [data-action="save"]').click();
+  const note = page.locator("[data-landing-dirty]");
+  await expect(note).toHaveText("All changes saved.");
+});
+
+for (const [route, status] of [["landing", "[data-landing-status]"], ["look", "[data-look-status]"]]) {
+  test(`opening a long refusal's details on ${route} leaves the bar where it is and the details in sight`, async ({ page }) => {
+    await signIn(page, longRefusal);
+    await page.goto(`${longRefusal}/admin/#/${route}`);
+    const publish = page.locator('.oba-landing-actions [data-action="publish"]');
+    await expect(publish).toBeEnabled();
+    await publish.click();
+    await expect(page.locator(status)).toContainText("could not be sent");
+    const fold = page.locator("[data-publish-detail]");
+    await fold.locator("summary").click();
+    await expect(fold.locator("pre")).toContainText("protected branch");
+    await expect(page.locator(".oba-landing-bar-static")).toHaveCount(0);
+    await expect(page.locator(".oba-landing-actions [data-publish-detail]")).toHaveCount(0);
+    await expect(fold.locator("pre")).toBeInViewport();
+    await expect(page.locator("[data-landing-bar]")).toBeInViewport();
+  });
+}
+
+for (const [name, origin] of [["a remote with no main branch yet", () => emptyRemote], ["a remote that has main", () => remoteWithMain]]) {
+  test(`after a refused Publish to ${name}, the header says it is not live, in plain words, after a reload`, async ({ page }) => {
+    await signIn(page, origin());
+    await page.goto(`${origin()}/admin/#/posts`);
+    const box = page.locator(".oba-publish");
+    await box.getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(box.getByRole("alert")).toContainText("does not have permission");
+    await page.reload();
+    const button = box.getByRole("button", { name: "Publish", exact: true });
+    await expect(button).toBeEnabled();
+    await expect(box).toContainText("not live yet");
+    await expect(box).not.toContainText("Everything published");
+    await expect(box).not.toContainText(/commit|push/i);
+  });
+}
 
 for (const [name, origin] of [["on a local machine", () => local], ["when the setting says the files last", () => saidToLast]]) {
   test(`${name} nothing warns, and Save still says it keeps your changes`, async ({ page }) => {

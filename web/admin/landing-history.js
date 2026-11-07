@@ -28,7 +28,7 @@ export function buildHistory({ call, getRevision, hasUnsaved, onRestored, onConf
     "section",
     { class: "oba-history", id, hidden: true, "aria-labelledby": `${id}-title`, "data-history": "true" },
     el("h2", { id: `${id}-title` }, "History"),
-    el("p", { class: "oba-small" }, "Every time you save, the page is kept here. Restore puts an older one back; the one you replace stays in the list."),
+    el("p", { class: "oba-small" }, "Every time you save, the page is added here. Restore puts an older one back; the one you replace stays in the list."),
     status,
     list,
     previewSlot,

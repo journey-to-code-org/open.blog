@@ -9,8 +9,11 @@
 #
 # To keep the work, fill in OPENBLOG_GIT_TOKEN and all three OPENBLOG_WORKSPACE_*
 # settings. "Keep your work safe on Render" in docs/deploy.md says what to create
-# first. Those four may be left blank: blank counts as not set. Filling in only
-# some of the OPENBLOG_WORKSPACE_* settings stops the server from starting.
+# first. Those four may be left blank: blank counts as not set. There is one
+# exception: on a private repository the server needs the token just to start, if
+# Render's build leaves out the .git folder, because it then fetches the shipped
+# commit from GitHub. Filling in only some of the OPENBLOG_WORKSPACE_* settings
+# also stops the server from starting.
 services:
   - type: web
     name: openblog
