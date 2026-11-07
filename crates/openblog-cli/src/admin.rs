@@ -189,6 +189,8 @@ pub struct AppState {
     /// Serializes durable acknowledgements, including background publishing.
     pub workspace: Mutex<Option<crate::workspace::Workspace>>,
     pub workspace_enabled: bool,
+    /// This server starts again from its image when it restarts (ADR 0353).
+    pub host_resets_files: bool,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
     /// Last analytics backup to the branch, as a unix time.
@@ -270,11 +272,17 @@ impl AppState {
             publish_lock: Mutex::new(()),
             workspace: Mutex::new(None),
             workspace_enabled: false,
+            host_resets_files: crate::workspace::host_resets_files(),
             assistant_operations: AssistantConcurrency::new(2),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
             portability_acknowledgements: Mutex::new(()),
         }
+    }
+
+    /// Whether what Admin saves here can vanish when the server restarts (ADR 0353).
+    pub fn files_may_vanish(&self) -> bool {
+        self.host_resets_files && !self.workspace_enabled
     }
 
     /// Commit the analytics store to the backup branch and push it, at most
@@ -571,6 +579,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/services.js" => "services.js",
         "/admin/paste.js" => "paste.js",
         "/admin/landing-history.js" => "landing-history.js",
+        "/admin/lasting.js" => "lasting.js",
         "/admin/checks.js" => "checks.js",
         "/admin/checks-panel.js" => "checks-panel.js",
         "/admin/job-form.js" => "job-form.js",
@@ -969,7 +978,10 @@ fn authenticated_api(
         ("GET", "publish") => {
             let config = site::load_config(&state.root).unwrap_or_default();
             match crate::publish::status(&state.root, &config) {
-                Ok(v) => Response::json(200, &v),
+                Ok(mut v) => {
+                    v["filesMayVanish"] = json!(state.files_may_vanish());
+                    Response::json(200, &v)
+                }
                 Err(e) => Response::error(500, &e),
             }
         }
@@ -993,12 +1005,24 @@ fn authenticated_api(
             {
                 return Response::error(409, "Durable workspace publishing requires a Git remote; a local-only commit is not a durable publication");
             }
+            // A commit that stays here would be lost with the server's files.
+            let git = crate::git::Git::new(&state.root);
+            if state.files_may_vanish() && git.is_repo() && !git.has_remote(&config.publish.remote)
+            {
+                return Response::error(409, crate::publish::NOWHERE_TO_PUBLISH);
+            }
             match crate::publish::publish(&state.root, &config, summary.as_deref()) {
                 Ok(o) => Response::json(
                     200,
                     &json!({ "ok": true, "message": o.message, "commit": o.commit, "pushed": o.pushed, "committed": o.committed, "drafts": o.skipped_drafts }),
                 ),
-                Err(e) => Response::json(500, &json!({ "ok": false, "error": e })),
+                Err(e) => match crate::publish::failure_for_owner(&e, state.files_may_vanish()) {
+                    Some(failure) => Response::json(
+                        500,
+                        &json!({ "ok": false, "error": failure.message, "reason": failure.reason, "detail": failure.detail }),
+                    ),
+                    None => Response::json(500, &json!({ "ok": false, "error": e })),
+                },
             }
         }
         _ => Response::error(404, "Unknown API route"),
@@ -11833,6 +11857,7 @@ fn status(state: &AppState) -> Response {
             "lastBuilt": s.last_built.map(|d| d.rfc3339()),
             "lastError": s.last_error,
             "nextDue": s.next_due.map(|d| d.rfc3339()),
+            "filesMayVanish": state.files_may_vanish(),
             "scheduled": s.scheduled.iter().map(|(t, slug, d)| json!({ "title": t, "slug": slug, "date": d })).collect::<Vec<_>>(),
         }),
     )
@@ -25688,6 +25713,127 @@ What I read:
         same.headers
             .insert("origin".into(), "http://localhost:8080".into());
         assert_eq!(handle(&f.state, &same).status, 201);
+    }
+
+    /// A site in Git whose remote answers every push the way a host answers one with no credential.
+    fn site_whose_push_is_refused(f: &Fixture) {
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        let remote = f.dir.with_extension("remote.git");
+        let _ = fs::remove_dir_all(&remote);
+        fs::create_dir_all(&remote).unwrap();
+        crate::git::Git::new(&remote)
+            .run(&["init", "--bare", "-q"])
+            .unwrap();
+        let hook = remote.join("hooks/pre-receive");
+        fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        fs::write(
+            &hook,
+            "#!/bin/sh\necho \"fatal: Authentication failed for 'https://helper:hunter2@github.com/me/blog.git/'\" >&2\nexit 1\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git.run(&["remote", "add", "origin", remote.to_str().unwrap()])
+            .unwrap();
+    }
+
+    #[test]
+    fn admin_says_when_saved_work_can_vanish_only_on_a_host_that_resets_without_a_workspace() {
+        let mut f = fixture("files-may-vanish");
+        let session = login_ok(&f);
+        let answers = |f: &Fixture| {
+            (
+                body_json(&handle(
+                    &f.state,
+                    &authed(req("GET", "/admin/api/status"), &session, false),
+                ))["filesMayVanish"]
+                    .clone(),
+                body_json(&handle(
+                    &f.state,
+                    &authed(req("GET", "/admin/api/publish"), &session, false),
+                ))["filesMayVanish"]
+                    .clone(),
+            )
+        };
+        // A local machine.
+        assert_eq!(answers(&f), (json!(false), json!(false)));
+        // The host resets its files and nothing keeps them. The answer does not depend on Git.
+        Arc::get_mut(&mut f.state).unwrap().host_resets_files = true;
+        assert_eq!(answers(&f), (json!(true), json!(true)));
+        // The same host with the durable workspace.
+        Arc::get_mut(&mut f.state).unwrap().workspace_enabled = true;
+        assert_eq!(answers(&f), (json!(false), json!(false)));
+    }
+
+    #[test]
+    fn a_refused_push_reads_in_plain_words_with_the_detail_kept_for_whoever_helps() {
+        let mut f = fixture("publish-no-credential");
+        let session = login_ok(&f);
+        site_whose_push_is_refused(&f);
+        let publish = |f: &Fixture| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/publish", json!({ "summary": "" })),
+                    &session,
+                    true,
+                ),
+            )
+        };
+
+        let answer = publish(&f);
+        assert_eq!(answer.status, 500);
+        let answer = body_json(&answer);
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["reason"], "no-permission");
+        let words = answer["error"].as_str().unwrap();
+        assert!(words.contains("does not have permission"), "{words}");
+        assert!(words.contains("still here"), "{words}");
+        assert!(!words.to_lowercase().contains("git"), "{words}");
+        let detail = answer["detail"].as_str().unwrap();
+        assert!(detail.contains("git push failed"), "{detail}");
+        assert!(detail.contains("Authentication failed"), "{detail}");
+        assert!(!detail.contains("hunter2"), "{detail}");
+
+        // Where the server's files do not last, she hears that too.
+        Arc::get_mut(&mut f.state).unwrap().host_resets_files = true;
+        let answer = body_json(&publish(&f));
+        let words = answer["error"].as_str().unwrap();
+        assert!(words.contains("can vanish"), "{words}");
+        assert!(!words.contains("still here"), "{words}");
+    }
+
+    #[test]
+    fn a_commit_with_nowhere_to_go_is_refused_where_the_files_do_not_last() {
+        let mut f = fixture("publish-no-remote");
+        let session = login_ok(&f);
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        Arc::get_mut(&mut f.state).unwrap().host_resets_files = true;
+        let answer = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/publish", json!({ "summary": "" })),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(answer.status, 409);
+        assert!(body_json(&answer)["error"]
+            .as_str()
+            .unwrap()
+            .contains("nowhere to publish"));
+        assert!(git.run(&["log", "-1"]).is_err(), "nothing was committed");
     }
 
     #[test]

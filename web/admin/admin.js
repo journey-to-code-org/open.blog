@@ -55,6 +55,14 @@ import {
   setHidden,
 } from "./landing.js";
 import {
+  FILES_MAY_VANISH_BODY,
+  FILES_MAY_VANISH_SHORT,
+  FILES_MAY_VANISH_TITLE,
+  glossaryFor,
+  savedMessage,
+  tourBodyFor,
+} from "./lasting.js";
+import {
   ACCENT_SWATCHES,
   CHOICES,
   CONTROL_ORDER,
@@ -8039,6 +8047,12 @@ export function slugHelp(kind, isNew) {
 }
 
 /** The owner's notes about her recipe list, or nothing. They are for her, so they don't sit folded away. */
+/** The technical text of a failed publish, folded away for whoever helps her (ADR 0353). */
+function publishFailureDetail(error) {
+  const detail = error.data?.detail;
+  return detail ? h("details", { class: "oba-publish-detail", "data-publish-detail": "true" }, h("summary", {}, "Details for whoever helps you"), h("pre", {}, detail)) : null;
+}
+
 function recipeNotesNotice(notes) {
   if (!Array.isArray(notes) || !notes.length) return [];
   return [h("strong", {}, "About your recipe list"), h("ul", { "data-recipe-notes": "true" }, ...notes.map((note) => h("li", {}, note)))];
@@ -12142,15 +12156,18 @@ export class ObAdmin extends AdminElement {
     } catch {
       return;
     }
+    this.filesMayVanish = st.filesMayVanish === true;
+    // Overview says all of it, so it does not need the short line as well.
+    const vanishLine = this.filesMayVanish && this.activeRoute !== "overview" ? h("a", { class: "oba-publish-risk", href: "#/overview", "data-files-may-vanish-line": "true" }, FILES_MAY_VANISH_SHORT) : null;
     if (!st.repo) {
-      box.replaceChildren(h("span", { class: "oba-small", title: "Whoever set up this site can run `openblog publish setup` to publish with git" }, "Publishing is not set up yet"));
+      box.replaceChildren(h("span", { class: "oba-small", title: "Whoever set up this site can run `openblog publish setup` to publish with git" }, "Publishing is not set up yet"), ...(vanishLine ? [vanishLine] : []));
       return;
     }
     const pending = st.changed.length;
     const drafts = st.drafts.length;
     const summary = [
       pending ? `${pending} unpublished change${pending === 1 ? "" : "s"}` : st.ahead ? `${st.ahead} commit${st.ahead === 1 ? "" : "s"} to push` : "Everything published",
-      drafts ? `${drafts} draft${drafts === 1 ? "" : "s"} kept local` : null,
+      drafts ? `${drafts} draft${drafts === 1 ? "" : "s"} not published` : null,
       st.behind ? `${st.behind} new elsewhere` : null,
     ].filter(Boolean).join(" · ");
     const button = h(
@@ -12168,7 +12185,7 @@ export class ObAdmin extends AdminElement {
             box.replaceChildren(h("span", { class: "oba-ok" }, res.message));
             setTimeout(() => this.loadPublishStatus(box), 4000);
           } catch (err) {
-            box.replaceChildren(h("span", { class: "oba-error", role: "alert" }, err.data?.error || err.message), button);
+            box.replaceChildren(h("span", { class: "oba-error", role: "alert" }, err.data?.error || err.message), ...[publishFailureDetail(err), vanishLine].filter(Boolean), button);
             button.disabled = false;
             button.textContent = "Publish";
           }
@@ -12176,7 +12193,7 @@ export class ObAdmin extends AdminElement {
       },
       st.auto ? "Publish now" : "Publish",
     );
-    box.replaceChildren(h("span", { class: "oba-small" }, summary + (st.auto ? " · auto" : "")), " ", button);
+    box.replaceChildren(h("span", { class: "oba-small" }, summary + (st.auto ? " · auto" : "")), " ", button, ...(vanishLine ? [vanishLine] : []));
   }
 
   /**
@@ -12369,6 +12386,7 @@ export class ObAdmin extends AdminElement {
       this.api.call("GET", "status"),
     ]));
     const status = responses.pop();
+    this.filesMayVanish = status.filesMayVanish === true;
     const inventories = Object.fromEntries(kinds.map((kind, index) => [kind, responses[index].items]));
     const posts = inventories.posts;
     const count = (wanted) => posts.filter((item) => item.status === wanted).length;
@@ -12461,6 +12479,7 @@ export class ObAdmin extends AdminElement {
     this.mount(
       this.shell(
         "overview",
+        status.filesMayVanish === true ? h("div", { class: "oba-notice", "data-files-may-vanish": "true" }, h("strong", {}, FILES_MAY_VANISH_TITLE), h("p", {}, FILES_MAY_VANISH_BODY)) : null,
         // Someone on Simple starts here to write, so writing comes before the numbers.
         recipeNotesBox,
         this.preferences?.preset === "simple" ? quickCreatePanel : null,
@@ -12468,7 +12487,7 @@ export class ObAdmin extends AdminElement {
           "section",
           { class: "oba-overview-metrics", "aria-label": "Publishing pipeline" },
           overviewMetric("Published", count("published"), `${posts.length} posts total`, "#/posts?status=published"),
-          overviewMetric("Drafts", count("draft"), "Kept local", "#/posts?status=draft"),
+          overviewMetric("Drafts", count("draft"), "Not published", "#/posts?status=draft"),
           overviewMetric("Scheduled", count("scheduled"), "Waiting to go live", "#/posts?status=scheduled"),
           overviewMetric("Needs attention", problemCount, problemCount ? "Review errors" : "Everything looks healthy", "#/overview?focus=issues"),
         ),
@@ -13914,13 +13933,14 @@ export class ObAdmin extends AdminElement {
       say("The tour is closed. It will not appear again.");
       if (focus) addButton.focus();
     };
+    const filesMayVanish = publishInfo?.filesMayVanish === true;
     const showTourStep = (n, move) => {
       const step = TOUR_STEPS[n];
       const last = n === TOUR_STEPS.length - 1;
       tour.hidden = false;
       tour.replaceChildren(
         h("h3", { id: "oba-landing-tour-title", tabindex: "-1", "aria-describedby": "oba-landing-tour-body" }, `Step ${n + 1} of ${TOUR_STEPS.length}: ${step.title}`),
-        h("p", { id: "oba-landing-tour-body" }, step.body),
+        h("p", { id: "oba-landing-tour-body" }, tourBodyFor(step, filesMayVanish)),
         h("div", { class: "oba-toolbar" },
           n > 0 ? h("button", { class: "oba-btn", type: "button", "data-action": "tour-back", onClick: () => showTourStep(n - 1, true) }, "Back") : null,
           h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": last ? "tour-done" : "tour-next", onClick: () => (last ? endTour() : showTourStep(n + 1, true)) }, last ? "Finish the tour" : "Next"),
@@ -14097,7 +14117,7 @@ export class ObAdmin extends AdminElement {
           say(`Saved, but your site could not be rebuilt yet: ${result.build.error}`, "error");
           return false;
         }
-        say(untouched ? "Saved. Your landing page is ready to publish." : "Saved. Changes you made while saving are still unsaved.", untouched ? "ok" : "small");
+        say(savedMessage(untouched ? "Saved. Your landing page is ready to publish." : "Saved. Changes you made while saving are still unsaved.", filesMayVanish), untouched ? "ok" : "small");
         return untouched;
       } catch (error) {
         // Whatever went wrong, a copy of the work is on this device now.
@@ -14123,11 +14143,13 @@ export class ObAdmin extends AdminElement {
     const canPublish = Boolean(publishInfo?.repo);
     const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-landing-publish-note", hidden: canPublish }, "Publishing is off because this site is not a git repository. Run openblog publish setup to turn it on.");
     const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", title: "Publish: make your saved page live", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-landing-publish-note", onClick: () => publish() }, "Publish");
+    const publishFailure = h("div", { class: "oba-publish-failure" });
     const publish = async () => {
       if (busy || publishing) return;
       if (isDirty() && !(await save())) return;
       publishing = true;
       publishButton.disabled = true;
+      publishFailure.replaceChildren();
       say("Publishing\u2026");
       try {
         const result = await this.api.call("POST", "publish", { json: { summary: "" } });
@@ -14136,6 +14158,7 @@ export class ObAdmin extends AdminElement {
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(`Publishing did not work. ${error.data?.error || landingErrorText(error)}`, "error");
+        publishFailure.replaceChildren(...[publishFailureDetail(error)].filter(Boolean));
       } finally {
         publishing = false;
         publishButton.disabled = !canPublish;
@@ -14227,7 +14250,7 @@ export class ObAdmin extends AdminElement {
     globalThis.matchMedia?.("(min-width: 64rem)").addEventListener?.("change", () => {
       if (this.viewVersion === mountedView) placePreview();
     });
-    actions.replaceChildren(previewButton, saveButton, publishButton, dirtyNote, publishNote);
+    actions.replaceChildren(previewButton, saveButton, publishButton, dirtyNote, publishNote, publishFailure);
 
     // ----- earlier versions (ADR 0264): the server keeps each save; a restore is a save it makes
     const history = buildHistory({
@@ -14252,7 +14275,7 @@ export class ObAdmin extends AdminElement {
       "section",
       { class: "oba-contributor-intro" },
       h("p", {}, "This is the first page your visitors see. Add the sections you want, put them in the order you like, and choose Save. Nothing changes for visitors until you save and then choose Publish (make it live)."),
-      h("details", { class: "oba-landing-help", "data-landing-help": "true" }, h("summary", {}, "Help: what the words on this page mean"), h("dl", {}, GLOSSARY.flatMap((entry) => [h("dt", {}, entry.term), h("dd", {}, entry.meaning)]))),
+      h("details", { class: "oba-landing-help", "data-landing-help": "true" }, h("summary", {}, "Help: what the words on this page mean"), h("dl", {}, glossaryFor(GLOSSARY, filesMayVanish).flatMap((entry) => [h("dt", {}, entry.term), h("dd", {}, entry.meaning)]))),
       exists ? null : h("p", { class: "oba-notice", "data-landing-legacy": "true" }, "You have not built a landing page yet. This starts from what your home page shows now. Your site stays as it is until you save."),
       readable ? null : h("div", { class: "oba-error", role: "alert", "data-landing-unreadable": "true" }, h("p", {}, "The saved landing page could not be read, so your site is using your home settings instead. You can start again below; saving replaces the unreadable file."), h("ul", {}, (loaded.problems || []).map((problem) => h("li", {}, problem.text || problem.message)))),
     );
@@ -14740,7 +14763,7 @@ export class ObAdmin extends AdminElement {
           say(`Saved, but your site could not be rebuilt yet: ${result.buildError}`, "error");
           return false;
         }
-        say(untouched ? "Saved. Your look is ready to make live." : "Saved. Changes you made while saving are still unsaved.", untouched ? "ok" : "small");
+        say(savedMessage(untouched ? "Saved. Your look is ready to make live." : "Saved. Changes you made while saving are still unsaved.", publishInfo?.filesMayVanish === true), untouched ? "ok" : "small");
         return untouched;
       } catch (error) {
         persistDraft();
@@ -14760,11 +14783,13 @@ export class ObAdmin extends AdminElement {
     const canPublish = Boolean(publishInfo?.repo);
     const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-look-publish-note", hidden: canPublish }, "Making it live is off because this site is not a git repository. Run openblog publish setup to turn it on.");
     const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-look-publish-note", onClick: () => publish() }, "Make it live");
+    const publishFailure = h("div", { class: "oba-publish-failure" });
     const publish = async () => {
       if (busy || publishing) return;
       if (isDirty() && !(await save())) return;
       publishing = true;
       publishButton.disabled = true;
+      publishFailure.replaceChildren();
       say("Making it live…");
       try {
         const result = await this.api.call("POST", "publish", { json: { summary: "" } });
@@ -14773,6 +14798,7 @@ export class ObAdmin extends AdminElement {
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(`Making it live did not work. ${error.data?.error || lookErrorText(error)}`, "error");
+        publishFailure.replaceChildren(...[publishFailureDetail(error)].filter(Boolean));
       } finally {
         publishing = false;
         publishButton.disabled = !canPublish;
@@ -14861,7 +14887,7 @@ export class ObAdmin extends AdminElement {
     globalThis.matchMedia?.("(min-width: 64rem)").addEventListener?.("change", () => {
       if (this.viewVersion === mountedView) placePreview();
     });
-    const actions = h("div", { class: "oba-landing-actions", role: "group", "aria-label": "Look actions" }, previewButton, saveButton, publishButton, dirtyNote, publishNote);
+    const actions = h("div", { class: "oba-landing-actions", role: "group", "aria-label": "Look actions" }, previewButton, saveButton, publishButton, dirtyNote, publishNote, publishFailure);
 
     const intro = h("section", { class: "oba-contributor-intro" }, h("p", {}, "Tap the choices you like and watch your site change in the preview. Nothing changes on your site until you save and make it live. There is nothing to type and nothing that can break your site."), unhonored);
     let mountedView = -1;
@@ -26209,6 +26235,7 @@ export class Editor {
     else if (res.status === "published" && res.url) message = "Saved and live.";
     else if (res.status === "draft") message = "Draft saved. It is not public.";
     if (!current) message = "Saved the earlier version. Your newer edits are still unsaved.";
+    message = savedMessage(message, this.app.filesMayVanish === true);
     if (res.build && res.build.ok === false) {
       this.flash("error", `Saved, but the site build failed: ${res.build.error}`);
     } else {

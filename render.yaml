@@ -1,11 +1,16 @@
 # Render blueprint: run this blog with its admin editor and view counter as a
 # Docker web service. In Render choose "New > Blueprint" and point it at this
-# repository. Set OPENBLOG_ADMIN_PASSWORD in the dashboard after the first deploy.
+# repository. Render asks for each setting marked sync: false below.
 #
-# Render's free tier has no persistent disk: posts you save in the editor live
-# only until the next deploy unless you publish them (the Publish button), and
-# view counts survive through the analytics branch backup. For a persistent
-# .openblog folder, uncomment the disk section (paid plans).
+# As written, with only the admin password filled in, nothing saved in Admin lasts.
+# A restart or a deploy starts again from the image, and an instance that went idle
+# has to be started again. Saved posts, drafts, photos, settings and view counts
+# are lost, and Publish cannot push because it has no credential. Admin says so.
+#
+# To keep the work, fill in OPENBLOG_GIT_TOKEN and all three OPENBLOG_WORKSPACE_*
+# settings. "Keep your work safe on Render" in docs/deploy.md says what to create
+# first. Those four may be left blank: blank counts as not set. Filling in only
+# some of the OPENBLOG_WORKSPACE_* settings stops the server from starting.
 services:
   - type: web
     name: openblog
@@ -21,6 +26,16 @@ services:
         sync: false
       - key: GIT_AUTHOR_NAME
         value: open.blog
+      - key: OPENBLOG_GIT_TOKEN
+        sync: false
+      - key: OPENBLOG_WORKSPACE_SUPABASE_URL
+        sync: false
+      - key: OPENBLOG_WORKSPACE_SECRET_KEY
+        sync: false
+      - key: OPENBLOG_WORKSPACE_NAMESPACE
+        sync: false
+    # A disk here (paid plans) keeps only the .openblog folder: logins, analytics
+    # and the trash. Posts, drafts and photos are outside it, and are not kept.
     # disk:
     #   name: openblog-data
     #   mountPath: /blog/.openblog

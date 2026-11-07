@@ -1004,6 +1004,15 @@ editing**; tap **Save**. Open **Customize look**, tap a color and a font style, 
 **Back to choosing**, then **Save**. Tap **Publish** to make it live. The bar stays at the bottom of the
 screen, every control is at least 44px tall, and nothing scrolls sideways down to 320px wide.
 
+## When saved work can vanish
+
+On a host that resets its files, such as Render with no durable workspace, what you save can vanish
+when the server restarts. Admin says so: a notice on Overview, a short line at the top of every other
+page, and a sentence after a save in the editor, the Landing page, and Customize look. Nothing shows on your own
+computer or once [the durable workspace](deploy.md#keep-your-work-safe-on-render) is on. If Publish
+cannot reach your site's repository, Admin says what that means in plain words, with git's own
+message folded under "Details for whoever helps you".
+
 ## Photo uploads
 
 A photo can be uploaded at any size up to 40 MB. A photo that is wider or taller than 2000 pixels, is heavier

@@ -33,14 +33,43 @@ const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
 const BUCKET: &str = "openblog-workspace";
 
+const SETTINGS: [&str; 3] = [
+    "OPENBLOG_WORKSPACE_SUPABASE_URL",
+    "OPENBLOG_WORKSPACE_SECRET_KEY",
+    "OPENBLOG_WORKSPACE_NAMESPACE",
+];
+
+/// A setting left blank counts as not set, because a host's form can hand over an
+/// empty value for a prompt nobody filled in (ADR 0353).
 pub fn configured() -> bool {
-    [
-        "OPENBLOG_WORKSPACE_SUPABASE_URL",
-        "OPENBLOG_WORKSPACE_SECRET_KEY",
-        "OPENBLOG_WORKSPACE_NAMESPACE",
-    ]
-    .iter()
-    .any(|name| std::env::var_os(name).is_some())
+    configured_given(|name| std::env::var(name).ok())
+}
+
+fn configured_given(value: impl Fn(&str) -> Option<String>) -> bool {
+    SETTINGS
+        .iter()
+        .any(|name| value(name).is_some_and(|v| !v.trim().is_empty()))
+}
+
+/// Whether this server starts again from its image when it restarts, losing what
+/// Admin saved in its files (ADR 0353). `OPENBLOG_FILES_RESET` says so outright;
+/// without it, Render's own `RENDER=true` does.
+pub fn host_resets_files() -> bool {
+    host_resets_files_given(
+        std::env::var("OPENBLOG_FILES_RESET").ok().as_deref(),
+        std::env::var("RENDER").ok().as_deref(),
+    )
+}
+
+fn host_resets_files_given(setting: Option<&str>, render: Option<&str>) -> bool {
+    match setting
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("1" | "true" | "yes") => true,
+        Some("0" | "false" | "no") => false,
+        _ => render.is_some_and(|value| value.trim().eq_ignore_ascii_case("true")),
+    }
 }
 
 type Files = BTreeMap<String, Vec<u8>>;
@@ -79,12 +108,7 @@ impl Backend {
         if !configured() {
             return Ok(None);
         }
-        let values = [
-            "OPENBLOG_WORKSPACE_SUPABASE_URL",
-            "OPENBLOG_WORKSPACE_SECRET_KEY",
-            "OPENBLOG_WORKSPACE_NAMESPACE",
-        ]
-        .map(|name| std::env::var(name).ok().filter(|v| !v.trim().is_empty()));
+        let values = SETTINGS.map(|name| std::env::var(name).ok().filter(|v| !v.trim().is_empty()));
         let [Some(url), Some(key), Some(namespace)] = values else {
             return Err(
                 "workspace persistence requires URL, server secret key and namespace together"
@@ -1296,6 +1320,32 @@ mod tests {
             static_dir: "static".into(),
             users: ".openblog/users.json".into(),
         }
+    }
+
+    #[test]
+    fn a_blank_setting_counts_as_not_set_so_an_empty_prompt_does_not_stop_startup() {
+        assert!(!configured_given(|_| None));
+        assert!(!configured_given(|_| Some(String::new())));
+        assert!(!configured_given(|_| Some("  ".into())));
+        // One real value is still a half-finished setup, which stops startup with its reason.
+        assert!(configured_given(
+            |name| (name == SETTINGS[0]).then(|| "https://x.supabase.co".to_string())
+        ));
+    }
+
+    #[test]
+    fn a_host_resets_its_files_on_render_or_when_the_setting_says_so() {
+        assert!(!host_resets_files_given(None, None));
+        assert!(!host_resets_files_given(None, Some("")));
+        assert!(host_resets_files_given(None, Some("true")));
+        assert!(host_resets_files_given(Some("1"), None));
+        assert!(host_resets_files_given(Some("true"), None));
+        // A Render service whose whole project is on a disk can say its files last.
+        assert!(!host_resets_files_given(Some("0"), Some("true")));
+        assert!(!host_resets_files_given(Some("false"), Some("true")));
+        // A blank or mistyped setting decides nothing.
+        assert!(host_resets_files_given(Some(""), Some("true")));
+        assert!(!host_resets_files_given(Some("maybe"), None));
     }
 
     #[test]

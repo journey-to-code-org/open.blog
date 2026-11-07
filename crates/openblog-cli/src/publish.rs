@@ -193,6 +193,85 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
     Ok(outcome)
 }
 
+/// What Admin says when a site that does not keep its files has no remote (ADR 0353).
+pub const NOWHERE_TO_PUBLISH: &str = "This site has nowhere to publish to yet, so your changes were not published. Ask whoever set up this site to connect it to the place your site is kept. Until then your saved work stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose.";
+
+/// A failed push as Admin tells it to the owner (ADR 0353). `detail` is the
+/// technical text, for whoever helps her.
+#[derive(Debug, PartialEq, Eq)]
+pub struct OwnerFailure {
+    pub reason: &'static str,
+    pub message: String,
+    pub detail: String,
+}
+
+/// What git says, in lower case, when the push had no credential or a refused one.
+const NO_PERMISSION: [&str; 14] = [
+    "could not read username",
+    "could not read password",
+    "terminal prompts disabled",
+    "authentication failed",
+    "invalid username or",
+    "password authentication",
+    "no anonymous write access",
+    "permission denied",
+    "denied to",
+    "write access to repository not granted",
+    "repository not found",
+    "could not read from remote repository",
+    "host key verification failed",
+    "returned error: 40",
+];
+
+/// Plain words for a failed push; `None` for a failure that is not a push, which
+/// keeps its own words. `publish` itself keeps git's text, for the command line.
+pub fn failure_for_owner(error: &str, files_may_vanish: bool) -> Option<OwnerFailure> {
+    if !error.starts_with("git push failed") {
+        return None;
+    }
+    let lower = error.to_lowercase();
+    let no_permission = NO_PERMISSION.iter().any(|sign| lower.contains(sign));
+    let what = if no_permission {
+        "This site does not have permission yet to send your changes to the place your site is kept, so they were not published. This is a setup step, not something you did wrong: ask whoever set up this site to give it permission."
+    } else {
+        "Your changes could not be sent to the place your site is kept, so they were not published. Try again in a little while, and if it keeps happening, tell whoever set up this site."
+    };
+    let work = if files_may_vanish {
+        "Until it works, your saved work stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose."
+    } else {
+        "Your saved work is still here, so you can publish again once this is sorted out."
+    };
+    Some(OwnerFailure {
+        reason: if no_permission {
+            "no-permission"
+        } else {
+            "not-sent"
+        },
+        message: format!("{what} {work}"),
+        detail: without_url_passwords(error),
+    })
+}
+
+/// The detail gets copied into messages to whoever helps, so a credential written
+/// into a remote address does not go with it.
+fn without_url_passwords(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (before, after) = rest.split_at(at + 3);
+        out.push_str(before);
+        let host_end = after
+            .find(|c: char| c == '/' || c == '\'' || c == '"' || c.is_whitespace())
+            .unwrap_or(after.len());
+        rest = match after[..host_end].rfind('@') {
+            Some(credential_end) => &after[credential_end + 1..],
+            None => after,
+        };
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Prepare a blog for publishing: a git repository, the Pages workflow, and
 /// a report of what is still manual.
 pub fn setup(root: &Path, config: &SiteConfig) -> Result<Vec<String>, String> {
@@ -327,6 +406,65 @@ mod tests {
         fs::write(fixture.root.join("unrelated.txt"), "Not publishing input").unwrap();
         git.run(&["add", "unrelated.txt"]).unwrap();
         assert!(publish(&fixture.root, &fixture.config, None).is_err());
+    }
+
+    #[test]
+    fn a_push_with_no_credential_reads_in_plain_words() {
+        // Git's own words for each way a push can lack a credential.
+        for said in [
+            "fatal: could not read Username for 'https://github.com': No such device or address",
+            "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+            "remote: Invalid username or password.\nfatal: Authentication failed for 'https://github.com/me/blog.git/'",
+            "remote: Permission to me/blog.git denied to someone.\nfatal: unable to access 'https://github.com/me/blog.git/': The requested URL returned error: 403",
+            "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
+        ] {
+            let failure = failure_for_owner(&format!("git push failed: {said}"), false).unwrap();
+            assert_eq!(failure.reason, "no-permission", "{said}");
+            assert!(failure.message.contains("does not have permission"));
+            assert!(failure.message.contains("whoever set up this site"));
+            assert!(failure.message.contains("still here"));
+            assert!(!failure.message.to_lowercase().contains("git"));
+            assert!(!failure.message.contains("push"));
+            assert!(failure.detail.contains(said));
+        }
+    }
+
+    #[test]
+    fn what_a_failed_push_means_for_her_work_depends_on_whether_the_files_last() {
+        let said = "git push failed: fatal: could not read Username for 'https://github.com': No such device or address";
+        let failure = failure_for_owner(said, true).unwrap();
+        assert!(failure.message.contains("can vanish when it restarts"));
+        assert!(!failure.message.contains("still here"));
+    }
+
+    #[test]
+    fn any_other_failed_push_is_plain_too_and_other_refusals_keep_their_words() {
+        let failure = failure_for_owner(
+            "git push failed: To origin\n ! [rejected] HEAD -> main (non-fast-forward)",
+            false,
+        )
+        .unwrap();
+        assert_eq!(failure.reason, "not-sent");
+        assert!(failure.message.contains("could not be sent"));
+        assert!(failure.detail.contains("non-fast-forward"));
+        assert_eq!(
+            failure_for_owner("refusing to publish: x looks like private research", false),
+            None
+        );
+    }
+
+    #[test]
+    fn the_detail_leaves_out_a_password_in_a_remote_address() {
+        let failure = failure_for_owner(
+            "git push failed: unable to access 'https://me:s3cret@github.com/me/blog.git/': 500\nssh://git@host/x and https://github.com/me/blog.git",
+            false,
+        )
+        .unwrap();
+        assert!(!failure.detail.contains("s3cret"), "{}", failure.detail);
+        assert!(failure
+            .detail
+            .contains("'https://github.com/me/blog.git/': 500"));
+        assert!(failure.detail.contains("https://github.com/me/blog.git"));
     }
 
     #[test]

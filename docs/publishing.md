@@ -41,7 +41,7 @@ openblog publish "Fix typos"     # with your own summary
 
 Drafts (`draft: true`) are never committed unless `publish.includeDrafts` is `true`: in
 a public repository, a committed draft is public text. The header counts them separately
-("2 drafts kept local").
+("2 drafts not published").
 
 Publishing refuses pre-staged files outside the publishable changes, including staged
 drafts. Unstage those files before retrying; it will not silently include unrelated staged
@@ -70,6 +70,10 @@ and on every machine that cloned it. Images and settings are included. `.openblo
 users file, trash, and the live analytics store) is deliberately not committed; back that
 folder up like any private file, and use the analytics branch below for the counts.
 
+Publishing is not a backup of drafts: they are never committed. On a host that resets its
+files, such as Render without a disk, unpublished work needs the durable workspace; see
+[Keep your work safe on Render](deploy.md#keep-your-work-safe-on-render).
+
 ### Publishing from the Render container
 
 Set `GIT_AUTHOR_NAME` and optionally `GIT_AUTHOR_EMAIL` for the publishing identity.
@@ -77,6 +81,8 @@ For a GitHub HTTPS or SSH origin, `OPENBLOG_GIT_TOKEN` enables an environment-ba
 credential helper. The token must have permission to push to the intended repository and
 branch; branch protection still applies. It is not written into the remote URL or
 editorial backups. Never give this token to visitors or put it in public site settings.
+Without a credential the push cannot sign in: Admin says in plain words that the site does
+not have permission yet, and folds git's own message under "Details for whoever helps you".
 
 Container startup reports invalid Admin credentials and users-file failures instead of
 continuing as if login setup succeeded. Set both `OPENBLOG_ADMIN_USER` and
@@ -131,8 +137,15 @@ openblog analytics backup        # commit the current counts to the branch and p
 
 `openblog serve` does this by itself every 15 minutes while it runs. The Pages workflow
 fetches the branch before building, which is how the counts reach the static site. If you
-ever lose `.openblog/analytics.json`, the next build and the next `openblog serve` read it
-back from the branch.
+lose `.openblog/analytics.json` and the checkout has the branch, or `origin/<branch>`, the
+next build bakes the numbers from it. That is only the baked numbers: the live store starts
+again from nothing and is not filled from the branch.
+
+This does not carry counts across a restart on Render. The container has no copy of the
+branch, because `scripts/container-git.sh` fetches only the shipped commit, so the counts
+start again from nothing. Pushing also needs a credential. With one, the first backup from a
+fresh container makes a new branch with no shared history, so the push is refused once the
+remote branch exists.
 
 ## A counter you host: Cloudflare Worker
 
