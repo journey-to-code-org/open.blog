@@ -11429,6 +11429,14 @@ export class ObAdmin extends AdminElement {
     return this.viewSerial + 1;
   }
 
+  /**
+   * Whether she is still on the view on screen. Once she asks for another page this view stays
+   * until that page has loaded, so what finishes in that time asks this before moving the address.
+   */
+  stillOnOpenView() {
+    return (location.hash || "#/overview") === this.currentHash;
+  }
+
   /** Whether the open view has unsaved changes, in the editor or in a view's own form. */
   hasUnsavedView() {
     return Boolean(this.dirty || this.viewDirty?.());
@@ -12248,10 +12256,14 @@ export class ObAdmin extends AdminElement {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         // The view being left was kept or given up by the plan above; it is not kept again here.
-        this.viewDirty = null;
-        this.viewBusy = null;
-        this.dirty = false;
-        this.showSessionEnded();
+        // After she has moved on, what is open is the page she moved to, and its work is kept.
+        if (turn === this.routeTurn) {
+          this.viewDirty = null;
+          this.viewBusy = null;
+          this.dirty = false;
+        }
+        // Another page has already said so: she may be filling in the form.
+        if (!this.signedOut) this.showSessionEnded();
       } else if (turn === this.routeTurn) this.showFatal(err);
     }
     // She moved on while this view loaded: the newer move owns the address and the focus.
@@ -13325,9 +13337,11 @@ export class ObAdmin extends AdminElement {
         applySaved(result);
         if (wasNew) {
           creating = false;
-          const hash = `#/paths/edit/${encodeURIComponent(result.slug)}`;
-          history.replaceState(null, "", hash);
-          this.currentHash = hash;
+          if (this.stillOnOpenView()) {
+            const hash = `#/paths/edit/${encodeURIComponent(result.slug)}`;
+            history.replaceState(null, "", hash);
+            this.currentHash = hash;
+          }
         }
         renderAll();
         say("Saved.", "ok");
@@ -13364,7 +13378,7 @@ export class ObAdmin extends AdminElement {
           try {
             await this.api.call("DELETE", `reading-paths?slug=${encodeURIComponent(slug)}&revision=${encodeURIComponent(revision)}`);
             dirty = false;
-            location.hash = "#/paths";
+            if (this.viewVersion === mountedView && this.stillOnOpenView()) location.hash = "#/paths";
           } catch (error) {
             if (error.status === 409 && error.data?.conflict) conflict(error);
             else say(readingPathErrorText(error), "error");
@@ -14336,13 +14350,14 @@ export class ObAdmin extends AdminElement {
       api: this.api,
       route: tail || "",
       onSaved: (path) => {
+        if (!this.stillOnOpenView()) return;
         this.skipRoute = true;
         location.hash = `#/services/edit/${encodeURIComponent(path)}`;
       },
       onLeave: (hash) => {
         this.dirty = false;
         this.viewDirty = null;
-        location.hash = hash;
+        if (this.stillOnOpenView()) location.hash = hash;
       },
     });
     this.mount(this.shell("services", view.element));
@@ -15727,9 +15742,11 @@ export class ObAdmin extends AdminElement {
         applySaved(result);
         if (wasNew) {
           creating = false;
-          const hash = `#/comparisons/edit/${encodeURIComponent(result.slug)}`;
-          history.replaceState(null, "", hash);
-          this.currentHash = hash;
+          if (this.stillOnOpenView()) {
+            const hash = `#/comparisons/edit/${encodeURIComponent(result.slug)}`;
+            history.replaceState(null, "", hash);
+            this.currentHash = hash;
+          }
         }
         renderAll();
         const withdrawn = result.approvalsWithdrawn || [];
@@ -15765,7 +15782,7 @@ export class ObAdmin extends AdminElement {
           try {
             await this.api.call("DELETE", `comparisons?slug=${encodeURIComponent(slug)}&revision=${encodeURIComponent(revision)}`);
             dirty = false;
-            location.hash = "#/comparisons";
+            if (this.viewVersion === mountedView && this.stillOnOpenView()) location.hash = "#/comparisons";
           } catch (error) {
             if (error.status === 409 && error.data?.conflict) showConflict(error);
             else say(comparisonErrorText(error), "error");
@@ -26089,7 +26106,8 @@ export class Editor {
     if (ui.profile) ui.profile.disabled = true;
     ui.saveState.textContent = "Saving…";
     const saveVersion = this.app.editVersion;
-    const savedFrom = draftRoute(location.hash);
+    // Where the draft on screen lives: she may already have asked for another page.
+    const savedFrom = draftRoute(this.app.currentHash);
     const exactTrack = this.pendingTrack && fields.profile === "field-journal" && fields.locationPrivacy === "exact" ? this.pendingTrack : null;
     const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind, ...(exactTrack ? { trackToken: exactTrack.token, trackName: exactTrack.name } : {}), ...this.creditRequestFields(true) };
     try {
@@ -26199,10 +26217,13 @@ export class Editor {
     if (!confirm("Move this to the trash? It is removed from the site but kept in .openblog/trash.")) return;
     try {
       await this.app.api.call("DELETE", `document?path=${encodeURIComponent(this.doc.path)}`);
-      this.app.dirty = false;
       // The research workspace no longer offers a way back to a document in the trash.
       if (this.app.workspaceDraft?.hash === `#/edit/${encodeURIComponent(this.doc.path)}`) this.app.workspaceDraft = null;
-      location.hash = `#/${this.kind}`;
+      if (this.app.kept.get("draft")?.editor === this) this.app.discardKept("draft");
+      // She left this draft while it went. The page she is on has nothing to do with it.
+      if (this.app.editor !== this) return;
+      this.app.dirty = false;
+      if (this.app.stillOnOpenView()) location.hash = `#/${this.kind}`;
     } catch (err) {
       this.flash("error", err.message);
     }

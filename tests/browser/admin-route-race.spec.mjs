@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -59,16 +59,18 @@ let parent;
 let origin;
 let server;
 let postPath;
+let siteRoot;
 
 test.beforeAll(async () => {
   parent = mkdtempSync(join(tmpdir(), "openblog-route-race-"));
-  const root = join(parent, "site");
+  const root = (siteRoot = join(parent, "site"));
   execFileSync(binary, ["init", root, "--no-voice"], { stdio: "pipe" });
   execFileSync(binary, ["user", "add", "writer", "--root", root], {
     env: { ...process.env, OPENBLOG_PASSWORD: password },
     stdio: "pipe",
   });
   writeFileSync(join(root, "content", "posts", "garden.md"), "---\ntitle: Garden notes\ndate: 2026-10-04\n---\nWords.\n");
+  writeFileSync(join(root, "content", "posts", "walnut.md"), "---\ntitle: Walnut notes\ndate: 2026-10-05\n---\nWords.\n");
   const listener = createServer();
   listener.listen(0, "127.0.0.1");
   await once(listener, "listening");
@@ -501,6 +503,348 @@ test("a save that finishes while the next page loads leaves the address alone", 
   release();
   await expect.poll(() => adminState(page)).toMatchObject({ editor: false, unsaved: false, hash: "#/posts" });
   await expect(page).toHaveURL(/#\/posts$/);
+});
+
+/**
+ * Hold the requests that match until `release`, then let them through or give them `answer`.
+ * `release` returns once they are answered and what they woke has had every chance to draw.
+ */
+async function holdRequests(page, pattern, { method, answer } = {}) {
+  const requests = [];
+  let seen;
+  const asked = new Promise((done) => { seen = done; });
+  let open;
+  const released = new Promise((done) => { open = done; });
+  await page.route(pattern, async (route) => {
+    if (method && route.request().method() !== method) return route.fallback();
+    requests.push(route.request());
+    seen();
+    await released;
+    await (answer ? route.fulfill(answer) : route.continue()).catch(() => {});
+  });
+  return {
+    asked,
+    async release() {
+      open();
+      await Promise.all(requests.map((request) => request.response().catch(() => {})));
+      await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
+    },
+  };
+}
+
+const holdNextPage = (page) => holdRequests(page, "**/admin/api/documents**");
+const openRoute = (page) => page.evaluate(() => document.querySelector("ob-admin").activeRoute);
+
+/** Open a post of its own and ask to trash it, with the delete held. */
+async function startHeldTrash(page, name) {
+  writeFileSync(join(siteRoot, "content", "posts", `${name}.md`), `---\ntitle: ${name}\ndate: 2026-10-04\n---\nWords.\n`);
+  const path = await page.evaluate(async (title) => {
+    const list = await (await fetch("/admin/api/documents?kind=posts")).json();
+    return list.items.find((item) => item.title === title).path;
+  }, name);
+  await moveTo(page, `#/edit/${encodeURIComponent(path)}`);
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue(name);
+  const trash = await holdRequests(page, "**/admin/api/document?path=*", { method: "DELETE" });
+  page.once("dialog", (dialog) => dialog.accept());
+  // What the Move to trash button calls; the button itself sits in a pane that may be closed.
+  await page.evaluate(() => { document.querySelector("ob-admin").editor.remove(); });
+  await trash.asked;
+  return trash;
+}
+
+test("a draft that reaches the trash after she left does not touch the new draft she started", async ({ page }) => {
+  await signIn(page);
+  const trash = await startHeldTrash(page, "trash-then-draft");
+  await typeNewDraft(page, "Soup for Thursday");
+  await tagPage(page);
+  await trash.release();
+  await expect(tagged(page)).toHaveCount(1);
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Soup for Thursday");
+  expect(await adminState(page)).toEqual({ editor: true, unsaved: true, view: true, kept: [], hash: "#/new/posts" });
+  await expect(page).toHaveURL(/#\/new\/posts$/);
+});
+
+test("a draft that reaches the trash after she left does not pull her off the page she moved to", async ({ page }) => {
+  await signIn(page);
+  const trash = await startHeldTrash(page, "trash-then-social");
+  await moveTo(page, "#/social");
+  await expect(socialHeading(page)).toBeVisible();
+  await tagPage(page);
+  await trash.release();
+  await expectStillOnSocial(page);
+});
+
+test("a kept draft that reaches the trash is no longer kept, and she stays on the panel she opened", async ({ page }) => {
+  await signIn(page);
+  const trash = await startHeldTrash(page, "trash-while-kept");
+  await page.getByLabel("Title", { exact: true }).fill("trash-while-kept, edited");
+  await expect.poll(() => adminState(page).then((state) => state.view)).toBe(true);
+  await moveTo(page, "#/research/notebook");
+  await expect(page.locator("#oba-page-heading")).toHaveText("Research notebook");
+  expect((await adminState(page)).kept).toEqual(["draft"]);
+  await tagPage(page);
+  await trash.release();
+  await expect(tagged(page)).toHaveCount(1);
+  await expect(page).toHaveURL(/#\/research\/notebook$/);
+  expect(await adminState(page)).toMatchObject({ unsaved: false, kept: [] });
+  expect(await page.evaluate(() => document.querySelector("ob-admin").workspaceDraft)).toBeNull();
+});
+
+test("a draft that reaches the trash while the next page loads leaves the address on that page", async ({ page }) => {
+  await signIn(page);
+  const trash = await startHeldTrash(page, "trash-while-loading");
+  const list = await holdNextPage(page);
+  await moveTo(page, "#/pages");
+  await list.asked;
+  await trash.release();
+  await expect(page).toHaveURL(/#\/pages$/);
+  await list.release();
+  await expect.poll(() => openRoute(page)).toBe("pages");
+  await expect(page).toHaveURL(/#\/pages$/);
+});
+
+test("a draft that reaches the trash while she stays on it opens the list", async ({ page }) => {
+  await signIn(page);
+  const trash = await startHeldTrash(page, "trash-and-stay");
+  await trash.release();
+  await expect(page).toHaveURL(/#\/posts$/);
+  await expect.poll(() => openRoute(page)).toBe("posts");
+  expect(await adminState(page)).toMatchObject({ editor: false, unsaved: false, hash: "#/posts" });
+});
+
+const SIGNED_OUT = { status: 401, contentType: "application/json", body: '{"error":"Sign in again."}' };
+
+test("a session that ends on a page she left still keeps the draft she moved on to", async ({ page }) => {
+  await signIn(page);
+  const ended = await holdRequests(page, "**/admin/api/social/**", { answer: SIGNED_OUT });
+  await moveTo(page, "#/announcements");
+  await ended.asked;
+  await typeNewDraft(page, "Soup Saturday");
+  await ended.release();
+  const username = page.getByLabel("Username", { exact: true });
+  await expect(username).toBeVisible();
+  expect(await adminState(page)).toMatchObject({ editor: false, kept: ["draft"] });
+
+  await username.fill("writer");
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Soup Saturday");
+  expect(await adminState(page)).toEqual({ editor: true, unsaved: true, view: true, kept: [], hash: "#/new/posts" });
+});
+
+test("a second page learning the session ended does not redraw the sign-in form she is filling in", async ({ page }) => {
+  await signIn(page);
+  const first = await holdRequests(page, "**/admin/api/social/**", { answer: SIGNED_OUT });
+  await moveTo(page, "#/announcements");
+  await first.asked;
+  const second = await holdRequests(page, "**/admin/api/documents?kind=services", { answer: SIGNED_OUT });
+  await moveTo(page, "#/services");
+  await second.asked;
+  await typeNewDraft(page, "Soup Sunday");
+  await first.release();
+  const username = page.getByLabel("Username", { exact: true });
+  await username.fill("writer");
+  await second.release();
+  await expect(username).toHaveValue("writer");
+  expect((await adminState(page)).kept).toEqual(["draft"]);
+});
+
+test("a session that ends while the next page loads does not keep a draft she agreed to leave", async ({ page }) => {
+  await signIn(page);
+  await typeNewDraft(page, "Soup given up");
+  answerQuestions(page, { accept: true });
+  const ended = await holdRequests(page, "**/admin/api/documents**", { answer: SIGNED_OUT });
+  await moveTo(page, "#/posts");
+  await ended.asked;
+  await ended.release();
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  expect(await adminState(page)).toMatchObject({ unsaved: false, kept: [] });
+  await expect(page.locator("[data-login-kept]")).toHaveCount(0);
+});
+
+/** The other things with a first save and a delete of their own, from a new form or a stored file. */
+const OWN_EDITORS = {
+  "reading path": {
+    list: "#/paths",
+    request: "**/admin/api/reading-paths",
+    save: "Save reading path",
+    newHash: "#/paths/new",
+    async fill(page, slug) {
+      await page.getByLabel("Title (required)").fill("A first tour");
+      await page.getByLabel("Address name").fill(slug);
+      const picker = page.getByLabel("Post or atlas entry", { exact: true });
+      for (const label of (await picker.locator("option").allTextContents()).filter((text) => /Garden notes|Walnut notes/.test(text))) {
+        await picker.selectOption({ label });
+        await page.getByRole("button", { name: "Add step", exact: true }).click();
+      }
+      await page.locator("#oba-paths-step-1-relationship").selectOption("builds-on");
+      for (const why of await page.locator("textarea:visible").all()) {
+        if (!(await why.inputValue())) await why.fill("It continues the thread.");
+      }
+    },
+    /** Store one, and return its address. */
+    store(slug) {
+      mkdirSync(join(siteRoot, "content", "paths"), { recursive: true });
+      const steps = [
+        { id: "a", target: { kind: "post", slug: "garden" }, transition: { relationship: "next", why: "x" } },
+        { id: "b", target: { kind: "post", slug: "walnut" } },
+      ];
+      writeFileSync(join(siteRoot, "content", "paths", `${slug}.json`), JSON.stringify({ format: "openblog-reading-path", version: 1, title: "Tour", description: "d", steps }, null, 2));
+      return `#/paths/edit/${slug}`;
+    },
+  },
+  comparison: {
+    list: "#/comparisons",
+    request: "**/admin/api/comparisons",
+    save: "Save comparison",
+    newHash: "#/comparisons/new",
+    async fill(page, slug) {
+      await page.getByLabel("Title (required)", { exact: true }).fill("The cave");
+      await page.getByLabel("Address name", { exact: true }).fill(slug);
+      await page.getByLabel("What the readings are about, in neutral words (required)").fill("Readings of the cave image");
+      for (const [index, name] of ["A political reading", "An epistemic reading"].entries()) {
+        await page.getByRole("button", { name: "Add an interpretation", exact: true }).click();
+        const card = page.locator(".oba-cmp-items > ol").first().locator("> li").nth(index);
+        await card.getByLabel("Name (required)").fill(name);
+        await card.getByLabel("What this reading holds, in your words (required)").fill(`${name} holds something.`);
+      }
+    },
+    store(slug) {
+      mkdirSync(join(siteRoot, "content", "comparisons"), { recursive: true });
+      const interpretations = ["one", "two"].map((id) => ({ id, attribution: { kind: "named", name: id }, statement: `${id} holds something.` }));
+      writeFileSync(join(siteRoot, "content", "comparisons", `${slug}.json`), JSON.stringify({ format: "openblog-interpretation-comparison", version: 1, title: "Cave", subject: "Readings", interpretations }, null, 2));
+      return `#/comparisons/edit/${slug}`;
+    },
+  },
+};
+
+async function openOwnEditor(page, hash) {
+  await moveTo(page, hash);
+  await expect(page.locator('[data-action="save"]')).toBeVisible();
+}
+
+for (const [name, kind] of Object.entries(OWN_EDITORS)) {
+  const slug = name.replace(" ", "-");
+
+  test(`a first save of a ${name} that finishes while the next page loads leaves the address alone`, async ({ page }) => {
+    await signIn(page);
+    await openOwnEditor(page, kind.newHash);
+    await kind.fill(page, `first-${slug}`);
+    const saved = await holdRequests(page, kind.request, { method: "POST" });
+    await page.getByRole("button", { name: kind.save, exact: true }).click();
+    await saved.asked;
+    const list = await holdNextPage(page);
+    answerQuestions(page, { accept: true });
+    await moveTo(page, "#/posts");
+    await list.asked;
+    await saved.release();
+    await expect(page).toHaveURL(/#\/posts$/);
+    await list.release();
+    await expect.poll(() => openRoute(page)).toBe("posts");
+    await expect(page).toHaveURL(/#\/posts$/);
+    expect((await adminState(page)).hash).toBe("#/posts");
+  });
+
+  test(`a ${name} that reaches the trash after she left does not pull her off the page she moved to`, async ({ page }) => {
+    await signIn(page);
+    await openOwnEditor(page, kind.store(`gone-${slug}`));
+    const trash = await holdRequests(page, `${kind.request}?slug=*`, { method: "DELETE" });
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator('[data-action="delete"]').click();
+    await trash.asked;
+    await moveTo(page, "#/social");
+    await expect(socialHeading(page)).toBeVisible();
+    await tagPage(page);
+    await trash.release();
+    await expectStillOnSocial(page);
+  });
+
+  test(`a ${name} that reaches the trash while the next page loads leaves the address on that page`, async ({ page }) => {
+    await signIn(page);
+    await openOwnEditor(page, kind.store(`going-${slug}`));
+    const trash = await holdRequests(page, `${kind.request}?slug=*`, { method: "DELETE" });
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator('[data-action="delete"]').click();
+    await trash.asked;
+    const list = await holdNextPage(page);
+    await moveTo(page, "#/posts");
+    await list.asked;
+    await trash.release();
+    await expect(page).toHaveURL(/#\/posts$/);
+    await list.release();
+    await expect.poll(() => openRoute(page)).toBe("posts");
+  });
+
+  test(`a ${name} that reaches the trash while she stays on it opens the list`, async ({ page }) => {
+    await signIn(page);
+    await openOwnEditor(page, kind.store(`stay-${slug}`));
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator('[data-action="delete"]').click();
+    await expect(page).toHaveURL(new RegExp(`${kind.list}$`));
+  });
+}
+
+async function fillService(page, title) {
+  await moveTo(page, "#/services/new");
+  await page.getByLabel("Name", { exact: true }).fill(title);
+  await page.getByLabel("Summary", { exact: true }).fill("Solid oak or maple floors, nailed and finished on site.");
+}
+
+test("a first save of a service that finishes while the next page loads leaves the address alone", async ({ page }) => {
+  await signIn(page);
+  await fillService(page, "Hardwood installation");
+  const saved = await holdRequests(page, "**/admin/api/document", { method: "POST" });
+  await page.getByRole("button", { name: "Save service" }).click();
+  await saved.asked;
+  const list = await holdNextPage(page);
+  answerQuestions(page, { accept: true });
+  await moveTo(page, "#/posts");
+  await list.asked;
+  await saved.release();
+  await expect(page).toHaveURL(/#\/posts$/);
+  await list.release();
+  await expect.poll(() => openRoute(page)).toBe("posts");
+  await expect(page).toHaveURL(/#\/posts$/);
+  expect((await adminState(page)).hash).toBe("#/posts");
+});
+
+test("a first save of a service while she stays takes its address, and a delete while the next page loads does not", async ({ page }) => {
+  await signIn(page);
+  await fillService(page, "Tile repair");
+  await page.getByRole("button", { name: "Save service" }).click();
+  await expect(page).toHaveURL(/#\/services\/edit\//);
+  await expect.poll(() => adminState(page).then((state) => state.hash)).toMatch(/^#\/services\/edit\//);
+
+  await page.locator('[data-action="service-delete"]').click();
+  const trash = await holdRequests(page, "**/admin/api/document?path=*", { method: "DELETE" });
+  await page.locator('[data-action="service-delete-yes"]').click();
+  await trash.asked;
+  const list = await holdNextPage(page);
+  await moveTo(page, "#/posts");
+  await list.asked;
+  await trash.release();
+  await expect(page).toHaveURL(/#\/posts$/);
+  await list.release();
+  await expect.poll(() => openRoute(page)).toBe("posts");
+  await expect(page).toHaveURL(/#\/posts$/);
+});
+
+test("a save she starts while the next page loads leaves the address on that page", async ({ page }) => {
+  await signIn(page);
+  await typeNewDraft(page, "Soup Friday");
+  const list = await holdNextPage(page);
+  answerQuestions(page, { accept: true });
+  await moveTo(page, "#/posts");
+  await list.asked;
+  const saved = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/admin/api/document"));
+  await page.keyboard.press("Control+s");
+  await saved;
+  await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
+  await expect(page).toHaveURL(/#\/posts$/);
+  await list.release();
+  await expect.poll(() => openRoute(page)).toBe("posts");
+  await expect(page).toHaveURL(/#\/posts$/);
+  expect(await adminState(page)).toMatchObject({ editor: false, hash: "#/posts" });
 });
 
 test("a rebuild that finishes after she moved on does not bring the list back", async ({ page }) => {
