@@ -198,7 +198,7 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
 /// What Admin says when a site that does not keep its files has no remote (ADR 0353).
 /// The server that resets its files is the one visitors see, so what she saved already shows: the
 /// trouble is that it is not kept, not that it is not out.
-pub const NOWHERE_TO_PUBLISH: &str = "This site has nowhere to send your changes to be kept yet. Ask whoever set up this site to connect it to the place your site is kept. Until then, what you saved already shows on your site, apart from drafts, but it stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose.";
+pub const NOWHERE_TO_PUBLISH: &str = "This site has nowhere to send your changes to be kept yet. Ask whoever set up this site to connect it to the place your site is kept. Until then, what you saved already shows on your site, apart from drafts and posts scheduled for later, but it stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose.";
 
 /// A failed push as Admin tells it to the owner (ADR 0353). `detail` is the
 /// technical text, for whoever helps her.
@@ -241,7 +241,7 @@ pub fn failure_for_owner(error: &str, files_may_vanish: bool) -> Option<OwnerFai
         "Your changes could not be sent to the place your site is kept. Try again in a little while, and if it keeps happening, tell whoever set up this site."
     };
     let work = if files_may_vanish {
-        "What you saved already shows on your site, apart from drafts, but it is not kept: until this works, it stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose."
+        "What you saved already shows on your site, apart from drafts and posts scheduled for later, but it is not kept: until this works, it stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose."
     } else {
         "Your saved work is still here, so you can publish again once this is sorted out."
     };
@@ -463,6 +463,24 @@ mod tests {
         assert!(!NOWHERE_TO_PUBLISH.contains("not published"));
         assert!(NOWHERE_TO_PUBLISH.contains("already shows on your site"));
         assert!(NOWHERE_TO_PUBLISH.contains("can vanish when it restarts"));
+    }
+
+    #[test]
+    fn saying_her_work_already_shows_leaves_out_posts_scheduled_for_later() {
+        // A post dated in the future is saved but does not show until its date, so "already
+        // shows" must name it alongside drafts.
+        let refused = failure_for_owner(
+            "git push failed: fatal: Authentication failed for 'https://github.com/me/blog.git/'",
+            true,
+        )
+        .unwrap()
+        .message;
+        for message in [refused.as_str(), NOWHERE_TO_PUBLISH] {
+            assert!(
+                message.contains("apart from drafts and posts scheduled for later"),
+                "{message}"
+            );
+        }
     }
 
     #[test]

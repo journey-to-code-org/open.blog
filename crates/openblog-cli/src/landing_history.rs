@@ -23,7 +23,7 @@ pub const HISTORY_FORMAT: &str = "openblog-landing-history";
 pub const HISTORY_VERSION: u64 = 1;
 /// How many previous versions are kept.
 pub const MAX_VERSIONS: usize = 20;
-const DIRECTORY: &str = ".openblog/private/landing-history";
+pub(crate) const DIRECTORY: &str = ".openblog/private/landing-history";
 /// A history file is a page plus a few short fields.
 const MAX_ENTRY_BYTES: usize = MAX_FILE_BYTES * 2 + 4096;
 

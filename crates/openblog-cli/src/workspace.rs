@@ -28,6 +28,9 @@ const ALIGNMENTS_PATH: &str = ".openblog/private/research/alignments.json";
 const SELECTIONS_PATH: &str = openblog_core::curated_selection::SELECTIONS_FILE;
 /// The private review acknowledgements (ADR 0124), up to their own limit.
 const ACKNOWLEDGEMENTS_PATH: &str = crate::research_review::ACKNOWLEDGEMENTS_FILE;
+/// The Landing page and its previous versions (ADR 0264) are kept like posts.
+const LANDING_FILE: &str = openblog_core::landing::LANDING_FILE;
+const LANDING_HISTORY_PATH: &str = crate::landing_history::DIRECTORY;
 const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
@@ -285,12 +288,14 @@ impl Policy {
             format!("{}/pages", self.content),
             format!("{}/series", self.content),
             format!("{}/services", self.content),
+            format!("{}/{LANDING_FILE}", self.content),
             format!("{}/images/uploads", self.static_dir),
             format!("{}/tracks/uploads", self.static_dir),
             "assistant/skills".into(),
             "assistant/context".into(),
             ".openblog/private/context".into(),
             ".openblog/private/admin-preferences".into(),
+            LANDING_HISTORY_PATH.into(),
             LIBRARY_PATH.into(),
             NOTEBOOK_PATH.into(),
             ATLAS_PATH.into(),
@@ -323,6 +328,9 @@ impl Policy {
             return true;
         }
         if let Some(relative) = path.strip_prefix(&format!("{}/", self.content)) {
+            if relative == LANDING_FILE {
+                return true;
+            }
             return ["posts/", "pages/", "series/", "services/"]
                 .iter()
                 .any(|prefix| {
@@ -351,6 +359,19 @@ impl Policy {
             path.strip_suffix(suffix).is_some_and(|token| {
                 token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit())
             })
+        }
+        if let Some(relative) = path.strip_prefix(&format!("{LANDING_HISTORY_PATH}/")) {
+            // A kept version (`0000000001.json`) or the kept bytes of an unreadable page
+            // (`raw-<revision>.bak`), never a temporary file or a subfolder.
+            if let Some(id) = relative.strip_suffix(".json") {
+                return id.len() == 10 && id.bytes().all(|b| b.is_ascii_digit());
+            }
+            return relative
+                .strip_prefix("raw-")
+                .and_then(|rest| rest.strip_suffix(".bak"))
+                .is_some_and(|revision| {
+                    revision.len() <= 64 && revision.bytes().all(|b| b.is_ascii_alphanumeric())
+                });
         }
         if let Some(relative) = path.strip_prefix(".openblog/private/admin-preferences/") {
             return token_file(relative, ".json");
@@ -1404,6 +1425,65 @@ mod tests {
         ] {
             assert!(policy.allowed(path), "{path}");
         }
+    }
+
+    #[test]
+    fn the_landing_page_and_its_history_are_kept_and_come_back() {
+        let policy = policy();
+        for path in [
+            "content/landing.json",
+            ".openblog/private/landing-history/0000000001.json",
+            ".openblog/private/landing-history/raw-abc123.bak",
+        ] {
+            assert!(policy.allowed(path), "{path}");
+        }
+        for path in [
+            "content/landing.json.tmp",
+            "content/other.json",
+            ".openblog/private/landing-history/.0000000001.json.7.tmp",
+            ".openblog/private/landing-history/1.json",
+            ".openblog/private/landing-history/notes.txt",
+            ".openblog/private/landing-history/raw-a.b.bak",
+            ".openblog/private/landing-history/sub/0000000001.json",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let history = fixture.0.join(".openblog/private/landing-history");
+        fs::create_dir_all(&history).unwrap();
+        fs::write(fixture.0.join("content/landing.json"), "{\"saved\":1}").unwrap();
+        fs::write(history.join("0000000001.json"), "{\"kept\":1}").unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files["content/landing.json"], b"{\"saved\":1}");
+        assert_eq!(
+            files[".openblog/private/landing-history/0000000001.json"],
+            b"{\"kept\":1}"
+        );
+        let mut workspace =
+            fixture.workspace(backend("http://127.0.0.1:1".into()), Manifest::new());
+        for (path, text) in &files {
+            workspace.manifest.insert(
+                path.clone(),
+                Entry {
+                    base: workspace.base.get(path).cloned(),
+                    value: Some(Record::Text {
+                        text: String::from_utf8(text.clone()).unwrap(),
+                    }),
+                },
+            );
+        }
+        // A restart brings back only what the image holds.
+        fs::remove_file(fixture.0.join("content/landing.json")).unwrap();
+        fs::remove_dir_all(&history).unwrap();
+        workspace.restore(&fixture.0).unwrap();
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("content/landing.json")).unwrap(),
+            "{\"saved\":1}"
+        );
+        assert_eq!(
+            fs::read_to_string(history.join("0000000001.json")).unwrap(),
+            "{\"kept\":1}"
+        );
     }
 
     #[test]

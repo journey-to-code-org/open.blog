@@ -212,11 +212,12 @@ create.
    repository changes alone do not configure the live service.
 
 **What is stored.** UTF-8 database text records hold Markdown posts/pages/series,
-credit sidecars, `openblog.json`, `.gitignore`, project Assistant skills and portable/private
+credit sidecars, the Landing page (`content/landing.json`) and its previous versions
+(`.openblog/private/landing-history/`), `openblog.json`, `.gitignore`, project Assistant skills and portable/private
 context/references, per-login presentation preferences, and typed editor trash. Images,
 GPX uploads, and pending GPX data use content-addressed objects in the private bucket.
-Only the explicitly selected `.openblog/private/context/` and
-`.openblog/private/admin-preferences/` directories, plus the single research source library
+Only the explicitly selected `.openblog/private/context/`,
+`.openblog/private/landing-history/` and `.openblog/private/admin-preferences/` directories, plus the single research source library
 file `.openblog/private/research/sources.json` (up to 4 MiB), participate. Auth users/password hashes,
 sessions, analytics, provider/moderation/API keys, Git configuration/credentials, arbitrary
 `.openblog/private/`, themes, generated output, and other files are **never** backed up.

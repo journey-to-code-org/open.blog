@@ -54,6 +54,13 @@ Three claims in the file and the docs were also wrong:
   save has already rebuilt it, so what she saved is out there and only keeping it failed. On that setup
   she is told it already shows but is not kept. Elsewhere the words say only that it could not be sent. Reading git's messages is brittle, but a message it
   does not recognise only gets the general wording, which is still true. Other refusals keep their words.
+- **"Already shows" names what does not.** Drafts and posts scheduled for later are saved but not on the
+  site yet, so the words say "apart from drafts and posts scheduled for later".
+- **The workspace keeps the Landing page.** A workspace that is on hides the notice, so everything Admin
+  saves and calls kept must be in it. `content/landing.json` and its previous versions under
+  `.openblog/private/landing-history/` (only `NNNNNNNNNN.json` and `raw-<revision>.bak` files) join the
+  allow-list. This adds paths to the stored list without changing its format, the same way the research
+  files were added; a manifest that holds them is refused by an older release on restore, as those were.
 - **What she has to read goes where she is looking.** Publish on the Landing page and Customize look sits in
   the bar at the bottom of a phone screen, and the status box does not, so a refused Publish scrolls that box
   to the top. A save does not scroll, since she may be midway through editing: the line in the bar under Save
