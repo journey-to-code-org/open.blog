@@ -6828,3 +6828,57 @@ ob-voice-library {
   padding-left: 1.25rem;
   overflow-wrap: anywhere;
 }
+
+/* The Reminders screen (ADR 0356): designed at 400px first. One column, 44px targets, everything wraps. */
+.oba-seasonal {
+  display: grid;
+  gap: 1rem;
+  max-width: 40rem;
+  min-width: 0;
+}
+.oba-seasonal-body,
+.oba-seasonal-list {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.oba-seasonal-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.oba-seasonal-card,
+.oba-seasonal-topic {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  overflow-wrap: anywhere;
+}
+.oba-seasonal h2,
+.oba-seasonal h3 {
+  margin: 0;
+}
+.oba-seasonal-actions,
+.oba-seasonal-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.oba-seasonal-dates .oba-field {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+.oba-seasonal .oba-btn,
+.oba-seasonal input[type="text"] {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+.oba-seasonal input[type="text"] {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+}

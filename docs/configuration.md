@@ -176,6 +176,12 @@ Where it appears:
 The stored object is versioned: a newer version is refused with a message and never rewritten, and fields this
 release does not know are kept when Admin saves.
 
+### Seasonal prompts
+
+`seasonalPrompts` turns on seasonal reminders and holds your changes to the bundled topics for your trade:
+`{ "version": 1, "enabled": true, "topics": [ { "id", "disabled", "start", "end", "topic", "prompt" } ] }`.
+Off and not written back unless stated. See [Seasonal reminders](seasonal-reminders.md).
+
 ## Share, analytics, related posts, snippets, CDN
 
 These are described in [Sharing, views, analytics, and embeds](features.md).
