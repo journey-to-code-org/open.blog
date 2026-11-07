@@ -59,6 +59,7 @@ import {
   FILES_MAY_VANISH_SHORT,
   FILES_MAY_VANISH_TITLE,
   glossaryFor,
+  notSentYet,
   savedLine,
   savedMessage,
   tourBodyFor,
@@ -12172,7 +12173,7 @@ export class ObAdmin extends AdminElement {
     const pending = st.changed.length;
     const drafts = st.drafts.length;
     const summary = [
-      pending ? `${pending} unpublished change${pending === 1 ? "" : "s"}` : st.ahead ? "Some changes are not live yet" : "Everything published",
+      pending ? `${pending} unpublished change${pending === 1 ? "" : "s"}` : st.ahead ? notSentYet(this.filesMayVanish) : "Everything published",
       drafts ? `${drafts} draft${drafts === 1 ? "" : "s"} not published` : null,
       st.behind ? `${st.behind} new elsewhere` : null,
     ].filter(Boolean).join(" · ");

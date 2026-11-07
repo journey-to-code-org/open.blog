@@ -7,6 +7,7 @@ import {
   FILES_MAY_VANISH_BODY,
   FILES_MAY_VANISH_SHORT,
   glossaryFor,
+  notSentYet,
   savedLine,
   savedMessage,
   tourBodyFor,
@@ -119,4 +120,13 @@ test("the deploy guide names what to create and does not claim a live test", () 
     assert.ok(section.includes(name), name);
   }
   assert.match(section, /No one has\s+run this setup against a live Render service/);
+});
+
+test("the header never says changes Publish has not sent are not live, since on this setup they are", () => {
+  for (const filesMayVanish of [true, false]) {
+    assert.doesNotMatch(notSentYet(filesMayVanish), /live|published/i);
+    assert.doesNotMatch(notSentYet(filesMayVanish), /commit|push/i);
+  }
+  assert.match(notSentYet(true), /not kept/);
+  assert.match(admin, /st\.ahead \? notSentYet\(this\.filesMayVanish\)/);
 });

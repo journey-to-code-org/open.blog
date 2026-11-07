@@ -25832,7 +25832,7 @@ What I read:
         assert!(body_json(&answer)["error"]
             .as_str()
             .unwrap()
-            .contains("nowhere to publish"));
+            .contains("nowhere to send your changes"));
         assert!(git.run(&["log", "-1"]).is_err(), "nothing was committed");
     }
 

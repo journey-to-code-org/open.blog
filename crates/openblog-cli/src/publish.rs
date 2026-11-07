@@ -196,7 +196,9 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
 }
 
 /// What Admin says when a site that does not keep its files has no remote (ADR 0353).
-pub const NOWHERE_TO_PUBLISH: &str = "This site has nowhere to publish to yet, so your changes were not published. Ask whoever set up this site to connect it to the place your site is kept. Until then your saved work stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose.";
+/// The server that resets its files is the one visitors see, so what she saved already shows: the
+/// trouble is that it is not kept, not that it is not out.
+pub const NOWHERE_TO_PUBLISH: &str = "This site has nowhere to send your changes to be kept yet. Ask whoever set up this site to connect it to the place your site is kept. Until then, what you saved already shows on your site, apart from drafts, but it stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose.";
 
 /// A failed push as Admin tells it to the owner (ADR 0353). `detail` is the
 /// technical text, for whoever helps her.
@@ -234,12 +236,12 @@ pub fn failure_for_owner(error: &str, files_may_vanish: bool) -> Option<OwnerFai
     let lower = error.to_lowercase();
     let no_permission = NO_PERMISSION.iter().any(|sign| lower.contains(sign));
     let what = if no_permission {
-        "This site does not have permission yet to send your changes to the place your site is kept, so they were not published. This is a setup step, not something you did wrong: ask whoever set up this site to give it permission."
+        "This site does not have permission yet to send your changes to the place your site is kept. This is a setup step, not something you did wrong: ask whoever set up this site to give it permission."
     } else {
-        "Your changes could not be sent to the place your site is kept, so they were not published. Try again in a little while, and if it keeps happening, tell whoever set up this site."
+        "Your changes could not be sent to the place your site is kept. Try again in a little while, and if it keeps happening, tell whoever set up this site."
     };
     let work = if files_may_vanish {
-        "Until it works, your saved work stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose."
+        "What you saved already shows on your site, apart from drafts, but it is not kept: until this works, it stays only on this server and can vanish when it restarts, so keep your own copy of anything you would hate to lose."
     } else {
         "Your saved work is still here, so you can publish again once this is sorted out."
     };
@@ -437,6 +439,30 @@ mod tests {
         let failure = failure_for_owner(said, true).unwrap();
         assert!(failure.message.contains("can vanish when it restarts"));
         assert!(!failure.message.contains("still here"));
+    }
+
+    #[test]
+    fn a_refused_push_never_says_her_saved_work_is_not_out() {
+        // Where the files do not last, the server is the one visitors see: what she saved already
+        // shows there. What failed is keeping it, and that is what she is told.
+        for said in [
+            "git push failed: fatal: Authentication failed for 'https://github.com/me/blog.git/'",
+            "git push failed: To origin\n ! [rejected] HEAD -> main (non-fast-forward)",
+        ] {
+            for files_may_vanish in [true, false] {
+                let message = failure_for_owner(said, files_may_vanish).unwrap().message;
+                assert!(!message.contains("not published"), "{message}");
+                assert!(!message.contains("not live"), "{message}");
+                assert_eq!(
+                    message.contains("already shows on your site"),
+                    files_may_vanish,
+                    "{message}"
+                );
+            }
+        }
+        assert!(!NOWHERE_TO_PUBLISH.contains("not published"));
+        assert!(NOWHERE_TO_PUBLISH.contains("already shows on your site"));
+        assert!(NOWHERE_TO_PUBLISH.contains("can vanish when it restarts"));
     }
 
     #[test]

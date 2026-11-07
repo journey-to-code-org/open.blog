@@ -35,3 +35,11 @@ export function glossaryFor(glossary, filesMayVanish) {
 export function tourBodyFor(step, filesMayVanish) {
   return filesMayVanish && step.body.includes("Save keeps your changes") ? TOUR_LAST_STEP_FOR_NOW : step.body;
 }
+
+/**
+ * The header's words for changes Publish has not sent yet. Where the files do not last, this server is
+ * the one visitors see, so those changes already show: what they lack is being kept.
+ */
+export function notSentYet(filesMayVanish) {
+  return filesMayVanish ? "Some changes are not kept yet" : "Some changes are not sent yet";
+}

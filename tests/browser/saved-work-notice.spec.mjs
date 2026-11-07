@@ -278,17 +278,22 @@ for (const [route, status] of [["landing", "[data-landing-status]"], ["look", "[
 }
 
 for (const [name, origin] of [["a remote with no main branch yet", () => emptyRemote], ["a remote that has main", () => remoteWithMain]]) {
-  test(`after a refused Publish to ${name}, the header says it is not live, in plain words, after a reload`, async ({ page }) => {
+  test(`after a refused Publish to ${name}, the header says it is not kept, in plain words, after a reload`, async ({ page }) => {
     await signIn(page, origin());
     await page.goto(`${origin()}/admin/#/posts`);
     const box = page.locator(".oba-publish");
     await box.getByRole("button", { name: "Publish", exact: true }).click();
-    await expect(box.getByRole("alert")).toContainText("does not have permission");
+    const alert = box.getByRole("alert");
+    await expect(alert).toContainText("does not have permission");
+    // This server is the one visitors see, so the post is out there already: only keeping it failed.
+    expect((await fetch(`${origin()}/posts/soup/`)).status).toBe(200);
+    await expect(alert).toContainText("already shows on your site");
+    await expect(alert).not.toContainText(/not published|not live/);
     await page.reload();
     const button = box.getByRole("button", { name: "Publish", exact: true });
     await expect(button).toBeEnabled();
-    await expect(box).toContainText("not live yet");
-    await expect(box).not.toContainText("Everything published");
+    await expect(box).toContainText("Some changes are not kept yet");
+    await expect(box).not.toContainText(/not live|Everything published/);
     await expect(box).not.toContainText(/commit|push/i);
   });
 }

@@ -49,7 +49,10 @@ Three claims in the file and the docs were also wrong:
 - **A failed push is translated in Admin, and only there.** `publish()` keeps git's text for the command
   line and the logs. `failure_for_owner` reads that text for the signs of a missing or refused credential
   and writes what happened, what to do, and what it means for her work, which depends on `filesMayVanish`.
-  Any other push failure gets its own plain words. Reading git's messages is brittle, but a message it
+  Any other push failure gets its own plain words. Neither says her changes were not published or are
+  not live: where the files do not last, the server that refused to push is the one visitors see, and a
+  save has already rebuilt it, so what she saved is out there and only keeping it failed. On that setup
+  she is told it already shows but is not kept. Elsewhere the words say only that it could not be sent. Reading git's messages is brittle, but a message it
   does not recognise only gets the general wording, which is still true. Other refusals keep their words.
 - **What she has to read goes where she is looking.** Publish on the Landing page and Customize look sits in
   the bar at the bottom of a phone screen, and the status box does not, so a refused Publish scrolls that box
@@ -75,7 +78,7 @@ Three claims in the file and the docs were also wrong:
 - The analytics branch still cannot carry counts across a Render restart. The docs now say so; fixing it
   would need the container to fetch the branch and the store to read it, which is a separate decision.
 - A push that is rejected after a local commit still leaves that commit, and the header says some changes are
-  not live yet. Publish again retries it. With no remote-tracking ref, as on an empty remote or when the
+  not sent yet, or not kept yet where the files do not last. Publish again retries it. With no remote-tracking ref, as on an empty remote or when the
   remote cannot be read, git cannot say how far ahead the site is, and every commit of a shipped checkout
   looks unsent. So `publish` marks its first commit that has not gone out with `refs/openblog/first-unsent`,
   which is not pushed, and clears it after a push. The header counts from that mark only when there is no
