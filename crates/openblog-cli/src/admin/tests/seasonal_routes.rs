@@ -257,6 +257,45 @@ fn the_draft_a_reminder_opens_is_reachable_in_write_and_a_deleted_one_can_be_sta
     assert_eq!(listed(&f, &session, &key)["status"], "opened");
 }
 
+#[test]
+fn a_content_folder_written_with_a_trailing_slash_still_links_the_draft_in_write() {
+    let f = fixture("seasonal-content-slash");
+    let mut config: Json =
+        serde_json::from_str(&fs::read_to_string(config_path(&f)).unwrap()).unwrap();
+    config["paths"]["content"] = json!("content/");
+    fs::write(
+        config_path(&f),
+        serde_json::to_string_pretty(&config).unwrap(),
+    )
+    .unwrap();
+    let session = login_ok(&f);
+    let key = reminder_key(&turn_on(&f, &session));
+    let opened = body_json(&call(
+        &f,
+        &session,
+        "POST",
+        "/admin/api/seasonal/open",
+        json!({"key": key}),
+    ));
+    let path = opened["path"].as_str().unwrap();
+    assert!(!path.contains("//"), "{path}");
+    let document = opened["document"]
+        .as_str()
+        .expect("the draft has a Write link")
+        .to_string();
+    assert!(document.starts_with("posts/"), "{document}");
+    assert_eq!(listed(&f, &session, &key)["document"], document.as_str());
+    // A record stored before the fix, with the doubled slash, still finds its draft.
+    assert_eq!(
+        crate::seasonal_store::document_path("content/", "content//posts/x.md").as_deref(),
+        Some("posts/x.md")
+    );
+    assert_eq!(
+        crate::seasonal_store::document_path("content", "contents/posts/x.md"),
+        None
+    );
+}
+
 fn openblog_cli_posts(f: &Fixture) -> Vec<PathBuf> {
     fs::read_dir(f.dir.join("content/posts"))
         .map(|entries| {

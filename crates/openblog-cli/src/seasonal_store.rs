@@ -89,11 +89,14 @@ pub fn live_state(root: &Path) -> ReminderState {
 }
 
 /// The path the editor and the document API take for a draft stored at `relative` (a path from
-/// the project root such as `content/posts/x.md`): the same path without the content folder.
+/// the project root such as `content/posts/x.md`): the same path without the content folder. A
+/// content folder written with a trailing slash (`content/`) still matches, as does a record made
+/// before drafts were stored without the doubled slash.
 pub fn document_path(content: &str, relative: &str) -> Option<String> {
     relative
         .strip_prefix(content.trim_end_matches('/'))
-        .and_then(|rest| rest.strip_prefix('/'))
+        .filter(|rest| rest.starts_with('/'))
+        .map(|rest| rest.trim_start_matches('/'))
         .filter(|rest| rest.starts_with("posts/"))
         .map(str::to_string)
 }
@@ -153,7 +156,10 @@ pub fn open_draft(root: &Path, reminder: &Reminder, today: &str) -> Result<(Stri
             1 => format!("-{year}"),
             n => format!("-{year}-{n}"),
         };
-        let candidate = format!("{}/posts/{today}-{slug}{suffix}.md", config.paths.content);
+        let candidate = format!(
+            "{}/posts/{today}-{slug}{suffix}.md",
+            config.paths.content.trim_end_matches('/')
+        );
         let path = contained_target(root, Path::new(&candidate))?;
         if !path.exists() {
             relative = candidate;
