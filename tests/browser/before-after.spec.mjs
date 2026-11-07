@@ -114,8 +114,17 @@ for (const [name, size] of [["desktop", { width: 1280, height: 800 }], ["phone a
     expect(ring.style).not.toBe("none");
     expect(ring.width).toBeGreaterThanOrEqual(2);
 
-    const box = await page.locator(".ob-compare-stage").boundingBox();
-    const first = await page.locator(".ob-compare-stage > img").boundingBox();
+    // Focusing the control scrolls smoothly: measure once the page has stopped, and both boxes at the same moment.
+    const { box, first } = await page.evaluate(async () => {
+      const stage = document.querySelector(".ob-compare-stage");
+      let top = NaN;
+      while (stage.getBoundingClientRect().top !== top) {
+        top = stage.getBoundingClientRect().top;
+        await new Promise((done) => setTimeout(done, 100));
+      }
+      const plain = ({ x, y, width, height }) => ({ x, y, width, height });
+      return { box: plain(stage.getBoundingClientRect()), first: plain(stage.querySelector(":scope > img").getBoundingClientRect()) };
+    });
     expect(Math.abs(first.height - box.height)).toBeLessThan(1.5);
     expect(Math.abs(first.y - box.y)).toBeLessThan(1.5);
     expect(box.width).toBeGreaterThan(300 - 1);
