@@ -865,6 +865,158 @@ test("a rebuild that finishes after she moved on does not bring the list back", 
   await expectStillOnSocial(page);
 });
 
+// Views that draw at once and then load into what they drew. Capture belongs here too, but it only
+// waits on the server with a queued record to send, so holding answers does not hold it.
+for (const slow of ["#/announcements", "#/business", "#/services", "#/voice", "#/research/public"]) {
+  test(`${slow} is the open page from when it draws, not when it finishes loading`, async ({ page }) => {
+    await signIn(page);
+    await expect(socialHeading(page)).toBeVisible();
+    const answers = await holdAnswers(page);
+    await moveTo(page, slow);
+    await expect.poll(() => adminState(page).then((state) => state.hash)).toBe(slow);
+    await answers.release();
+  });
+}
+
+test("a page that loads first is not the open page until it draws", async ({ page }) => {
+  await signIn(page);
+  await expect(socialHeading(page)).toBeVisible();
+  const answers = await holdAnswers(page);
+  await moveTo(page, "#/posts");
+  await expect.poll(() => answers.held.length).toBeGreaterThan(0);
+  expect((await adminState(page)).hash).toBe("#/social");
+  await answers.release();
+  await expect.poll(() => adminState(page).then((state) => state.hash)).toBe("#/posts");
+});
+
+/** Open Announcements with what it loads held, and start a caption while it waits. */
+async function typeCaptionWhileLoading(page) {
+  await signIn(page);
+  await expect(socialHeading(page)).toBeVisible();
+  const loading = await holdRequests(page, /\/admin\/api\/social\/(destinations|posts|announcements)/);
+  await moveTo(page, "#/announcements");
+  await loading.asked;
+  const caption = page.locator("textarea").first();
+  await caption.fill("Soup night is on");
+  await expect.poll(() => adminState(page).then((state) => state.view)).toBe(true);
+  return { caption, loading };
+}
+
+test("going back from a page still loading asks about what she typed there", async ({ page }) => {
+  const { caption, loading } = await typeCaptionWhileLoading(page);
+  const asked = answerQuestions(page, { accept: false });
+  await page.evaluate(() => { location.hash = "#/social"; });
+  await expect.poll(() => asked.length).toBe(1);
+  await expect(page).toHaveURL(/#\/announcements$/);
+  await expect(caption).toHaveValue("Soup night is on");
+  await loading.release();
+  await expect(caption).toHaveValue("Soup night is on");
+});
+
+test("staying on a page still loading keeps its address, and she can still leave it", async ({ page }) => {
+  const { caption, loading } = await typeCaptionWhileLoading(page);
+  const answer = { accept: false };
+  const asked = answerQuestions(page, answer);
+  await page.evaluate(() => { location.hash = "#/posts"; });
+  await expect.poll(() => asked.length).toBe(1);
+  await expect(page).toHaveURL(/#\/announcements$/);
+  await expect(caption).toHaveValue("Soup night is on");
+  expect((await adminState(page)).hash).toBe("#/announcements");
+
+  await loading.release();
+  await expect(caption).toHaveValue("Soup night is on");
+  answer.accept = true;
+  await moveTo(page, "#/social");
+  await expect(socialHeading(page)).toBeVisible();
+  expect(asked).toHaveLength(2);
+});
+
+/** Views that draw first, with what they load held and then refused: Admin learns late that the session ended. */
+const REFUSED_LATE = {
+  "#/announcements": /\/admin\/api\/social\/(destinations|posts|announcements)/,
+  "#/research/public": "**/admin/api/research/boundary",
+};
+
+for (const [slow, requests] of Object.entries(REFUSED_LATE)) {
+  test(`a refusal from ${slow} from before she signed in again leaves her new session alone`, async ({ page, context }) => {
+    await signIn(page);
+    await expect(socialHeading(page)).toBeVisible();
+    const refused = await holdRequests(page, requests, { answer: SIGNED_OUT });
+    await moveTo(page, slow);
+    await refused.asked;
+    await context.clearCookies();
+    await moveTo(page, "#/overview");
+    const username = page.getByLabel("Username", { exact: true });
+    await username.fill("writer");
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.locator(".oba-overview-metrics")).toBeVisible();
+    await tagPage(page);
+
+    await refused.release();
+    await expect(tagged(page)).toHaveCount(1);
+    await expect(username).toHaveCount(0);
+    await expect(page.locator('[data-action="logout"]')).toBeVisible();
+  });
+
+  test(`a refusal from ${slow} does not redraw the sign-in form she is filling in`, async ({ page, context }) => {
+    await signIn(page);
+    await expect(socialHeading(page)).toBeVisible();
+    const refused = await holdRequests(page, requests, { answer: SIGNED_OUT });
+    await moveTo(page, slow);
+    await refused.asked;
+    await context.clearCookies();
+    await moveTo(page, "#/overview");
+    const username = page.getByLabel("Username", { exact: true });
+    await username.fill("writer");
+    await refused.release();
+    await expect(username).toHaveValue("writer");
+  });
+}
+
+const draftWayBack = (page) => page.evaluate(() => document.querySelector("ob-admin").workspaceDraft?.hash);
+
+test("a first save that finishes while the next page loads gives the way back the saved address", async ({ page }) => {
+  await signIn(page);
+  const finishSave = await startHeldSave(page, "Soup way back midway");
+  const notebook = await holdRequests(page, "**/admin/api/research/notebook");
+  answerQuestions(page, { accept: true });
+  await moveTo(page, "#/research/notebook");
+  await notebook.asked;
+  await finishSave();
+  await notebook.release();
+  await expect(page.locator("#oba-page-heading")).toHaveText("Research notebook");
+  expect(await draftWayBack(page)).toMatch(/^#\/edit\//);
+  await moveTo(page, await draftWayBack(page));
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Soup way back midway");
+});
+
+test("a first save that finishes after the next page drew gives the way back the saved address", async ({ page }) => {
+  await signIn(page);
+  const finishSave = await startHeldSave(page, "Soup way back late");
+  answerQuestions(page, { accept: true });
+  await moveTo(page, "#/research/notebook");
+  await expect(page.locator("#oba-page-heading")).toHaveText("Research notebook");
+  await finishSave();
+  expect(await draftWayBack(page)).toMatch(/^#\/edit\//);
+  await moveTo(page, await draftWayBack(page));
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Soup way back late");
+});
+
+test("a late first save leaves the way back to the newer draft she started alone", async ({ page }) => {
+  await signIn(page);
+  const finishSave = await startHeldSave(page, "Soup left behind");
+  answerQuestions(page, { accept: true });
+  await moveTo(page, "#/social");
+  await expect(socialHeading(page)).toBeVisible();
+  await typeNewDraft(page, "Soup started after");
+  await tagPage(page);
+  await finishSave();
+  await expect(tagged(page)).toHaveCount(1);
+  expect(await draftWayBack(page)).toBe("#/new/posts");
+  await expect(page).toHaveURL(/#\/new\/posts$/);
+});
+
 test("answering an invitation opens the shared list with what happened", async ({ page }) => {
   await signIn(page);
   await page.route("**/admin/api/contributors", (route) => route.fulfill({ json: { contributors: {}, etag: "x" } }));

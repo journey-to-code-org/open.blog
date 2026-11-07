@@ -9941,6 +9941,8 @@ class ApiError extends Error {
 
 class Api {
   csrf = "";
+  /** How many times she has signed in on this page; see `call`. */
+  signIns = 0;
 
   async call(method, path, { json, body, headers, signal } = {}) {
     const init = {
@@ -9954,7 +9956,11 @@ class Api {
       body: json !== undefined ? JSON.stringify(json) : body,
       signal,
     };
+    const signIn = this.signIns;
     const res = await fetch(`/admin/api/${path}`, init);
+    // Refused for the session it was sent under, and she has signed in since: this says nothing
+    // about the session she has now. It is a request that did not finish, as a lost connection is.
+    if (res.status === 401 && signIn !== this.signIns) throw new ApiError("This did not finish because you were signed out. Try again.");
     let data = null;
     try {
       data = await res.json();
@@ -11170,6 +11176,8 @@ export class ObAdmin extends AdminElement {
   workspaceMain = null;
   skipRoute = false;
   currentHash = "";
+  // The address of the page on its way; it is the open page once it mounts.
+  arrivingHash = "";
   preferences = normalizeAdminPreferences();
   preferencesSaved = normalizeAdminPreferences();
   preferencesEtag = "";
@@ -11421,6 +11429,12 @@ export class ObAdmin extends AdminElement {
     this.viewDirty = null;
     this.viewBusy = null;
     this.viewVersion = ++this.viewSerial;
+    // This is the page on screen from here on, even if it goes on loading into what it drew. The
+    // sign-in form is no page: signing in again reopens the address it took over from.
+    if (this.arrivingHash && !this.signedOut) {
+      this.currentHash = this.arrivingHash;
+      this.arrivingHash = "";
+    }
     this.replaceChildren(...nodes);
   }
 
@@ -11555,6 +11569,8 @@ export class ObAdmin extends AdminElement {
    * signed in. Signing in again as that user returns to them; anyone else discards them.
    */
   showSessionEnded(message = "Your session ended. Sign in again.") {
+    // Another page has already said so: she may be filling in the form.
+    if (this.signedOut) return;
     // Voice copies stay on this device: signing in again as the same author gives them back, and
     // signing in as anyone else removes them (see the sign-in form).
     const key = workspacePanelKey(this.currentHash);
@@ -11618,6 +11634,7 @@ export class ObAdmin extends AdminElement {
             clearVoiceCopies(undefined, { keepUser: res.user });
             // Nothing asked for before signing out may arrive now that the gate would open again.
             this.routeTurn += 1;
+            this.api.signIns += 1;
             this.signedOut = false;
             pass.value = "";
             await this.enter();
@@ -12185,12 +12202,11 @@ export class ObAdmin extends AdminElement {
     if (this.skipRoute) {
       this.skipRoute = false;
       this.currentHash = location.hash;
-      // A saved new document now has its own address; the workspace returns to that one.
-      if (this.editor && this.workspaceDraft) this.workspaceDraft.hash = location.hash;
       return;
     }
     // From here on she has asked for another page, or to stay: whatever was loading is not wanted.
     const turn = ++this.routeTurn;
+    this.arrivingHash = "";
     const requested = location.hash || "#/overview";
     const nextHash = canonicalAdminHash(requested);
     // Earlier research routes redirect without adding a history entry.
@@ -12229,6 +12245,7 @@ export class ObAdmin extends AdminElement {
       return;
     }
     const { head, tail, params } = parseAdminHash(nextHash);
+    this.arrivingHash = nextHash;
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && tail === "recipe") await this.showEditor(null, "posts", "recipe");
@@ -12262,8 +12279,7 @@ export class ObAdmin extends AdminElement {
           this.viewBusy = null;
           this.dirty = false;
         }
-        // Another page has already said so: she may be filling in the form.
-        if (!this.signedOut) this.showSessionEnded();
+        this.showSessionEnded();
       } else if (turn === this.routeTurn) this.showFatal(err);
     }
     // She moved on while this view loaded: the newer move owns the address and the focus.
@@ -26108,6 +26124,8 @@ export class Editor {
     const saveVersion = this.app.editVersion;
     // Where the draft on screen lives: she may already have asked for another page.
     const savedFrom = draftRoute(this.app.currentHash);
+    // The way back to this draft, which is a new one's by the time she opens another.
+    const workspaceDraft = this.app.workspaceDraft;
     const exactTrack = this.pendingTrack && fields.profile === "field-journal" && fields.locationPrivacy === "exact" ? this.pendingTrack : null;
     const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind, ...(exactTrack ? { trackToken: exactTrack.token, trackName: exactTrack.name } : {}), ...this.creditRequestFields(true) };
     try {
@@ -26136,6 +26154,9 @@ export class Editor {
       this.isNew = false;
       this.slugTouched = true;
       this.app.suggestionsStale = true;
+      const target = `#/edit/${encodeURIComponent(res.path)}`;
+      // A saved new document has its own address, and the workspace returns to that one, even if she has left.
+      if (workspaceDraft) workspaceDraft.hash = target;
       // She left this draft while it saved. It is saved, and the page she is on has nothing to do with it.
       if (this.disposed) return;
       const savedState = saveStateForVersions(saveVersion, this.app.editVersion);
@@ -26157,7 +26178,6 @@ export class Editor {
       // Update the address without re-rendering the editor. Only arm the skip flag
       // when the hash really changes; otherwise no event fires and the flag would
       // swallow the next genuine navigation. A page she has started moving to keeps the address.
-      const target = `#/edit/${encodeURIComponent(res.path)}`;
       if (location.hash !== target && draftRoute(location.hash) === savedFrom) {
         this.app.skipRoute = true;
         location.hash = target;
