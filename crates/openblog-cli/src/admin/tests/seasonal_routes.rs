@@ -192,6 +192,71 @@ fn opening_a_reminder_makes_one_unpublished_draft_and_publishes_nothing() {
     assert!(record.contains(&key) && !record.contains("first freeze"));
 }
 
+fn listed(f: &Fixture, session: &(String, String), key: &str) -> Json {
+    get(f, session)["reminders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == key)
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn the_draft_a_reminder_opens_is_reachable_in_write_and_a_deleted_one_can_be_started_again() {
+    let f = fixture("seasonal-write-link");
+    let session = login_ok(&f);
+    let key = reminder_key(&turn_on(&f, &session));
+    let open = |f: &Fixture| {
+        body_json(&call(
+            f,
+            &session,
+            "POST",
+            "/admin/api/seasonal/open",
+            json!({"key": key}),
+        ))
+    };
+    let opened = open(&f);
+    let document = opened["document"].as_str().unwrap().to_string();
+    assert!(document.starts_with("posts/"), "{document}");
+    assert_eq!(opened["path"], format!("content/{document}").as_str());
+    // The link the screen builds opens in Write: the document API takes this path.
+    let read = handle(
+        &f.state,
+        &authed(
+            req("GET", &format!("/admin/api/document?path={document}")),
+            &session,
+            false,
+        ),
+    );
+    assert_eq!(read.status, 200, "{}", String::from_utf8_lossy(&read.body));
+    assert_eq!(listed(&f, &session, &key)["document"], document.as_str());
+
+    // Deleting the draft in Admin brings the reminder back, so it can be started again.
+    let deleted = handle(
+        &f.state,
+        &authed(
+            req("DELETE", &format!("/admin/api/document?path={document}")),
+            &session,
+            true,
+        ),
+    );
+    assert_eq!(
+        deleted.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&deleted.body)
+    );
+    let item = listed(&f, &session, &key);
+    assert_eq!(item["status"], "due");
+    assert_eq!(item["draft"], Json::Null);
+    assert_eq!(item["document"], Json::Null);
+    let again = open(&f);
+    assert_eq!(again["created"], true);
+    assert!(f.dir.join(again["path"].as_str().unwrap()).is_file());
+    assert_eq!(listed(&f, &session, &key)["status"], "opened");
+}
+
 fn openblog_cli_posts(f: &Fixture) -> Vec<PathBuf> {
     fs::read_dir(f.dir.join("content/posts"))
         .map(|entries| {

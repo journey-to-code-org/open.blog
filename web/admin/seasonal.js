@@ -77,6 +77,12 @@ export function seasonalErrorText(error) {
 
 let uid = 0;
 
+/** The editor link for a draft the server named by its document path (`posts/...`), as every other
+ *  Admin screen links to Write. */
+export function editHref(document) {
+  return `#/edit/${encodeURIComponent(document)}`;
+}
+
 export function createSeasonalReminders({ api }) {
   const id = `oba-seasonal-${++uid}`;
   let data = null;
@@ -119,7 +125,7 @@ export function createSeasonalReminders({ api }) {
   const reminderCard = (reminder) => {
     const actions = [];
     if (reminder.status === "opened") {
-      actions.push(el("a", { class: "oba-btn", href: `#/edit/${encodeURIComponent(reminder.draft).replaceAll("%2F", "/")}`, "data-action": "seasonal-edit" }, "Open the draft"));
+      if (reminder.document) actions.push(el("a", { class: "oba-btn", href: editHref(reminder.document), "data-action": "seasonal-edit" }, "Open the draft"));
     } else {
       actions.push(
         el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "seasonal-open", onClick: () => run(() => openDraft(reminder)) }, "Start a draft"),
@@ -146,14 +152,14 @@ export function createSeasonalReminders({ api }) {
     if (slot) {
       slot.hidden = false;
       slot.replaceChildren(
-        el("a", { href: `#/edit/${encodeURIComponent(result.path).replaceAll("%2F", "/")}`, "data-action": "seasonal-write" }, "Open it in Write"),
+        result.document ? el("a", { href: editHref(result.document), "data-action": "seasonal-write" }, "Open it in Write") : null,
         result.voiceReady
           ? el("p", { class: "oba-help", "data-seasonal-voice": "true" }, "You have a voice guide or voice samples. In Write, open the Assistant and choose them as context if you want a first draft in your own voice. Nothing is sent until you ask.")
           : null,
       );
     }
     const found = data.reminders.find((item) => item.key === reminder.key);
-    if (found) Object.assign(found, { status: "opened", draft: result.path });
+    if (found) Object.assign(found, { status: "opened", draft: result.path, document: result.document });
   }
 
   async function snooze(reminder) {

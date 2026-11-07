@@ -31,6 +31,8 @@ const ACKNOWLEDGEMENTS_PATH: &str = crate::research_review::ACKNOWLEDGEMENTS_FIL
 /// The Landing page and its previous versions (ADR 0264) are kept like posts.
 const LANDING_FILE: &str = openblog_core::landing::LANDING_FILE;
 const LANDING_HISTORY_PATH: &str = crate::landing_history::DIRECTORY;
+/// What the owner snoozed and which reminder opened which draft (ADR 0355).
+const SEASONAL_PATH: &str = crate::seasonal_store::STATE_PATH;
 const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
@@ -303,6 +305,7 @@ impl Policy {
             ALIGNMENTS_PATH.into(),
             SELECTIONS_PATH.into(),
             ACKNOWLEDGEMENTS_PATH.into(),
+            SEASONAL_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -324,6 +327,7 @@ impl Policy {
                 | ALIGNMENTS_PATH
                 | SELECTIONS_PATH
                 | ACKNOWLEDGEMENTS_PATH
+                | SEASONAL_PATH
         ) {
             return true;
         }
@@ -1484,6 +1488,44 @@ mod tests {
             fs::read_to_string(history.join("0000000001.json")).unwrap(),
             "{\"kept\":1}"
         );
+    }
+
+    #[test]
+    fn seasonal_snoozes_and_opened_drafts_are_kept_and_come_back() {
+        let policy = policy();
+        assert!(policy.allowed(".openblog/private/seasonal.json"));
+        for path in [
+            ".openblog/private/seasonal.json.tmp",
+            ".openblog/private/seasonal.json/extra",
+            ".openblog/private/seasonal-other.json",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let state = fixture.0.join(".openblog/private/seasonal.json");
+        fs::create_dir_all(state.parent().unwrap()).unwrap();
+        let text = "{\"version\":1,\"snoozed\":{\"freeze-protection@2026-10-15\":\"2026-11-14\"},\"opened\":{}}
+";
+        fs::write(&state, text).unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[".openblog/private/seasonal.json"], text.as_bytes());
+        let mut workspace =
+            fixture.workspace(backend("http://127.0.0.1:1".into()), Manifest::new());
+        for (path, bytes) in &files {
+            workspace.manifest.insert(
+                path.clone(),
+                Entry {
+                    base: workspace.base.get(path).cloned(),
+                    value: Some(Record::Text {
+                        text: String::from_utf8(bytes.clone()).unwrap(),
+                    }),
+                },
+            );
+        }
+        // A restart brings back only what the image holds.
+        fs::remove_file(&state).unwrap();
+        workspace.restore(&fixture.0).unwrap();
+        assert_eq!(fs::read_to_string(&state).unwrap(), text);
     }
 
     #[test]

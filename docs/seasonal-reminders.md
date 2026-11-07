@@ -13,7 +13,8 @@ trade in [Business facts](configuration.md#business-facts); with no trade set yo
 (spring, summer, fall, winter). On the screen you can:
 
 - **Start a draft.** Makes one unpublished draft, titled with the topic and opening with the prompt, and links
-  you to the editor. Tapping again finds the same draft instead of making another.
+  you to the editor. Tapping again finds the same draft instead of making another. If you delete that draft,
+  the reminder comes back so you can start it again.
 - **Snooze a week.** Hides the reminder until that day; it comes back if its window is still open.
 - **Turn this topic off**, or **move its dates**, for any topic in the list.
 
@@ -26,7 +27,8 @@ A reminder is **due** while its window is open and **upcoming** for the 30 days 
 worked out from today's date each time you open the screen: nothing runs in the background, and nothing can fire
 while you are not looking ([ADR 0355](adr/0355-a-reminder-is-derived-from-the-date-and-a-private-record-and-opening-it-writes-one-unpublished-draft-that-nothing-can-publish.md)).
 What you snoozed or started is remembered in `.openblog/private/seasonal.json`, which holds no prose and is
-never built, exported or committed by `openblog init`'s ignore rules.
+never built, exported or committed by `openblog init`'s ignore rules. With the
+[durable workspace](deploy.md#durable-editorial-workspace-on-ephemeral-hosts) on, that file is kept with your posts, so a restart or deploy remembers it.
 
 ## The format
 

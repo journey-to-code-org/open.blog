@@ -77,6 +77,27 @@ fn trim(map: &mut std::collections::BTreeMap<String, String>) {
     }
 }
 
+/// The state as the Reminders screen should see it: a reminder whose draft is gone (deleted, moved
+/// to the trash or renamed) no longer counts as opened, so the screen offers to start it again
+/// instead of linking to a missing file.
+pub fn live_state(root: &Path) -> ReminderState {
+    let mut state = read_state(root);
+    state.opened.retain(|_, path| {
+        contained_target(root, Path::new(path.as_str())).is_ok_and(|target| target.is_file())
+    });
+    state
+}
+
+/// The path the editor and the document API take for a draft stored at `relative` (a path from
+/// the project root such as `content/posts/x.md`): the same path without the content folder.
+pub fn document_path(content: &str, relative: &str) -> Option<String> {
+    relative
+        .strip_prefix(content.trim_end_matches('/'))
+        .and_then(|rest| rest.strip_prefix('/'))
+        .filter(|rest| rest.starts_with("posts/"))
+        .map(str::to_string)
+}
+
 pub fn write_state(root: &Path, state: &ReminderState) -> Result<(), String> {
     let path = contained_target(root, Path::new(STATE_PATH))?;
     let mut state = state.clone();

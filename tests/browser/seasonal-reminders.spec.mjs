@@ -108,6 +108,7 @@ test("starting a draft writes one unpublished draft and the built site does not 
   await card.getByRole("button", { name: "Start a draft" }).click();
   await expect(page.locator("[data-seasonal-status]")).toContainText("not published");
   await expect(card.getByRole("link", { name: "Open it in Write" })).toBeVisible();
+  await expect(card.getByRole("link", { name: "Open it in Write" })).toHaveAttribute("href", /^#\/edit\/posts%2F/);
   const posts = readdirSync(join(root, "content", "posts")).filter((name) => name.includes("winter-pipes"));
   expect(posts).toHaveLength(1);
   const text = readFileSync(join(root, "content", "posts", posts[0]), "utf8");
@@ -121,6 +122,18 @@ test("starting a draft writes one unpublished draft and the built site does not 
   await page.reload();
   await expect(page.locator('[data-reminder^="all-year@"]')).toHaveAttribute("data-status", "opened");
   await expectFits(page);
+});
+
+test("the draft links open the draft in Write", async ({ page }) => {
+  await openReminders(page);
+  const card = page.locator('[data-reminder^="all-year@"]');
+  await card.getByRole("link", { name: "Open the draft" }).click();
+  await expect(page).toHaveURL(/#\/edit\/posts/);
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Winter pipes");
+  await expect(page.getByText("Something went wrong")).toHaveCount(0);
+  // A second Start a draft is not offered while that draft exists; the open answer names the same draft.
+  await openReminders(page);
+  await expect(card.getByRole("button", { name: "Start a draft" })).toHaveCount(0);
 });
 
 test("a snooze and turning a topic off are said in words", async ({ page }) => {

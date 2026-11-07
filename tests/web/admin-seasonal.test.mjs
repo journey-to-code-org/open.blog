@@ -46,7 +46,7 @@ function server(initial = {}) {
         this.next = null;
         throw failure;
       }
-      if (path === "seasonal/open") return { key: options.json.key, path: "content/posts/2026-09-10-furnace.md", created: true, draft: true, voiceReady: state.voiceReady };
+      if (path === "seasonal/open") return { key: options.json.key, path: "content/posts/2026-09-10-furnace.md", document: "posts/2026-09-10-furnace.md", created: true, draft: true, voiceReady: state.voiceReady };
       if (path === "seasonal/snooze") return { key: options.json.key, snoozedUntil: "2026-09-17" };
       if (method === "PUT") {
         state.enabled = options.json.seasonalPrompts.enabled;
@@ -112,10 +112,19 @@ test("a due reminder starts a draft that is not published and offers the voice f
   assert.deepEqual(api.calls.at(-1), { method: "POST", path: "seasonal/open", body: { key: REMINDER.key } });
   assert.match(text(root), /not published/);
   const link = root.querySelectorAll("a").find((a) => a.dataset.action === "seasonal-write");
-  assert.equal(link.attributes.href, "#/edit/content/posts/2026-09-10-furnace.md");
+  // Write opens a document by its path under the content folder, never the project path.
+  assert.equal(link.attributes.href, "#/edit/posts%2F2026-09-10-furnace.md");
   assert.match(text(root), /Nothing is sent until you ask/);
   // Only the open call was made: no assistant, publish or other request.
   assert.deepEqual(api.calls.map((c) => c.path), ["seasonal", "seasonal/open"]);
+}));
+
+test("a reminder whose draft was started links to it by its document path", withDom(async () => {
+  const opened = { ...structuredClone(REMINDER), status: "opened", draft: "content/posts/2026-09-10-furnace.md", document: "posts/2026-09-10-furnace.md" };
+  const { root } = await mount(server({ reminders: [opened] }));
+  const link = root.querySelectorAll("a").find((a) => a.dataset.action === "seasonal-edit");
+  assert.equal(link.attributes.href, "#/edit/posts%2F2026-09-10-furnace.md");
+  assert.equal(button(root, "seasonal-open"), undefined);
 }));
 
 test("no voice samples means no voice offer", withDom(async () => {

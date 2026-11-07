@@ -24,11 +24,15 @@ hosted schema change that is hard to take back, for a feature that must work on 
 - **The record is private and small.** `.openblog/private/seasonal.json` (version 1, at most 64 KiB, newest 400
   entries) maps a reminder key to the day it is snoozed until, and to the path of the draft it opened. It holds
   no prose, is never built, exported or published, and an unreadable or newer file reads as empty: the worst
-  outcome is a reminder shown again.
+  outcome is a reminder shown again. With the durable workspace on, the record is kept with posts, so a
+  restart or deploy brings back what was snoozed and opened (ADR 0353).
 - **The only action is one unpublished draft.** Opening a reminder writes `content/posts/<today>-<topic>.md`
   with `draft: true`, the topic as its title and the prompt as its first paragraph. A second open of the same
   occurrence returns the same draft and writes nothing; a taken file name gets a year suffix. The owner writes,
-  reviews and publishes through the ordinary editor, exactly as for any draft.
+  reviews and publishes through the ordinary editor, exactly as for any draft. The answer and the list give
+  the draft's path under the content folder (`document`, such as `posts/<file>.md`), which is the path Write
+  opens. A reminder whose draft no longer exists (deleted, in the trash or renamed) reads as not opened, so the
+  screen offers to start it again instead of linking to a missing file.
 - **No path leads out.** The reminder modules (core rules, store and routes) name no publish, syndication,
   announcement, social, rebuild or network call; a test reads their source and fails if one appears, and route
   tests check that an opened draft is absent from the home page, feed and sitemap.

@@ -218,7 +218,8 @@ context/references, per-login presentation preferences, and typed editor trash. 
 GPX uploads, and pending GPX data use content-addressed objects in the private bucket.
 Only the explicitly selected `.openblog/private/context/`,
 `.openblog/private/landing-history/` and `.openblog/private/admin-preferences/` directories, plus the single research source library
-file `.openblog/private/research/sources.json` (up to 4 MiB), participate. Auth users/password hashes,
+file `.openblog/private/research/sources.json` (up to 4 MiB) and the seasonal reminder record
+`.openblog/private/seasonal.json`, participate. Auth users/password hashes,
 sessions, analytics, provider/moderation/API keys, Git configuration/credentials, arbitrary
 `.openblog/private/`, themes, generated output, and other files are **never** backed up.
 Unknown configuration fields are rejected rather than risking storing an inline secret.

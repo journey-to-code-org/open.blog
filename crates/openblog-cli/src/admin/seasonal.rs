@@ -24,11 +24,20 @@ fn stored_block(config: &Json) -> Json {
     }
 }
 
-fn status_json(reminder: &Reminder) -> Json {
-    let (until, draft) = match &reminder.status {
-        seasonal::Status::Snoozed(until) => (Json::from(until.clone()), Json::Null),
-        seasonal::Status::Opened(path) => (Json::Null, Json::from(path.clone())),
-        _ => (Json::Null, Json::Null),
+/// The editor's path for a draft, or null when it is not under the content folder's posts.
+fn document_json(config: &SiteConfig, path: &str) -> Json {
+    seasonal_store::document_path(&config.paths.content, path).map_or(Json::Null, Json::from)
+}
+
+fn status_json(config: &SiteConfig, reminder: &Reminder) -> Json {
+    let (until, draft, document) = match &reminder.status {
+        seasonal::Status::Snoozed(until) => (Json::from(until.clone()), Json::Null, Json::Null),
+        seasonal::Status::Opened(path) => (
+            Json::Null,
+            Json::from(path.clone()),
+            document_json(config, path),
+        ),
+        _ => (Json::Null, Json::Null, Json::Null),
     };
     json!({
         "key": reminder.key,
@@ -40,6 +49,7 @@ fn status_json(reminder: &Reminder) -> Json {
         "status": reminder.status.id(),
         "snoozedUntil": until,
         "draft": draft,
+        "document": document,
     })
 }
 
@@ -61,7 +71,7 @@ fn current(state: &AppState, config: &SiteConfig) -> Vec<Reminder> {
     seasonal::reminders(
         &topics,
         today_number(),
-        &seasonal_store::read_state(&state.root),
+        &seasonal_store::live_state(&state.root),
     )
 }
 
@@ -87,7 +97,10 @@ fn describe(state: &AppState, bytes: &[u8]) -> Result<Json, String> {
             "disabled": topic.disabled,
             "custom": topic.custom,
         })).collect::<Vec<_>>(),
-        "reminders": current(state, &config).iter().map(status_json).collect::<Vec<_>>(),
+        "reminders": current(state, &config)
+            .iter()
+            .map(|reminder| status_json(&config, reminder))
+            .collect::<Vec<_>>(),
         "voiceReady": voice_ready(&state.root),
         "today": clock::now().ymd(),
     }))
@@ -257,11 +270,16 @@ pub(super) fn open(state: &AppState, req: &Request) -> Response {
         Ok(found) => found,
         Err(response) => return response,
     };
+    let (_, config) = match load(state) {
+        Ok(loaded) => loaded,
+        Err(response) => return response,
+    };
     match seasonal_store::open_draft(&state.root, &reminder, &clock::now().ymd()) {
         Ok((path, created)) => Response::json(
             200,
             &json!({
                 "key": reminder.key,
+                "document": document_json(&config, &path),
                 "path": path,
                 "created": created,
                 "draft": true,
