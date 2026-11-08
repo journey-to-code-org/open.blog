@@ -18,7 +18,7 @@ import {
   PER_CLIENT_PER_HOUR, PER_SITE_PER_HOUR, QuoteError, checkToken, clientHash, issueToken, quoteSettings, readForm, tokenHash, validateRequest,
 } from "../lib/quote-intake.mjs";
 import { createStore } from "../lib/quote-store.mjs";
-import { createNotifier, notifySettings, resendTransport, retryFailed } from "../lib/quote-notify.mjs";
+import { createNotifier, MAX_ATTEMPTS, notifySettings, resendTransport, retryFailed } from "../lib/quote-notify.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { erasePreview, eraseConfirmed, exportCsv, listRequests, retentionDays, retentionSweep, setStatus } from "../lib/quote-admin.mjs";
 
@@ -120,7 +120,8 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         return await manage({ settings, method, segments, query: event.queryStringParameters || {}, body: event.body, store: createStore({ settings, fetchImpl, now }), now, days: retentionDays(env), notifyEnabled: Boolean(send) });
       }
       if (segments.includes("notifications")) {
-        // Admin-only and personal-data-free: states and counts, then a bounded retry.
+        // Admin-only and personal-data-free: states and counts, then a bounded retry. JSON replies only.
+        admin = true;
         const bearer = String(headers.authorization || "").replace(/^Bearer /i, "");
         if (!settings.adminKey || !sameKey(bearer, settings.adminKey)) return json(settings.adminKey ? 401 : 404, { error: settings.adminKey ? "unauthorized" : "not-found" });
         const store = createStore({ settings, fetchImpl, now });
@@ -130,7 +131,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         }
         if (method === "POST" && route === "retry") {
           if (!send) return json(409, { error: "notifications-off" });
-          const rows = await store.retryable({ staleMs: 10 * 60 * 1000 });
+          const rows = await store.retryable({ staleMs: 10 * 60 * 1000, maxAttempts: MAX_ATTEMPTS });
           return json(200, await retryFailed({ settings: mail, transport: send, store, rows }));
         }
         return json(404, { error: "not-found" });

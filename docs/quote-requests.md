@@ -9,8 +9,9 @@ This is not a CRM. Listing, marking handled, CSV export and erasure come with th
 > **Netlify only for now.** The hosted function that receives requests is a Netlify function. A site run by
 > `openblog serve` on its own, such as the Render setup in [deploy](deploy.md), has no `/api/quote` address, so
 > the form has nowhere to send and every request would be refused. Leave `quote.enabled` off on Render. Pointing
-> `endpoint` at a Netlify function on another address does not work either: the form's script asks its own site
-> for a token, and the function does not answer other sites' pages.
+> `endpoint` at a Netlify function on another address does not work either: the function sends no cross-origin
+> headers, so the browser does not let your page read the token it asks that address for, and the second form a
+> visitor without JavaScript is shown comes from the function's own address, which the function refuses.
 
 ## What a visitor sees
 

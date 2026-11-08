@@ -39,7 +39,15 @@ function fakeSupabase() {
       return reply(204);
     }
     if (u.searchParams.get("select") === "id") return reply(206, "[]", { "content-range": `0-0/${rows.length}` });
-    return reply(200, JSON.stringify(rows.filter((r) => ["failed", "pending"].includes(r.notify_status))), { "content-type": "application/json" });
+    // Honours the attempt cap, order and limit the store asks for.
+    const cap = /^lt\.(\d+)$/.exec(u.searchParams.get("notify_attempts") || "");
+    const order = u.searchParams.get("order") || "";
+    const found = rows
+      .filter((r) => ["failed", "pending"].includes(r.notify_status))
+      .filter((r) => !cap || (r.notify_attempts ?? 0) < Number(cap[1]))
+      .sort((a, b) => (order.endsWith(".asc") ? 1 : -1) * a.created_at.localeCompare(b.created_at))
+      .slice(0, Number(u.searchParams.get("limit") || Infinity));
+    return reply(200, JSON.stringify(found), { "content-type": "application/json" });
   };
   return { rows, fetchImpl };
 }
@@ -115,7 +123,32 @@ test("a failing mailer never loses the request, is visible, and is retried a bou
   for (let i = 0; i < 4; i++) await t.admin("POST", "/api/quote/notifications/retry");
   assert.equal(t.fake.rows[0].notify_attempts, 5, "capped at five tries in all");
   const last = JSON.parse((await t.admin("POST", "/api/quote/notifications/retry")).body);
-  assert.deepEqual(last, { tried: 0, sent: 0, failed: 0, gaveUp: 1 });
+  assert.deepEqual(last, { tried: 0, sent: 0, failed: 0, gaveUp: 0 }, "a row that used every try is not picked again");
+  assert.equal(mailer.sent.length, 5);
+});
+
+test("requests that used every try do not stop a newer failed email from being sent again", async () => {
+  const mailer = fakeMailer({ ok: true });
+  const t = setup({ env: MAIL, transport: mailer.transport });
+  for (let i = 0; i < 30; i++) {
+    const at = new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString();
+    t.fake.rows.push({ id: `old-${i}`, name: "Pat", town: "Bend", service: "Fencing", photos: [], notify_status: "failed", notify_attempts: 5, notify_error_code: "refused-key", created_at: at });
+  }
+  t.fake.rows.push({ id: "new", name: "Sam", town: "Bend", service: "Fencing", photos: [], notify_status: "failed", notify_attempts: 1, notify_error_code: "refused-key", created_at: "2026-02-01T00:00:00.000Z" });
+  const summary = JSON.parse((await t.admin("POST", "/api/quote/notifications/retry")).body);
+  assert.deepEqual(summary, { tried: 1, sent: 1, failed: 0, gaveUp: 0 });
+  assert.equal(t.fake.rows.find((r) => r.id === "new").notify_status, "sent");
+});
+
+test("the notification routes answer Admin in JSON when storage is down", async () => {
+  const down = async () => new Response("", { status: 503 });
+  const handler = createHandler({ env: { ...ENV, ...MAIL }, fetchImpl: down, transport: fakeMailer().transport, sleep: async () => {} });
+  for (const [method, path] of [["GET", "/api/quote/notifications"], ["POST", "/api/quote/notifications/retry"]]) {
+    const response = await handler({ httpMethod: method, path, headers: { authorization: `Bearer ${ADMIN}` } });
+    assert.equal(response.statusCode, 503, path);
+    assert.match(String(response.headers["content-type"]), /application\/json/, path);
+    assert.deepEqual(JSON.parse(response.body), { error: "storage-unavailable" }, path);
+  }
 });
 
 test("a retry that works settles the row", async () => {

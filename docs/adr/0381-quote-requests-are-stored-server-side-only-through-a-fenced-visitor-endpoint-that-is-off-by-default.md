@@ -59,5 +59,6 @@ Admin listing, handling, CSV export and erasure belong to story #486.
 
 The function is a Netlify function (`netlify/functions/quote.mjs`, routed by `netlify.toml`). A site served by
 `openblog serve` alone, as on Render, has no `/api/quote` route, so the form there has nowhere to send. Running
-the function elsewhere for a Render site is not built: the page script fetches its token from the same site,
-and the function sends no cross-origin headers.
+the function elsewhere for a Render site is not built: the page script fetches its token from the `endpoint`
+address, and the function sends no cross-origin headers, so the browser keeps the reply from the page; and the
+no-JavaScript resend form is served from the function's own address, whose posts its origin check refuses.

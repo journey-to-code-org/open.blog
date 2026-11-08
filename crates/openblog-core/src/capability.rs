@@ -48,6 +48,11 @@ const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
     ("diagrams", Some("Diagram")),
 ];
 
+/// Features of the site's own pages that a portable copy leaves out entirely and names nowhere:
+/// the quote request form (ADR 0382) sends to this site's hosted function, so a copy elsewhere
+/// carries neither the form nor a label for it.
+const PAGE_ONLY_CAPABILITIES: &[&str] = &[crate::quote::CAPABILITY_ID];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PortabilityLevel {
@@ -160,6 +165,11 @@ impl CapabilityDescriptor {
                 Some("labeled-static-group"),
                 PortabilityLevel::FullyPortable,
             ),
+            page_only if PAGE_ONLY_CAPABILITIES.contains(&page_only) => (
+                "A form on the site's own page that sends to its hosted function; a portable copy carries nothing for it.",
+                None,
+                PortabilityLevel::CanonicalOnlyInteraction,
+            ),
             planned if matches!(planned_entry(planned), Some(Some(_))) => (
                 "A planned capability: its authored content stays visible and the canonical article carries the rest.",
                 Some("labeled-canonical-link"),
@@ -207,6 +217,9 @@ impl CapabilityDescriptor {
     /// unknown or invalid capabilities, and `None` for private state, which adds
     /// nothing to public output.
     pub fn portable_label(&self) -> Option<&'static str> {
+        if PAGE_ONLY_CAPABILITIES.contains(&self.id.as_str()) {
+            return None;
+        }
         planned_entry(&self.id).unwrap_or(Some("Interactive content"))
     }
 
@@ -363,6 +376,19 @@ mod tests {
             Some("Interactive content")
         );
         assert!(CapabilityDescriptor::describe("comments", None).has_portable_fallback());
+    }
+
+    #[test]
+    fn the_quote_form_is_a_known_page_only_capability() {
+        let descriptor = CapabilityDescriptor::describe(
+            crate::quote::CAPABILITY_ID,
+            Some(crate::quote::ELEMENT),
+        );
+        assert_eq!(descriptor.id, "quote-request");
+        assert!(descriptor.diagnostics.is_empty());
+        assert_eq!(descriptor.fallback_renderer, None);
+        assert_eq!(descriptor.portable_label(), None);
+        assert!(!descriptor.has_portable_fallback());
     }
 
     #[test]

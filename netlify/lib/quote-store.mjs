@@ -68,10 +68,10 @@ export function createStore({ settings, fetchImpl, now = () => Date.now() }) {
     },
 
     // Rows whose email failed, or stayed pending long enough to be a lost attempt, with just what
-    // the message needs.
-    async retryable({ staleMs }) {
+    // the message needs. Rows that used every try are left out, so they never crowd out newer ones.
+    async retryable({ staleMs, maxAttempts }) {
       const before = new Date(now() - staleMs).toISOString();
-      const filter = `or=(notify_status.eq.failed,and(notify_status.eq.pending,created_at.lt.${before}))`;
+      const filter = `or=(notify_status.eq.failed,and(notify_status.eq.pending,created_at.lt.${before}))&notify_attempts=lt.${maxAttempts}`;
       const response = await call(`/rest/v1/${TABLE}?select=id,name,town,service,photos,notify_attempts&${site}&${filter}&order=created_at.asc&limit=25`, { method: "GET", headers: headers() });
       if (!response.ok) throw new QuoteError(503, "storage-unavailable");
       return response.json();

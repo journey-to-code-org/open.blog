@@ -42,6 +42,7 @@ const SLOW_ROUTES = [
   "#/look",
   "#/business",
   "#/reminders",
+  "#/quotes",
   "#/services",
   "#/research/overview",
   "#/research/sources",
