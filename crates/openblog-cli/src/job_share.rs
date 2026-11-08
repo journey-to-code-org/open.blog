@@ -80,6 +80,12 @@ impl Status {
             Self::PostedByHand => "you posted it by hand",
         }
     }
+
+    /// The job is at the place, or may be: a post open.blog made or may have made, or one the
+    /// owner made by hand. Neither a send nor a kit replaces it (ADR 0397).
+    fn holds(self) -> bool {
+        matches!(self, Self::Posted | Self::Unknown | Self::PostedByHand)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -375,7 +381,8 @@ pub(crate) fn run_with(
     if let Some(directory) = options.kit.as_deref() {
         return write_kit(root, &state_path, directory, job, context, &mut say);
     }
-    say(preview(root, slug, &job))
+    let state = State::load(&state_path)?;
+    say(preview(root, slug, &job, &state))
 }
 
 fn sending_on(root: &Path) -> bool {
@@ -385,7 +392,7 @@ fn sending_on(root: &Path) -> bool {
         .is_some_and(|google| google.enabled)
 }
 
-fn preview(root: &Path, slug: &str, job: &Job) -> String {
+fn preview(root: &Path, slug: &str, job: &Job, state: &State) -> String {
     let mut out = format!("Sharing `{}`. Nothing was sent.\n", job.title);
     for p in &job.projections {
         out.push_str(&format!("\n{}\n", p.label));
@@ -421,6 +428,15 @@ fn preview(root: &Path, slug: &str, job: &Job) -> String {
                 problem.message
             ));
         }
+        let record = state.record(&job.source_path, p.destination);
+        if let Some(record) = record {
+            out.push_str(&format!(
+                "  shared: {} ({})
+",
+                record.status.words(),
+                record.at
+            ));
+        }
         if !p.ready {
             continue;
         }
@@ -432,6 +448,10 @@ fn preview(root: &Path, slug: &str, job: &Job) -> String {
 ");
                 out.push_str(&by_hand);
             }
+            Route::Adapter if record.is_some_and(|r| r.status.holds()) => out.push_str(&format!(
+                "  It is not offered for sending again; see openblog job-share {slug} --status.
+"
+            )),
             Route::Adapter if sending_on(root) => out.push_str(&format!(
                 "  digest: {}\n  To send exactly this: openblog job-share {slug} --send {} --confirm {}\n",
                 p.digest,
@@ -498,10 +518,10 @@ fn write_kit(
                 "fix the problems in the kit first"
             }
         ));
-        // A kit never replaces a post open.blog made or may have made.
+        // A kit never replaces a post open.blog made or may have made, or one she made by hand.
         let keep = state
             .record(&job.source_path, p.destination)
-            .is_some_and(|r| matches!(r.status, Status::Posted | Status::Unknown));
+            .is_some_and(|r| r.status.holds());
         if p.ready && !keep {
             state.set(
                 &job.source_path,
@@ -710,6 +730,12 @@ fn send_google(
                     .as_deref()
                     .map(|url| format!(" at {url}"))
                     .unwrap_or_default()
+            ))
+        }
+        Some(record) if record.status == Status::PostedByHand => {
+            return Err(format!(
+                "You said in Admin that you posted this job to Google Business Profile by hand ({}), so sending it would post it twice. {NOTHING_SENT}",
+                record.at
             ))
         }
         Some(record) if record.status == Status::Unknown => {
@@ -1030,6 +1056,72 @@ mod tests {
         )]);
         let (result, _) = run(dir.path(), send(&digest), &retry, Some(TOKEN));
         result.unwrap();
+    }
+
+    #[test]
+    fn a_job_she_posted_by_hand_is_never_sent_again_and_a_kit_keeps_her_mark() {
+        let dir = site(ON);
+        let digest = digest(dir.path());
+        // What Admin's "I posted it" writes.
+        let state_path = dir.path().join(STATE_FILE);
+        let mut state = State::load(&state_path).unwrap();
+        for destination in [
+            JobDestination::GoogleBusinessProfile,
+            JobDestination::Nextdoor,
+        ] {
+            state.set(
+                "posts/floor.md",
+                destination,
+                Record {
+                    status: Status::PostedByHand,
+                    at: "2026-11-07T09:00:00Z".into(),
+                    digest: digest.clone(),
+                    post_name: None,
+                    post_url: None,
+                    failure: None,
+                },
+            );
+        }
+        state.save(&state_path).unwrap();
+        let transport = scripted(vec![]);
+        let (result, out) = run(dir.path(), Options::default(), &transport, Some(TOKEN));
+        result.unwrap();
+        assert!(
+            out.contains("shared: you posted it by hand (2026-11-07T09:00:00Z)"),
+            "{out}"
+        );
+        assert!(!out.contains("--send google-business-profile"), "{out}");
+        let (result, _) = run(dir.path(), send(&digest), &transport, Some(TOKEN));
+        let error = result.unwrap_err();
+        assert!(error.contains("by hand"), "{error}");
+        assert!(error.contains("Nothing was sent"), "{error}");
+        assert!(transport.calls.borrow().is_empty());
+        let (result, _) = run(
+            dir.path(),
+            Options {
+                kit: Some("kit".into()),
+                ..Options::default()
+            },
+            &transport,
+            None,
+        );
+        result.unwrap();
+        let state = State::load(&state_path).unwrap();
+        for destination in [
+            JobDestination::GoogleBusinessProfile,
+            JobDestination::Nextdoor,
+        ] {
+            let record = state.record("posts/floor.md", destination).unwrap();
+            assert_eq!(record.status, Status::PostedByHand, "{destination:?}");
+            assert_eq!(record.at, "2026-11-07T09:00:00Z");
+        }
+        assert_eq!(
+            state
+                .record("posts/floor.md", JobDestination::Facebook)
+                .unwrap()
+                .status,
+            Status::KitMade
+        );
     }
 
     #[test]

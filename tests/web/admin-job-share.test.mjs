@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createJobShare, dayText, facebookAnnouncement, soon, standingText, wayFor } from "../../web/admin/job-share.js";
+import { createJobShare, dayText, facebookAnnouncement, pageOpen, soon, standingText, wayFor } from "../../web/admin/job-share.js";
 import { tick, withDom } from "./dom-shim.mjs";
 
 const text = (node) => node.textContent.replace(/\s+/g, " ").trim();
@@ -95,6 +95,28 @@ test("the screen schedules the job on the connected Facebook Page as previewed a
   // Google is never sent from this screen.
   assert.equal(action(card(root, "google-business-profile"), "job-share-facebook"), undefined);
   assert.ok(!api.calls.some((call) => call.path.includes("google")));
+}));
+
+test("a job already on its way to the Facebook Page is not offered again from a reopened screen", withDom(async () => {
+  for (const delivery of ["pending", "processing", "retrying", "published", "unknown"]) {
+    assert.equal(pageOpen({ delivery }), false, delivery);
+    const queue = [{ id: "a0", work: "/posts/floor/", destination: { provider: "facebook" }, delivery, createdAt: "2026-11-08T11:00:00Z" }];
+    const api = server({ destinations: [place("facebook")], queue });
+    const root = await mount(api);
+    assert.equal(action(card(root, "facebook"), "job-share-facebook"), undefined, delivery);
+    assert.ok(!api.calls.some((call) => call.method === "POST"), delivery);
+    root.remove();
+  }
+  for (const delivery of ["failed", "canceled"]) {
+    assert.equal(pageOpen({ delivery }), true, delivery);
+    const queue = [{ id: "a0", work: "/posts/floor/", destination: { provider: "facebook" }, delivery, createdAt: "2026-11-08T11:00:00Z" }];
+    const root = await mount(server({ destinations: [place("facebook")], queue }));
+    assert.ok(action(card(root, "facebook"), "job-share-facebook"), delivery);
+    root.remove();
+  }
+  assert.equal(pageOpen(null), true);
+  const byHand = await mount(server({ destinations: [place("facebook", { record: { status: "posted-by-hand", at: "2026-11-08T12:00:00Z" } })] }));
+  assert.equal(action(card(byHand, "facebook"), "job-share-facebook"), undefined);
 }));
 
 test("a by-hand place is marked as posted for exactly what was shown", withDom(async () => {

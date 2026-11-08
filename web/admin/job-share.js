@@ -58,6 +58,18 @@ export function wayFor(destination, { pages = [], announcements = false } = {}) 
   return "by-hand";
 }
 
+/**
+ * Whether the job may be scheduled on the Facebook Page again: only when it has no announcement
+ * there, or its newest one failed or was canceled. A scheduled, sending, published or unsettled
+ * one is never doubled, even from a screen opened later with a new key (ADR 0397). A job she
+ * said she posted by hand is not offered either.
+ */
+export function pageOpen(announcement) {
+  if (!announcement) return true;
+  const state = deliveryOf(announcement);
+  return state === "failed" || state === "canceled";
+}
+
 /** The time a Facebook announcement is scheduled for: five minutes from now, as a UTC instant. */
 export function soon(now = Date.now()) {
   return new Date(now + 5 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -164,7 +176,7 @@ export function createJobShare({ api, path, clipboard = globalThis.navigator?.cl
     const announcement = destination.destination === "facebook" ? facebookAnnouncement(queue, data.work) : null;
     const way = wayFor(destination, { pages, announcements: data.announcements });
     const actions = [];
-    if (ready && way === "facebook-page") {
+    if (ready && way === "facebook-page" && pageOpen(announcement) && destination.record?.status !== "posted-by-hand") {
       actions.push(el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "job-share-facebook", onClick: () => run(() => postToPage(destination)) }, `Post to ${pages[0].displayName}`));
     }
     if (ready) {

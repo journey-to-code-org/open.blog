@@ -18,7 +18,8 @@ Failed and so on, as on the Announcements screen).
 - **Post to** your Page appears for Facebook when social publishing is set up, your Facebook Page is connected under
   Connected accounts, and the job has no after photo. It schedules the job's words and link on your Page five
   minutes ahead, through the same queue as your other announcements. open.blog posts to a Page without a photo, so
-  a job with an after photo goes to Facebook by hand.
+  a job with an after photo goes to Facebook by hand. Once the job is scheduled or posted there, the button is not
+  offered again; it comes back only if that announcement failed or was canceled.
 - Google is not sent from Admin. Until Google approves open.blog for your profile, post it by hand from here.
 
 The record of what happened is `.openblog/job-shares.json`, which is never published. On Render with the workspace
@@ -84,6 +85,10 @@ Once approved:
 If the job changed after you looked, the digest no longer matches and nothing is sent. If Google did not answer,
 open.blog does not send it again until you have looked on your profile and run the same command with
 `--forget-attempt`.
+
+A job already on your profile, whether open.blog posted it or you pressed **I posted it** in Admin, is never sent
+there again, and a new kit does not undo **I posted it**
+([ADR 0397](adr/0397-a-job-already-at-a-place-is-never-sent-there-again-by-a-send-a-kit-or-a-reopened-screen.md)).
 
 No live post to Google has been made by open.blog's own tests: they use scripted replies, because nobody working
 on it has Google's approval yet ([ADR 0393](adr/0393-a-job-reaches-google-business-profile-from-the-cli-only-when-the-owner-turned-it-on-and-confirmed-its-digest.md)).
