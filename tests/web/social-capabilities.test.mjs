@@ -49,6 +49,11 @@ test("a manifest that is missing, broken, unknown or narrowed gets no adapter", 
   assert.equal(parseManifest(fixture.manifests.pinterest).family, "social");
   assert.equal(admittedManifest("pinterest", fixture.manifests), null);
   assert.equal(MANIFESTS.pinterest, undefined);
+  // A job reaches Google Business Profile through `openblog job-share`, never the hosted worker,
+  // and Nextdoor only by hand (ADRs 0393, 0394): neither is ever an announcement adapter.
+  assert.equal(admittedManifest("google-business-profile", fixture.manifests), null);
+  assert.equal(admittedManifest("nextdoor", fixture.manifests), null);
+  assert.equal(MANIFESTS["google-business-profile"], undefined);
 });
 
 test("a refused manifest makes no request and is off by default with no provider configured", async () => {

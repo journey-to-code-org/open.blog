@@ -1,5 +1,5 @@
 {
-  "about": "The versioned provider capability contract (ADRs 0325 to 0327, 0337 for the community family, and 0375 for the video family). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0327).",
+  "about": "The versioned provider capability contract (ADRs 0325 to 0327, 0337 for the community family, 0375 for the video family, and 0393 and 0394 for Google Business Profile and Nextdoor). crates/openblog-core/src/provider_manifest.rs and netlify/lib/social-capabilities.mjs must read, refuse and check exactly these. `manifests` is what this release ships; changing one is a provider policy change and must raise its policyVersion (ADR 0327).",
   "manifestVersion": 1,
   "capabilities": [
     "link",
@@ -155,6 +155,44 @@
       "sources": [
         "https://docs.ghost.org/admin-api/posts/creating-a-post",
         "https://ghost.org/changelog/canonical-urls/"
+      ]
+    },
+    "google-business-profile": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "adapter",
+        "link": "adapter",
+        "schedule": "unsupported",
+        "text": "adapter",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": 1500,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "social",
+      "label": "Google Business Profile",
+      "login": {
+        "method": "oauth2",
+        "scopes": [
+          "https://www.googleapis.com/auth/business.manage"
+        ]
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-11-08",
+      "provider": "google-business-profile",
+      "publishing": "explicit-approval",
+      "sources": [
+        "https://developers.google.com/my-business/reference/rest/v4/accounts.locations.localPosts",
+        "https://developers.google.com/my-business/reference/rest/v4/accounts.locations.localPosts/create",
+        "https://developers.google.com/my-business/content/prereqs",
+        "https://support.google.com/business/answer/7662907"
       ]
     },
     "hacker-news": {
@@ -336,6 +374,41 @@
       "publishing": "manual",
       "sources": [
         "https://help.medium.com/hc/en-us/articles/214550207-Importing-a-post-to-Medium"
+      ]
+    },
+    "nextdoor": {
+      "canonical": "linked",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "manual",
+        "link": "manual",
+        "schedule": "unsupported",
+        "text": "manual",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "community",
+      "label": "Nextdoor",
+      "login": {
+        "method": "none",
+        "scopes": []
+      },
+      "manifestVersion": 1,
+      "policyVersion": "2026-11-08",
+      "provider": "nextdoor",
+      "publishing": "manual",
+      "sources": [
+        "https://developer.nextdoor.com/docs/sharing-overview",
+        "https://developer.nextdoor.com/reference/share-plugin",
+        "https://developer.nextdoor.com/docs/business-share"
       ]
     },
     "pinterest": {
@@ -1470,6 +1543,85 @@
       "request": {
         "capabilities": [
           "article"
+        ]
+      },
+      "codes": [
+        "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "google-business-profile",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "image"
+        ],
+        "textChars": 1500
+      },
+      "codes": []
+    },
+    {
+      "provider": "google-business-profile",
+      "request": {
+        "capabilities": [
+          "link",
+          "text"
+        ],
+        "textChars": 1501
+      },
+      "codes": [
+        "text-too-long"
+      ]
+    },
+    {
+      "provider": "google-business-profile",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "video",
+          "schedule"
+        ]
+      },
+      "codes": [
+        "capability-unsupported",
+        "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "google-business-profile",
+      "request": {
+        "capabilities": [
+          "draft",
+          "article"
+        ]
+      },
+      "codes": [
+        "capability-unsupported",
+        "capability-unsupported"
+      ]
+    },
+    {
+      "provider": "nextdoor",
+      "request": {
+        "capabilities": [
+          "link",
+          "text",
+          "image"
+        ]
+      },
+      "codes": [
+        "capability-manual",
+        "capability-manual",
+        "capability-manual"
+      ]
+    },
+    {
+      "provider": "nextdoor",
+      "request": {
+        "capabilities": [
+          "schedule"
         ]
       },
       "codes": [

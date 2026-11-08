@@ -6,8 +6,9 @@ article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), and option
 [community submissions](community-submissions.md), prepares a post for you to submit by hand to Hacker News, a
 Reddit community or Product Hunt. A fourth, [Pinterest Pins](pinterest.md), sends a post's visual card to one of
 your boards. A fifth, a [video release](video-production.md#prepare-a-youtube-release), prepares a video post's
-YouTube upload and, once you connect a channel and approve it, uploads it. All five are off until you set them up,
-and your Markdown and your own site stay the original.
+YouTube upload and, once you connect a channel and approve it, uploads it. A sixth, [sharing a job](job-sharing.md),
+prepares a finished job for Google Business Profile, a Facebook Page and Nextdoor. All six are off until you set them
+up, and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
 there. You do not edit it; it is part of the code, and it decides what open.blog will and will not attempt
@@ -60,6 +61,16 @@ link, short text (the Pin's title and description), and one image are done by th
 Pinterest; whole articles, remote drafts and scheduling are not possible. Login is OAuth (`boards:read`,
 `boards:write`, `pins:read`, `pins:write`), the Pin links your post, and it becomes public only with your
 confirmation. A description is at most 800 characters.
+
+Google Business Profile (a finished job from `openblog job-share`, policy version 2026-11-08,
+[ADR 0393](adr/0393-a-job-reaches-google-business-profile-from-the-cli-only-when-the-owner-turned-it-on-and-confirmed-its-digest.md)):
+link (a Learn more button), short text and one photo are done by the adapter; whole articles, video, remote drafts
+and scheduling are not possible. Login is OAuth (`https://www.googleapis.com/auth/business.manage`), and Google gives
+API access only to a project it approved, so sending stays off until you turn it on. The words are at most 1,500
+characters. Nextdoor (policy version 2026-11-08,
+[ADR 0394](adr/0394-nextdoor-is-a-by-hand-kit-because-its-publish-api-is-for-approved-partners.md)) is a community
+destination: the link, words and photo are **manual**, posted by you from the job kit, and the rest is
+**unsupported**.
 
 ## What was checked, and where
 

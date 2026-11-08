@@ -134,6 +134,11 @@ built in a fixed order. A trade or service with no jobs gets no page, and a site
 are unchanged: jobs are posts, so they are in them as posts. `page` cannot be a trade or service id. See
 [ADR 0286](adr/0286-jobs-archives-are-derived-from-job-posts-and-page-like-the-home-page.md).
 
+## Sharing a finished job
+
+`openblog job-share <slug>` prepares a published job for Google Business Profile, a Facebook Page and Nextdoor,
+and `--kit <new folder>` writes a page to post each by hand. See [Sharing a job](job-sharing.md).
+
 ## Checks
 
 A published job with a problem stops the build with a sentence naming the field, for example

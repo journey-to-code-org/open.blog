@@ -54,6 +54,8 @@ If you are new, read these in order; each one stands alone otherwise.
 
 23. [Reviews](reviews.md): a customer's real review, typed in or copied once from its link, shown beside its job
    and on a Reviews page, with `Review` data only from what the file says.
+24. [Sharing a job](job-sharing.md): one finished job prepared for Google Business Profile, a Facebook Page and
+   Nextdoor, as a kit you post by hand, or sent to Google once Google approved your project and you turned it on.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

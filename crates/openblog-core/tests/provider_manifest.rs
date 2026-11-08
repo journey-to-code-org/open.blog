@@ -204,10 +204,13 @@ fn provider_upgrades_are_classified_by_the_compatibility_policy() {
 fn the_builtin_policy_version_is_a_valid_one() {
     assert!(policy_version_key(BUILTIN_POLICY_VERSION).is_some());
     for manifest in builtin_manifests() {
-        let expected = if manifest.provider == ProviderId::Youtube {
-            YOUTUBE_POLICY_VERSION
-        } else {
-            BUILTIN_POLICY_VERSION
+        let expected = match manifest.provider {
+            ProviderId::Youtube => YOUTUBE_POLICY_VERSION,
+            // Checked on the day they were added (ADRs 0393, 0394).
+            ProviderId::GoogleBusinessProfile | ProviderId::Nextdoor => {
+                JOB_DESTINATIONS_POLICY_VERSION
+            }
+            _ => BUILTIN_POLICY_VERSION,
         };
         assert_eq!(manifest.policy_version, expected);
         assert!(manifest.sources.iter().all(|s| s.starts_with("https://")));

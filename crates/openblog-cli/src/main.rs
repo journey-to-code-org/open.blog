@@ -20,6 +20,7 @@ mod fsutil;
 mod git;
 mod hashnode;
 mod http;
+mod job_share;
 mod landing_history;
 mod landing_store;
 mod mentions;
@@ -100,6 +101,9 @@ COMMANDS
                                and link previews from its own images; sends nothing
     pinterest boards           List the Pinterest boards your token can pin to (opt-in)
     pinterest pin <slug>       Preview a post's Pin; --write --confirm <digest> sends it
+    job-share <slug>           Preview a finished job for Google Business Profile, Facebook and
+                               Nextdoor; --kit <new folder> writes the by-hand kit (see job-share
+                               OPTIONS)
     video <slug>               Check a video post's YouTube release: title, description with the
                                article link, thumbnail, chapters, captions, transcript and consent;
                                uploads nothing unless approved and asked to (see video OPTIONS)
@@ -192,6 +196,16 @@ card OPTIONS
     --json                     Print the card plan with every check and the chosen images
     --preview <new folder>     Write cards.json, an SVG layout preview per card and an
                                accessible index.html; reads only the site's own image files
+
+job-share OPTIONS (sending is off unless syndication.googleBusinessProfile.enabled; token in
+GOOGLE_BUSINESS_ACCESS_TOKEN)
+    --to a,b                   google-business-profile, facebook, nextdoor (default: all)
+    --json                     Print each destination's words, link, photo, problems and digest
+    --kit <new folder>         Write index.html, kit.json and the photo to post each by hand
+    --status                   Show what happened at each destination
+    --send google-business-profile --confirm <digest>
+                               Post exactly the previewed job (--forget-attempt settles an
+                               attempt that may have posted, after you checked)
 
 pinterest OPTIONS (off unless syndication.pinterest.enabled; token in PINTEREST_ACCESS_TOKEN)
     --board <id>               The board (default: syndication.pinterest.board)
@@ -342,7 +356,7 @@ const SWITCHES: &[&str] = &[
 
 /// Switches that only one command takes, because another command takes the same name with a
 /// value: `video --status` shows the upload record, while `mentions list --status <s>` filters.
-const COMMAND_SWITCHES: &[(&str, &str)] = &[("video", "status")];
+const COMMAND_SWITCHES: &[(&str, &str)] = &[("video", "status"), ("job-share", "status")];
 
 #[cfg(test)]
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -568,6 +582,22 @@ fn run(raw: &[String]) -> Result<(), String> {
                     formats: args.options.get("format").cloned(),
                     json: args.switches.contains("json"),
                     preview: args.options.get("preview").cloned(),
+                },
+            )
+        }
+        "job-share" => {
+            let slug = args.positional.first().ok_or(job_share::USAGE)?;
+            job_share::run(
+                &root,
+                slug,
+                job_share::Options {
+                    to: args.options.get("to").cloned(),
+                    json: args.switches.contains("json"),
+                    kit: args.options.get("kit").cloned(),
+                    status: args.switches.contains("status"),
+                    send: args.options.get("send").cloned(),
+                    confirm: args.options.get("confirm").cloned(),
+                    forget_attempt: args.switches.contains("forget-attempt"),
                 },
             )
         }

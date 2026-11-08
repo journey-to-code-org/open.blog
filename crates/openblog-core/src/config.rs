@@ -671,6 +671,24 @@ pub struct SyndicationConfig {
     /// nothing else reads it, so builds, feeds and cross-posting are unchanged by it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pinterest: Option<PinterestConfig>,
+    /// Google Business Profile posts of finished jobs sent by `openblog job-share` (ADR 0393).
+    /// Absent means off: jobs still get the by-hand kit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_business_profile: Option<GoogleBusinessProfileConfig>,
+}
+
+/// The opt-in Google Business Profile destination. Google gives API access only to a project it
+/// approved, so this stays off until the owner has that approval. Values are checked by the
+/// command that uses them, so a mistake here never stops a build.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GoogleBusinessProfileConfig {
+    /// Must be `true` before anything is sent.
+    pub enabled: bool,
+    /// The number in `accounts/{account}`.
+    pub account: String,
+    /// The number in `locations/{location}`: the business the post appears on.
+    pub location: String,
 }
 
 /// The opt-in Pinterest destination. Values are checked by the command that uses them, so a
@@ -710,6 +728,7 @@ impl Default for SyndicationConfig {
             require_approval: false,
             approval_file: ".openblog/distribution-approvals.json".into(),
             pinterest: None,
+            google_business_profile: None,
         }
     }
 }
