@@ -66,6 +66,8 @@ pub(crate) struct SyndicationPost {
     pub(crate) html: String,
     tags: Vec<String>,
     pub(crate) canonical_url: String,
+    /// The post's own `canonical` names another page (`Post::canonical_elsewhere`).
+    pub(crate) canonical_elsewhere: bool,
     pub(crate) revision: String,
     portable_diagnostics: Vec<openblog_core::portability::PortabilityDiagnostic>,
     content_plans: Vec<DestinationContentPlan>,
@@ -305,6 +307,7 @@ fn run_with_transport(
     }
     let selected = select_targets(&config, &options.target_names)?;
     let state_path = private_state_path(root, &config.syndication.state_file)?;
+    fsutil::refuse_published(root, &config, &state_path, "syndication.stateFile")?;
     let mut state = State::load(&state_path)?;
     validate_source_identity(&state, &syndication_post)?;
     validate_plan(&selected, options.publish)?;
@@ -666,9 +669,11 @@ fn approval_for(
 }
 
 fn approvals_path(root: &Path, config: &SiteConfig) -> Result<std::path::PathBuf, String> {
-    private_state_path(root, &config.syndication.approval_file).map_err(|_| {
+    let path = private_state_path(root, &config.syndication.approval_file).map_err(|_| {
         "syndication.approvalFile must be a project-relative path without `..`".to_string()
-    })
+    })?;
+    fsutil::refuse_published(root, config, &path, "syndication.approvalFile")?;
+    Ok(path)
 }
 
 fn load_approvals(root: &Path, config: &SiteConfig) -> Result<Approvals, String> {
@@ -706,7 +711,9 @@ fn distribute(
         Err(_) if options.preview.is_some() && known => Vec::new(),
         Err(error) => return Err(error),
     };
-    let state = State::load(&private_state_path(root, &config.syndication.state_file)?)?;
+    let state_path = private_state_path(root, &config.syndication.state_file)?;
+    fsutil::refuse_published(root, config, &state_path, "syndication.stateFile")?;
+    let state = State::load(&state_path)?;
     validate_source_identity(&state, post)?;
     let plan = distribution_plan(post, &selected, &state, options.publish);
     if let Some(digest) = &options.approve {
@@ -1122,6 +1129,7 @@ pub(crate) fn syndication_post(
         html: absolutize_html(&portable_html.html, config),
         tags: post.tags.iter().map(|tag| tag.name.clone()).collect(),
         canonical_url,
+        canonical_elsewhere: post.canonical_elsewhere(config),
         revision,
         portable_diagnostics,
         content_plans,
@@ -2127,6 +2135,7 @@ mod tests {
             html: "<p>Body</p>".into(),
             tags: vec!["Rust".into()],
             canonical_url: "https://blog.example/posts/a/".into(),
+            canonical_elsewhere: false,
             revision: "abc".into(),
             source_markdown: "Body".into(),
             portable_diagnostics: Vec::new(),
@@ -2992,6 +3001,53 @@ const attribute = 'href="/script"';
         fn send(&self, _: &Request) -> Result<Response, String> {
             panic!("destination validation must finish before any network access");
         }
+    }
+
+    #[test]
+    fn a_state_file_inside_a_published_folder_is_refused_before_any_request() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-syndication-published-state-{}",
+            crate::auth::random_token().unwrap(),
+        ));
+        let posts = root.join("content/posts");
+        fs::create_dir_all(&posts).unwrap();
+        fs::write(
+            posts.join("post.md"),
+            "---
+title: Post
+slug: post
+date: 2020-01-01
+---
+
+Body
+",
+        )
+        .unwrap();
+        for (setting, config) in [
+            (
+                "syndication.stateFile",
+                r#"{"url":"https://blog.openblog.dev","syndication":{"stateFile":"static/s.json","targets":{"b-dev":{"provider":"dev"}}}}"#,
+            ),
+            (
+                "syndication.approvalFile",
+                r#"{"url":"https://blog.openblog.dev","syndication":{"requireApproval":true,"approvalFile":"static/a.json","targets":{"b-dev":{"provider":"dev"}}}}"#,
+            ),
+        ] {
+            fs::write(root.join("openblog.json"), config).unwrap();
+            let options = Options {
+                preview: None,
+                approve: None,
+                target_names: Vec::new(),
+                write: false,
+                publish: false,
+                json: false,
+            };
+            let error = run_with_transport(&root, "post", options, &NoNetwork).unwrap_err();
+            assert!(error.contains(setting), "{error}");
+            assert!(error.contains("publish"), "{error}");
+            assert!(!root.join("static").exists());
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

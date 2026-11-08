@@ -2405,11 +2405,7 @@ impl<'a> Renderer<'a> {
             .as_deref()
             .and_then(|s| self.site.series_by_slug(s));
         let canonical = resolved_post_canonical(c, post);
-        let entity_url = if post.research.is_some() {
-            canonical.clone().unwrap_or_else(|| c.absolute(&post.url))
-        } else {
-            c.absolute(&post.url)
-        };
+        let entity_url = post_entity_url(c, post);
 
         let mut body = String::from("<div class=\"ob-container ob-container-reading\">\n");
         body.push_str("<article class=\"ob-post h-entry\">\n<header class=\"ob-post-header\">\n");
@@ -2762,12 +2758,8 @@ impl<'a> Renderer<'a> {
                         }
                     }
                     CreditProvenance::ExplicitSidecar => {
-                        let authors = post
-                            .authors()
-                            .map(|credit| contributor_json_ld(c, credit, &entity_url))
-                            .collect::<Vec<_>>();
-                        if !authors.is_empty() {
-                            posting["author"] = serde_json::Value::Array(authors);
+                        if let Some(authors) = post_author_json_ld(c, post) {
+                            posting["author"] = authors;
                         }
                         let contributors = post
                             .credits
@@ -5369,6 +5361,52 @@ fn site_views_text(site: &Site, path: &str) -> String {
 #[allow(dead_code)]
 fn _keep_cdata(s: &str) -> String {
     cdata(s)
+}
+
+/// The address a post's JSON-LD nodes are identified by: the canonical address of a research
+/// work, the post's own address otherwise.
+fn post_entity_url(config: &SiteConfig, post: &Post) -> String {
+    match (&post.research, resolved_post_canonical(config, post)) {
+        (Some(_), Some(canonical)) => canonical,
+        _ => config.absolute(&post.url),
+    }
+}
+
+/// The `author` of a post's JSON-LD: its credited authors in credit order when it has a credit
+/// sidecar (the same `Person` nodes its `BlogPosting` carries), the site author otherwise, or
+/// `None` when nobody is named. Every node about the post credits the same people.
+pub(crate) fn post_author_json_ld(config: &SiteConfig, post: &Post) -> Option<serde_json::Value> {
+    match post.credit_provenance {
+        CreditProvenance::LegacySiteAuthor => author_json_ld(config),
+        CreditProvenance::ExplicitSidecar => {
+            let entity_url = post_entity_url(config, post);
+            let authors = post
+                .authors()
+                .map(|credit| contributor_json_ld(config, credit, &entity_url))
+                .collect::<Vec<_>>();
+            (!authors.is_empty()).then_some(serde_json::Value::Array(authors))
+        }
+    }
+}
+
+/// The names of the people a post credits as its authors, as plain text in credit order: the
+/// same people [`post_author_json_ld`] names.
+pub(crate) fn post_author_names(config: &SiteConfig, post: &Post) -> Vec<String> {
+    match post.credit_provenance {
+        CreditProvenance::LegacySiteAuthor => {
+            let name = config.author.name.trim();
+            (!name.is_empty())
+                .then(|| name.to_string())
+                .into_iter()
+                .collect()
+        }
+        CreditProvenance::ExplicitSidecar => post
+            .authors()
+            .map(|credit| credit.contributor.name.trim())
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect(),
+    }
 }
 
 pub(crate) fn author_json_ld(config: &SiteConfig) -> Option<serde_json::Value> {

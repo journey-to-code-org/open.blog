@@ -394,7 +394,8 @@ keeps drafts out of public history unless set, `auto` publishes after every save
 WordPress, or manual Medium settings. `stateFile` points to private remote-ID state and
 defaults to `.openblog/syndication.json`. `requireApproval` (off by default) makes
 `openblog syndicate --write` send only a copy you previewed and approved with `--approve`;
-approvals are private, in `approvalFile` (default `.openblog/distribution-approvals.json`). See
+approvals are private, in `approvalFile` (default `.openblog/distribution-approvals.json`). Both
+files are refused inside the static, themes, web or output folder, which a build publishes. See
 [Preview and approve before sending](cross-posting.md#preview-and-approve-before-sending).
 Credentials are environment-only and never belong
 in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup and the
@@ -407,7 +408,7 @@ credential names, and safety behavior.
 `hackerNews.enabled` and `reddit.enabled` turn each destination on, and `reddit.communities.<name>` holds the rules you
 copied from each community (`rules`, 1 to 30 lines), the day you last read them (`reviewed`, `YYYY-MM-DD`) and an
 optional `flair` reminder. `stateFile` (default `.openblog/community-submissions.json`) keeps the submissions you
-confirmed. `productHunt.enabled` turns on Product Hunt launch kits, read from `productHunt.launchDir` (default
+confirmed; it is refused inside the static, themes, web or output folder, which a build publishes. `productHunt.enabled` turns on Product Hunt launch kits, read from `productHunt.launchDir` (default
 `launches`, one `<slug>.json` per post). There are no credentials. Only `openblog submit` reads or checks this
 object. See [Community submissions](community-submissions.md).
 

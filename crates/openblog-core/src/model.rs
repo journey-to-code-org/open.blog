@@ -463,6 +463,17 @@ impl Post {
             .filter(|credit| credit.roles.iter().any(|role| role.is_author()))
     }
 
+    /// Whether the post's own `canonical` names a page other than this one, so the post's
+    /// address is not the one to hand to a directory, a community or a recipe app. One check
+    /// for every such path (recipe packages, recipe exports, community and launch kits).
+    pub fn canonical_elsewhere(&self, config: &crate::config::SiteConfig) -> bool {
+        let local = config.absolute(&self.url);
+        self.canonical
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|c| !c.is_empty() && config.absolute(c) != local)
+    }
+
     /// Whether this is a collaborative work: its approved work credits (an explicit credit
     /// sidecar, which is what the shared-publication gate writes) name two or more authors
     /// (ADR 0040). A legacy post's default site-author credit never makes it one, and neither
@@ -2176,6 +2187,7 @@ fn load_post_in(
             rendered.recipe_steps.clone(),
         );
         r.anchor = rendered.recipe_anchor.clone();
+        r.unlisted_text = rendered.recipe_unlisted_text;
         Some(r)
     } else {
         None

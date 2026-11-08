@@ -34,7 +34,8 @@ pub fn recipe_node(config: &SiteConfig, post: &Post, recipe: &Recipe) -> Json {
         "keywords": post.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>().join(", "),
     });
     let obj = r.as_object_mut().expect("json object");
-    if let Some(author) = crate::render::author_json_ld(config) {
+    // The post's credited authors, the same people its BlogPosting names (ADR 0333).
+    if let Some(author) = crate::render::post_author_json_ld(config, post) {
         obj.insert("author".into(), author);
     }
     if let Some(image) = &post.cover {

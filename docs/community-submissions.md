@@ -43,7 +43,8 @@ In `openblog.json`:
   them again after 180 days, or when there is no date. `flair` is an optional reminder of the flair the community
   expects.
 - `stateFile` (default `.openblog/community-submissions.json`) is where your confirmed submissions are kept. Like the
-  cross-posting state, keep it out of version control.
+  cross-posting state, keep it out of version control. A `stateFile` inside your static, themes, web or output folder
+  is refused, because the next build would publish it.
 
 No account, token or password is needed or accepted. There is nothing to sign in to.
 
@@ -63,7 +64,8 @@ For each destination the kit shows:
 
 - **Status**: ready for you to submit by hand, or blocked, with the reasons.
 - **Title and link**: the post's own title (use `--title "…"` to use another for this run) and exactly your canonical
-  address, never shortened or tagged.
+  address, never shortened or tagged. When the post's `canonical` names another page, that page is the original, so
+  the kit is blocked with `canonical-elsewhere`: submit the original instead.
 - **Before you submit**: a checklist of the provider's rules, each linked to where it comes from, followed by the
   community rules you wrote down. The boxes are for you. They are not saved or sent.
 - **The submit form link**, only when nothing blocks. It opens Hacker News's or Reddit's own form with the link and
@@ -75,8 +77,8 @@ For each destination the kit shows:
 
 | Destination | Blocks (no submit link) | Advice (you decide) |
 | --- | --- | --- |
-| Hacker News | empty title; title over 80 characters; invisible characters; already submitted (see below) | a title other than the post's; capitals or `!` for emphasis; a leading count such as "10 ways"; the site's name in the title |
-| Reddit | empty title; title over 300 characters; invisible characters; the community's rules not written down; already submitted there | rules read more than 180 days ago or undated; several communities in one kit |
+| Hacker News | empty title; title over 80 characters; invisible characters; already submitted (see below); the post's `canonical` names another page | a title other than the post's; capitals or `!` for emphasis; a leading count such as "10 ways"; the site's name in the title |
+| Reddit | empty title; title over 300 characters; invisible characters; the community's rules not written down; already submitted there; the post's `canonical` names another page | rules read more than 180 days ago or undated; several communities in one kit |
 
 ## Record what you submitted
 
@@ -179,7 +181,7 @@ its own copy script runs.
 500 characters; a shortened or tracking product link; no thumbnail; fewer than 2 gallery images; an image that is
 missing, outside the project, not PNG, JPEG or GIF, or 3 MB or more; a demo that is not a full YouTube address; more
 than 3 launch tags; a launch day that has passed in Pacific time or is more than a month away; a launch you already
-recorded (until `--again`).
+recorded (until `--again`); a post whose `canonical` names another page (that page is the original to launch from).
 
 **Advice** (worth a second look, never blocks): a description over 260 characters, a tagline ending in a full stop
 or equal to your post's title, a thumbnail that is not square, screenshots not shaped like 1270 by 760, an image

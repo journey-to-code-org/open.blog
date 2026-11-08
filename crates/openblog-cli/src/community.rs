@@ -70,6 +70,7 @@ fn records_path(root: &Path, config: &SiteConfig) -> Result<PathBuf, String> {
     {
         return Err("community.stateFile must be a project-relative path without `..`".into());
     }
+    fsutil::refuse_published(root, config, relative, "community.stateFile")?;
     Ok(root.join(relative))
 }
 
@@ -169,6 +170,7 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
         post_title: &post.title,
         title: options.title.as_deref(),
         canonical_url: &post.canonical_url,
+        canonical_elsewhere: post.canonical_elsewhere,
         site_title: &config.title,
         config: &config.community,
         destinations: &chosen,
@@ -255,6 +257,7 @@ fn launch(
         source_id: &post.source_id,
         post_title: &post.title,
         canonical_url: &post.canonical_url,
+        canonical_elsewhere: post.canonical_elsewhere,
         plan: &plan,
         images: &images,
         now_unix: crate::clock::now().unix(),
@@ -552,6 +555,75 @@ mod tests {
     }
 
     #[test]
+    fn a_records_file_inside_a_published_folder_is_refused() {
+        for state in ["static/rec.json", "./static/x/rec.json", "dist/rec.json"] {
+            let dir = site(&format!(
+                r#"{{"hackerNews":{{"enabled":true}},"stateFile":"{state}"}}"#
+            ));
+            let error = run(
+                dir.path(),
+                "hello",
+                Options {
+                    confirm: Some("hacker-news".into()),
+                    ..Options::default()
+                },
+            )
+            .unwrap_err();
+            assert!(error.contains("community.stateFile"), "{error}");
+            assert!(error.contains("publish"), "{error}");
+            assert!(!dir.path().join(state).exists(), "{state}");
+        }
+        // The default place, under .openblog, is private.
+        let dir = site(r#"{"hackerNews":{"enabled":true},"stateFile":".openblog/rec.json"}"#);
+        run(
+            dir.path(),
+            "hello",
+            Options {
+                confirm: Some("hacker-news".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+        assert!(dir.path().join(".openblog/rec.json").exists());
+    }
+
+    #[test]
+    fn a_post_whose_canonical_names_another_page_gets_no_ready_kit() {
+        let dir = site(
+            r#"{"hackerNews":{"enabled":true},"reddit":{"enabled":true,"communities":{"rust":{"rules":["On topic"],"reviewed":"2026-10-01"}}}}"#,
+        );
+        fs::write(
+            dir.path().join("content/posts/2026-01-03-else.md"),
+            "---
+title: Else
+date: 2026-01-03
+slug: else
+canonical: https://other.example/original
+---
+Body.
+",
+        )
+        .unwrap();
+        let mut with_kit = options("hacker-news,reddit:rust");
+        with_kit.kit = Some("kit".into());
+        run(dir.path(), "else", with_kit).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("kit/kit.json")).unwrap())
+                .unwrap();
+        for d in json["destinations"].as_array().unwrap() {
+            assert!(d["submitUrl"].is_null(), "{d}");
+            assert!(
+                d["notices"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|n| n["code"] == "canonical-elsewhere"),
+                "{d}"
+            );
+        }
+    }
+
+    #[test]
     fn a_draft_is_never_prepared() {
         let dir = site(r#"{"hackerNews":{"enabled":true}}"#);
         let error = run(dir.path(), "unseen", options("hacker-news")).unwrap_err();
@@ -638,6 +710,38 @@ mod tests {
         let dir = site(r#"{"productHunt":{"enabled":true,"launchDir":"../elsewhere"}}"#);
         let error = run(dir.path(), "hello", options("product-hunt")).unwrap_err();
         assert!(error.contains("launchDir"), "{error}");
+    }
+
+    #[test]
+    fn a_launch_kit_for_a_post_whose_canonical_names_another_page_is_not_ready() {
+        let dir = launch_site(PLAN);
+        fs::write(
+            dir.path().join("content/posts/2026-01-01-hello.md"),
+            "---
+title: Hello community
+date: 2026-01-01
+slug: hello
+canonical: https://other.example/original
+---
+Body.
+",
+        )
+        .unwrap();
+        let mut with_kit = options("product-hunt");
+        with_kit.kit = Some("kit".into());
+        run(dir.path(), "hello", with_kit).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("kit/kit.json")).unwrap())
+                .unwrap();
+        assert!(json["submitUrl"].is_null(), "{json}");
+        assert!(
+            json["notices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n["code"] == "canonical-elsewhere" && n["blocking"] == true),
+            "{json}"
+        );
     }
 
     #[test]

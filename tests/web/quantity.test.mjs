@@ -128,3 +128,14 @@ test("timers: US mixed numbers, cross-unit ranges and abbreviation dots", () => 
   assert.deepEqual(d("Cook 45 minutes to 1 hour."), [["45 minutes to 1 hour", 2700]]);
   assert.deepEqual(d("Bake 1 hr. 20 min."), [["1 hr. 20 min", 4800]]);
 });
+
+test("reads the shared ingredient cases the way the recipe check does (ADR 0334)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const fixture = JSON.parse(readFileSync(new URL("../fixtures/recipe-quantities.json", import.meta.url), "utf8"));
+  const rounded = (values) => values && values.map((v) => Math.round(v * 1e6) / 1e6);
+  for (const c of fixture.cases) {
+    const q = findQuantity(c.line);
+    assert.deepEqual(rounded(q ? q.values : null), c.values, c.line);
+    if (c.values) assert.equal(q.metric, c.metric, c.line);
+  }
+});

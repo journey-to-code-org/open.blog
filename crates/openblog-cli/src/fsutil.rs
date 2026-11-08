@@ -359,6 +359,64 @@ impl PrivateState {
     }
 }
 
+/// The configured folder (`static`, `themes`, `web` or the build `output`)
+/// that `path` lies in, so that a build would publish a file written there, or
+/// `None`. The path is read as written, joined to `root` when relative; the
+/// project's private `.openblog` folder is never published, and neither is a
+/// path outside the project.
+pub fn published_folder(
+    root: &Path,
+    config: &openblog_core::config::SiteConfig,
+    path: &Path,
+) -> Option<&'static str> {
+    fn parts(path: &Path) -> Vec<String> {
+        path.components()
+            .filter(|c| !matches!(c, std::path::Component::CurDir))
+            .map(|c| {
+                let part = c.as_os_str().to_string_lossy();
+                if cfg!(windows) {
+                    part.to_lowercase()
+                } else {
+                    part.into_owned()
+                }
+            })
+            .collect()
+    }
+    let root_parts = parts(root);
+    let full = parts(&root.join(path));
+    let inside = full.strip_prefix(root_parts.as_slice())?;
+    if inside.first().is_some_and(|first| first == ".openblog") {
+        return None;
+    }
+    let paths = &config.paths;
+    [
+        ("static", &paths.static_dir),
+        ("themes", &paths.themes),
+        ("web", &paths.web),
+        ("output", &paths.output),
+    ]
+    .into_iter()
+    .find(|(_, dir)| inside.starts_with(&parts(Path::new(dir.as_str()))))
+    .map(|(name, _)| name)
+}
+
+/// Refuses a private file that the author configured inside a published
+/// folder (see [`published_folder`]), naming the setting, so a build never
+/// copies it to the public site.
+pub fn refuse_published(
+    root: &Path,
+    config: &openblog_core::config::SiteConfig,
+    path: &Path,
+    setting: &str,
+) -> Result<(), String> {
+    match published_folder(root, config, path) {
+        Some(folder) => Err(format!(
+            "{setting} is inside the site's `{folder}` folder, so the next build would publish it; choose a place outside it, such as under .openblog. Nothing was written."
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Marker file proving the output directory belongs to open.blog, so a
 /// misconfigured `paths.output` can never wipe an unrelated folder.
 pub const MARKER: &str = ".openblog-output";
@@ -390,6 +448,33 @@ pub fn guard_output_dir(root: &Path, out: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_path_a_build_would_publish_is_named_and_private_state_is_not() {
+        use std::path::Path;
+        let root = Path::new("site");
+        let mut config = openblog_core::config::SiteConfig::default();
+        let published = |config: &openblog_core::config::SiteConfig, path: &str| {
+            super::published_folder(root, config, Path::new(path))
+        };
+        assert_eq!(published(&config, "static/rec.json"), Some("static"));
+        assert_eq!(published(&config, "./static/a/b.json"), Some("static"));
+        assert_eq!(published(&config, "dist/rec.json"), Some("output"));
+        assert_eq!(published(&config, "site/static/rec.json"), None);
+        assert_eq!(published(&config, ".openblog/rec.json"), None);
+        assert_eq!(published(&config, "records/rec.json"), None);
+        assert_eq!(published(&config, "staticish/rec.json"), None);
+        // A static folder of `.` publishes the whole project except its private state.
+        config.paths.static_dir = ".".into();
+        assert_eq!(published(&config, "records/rec.json"), Some("static"));
+        assert_eq!(published(&config, ".openblog/rec.json"), None);
+        let error = super::refuse_published(root, &config, Path::new("rec.json"), "x.stateFile")
+            .unwrap_err();
+        assert!(
+            error.contains("x.stateFile") && error.contains("`static`"),
+            "{error}"
+        );
+    }
+
     #[test]
     fn a_new_file_falls_back_to_an_exclusive_create_only_when_hard_links_are_missing() {
         let dir = std::env::temp_dir().join(format!("ob-no-links-{}", std::process::id()));

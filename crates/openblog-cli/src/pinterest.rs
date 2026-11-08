@@ -133,6 +133,12 @@ fn settings(root: &Path, options: &Options) -> Result<Settings, String> {
     }
     let state_path = syndication::private_state_path(root, &pinterest.state_file)
         .map_err(|_| format!("syndication.pinterest.stateFile must be a project-relative path without `..`. {NOTHING_SENT}"))?;
+    crate::fsutil::refuse_published(
+        root,
+        &config,
+        &state_path,
+        "syndication.pinterest.stateFile",
+    )?;
     Ok(Settings {
         environment,
         board,

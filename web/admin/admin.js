@@ -8024,6 +8024,9 @@ export const RECIPE_ADVICE = {
   "servings-not-numeric": () => "Servings, in Settings, should start with a number so readers can scale the recipe.",
   "calories-without-yield": () => "Calories don't say what they're for. In Settings, add the servings or the yield.",
   "no-image": () => "Add a photo. In Settings, choose Add cover photo. Many recipe apps and search results look for one.",
+  "canonical-elsewhere": () => "This recipe says its original is on another website, so it can't be shared from here. Share it from that website, or ask whoever set this up to remove the other address.",
+  "mixed-unit-systems": (n) => `Ingredient ${n} uses cups, ounces or pounds while others use grams or millilitres, or the other way round. Cooks who use one kind will have to convert. Nothing was changed; you could give both, like 1 cup (240 ml).`,
+  "unlisted-text": () => "Some words under Ingredients or Steps are not in the list. Your page shows them, but recipe apps won't get them. Put them in the list, or under a heading of their own.",
 };
 
 /** The advice for a preview's recipe problems, in the order the check found them. */

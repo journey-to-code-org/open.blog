@@ -134,11 +134,7 @@ pub fn package(
     let canonical_url = site.config.absolute(&post.url);
     let recipe_problems = recipe_check::check(&site.config, post, recipe);
     let (cover, image) = cover(root, site, post);
-    let canonical_elsewhere = post
-        .canonical
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|c| !c.is_empty() && c != canonical_url);
+    let canonical_elsewhere = post.canonical_elsewhere(&site.config);
     let input = CheckInput {
         recipe_problems: &recipe_problems,
         cover: &cover,
@@ -180,6 +176,9 @@ pub fn run(
     write: bool,
     json: bool,
 ) -> Result<(), String> {
+    if let Some(folder) = destination {
+        fsutil::refuse_published(root, &site.config, folder, "--out")?;
+    }
     let package = package(root, site, post, directories)?;
     // The publication boundary (ADR 0125) over every text file the package holds.
     let text: String = package

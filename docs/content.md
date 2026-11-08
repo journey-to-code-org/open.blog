@@ -760,22 +760,30 @@ openblog export lemon-garlic-pasta --format recipe-json-ld --out exports/pasta.r
 
 The file is exactly the `Recipe` the page carries, with `"@context": "https://schema.org"`:
 the same ingredients and steps as written, the times that are one length of time, the yield,
-the canonical address, the site author and, when set, `adaptedFrom`. Nothing is added: amounts
-are not converted and a time written as text is left out. Only published posts are exported,
+the canonical address, the post's authors (the people its credit file names as authors, or else
+the site author) and, when set, `adaptedFrom`. Nothing is added: amounts and units are not
+converted and a time written as text is left out. Only published posts are exported,
 nothing is sent anywhere, and an existing file is never replaced.
 
 Before exporting, the recipe is checked. These **stop the export** until fixed: no ingredients
-or no steps, an empty ingredient or step, an amount that cannot be read (`1/0 cup`, `1//2 cup`),
-a zero amount (`0 eggs`), a range written backwards (`3-2 cloves`), a zero time, a `total`
-shorter than `prep` and `cook` together, or a site `url` that is not an `http(s)` address.
+or no steps, an empty ingredient or step, an amount that cannot be read (`1/0 cup`, `1//2 cup`,
+`1.2.3 cups`, `½½ cup`), a zero amount (`0 eggs`), a range written backwards (`3-2 cloves`,
+`1,000-500 g`), a zero time, a `total` shorter than `prep` and `cook` together, a site `url`
+that is not an `http(s)` address, or a post whose `canonical` names another page (share that
+page instead). Amounts are read exactly as the page's servings scaler reads them, so
+`500-1,000 g` is a range from 500 to 1000.
 These are **listed** and the export goes ahead: a repeated ingredient line, a step that starts
 with its own number (`Step 1:`), a time written as text, only one of `prep` and `cook` without a
 `total`, `servings` that is not a number, `calories` without `servings` or `makes`, an
-`adaptedFrom` that is not a web address, no site author, and no `cover` image (search engines
-show recipe results only with a photo). Each problem names the ingredient or step number or the
-field, never your text. See ADRs
-[0333](adr/0333-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md)
-and [0334](adr/0334-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md).
+`adaptedFrom` that is not a web address, no author, no `cover` image (search engines
+show recipe results only with a photo), some amounts in grams or litres while others are in cups,
+ounces or pounds (`mixed-unit-systems`: nothing is converted; a line that gives both, like
+`1 cup (240 ml)`, is fine), and text under a recipe heading that is not in its list
+(`unlisted-text`: the page shows it, the export leaves it out). Each problem names the
+ingredient or step number or the field, never your text. See ADRs
+[0333](adr/0333-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md),
+[0334](adr/0334-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md)
+and [0385](adr/0385-a-portable-recipe-keeps-its-amounts-and-units-as-written-and-a-mix-of-measuring-systems-is-a-warning.md).
 
 ### Preparing a recipe for recipe directories
 
@@ -794,10 +802,12 @@ openblog export lemon-garlic-pasta --format recipe-package --directory google-se
 
 The new folder holds `recipe.json` (the same schema.org data as the page), `title.txt`,
 `description.txt`, `ingredients.txt`, `steps.txt`, `link.txt` (the canonical address),
-`credit.txt` (your title, the site author, the canonical address and, when set, `adaptedFrom`),
+`credit.txt` (your title, the post's authors, the canonical address and, when set, `adaptedFrom`),
 the cover image when it is a file in your static folder, `package.json`, and `index.html`: open it
 in a browser for each directory's conditions and steps. A cover given as a web address is linked,
-not downloaded. Without `--directory` the folder holds the recipe files only.
+not downloaded. Without `--directory` the folder holds the recipe files only. An `--out` folder
+inside your static, themes, web or output folder is refused, because the next build would
+publish it.
 
 | Directory | How it receives your recipe | Checked here |
 | --- | --- | --- |

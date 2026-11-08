@@ -118,6 +118,9 @@ pub struct Recipe {
     /// (also `adapted_from`, `basedOn`). Exported as schema.org `isBasedOn` only when it is an
     /// http(s) address (ADR 0333).
     pub adapted_from: Option<String>,
+    /// Blocks of text inside the recipe's sections but outside their lists (a loose paragraph
+    /// under "Ingredients"): the page shows them, the recipe data cannot carry them.
+    pub unlisted_text: usize,
 }
 
 /// The front matter keys a recipe's course is read from, first found wins.
@@ -263,6 +266,7 @@ impl Recipe {
             steps,
             anchor: None,
             adapted_from: get(&["adaptedFrom", "adapted_from", "basedOn"]).map(str::to_string),
+            unlisted_text: 0,
         }
     }
 }
@@ -333,11 +337,6 @@ const UNICODE_FRACTIONS: &[(char, f64)] = &[
     ('⅝', 0.625),
     ('⅞', 0.875),
 ];
-
-/// True for the single-character fractions an amount may be written with (`½`, `¾`).
-pub(crate) fn is_unicode_fraction(c: char) -> bool {
-    UNICODE_FRACTIONS.iter().any(|(u, _)| *u == c)
-}
 
 /// A number at the start of `s`: `2`, `1.5`, `1,5`, `1/2`, `1 1/2`, `1½`,
 /// `1 ½`, or `½`. Returns the value and the rest of the text.
