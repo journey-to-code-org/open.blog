@@ -74,12 +74,9 @@ fn wants_json(req: &Request) -> bool {
 }
 
 /// A plain answer when the service cannot be asked. Without JavaScript a visitor sees a page.
-fn unavailable(req: &Request, status: u16, heading: &str, message: &str) -> Response {
+fn unavailable(req: &Request, status: u16, code: &str, heading: &str, message: &str) -> Response {
     let response = if wants_json(req) {
-        Response::json(
-            status,
-            &serde_json::json!({ "error": if status == 504 { "timeout" } else { "failed" } }),
-        )
+        Response::json(status, &serde_json::json!({ "error": code }))
     } else {
         Response::new(
             status,
@@ -93,6 +90,26 @@ fn unavailable(req: &Request, status: u16, heading: &str, message: &str) -> Resp
     response
         .with_header("Cache-Control", "no-store")
         .with_header("X-Content-Type-Options", "nosniff")
+}
+
+fn not_sent(req: &Request) -> Response {
+    unavailable(
+        req,
+        502,
+        "failed",
+        "We could not save your request",
+        "Nothing was sent. Please try again in a little while, or call us.",
+    )
+}
+
+fn unconfirmed(req: &Request, status: u16, code: &str) -> Response {
+    unavailable(
+        req,
+        status,
+        code,
+        "We could not confirm your request",
+        "It may have been saved, so please call us before you send it again.",
+    )
 }
 
 /// Passes one `/api/quote/...` request to the local quote service and its answer back. `client`
@@ -156,22 +173,17 @@ pub(crate) fn route(
     };
     let mut reply = match result {
         Ok(reply) => reply,
-        Err(ureq::Error::Timeout(_)) => {
-            return Some(unavailable(
-                req,
-                504,
-                "We could not confirm your request",
-                "It may not have been saved. Please call us, or try again in a little while.",
-            ))
+        // Nothing listens: the service never saw the request.
+        Err(ureq::Error::ConnectionFailed | ureq::Error::HostNotFound) => {
+            return Some(not_sent(req))
         }
-        Err(_) => {
-            return Some(unavailable(
-                req,
-                502,
-                "We could not save your request",
-                "Nothing was sent. Please try again in a little while, or call us.",
-            ))
+        Err(ureq::Error::Io(error)) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+            return Some(not_sent(req))
         }
+        // The service may still finish and save it (ADR 0388), so the visitor is never told it
+        // was not saved, and is asked to call before sending it again.
+        Err(ureq::Error::Timeout(_)) => return Some(unconfirmed(req, 504, "timeout")),
+        Err(_) => return Some(unconfirmed(req, 502, "unconfirmed")),
     };
     let status = reply.status().as_u16();
     let content_type = reply
@@ -196,12 +208,7 @@ pub(crate) fn route(
         .limit(MAX_REPLY_BYTES)
         .read_to_vec()
     else {
-        return Some(unavailable(
-            req,
-            502,
-            "We could not confirm your request",
-            "It may not have been saved. Please call us, or try again in a little while.",
-        ));
+        return Some(unconfirmed(req, 502, "unconfirmed"));
     };
     let mut response = Response::new(status, &content_type, body);
     for (name, value) in kept {
@@ -388,6 +395,35 @@ mod tests {
         assert!(!seen.contains("cookie") && !seen.contains("secret"));
         assert!(seen.contains("origin: https://acme.example"));
         assert!(seen.ends_with("name=ann&token=t"));
+    }
+
+    #[test]
+    fn a_reply_cut_short_never_says_the_request_was_not_saved() {
+        // The service took the request and may have saved it, but its answer breaks off (ADR 0388).
+        for (accept, expected) in [
+            ("application/json", "unconfirmed"),
+            ("text/html", "may have been saved"),
+        ] {
+            let (port, handle) = service(
+                "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 500\r\nConnection: close\r\n\r\n{\"status\"",
+            );
+            let answer = route(
+                &env_with(Some(port)),
+                &request(
+                    "POST",
+                    "/api/quote/submit",
+                    &[("accept", accept), ("content-length", "6")],
+                    b"name=a",
+                ),
+                "1.2.3.4",
+            )
+            .unwrap();
+            handle.join().unwrap();
+            let body = String::from_utf8_lossy(&answer.body).to_string();
+            assert_eq!(answer.status, 502, "{body}");
+            assert!(body.contains(expected), "{body}");
+            assert!(!body.contains("Nothing was sent"), "{body}");
+        }
     }
 
     #[test]

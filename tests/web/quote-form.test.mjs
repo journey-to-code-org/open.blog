@@ -57,6 +57,12 @@ test("every server answer has words for the visitor", () => {
     assert.match(serverMessage(status, code), /\w/);
   }
   assert.match(serverMessage(503, "storage-unavailable"), /nothing was sent/);
+  // A time-out (the Render relay's 504, or a platform's) or a lost connection may follow a saved
+  // request, so the visitor is never told it was not saved (ADR 0388, #516).
+  for (const [status, code] of [[504, "timeout"], [504, undefined], [502, "unconfirmed"], [0, undefined]]) {
+    assert.doesNotMatch(serverMessage(status, code), /nothing was sent|could not save/i, `${status} ${code}`);
+    assert.match(serverMessage(status, code), /may have been saved.*call us before you send it again/);
+  }
   assert.equal(fieldError("email", ""), "");
 });
 

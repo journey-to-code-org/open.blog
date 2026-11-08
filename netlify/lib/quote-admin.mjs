@@ -173,6 +173,10 @@ async function eraseRows({ store, settings, rows }) {
   const ids = rows.map((row) => row.id);
   const moves = rows.flatMap((row) => photoPaths(settings, row).map((from) => ({ row, from, to: from.startsWith(`${holdFolder(settings)}/`) ? from : heldPath(settings, row, from) })));
   const held = [];
+  // A move that fails may still have happened (its reply was lost), or the photo may already be gone
+  // (an earlier erase moved it and could not put it back or record where it went). So before giving
+  // up, look where the photo really is.
+  const present = async (path) => (await store.listObjects(path.slice(0, path.lastIndexOf("/")))).includes(path);
   const restore = async () => {
     const stuck = [];
     for (const move of [...held].reverse()) {
@@ -180,7 +184,14 @@ async function eraseRows({ store, settings, rows }) {
       try {
         await store.moveObject(move.to, move.from);
       } catch {
-        stuck.push(move);
+        // Only a photo seen in the hold folder is recorded there. One that was put back but whose
+        // reply was lost is where its request says. If it cannot be told, the request keeps its own
+        // path: the next erase looks in both places (ADR 0388).
+        try {
+          if (await present(move.to)) stuck.push(move);
+        } catch {
+          // Left as the request says.
+        }
       }
     }
     // A photo that could not be put back is still kept, where it is now, and its request points there.
@@ -194,10 +205,7 @@ async function eraseRows({ store, settings, rows }) {
       }
     }
   };
-  // A move that fails may still have happened (its reply was lost), or the photo may already be gone
-  // (an earlier erase moved it and could not put it back or record where it went). So before giving
-  // up, look: only a photo still where its request says it is counts as a failed move.
-  const present = async (path) => (await store.listObjects(path.slice(0, path.lastIndexOf("/")))).includes(path);
+  // Only a photo still where its request says it is counts as a failed move.
   try {
     for (const move of moves) {
       if (move.from !== move.to) {

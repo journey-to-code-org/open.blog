@@ -71,6 +71,9 @@ export function serverMessage(status, code) {
   if (status === 413 || code === "too-large") return "Your photos are too large. Send fewer or smaller photos.";
   if ((status === 422 && code === "token") || status === 409) return "Please press Send once more.";
   if (status === 422) return "Some details need fixing. Check the fields marked below.";
-  if (status >= 500 || status === 0) return "We could not save your request, and nothing was sent. Please try again later, or call us.";
+  // A time-out or a lost connection says nothing about whether the request was saved: the
+  // function may still finish it (ADR 0388). Sending again could make a second copy.
+  if (status === 504 || code === "timeout" || code === "unconfirmed" || status === 0) return "We could not confirm that your request arrived. It may have been saved, so please call us before you send it again.";
+  if (status >= 500) return "We could not save your request, and nothing was sent. Please try again later, or call us.";
   return "This request could not be accepted.";
 }

@@ -65,7 +65,8 @@ container starts `scripts/quote-service.mjs`, which runs the same function code 
 machine only (port 8788, or `OPENBLOG_QUOTE_SERVICE_PORT`). `openblog serve` passes `/api/quote/...` on your site
 to it, with the visitor's address as the server saw it, so every spam control below works the same. It also runs the
 retention sweep once a few minutes after it starts and then every 24 hours. If the service is not running, a visitor
-is told nothing was sent. Without `OPENBLOG_QUOTE_ENABLED`, `/api/quote/...` is a missing page, as before.
+is told nothing was sent. If it does not answer within 25 seconds, or its answer breaks off, the visitor is told
+the request may have been saved and asked to call before sending it again, since the service may still save it. Without `OPENBLOG_QUOTE_ENABLED`, `/api/quote/...` is a missing page, as before.
 
 For Admin on the same service, set `OPENBLOG_QUOTE_ENDPOINT` to `http://127.0.0.1:8788/api/quote` and
 `OPENBLOG_QUOTE_ADMIN_KEY` (see **Managing requests in Admin**).

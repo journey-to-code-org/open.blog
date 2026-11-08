@@ -301,6 +301,22 @@ test("an erase goes ahead when a photo is already gone or was moved but the repl
   }
 });
 
+test("a photo put back whose reply was lost is still recorded where it is, so the next erase removes it (ADR 0388)", async () => {
+  // Photo 2 cannot be moved aside; photo 1 is put back, but the reply to that is lost.
+  const { handler, f } = make([row(1, { photos: [photo(1, 1), photo(1, 2)] })], { failMoveAt: 2, loseMoveReplyAt: 3 });
+  const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids: [id(1)] } })).body);
+  assert.equal((await call(handler, "POST", "erase", { body: { ids: [id(1)], token: preview.token } })).statusCode, 502);
+  assert.deepEqual([...f.state.objects].sort(), [photo(1, 1).path, photo(1, 2).path]);
+  assert.deepEqual(f.state.rows[0].photos, [photo(1, 1), photo(1, 2)], "the request points where its photos are");
+  const healthy = make([], {});
+  healthy.f.state.rows = f.state.rows;
+  healthy.f.state.objects = f.state.objects;
+  const again = JSON.parse((await call(healthy.handler, "POST", "erase/preview", { body: { ids: [id(1)] } })).body);
+  assert.deepEqual(JSON.parse((await call(healthy.handler, "POST", "erase", { body: { ids: [id(1)], token: again.token } })).body), { erased: 1, verified: true });
+  assert.equal(healthy.f.state.rows.length, 0);
+  assert.deepEqual([...f.state.objects], [], "no photo of the erased request is left in storage");
+});
+
 test("a photo removal that fails after the records are gone is reported, and the next erase removes it", async () => {
   const { handler, f } = make([row(1, { photos: [photo(1, 1)] }), row(2)], { failRemove: true });
   const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids: [id(1)] } })).body);
