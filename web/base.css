@@ -1335,15 +1335,18 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   opacity: 0.65;
 }
 
+/* Inset to line up with the Run/Reset buttons in .ob-code-editor-controls. */
 .ob-code-editor-note,
 .ob-code-editor-status {
   margin: 0.55rem 0 0;
+  padding-inline: 0.75rem;
   color: var(--ob-color-muted);
   font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 .ob-code-editor-status {
-  margin-top: 0.25rem;
+  margin-top: 0.35rem;
   font-family: var(--ob-font-mono);
   font-size: 0.75rem;
   font-weight: 400;
@@ -1351,7 +1354,7 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
 
 .ob-code-editor-controls + .ob-code-editor-note {
   margin-top: 0.75rem;
-  padding-top: 0.65rem;
+  padding-top: 0.75rem;
   border-top: var(--ob-border-width) solid var(--ob-color-border);
 }
 
