@@ -775,6 +775,9 @@ and [0334](adr/0334-a-recipe-export-is-checked-against-a-closed-list-of-problems
 No recipe directory lets open.blog submit for you, so open.blog never does: it prepares a
 folder with everything a directory's own form or check needs, and a page listing your steps.
 You choose the directories, and you make each submission yourself, by hand, if you want to.
+The `pinterest` directory here is Pinterest reading your page when you save a Pin from it yourself; it is separate
+from [Pinterest Pins](pinterest.md), the opt-in `openblog pinterest` that sends a post's visual card as a Pin with
+your own token. A recipe package never sends anything.
 
 ```sh
 openblog export lemon-garlic-pasta --format recipe-package --directory google-search,pinterest   # preview and check

@@ -13,8 +13,10 @@ If you are new, read these in order; each one stands alone otherwise.
    Ghost, and WordPress without leaking credentials or creating duplicate originals.
    [Provider capabilities](provider-capabilities.md) lists what each destination can take,
    [Community submissions](community-submissions.md) prepares a post for you to submit by hand to Hacker
-   News or Reddit, or a Product Hunt launch kit, and [Webmention](webmention.md) tells the sites a post links
-   that it links them.
+   News or Reddit, or a Product Hunt launch kit, [Webmention](webmention.md) tells the sites a post links
+   that it links them, [Visual cards](visual-cards.md) builds and checks Pinterest and link preview cards
+   from your own images, and [Pinterest Pins](pinterest.md) sends a confirmed Pin of one to your board
+   (opt-in).
 6. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
 7. [Adding web components to a theme](theme-components.md): scripts, heading effects,

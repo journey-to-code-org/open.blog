@@ -374,12 +374,12 @@ impl DistributionPlan {
     }
 }
 
-fn field(hasher: &mut Blake2b512, value: &str) {
+pub(crate) fn field(hasher: &mut Blake2b512, value: &str) {
     hasher.update((value.len() as u64).to_be_bytes());
     hasher.update(value.as_bytes());
 }
 
-fn hex(hasher: Blake2b512) -> String {
+pub(crate) fn hex(hasher: Blake2b512) -> String {
     hasher
         .finalize()
         .iter()

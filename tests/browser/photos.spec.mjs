@@ -128,6 +128,14 @@ test("a large photo becomes the cover, shown as a picture and light on the site"
   await expect(cover.getByRole("button", { name: "Change cover photo" })).toBeVisible();
 
   await page.getByLabel("Describe the picture").fill("A lemon cake on a blue plate");
+  // A Pin's own words are folded away until wanted, and saved as the card fields (#393).
+  const pinWords = page.locator("[data-card-words]");
+  await expect(page.getByLabel("Pin title")).toBeHidden();
+  await pinWords.getByText("Words for a Pinterest Pin").click();
+  await page.getByLabel("Pin title").fill("Lemon cake  that stays moist");
+  await page.getByLabel("Pin description").fill("One bowl, one hour.");
+  const wide = await pinWords.evaluate((details) => details.getBoundingClientRect().right - innerWidth);
+  expect(wide).toBeLessThanOrEqual(0);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator(".oba-save-state")).toHaveText("Saved");
 
@@ -140,6 +148,8 @@ test("a large photo becomes the cover, shown as a picture and light on the site"
   const source = readFileSync(join(posts, saved), "utf8");
   expect(source).toContain(`/images/uploads/${new Date().getFullYear()}/img-2031.jpg`);
   expect(source).toContain("A lemon cake on a blue plate");
+  expect(source).toMatch(/^cardTitle: "?Lemon cake that stays moist"?$/m);
+  expect(source).toMatch(/^cardDescription: "?One bowl, one hour\."?$/m);
 });
 
 test("Insert image shows earlier photos as pictures and asks for a description", async ({ page }) => {

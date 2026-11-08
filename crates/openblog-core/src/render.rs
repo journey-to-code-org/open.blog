@@ -2734,11 +2734,7 @@ impl<'a> Renderer<'a> {
             path: post.url.clone(),
             canonical,
             kind: "article",
-            image: post.cover.clone().or_else(|| {
-                post.video
-                    .as_ref()
-                    .and_then(|video| video.thumbnail.clone())
-            }),
+            image: post.page_image().map(str::to_string),
             image_alt: (!post.cover_alt.is_empty()).then(|| post.cover_alt.clone()),
             json_ld: Some({
                 let mut posting = serde_json::json!({

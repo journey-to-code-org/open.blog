@@ -657,6 +657,39 @@ pub struct SyndicationConfig {
     pub require_approval: bool,
     /// Private approvals, relative to the project root.
     pub approval_file: String,
+    /// Pinterest Pins sent by `openblog pinterest` (ADRs 0371 and 0372). Absent means off, and
+    /// nothing else reads it, so builds, feeds and cross-posting are unchanged by it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinterest: Option<PinterestConfig>,
+}
+
+/// The opt-in Pinterest destination. Values are checked by the command that uses them, so a
+/// mistake here never stops a build.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PinterestConfig {
+    /// Must be `true` before anything is sent.
+    pub enabled: bool,
+    /// `sandbox` (the default: Pins only the author can see) or `production`.
+    pub environment: String,
+    /// The board a Pin goes to unless `--board` names another; it must be one the token can use.
+    pub board: String,
+    /// An optional section of that board.
+    pub board_section: String,
+    /// Private record of the Pins sent and attempted, relative to the project root.
+    pub state_file: String,
+}
+
+impl Default for PinterestConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            environment: "sandbox".into(),
+            board: String::new(),
+            board_section: String::new(),
+            state_file: ".openblog/pinterest.json".into(),
+        }
+    }
 }
 
 impl Default for SyndicationConfig {
@@ -666,6 +699,7 @@ impl Default for SyndicationConfig {
             targets: BTreeMap::new(),
             require_approval: false,
             approval_file: ".openblog/distribution-approvals.json".into(),
+            pinterest: None,
         }
     }
 }

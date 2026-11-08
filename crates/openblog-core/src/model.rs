@@ -361,6 +361,17 @@ pub struct Post {
 }
 
 impl Post {
+    /// The post's own share image, the one its page declares as `og:image` before the site's
+    /// `ogImage`: the cover, else a video post's thumbnail. The page renderer and visual cards
+    /// both use this, so a card always checks the image the page really declares.
+    pub fn page_image(&self) -> Option<&str> {
+        self.cover.as_deref().or_else(|| {
+            self.video
+                .as_ref()
+                .and_then(|video| video.thumbnail.as_deref())
+        })
+    }
+
     /// Canonical authored Markdown used to derive portable representations.
     pub fn authored_markdown(&self) -> &str {
         &self.authored_markdown

@@ -2999,6 +2999,50 @@ and per cuisine, joined by plain links. It takes no reserved address: a page of 
 listing moves or drops that one page, with a warning (ADR 0352).
 _Avoid_: Recipe index, recipe archive (in prose), search
 
+**Visual card**:
+What one image destination shows of a published post: one of the author's own published images, a title, a
+description, the image's alternative text, the canonical link and the image's recorded credit. Built and checked by
+`openblog card`, never generated and never sent by it (ADRs 0368 to 0370).
+_Avoid_: Social image, thumbnail, generated card
+
+**Card image candidate**:
+An image a visual card may use, tried in a fixed order: the explicit `cardImage`, the authored cover, then for recipe
+and field-journal posts the photographs in the portable body. The first one a destination accepts is used (ADR 0368).
+_Avoid_: Best image, hero
+
+**Image credit**:
+The recorded source of a card image: one line of text and an optional https link, from `coverCredit` or
+`cardImageCredit` and their `...Url` keys. Never inferred; an image without one has none.
+_Avoid_: Attribution (a work credit of the post), caption
+
+**Card format**:
+One destination a visual card is built for, from a closed list (`pinterest-pin`, `facebook-link`, `linkedin-link`),
+with dated requirements verified against the provider's documentation (shape, sizes, file size and types, text
+limits). A link preview format shows the page's own metadata, never card fields (ADR 0370).
+_Avoid_: Platform, network, image size
+
+**Card fallback**:
+Passing over a card image candidate the destination cannot take, recorded with its reasons, and trying the next. A
+card is never fixed by cropping, resizing or generating anything (ADR 0370).
+_Avoid_: Auto-fix, default image
+
+**Pin plan**:
+Exactly what `openblog pinterest pin` would send to one Pinterest board: the post's Pin card (its title, its
+description followed by the image credit, the image's own alternative text, the canonical link) and the image file's
+bytes, with the environment (`sandbox` or `production`), board and section. Built without any request (ADR 0372).
+_Avoid_: Pin draft, Pin preview page
+
+**Pin digest**:
+The digest of a Pin plan, over every field the request carries and a digest of the image's bytes. `--write` sends
+only when `--confirm` repeats it, so any change after the preview stops the send (ADR 0372).
+_Avoid_: Approval id, card digest (which covers only the card)
+
+**Unsettled Pin attempt**:
+A recorded Pin request that may have created a Pin (no answer, a server error, or a reply without a Pin id). It is
+never sent again on its own: `--reconcile` looks for the one Pin linking the post since the attempt, and only the
+author, with `--forget-attempt`, may decide that none was made (ADR 0373).
+_Avoid_: Failed Pin, retry
+
 **Recipe export**:
 A published recipe post as one schema.org `Recipe` JSON-LD document: exactly the `Recipe` node its page carries, plus
 the schema.org context, written locally by `openblog export <slug> --format recipe-json-ld`. It carries the author's

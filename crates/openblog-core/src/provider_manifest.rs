@@ -52,10 +52,12 @@ pub enum ProviderId {
     ProductHunt,
     Bluesky,
     Mastodon,
+    /// Pinterest Pins of a post's visual card, sent by `openblog pinterest` (ADR 0371).
+    Pinterest,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 12] = [
+    pub const ALL: [ProviderId; 13] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -68,6 +70,7 @@ impl ProviderId {
         Self::ProductHunt,
         Self::Bluesky,
         Self::Mastodon,
+        Self::Pinterest,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -91,12 +94,15 @@ impl ProviderId {
             Self::ProductHunt => "product-hunt",
             Self::Bluesky => "bluesky",
             Self::Mastodon => "mastodon",
+            Self::Pinterest => "pinterest",
         }
     }
 
     pub fn family(self) -> Family {
         match self {
-            Self::Linkedin | Self::Facebook | Self::Bluesky | Self::Mastodon => Family::Social,
+            Self::Linkedin | Self::Facebook | Self::Bluesky | Self::Mastodon | Self::Pinterest => {
+                Family::Social
+            }
             Self::HackerNews | Self::Reddit | Self::ProductHunt => Family::Community,
             _ => Family::Syndication,
         }
@@ -127,8 +133,9 @@ impl From<social_schedule::Provider> for ProviderId {
 }
 
 /// Which seam a provider is reached through: a full copy of the article (`openblog syndicate`,
-/// ADR 0004), an announcement that links the canonical post (social publishing, epic #353), or a
-/// guided submission the author makes by hand to a community (`openblog submit`, ADR 0337).
+/// ADR 0004), a post that links the canonical page and carries no copy of the article (social
+/// publishing, epic #353, and Pinterest Pins, ADR 0371), or a guided submission the author makes
+/// by hand to a community (`openblog submit`, ADR 0337).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Family {
@@ -953,6 +960,44 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 sources: sources(docs),
             }
         }
+        Family::Social if provider == ProviderId::Pinterest => ProviderManifest {
+            // Pinterest API v5 `POST /v5/pins` (ADR 0371): a Pin carries a title, a description,
+            // alternative text, the canonical link and one image, sent as the image's own bytes.
+            // Video needs a separate media upload this adapter does not make; the request has no
+            // draft or publishing-time field. The description is the text held to 800 characters.
+            manifest_version: MANIFEST_VERSION,
+            provider,
+            family: Family::Social,
+            label: "Pinterest".to_string(),
+            policy_version: BUILTIN_POLICY_VERSION.to_string(),
+            capabilities: support([
+                (Link, Adapter),
+                (Text, Adapter),
+                (Article, Unsupported),
+                (Image, Adapter),
+                (Video, Manual),
+                (Draft, Unsupported),
+                (Schedule, Unsupported),
+            ]),
+            login: Login {
+                method: LoginMethod::Oauth2,
+                scopes: ["boards:read", "boards:write", "pins:read", "pins:write"]
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect(),
+            },
+            constraints: Constraints {
+                max_text_chars: Some(800),
+                ..Constraints::default()
+            },
+            canonical: CanonicalLink::Linked,
+            publishing: Publishing::ExplicitApproval,
+            sources: sources(&[
+                "https://github.com/pinterest/api-description/blob/main/v5/openapi.json",
+                "https://developers.pinterest.com/docs/key-concepts/access-tiers/",
+                "https://dev.pinterest.com/docs/developer-tools/sandbox/",
+            ]),
+        },
         Family::Social => {
             // Scheduling is open.blog's own queue (ADRs 0308, 0316), so its window is the queue's.
             let schedule = Constraints {

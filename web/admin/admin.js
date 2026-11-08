@@ -22027,6 +22027,18 @@ export class Editor {
       if (kind === "posts") {
         ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "" });
         side.push(this.field("oba-cover-alt", "Describe the picture", ui.coverAlt, "A few words for people who cannot see it, such as: A lemon cake on a blue plate."));
+        // The card's own words (ADR 0369): kept in `cardTitle` and `cardDescription`, folded away
+        // because only a Pin open.blog sends reads them.
+        ui.cardTitle = h("input", { id: "oba-card-title", type: "text", value: f.cardTitle || "" });
+        ui.cardDescription = h("textarea", { id: "oba-card-description", rows: 3, value: f.cardDescription || "" });
+        side.push(h(
+          "details",
+          { class: "oba-card-words", "data-card-words": "true", open: Boolean(f.cardTitle || f.cardDescription) },
+          h("summary", {}, "Words for a Pinterest Pin"),
+          h("p", { class: "oba-help" }, "Only used when open.blog sends a Pin of this post. Leave them empty to use the title and summary."),
+          this.field("oba-card-title", "Pin title", ui.cardTitle),
+          this.field("oba-card-description", "Pin description", ui.cardDescription),
+        ));
       }
       side.push(h("details", { class: "oba-cover-address", open: Boolean(f.cover) && !f.cover.startsWith("/") }, h("summary", {}, "Use a web address instead"), this.field("oba-cover", "Picture address", ui.cover)));
       this.syncCoverPreview();
@@ -25902,6 +25914,8 @@ export class Editor {
       set("seriesOrder", ui.order.value);
       set("canonical", ui.canonical.value.trim());
       set("coverAlt", ui.coverAlt.value.trim());
+      set("cardTitle", ui.cardTitle.value.replace(/\s+/g, " ").trim());
+      set("cardDescription", ui.cardDescription.value.trim());
       const status = this.currentStatus();
       const picked = fromLocalInput(ui.date.value);
       if (status === "draft") {
