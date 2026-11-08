@@ -564,6 +564,25 @@ fn parse_quiz(source: &str) -> Result<QuizQuestion, String> {
     })
 }
 
+/// The order a quiz shows its choices in: a shuffle seeded by the quiz's own key,
+/// so every build agrees, but an author's habit of writing the answer second does
+/// not become the reader's shortcut. Inputs keep their authored index as `value`.
+/// Portable copies keep the authored order: they print the answer beside the choices.
+fn quiz_order(quiz: &QuizQuestion) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..quiz.choices.len()).collect();
+    let mut state = u64::from_str_radix(&quiz.key, 16).unwrap_or(0);
+    for i in (1..order.len()).rev() {
+        // One SplitMix64 step per swap.
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^= z >> 31;
+        order.swap(i, (z % (i as u64 + 1)) as usize);
+    }
+    order
+}
+
 fn render_quiz(
     source: &str,
     seen: &mut std::collections::HashMap<String, usize>,
@@ -581,7 +600,8 @@ fn render_quiz(
         "<ob-quiz data-key=\"{}\"><fieldset><legend>{prompt}</legend><div class=\"ob-quiz-choices\">",
         instance_key
     );
-    for (index, choice) in quiz.choices.iter().enumerate() {
+    for index in quiz_order(&quiz) {
+        let choice = &quiz.choices[index];
         let answer = quiz_inline(&choice.text)?;
         let correct = if choice.correct {
             " data-correct=\"true\""

@@ -1468,9 +1468,17 @@ ob-quiz fieldset {
   background: var(--ob-color-surface-raised);
 }
 
+/* Floated, a legend leaves the fieldset's border and sits inside the card. */
 ob-quiz legend {
-  padding: 0 0.35rem;
+  float: left;
+  width: 100%;
+  margin: 0 0 0.75rem;
+  padding: 0;
   font-weight: 700;
+}
+
+ob-quiz legend + * {
+  clear: both;
 }
 
 .ob-quiz-choices {
