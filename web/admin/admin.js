@@ -12,6 +12,7 @@ import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createAnnouncementsPanel } from "./announcements.js";
+import { createJobShare } from "./job-share.js";
 import { createBusinessFacts } from "./business.js";
 import { createSeasonalReminders } from "./seasonal.js";
 import { createServices } from "./services.js";
@@ -12306,6 +12307,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "announcements") await this.showAnnouncements();
+      else if (head === "share" && tail) await this.showJobShare(decodeURIComponent(tail));
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "appearance") await this.showAppearance();
@@ -14560,6 +14562,18 @@ export class ObAdmin extends AdminElement {
     this.mount(this.shell("announcements", view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
+    await view.load();
+  }
+
+  // ---- share a finished job (ADR 0396, #488)
+
+  /** `#/share/<path>`: what one published job would look like on Google, Facebook and Nextdoor, and where it stands. */
+  async showJobShare(path) {
+    const view = createJobShare({ api: this.api, path });
+    this.mount(this.shell("posts", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
     await view.load();
   }
 
@@ -22016,7 +22030,9 @@ export class Editor {
         },
       });
       this.jobForm.setVisible(ui.profile.value === JOB_PROFILE);
-      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp), ui.profileFields, this.jobForm.element);
+      // A saved job can be shared once it is published; the screen says so when it is not yet.
+      ui.shareJob = this.isNew ? null : h("p", { hidden: ui.profile.value !== JOB_PROFILE }, h("a", { class: "oba-btn", href: `#/share/${encodeURIComponent(this.doc.path)}`, "data-action": "job-share" }, "Share this job"));
+      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp), ui.profileFields, this.jobForm.element, ui.shareJob);
       ui.description = h("textarea", { id: "oba-desc", rows: 3, value: f.description || "" });
       side.push(this.field("oba-desc", "Description", ui.description, "Shown in search results and feeds. Leave empty to use an excerpt."));
       ui.commentPolicy = h("select", { id: "oba-comments" },
@@ -23404,6 +23420,7 @@ export class Editor {
     if (!this.jobForm) return;
     const on = this.ui.profile.value === JOB_PROFILE;
     this.jobForm.setVisible(on);
+    if (this.ui.shareJob) this.ui.shareJob.hidden = !on;
     if (!on) return;
     this.jobForm.prefillDates();
     this.syncRichToMarkdown();

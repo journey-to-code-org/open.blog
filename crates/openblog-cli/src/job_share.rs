@@ -66,6 +66,8 @@ pub enum Status {
     Unknown,
     /// Google certainly did not create it; sending again is allowed.
     NotPosted,
+    /// The owner said in Admin that they posted it by hand.
+    PostedByHand,
 }
 
 impl Status {
@@ -75,6 +77,7 @@ impl Status {
             Self::Posted => "posted",
             Self::Unknown => "may have been posted: check, then settle it",
             Self::NotPosted => "not posted",
+            Self::PostedByHand => "you posted it by hand",
         }
     }
 }
@@ -101,7 +104,7 @@ pub struct State {
 }
 
 impl State {
-    fn load(path: &Path) -> Result<Self, String> {
+    pub(crate) fn load(path: &Path) -> Result<Self, String> {
         match fs::read_to_string(path) {
             Ok(text) => {
                 let state: Self = serde_json::from_str(&text).map_err(|_| {
@@ -122,7 +125,7 @@ impl State {
         }
     }
 
-    fn save(&self, path: &Path) -> Result<(), String> {
+    pub(crate) fn save(&self, path: &Path) -> Result<(), String> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| format!("cannot create the job share record folder: {error}"))?;
@@ -132,11 +135,11 @@ impl State {
         fsutil::write_file(path, format!("{text}\n").as_bytes())
     }
 
-    fn record(&self, source: &str, destination: JobDestination) -> Option<&Record> {
+    pub(crate) fn record(&self, source: &str, destination: JobDestination) -> Option<&Record> {
         self.jobs.get(source)?.get(destination.as_str())
     }
 
-    fn set(&mut self, source: &str, destination: JobDestination, record: Record) {
+    pub(crate) fn set(&mut self, source: &str, destination: JobDestination, record: Record) {
         self.jobs
             .entry(source.to_string())
             .or_default()
@@ -147,13 +150,21 @@ impl State {
 // ---------------------------------------------------------------------------------------------
 // Loading a job.
 
-struct Job {
-    title: String,
-    source_path: String,
-    projections: Vec<JobProjection>,
+pub(crate) struct Job {
+    pub title: String,
+    /// The job's page, relative to the site (`/posts/new-oak-floor/`), as the announcements name it.
+    pub work: String,
+    pub source_path: String,
+    pub projections: Vec<JobProjection>,
     /// The first after-photo's file, when it is one of the site's.
     photo_file: Option<PathBuf>,
     language: String,
+}
+
+/// Which published post to share: by slug (the command) or by source path (Admin).
+pub(crate) enum Which<'a> {
+    Slug(&'a str),
+    Source(&'a str),
 }
 
 fn destinations(to: Option<&str>) -> Result<Vec<JobDestination>, String> {
@@ -177,13 +188,32 @@ fn destinations(to: Option<&str>) -> Result<Vec<JobDestination>, String> {
 }
 
 fn load(root: &Path, slug: &str, chosen: &[JobDestination]) -> Result<Job, String> {
+    load_job(root, Which::Slug(slug), chosen)
+}
+
+pub(crate) fn load_job(
+    root: &Path,
+    which: Which<'_>,
+    chosen: &[JobDestination],
+) -> Result<Job, String> {
     let config = site::load_config(root)?;
     // Only a published job: a draft or a scheduled job has no page anyone could follow.
     let (loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
-    let post = match loaded.posts.iter().find(|post| post.slug == slug) {
-        Some(post) => post,
-        None => return Err(syndication::unavailable_post_error(root, slug)?),
+    let found = loaded.posts.iter().find(|post| match which {
+        Which::Slug(slug) => post.slug == slug,
+        Which::Source(source) => post.source.replace('\\', "/") == source,
+    });
+    let post = match (found, &which) {
+        (Some(post), _) => post,
+        (None, Which::Slug(slug)) => return Err(syndication::unavailable_post_error(root, slug)?),
+        (None, Which::Source(_)) => {
+            return Err(
+                "This job is not published yet, so there is no page to share. Publish it first."
+                    .into(),
+            )
+        }
     };
+    let slug = post.slug.as_str();
     let job = post.job.as_ref().ok_or_else(|| {
         format!("`{slug}` is not a job; only a post with `profile: job` can be shared this way")
     })?;
@@ -239,6 +269,7 @@ fn load(root: &Path, slug: &str, chosen: &[JobDestination]) -> Result<Job, Strin
         .collect();
     Ok(Job {
         title: post.title.clone(),
+        work: post.url.clone(),
         source_path: post.source.replace('\\', "/"),
         projections,
         photo_file,
@@ -298,10 +329,18 @@ pub(crate) fn run_with(
                 "--send names its one destination; leave out --to.\n{USAGE}"
             ));
         }
-        if JobDestination::parse(send) != Some(JobDestination::GoogleBusinessProfile) {
-            return Err(format!(
-                "open.blog sends only to google-business-profile. Facebook and Nextdoor are posted by hand: run with --kit <new folder>. {NOTHING_SENT}"
-            ));
+        match JobDestination::parse(send) {
+            Some(JobDestination::GoogleBusinessProfile) => {}
+            Some(JobDestination::Facebook) => {
+                return Err(format!(
+                    "A job goes to your Facebook Page from Admin: open the job and choose Share this job, which schedules it through your connected Page. Or run with --kit <new folder> to post it by hand. {NOTHING_SENT}"
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "Nextdoor is posted by hand: run with --kit <new folder>. {NOTHING_SENT}"
+                ))
+            }
         }
         let job = load(root, slug, &[JobDestination::GoogleBusinessProfile])?;
         return send_google(root, slug, &state_path, job, options, context, &mut say);
@@ -388,6 +427,11 @@ fn preview(root: &Path, slug: &str, job: &Job) -> String {
         let by_hand =
             format!("  To post it by hand: openblog job-share {slug} --kit <new folder>\n");
         match p.route {
+            Route::Adapter if p.destination == JobDestination::Facebook => {
+                out.push_str("  To post it to your Facebook Page: in Admin, open the job and choose Share this job.
+");
+                out.push_str(&by_hand);
+            }
             Route::Adapter if sending_on(root) => out.push_str(&format!(
                 "  digest: {}\n  To send exactly this: openblog job-share {slug} --send {} --confirm {}\n",
                 p.digest,
@@ -1025,6 +1069,92 @@ mod tests {
             None,
         );
         assert!(result.unwrap_err().contains("choose a new folder"));
+    }
+
+    #[test]
+    fn a_photo_that_may_hold_where_it_was_taken_is_left_out_of_the_kit() {
+        let dir = site(OFF);
+        let mut png = samples::png(1200, 900, true);
+        png.resize(20_000, 0);
+        fs::write(dir.path().join("static/images/floor-after.png"), png).unwrap();
+        let transport = scripted(vec![]);
+        let (result, out) = run(dir.path(), Options::default(), &transport, None);
+        result.unwrap();
+        assert!(out.contains("fix first: The first after photo may hold the place"));
+        let (result, _) = run(
+            dir.path(),
+            Options {
+                kit: Some("kit".into()),
+                ..Options::default()
+            },
+            &transport,
+            None,
+        );
+        result.unwrap();
+        let kit = dir.path().join("kit");
+        assert!(!kit.join("images").exists(), "the photo was copied");
+        let page = fs::read_to_string(kit.join("index.html")).unwrap();
+        assert!(!page.contains("floor-after.png"), "{page}");
+        assert!(page.contains("The photo is left out"));
+        assert!(!fs::read_to_string(kit.join("kit.json"))
+            .unwrap()
+            .contains("floor-after.png"));
+    }
+
+    #[test]
+    fn a_job_reaches_a_facebook_page_through_the_announcements_when_it_has_no_photo() {
+        let dir = site(OFF);
+        fs::write(
+            dir.path().join("content/posts/floor.md"),
+            JOB.replace(
+                "  media:\n    after:\n      - /images/floor-after.png\n",
+                "",
+            ),
+        )
+        .unwrap();
+        let transport = scripted(vec![]);
+        let (result, out) = run(
+            dir.path(),
+            Options {
+                json: true,
+                to: Some("facebook".into()),
+                ..Options::default()
+            },
+            &transport,
+            None,
+        );
+        result.unwrap();
+        let value: Json = serde_json::from_str(&out).unwrap();
+        assert_eq!(value["destinations"][0]["route"], "adapter");
+        let (result, out) = run(dir.path(), Options::default(), &transport, None);
+        result.unwrap();
+        assert!(out.contains("in Admin, open the job and choose Share this job"));
+        let (result, _) = run(
+            dir.path(),
+            Options {
+                send: Some("facebook".into()),
+                ..Options::default()
+            },
+            &transport,
+            None,
+        );
+        assert!(result.unwrap_err().contains("from Admin"));
+        assert!(transport.calls.borrow().is_empty());
+        // With a photo, which the Page adapter cannot carry, Facebook is by hand.
+        let with_photo = site(OFF);
+        let (result, out) = run(
+            with_photo.path(),
+            Options {
+                json: true,
+                to: Some("facebook".into()),
+                ..Options::default()
+            },
+            &transport,
+            None,
+        );
+        result.unwrap();
+        let value: Json = serde_json::from_str(&out).unwrap();
+        assert_eq!(value["destinations"][0]["route"], "by-hand");
     }
 
     #[test]

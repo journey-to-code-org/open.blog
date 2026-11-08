@@ -33,6 +33,8 @@ const LANDING_FILE: &str = openblog_core::landing::LANDING_FILE;
 const LANDING_HISTORY_PATH: &str = crate::landing_history::DIRECTORY;
 /// What the owner snoozed and which reminder opened which draft (ADR 0355).
 const SEASONAL_PATH: &str = crate::seasonal_store::STATE_PATH;
+/// Where each finished job was shared and how (ADR 0396).
+const JOB_SHARES_PATH: &str = crate::job_share::STATE_FILE;
 const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
@@ -307,6 +309,7 @@ impl Policy {
             SELECTIONS_PATH.into(),
             ACKNOWLEDGEMENTS_PATH.into(),
             SEASONAL_PATH.into(),
+            JOB_SHARES_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -329,6 +332,7 @@ impl Policy {
                 | SELECTIONS_PATH
                 | ACKNOWLEDGEMENTS_PATH
                 | SEASONAL_PATH
+                | JOB_SHARES_PATH
         ) {
             return true;
         }
@@ -1489,6 +1493,27 @@ mod tests {
             fs::read_to_string(history.join("0000000001.json")).unwrap(),
             "{\"kept\":1}"
         );
+    }
+
+    #[test]
+    fn where_a_job_was_shared_is_kept() {
+        let policy = policy();
+        assert!(policy.allowed(".openblog/job-shares.json"));
+        for path in [
+            ".openblog/job-shares.json.tmp",
+            ".openblog/job-shares.json/extra",
+            ".openblog/job-shares-other.json",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let state = fixture.0.join(".openblog/job-shares.json");
+        fs::create_dir_all(state.parent().unwrap()).unwrap();
+        let text = "{\"version\":1,\"jobs\":{}}
+";
+        fs::write(&state, text).unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[".openblog/job-shares.json"], text.as_bytes());
     }
 
     #[test]

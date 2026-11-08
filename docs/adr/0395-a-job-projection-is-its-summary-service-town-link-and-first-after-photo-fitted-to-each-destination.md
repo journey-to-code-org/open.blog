@@ -1,6 +1,6 @@
 # ADR 0395: A job projection is its summary, service, town, link and first after-photo, fitted to each destination
 
-- Status: Accepted
+- Status: Accepted; amended by [ADR 0396](0396-a-job-is-shared-from-admin-reaches-a-facebook-page-through-the-announcements-and-never-carries-a-located-photo.md) (Admin, Facebook route, located photos)
 - Date: 2026-11-08
 - Parent epic: [#475](https://github.com/journey-to-code-org/open.blog/issues/475)
 - Story: #488 (task #524, TRADE5.1.3)

@@ -6884,6 +6884,10 @@ ob-voice-library {
   border: var(--ob-border-width) solid var(--ob-color-border);
   border-radius: var(--ob-radius-sm);
 }
+/* Share this job (ADR 0396): the Reminders layout, with the words and the photo kept inside the column. */
+.oba-job-share pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.oba-job-share img { display: block; max-width: 100%; height: auto; }
+.oba-job-share a.oba-btn { display: inline-flex; align-items: center; }
 /* Quote requests (ADR 0384): one column, wrapping long values, phone first. */
 .oba-quotes { display: grid; gap: 0.75rem; min-width: 0; }
 .oba-quotes-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; }

@@ -89,6 +89,7 @@ mod announcements;
 mod business;
 mod capture_assistant;
 mod comparisons;
+mod job_sharing;
 mod landing;
 mod look;
 mod quote;
@@ -606,6 +607,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/social.js" => "social.js",
         "/admin/quotes.js" => "quotes.js",
         "/admin/announcements.js" => "announcements.js",
+        "/admin/job-share.js" => "job-share.js",
         "/admin/voice-library.js" => "voice-library.js",
         _ => return Response::error(404, "Not found"),
     };
@@ -757,6 +759,8 @@ fn authenticated_api(
         ("PUT", "seasonal") => seasonal::save_seasonal(state, req),
         ("POST", "seasonal/snooze") => seasonal::snooze(state, req),
         ("POST", "seasonal/open") => seasonal::open(state, req),
+        ("GET", "job-share") => job_sharing::get(state, req),
+        ("POST", "job-share/by-hand") => job_sharing::by_hand(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
         ("POST", "look/preview") => look::preview(state, req),
@@ -18802,6 +18806,7 @@ mod tests {
     mod capture_transcribe_routes;
     mod comparison_routes;
     mod job_draft_routes;
+    mod job_share_routes;
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;

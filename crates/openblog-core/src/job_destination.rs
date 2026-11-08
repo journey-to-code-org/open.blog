@@ -30,6 +30,8 @@ pub const GBP_PHOTO_MIN_BYTES: u64 = 10 * 1024;
 pub const GBP_PHOTO_MAX_BYTES: u64 = 5 * 1024 * 1024;
 pub const GBP_PHOTO_MIN_SIDE: u32 = 250;
 const NEXTDOOR_SHARE: &str = "https://nextdoor.com/sharekit/";
+/// The problem code of a photo held back because it may hold where it was taken.
+pub const PHOTO_LOCATION: &str = "photo-location";
 
 /// The places a job can go.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -348,10 +350,12 @@ fn photo(
             if facts.location_metadata || facts.metadata_unread {
                 problem(
                     problems,
-                    "photo-location",
+                    PHOTO_LOCATION,
                     "The first after photo may hold the place it was taken, which could be your customer's home. Save a copy without location data and use that.".into(),
                     true,
                 );
+                // Held back everywhere, the kit included: a by-hand post must not carry it either.
+                return None;
             }
             if destination == JobDestination::GoogleBusinessProfile {
                 if !matches!(facts.media_type, MediaType::Jpeg | MediaType::Png) {
@@ -457,12 +461,13 @@ pub fn project(source: &JobSource<'_>, destination: JobDestination) -> JobProjec
     }
     let mut request = DistributionRequest::new(capabilities);
     request.text_chars = Some(text.chars().count());
-    // Only Google Business Profile has a job adapter. The Facebook Page adapter belongs to the
-    // hosted announcements, which jobs do not feed, so a job goes to Facebook by hand (ADR 0395).
-    let mut route = if destination == JobDestination::GoogleBusinessProfile {
-        Route::Adapter
-    } else {
-        Route::ByHand
+    // Google Business Profile has the job adapter of ADR 0393. A Facebook Page is reached through
+    // the Page adapter of the hosted announcements (ADRs 0320, 0396), which sends the words and the
+    // link but no photo, so the manifest sends a job with a photo to Facebook by hand. Nextdoor is
+    // always by hand (ADR 0394).
+    let mut route = match destination {
+        JobDestination::GoogleBusinessProfile | JobDestination::Facebook => Route::Adapter,
+        JobDestination::Nextdoor => Route::ByHand,
     };
     for ineligibility in manifest.check(&request) {
         match ineligibility {
@@ -595,6 +600,9 @@ pub fn kit_page(title: &str, projections: &[JobProjection]) -> String {
                 photo.width,
                 photo.height
             )),
+            None if p.problems.iter().any(|p| p.code == PHOTO_LOCATION) => out.push_str(
+                "<h3>2. Photo</h3>\n<p>The photo is left out until it is replaced with a copy that does not hold where it was taken.</p>\n",
+            ),
             None => out.push_str("<h3>2. Photo</h3>\n<p>No photo for this one.</p>\n"),
         }
         if blocking.is_empty() {
@@ -701,8 +709,12 @@ mod tests {
             "a job goes to Facebook by hand"
         );
         assert!(facebook.ready);
+        // Words and a link are what the Facebook Page adapter of the announcements sends (SP5).
         let without_photo = project(&source("", Photo::None), JobDestination::Facebook);
-        assert_eq!(without_photo.route, Route::ByHand);
+        assert_eq!(without_photo.route, Route::Adapter);
+        assert!(without_photo.ready);
+        let nextdoor_without_photo = project(&source("", Photo::None), JobDestination::Nextdoor);
+        assert_eq!(nextdoor_without_photo.route, Route::ByHand);
     }
 
     #[test]
@@ -762,7 +774,13 @@ mod tests {
             assert!(projection
                 .problems
                 .iter()
-                .any(|p| p.code == "photo-location" && p.blocking));
+                .any(|p| p.code == PHOTO_LOCATION && p.blocking));
+            // The photo is held back, so neither a send nor the kit can carry it.
+            assert_eq!(projection.photo, None, "{destination:?}");
+            let page = kit_page("Floor", std::slice::from_ref(&projection));
+            assert!(!page.contains("floor-after.jpg"), "{page}");
+            assert!(page.contains("The photo is left out"));
+            assert!(kit_json("Floor", &[projection]).contains("\"photo\": null"));
         }
         let elsewhere = Photo::Elsewhere("https://cdn.example.net/a.jpg");
         assert!(
