@@ -85,5 +85,5 @@ contract (ADRs 0325 to 0327) is the place every destination states what open.blo
 
 ## Consequences
 
-- `ProviderId::ALL` has eight providers; the fixture and `docs/provider-capabilities.md` list Pinterest.
+- `ProviderId::ALL` includes Pinterest; the fixture and `docs/provider-capabilities.md` list it.
 - No static build, feed, export, cross-posting plan or hosted route reads the Pinterest manifest or token.

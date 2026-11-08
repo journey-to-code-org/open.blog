@@ -53,6 +53,8 @@ cardDescription: A sharp lemon curd in a shortcrust you can make the day before.
 
 In Admin, a post's settings have **Words for a Pinterest Pin** under the cover photo: **Pin title** and **Pin
 description** are saved as `cardTitle` and `cardDescription`. Leave them empty to use the post's title and summary.
+**Photo by**, under **Describe the picture**, is saved as `coverCredit`. Admin does not yet set `cardImage`,
+`cardImageAlt`, `cardImageCredit` or a credit link; write those in the post's front matter.
 
 Images must be files your site serves from its static folder, or `https://` addresses on another site. open.blog
 reads the size and format of your own files from their headers; it never downloads an image from another site, so
@@ -71,7 +73,7 @@ with a fixed code.
 | File size | up to 20 MB | up to 8 MB | up to 5 MB |
 | File types | JPEG, PNG | (none stated) | (none stated) |
 | Title | up to 100 characters; about 40 show in feeds | the page's title | the page's title |
-| Description | up to 800 characters | the page's description | the page's description |
+| Description | up to 800 characters, counting the image credit a Pin adds after it | the page's description | the page's description |
 | Alternative text | required by open.blog; up to 500 characters | recommended | recommended |
 | Link | your canonical `https://` address, up to 2048 characters | the page | the page |
 
@@ -94,6 +96,9 @@ Two more checks protect you and your readers:
   be read (it is cut short or over 64 MiB), the card says so (`image-metadata-unread`) and treats it the same way.
 
 Nothing is shortened or rewritten for you: a title that is too long is reported, and you shorten `cardTitle`.
+
+Not yet done: putting the title over the image. A card's words travel as the destination's own text, beside the
+image; the preview draws them beneath it.
 
 ## Turning it off
 

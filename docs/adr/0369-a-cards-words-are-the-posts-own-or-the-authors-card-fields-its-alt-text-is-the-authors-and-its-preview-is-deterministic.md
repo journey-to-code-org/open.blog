@@ -57,3 +57,7 @@ artifacts: a folder that must not exist, a JSON plan, and a static, script-free,
 
 - An author can see, offline and before any provider exists, exactly what each destination would show.
 - Nothing in a build, feed, export or the existing cross-posting reads a card or a card field.
+- Epic #383's "accessible title overlays" stays open: no card format puts the title over its image, and the preview
+  draws the words beneath it. A Pin's title travels as Pinterest's own title field, as text rather than pixels.
+- A Pin adds the image credit after the description, so the card counts the credit toward Pinterest's 800-character
+  description limit; `openblog card` and `openblog pinterest pin` agree on whether a Pin fits.

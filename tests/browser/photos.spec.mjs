@@ -128,6 +128,8 @@ test("a large photo becomes the cover, shown as a picture and light on the site"
   await expect(cover.getByRole("button", { name: "Change cover photo" })).toBeVisible();
 
   await page.getByLabel("Describe the picture").fill("A lemon cake on a blue plate");
+  // Someone else's photo keeps its credit, which a Pin carries (#393).
+  await page.getByLabel("Photo by").fill("Ana  Ruiz");
   // A Pin's own words are folded away until wanted, and saved as the card fields (#393).
   const pinWords = page.locator("[data-card-words]");
   await expect(page.getByLabel("Pin title")).toBeHidden();
@@ -148,6 +150,7 @@ test("a large photo becomes the cover, shown as a picture and light on the site"
   const source = readFileSync(join(posts, saved), "utf8");
   expect(source).toContain(`/images/uploads/${new Date().getFullYear()}/img-2031.jpg`);
   expect(source).toContain("A lemon cake on a blue plate");
+  expect(source).toMatch(/^coverCredit: "?Ana Ruiz"?$/m);
   expect(source).toMatch(/^cardTitle: "?Lemon cake that stays moist"?$/m);
   expect(source).toMatch(/^cardDescription: "?One bowl, one hour\."?$/m);
 });

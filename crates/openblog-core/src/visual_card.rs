@@ -792,10 +792,14 @@ pub fn build_card(
             ),
         });
     }
+    let credit = image
+        .as_ref()
+        .and_then(|image| image.candidate.credit.line());
     problems.extend(check_text(
         format,
         &title,
         &description,
+        credit.as_deref(),
         source.canonical_url,
     ));
     problems.sort_by_key(|problem| problem.severity);
@@ -865,9 +869,31 @@ fn check_alt(format: CardFormat, alt: Option<&str>) -> Vec<CardProblem> {
     out
 }
 
-fn check_text(format: CardFormat, title: &str, description: &str, link: &str) -> Vec<CardProblem> {
+/// The description a destination receives. A Pin carries the image credit after the card's own
+/// description, so the credit counts toward Pinterest's description limit.
+pub fn sent_description(format: CardFormat, description: &str, credit: Option<&str>) -> String {
+    match credit.filter(|_| format == CardFormat::PinterestPin) {
+        Some(credit) if description.trim().is_empty() => credit.to_string(),
+        Some(credit) => format!(
+            "{description}
+
+{credit}"
+        ),
+        None => description.to_string(),
+    }
+}
+
+fn check_text(
+    format: CardFormat,
+    title: &str,
+    description: &str,
+    credit: Option<&str>,
+    link: &str,
+) -> Vec<CardProblem> {
     let mut out = Vec::new();
     let spec = format.spec();
+    let sent = sent_description(format, description, credit);
+    let credit_counted = sent != description;
     let link_ok = Url::parse(link)
         .ok()
         .is_some_and(|url| url.scheme() == "https" && url.host_str().is_some());
@@ -895,10 +921,18 @@ fn check_text(format: CardFormat, title: &str, description: &str, link: &str) ->
         ),
         (
             "description-too-long",
-            "description",
-            description,
+            if credit_counted {
+                "description with its image credit"
+            } else {
+                "description"
+            },
+            sent.as_str(),
             spec.max_description_chars,
-            "`cardDescription`",
+            if credit_counted {
+                "`cardDescription` or the image credit"
+            } else {
+                "`cardDescription`"
+            },
         ),
         (
             "link-too-long",
@@ -1729,6 +1763,56 @@ mod tests {
         assert_eq!(asked, 1);
         assert_eq!(pin.status, CardStatus::Check);
         assert_eq!(pin.problems[0].code, "image-unmeasured");
+    }
+
+    #[test]
+    fn a_pins_image_credit_counts_toward_its_description_limit() {
+        // The Pin sends the credit after the description, so a card that fits only without it
+        // is not Ready: `openblog card` and `openblog pinterest pin` must agree.
+        let text = |credit: &str| {
+            fm(&format!(
+                "cover: /c.png
+coverAlt: A tart
+{credit}cardDescription: {}",
+                "d".repeat(795)
+            ))
+        };
+        let front = text(
+            "coverCredit: Ana Ruiz
+",
+        );
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &source(&front, "article", ""),
+            &mut measured(1000, 1500),
+        );
+        assert_eq!(pin.status, CardStatus::Blocked, "{:?}", pin.problems);
+        let problem = pin
+            .problems
+            .iter()
+            .find(|p| p.code == "description-too-long")
+            .expect("the credit is counted");
+        assert!(
+            problem.message.contains("image credit"),
+            "{}",
+            problem.message
+        );
+        // Without a credit the same words fit, and a link preview never carries the credit.
+        let front = text("");
+        let pin = build_card(
+            CardFormat::PinterestPin,
+            &source(&front, "article", ""),
+            &mut measured(1000, 1500),
+        );
+        assert_eq!(pin.status, CardStatus::Ready, "{:?}", pin.problems);
+        assert_eq!(
+            sent_description(CardFormat::FacebookLink, "Words", Some("Image: Ana Ruiz")),
+            "Words"
+        );
+        assert_eq!(
+            sent_description(CardFormat::PinterestPin, " ", Some("Image: Ana Ruiz")),
+            "Image: Ana Ruiz"
+        );
     }
 
     #[test]

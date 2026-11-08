@@ -18,7 +18,7 @@ use openblog_core::image_facts::MediaType;
 use openblog_core::provider_manifest::{
     builtin_manifest, Capability, DistributionRequest, ProviderId,
 };
-use openblog_core::visual_card::{CardFormat, CardStatus, VisualCard};
+use openblog_core::visual_card::{sent_description, CardFormat, CardStatus, VisualCard};
 use openblog_core::DateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as Json};
@@ -238,17 +238,17 @@ fn hex(hasher: Blake2b512) -> String {
 }
 
 /// The Pin's description: the card's own, then the image credit the author recorded, so a
-/// photograph by someone else keeps its credit on Pinterest.
+/// photograph by someone else keeps its credit on Pinterest. `openblog card` counts the same text.
 pub fn pin_description(card: &VisualCard) -> String {
     let credit = card
         .image
         .as_ref()
         .and_then(|image| image.candidate.credit.line());
-    match credit {
-        Some(credit) if card.description.trim().is_empty() => credit,
-        Some(credit) => format!("{}\n\n{credit}", card.description),
-        None => card.description.clone(),
-    }
+    sent_description(
+        CardFormat::PinterestPin,
+        &card.description,
+        credit.as_deref(),
+    )
 }
 
 /// Whether a link is a public web address Pinterest can send readers to.
@@ -334,8 +334,13 @@ fn build_plan(
     let mut request =
         DistributionRequest::new([Capability::Link, Capability::Text, Capability::Image]);
     request.text_chars = Some(description.chars().count());
+    let credit_counted = description != card.description;
     for ineligibility in manifest.check(&request) {
-        problem(ineligibility.code(), ineligibility.message(&manifest.label));
+        let mut message = ineligibility.message(&manifest.label);
+        if ineligibility.code() == "text-too-long" && credit_counted {
+            message.push_str(" The image credit is added to the description and counts toward this; shorten `cardDescription` or the credit.");
+        }
+        problem(ineligibility.code(), message);
     }
     if !public_link(&card.link) {
         problem(
@@ -1892,7 +1897,9 @@ mod failure_tests {
         .unwrap();
         let plan = pin_plan(&root);
         assert!(
-            plan.problems.iter().any(|p| p.code == "text-too-long"),
+            plan.problems
+                .iter()
+                .any(|p| p.code == "text-too-long" && p.message.contains("image credit")),
             "{:?}",
             plan.problems
         );

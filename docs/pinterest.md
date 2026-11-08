@@ -167,5 +167,7 @@ Pinterest provider manifest (`openblog_core::provider_manifest`, ADR 0371), and 
 and
 [0373](adr/0373-a-pin-request-is-recorded-before-it-is-sent-and-a-pin-that-may-exist-is-settled-only-by-finding-it-or-by-the-author.md).
 Not yet done: connecting Pinterest through the hosted OAuth of social publishing (with token refresh), scheduled
-Pins, and Admin screens for boards and sending. Admin does let you write a Pin's own title and description
-(see [Visual cards](visual-cards.md)).
+Pins, and Admin screens for connecting, boards and sending. These need a registered Pinterest app: Trial access for
+the sandbox and Standard access for public Pins. No request has yet gone to Pinterest's sandbox; the tests script
+every reply, and the API limits were checked against Pinterest's documentation. Admin does let you write a Pin's own
+title and description and who took the cover photo (see [Visual cards](visual-cards.md)).

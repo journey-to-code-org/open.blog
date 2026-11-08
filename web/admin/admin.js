@@ -22027,6 +22027,9 @@ export class Editor {
       if (kind === "posts") {
         ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "" });
         side.push(this.field("oba-cover-alt", "Describe the picture", ui.coverAlt, "A few words for people who cannot see it, such as: A lemon cake on a blue plate."));
+        // The cover's credit (ADR 0368): kept in `coverCredit`, sent after a Pin's description.
+        ui.coverCredit = h("input", { id: "oba-cover-credit", type: "text", maxlength: 200, value: f.coverCredit || "" });
+        side.push(this.field("oba-cover-credit", "Photo by", ui.coverCredit, "If someone else took this photo, write their name. Leave it empty if you took it."));
         // The card's own words (ADR 0369): kept in `cardTitle` and `cardDescription`, folded away
         // because only a Pin open.blog sends reads them.
         ui.cardTitle = h("input", { id: "oba-card-title", type: "text", value: f.cardTitle || "" });
@@ -25914,6 +25917,7 @@ export class Editor {
       set("seriesOrder", ui.order.value);
       set("canonical", ui.canonical.value.trim());
       set("coverAlt", ui.coverAlt.value.trim());
+      set("coverCredit", ui.coverCredit.value.replace(/\s+/g, " ").trim());
       set("cardTitle", ui.cardTitle.value.replace(/\s+/g, " ").trim());
       set("cardDescription", ui.cardDescription.value.trim());
       const status = this.currentStatus();
