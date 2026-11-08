@@ -1,6 +1,6 @@
 # ADR 0389: A saved review is a proof file with its source, linked from one job, and stated as review data only from what it says
 
-- Status: Accepted
+- Status: Accepted (amended by [ADR 0390](0390-a-saved-review-is-kept-in-the-render-workspace-stays-published-while-a-job-shows-it-and-a-copied-link-is-on-its-platform.md))
 - Date: 2026-11-08
 - Parent epic: [#474](https://github.com/journey-to-code-org/open.blog/issues/474)
 - Story and tasks: #487, #519, #520, #521

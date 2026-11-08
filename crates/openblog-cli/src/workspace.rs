@@ -290,6 +290,7 @@ impl Policy {
             format!("{}/pages", self.content),
             format!("{}/series", self.content),
             format!("{}/services", self.content),
+            format!("{}/proof", self.content),
             format!("{}/{LANDING_FILE}", self.content),
             format!("{}/images/uploads", self.static_dir),
             format!("{}/tracks/uploads", self.static_dir),
@@ -335,7 +336,7 @@ impl Policy {
             if relative == LANDING_FILE {
                 return true;
             }
-            return ["posts/", "pages/", "series/", "services/"]
+            return ["posts/", "pages/", "series/", "services/", "proof/"]
                 .iter()
                 .any(|prefix| {
                     relative.starts_with(prefix)
@@ -1526,6 +1527,48 @@ mod tests {
         fs::remove_file(&state).unwrap();
         workspace.restore(&fixture.0).unwrap();
         assert_eq!(fs::read_to_string(&state).unwrap(), text);
+    }
+
+    #[test]
+    fn a_saved_review_is_kept_and_comes_back() {
+        let policy = policy();
+        assert!(policy.allowed("content/proof/dana-r-2026-10-20.md"));
+        for path in [
+            "content/proof/dana-r-2026-10-20.json",
+            "content/proof/dana-r-2026-10-20.md.tmp",
+            "content/proof-other/dana.md",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let review = fixture.0.join("content/proof/dana-r-2026-10-20.md");
+        fs::create_dir_all(review.parent().unwrap()).unwrap();
+        let text = "---
+proof:
+  kind: review
+---
+Great job.
+";
+        fs::write(&review, text).unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files["content/proof/dana-r-2026-10-20.md"], text.as_bytes());
+        let mut workspace =
+            fixture.workspace(backend("http://127.0.0.1:1".into()), Manifest::new());
+        for (path, bytes) in &files {
+            workspace.manifest.insert(
+                path.clone(),
+                Entry {
+                    base: workspace.base.get(path).cloned(),
+                    value: Some(Record::Text {
+                        text: String::from_utf8(bytes.clone()).unwrap(),
+                    }),
+                },
+            );
+        }
+        // A restart brings back only what the image holds.
+        fs::remove_file(&review).unwrap();
+        workspace.restore(&fixture.0).unwrap();
+        assert_eq!(fs::read_to_string(&review).unwrap(), text);
     }
 
     #[test]

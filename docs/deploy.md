@@ -211,8 +211,8 @@ create.
    SQL application, environment configuration, and this live restart check are manual setup;
    repository changes alone do not configure the live service.
 
-**What is stored.** UTF-8 database text records hold Markdown posts/pages/series,
-credit sidecars, the Landing page (`content/landing.json`) and its previous versions
+**What is stored.** UTF-8 database text records hold Markdown posts/pages/series/services and saved
+reviews (`content/proof/`), credit sidecars, the Landing page (`content/landing.json`) and its previous versions
 (`.openblog/private/landing-history/`), `openblog.json`, `.gitignore`, project Assistant skills and portable/private
 context/references, per-login presentation preferences, and typed editor trash. Images,
 GPX uploads, and pending GPX data use content-addressed objects in the private bucket.

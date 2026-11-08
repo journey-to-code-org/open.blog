@@ -16250,6 +16250,23 @@ fn validate_candidate(
         .flatten();
     let mut sources = site::read_sources_excluding(root, config, excluded_sidecar.as_deref())
         .map_err(|e| vec![e])?;
+    // The ids a job may already show this review by: the one on disk and the one being saved.
+    let review_ids: Vec<String> = if rel.starts_with("proof/") {
+        sources
+            .proof
+            .iter()
+            .filter(|f| f.path == rel)
+            .map(|f| f.contents.as_str())
+            .chain([source])
+            .filter_map(|text| {
+                frontmatter::parse(text)
+                    .ok()
+                    .and_then(|doc| doc.front_matter.get("id").map(str::to_string))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     for bucket in [
         &mut sources.posts,
         &mut sources.series,
@@ -16265,6 +16282,8 @@ fn validate_candidate(
     });
     apply_credit_edit_to_sources(&mut sources, rel, credit_edit);
     let themes = site::load_themes(root, config).map_err(|e| vec![e])?;
+    let published =
+        (rel.starts_with("proof/") || rel.starts_with("posts/")).then(|| sources.clone());
     match Site::load(
         config.clone(),
         sources,
@@ -16274,7 +16293,7 @@ fn validate_candidate(
             preview_source: None,
         },
     ) {
-        Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e]),
+        Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e])?,
         Err(errors) => {
             let sidecar = openblog_core::contributor::sidecar_path(rel);
             let mine: Vec<String> = errors
@@ -16284,12 +16303,57 @@ fn validate_candidate(
                         || sidecar.as_deref().is_some_and(|path| error.contains(path))
                 })
                 .collect();
-            if mine.is_empty() {
-                Ok(())
-            } else {
-                Err(mine)
+            if !mine.is_empty() {
+                return Err(mine);
             }
         }
+    }
+    match published {
+        Some(sources) => job_review_problems(config, sources, rel, &review_ids),
+        None => Ok(()),
+    }
+}
+
+/// The build leaves drafts out, so a check that counts them can miss a published job left showing a review
+/// that is now a draft or has a new id (ADR 0390). This loads the site as the build does and keeps only the
+/// `job.review` problems that this save causes: the edited job's own, or a job naming the edited review.
+fn job_review_problems(
+    config: &SiteConfig,
+    sources: openblog_core::Sources,
+    rel: &str,
+    review_ids: &[String],
+) -> Result<(), Vec<String>> {
+    let Err(errors) = Site::load(
+        config.clone(),
+        sources,
+        LoadOptions {
+            include_drafts: false,
+            now: None,
+            preview_source: None,
+        },
+    ) else {
+        return Ok(());
+    };
+    let mut mine = Vec::new();
+    for error in errors {
+        let Some((job, problem)) = error.split_once(": job.review: ") else {
+            continue;
+        };
+        if job == rel {
+            mine.push(error);
+        } else if let Some(id) = review_ids
+            .iter()
+            .find(|id| problem.starts_with(&format!("`{id}` ")))
+        {
+            mine.push(format!(
+                "{rel}: the job {job} shows this review (`{id}`), so it has to stay published under that id; choose another review for that job first"
+            ));
+        }
+    }
+    if mine.is_empty() {
+        Ok(())
+    } else {
+        Err(mine)
     }
 }
 

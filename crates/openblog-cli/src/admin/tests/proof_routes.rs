@@ -204,3 +204,130 @@ fn copying_from_a_link_has_the_snapshot_routes_own_refusals_and_contacts_nothing
     let text = fs::read_to_string(review_path(&f, "dana-r-2026-10-20.md")).unwrap();
     assert!(text.contains("2026-11-08T15:04:05Z"));
 }
+
+#[test]
+fn a_review_a_published_job_shows_stays_published_under_its_id() {
+    let f = fixture("proof-linked");
+    let session = login_ok(&f);
+    assert_eq!(
+        create(&f, &session, review_fields(), "On time.\n").status,
+        201
+    );
+    let mut other = review_fields();
+    other["id"] = json!("sam-2026-10-01");
+    other["date"] = json!("2026-10-01");
+    assert_eq!(create(&f, &session, other, "Tidy.\n").status, 201);
+    fs::write(
+        f.dir.join("content/posts/oak-floor.md"),
+        "---\ntitle: Oak floor\ndate: 2026-10-16\nprofile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Bend\n    region: OR\n  started: 2026-10-14\n  finished: 2026-10-16\n  review: dana-r-2026-10-20\n---\nDone.\n",
+    )
+    .unwrap();
+    let path = "/admin/api/document?path=proof/dana-r-2026-10-20.md";
+    let etag = || {
+        body_json(&handle(
+            &f.state,
+            &authed(req("GET", path), &session, false),
+        ))["etag"]
+            .clone()
+    };
+    let before = fs::read_to_string(review_path(&f, "dana-r-2026-10-20.md")).unwrap();
+
+    // Kept as a draft, the review would leave the build with a job naming nothing.
+    let mut draft = review_fields();
+    draft["draft"] = json!("true");
+    let refused = call(
+        &f,
+        &session,
+        "PUT",
+        path,
+        json!({ "kind": "proof", "fields": draft, "body": "On time.\n", "etag": etag() }),
+    );
+    assert_eq!(
+        refused.status,
+        422,
+        "{}",
+        String::from_utf8_lossy(&refused.body)
+    );
+    let problems = body_json(&refused)["problems"].to_string();
+    assert!(
+        problems.contains("posts/oak-floor.md shows this review (`dana-r-2026-10-20`)"),
+        "{problems}"
+    );
+    // So would a new id.
+    let mut renamed = review_fields();
+    renamed["id"] = json!("dana-2026-10-20");
+    let refused = call(
+        &f,
+        &session,
+        "PUT",
+        path,
+        json!({ "kind": "proof", "fields": renamed, "body": "On time.\n", "etag": etag() }),
+    );
+    assert_eq!(
+        refused.status,
+        422,
+        "{}",
+        String::from_utf8_lossy(&refused.body)
+    );
+    assert_eq!(
+        fs::read_to_string(review_path(&f, "dana-r-2026-10-20.md")).unwrap(),
+        before
+    );
+
+    // A review no published job shows can still be a draft.
+    let mut free = review_fields();
+    free["id"] = json!("sam-2026-10-01");
+    free["date"] = json!("2026-10-01");
+    free["draft"] = json!("true");
+    let sam = "/admin/api/document?path=proof/sam-2026-10-01.md";
+    let sam_etag =
+        body_json(&handle(&f.state, &authed(req("GET", sam), &session, false)))["etag"].clone();
+    let kept = call(
+        &f,
+        &session,
+        "PUT",
+        sam,
+        json!({ "kind": "proof", "fields": free, "body": "Tidy.\n", "etag": sam_etag }),
+    );
+    assert_eq!(kept.status, 200, "{}", String::from_utf8_lossy(&kept.body));
+}
+
+#[test]
+fn a_published_job_cannot_be_saved_naming_a_draft_review() {
+    let f = fixture("proof-job-draft");
+    let session = login_ok(&f);
+    assert_eq!(
+        create(&f, &session, review_fields(), "On time.\n").status,
+        201
+    );
+    let mut held = review_fields();
+    held["id"] = json!("sam-2026-10-01");
+    held["draft"] = json!("true");
+    assert_eq!(create(&f, &session, held, "Tidy.\n").status, 201);
+    let config = site::load_config(&f.dir).unwrap();
+    let rel = "posts/oak-floor.md";
+    let job = |review: &str, draft: &str| {
+        format!("---\ntitle: Oak floor\ndate: 2026-10-16\n{draft}profile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Bend\n    region: OR\n  started: 2026-10-14\n  finished: 2026-10-16\n  review: {review}\n---\nDone.\n")
+    };
+    let problems = validate_candidate(
+        &f.dir,
+        &config,
+        rel,
+        &job("sam-2026-10-01", ""),
+        &CreditEdit::Unchanged,
+    )
+    .unwrap_err();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.starts_with("posts/oak-floor.md: job.review: `sam-2026-10-01`")),
+        "{problems:?}"
+    );
+    // A draft job may name it, and a published one may name a published review.
+    for source in [
+        job("sam-2026-10-01", "draft: true\n"),
+        job("dana-r-2026-10-20", ""),
+    ] {
+        validate_candidate(&f.dir, &config, rel, &source, &CreditEdit::Unchanged).unwrap();
+    }
+}

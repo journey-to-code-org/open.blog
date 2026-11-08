@@ -9,6 +9,7 @@ import {
   platformForUrl,
   platformOwnsHost,
   problemsFromServer,
+  reviewErrorText,
   reviewId,
   snapshotErrorText,
   snapshotRequest,
@@ -111,4 +112,26 @@ test("a refused snapshot is said in plain words, with typing it in as the way on
     assert.match(text, /type the review in/, detail);
   }
   assert.match(snapshotErrorText({ status: 400, data: { error: "Enter a complete HTTP(S) URL" } }), /full link/);
+});
+
+test("a shared link that led onto a named platform fills a form that passes its own check", () => {
+  const typed = { ...complete(), platform: "", sourceUrl: "", text: "" };
+  const form = formFromSnapshot(typed, { sourceUrl: "https://share.google/AbC123", canonicalUrl: "https://www.google.com/maps/place/Crew/reviews", retrievedAt: "2026-11-08T15:04:05Z", text: "Great job." });
+  assert.equal(form.platform, "google");
+  assert.equal(form.sourceUrl, "https://www.google.com/maps/place/Crew/reviews");
+  assert.deepEqual(validateForm(form), []);
+  // A link already on the platform is kept as pasted, and one that led nowhere named stays Somewhere else.
+  assert.equal(formFromSnapshot(typed, { sourceUrl: "https://g.page/r/crew", canonicalUrl: "https://www.google.com/maps/x", retrievedAt: "2026-11-08T15:04:05Z" }).sourceUrl, "https://g.page/r/crew");
+  const own = formFromSnapshot(typed, { sourceUrl: "https://crew.example/r", canonicalUrl: "https://crew.example/reviews", retrievedAt: "2026-11-08T15:04:05Z", text: "Great job." });
+  assert.equal(own.platform, "other");
+  assert.equal(own.sourceUrl, "https://crew.example/r");
+  assert.deepEqual(validateForm(own), []);
+});
+
+test("a new review whose id is taken is told to change the id, not to reload", () => {
+  const taken = reviewErrorText({ status: 409, data: { error: "A file with that name already exists. Change the title, slug, or date." } }, { creating: true, id: "dana-r-2026-10-20" });
+  assert.match(taken, /already have a review called dana-r-2026-10-20/);
+  assert.match(taken, /Change the id/);
+  assert.doesNotMatch(taken, /Reload/);
+  assert.match(reviewErrorText({ status: 409 }), /another window/);
 });

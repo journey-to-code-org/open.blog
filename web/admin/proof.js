@@ -124,7 +124,14 @@ export function formFromSnapshot(form, snapshot) {
   next.sourceUrl = clean(snapshot?.sourceUrl);
   next.retrievedAt = clean(snapshot?.retrievedAt);
   next.provenance = "snapshot";
-  next.platform = platformForUrl(clean(snapshot?.canonicalUrl) || next.sourceUrl);
+  next.platform = platformForUrl(next.sourceUrl);
+  // A short or shared link that led onto a named platform keeps that platform with the address it led to,
+  // so the link the review keeps is on the platform it names (ADR 0390).
+  const landed = clean(snapshot?.canonicalUrl);
+  if (next.platform === "other" && landed && platformForUrl(landed) !== "other") {
+    next.platform = platformForUrl(landed);
+    next.sourceUrl = landed;
+  }
   const words = clean(snapshot?.text);
   if (!clean(next.text) && words && [...words].length <= LIMITS.text) next.text = words;
   return next;
@@ -211,10 +218,14 @@ export function snapshotErrorText(error) {
   return detail ? `That page could not be copied: ${detail}.${fallback}` : `That page could not be copied.${fallback}`;
 }
 
-export function reviewErrorText(error) {
+export function reviewErrorText(error, { creating = false, id = "" } = {}) {
   const status = error?.status;
   if (status === 401) return "You were signed out. Sign in again, then save.";
   if (status === 413) return "That is too much to save. Shorten the review and try again.";
+  if (status === 409 && creating) {
+    const named = clean(id) ? ` called ${clean(id)}` : "";
+    return `The review was not saved. You already have a review${named}. Change the id, for example by adding -2 to the end, then save again.`;
+  }
   if (status === 409) return "This review changed in another window. Reload it, then make your changes again.";
   const detail = String(error?.data?.error || error?.message || "").trim();
   return detail ? `The review was not saved. ${detail}` : "The review was not saved. Check your connection and try again.";
@@ -525,6 +536,9 @@ export function createReviews({ api, route = "", onSaved = () => {}, onLeave = (
       if (error?.status === 422 && Array.isArray(error.data?.problems)) {
         say("The server found something to fix.", "error");
         showProblems(problemsFromServer(error.data.problems))?.focus?.();
+      } else if (error?.status === 409 && !path) {
+        say(reviewErrorText(error, { creating: true, id: form.id }), "error");
+        showProblems([{ field: "id", message: "This id is already used by another review. Change it, then save again." }])?.focus?.();
       } else say(reviewErrorText(error), "error");
       return false;
     } finally {

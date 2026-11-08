@@ -206,6 +206,32 @@ test("a review typed in by hand says so, and the list shows it", async ({ page }
   expect(reviews).toContain("Typed in from the original review.");
 });
 
+test("a second review with a taken id is told to change the id, and nothing is overwritten", async ({ page }) => {
+  const before = readFileSync(file("lee-2026-10-02.md"), "utf8");
+  await signedIn(page, "#/reviews/new");
+  await page.getByLabel("Reviewer's name", { exact: true }).fill("Lee");
+  await page.getByLabel("Day it was written", { exact: true }).fill("2026-10-02");
+  await page.getByLabel("Where it was left", { exact: true }).selectOption("facebook");
+  await page.locator('[data-review-field="sourceUrl"]').fill("https://www.facebook.com/crew/reviews/2");
+  await page.getByLabel("The review", { exact: true }).fill("Second Lee.");
+  await page.getByRole("button", { name: "Save review" }).click();
+  await expect(status(page)).toContainText("already have a review called lee-2026-10-02");
+  await expect(status(page)).not.toContainText("Reload");
+  await expect(page.locator('[data-problem-for="id"]')).toContainText("already used");
+  expect(readFileSync(file("lee-2026-10-02.md"), "utf8")).toBe(before);
+});
+
+test("a review a published job shows cannot be made a draft, so the site keeps building", async ({ page }) => {
+  const before = readFileSync(file("dana-r-2026-10-20.md"), "utf8");
+  await signedIn(page, `#/reviews/edit/${encodeURIComponent("proof/dana-r-2026-10-20.md")}`);
+  await expect(page.getByLabel("Reviewer's name", { exact: true })).toHaveValue("Dana R.");
+  await page.getByLabel("Keep this as a draft").check();
+  await page.getByRole("button", { name: "Save review" }).click();
+  await expect(status(page)).toContainText("shows this review");
+  await expect(status(page)).toContainText("choose another review for that job first");
+  expect(readFileSync(file("dana-r-2026-10-20.md"), "utf8")).toBe(before);
+});
+
 test("a refused copy is said in plain words and leaves typing it in", async ({ page }) => {
   await page.route("**/admin/api/assistant/context/url/retrieve", (route) =>
     route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "URL context cannot retrieve local or private network addresses" }) }));
