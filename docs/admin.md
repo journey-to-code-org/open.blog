@@ -1068,14 +1068,14 @@ previewing.
 If your site has [scheduled social publishing](social-publishing.md) set up, Admin shows an **Announcements** tab; without it
 there is no tab and nothing changes. The screen has two parts.
 
-**Announce a post.** Choose a **Destination** (a connected LinkedIn profile or Facebook Page), a **Post to announce**,
-write a **Caption** and pick a **Date and time**. Only published posts can be chosen; a draft, or a post dated in the
-future, is listed as not available with the reason. The count under the caption shows how many characters are left,
-and the **Preview** shows the caption, the link to your post and when it will go out, before you tap **Schedule
-announcement**. Times are in your own time zone and stored in UTC; on the day the clocks change, a time that does not
-exist is refused, and a time that happens twice uses the earlier one (the preview says so). If something is wrong, the
-form lists what to fix, each a link to its field, and says it beside the field too. Tapping the button twice, or again
-after a slow connection, schedules it once.
+**Announce a post.** Choose a **Destination** (a connected LinkedIn profile, Facebook Page, Bluesky account or
+Mastodon account), a **Post to announce**, write a **Caption** and pick a **Date and time**. Only published posts can
+be chosen; a draft, or a post dated in the future, is listed as not available with the reason. The count under the
+caption shows how many characters are left, and the **Preview** shows the caption, the link to your post and when it
+will go out, before you tap **Schedule announcement**. Times are in your own time zone and stored in UTC; on the day
+the clocks change, a time that does not exist is refused, and a time that happens twice uses the earlier one (the
+preview says so). If something is wrong, the form lists what to fix, each a link to its field, and says it beside the
+field too. Tapping the button twice, or again after a slow connection, schedules it once.
 
 **Announcements.** Every announcement shows its status in words (Scheduled, Sending, Published, Failed, Needs checking,
 Canceled), its time in your zone, its destination and caption. While it is **Scheduled**, **Edit** changes the caption

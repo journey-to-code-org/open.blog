@@ -11763,11 +11763,11 @@ export class ObAdmin extends AdminElement {
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "social"
-        ? { title: "Social accounts", detail: "Connect LinkedIn or Facebook, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
+        ? { title: "Social accounts", detail: "Connect the social accounts your site offers, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
       : active === "voice"
         ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
       : active === "announcements"
-        ? { title: "Announcements", detail: "Announce a published post on LinkedIn or a Facebook Page at a time you choose, and manage what is scheduled." }
+        ? { title: "Announcements", detail: "Announce a published post on a connected social account at a time you choose, and manage what is scheduled." }
       : active === "landing"
         ? { title: "Landing page", detail: "Build the first page your visitors see from sections you add, order and preview, without writing any code." }
       : active === "paths"
@@ -12044,10 +12044,10 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
-      ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook connect accounts share announce oauth", run: () => go("#/social") }] : []),
+      ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook bluesky mastodon connect accounts share announce oauth", run: () => go("#/social") }] : []),
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
-      ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/announcements") }] : []),
+      ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook bluesky mastodon schedule announce share post", run: () => go("#/announcements") }] : []),
       { label: "Seasonal reminders", category: "Site", keywords: "seasonal reminder prompt season topic draft snooze", run: () => go("#/reminders") },
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
       { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },

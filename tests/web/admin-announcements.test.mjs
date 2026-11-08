@@ -3,6 +3,7 @@
 // errors, and the panel's behavior against a fake Admin: labelled fields, problems beside them,
 // idempotent retries, versioned edits, a confirmed cancel, and a refreshed queue after a lost race.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -730,3 +731,22 @@ test("choosing Mastodon counts against 475, and its preview says where the link 
   assert.match(notes, /#hashtags in the caption become clickable on Mastodon/);
   assert.match(notes, /described as: "A lantern at dusk"/);
 }));
+
+// Words outside the screens themselves: the page header, the command palette and the guide must not
+// name only LinkedIn and Facebook now that Bluesky and Mastodon can be connected too.
+test("the Social accounts and Announcements headers, palette and guide do not leave out Bluesky and Mastodon", () => {
+  const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+  const admin = read("web/admin/admin.js");
+  for (const title of ["Social accounts", "Announcements"]) {
+    const detail = admin.match(new RegExp(`title: "${title}", detail: "([^"]*)"`));
+    assert.ok(detail, `${title} has a page header`);
+    assert.doesNotMatch(detail[1], /LinkedIn|Facebook/, `${title} header names no single provider`);
+    const keywords = admin.match(new RegExp(`label: "${title}", category: "[^"]+", keywords: "([^"]*)"`));
+    assert.ok(keywords, `${title} is in the command palette`);
+    for (const provider of ["linkedin", "facebook", "bluesky", "mastodon"]) assert.match(keywords[1], new RegExp(provider), `${title} is found by "${provider}"`);
+  }
+  const guide = read("docs/admin.md").replace(/\s+/g, " ");
+  const destination = guide.match(/Choose a \*\*Destination\*\* \(([^)]*)\)/);
+  assert.ok(destination, "the guide says what a Destination is");
+  for (const provider of ["LinkedIn", "Facebook", "Bluesky", "Mastodon"]) assert.match(destination[1], new RegExp(provider));
+});
