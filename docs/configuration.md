@@ -182,6 +182,14 @@ release does not know are kept when Admin saves.
 `{ "version": 1, "enabled": true, "topics": [ { "id", "disabled", "start", "end", "topic", "prompt" } ] }`.
 Off and not written back unless stated. See [Seasonal reminders](seasonal-reminders.md).
 
+### Quote requests
+
+`quote` turns on the quote request form: `{ "enabled": true, "endpoint": "/api/quote", "notice": "..." }`.
+`endpoint` is a path on your site (the default `/api/quote`) or an `https://` address, and `notice` is one optional
+line under the form. Off and absent by default; with it off a `quote` fence stays a code block and the Landing
+page `quote-form` section renders nothing. The requests go to a hosted Netlify function, so it does not work on a
+site run on Render yet. See [Quote requests](quote-requests.md).
+
 ## Share, analytics, related posts, snippets, CDN
 
 These are described in [Sharing, views, analytics, and embeds](features.md).

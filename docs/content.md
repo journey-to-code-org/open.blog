@@ -276,6 +276,10 @@ pair is a comparison control (`ob-compare`) where JavaScript runs and motion is 
 feeds, in syndicated copies and in portable export it is two captioned pictures, each with its label, and nothing
 else. The pictures use the same lazy loading as any Markdown image. See ADR 0291.
 
+A `quote` fence places the [quote request form](quote-requests.md) in a post or page, with one `service:` line
+for each choice. It is a form only while `quote.enabled` is true in `openblog.json`; otherwise it stays an
+ordinary code block. Feeds and exports never carry the form.
+
 #### Landing page sections
 
 When `content/landing.json` exists, the home page is built from it instead of the fixed intro, post list and
@@ -291,17 +295,20 @@ before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can 
 ```
 
 Each section has a unique `id` (lowercase letters, digits and single hyphens), a `type`, and an optional
-`hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`,
-`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout` and `business-facts`; the
-media, hours, contact, social, question and call-out types hold the same fields as the
+`hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`, `image`,
+`video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout`, `business-facts` and `quote-form`;
+the media, hours, contact, social, question and call-out types hold the same fields as the
 [pieces](#pieces-buttons-videos-maps-and-more) above. A `latest-posts` section takes `"show": "recipes"` to list
 only [recipes](#browsing-recipes), with a link to all of them, and renders nothing until the first is published;
-any other value than `all` or `recipes` is refused. The `business-facts` section holds only a `heading`: it
-places the [business facts](configuration.md#business-facts) from `openblog.json` (name, phone, hours, license and
-insurance badge) under that heading, and renders nothing while none are stated. Because it is a new type, a page
-that holds one is stored as `"version": 2` (every other page stays version 1, byte for byte, and a version 1
-file cannot hold it). There are at most 40 sections and 256 KiB. The page is accepted whole or not at all, and
-a file from a newer release is never overwritten.
+any other value than `all` or `recipes` is refused. The `business-facts` section holds only a `heading`: it places
+the [business facts](configuration.md#business-facts) from `openblog.json` (name, phone, hours, license and
+insurance badge) under that heading, and renders nothing while none are stated. The `quote-form` section also
+holds only a `heading`: it places the [quote request form](quote-requests.md) under that heading, and renders
+nothing until `quote.enabled` is true in `openblog.json`. A page that holds a `business-facts` or `quote-form`
+section is stored as `"version": 2`, because they are newer types (every other page stays version 1, byte for
+byte, and a version 1 file cannot hold them; the build says so and builds the home page from the home settings
+instead). There are at most 40 sections and 256 KiB. The page is accepted whole or not at all, and a file from a
+newer release is never overwritten.
 
 Landing content never accepts markup. There is no HTML section; a button is a label and an address, a video is
 a provider and an id, a map is coordinates. Only Markdown is rich (the text section, answers, call-out bodies)

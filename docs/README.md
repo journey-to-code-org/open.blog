@@ -48,6 +48,9 @@ If you are new, read these in order; each one stands alone otherwise.
    audience explanations, and your responsibility for AI-drafted text.
 20. [Jobs](jobs.md): finished trade work as posts, with a documented `job` front matter.
 21. [Services](services.md): each service described once, with a price band, a timeline and FAQs.
+22. [Quote requests](quote-requests.md): an opt-in form a visitor uses to ask for a quote, kept in your private
+   Supabase workspace and managed in Admin. Off by default, and it needs the Netlify function: it does not work
+   on a site run on Render yet.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

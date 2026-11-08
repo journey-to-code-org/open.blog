@@ -997,6 +997,13 @@ your trade. A reminder only opens an unpublished draft; it never publishes or se
 saves `GET`/`PUT /admin/api/seasonal` and uses `POST /admin/api/seasonal/snooze` and `/open` (session and CSRF as
 for every write). See [Seasonal reminders](seasonal-reminders.md).
 
+### Quote requests
+
+Open **Quote requests** (`#/quotes`) to read the requests visitors sent, mark them handled or archived, export
+them as a CSV, erase them after a preview, and send again an owner email that did not go out. The page appears once
+`OPENBLOG_QUOTE_ENDPOINT` and `OPENBLOG_QUOTE_ADMIN_KEY` are set where Admin runs; it talks to the hosted function
+through `/admin/api/quote/*` (session and CSRF as for every write). See [Quote requests](quote-requests.md).
+
 ### Services
 
 Open **Services** (`#/services`) to describe each thing you sell once, with what it includes, a price band, a
