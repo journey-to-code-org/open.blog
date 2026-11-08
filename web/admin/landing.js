@@ -213,6 +213,15 @@ export const SECTION_CATALOG = Object.freeze([
     blank: () => ({ heading: "Contact and hours" }),
     fields: [text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "The facts themselves are set once under Settings, then Business facts. Nothing is shown here until you have." })],
   },
+  {
+    type: "quote-form",
+    label: "Quote request form",
+    icon: "\u{1F4DD}",
+    description: "A form where visitors ask for a quote: name, phone, town, service, photos and a description.",
+    sample: "Ask for a quote. Tell us what you need and we will call you back.",
+    blank: () => ({ heading: "Ask for a quote" }),
+    fields: [text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "Visitors see nothing here until quote requests are switched on and set up. See the quote requests guide." })],
+  },
 ]);
 
 const BY_TYPE = new Map(SECTION_CATALOG.map((entry) => [entry.type, entry]));
@@ -268,6 +277,7 @@ export function sectionSummary(section) {
     case "callout":
       return shorten(first(section.title, section.body)) || "No note yet";
     case "business-facts":
+    case "quote-form":
       return shorten(first(section.heading)) || "No heading yet";
     default:
       return "";

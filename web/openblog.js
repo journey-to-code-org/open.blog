@@ -25,6 +25,7 @@ const components = [
   "ob-recipe",
   "ob-quiz",
   "ob-compare",
+  "ob-quote",
   "ob-reading-modes",
   "ob-list-pagination",
   "ob-series-previews",

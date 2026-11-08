@@ -40,6 +40,19 @@
 [functions."webmention"]
   node_bundler = "esbuild"
 
+# Optional quote requests (ADR 0381). Off unless OPENBLOG_QUOTE_ENABLED is set.
+[functions."quote"]
+  node_bundler = "esbuild"
+
+# The daily retention sweep of archived quote requests (ADR 0384); does nothing unless retention is set.
+[functions."quote-retention"]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/quote/*"
+  to = "/.netlify/functions/quote/:splat"
+  status = 200
+
 # The delivery worker, called by pg_cron through pg_net with the worker key (ADR 0317).
 [functions."social-worker"]
   node_bundler = "esbuild"

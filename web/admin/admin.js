@@ -16,6 +16,7 @@ import { createBusinessFacts } from "./business.js";
 import { createSeasonalReminders } from "./seasonal.js";
 import { createServices } from "./services.js";
 import { createSocialAccounts } from "./social.js";
+import { createQuoteRequests } from "./quotes.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
@@ -11764,6 +11765,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "social"
         ? { title: "Social accounts", detail: "Connect the social accounts your site offers, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
+      : active === "quotes"
+        ? { title: "Quote requests", detail: "Read new requests, mark them handled, export them, and erase them. Your customers' details stay yours." }
       : active === "voice"
         ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
       : active === "announcements"
@@ -11823,6 +11826,8 @@ export class ObAdmin extends AdminElement {
         )),
         // Optional social publishing (ADR 0301): no navigation entry unless the server has social settings.
         this.meta?.social || active === "social" ? h("div", { class: "oba-progressive-tools", "data-social-nav": "true" }, toolGroup("Social", h("a", { class: "oba-tab", "aria-current": active === "social" ? "page" : null, href: "#/social" }, "Social accounts"))) : null,
+        // Optional quote requests (ADR 0384): no navigation entry unless the server has quote settings.
+        this.meta?.quote || active === "quotes" ? h("div", { class: "oba-progressive-tools", "data-quote-nav": "true" }, toolGroup("Customers", h("a", { class: "oba-tab", "aria-current": active === "quotes" ? "page" : null, href: "#/quotes" }, "Quote requests"))) : null,
       ),
       h(
         "section",
@@ -12044,6 +12049,7 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      ...(this.meta.quote ? [{ label: "Quote requests", category: "Site", keywords: "customers leads requests quotes enquiries inbox export erase", run: () => go("#/quotes") }] : []),
       ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook bluesky mastodon connect accounts share announce oauth", run: () => go("#/social") }] : []),
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
@@ -12286,6 +12292,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "contributors") await this.showContributors();
       else if (head === "voice") await this.showVoice(tail, params);
       else if (head === "social") await this.showSocial();
+      else if (head === "quotes") await this.showQuotes();
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "announcements") await this.showAnnouncements();
@@ -14480,6 +14487,19 @@ export class ObAdmin extends AdminElement {
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
+  }
+
+  /**
+   * `#/quotes`: stored quote requests (ADR 0384). Optional: with no quote settings the page says so.
+   * It holds no draft, so leaving it never asks to keep changes.
+   */
+  async showQuotes() {
+    const view = createQuoteRequests({ api: this.api });
+    this.mount(this.shell("quotes", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
   }
 
   /**

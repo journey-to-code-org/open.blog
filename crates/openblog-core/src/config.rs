@@ -163,6 +163,10 @@ pub struct SiteConfig {
     /// written file while it has its defaults, so a site that never sets it is unchanged.
     #[serde(skip_serializing_if = "WebmentionConfig::is_default")]
     pub webmention: WebmentionConfig,
+    /// Quote requests (ADR 0381). Omitted from the written file while off and unset, so a site
+    /// that never sets it builds exactly as before.
+    #[serde(skip_serializing_if = "crate::quote::QuoteConfig::is_default")]
+    pub quote: crate::quote::QuoteConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -606,6 +610,7 @@ impl Default for SiteConfig {
             service_areas: ServiceAreasConfig::default(),
             seasonal_prompts: SeasonalConfig::default(),
             webmention: WebmentionConfig::default(),
+            quote: crate::quote::QuoteConfig::default(),
         }
     }
 }
@@ -1127,6 +1132,10 @@ impl SiteConfig {
             claim_evidence_section: false,
             supplements: false,
             concept_links: false,
+            quote: self
+                .quote
+                .enabled
+                .then_some((&self.quote, &self.service_areas)),
         }
     }
 
@@ -1273,6 +1282,7 @@ impl SiteConfig {
             }
         }
         contributor::normalize_registry(&mut self.contributors)?;
+        self.quote.normalize()?;
         if !self.business.trade.is_empty() {
             self.business.trade =
                 crate::job::normalize_trade(&self.business.trade, &self.extra_trades)

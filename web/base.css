@@ -5047,3 +5047,70 @@ ob-server-lab .ob-server-trace li + li { margin-top: 0.35rem; }
   ob-server-lab .ob-server-diagram { grid-template-columns: 1fr; }
   ob-server-lab .ob-server-arrow { justify-self: center; transform: rotate(90deg); }
 }
+
+/* ---------- Quote request form: ```quote and the quote-form landing section (<ob-quote> adds checks) ---------- */
+
+.ob-quote {
+  display: block;
+  margin: 1.5rem 0;
+  max-width: 40rem;
+}
+
+.ob-quote-field {
+  margin: 0 0 1rem;
+}
+
+.ob-quote-field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.ob-quote-field input:not([type="file"]),
+.ob-quote-field select,
+.ob-quote-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  font: inherit;
+  padding: 0.5rem 0.625rem;
+}
+
+.ob-quote-hint,
+.ob-quote-notice {
+  margin: 0 0 0.375rem;
+  font-size: 0.9em;
+}
+
+.ob-quote-error {
+  margin: 0.25rem 0 0;
+  color: var(--ob-color-callout-caution, #cf222e);
+}
+
+.ob-quote-error:empty {
+  display: none;
+}
+
+.ob-quote [aria-invalid="true"] {
+  outline: 2px solid var(--ob-color-callout-caution, #cf222e);
+}
+
+.ob-quote-trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.ob-quote-send {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.25rem;
+  font: inherit;
+}
+
+.ob-quote-progress {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+}

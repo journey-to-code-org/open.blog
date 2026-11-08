@@ -17,8 +17,8 @@
 use crate::escape::{attr, text};
 use crate::landing::{
     render_inert_markdown, BusinessFacts, Callout, Contact, Faq, FeaturedPost, ImageSection,
-    LandingPage, LatestPosts, LatestShow, MapSection, OpeningHours, RichText, Section, SectionKind,
-    SeriesSection, SocialLinks, Video, Welcome,
+    LandingPage, LatestPosts, LatestShow, MapSection, OpeningHours, QuoteForm, RichText, Section,
+    SectionKind, SeriesSection, SocialLinks, Video, Welcome,
 };
 use crate::theme::Theme;
 
@@ -153,6 +153,7 @@ impl Renderer<'_> {
             SectionKind::Faq(v) => self.landing_faq(section, v),
             SectionKind::Callout(v) => self.landing_callout(section, v),
             SectionKind::BusinessFacts(v) => self.landing_business(cx, section, v),
+            SectionKind::QuoteForm(v) => self.landing_quote(cx, section, v),
         }
     }
 
@@ -309,6 +310,37 @@ impl Renderer<'_> {
         }
         let mut inner = self.landing_heading(cx, &section.id, &v.heading);
         inner.push_str(&block);
+        self.landing_wrap(section, true, &inner, "")
+    }
+
+    /// The quote form under its own heading; nothing while quote requests are off (ADR 0382).
+    fn landing_quote(&self, cx: &mut Context<'_>, section: &Section, v: &QuoteForm) -> String {
+        let config = &self.site.config.quote;
+        if !config.enabled {
+            return String::new();
+        }
+        let towns: Vec<String> = self
+            .site
+            .config
+            .service_areas
+            .areas
+            .iter()
+            .map(|area| area.label())
+            .collect();
+        let services: Vec<String> = self
+            .site
+            .services
+            .iter()
+            .filter(|service| !service.draft)
+            .map(|service| service.name.clone())
+            .collect();
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        inner.push_str(&crate::quote::form_html(
+            config,
+            &format!("ob-home-{}", section.id),
+            &towns,
+            &services,
+        ));
         self.landing_wrap(section, true, &inner, "")
     }
 

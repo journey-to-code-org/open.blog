@@ -719,6 +719,8 @@ impl<'a> PortableProjection<'a> {
                 // A copy that leaves the site cannot resolve an entry: its
                 // Markdown already holds each concept link as its label.
                 concept_links: false,
+                // The form is a page feature: a copy that leaves the site carries none.
+                quote: None,
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),

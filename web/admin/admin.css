@@ -6882,3 +6882,27 @@ ob-voice-library {
   border: var(--ob-border-width) solid var(--ob-color-border);
   border-radius: var(--ob-radius-sm);
 }
+/* Quote requests (ADR 0384): one column, wrapping long values, phone first. */
+.oba-quotes { display: grid; gap: 0.75rem; min-width: 0; }
+.oba-quotes-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; }
+.oba-quotes-filters select { min-width: 0; max-width: 100%; }
+.oba-quotes-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.oba-quotes-card { min-width: 0; padding: 0.75rem; border: 1px solid var(--ob-color-border); border-radius: 0.5rem; overflow-wrap: anywhere; }
+.oba-quotes-card[data-status="new"] { border-width: 2px; }
+.oba-quotes-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 0.75rem; }
+.oba-quotes-head h3 { margin: 0; }
+.oba-quotes-chip { display: inline-block; padding: 0.1rem 0.5rem; border: 1px solid var(--ob-color-border); border-radius: 999px; font-size: 0.85rem; }
+.oba-quotes-chip-new { border-width: 2px; font-weight: 700; }
+.oba-quotes-meta { margin: 0.25rem 0; }
+.oba-quotes-description { margin: 0.25rem 0; white-space: pre-wrap; }
+.oba-quotes-photos { list-style: none; margin: 0.5rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.oba-quotes-photos img { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 0.35rem; border: 1px solid var(--ob-color-border); }
+.oba-quotes-contact, .oba-quotes-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+.oba-quotes-copy { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.oba-quotes-pick { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 2.75rem; }
+.oba-quotes-confirm { padding: 0.75rem; border: 2px solid var(--ob-color-border); border-radius: 0.5rem; display: grid; gap: 0.5rem; }
+.oba-quotes-export fieldset { margin: 0.5rem 0; min-width: 0; display: grid; gap: 0.4rem; }
+.oba-quotes-export input { max-width: 100%; }
+.oba-quotes-emails { padding: 0.75rem; border: 2px solid var(--ob-color-border); border-radius: 0.5rem; display: grid; gap: 0.5rem; overflow-wrap: anywhere; }
+.oba-quotes-emails p { margin: 0; }
+.oba-quotes-email { font-weight: 600; }

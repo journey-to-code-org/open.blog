@@ -101,6 +101,12 @@ pub struct RenderOptions<'a> {
     /// the build can resolve it against the public atlas. `false` renders
     /// every such link as the ordinary link it is written as.
     pub concept_links: bool,
+    /// Set while quote requests are switched on (ADR 0381): a `quote` fence renders the form with
+    /// the site's towns. `None` renders such a fence as nothing.
+    pub quote: Option<(
+        &'a crate::quote::QuoteConfig,
+        &'a crate::service_area::ServiceAreasConfig,
+    )>,
 }
 
 impl Default for RenderOptions<'_> {
@@ -118,6 +124,7 @@ impl Default for RenderOptions<'_> {
             claim_evidence_section: false,
             supplements: false,
             concept_links: false,
+            quote: None,
         }
     }
 }
@@ -1003,6 +1010,10 @@ fn transform_blocks<'a>(
     web_libraries: Option<&BTreeMap<String, Vec<String>>>,
     playground_link: bool,
     portable: Option<PortableContext<'_>>,
+    quote: Option<(
+        &crate::quote::QuoteConfig,
+        &crate::service_area::ServiceAreasConfig,
+    )>,
 ) -> (Vec<Event<'a>>, BlockData) {
     let mut out = Vec::with_capacity(events.len());
     let mut data = BlockData::default();
@@ -1033,6 +1044,9 @@ fn transform_blocks<'a>(
     let mut demo: Option<(FenceInfo, String)> = None;
     // An open `compare` fence and its source.
     let mut compare: Option<String> = None;
+    // An open `quote` fence and its source, and how many forms the page already holds.
+    let mut quote_fence: Option<String> = None;
+    let mut quote_forms = 0usize;
     // An open `piece` fence: the kind it names and its `field: value` lines.
     let mut piece: Option<(String, String)> = None;
     // The section a deeper heading switched away from ("### Ingredients for the
@@ -1148,6 +1162,48 @@ fn transform_blocks<'a>(
                                 "<aside class=\"ob-compare-error\" role=\"alert\">Invalid before and after pair: {}</aside>\n",
                                 escape::text(&error)
                             ))));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) if info.trim() == crate::quote::FENCE)
+        {
+            quote_fence = Some(String::new());
+            continue;
+        }
+        if let Some(source) = quote_fence.as_mut() {
+            match event {
+                Event::Text(text) => source.push_str(text),
+                Event::End(TagEnd::CodeBlock) => {
+                    let source = quote_fence.take().unwrap_or_default();
+                    match crate::quote::parse_fence(&source) {
+                        // The form is a page feature: a portable copy and a site with quote
+                        // requests off carry nothing for it.
+                        Ok(fence) => {
+                            if let (Some((config, areas)), None) = (quote, portable) {
+                                quote_forms += 1;
+                                data.capabilities.push(CapabilityDescriptor::describe(
+                                    crate::quote::CAPABILITY_ID,
+                                    Some(crate::quote::ELEMENT),
+                                ));
+                                let towns: Vec<String> =
+                                    areas.areas.iter().map(|a| a.label()).collect();
+                                out.push(Event::Html(CowStr::from(crate::quote::form_html(
+                                    config,
+                                    &format!("ob-quote-{quote_forms}"),
+                                    &towns,
+                                    &fence.services,
+                                ))));
+                            }
+                        }
+                        Err(problems) => {
+                            data.errors.push(format!(
+                                "a `quote` fence is not valid: {}",
+                                problems.join("; ")
+                            ));
                         }
                     }
                 }
@@ -2607,6 +2663,10 @@ pub(crate) fn portable_semantic_facts(
                     }
                     continue;
                 }
+                if info.trim() == crate::quote::FENCE {
+                    // A form is a page feature: a portable copy carries no part of it.
+                    continue;
+                }
                 let fence = parse_fence_info(&info);
                 if info.trim() == "quiz" {
                     let quiz = parse_quiz(&source)?;
@@ -2983,6 +3043,7 @@ fn render_events<'a>(
         options.web_libraries,
         options.playground_link,
         portable,
+        options.quote,
     );
     // After block transforms, which track footnote containers by their events.
     let events = match (portable, options.citation_notes) {

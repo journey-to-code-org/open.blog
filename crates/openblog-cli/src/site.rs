@@ -151,6 +151,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-compare-model.js"),
     ),
     (
+        "components/ob-quote.js",
+        include_str!("../../../web/components/ob-quote.js"),
+    ),
+    (
+        "components/ob-quote-model.js",
+        include_str!("../../../web/components/ob-quote-model.js"),
+    ),
+    (
         "components/ob-reading-modes.js",
         include_str!("../../../web/components/ob-reading-modes.js"),
     ),
@@ -333,6 +341,7 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/voice-session.js"),
     ),
     ("social.js", include_str!("../../../web/admin/social.js")),
+    ("quotes.js", include_str!("../../../web/admin/quotes.js")),
     (
         "voice-library.js",
         include_str!("../../../web/admin/voice-library.js"),
