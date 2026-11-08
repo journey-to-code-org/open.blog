@@ -2,7 +2,7 @@
 
 open.blog can reach other platforms in two ways: [cross-posting](cross-posting.md) sends a portable copy of an
 article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), and optional
-[social publishing](social-publishing.md) announces a published post on LinkedIn or a Facebook Page. A third,
+[social publishing](social-publishing.md) announces a published post on LinkedIn, a Facebook Page, Bluesky or Mastodon. A third,
 [community submissions](community-submissions.md), prepares a post for you to submit by hand to Hacker News, a
 Reddit community or Product Hunt. All three are off until you set them up, and your Markdown and your own site stay the original.
 
@@ -23,18 +23,18 @@ Anything open.blog does not recognise (a capability, a provider, a manifest form
 
 ## The destinations (policy version 2026-10-29)
 
-| Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter |
-| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter |
-| Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported |
-| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual |
-| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual |
-| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported |
-| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) |
-| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth |
-| Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it |
-| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval |
+| Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | Bluesky | Mastodon |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter (link card) | adapter (in the text) |
+| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter | adapter |
+| Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported |
+| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | manual | manual (the deployer may attach the cover, with its description) |
+| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual | manual |
+| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported |
+| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) |
+| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | app password | OAuth (one instance) |
+| Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the post links it | the post links it |
+| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | your approval | your approval |
 
 Hacker News and Reddit are *community* destinations (policy version 2026-10-29,
 [ADR 0337](adr/0337-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)):
@@ -48,7 +48,7 @@ its link, text, images, video, draft and launch day are all **manual**, because 
 Hunt's own form, and it has no login; see [Product Hunt launch kits](community-submissions.md#product-hunt-launch-kits).
 
 Limits enforced before anything is sent: DEV takes 4 tags of at most 30 characters; Hashnode 15 tags and a request
-of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters. Announcements are scheduled between one
+of at most 100,000 bytes; a LinkedIn caption at most 3,000 characters; a Bluesky caption at most 300; a Mastodon caption at most 475, and the whole status within the instance's own limit. Announcements are scheduled between one
 minute and one year and a day ahead. Video in an article becomes a link in the portable copy
 ([portable fallback](cross-posting.md)).
 
@@ -66,6 +66,24 @@ Checked on 2026-10-29 against the providers' own documentation:
 - Facebook: [Pages API posts](https://developers.facebook.com/docs/pages-api/posts). A post is a `message` and a
   `link` on the Page feed; photos and videos use other endpoints and permissions; an unpublished post must be
   scheduled between 10 minutes and 30 days ahead, so open.blog keeps scheduling in its own queue.
+- Bluesky: the [post record](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json)
+  takes at most 300 graphemes (and 3,000 bytes) of text, links and hashtags as facets in UTF-8 byte offsets, and one
+  embed; the link travels as an `app.bsky.embed.external` card ([posts guide](https://docs.bsky.app/docs/advanced-guides/posts)).
+  Images need a blob upload first, which this adapter does not do; there are no remote drafts and no scheduling
+  field, so open.blog's queue schedules. Login is an AT Protocol session from an app password
+  ([XRPC](https://atproto.com/specs/xrpc)); creating a record costs 3 of 5,000 points an hour and 35,000 a day, and
+  signing in is limited to 30 per 5 minutes and 300 a day per account
+  ([rate limits](https://docs.bsky.app/docs/advanced-guides/rate-limits)).
+- Mastodon: a [status](https://docs.joinmastodon.org/methods/statuses/) is one text, with the link written into it
+  (every URL counts as 23 characters, [guidelines](https://docs.joinmastodon.org/api/guidelines/)) and a visibility
+  of `public`, `unlisted`, `private` or `direct`; an `Idempotency-Key` header is honoured for an hour. A default
+  instance takes 500 characters, and each instance says its own limits at
+  [`/api/v2/instance`](https://docs.joinmastodon.org/methods/instance/). Images are uploaded first with a plain-text
+  description ([media](https://docs.joinmastodon.org/methods/media/)); the adapter can attach the post's cover that
+  way when the deployer turns it on, but an announcement cannot ask for an image of its own, so images stay
+  `manual`. There are no remote drafts, and open.blog's queue schedules. Login is OAuth 2 against one instance with
+  granular scopes ([OAuth](https://docs.joinmastodon.org/methods/oauth/)); 300 calls per 5 minutes per account, media
+  uploads 30 per 30 minutes ([rate limits](https://docs.joinmastodon.org/api/rate-limits/)).
 - DEV: [Forem API v1, articles](https://developers.forem.com/api/v1#tag/articles). `published: false` keeps a draft;
   there is no scheduling field.
 - WordPress: [posts reference](https://developer.wordpress.org/rest-api/reference/posts/). `status` accepts

@@ -40,9 +40,12 @@ test("captions match the fixture and are bounded in characters", () => {
   for (const provider of fixture.providers.accepted) {
     for (const [input, stored] of fixture.captions.accepted) assert.equal(checkCaption(provider, input), stored);
     for (const [input, expected] of fixture.captions.refused) assert.equal(code(() => checkCaption(provider, input)), expected, JSON.stringify(input));
-    assert.equal(checkCaption(provider, "é".repeat(fixture.captionLimit)).length, fixture.captionLimit);
-    assert.equal(code(() => checkCaption(provider, "😀".repeat(fixture.captionLimit))), "accepted", "limit counts code points, not UTF-16 units");
-    assert.equal(code(() => checkCaption(provider, "a".repeat(fixture.captionLimit + 1))), "caption-too-long");
+    const limit = fixture.captionLimits[provider];
+    assert.ok(limit <= fixture.captionLimit, "no provider takes more than the store keeps");
+    assert.equal(providerOf(provider).captionLimit, limit);
+    assert.equal(checkCaption(provider, "é".repeat(limit)).length, limit);
+    assert.equal(code(() => checkCaption(provider, "😀".repeat(limit))), "accepted", "limit counts code points, not UTF-16 units");
+    assert.equal(code(() => checkCaption(provider, "a".repeat(limit + 1))), "caption-too-long");
   }
   assert.equal(code(() => checkCaption("linkedin", "\ufeff")), "caption-characters");
 });

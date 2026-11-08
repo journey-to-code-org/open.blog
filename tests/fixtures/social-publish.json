@@ -32,7 +32,21 @@
     { "provider": "facebook", "name": "service unavailable", "reply": { "status": 503 }, "expect": { "kind": "uncertain", "status": 503 } },
     { "provider": "facebook", "name": "connection reset", "reply": { "fail": "network" }, "expect": { "kind": "uncertain", "status": 0 } },
     { "provider": "facebook", "name": "connection refused", "reply": { "fail": "refused" }, "expect": { "kind": "transient", "status": 0 } },
-    { "provider": "facebook", "name": "timeout", "reply": { "fail": "timeout" }, "expect": { "kind": "uncertain", "status": 0 } }
+    { "provider": "facebook", "name": "timeout", "reply": { "fail": "timeout" }, "expect": { "kind": "uncertain", "status": 0 } },
+    {"provider": "bluesky", "name": "created", "reply": {"status": 200, "body": {"uri": "at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3mzar4gvw36e6", "cid": "bafyreib2rxk3rh6kzwq", "commit": {"cid": "bafyreic", "rev": "3mzar4h"}, "validationStatus": "valid"}}, "expect": {"providerPostId": "at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3mzar4gvw36e6"}},
+    {"provider": "bluesky", "name": "created under another record key", "reply": {"status": 200, "body": {"uri": "at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3mzzzzzzzzzzz", "cid": "bafyreib2"}}, "expect": {"kind": "uncertain", "status": 200}},
+    {"provider": "bluesky", "name": "ok without a cid", "reply": {"status": 200, "body": {"uri": "at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3mzar4gvw36e6"}}, "expect": {"kind": "uncertain", "status": 200}},
+    {"provider": "bluesky", "name": "html from a proxy with 200", "reply": {"status": 200, "body": "<html>maintenance</html>"}, "expect": {"kind": "uncertain", "status": 200}},
+    {"provider": "bluesky", "name": "expired access token", "reply": {"status": 400, "body": {"error": "ExpiredToken", "message": "Token has expired"}}, "expect": {"kind": "auth", "status": 400}},
+    {"provider": "bluesky", "name": "invalid token", "reply": {"status": 401, "body": {"error": "InvalidToken", "message": "Token could not be verified"}}, "expect": {"kind": "auth", "status": 401}},
+    {"provider": "bluesky", "name": "record refused by validation", "reply": {"status": 400, "body": {"error": "InvalidRequest", "message": "Invalid app.bsky.feed.post record: Record/text must not be longer than 300 graphemes"}}, "expect": {"kind": "rejected", "status": 400}},
+    {"provider": "bluesky", "name": "rate limited with a reset time", "reply": {"status": 429, "headers": {"ratelimit-limit": "5000", "ratelimit-remaining": "0", "ratelimit-reset": "1793534600"}, "body": {"error": "RateLimitExceeded", "message": "Rate Limit Exceeded"}}, "expect": {"kind": "rate-limited", "status": 429, "retryAfterMs": 200000}},
+    {"provider": "bluesky", "name": "rate limited with retry-after", "reply": {"status": 429, "headers": {"retry-after": "30"}, "body": {"error": "RateLimitExceeded"}}, "expect": {"kind": "rate-limited", "status": 429, "retryAfterMs": 30000}},
+    {"provider": "bluesky", "name": "upstream failure", "reply": {"status": 502, "body": {"error": "UpstreamFailure", "message": "Upstream Failure"}}, "expect": {"kind": "uncertain", "status": 502}},
+    {"provider": "bluesky", "name": "internal server error", "reply": {"status": 500, "body": {"error": "InternalServerError"}}, "expect": {"kind": "uncertain", "status": 500}},
+    {"provider": "bluesky", "name": "connection reset", "reply": {"fail": "network"}, "expect": {"kind": "uncertain", "status": 0}},
+    {"provider": "bluesky", "name": "connection refused", "reply": {"fail": "refused"}, "expect": {"kind": "transient", "status": 0}},
+    {"provider": "bluesky", "name": "timeout", "reply": {"fail": "timeout"}, "expect": {"kind": "uncertain", "status": 0}}
   ],
-  "unsupported": ["", "twitter", "x", "threads", "instagram", "mastodon", "bluesky", "LinkedIn", "linkedin ", "facebook\n", "__proto__", "constructor", null, 42]
+  "unsupported": ["", "twitter", "x", "threads", "instagram", "mastodon", "LinkedIn", "linkedin ", "facebook\n", "__proto__", "constructor", null, 42]
 }

@@ -11,7 +11,13 @@
 //! bounded before it is read (`preflight`). The signed-in user is named to the function as the
 //! social actor (ADR 0293). What the function answers is not forwarded: each reply is rebuilt
 //! from the fields Admin shows, so a token that a faulty or hostile function included would
-//! still be dropped, and an authorization address is accepted only for LinkedIn or Facebook.
+//! still be dropped, and an authorization address is accepted only for LinkedIn or Facebook, or
+//! for Mastodon only at `/oauth/authorize` on the very instance the function's status names
+//! (ADR 0359), read again from the function for each Mastodon attempt.
+//!
+//! Bluesky has no authorization address: the author types a handle and an app password, which
+//! this server checks for shape and passes to the function once (ADR 0357). The password is never
+//! logged, stored or sent back.
 
 use std::time::Duration;
 
@@ -21,7 +27,9 @@ use super::*;
 pub(super) const MAX_SOCIAL_REQUEST_BYTES: usize = 4 * 1024;
 const MAX_REPLY_BYTES: usize = 1024 * 1024;
 const MIN_KEY_CHARS: usize = 32;
-const PROVIDERS: [&str; 2] = ["linkedin", "facebook"];
+const PROVIDERS: [&str; 4] = ["linkedin", "facebook", "bluesky", "mastodon"];
+/// Providers connected with a handle and an app password instead of a redirect.
+const APP_PASSWORD_PROVIDERS: [&str; 1] = ["bluesky"];
 const AUTHORIZE_HOSTS: [&str; 2] = ["www.linkedin.com", "www.facebook.com"];
 
 /// Where the hosted function is and how Admin proves who it is. Built only from the environment.
@@ -247,33 +255,99 @@ fn project_connection(value: &Json) -> Option<Json> {
 }
 
 fn project_provider(value: &Json) -> Option<Json> {
-    Some(json!({
-        "provider": provider_name(value.get("provider")?)?,
+    let provider = provider_name(value.get("provider")?)?;
+    let app_password = APP_PASSWORD_PROVIDERS.contains(&provider.as_str());
+    // An OAuth provider must say the redirect to register; an app-password one has none.
+    let redirect = if app_password {
+        Json::Null
+    } else {
+        Json::String(text(value.get("redirectUri")?, 500)?)
+    };
+    let mut extra = serde_json::Map::new();
+    if provider == "mastodon" {
+        // A Mastodon provider must name its instance; what it posts is one of a few fixed words.
+        extra.insert(
+            "instance".into(),
+            Json::String(instance_origin(value.get("instance")?)?),
+        );
+        let visibility = value.get("visibility").and_then(slug)?;
+        if !["public", "unlisted", "private"].contains(&visibility.as_str()) {
+            return None;
+        }
+        extra.insert("visibility".into(), Json::String(visibility));
+        let media = value.get("media").and_then(slug)?;
+        if !["none", "cover"].contains(&media.as_str()) {
+            return None;
+        }
+        extra.insert("media".into(), Json::String(media));
+    }
+    let mut projected = json!({
+        "provider": provider,
+        "login": if app_password { "app-password" } else { "oauth" },
         "label": text(value.get("label")?, 40)?,
-        "redirectUri": text(value.get("redirectUri")?, 500)?,
+        "redirectUri": redirect,
         "version": text(value.get("version")?, 20)?,
         "scopes": strings(value, "scopes"),
         "requiredScopes": strings(value, "requiredScopes"),
         "organizations": value.get("organizations").and_then(Json::as_bool).unwrap_or(false),
         "pkce": value.get("pkce").and_then(Json::as_bool).unwrap_or(false),
-    }))
+    });
+    if let Some(object) = projected.as_object_mut() {
+        object.extend(extra);
+    }
+    Some(projected)
 }
 
-/// The address the author's browser is sent to. Only the two providers' own hosts are accepted.
-fn authorize_url(value: &Json) -> Option<String> {
+/// An `https` origin with a domain name and nothing else (no credentials, path, query or
+/// fragment), as the hosted function names a Mastodon instance.
+fn instance_origin(value: &Json) -> Option<String> {
+    let value = value.as_str()?;
+    if value.len() > 200 {
+        return None;
+    }
+    let url = url::Url::parse(value).ok()?;
+    let domain = url.domain()?;
+    (url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && domain.contains('.')
+        && !domain.ends_with('.'))
+    .then(|| url.origin().ascii_serialization())
+}
+
+/// The address the author's browser is sent to. Only LinkedIn's and Facebook's own hosts are
+/// accepted, or, given the Mastodon instance the function's status names, that instance's
+/// `/oauth/authorize`.
+fn authorize_url(value: &Json, instance: Option<&str>) -> Option<String> {
     let value = value.as_str()?;
     if value.len() > 2000 {
         return None;
     }
     let url = url::Url::parse(value).ok()?;
-    (url.scheme() == "https"
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.port().is_none()
+    let clean = url.scheme() == "https" && url.username().is_empty() && url.password().is_none();
+    let known = url.port().is_none()
         && url
             .host_str()
-            .is_some_and(|host| AUTHORIZE_HOSTS.contains(&host)))
-    .then(|| url.to_string())
+            .is_some_and(|host| AUTHORIZE_HOSTS.contains(&host));
+    let mastodon = instance.is_some_and(|origin| {
+        url.origin().ascii_serialization() == origin && url.path() == "/oauth/authorize"
+    });
+    (clean && (known || mastodon)).then(|| url.to_string())
+}
+
+/// The Mastodon instance the hosted function is set up for, from its status, or `None`.
+fn mastodon_instance(config: &SocialConfig, user: &str) -> Option<String> {
+    let reply = hosted(config, "GET", "status", None, user).ok()?;
+    reply
+        .get("providers")?
+        .as_array()?
+        .iter()
+        .filter_map(project_provider)
+        .find(|provider| provider["provider"].as_str() == Some("mastodon"))
+        .and_then(|provider| provider["instance"].as_str().map(str::to_string))
 }
 
 fn list_of(value: &Json, key: &str, project: fn(&Json) -> Option<Json>) -> Json {
@@ -469,20 +543,71 @@ fn status(configured: Configured, user: &str) -> Response {
     }
 }
 
-fn start(req: &Request, config: &SocialConfig, user: &str) -> Result<Json, Response> {
-    let body = object_body(req, &["provider"])?;
-    let Some(provider) = body.get("provider").and_then(provider_name) else {
-        return Err(Response::error(400, "Choose LinkedIn or Facebook"));
+/// A handle and an app password, checked for shape only; the function checks them again and the
+/// provider decides. `None` when neither was sent.
+fn sign_in(body: &Json) -> Result<Option<Json>, Response> {
+    let identifier = body.get("identifier");
+    let password = body.get("appPassword");
+    if identifier.is_none() && password.is_none() {
+        return Ok(None);
+    }
+    let Some(identifier) = identifier
+        .and_then(|v| text(v, 253))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    else {
+        return Err(Response::error(
+            400,
+            "Enter your Bluesky handle, such as name.bsky.social",
+        ));
     };
-    let reply = hosted(
-        config,
-        "POST",
-        "connections",
-        Some(&json!({ "provider": provider })),
-        user,
-    )?;
+    let Some(password) = password
+        .and_then(Json::as_str)
+        .map(str::trim)
+        .filter(|v| is_app_password(v))
+    else {
+        return Err(Response::error(
+            400,
+            "Enter an app password (four groups of four letters or digits, made in Bluesky's settings), never your account password",
+        ));
+    };
+    Ok(Some(
+        json!({ "identifier": identifier, "appPassword": password.to_ascii_lowercase() }),
+    ))
+}
+
+/// The shape Bluesky gives app passwords: xxxx-xxxx-xxxx-xxxx of letters and digits.
+fn is_app_password(value: &str) -> bool {
+    let groups: Vec<&str> = value.split('-').collect();
+    groups.len() == 4
+        && groups
+            .iter()
+            .all(|g| g.len() == 4 && g.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// What a connection start or reconnect answered: an attempt to continue at the provider, or, for
+/// an app-password provider, an attempt that is already signed in.
+fn started(
+    reply: &Json,
+    signed_in: bool,
+    config: &SocialConfig,
+    user: &str,
+) -> Result<Json, Response> {
     let connection = reply.get("connection").and_then(project_connection);
-    let url = reply.get("authorizeUrl").and_then(authorize_url);
+    if signed_in {
+        return match connection {
+            Some(connection) => Ok(json!({ "connection": connection })),
+            None => Err(bad_reply()),
+        };
+    }
+    // A Mastodon address is checked against the instance the function is set up for.
+    let instance = match connection.as_ref().and_then(|c| c["provider"].as_str()) {
+        Some("mastodon") => mastodon_instance(config, user),
+        _ => None,
+    };
+    let url = reply
+        .get("authorizeUrl")
+        .and_then(|url| authorize_url(url, instance.as_deref()));
     match (connection, url) {
         (Some(connection), Some(url)) => {
             Ok(json!({ "connection": connection, "authorizeUrl": url }))
@@ -491,23 +616,52 @@ fn start(req: &Request, config: &SocialConfig, user: &str) -> Result<Json, Respo
     }
 }
 
+fn start(req: &Request, config: &SocialConfig, user: &str) -> Result<Json, Response> {
+    let body = object_body(req, &["provider", "identifier", "appPassword"])?;
+    let Some(provider) = body.get("provider").and_then(provider_name) else {
+        return Err(Response::error(
+            400,
+            "Choose LinkedIn, Facebook, Bluesky or Mastodon",
+        ));
+    };
+    let app_password = APP_PASSWORD_PROVIDERS.contains(&provider.as_str());
+    let credentials = sign_in(&body)?;
+    let mut forward = json!({ "provider": provider });
+    match (app_password, credentials) {
+        (true, Some(credentials)) => {
+            forward["identifier"] = credentials["identifier"].clone();
+            forward["appPassword"] = credentials["appPassword"].clone();
+        }
+        (true, None) => {
+            return Err(Response::error(
+                400,
+                "Bluesky is connected with your handle and an app password",
+            ))
+        }
+        (false, Some(_)) => {
+            return Err(Response::error(
+                400,
+                "That provider is connected through its own sign-in page",
+            ))
+        }
+        (false, None) => {}
+    }
+    let reply = hosted(config, "POST", "connections", Some(&forward), user)?;
+    started(&reply, app_password, config, user)
+}
+
 fn reconnect(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Result<Json, Response> {
-    object_body(req, &[])?;
+    let body = object_body(req, &["identifier", "appPassword"])?;
+    let credentials = sign_in(&body)?;
+    let signed_in = credentials.is_some();
     let reply = hosted(
         config,
         "POST",
         &format!("accounts/{id}/reconnect"),
-        Some(&json!({})),
+        Some(&credentials.unwrap_or_else(|| json!({}))),
         user,
     )?;
-    let connection = reply.get("connection").and_then(project_connection);
-    let url = reply.get("authorizeUrl").and_then(authorize_url);
-    match (connection, url) {
-        (Some(connection), Some(url)) => {
-            Ok(json!({ "connection": connection, "authorizeUrl": url }))
-        }
-        _ => Err(bad_reply()),
-    }
+    started(&reply, signed_in, config, user)
 }
 
 fn select(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Result<Json, Response> {

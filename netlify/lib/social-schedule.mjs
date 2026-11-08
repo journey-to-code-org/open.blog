@@ -7,6 +7,9 @@
 // repeated in an error. Only built-ins are used, so it runs in Node and in Deno.
 
 export const MAX_CAPTION_CHARS = 3000;
+export const BLUESKY_CAPTION_CHARS = 300;
+// 500 characters on a default instance, less a blank line and the link, which counts as 23 (ADR 0360).
+export const MASTODON_CAPTION_CHARS = 475;
 export const MIN_LEAD_SECONDS = 60;
 export const MAX_HORIZON_SECONDS = 366 * 86400;
 export const MAX_URL_CHARS = 2000;
@@ -38,6 +41,9 @@ export class ScheduleError extends Error {
 const PROVIDERS = new Map([
   ["linkedin", { captionLimit: MAX_CAPTION_CHARS }],
   ["facebook", { captionLimit: MAX_CAPTION_CHARS }],
+  // app.bsky.feed.post takes at most 300 graphemes; code points are never fewer (ADR 0358).
+  ["bluesky", { captionLimit: BLUESKY_CAPTION_CHARS }],
+  ["mastodon", { captionLimit: MASTODON_CAPTION_CHARS }],
 ]);
 
 // A destination this release can announce to. A third provider is a code change on purpose: an

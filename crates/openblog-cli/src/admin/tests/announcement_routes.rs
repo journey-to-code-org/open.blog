@@ -284,6 +284,24 @@ fn a_preview_reports_every_problem_at_once_and_stores_nothing() {
     );
     assert_eq!(long.1["problems"][0]["code"], "caption-too-long");
     assert_eq!(long.1["characters"], 3001);
+    // Bluesky takes 300 characters (ADR 0358), and the preview says so.
+    let bluesky = call(
+        &f,
+        &fake(&calls, 200, json!({})),
+        "POST",
+        "/admin/api/social/preview",
+        Some(json!({"provider": "bluesky", "caption": "a".repeat(301)})),
+    );
+    assert_eq!(bluesky.1["limit"], 300);
+    assert_eq!(bluesky.1["problems"][0]["code"], "caption-too-long");
+    let fits = call(
+        &f,
+        &fake(&calls, 200, json!({})),
+        "POST",
+        "/admin/api/social/preview",
+        Some(json!({"provider": "bluesky", "caption": "é".repeat(300)})),
+    );
+    assert_eq!(fits.1["problems"], json!([]));
     assert!(calls.lock().unwrap().is_empty());
 }
 
@@ -935,4 +953,37 @@ fn delivery_health_is_counts_and_alert_codes_only() {
         recorded[0].2.is_empty(),
         "nothing from the browser is passed on"
     );
+}
+
+#[test]
+fn a_preview_names_the_cover_and_description_the_public_page_carries_and_counts_mastodon_against_475(
+) {
+    let f = social_site("cover");
+    fs::write(
+        f.dir.join("content/posts/2026-01-05-lantern.md"),
+        "---\ntitle: Lantern\ndate: 2026-01-05\ncover: /images/lantern.png\ncoverAlt: A lantern on a quay at dusk\n---\nBody.\n",
+    )
+    .unwrap();
+    let calls = Calls::default();
+    let preview = |work: &str, caption: String| {
+        call(
+            &f,
+            &fake(&calls, 200, json!({})),
+            "POST",
+            "/admin/api/social/preview",
+            Some(json!({"provider": "mastodon", "caption": caption, "work": work})),
+        )
+        .1
+    };
+    let covered = preview("/posts/lantern/", "a".repeat(475));
+    assert_eq!(covered["limit"], 475);
+    assert_eq!(covered["problems"], json!([]));
+    assert_eq!(
+        covered["cover"],
+        json!({ "image": true, "description": "A lantern on a quay at dusk" })
+    );
+    assert_eq!(preview("/posts/hello/", "Hi".into())["cover"], Json::Null);
+    let long = preview("/posts/hello/", "a".repeat(476));
+    assert_eq!(long["problems"][0]["code"], "caption-too-long");
+    assert!(calls.lock().unwrap().is_empty());
 }

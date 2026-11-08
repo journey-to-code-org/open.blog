@@ -1,5 +1,7 @@
 // Provider publishing adapters of optional social publishing (epic #353, story #358, ADRs 0319 to
-// 0321): the LinkedIn Posts API and the Facebook Pages feed, each implementing the adapter
+// 0321; Bluesky: epic #382, story #391, ADR 0358; Mastodon: story #392, ADR 0360): the
+// LinkedIn Posts API, the Facebook Pages feed, a Bluesky post record and a Mastodon status, each
+// implementing the adapter
 // interface the delivery worker calls (documented at the top of social-delivery.mjs, ADRs 0316 to
 // 0318). social-adapters.mjs registers an adapter only for a provider this deployment configured.
 // Server-only. Every provider call goes through an injected `fetchImpl` with the worker's abort
@@ -14,14 +16,18 @@
 //     (the request certainly never left: the signal was already aborted, the host did not resolve,
 //     the connection was refused) and "uncertain" (anything that may have been processed without
 //     us seeing the answer: a timeout, a dropped connection, a 5xx, an unreadable answer).
-//   - neither provider honours an idempotency key on these calls, so the worker's `idempotencyKey`
+//   - LinkedIn and Facebook honour no idempotency key on these calls, so the worker's `idempotencyKey`
 //     is not sent; only an answer that means "definitely not processed" is ever retried (ADR 0319).
+//     Bluesky names its record from the announcement and Mastodon takes an Idempotency-Key derived
+//     from it, which only narrows the harm of a retry; the rule above holds for them too.
 // A provider's reply is parsed for a few fields and never copied, so a token, a message or an
 // injected string cannot reach a log, an attempt row or an Admin screen. The access token travels
 // only in the Authorization header. Nothing here logs.
 
 import { checkCaption, ScheduleError } from "./social-schedule.mjs";
 import { DeliveryError, kindOfStatus, parseRetryAfter } from "./social-delivery.mjs";
+import { DID, POST_COLLECTION, announcementKey, cardTitle, facetsFor, withinPostLimits, xrpcError } from "./social-atproto.mjs";
+import { ACCOUNT_ID, COVER_TYPES, DEFAULT_LIMITS, MAX_COVER_BYTES, STATUS_ID, coverOf, idempotencyHeader, instanceLimits, rateLimitWaitMs, statusLength, statusText } from "./social-mastodon.mjs";
 
 // Only used when a caller gives no signal; the worker always gives its own provider timeout.
 export const PUBLISH_TIMEOUT_MS = 15_000;
@@ -279,4 +285,308 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
   });
 }
 
-export const ADAPTER_FACTORIES = Object.freeze({ linkedin: linkedinAdapter, facebook: facebookAdapter });
+// ---- Bluesky (story #391, ADR 0358)
+//
+// One `com.atproto.repo.createRecord` of an `app.bsky.feed.post` in the author's own repository:
+// the caption as the text, its links and hashtags as facets (UTF-8 byte offsets), and the canonical
+// post as an `app.bsky.embed.external` link card. The record key is derived from the announcement
+// (social-atproto.mjs), so every attempt of one announcement names the same record: a retry after
+// an attempt that did land is refused by the repository instead of posting twice, and reconcile can
+// ask for exactly that record. The post's `at://` URI is the provider post id.
+
+const BLUESKY_AUTH = new Set(["ExpiredToken", "InvalidToken", "AuthenticationRequired", "AuthMissing"]);
+const BLUESKY_THROTTLE = new Set(["RateLimitExceeded"]);
+
+// When a 429 may be tried again: Retry-After if the service sent one, else RateLimit-Reset, read as
+// an epoch second or, if small, as seconds from now. Anything else is no hint.
+function blueskyRetryAfter(response, nowMs) {
+  const hinted = parseRetryAfter(header(response, "retry-after"), nowMs);
+  if (hinted !== null) return hinted;
+  const reset = String(header(response, "ratelimit-reset")).trim();
+  if (!/^\d{1,12}$/.test(reset)) return null;
+  const value = Number(reset);
+  return value > 1e9 ? Math.max(0, value * 1000 - nowMs) : value * 1000;
+}
+
+function blueskyError(status, body, response, now) {
+  const name = xrpcError(body);
+  if (status === 401 || ((status === 400 || status === 403) && BLUESKY_AUTH.has(name))) return new DeliveryError("auth", { status });
+  if (status === 429 || BLUESKY_THROTTLE.has(name)) return new DeliveryError("rate-limited", { status, retryAfterMs: blueskyRetryAfter(response, now()) });
+  return statusError(status, response, now);
+}
+
+export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
+  const repoOf = (account) => {
+    const did = String(account?.externalId ?? "");
+    if (!DID.test(did) || (account.kind && account.kind !== "account")) throw new DeliveryError("rejected");
+    return did;
+  };
+  // Everything the record is built from, checked before any request.
+  const plan = async ({ post, account, accessToken }) => {
+    const repo = repoOf(account);
+    const { caption, url } = prepare("bluesky", { post, accessToken });
+    if (!withinPostLimits(caption)) throw new DeliveryError("rejected");
+    const rkey = await announcementKey(post ?? {});
+    if (!rkey) throw new DeliveryError("rejected");
+    return { repo, caption, url, rkey, uri: `at://${repo}/${POST_COLLECTION}/${rkey}` };
+  };
+  const headers = (accessToken, extra = {}) => ({ authorization: `Bearer ${accessToken}`, accept: "application/json", ...extra });
+  return Object.freeze({
+    provider: "bluesky",
+    async publish({ post, account, accessToken, signal } = {}) {
+      const { repo, caption, url, rkey, uri } = await plan({ post, account, accessToken });
+      const record = { $type: POST_COLLECTION, text: caption, createdAt: new Date(now()).toISOString() };
+      const facets = facetsFor(caption);
+      if (facets.length) record.facets = facets;
+      record.embed = { $type: "app.bsky.embed.external", external: { uri: url, title: cardTitle(caption), description: "" } };
+      const response = await send(
+        fetchImpl,
+        `${settings.apiBase}/xrpc/com.atproto.repo.createRecord`,
+        { method: "POST", headers: headers(accessToken, { "content-type": "application/json" }), body: JSON.stringify({ repo, collection: POST_COLLECTION, rkey, record }) },
+        signal,
+      );
+      const status = Number(response?.status) || 0;
+      const body = await readJson(response);
+      if (status === 200) {
+        // The service names the record it wrote; only the one this announcement asked for counts.
+        if (body?.uri === uri && typeof body.cid === "string" && body.cid) return { providerPostId: uri };
+        throw new DeliveryError("uncertain", { status });
+      }
+      if (status >= 200 && status < 300) throw new DeliveryError("uncertain", { status });
+      throw blueskyError(status, body, response, now);
+    },
+    // Asks for exactly this announcement's record. It is "published" only when it is there and is
+    // the caption with the canonical link; "absent" is conclusive because the record key is this
+    // announcement's alone and the repository answers RecordNotFound for it. Anything else, a
+    // record that differs included, is "unknown" and goes to a person.
+    async reconcile({ post, account, accessToken, signal } = {}) {
+      try {
+        const { repo, caption, url, rkey, uri } = await plan({ post, account, accessToken });
+        const query = new URLSearchParams({ repo, collection: POST_COLLECTION, rkey });
+        const response = await send(fetchImpl, `${settings.apiBase}/xrpc/com.atproto.repo.getRecord?${query}`, { method: "GET", headers: headers(accessToken) }, signal);
+        const status = Number(response?.status) || 0;
+        const body = await readJson(response);
+        if (status === 200) {
+          const value = body?.value;
+          const same = body?.uri === uri && value?.$type === POST_COLLECTION && value.text === caption && value.embed?.external?.uri === url;
+          return same ? { state: "published", providerPostId: uri } : { state: "unknown" };
+        }
+        if (status === 400 && xrpcError(body) === "RecordNotFound") return { state: "absent", conclusive: true };
+        return { state: "unknown" };
+      } catch {
+        return { state: "unknown" };
+      }
+    },
+  });
+}
+
+// ---- Mastodon (story #392, ADR 0360)
+//
+// One `POST /api/v1/statuses` from the connected account: the caption, a blank line and the
+// canonical link (Mastodon makes its own preview card from it), at the visibility the deployer
+// chose, with an Idempotency-Key derived from the announcement so a repeat within Mastodon's hour
+// returns the same status. The instance's own limits (GET /api/v2/instance, public) are read before
+// each post and a status over them is refused without a call. With OPENBLOG_SOCIAL_MASTODON_MEDIA=cover
+// the post's cover image, as its canonical page names it with og:image and og:image:alt, is uploaded
+// with that description (POST /api/v2/media) and attached; a cover that cannot be had is left out,
+// never posted without its description. The status id is the provider post id.
+
+const MASTODON_MAX_INSTANCE_CHARS = 256 * 1024;
+const MASTODON_MAX_PAGE_CHARS = 1024 * 1024;
+// The share of a delivery the cover may use, at most, so the status itself always has time left.
+export const MASTODON_MEDIA_BUDGET_MS = 6_000;
+const MASTODON_MEDIA_POLLS = 2;
+const MASTODON_POLL_WAIT_MS = 500;
+const MASTODON_RECONCILE_LIMIT = 40;
+// More statuses than this in the window is not looked through one by one: a person checks.
+const MASTODON_RECONCILE_CANDIDATES = 5;
+
+async function readBounded(response, max) {
+  try {
+    const raw = await response.text();
+    if (raw.length > max) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+function mastodonError(status, response, now) {
+  if (status === 401) return new DeliveryError("auth", { status });
+  if (status === 429) {
+    const wait = rateLimitWaitMs(parseRetryAfter(header(response, "retry-after"), now()), header(response, "x-ratelimit-reset"), now());
+    return new DeliveryError("rate-limited", { status, retryAfterMs: wait });
+  }
+  return statusError(status, response, now);
+}
+
+const pause = (ms, signal) =>
+  new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
+  });
+
+export function mastodonAdapter(settings, { fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
+  const accountOf = (account) => {
+    const id = String(account?.externalId ?? "");
+    if (!ACCOUNT_ID.test(id) || (account.kind && account.kind !== "account")) throw new DeliveryError("rejected");
+    return id;
+  };
+  const auth = (accessToken, extra = {}) => ({ authorization: `Bearer ${accessToken}`, accept: "application/json", ...extra });
+  const quiet = async (url, init, signal) => {
+    try {
+      return await send(fetchImpl, url, init, signal);
+    } catch {
+      return null;
+    }
+  };
+
+  // The instance's limits, or Mastodon's defaults when it does not say. Read once per run.
+  let limits = null;
+  const limitsFor = async (signal) => {
+    if (limits) return limits;
+    const response = await quiet(`${settings.apiBase}/api/v2/instance`, { method: "GET", headers: { accept: "application/json" } }, signal);
+    if (Number(response?.status) !== 200) return DEFAULT_LIMITS;
+    let body = null;
+    try {
+      body = JSON.parse((await readBounded(response, MASTODON_MAX_INSTANCE_CHARS)) ?? "null");
+    } catch {
+      body = null;
+    }
+    if (!body || typeof body !== "object") return DEFAULT_LIMITS;
+    limits = instanceLimits(body);
+    return limits;
+  };
+
+  // The cover's media id, or null when there is none to attach. Only a refused token is an error:
+  // the status would be refused too, so the account is flagged now.
+  const coverMedia = async ({ url, accessToken, found, signal }) => {
+    const bound = AbortSignal.any([signal, AbortSignal.timeout(MASTODON_MEDIA_BUDGET_MS)]);
+    const page = await quiet(url, { method: "GET", headers: { accept: "text/html" } }, bound);
+    if (Number(page?.status) !== 200 || !/^text\/html\b/i.test(header(page, "content-type"))) return null;
+    const html = await readBounded(page, MASTODON_MAX_PAGE_CHARS);
+    const cover = html && coverOf(html, url, found.descriptionLimit);
+    if (!cover) return null;
+    const image = await quiet(cover.url, { method: "GET", headers: { accept: COVER_TYPES.join(", ") } }, bound);
+    const type = header(image, "content-type").split(";")[0].trim().toLowerCase();
+    const allowed = found.mimeTypes ?? COVER_TYPES;
+    const max = Math.min(found.imageSizeLimit, MAX_COVER_BYTES);
+    if (Number(image?.status) !== 200 || !allowed.includes(type) || Number(header(image, "content-length") || 0) > max) return null;
+    let bytes;
+    try {
+      bytes = await image.arrayBuffer();
+    } catch {
+      return null;
+    }
+    if (!bytes || bytes.byteLength === 0 || bytes.byteLength > max) return null;
+    const form = new FormData();
+    form.append("file", new Blob([bytes], { type }), `cover.${type.split("/")[1]}`);
+    form.append("description", cover.description);
+    const uploaded = await quiet(`${settings.apiBase}/api/v2/media`, { method: "POST", headers: auth(accessToken), body: form }, bound);
+    const status = Number(uploaded?.status) || 0;
+    if (status === 401) throw new DeliveryError("auth", { status });
+    if (status !== 200 && status !== 202) return null;
+    const id = (await readJson(uploaded))?.id;
+    if (typeof id !== "string" || !STATUS_ID.test(id)) return null;
+    if (status === 200) return id;
+    // Still processing: look again briefly; a status cannot carry media that is not ready.
+    for (let poll = 0; poll < MASTODON_MEDIA_POLLS && !bound.aborted; poll += 1) {
+      await pause(MASTODON_POLL_WAIT_MS, bound);
+      const ready = await quiet(`${settings.apiBase}/api/v1/media/${encodeURIComponent(id)}`, { method: "GET", headers: auth(accessToken) }, bound);
+      if (Number(ready?.status) === 200) return id;
+      if (Number(ready?.status) !== 206) return null;
+    }
+    return null;
+  };
+
+  const plan = ({ post, account, accessToken }) => {
+    const id = accountOf(account);
+    const { caption, url } = prepare("mastodon", { post, accessToken });
+    return { id, caption, url, text: statusText(caption, url) };
+  };
+
+  return Object.freeze({
+    provider: "mastodon",
+    async publish({ post, account, accessToken, signal } = {}) {
+      const { id, url, text } = plan({ post, account, accessToken });
+      const key = await idempotencyHeader(post?.idempotencyKey);
+      if (!key) throw new DeliveryError("rejected");
+      const bound = signal || AbortSignal.timeout(PUBLISH_TIMEOUT_MS);
+      if (bound.aborted) throw new DeliveryError("transient");
+      const found = await limitsFor(bound);
+      if (statusLength(text, found.charactersPerUrl) > found.maxCharacters) throw new DeliveryError("rejected");
+      const form = new URLSearchParams({ status: text, visibility: settings.visibility || "public" });
+      if (settings.media === "cover") {
+        const media = await coverMedia({ url, accessToken, found, signal: bound });
+        if (media) form.append("media_ids[]", media);
+      }
+      const response = await send(
+        fetchImpl,
+        `${settings.apiBase}/api/v1/statuses`,
+        { method: "POST", headers: auth(accessToken, { "content-type": "application/x-www-form-urlencoded", "idempotency-key": key }), body: form.toString() },
+        bound,
+      );
+      const status = Number(response?.status) || 0;
+      const body = await readJson(response);
+      if (status === 200) {
+        // Only a status of this very account counts as the announcement.
+        if (typeof body?.id === "string" && STATUS_ID.test(body.id) && body.account?.id === id) return { providerPostId: body.id };
+        throw new DeliveryError("uncertain", { status });
+      }
+      if (status >= 200 && status < 300) throw new DeliveryError("uncertain", { status });
+      throw mastodonError(status, response, now);
+    },
+    // A read-only look at the account's own recent statuses (needs read:statuses, requested by
+    // default) made during the attempt, give or take two minutes. Each one in the window is read
+    // back as its source text (GET /api/v1/statuses/:id/source); exactly one whose text is the
+    // status this announcement sends is "published". "absent" is conclusive only when the window
+    // holds no status of the account at all and the page reaches back past it. Anything else, a
+    // missing permission included, is "unknown": the worker keeps looking, then asks a person.
+    async reconcile({ post, account, accessToken, attemptedAt, finishedAt, signal } = {}) {
+      try {
+        const { id, text } = plan({ post, account, accessToken });
+        const started = Date.parse(attemptedAt ?? "");
+        if (!Number.isFinite(started)) return { state: "unknown" };
+        const finished = Date.parse(finishedAt ?? "");
+        const since = started - RECONCILE_SKEW_SECONDS * 1000;
+        const until = (Number.isFinite(finished) && finished >= started ? finished : started + RECONCILE_OPEN_SECONDS * 1000) + RECONCILE_SKEW_SECONDS * 1000;
+        const query = new URLSearchParams({ limit: String(MASTODON_RECONCILE_LIMIT), exclude_reblogs: "true" });
+        const response = await send(fetchImpl, `${settings.apiBase}/api/v1/accounts/${encodeURIComponent(id)}/statuses?${query}`, { method: "GET", headers: auth(accessToken) }, signal);
+        if (Number(response?.status) !== 200) return { state: "unknown" };
+        let list = null;
+        try {
+          list = JSON.parse((await readBounded(response, MASTODON_MAX_PAGE_CHARS)) ?? "null");
+        } catch {
+          list = null;
+        }
+        if (!Array.isArray(list)) return { state: "unknown" };
+        const inWindow = [];
+        let oldest = Infinity;
+        for (const item of list) {
+          const created = Date.parse(item?.created_at ?? "");
+          if (typeof item?.id !== "string" || !STATUS_ID.test(item.id) || !Number.isFinite(created)) return { state: "unknown" };
+          oldest = Math.min(oldest, created);
+          if (created >= since && created <= until) inWindow.push(item.id);
+        }
+        // The page must reach back past the window, or an older status could still be in it.
+        const complete = list.length < MASTODON_RECONCILE_LIMIT || oldest < since;
+        if (!inWindow.length) return complete ? { state: "absent", conclusive: true } : { state: "unknown" };
+        if (inWindow.length > MASTODON_RECONCILE_CANDIDATES) return { state: "unknown" };
+        const same = [];
+        for (const candidate of inWindow) {
+          const source = await send(fetchImpl, `${settings.apiBase}/api/v1/statuses/${encodeURIComponent(candidate)}/source`, { method: "GET", headers: auth(accessToken) }, signal);
+          if (Number(source?.status) !== 200) return { state: "unknown" };
+          const body = await readJson(source);
+          if (body?.id !== candidate || typeof body.text !== "string") return { state: "unknown" };
+          if (body.text === text) same.push(candidate);
+        }
+        return same.length === 1 ? { state: "published", providerPostId: same[0] } : { state: "unknown" };
+      } catch {
+        return { state: "unknown" };
+      }
+    },
+  });
+}
+
+export const ADAPTER_FACTORIES = Object.freeze({ linkedin: linkedinAdapter, facebook: facebookAdapter, bluesky: blueskyAdapter, mastodon: mastodonAdapter });

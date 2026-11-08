@@ -480,3 +480,200 @@ fn a_disconnect_reports_how_many_announcements_it_canceled_and_nothing_more() {
     let body: Json = serde_json::from_slice(&r.body).unwrap();
     assert!(body["account"].get("canceledAnnouncements").is_none());
 }
+
+const DID: &str = "did:plc:abcdefghijklmnopqrstuvwx";
+const APP_PASSWORD: &str = "abcd-efgh-ijkl-mnop";
+
+fn bluesky_connection(status: &str, reauth: Option<&str>) -> Json {
+    json!({ "id": ID, "provider": "bluesky", "status": status, "expiresAt": "2026-10-29T12:30:00Z", "requestedScopes": [], "grantedScopes": [], "createdBy": "mikey", "createdAt": "2026-10-29T12:00:00Z", "reauthAccountId": reauth, "errorCode": null, "message": null, "destinations": [{ "id": DID, "kind": "account", "name": "@ada.bsky.social", "eligible": true, "reason": null }], "notes": [] })
+}
+
+#[test]
+fn bluesky_signs_in_with_a_handle_and_an_app_password_sent_once_and_never_answered() {
+    let (endpoint, server) = hosted(vec![(
+        201,
+        json!({ "connection": bluesky_connection("authorized", None), "authorizeUrl": "https://evil.example/" , "accessJwt": ACCESS }).to_string(),
+    )]);
+    let env = env_for(&endpoint);
+    let ok = route_with(
+        &env,
+        &json_req(
+            "POST",
+            "/x",
+            json!({ "provider": "bluesky", "identifier": " ada.bsky.social ", "appPassword": "ABCD-EFGH-IJKL-MNOP" }),
+        ),
+        "mikey",
+        "connections",
+    );
+    assert_eq!(ok.status, 200);
+    let text = String::from_utf8_lossy(&ok.body).to_string();
+    assert!(
+        !text.contains(ACCESS)
+            && !text.contains("evil")
+            && !text.to_ascii_lowercase().contains(APP_PASSWORD)
+    );
+    let body = body_json(&ok);
+    assert_eq!(body["connection"]["destinations"][0]["id"], DID);
+    assert!(body.get("authorizeUrl").is_none());
+    let sent = server.join().unwrap().remove(0);
+    assert!(
+        sent.ends_with(&format!(
+            r#"{{"appPassword":"{APP_PASSWORD}","identifier":"ada.bsky.social","provider":"bluesky"}}"#
+        )),
+        "{sent}"
+    );
+
+    // Never reaches the function: an account password, no password, a sign-in for an OAuth provider.
+    for body in [
+        json!({ "provider": "bluesky", "identifier": "ada.bsky.social", "appPassword": "correct horse battery" }),
+        json!({ "provider": "bluesky", "identifier": "ada.bsky.social" }),
+        json!({ "provider": "bluesky", "appPassword": APP_PASSWORD }),
+        json!({ "provider": "bluesky" }),
+        json!({ "provider": "linkedin", "identifier": "ada.bsky.social", "appPassword": APP_PASSWORD }),
+    ] {
+        let r = route_with(
+            &env,
+            &json_req("POST", "/x", body.clone()),
+            "mikey",
+            "connections",
+        );
+        assert_eq!(r.status, 400, "{body}");
+        assert!(!String::from_utf8_lossy(&r.body).contains("correct horse"));
+    }
+}
+
+#[test]
+fn a_bluesky_reconnect_forwards_the_sign_in_and_returns_the_finished_attempt() {
+    let (endpoint, server) = hosted(vec![(
+        201,
+        json!({ "connection": bluesky_connection("completed", Some(ID)) }).to_string(),
+    )]);
+    let r = route_with(
+        &env_for(&endpoint),
+        &json_req(
+            "POST",
+            "/x",
+            json!({ "identifier": "ada.bsky.social", "appPassword": APP_PASSWORD }),
+        ),
+        "mikey",
+        &format!("accounts/{ID}/reconnect"),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(body_json(&r)["connection"]["status"], "completed");
+    let sent = server.join().unwrap().remove(0);
+    assert!(
+        sent.contains(&format!("/accounts/{ID}/reconnect")),
+        "{sent}"
+    );
+    assert!(sent.ends_with(&format!(
+        r#"{{"appPassword":"{APP_PASSWORD}","identifier":"ada.bsky.social"}}"#
+    )));
+}
+
+#[test]
+fn the_status_marks_bluesky_as_an_app_password_provider_without_a_redirect() {
+    let reply = json!({ "enabled": true, "problems": [], "providers": [
+        { "provider": "bluesky", "label": "Bluesky", "login": "app-password", "redirectUri": null, "version": "atproto", "scopes": [], "requiredScopes": [], "organizations": false, "pkce": false },
+        { "provider": "facebook", "label": "Facebook", "redirectUri": null, "version": "v23.0", "scopes": [], "requiredScopes": [] },
+    ] });
+    let (endpoint, server) = hosted(vec![(200, reply.to_string())]);
+    let body = body_json(&route_with(
+        &env_for(&endpoint),
+        &req("GET", "/x"),
+        "mikey",
+        "status",
+    ));
+    let providers = body["providers"].as_array().unwrap();
+    // An OAuth provider without its redirect is dropped; Bluesky needs none.
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0]["login"], "app-password");
+    assert_eq!(providers[0]["redirectUri"], Json::Null);
+    server.join().unwrap();
+}
+
+fn mastodon_status(instance: &str) -> String {
+    json!({ "enabled": true, "problems": [], "providers": [
+        { "provider": "mastodon", "label": "Mastodon", "login": "oauth", "redirectUri": "https://blog.example.com/api/social/callback/mastodon", "version": "v1", "scopes": ["read:accounts", "write:statuses"], "requiredScopes": ["read:accounts", "write:statuses"], "organizations": false, "pkce": true, "instance": instance, "visibility": "unlisted", "media": "none", "clientSecret": "never" },
+    ] })
+    .to_string()
+}
+
+#[test]
+fn the_status_shows_the_mastodon_instance_and_what_it_posts_and_drops_a_bad_one() {
+    let (endpoint, server) = hosted(vec![(200, mastodon_status("https://social.example.org"))]);
+    let body = body_json(&route_with(
+        &env_for(&endpoint),
+        &req("GET", "/x"),
+        "mikey",
+        "status",
+    ));
+    let provider = &body["providers"][0];
+    assert_eq!(provider["instance"], "https://social.example.org");
+    assert_eq!(provider["visibility"], "unlisted");
+    assert_eq!(provider["media"], "none");
+    assert!(provider.get("clientSecret").is_none());
+    server.join().unwrap();
+
+    for bad in [
+        "http://social.example.org",
+        "https://social.example.org/@ada",
+        "https://u:p@social.example.org",
+        "https://localhost",
+    ] {
+        let (endpoint, server) = hosted(vec![(200, mastodon_status(bad))]);
+        let body = body_json(&route_with(
+            &env_for(&endpoint),
+            &req("GET", "/x"),
+            "mikey",
+            "status",
+        ));
+        assert_eq!(body["providers"].as_array().unwrap().len(), 0, "{bad}");
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn a_mastodon_sign_in_address_is_passed_on_only_at_the_instance_the_function_names() {
+    let connection = json!({ "id": ID, "provider": "mastodon", "status": "pending", "expiresAt": "2026-10-29T12:10:00Z", "requestedScopes": ["read:accounts"], "grantedScopes": [], "createdBy": "mikey", "createdAt": "2026-10-29T12:00:00Z", "reauthAccountId": null, "errorCode": null, "message": null, "destinations": [], "notes": [] });
+    let good = "https://social.example.org/oauth/authorize?client_id=1&state=abc";
+    let (endpoint, server) = hosted(vec![
+        (
+            201,
+            json!({ "connection": connection, "authorizeUrl": good }).to_string(),
+        ),
+        (200, mastodon_status("https://social.example.org")),
+    ]);
+    let ok = route_with(
+        &env_for(&endpoint),
+        &json_req("POST", "/x", json!({ "provider": "mastodon" })),
+        "mikey",
+        "connections",
+    );
+    assert_eq!(ok.status, 200);
+    assert_eq!(body_json(&ok)["authorizeUrl"], good);
+    let seen = server.join().unwrap();
+    assert!(seen[1].starts_with("GET /api/social/status"), "{}", seen[1]);
+
+    for bad in [
+        "https://evil.example/oauth/authorize?state=abc",
+        "https://social.example.org/auth/sign_in",
+        "https://social.example.org:8443/oauth/authorize",
+        "https://social.example.org.evil.example/oauth/authorize",
+    ] {
+        let (endpoint, server) = hosted(vec![
+            (
+                201,
+                json!({ "connection": connection, "authorizeUrl": bad }).to_string(),
+            ),
+            (200, mastodon_status("https://social.example.org")),
+        ]);
+        let r = route_with(
+            &env_for(&endpoint),
+            &json_req("POST", "/x", json!({ "provider": "mastodon" })),
+            "mikey",
+            "connections",
+        );
+        assert_eq!(r.status, 502, "{bad}");
+        server.join().unwrap();
+    }
+}

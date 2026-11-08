@@ -13,7 +13,7 @@
 //! hosted function itself stays off unless `OPENBLOG_SOCIAL_ENABLED=true` there.
 
 use openblog_core::social_schedule::{
-    announceable, check_canonical_url, check_caption, check_caption_for_all, check_idempotency_key,
+    announceable, check_canonical_url, check_caption, check_caption_for_any, check_idempotency_key,
     check_time_zone, parse_schedule, parse_schedule_with, utc_instant, Provider, ScheduleError,
 };
 use openblog_core::LoadOptions;
@@ -356,16 +356,18 @@ fn preview(state: &AppState, req: &Request) -> Response {
             add("timeZone", error);
         }
     }
-    let link = body
+    let (link, cover) = match body
         .work
         .as_deref()
-        .and_then(|work| match canonical_for(state, work, now) {
-            Ok(url) => Some(url),
-            Err(error) => {
-                add("work", error);
-                None
-            }
-        });
+        .map(|work| announced_for(state, work, now))
+    {
+        Some(Ok((url, cover))) => (Some(url), cover),
+        Some(Err(error)) => {
+            add("work", error);
+            (None, Json::Null)
+        }
+        None => (None, Json::Null),
+    };
     Response::json(
         200,
         &json!({
@@ -375,6 +377,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "limit": limit,
             "scheduledFor": scheduled,
             "link": link,
+            "cover": cover,
             "problems": problems,
         }),
     )
@@ -382,13 +385,32 @@ fn preview(state: &AppState, req: &Request) -> Response {
 
 /// The post's own public address, from the site and never from the request.
 fn canonical_for(state: &AppState, work: &str, now: DateTime) -> Result<String, ScheduleError> {
+    announced_for(state, work, now).map(|(url, _)| url)
+}
+
+/// The post's public address and the cover image its public page names (the page's `og:image`
+/// and `og:image:alt`, which a Mastodon announcement attaches when the server is set to, ADR
+/// 0360): `{ "image": bool, "description": text or null }`, or null when the page names none.
+/// Both are on the public page already; nothing private is read.
+fn announced_for(
+    state: &AppState,
+    work: &str,
+    now: DateTime,
+) -> Result<(String, Json), ScheduleError> {
     let (site, config) = load(state).map_err(|_| ScheduleError::PostNotPublished)?;
     let post = site
         .posts
         .iter()
         .find(|post| post.url == work)
         .ok_or(ScheduleError::PostNotPublished)?;
-    announceable(&site, &config, post, now).map(|found| found.canonical_url)
+    let url = announceable(&site, &config, post, now)?.canonical_url;
+    let cover = match social_metadata(&site, &post.source) {
+        Ok(meta) if meta.image.is_some() => {
+            json!({ "image": true, "description": meta.image_alt })
+        }
+        _ => Json::Null,
+    };
+    Ok((url, cover))
 }
 
 #[derive(Deserialize)]
@@ -413,7 +435,7 @@ fn create(state: &AppState, transport: &dyn Transport, user: &str, req: &Request
         if let Some(zone) = body.time_zone.as_deref() {
             check_time_zone(zone)?;
         }
-        let caption = check_caption_for_all(&body.caption)?;
+        let caption = check_caption_for_any(&body.caption)?;
         // Shape only: the hosted function applies the lead and horizon after it has looked for a
         // request it already holds, so a retry whose time has passed still replays.
         let at = parse_schedule_with(&body.scheduled_for, now, false)?;
@@ -547,7 +569,7 @@ fn checked_change(
         payload["timeZone"] = Json::String(zone.clone());
     }
     if let Some(caption) = caption {
-        payload["caption"] = Json::String(check_caption_for_all(caption).map_err(problem)?);
+        payload["caption"] = Json::String(check_caption_for_any(caption).map_err(problem)?);
     }
     if let Some(value) = scheduled_for {
         let at = parse_schedule(value, clock::now()).map_err(problem)?;

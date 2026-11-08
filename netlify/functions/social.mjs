@@ -6,6 +6,8 @@
 // Admin user in X-OpenBlog-Actor (ADR 0293); everything under /connections and /accounts needs it.
 // The author's browser, coming back from LinkedIn or Facebook, reaches only GET /callback/<provider>,
 // which holds no key: the single-use `state` in its query is the proof, and it answers a fixed page.
+// Bluesky has no callback: Admin sends the handle and an app password once (ADR 0357), and the
+// password is used for that one sign-in and never stored or echoed.
 //
 // Scheduled announcements are served by the same function (netlify/lib/social-announcements.mjs).
 // The function is bundled by Netlify and reached at /api/social/* (netlify.toml). Provider calls
@@ -123,6 +125,11 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       if (head === "connections") {
         if (method === "GET" && segments.length === 1) return json(200, { connections: await connector.list() });
         if (method === "POST" && segments.length === 1) {
+          // Bluesky signs in with a handle and an app password (ADR 0357); the others redirect.
+          if (Object.hasOwn(body, "appPassword") || Object.hasOwn(body, "identifier")) {
+            only(body, ["provider", "identifier", "appPassword"]);
+            return json(201, await connector.appPassword({ provider: body.provider, identifier: body.identifier, password: body.appPassword, actor: identity.actor }));
+          }
           only(body, ["provider"]);
           return json(201, await connector.start({ provider: body.provider, actor: identity.actor }));
         }
@@ -138,8 +145,9 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       if (head === "accounts") {
         if (method === "GET" && segments.length === 1) return json(200, { accounts: await accounts.list() });
         if (method === "POST" && action === "reconnect" && segments.length === 3 && UUID.test(id)) {
-          only(body, []);
-          return json(201, await accounts.reconnect(id, identity.actor));
+          only(body, ["identifier", "appPassword"]);
+          const signIn = Object.keys(body).length ? { identifier: body.identifier, password: body.appPassword } : null;
+          return json(201, await accounts.reconnect(id, identity.actor, signIn));
         }
         if (method === "POST" && action === "disconnect" && segments.length === 3 && UUID.test(id)) {
           only(body, []);

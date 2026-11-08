@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const SECRETS: [(&str, &str); 23] = [
+const SECRETS: [(&str, &str); 33] = [
     ("OPENBLOG_SOCIAL_ENABLED", "true"),
     ("SUPABASE_URL", "https://project.supabase.co"),
     (
@@ -51,6 +51,28 @@ const SECRETS: [(&str, &str); 23] = [
     ("OPENBLOG_SOCIAL_LINKEDIN_API_VERSION", "202610"),
     ("OPENBLOG_SOCIAL_FACEBOOK_API_VERSION", "v23.0"),
     ("OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS", "true"),
+    ("OPENBLOG_SOCIAL_BLUESKY_ENABLED", "true"),
+    ("OPENBLOG_SOCIAL_BLUESKY_SERVICE", "https://pds.example.org"),
+    (
+        "OPENBLOG_SOCIAL_MASTODON_INSTANCE",
+        "https://social.example.org",
+    ),
+    (
+        "OPENBLOG_SOCIAL_MASTODON_CLIENT_ID",
+        "mst-client-socialoptin66666666666666",
+    ),
+    (
+        "OPENBLOG_SOCIAL_MASTODON_CLIENT_SECRET",
+        "mst_secret_socialoptin77777777777777777",
+    ),
+    ("OPENBLOG_SOCIAL_MASTODON_VISIBILITY", "unlisted"),
+    ("OPENBLOG_SOCIAL_MASTODON_MEDIA", "cover"),
+    (
+        "OPENBLOG_SOCIAL_MASTODON_SCOPES",
+        "read:accounts write:statuses",
+    ),
+    ("OPENBLOG_SOCIAL_MASTODON_PKCE", "true"),
+    ("OPENBLOG_SOCIAL_MASTODON_API_VERSION", "v1"),
     ("OPENBLOG_SOCIAL_OPS", "true"),
     ("OPENBLOG_SOCIAL_RETENTION_DAYS", "365"),
     ("OPENBLOG_SOCIAL_BATCH_SIZE", "5"),

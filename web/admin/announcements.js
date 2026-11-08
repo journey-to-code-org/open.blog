@@ -11,6 +11,45 @@
 import { el } from "./block-forms.js";
 
 export const CAPTION_LIMIT = 3000;
+/** Each destination's caption limit, as the server holds it (social_schedule.rs, social-schedule.mjs). */
+export const CAPTION_LIMITS = Object.freeze({ linkedin: 3000, facebook: 3000, bluesky: 300, mastodon: 475 });
+export const captionLimitFor = (provider) => CAPTION_LIMITS[provider] || CAPTION_LIMIT;
+
+/** The title Bluesky's link card shows: the caption's first line, plain (ADR 0358). */
+export function blueskyCardTitle(caption) {
+  const line = String(caption ?? "").split("\n")[0].replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim();
+  return Array.from(line).slice(0, 300).join("") || "Read the full post";
+}
+
+/** What Bluesky will make of a caption, said plainly for the preview. */
+export function blueskyNotes(caption, link) {
+  const notes = [];
+  let host = "";
+  try {
+    host = new URL(link).hostname;
+  } catch {
+    host = "";
+  }
+  if (link) notes.push(`On Bluesky the link is a card titled "${blueskyCardTitle(caption)}"${host ? ` that shows ${host}` : ""}, with no picture.`);
+  if (/\bhttps?:\/\/|(^|\s)#[\p{L}\p{N}_]/u.test(caption)) notes.push("Links and #hashtags in the caption become clickable on Bluesky.");
+  if (/(^|\s)@[a-z0-9]/i.test(caption)) notes.push("@mentions stay plain text on Bluesky; nobody is notified.");
+  return notes;
+}
+
+/**
+ * What Mastodon will make of a caption, said plainly for the preview (ADR 0360). `cover` is the
+ * preview's `{ image, description }` of the post's public page, or null.
+ */
+export function mastodonNotes(caption, link, cover = null) {
+  const notes = [];
+  const words = String(caption ?? "").split(/\s+/);
+  if (link && !words.includes(link)) notes.push("On Mastodon the link goes after the caption, on its own line; it counts as 23 characters, and Mastodon shows its own preview of it.");
+  if (/(^|\s)#[\p{L}\p{N}_]/u.test(caption)) notes.push("#hashtags in the caption become clickable on Mastodon.");
+  if (/(^|\s)@[a-z0-9_]+@[a-z0-9.-]+\.[a-z]/i.test(caption)) notes.push("On Mastodon an @name@server in the caption notifies that person.");
+  if (cover?.image && cover.description) notes.push(`Where the server attaches cover images to Mastodon posts, the post's cover goes with it, described as: "${cover.description}".`);
+  else if (cover?.image) notes.push("The post's cover image has no description (coverAlt), so it is never attached on Mastodon.");
+  return notes;
+}
 const PREVIEW_DELAY_MS = 350;
 
 // ---------------------------------------------------------------------- time
@@ -235,8 +274,8 @@ export function errorText(error) {
   return "Admin could not be reached. Check your connection and try again.";
 }
 
-const providerName = (provider) => ({ linkedin: "LinkedIn", facebook: "Facebook" })[provider] || String(provider || "");
-const kindName = (kind) => ({ member: "profile", page: "Page" })[kind] || String(kind || "");
+const providerName = (provider) => ({ linkedin: "LinkedIn", facebook: "Facebook", bluesky: "Bluesky", mastodon: "Mastodon" })[provider] || String(provider || "");
+const kindName = (kind) => ({ member: "profile", page: "Page", account: "account" })[kind] || String(kind || "");
 
 /** "Mikey Nichols (LinkedIn profile)". */
 export const destinationLabel = (destination) => (destination ? `${destination.displayName} (${providerName(destination.provider)} ${kindName(destination.kind)})` : "Unknown destination");
@@ -359,13 +398,19 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
         el("p", { class: "oba-small oba-announce-card-when", "data-preview-when": "true" }, model.scheduledFor ? `Posts ${formatWhen(model.scheduledFor, zone)} (${model.scheduledFor.replace("T", " ").replace(":00Z", " UTC")})` : "No time chosen yet."),
       ),
     );
-    if (model.notes?.length) body.push(el("ul", { class: "oba-small", "data-preview-notes": "true" }, model.notes.map((note) => el("li", {}, note))));
+    const typed = model.caption ?? caption.value.trim();
+    const notes = [
+      ...(model.notes || []),
+      ...(chosen?.provider === "bluesky" ? blueskyNotes(typed, model.link) : []),
+      ...(chosen?.provider === "mastodon" ? mastodonNotes(typed, model.link, model.cover) : []),
+    ];
+    if (notes.length) body.push(el("ul", { class: "oba-small", "data-preview-notes": "true" }, notes.map((note) => el("li", {}, note))));
     if (model.problems?.length) body.push(el("ul", { class: "oba-small oba-announce-preview-problems", "data-preview-problems": "true" }, model.problems.map((problem) => el("li", {}, problem.message))));
     previewBox.replaceChildren(...body);
   }
 
   function updateCount() {
-    const result = captionCount(caption.value);
+    const result = captionCount(caption.value, captionLimitFor(selectedDestination()?.provider));
     count.textContent = result.text;
     count.setAttribute("data-over", result.over ? "true" : "false");
     if (result.over) setError("caption", `The caption is ${result.count - result.limit} characters too long.`);
@@ -415,7 +460,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     if (!chosen) problems.push({ field: "destination", code: "destination-missing", message: "Choose where to post." });
     if (!picked) problems.push({ field: "post", code: "post-missing", message: "Choose a published post." });
     if (!caption.value.trim()) problems.push({ field: "caption", code: "caption-empty", message: "Write a caption." });
-    else if (captionCount(caption.value).over) problems.push({ field: "caption", code: "caption-too-long", message: `The caption is ${captionCount(caption.value).count - CAPTION_LIMIT} characters too long.` });
+    else if (captionCount(caption.value, captionLimitFor(chosen?.provider)).over) problems.push({ field: "caption", code: "caption-too-long", message: `The caption is ${captionCount(caption.value, captionLimitFor(chosen?.provider)).count - captionLimitFor(chosen?.provider)} characters too long.` });
     if (!converted.ok) {
       problems.push({ field: "time", code: "time-invalid", message: converted.code === "nonexistent" ? "That time does not exist in your time zone because the clocks skip it. Choose another." : when.value ? "Choose a valid date and time." : "Choose a date and time." });
     }
@@ -488,7 +533,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
       id: "destination",
       label: "Destination",
       control: destination,
-      hint: el("p", { class: "oba-small oba-landing-hint", id: `${ids}-destination-hint` }, "The LinkedIn profile or Facebook Page that will post it."),
+      hint: el("p", { class: "oba-small oba-landing-hint", id: `${ids}-destination-hint` }, "The connected profile, Page or account that will post it."),
       error: errorNode("destination"),
     }),
     field({
@@ -694,9 +739,10 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     text.value = item.caption;
     const at = el("input", { id: `${id}-when`, type: "datetime-local", "aria-describedby": `${id}-error` });
     at.value = instantToLocalInput(item.scheduledFor, zone);
-    const counter = el("p", { class: "oba-small oba-announce-count", id: `${id}-count` }, captionCount(item.caption).text);
+    const limit = captionLimitFor(item.destination?.provider);
+    const counter = el("p", { class: "oba-small oba-announce-count", id: `${id}-count` }, captionCount(item.caption, limit).text);
     text.addEventListener("input", () => {
-      counter.textContent = captionCount(text.value).text;
+      counter.textContent = captionCount(text.value, limit).text;
     });
     const problem = el("p", { class: "oba-field-error", id: `${id}-error`, role: "alert", hidden: true });
     const save = el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "social-save" }, "Save changes");
@@ -717,7 +763,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
         problem.hidden = false;
         return text.focus();
       }
-      if (captionCount(text.value).over || !text.value.trim()) {
+      if (captionCount(text.value, limit).over || !text.value.trim()) {
         problem.textContent = text.value.trim() ? "The caption is too long." : "Write a caption.";
         problem.hidden = false;
         return text.focus();
@@ -854,7 +900,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     renderList();
     loadHealth();
     if (!destinations.length) {
-      status.textContent = "No account is connected yet, so there is nowhere to post. Connect a LinkedIn profile or Facebook Page first.";
+      status.textContent = "No account is connected yet, so there is nowhere to post. Connect a profile, Page or account under Connected accounts first.";
     }
   }
 
