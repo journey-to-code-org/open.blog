@@ -47,8 +47,8 @@ immediately.
 The admin is organized like a writing studio. New accounts start in **Simple**, which keeps
 the main navigation focused on content and the essential **Write**, **Site preview**, and
 **Settings** views. Its main navigation shows Overview, Posts, Pages, Landing page, and Customize
-look, plus Series, Services, and Business facts once the site uses them, and Reminders once the
-business facts name a trade or reminders are on. The other pages are under
+look, plus Series, Services, and Business facts once the site uses them, Reviews once it has a job, a trade or a
+review, and Reminders once the business facts name a trade or reminders are on. The other pages are under
 **More pages** in **Advanced tools**, and research capture, knowledge checks and research formatting appear in the
 editor from **Guided** up, on a post that is research or publishes citations, or after you open
 the research workspace. Every other document view sits under **More tools** in the editor bar,
@@ -1010,6 +1010,13 @@ Open **Services** (`#/services`) to describe each thing you sell once, with what
 typical timeline and the questions customers ask. The screen edits the `services/` files through the same
 document routes as posts, pages and series, so sessions, CSRF, the 2 MiB bound, revision checks and the trash all
 apply as they do there. See [Services](services.md).
+
+### Reviews
+
+Open **Reviews** (`#/reviews`) to save a customer's real review with its link, typed in or copied once from the link
+through the Assistant's URL snapshot route (**Copy the page**). The screen edits the `proof/` files through the same
+document routes as services. A job shows its review once you choose it in the job's **Customer review** box. See
+[Reviews](reviews.md).
 
 ### A short phone walkthrough
 

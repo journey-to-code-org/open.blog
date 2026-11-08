@@ -127,6 +127,7 @@ pub mod piece;
 pub mod portability;
 pub mod preview;
 pub mod profile;
+pub mod proof;
 pub mod provider_manifest;
 pub mod publication_boundary;
 pub mod publication_review;
@@ -204,6 +205,7 @@ pub fn classify_source(relative_path: &str) -> Option<SourceKind> {
         "series" => Some(SourceKind::Series),
         "pages" => Some(SourceKind::Page),
         "services" => Some(SourceKind::Service),
+        "proof" => Some(SourceKind::Proof),
         // Loose Markdown files at the content root are posts, so a folder of
         // exported articles works with no restructuring.
         _ if !normalized.contains('/') => Some(SourceKind::Post),
@@ -218,6 +220,7 @@ pub enum SourceKind {
     Series,
     Page,
     Service,
+    Proof,
 }
 
 impl Sources {
@@ -228,11 +231,13 @@ impl Sources {
             Some(SourceKind::Service) if !service::declares_service(&file.contents) => {
                 return false
             }
+            Some(SourceKind::Proof) if !proof::declares_proof(&file.contents) => return false,
             Some(SourceKind::Post) => self.posts.push(file),
             Some(SourceKind::PostCredits) => self.credits.push(file),
             Some(SourceKind::Series) => self.series.push(file),
             Some(SourceKind::Page) => self.pages.push(file),
             Some(SourceKind::Service) => self.services.push(file),
+            Some(SourceKind::Proof) => self.proof.push(file),
             None => return false,
         }
         true

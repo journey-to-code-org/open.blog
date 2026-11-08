@@ -405,6 +405,8 @@ test("Simple hides a page until the site uses it or it is open, and no other pre
   }
   assert.equal(simple("series", "overview", { series: [{ slug: "a" }] }), false);
   assert.equal(simple("services", "overview", { siteUses: { services: true } }), false);
+  assert.equal(simple("reviews", "overview", { siteUses: { reviews: true } }), false);
+  assert.equal(simple("reviews", "overview", { siteUses: { services: true } }), true);
   assert.equal(simple("business", "overview", { siteUses: { business: true } }), false);
   assert.equal(simple("business", "overview", { siteUses: { services: true } }), true);
   assert.equal(simple("reminders", "overview", { siteUses: { reminders: true } }), false);
@@ -412,7 +414,7 @@ test("Simple hides a page until the site uses it or it is open, and no other pre
 });
 
 test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
-  const content = ["Overview", "Posts", "Pages", "Series", "Services", "Shared reflections", "Capture", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look", "Business facts", "Reminders"];
+  const content = ["Overview", "Posts", "Pages", "Series", "Services", "Reviews", "Shared reflections", "Capture", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look", "Business facts", "Reminders"];
   const simple = ["Overview", "Posts", "Pages", "Landing page", "Customize look"];
   const research = "Research workspace";
   const voice = "Voice";

@@ -589,6 +589,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/business.js" => "business.js",
         "/admin/seasonal.js" => "seasonal.js",
         "/admin/services.js" => "services.js",
+        "/admin/proof.js" => "proof.js",
         "/admin/paste.js" => "paste.js",
         "/admin/landing-history.js" => "landing-history.js",
         "/admin/lasting.js" => "lasting.js",
@@ -3621,7 +3622,8 @@ fn check_rel_path(rel: &str) -> Result<&'static str, String> {
         "series" => Ok("series"),
         "pages" => Ok("pages"),
         "services" => Ok("services"),
-        _ => Err("path must start with posts/, series/, pages/, or services/".into()),
+        "proof" => Ok("proof"),
+        _ => Err("path must start with posts/, series/, pages/, services/, or proof/".into()),
     }
 }
 
@@ -4027,10 +4029,33 @@ fn meta(state: &AppState) -> Response {
         }
     }
     services.sort();
+    // The saved reviews a job can link (ADR 0389): published and valid ones only, newest first.
+    let mut reviews: Vec<(String, Json)> = Vec::new();
+    for file in &sources.proof {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if doc.front_matter.get_bool("draft").unwrap_or(false) {
+            continue;
+        }
+        if let Ok(review) = openblog_core::proof::from_front_matter(&doc.front_matter) {
+            let platform = match review.platform {
+                openblog_core::proof::Platform::Other => "another site",
+                platform => platform.label(),
+            };
+            let label = format!("{}, {platform}, {}", review.author, review.date);
+            reviews.push((
+                review.date.clone(),
+                json!({ "id": review.id, "label": label }),
+            ));
+        }
+    }
+    reviews.sort_by(|a, b| b.0.cmp(&a.0));
     let job_form = json!({
         "trades": openblog_core::job::known_trades(&config.extra_trades),
         "costBands": openblog_core::job::CostBand::ALL.map(openblog_core::job::CostBand::as_str),
         "services": services,
+        "reviews": reviews.into_iter().map(|(_, review)| review).collect::<Vec<_>>(),
         "scaffold": openblog_core::job::scaffold_body(),
     });
     let (owner_courses, owner_cuisines) =
@@ -4105,6 +4130,13 @@ fn meta(state: &AppState) -> Response {
             "profiles": profiles,
             "siteUses": {
                 "services": !sources.services.is_empty(),
+                // Reviews are for a trade site: shown once it has jobs, a trade or a review.
+                "reviews": !sources.proof.is_empty()
+                    || !config.business.trade.is_empty()
+                    || sources.posts.iter().any(|file| {
+                        frontmatter::parse(&file.contents)
+                            .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
+                    }),
                 "business": config.business != openblog_core::business::BusinessConfig::default(),
                 // Reminders are for a trade site: shown once a trade is named or they are on.
                 "reminders": !config.business.trade.is_empty() || config.seasonal_prompts.enabled,
@@ -11923,8 +11955,8 @@ fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
 fn list_documents(state: &AppState, req: &Request) -> Response {
     let _content_transaction = lock(&state.build);
     let kind = req.query.get("kind").map(String::as_str).unwrap_or("posts");
-    if !matches!(kind, "posts" | "series" | "pages" | "services") {
-        return Response::error(400, "kind must be posts, series, pages, or services");
+    if !matches!(kind, "posts" | "series" | "pages" | "services" | "proof") {
+        return Response::error(400, "kind must be posts, series, pages, services, or proof");
     }
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
@@ -11938,6 +11970,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
         "posts" => &sources.posts,
         "series" => &sources.series,
         "services" => &sources.services,
+        "proof" => &sources.proof,
         _ => &sources.pages,
     };
     let credit_sidecars = openblog_core::model::associate_credit_sidecars(&sources);
@@ -12011,17 +12044,34 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
                         .or_else(|| doc.front_matter.get("title"))
                         .unwrap_or(stem)
                         .to_string();
-                    let status = if kind == "services"
+                    let status = if matches!(kind, "services" | "proof")
                         && doc.front_matter.get_bool("draft").unwrap_or(false)
                     {
                         "draft"
                     } else {
                         "published"
                     };
-                    (
-                        0,
-                        json!({ "path": file.path, "title": title, "slug": slugify(stem), "status": status }),
-                    )
+                    if kind == "proof" {
+                        // A review is listed newest first by the day it was written.
+                        let fm = &doc.front_matter;
+                        let get = |key: &str| fm.get(key).map(str::trim).unwrap_or("").to_string();
+                        let order = DateTime::parse(&get("date")).map_or(0, DateTime::unix);
+                        let author = get("author");
+                        (
+                            order,
+                            json!({
+                                "path": file.path, "title": if author.is_empty() { stem.to_string() } else { author.clone() },
+                                "slug": stem, "status": status, "id": get("id"), "author": author,
+                                "date": get("date"), "platform": get("platform"), "rating": get("rating"),
+                                "provenance": get("provenance"),
+                            }),
+                        )
+                    } else {
+                        (
+                            0,
+                            json!({ "path": file.path, "title": title, "slug": slugify(stem), "status": status }),
+                        )
+                    }
                 }
                 Err(e) => (
                     i64::MIN,
@@ -16205,6 +16255,7 @@ fn validate_candidate(
         &mut sources.series,
         &mut sources.pages,
         &mut sources.services,
+        &mut sources.proof,
     ] {
         bucket.retain(|f| f.path != rel);
     }
@@ -16497,6 +16548,12 @@ fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<Strin
         Some(Value::Scalar(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
         _ => None,
     };
+    if kind == "proof" {
+        return match get("id").filter(|id| openblog_core::proof::check_id(id).is_ok()) {
+            Some(id) => Ok(format!("proof/{id}.md")),
+            None => Err("a review needs an id of letters, digits, - and _ to name its file".into()),
+        };
+    }
     if kind == "services" {
         return match get("id").filter(|id| openblog_core::service::check_id(id).is_ok()) {
             Some(id) => Ok(format!("services/{id}.md")),
@@ -16523,7 +16580,7 @@ fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<Strin
         }
         "series" => Ok(format!("series/{slug}.md")),
         "pages" => Ok(format!("pages/{slug}.md")),
-        _ => Err("kind must be posts, series, pages, or services".into()),
+        _ => Err("kind must be posts, series, pages, services, or proof".into()),
     }
 }
 
@@ -17424,6 +17481,7 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
         &mut sources.series,
         &mut sources.pages,
         &mut sources.services,
+        &mut sources.proof,
     ] {
         bucket.retain(|file| file.path != rel);
     }
@@ -18646,6 +18704,7 @@ mod tests {
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod proof_routes;
     mod quote_routes;
     mod reading_path_routes;
     mod safety_audit;

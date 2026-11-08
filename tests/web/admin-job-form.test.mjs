@@ -25,8 +25,17 @@ test("the form reads the flattened job keys and trims them", () => {
     costBand: "2k-10k",
     before: ["/images/a.jpg"],
     after: ["/images/b.jpg"],
+    review: "",
   });
   assert.deepEqual(readJobDraft({}).before, []);
+  assert.equal(readJobDraft({ "job.review": " rev_01 " }).review, "rev_01");
+});
+
+test("the review is written or cleared only when the draft names it", () => {
+  const fields = { "job.review": "rev_01" };
+  assert.equal(applyJobDraft(fields, {})["job.review"], "rev_01");
+  assert.equal(applyJobDraft(fields, { review: "dana-oak" })["job.review"], "dana-oak");
+  assert.ok(!("job.review" in applyJobDraft(fields, { review: "" })));
 });
 
 test("applying the form writes its keys, drops cleared ones and leaves every other key alone", () => {

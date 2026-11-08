@@ -288,16 +288,7 @@ pub fn recent_jobs(plan: &[JobArchive], id: &str, limit: usize) -> Vec<usize> {
 pub fn json_ld(site: &Site, service: &Service) -> String {
     let c = &site.config;
     let url = c.absolute(&service.url);
-    let provider = if c.business.has_public_facts() {
-        let name = if c.business.name().is_empty() {
-            c.title.as_str()
-        } else {
-            c.business.name()
-        };
-        json!({ "@type": c.business.schema_type(), "@id": c.absolute("/#business"), "name": name })
-    } else {
-        json!({ "@type": "Organization", "name": c.title })
-    };
+    let provider = crate::proof::business_reference(site);
     let mut node = Map::new();
     node.insert("@type".into(), "Service".into());
     node.insert("@id".into(), format!("{url}#service").into());

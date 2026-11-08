@@ -40,6 +40,8 @@ pub struct Sources {
     pub pages: Vec<SourceFile>,
     /// The `services/` collection (ADR 0311).
     pub services: Vec<SourceFile>,
+    /// The `proof/` collection of saved reviews (ADR 0389).
+    pub proof: Vec<SourceFile>,
     /// Where the private source library comes from, if anywhere. A load
     /// reads it only when a post that opts in to citations cites something,
     /// and publishes only the cited references' public description (ADR 0048).
@@ -616,6 +618,9 @@ pub struct Site {
     /// The `services/` collection (ADR 0311), by name then id. Empty for a
     /// site without one, which then builds exactly as it always did.
     pub services: Vec<Service>,
+    /// The `proof/` collection (ADR 0389): saved reviews, newest first. Empty
+    /// for a site without one, which then builds exactly as it always did.
+    pub proof: Vec<crate::proof::Proof>,
     /// Posts waiting for their publish date, soonest first.
     pub scheduled: Vec<Scheduled>,
     pub warnings: Vec<String>,
@@ -1067,6 +1072,7 @@ impl Site {
                 errors.push(format!("{}: {problem}", post.source));
             }
         }
+        let proof = load_proof_collection(&sources, &posts, &options, &mut warnings, &mut errors);
         if config.home.intro.contains(crate::concept_links::SCHEME) {
             // The home introduction shows an `atlas:` link as its label (the
             // renderer does the same); the author hears about it here.
@@ -1207,6 +1213,7 @@ impl Site {
             tags,
             pages,
             services,
+            proof,
             scheduled,
             warnings,
             accessibility,
@@ -1232,6 +1239,15 @@ impl Site {
         let notes = crate::recipe_listing::plan(&site).notes;
         site.warnings.extend(notes);
         Ok(site)
+    }
+
+    /// The saved review a job links with `job.review` (ADR 0389), when the
+    /// site has it and it is linked to this job.
+    pub fn proof_for(&self, post: &Post) -> Option<&crate::proof::Proof> {
+        let id = post.job.as_ref()?.review.as_deref()?;
+        self.proof.iter().find(|proof| {
+            proof.id == id && proof.job.as_ref().is_some_and(|job| job.url == post.url)
+        })
     }
 
     pub fn series_by_slug(&self, slug: &str) -> Option<&Series> {
@@ -2580,6 +2596,121 @@ fn published_service_names(files: &[SourceFile]) -> Vec<String> {
     names
 }
 
+/// The saved reviews (ADR 0389), newest first, each with the one job that
+/// names it. A draft review is not published and its problems are warnings; a
+/// published job naming a review that is not there stops the build, and so
+/// does one review claimed by two jobs.
+fn load_proof_collection(
+    sources: &Sources,
+    posts: &[Post],
+    options: &LoadOptions,
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) -> Vec<crate::proof::Proof> {
+    let mut proof: Vec<crate::proof::Proof> = Vec::new();
+    for file in &sources.proof {
+        if !crate::proof::declares_proof(&file.contents) {
+            continue;
+        }
+        let draft = frontmatter::parse(&file.contents)
+            .is_ok_and(|document| is_draft(&document.front_matter));
+        let shown = !draft
+            || options.include_drafts
+            || options.preview_source.as_deref() == Some(file.path.as_str());
+        match load_proof(file) {
+            Ok(_) if !shown => {}
+            Ok(review) => {
+                if let Some(existing) = proof.iter().find(|known| known.id == review.id) {
+                    errors.push(format!(
+                        "{}: duplicate review id `{}` (also in {})",
+                        file.path, review.id, existing.source
+                    ));
+                } else {
+                    proof.push(review);
+                }
+            }
+            Err(e) if draft => {
+                warnings.push(format!("{}: review not ready to publish: {e}", file.path))
+            }
+            Err(e) => errors.push(format!("{}: {e}", file.path)),
+        }
+    }
+    proof.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.id.cmp(&b.id)));
+    let mut known: Vec<&str> = proof.iter().map(|review| review.id.as_str()).collect();
+    known.sort_unstable();
+    let mut links: Vec<(String, crate::proof::LinkedJob, &str)> = Vec::new();
+    for post in posts {
+        let Some(review) = post.job.as_ref().and_then(|job| job.review.as_deref()) else {
+            continue;
+        };
+        if let Some(problem) = crate::proof::unknown_review_problem(&known, review) {
+            // Before a site saves any review, `job.review` linked nothing and
+            // said so to nobody; it is still only a warning there.
+            if post.draft {
+                warnings.push(format!(
+                    "{}: job not ready to publish: {problem}",
+                    post.source
+                ));
+            } else if known.is_empty() {
+                warnings.push(format!("{}: {problem}", post.source));
+            } else {
+                errors.push(format!("{}: {problem}", post.source));
+            }
+            continue;
+        }
+        if let Some((_, _, first)) = links.iter().find(|(id, _, _)| id == review) {
+            errors.push(format!(
+                "{}: job.review: the review `{review}` is already linked to {first}; a review describes one job",
+                post.source
+            ));
+            continue;
+        }
+        links.push((
+            review.to_string(),
+            crate::proof::LinkedJob {
+                url: post.url.clone(),
+                title: post.title.clone(),
+            },
+            post.source.as_str(),
+        ));
+    }
+    for (id, job, _) in links {
+        if let Some(review) = proof.iter_mut().find(|review| review.id == id) {
+            review.job = Some(job);
+        }
+    }
+    proof
+}
+
+fn load_proof(file: &SourceFile) -> Result<crate::proof::Proof, String> {
+    let doc = frontmatter::parse(&file.contents)?;
+    let metadata = crate::proof::from_front_matter(&doc.front_matter);
+    let text = crate::proof::review_text(&doc.body);
+    let metadata = match (metadata, text.as_ref()) {
+        (Ok(metadata), Ok(_)) => metadata,
+        (metadata, _) => {
+            let mut problems = metadata.err().unwrap_or_default();
+            if let Err(problem) = &text {
+                problems.push(problem.clone());
+            }
+            return Err(problems.join("; "));
+        }
+    };
+    Ok(crate::proof::Proof {
+        id: metadata.id,
+        author: metadata.author,
+        date: metadata.date,
+        platform: metadata.platform,
+        source_url: metadata.source_url,
+        rating: metadata.rating,
+        provenance: metadata.provenance,
+        text: text.unwrap_or_default(),
+        draft: is_draft(&doc.front_matter),
+        source: file.path.clone(),
+        job: None,
+    })
+}
+
 fn load_service(file: &SourceFile, options: RenderOptions<'_>) -> Result<Service, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let metadata = crate::service::from_front_matter(&doc.front_matter)
@@ -2753,6 +2884,7 @@ mod tests {
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
             services: Vec::new(),
+            proof: Vec::new(),
             source_library: None,
             claim_evidence: None,
             reader_feedback: None,

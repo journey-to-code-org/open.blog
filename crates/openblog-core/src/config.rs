@@ -167,6 +167,10 @@ pub struct SiteConfig {
     /// that never sets it builds exactly as before.
     #[serde(skip_serializing_if = "crate::quote::QuoteConfig::is_default")]
     pub quote: crate::quote::QuoteConfig,
+    /// Saved reviews (ADR 0389): how many rated reviews it takes before an average is stated.
+    /// Omitted from the written file while it has its default.
+    #[serde(skip_serializing_if = "crate::proof::ReviewsConfig::is_default")]
+    pub reviews: crate::proof::ReviewsConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -611,6 +615,7 @@ impl Default for SiteConfig {
             seasonal_prompts: SeasonalConfig::default(),
             webmention: WebmentionConfig::default(),
             quote: crate::quote::QuoteConfig::default(),
+            reviews: crate::proof::ReviewsConfig::default(),
         }
     }
 }
@@ -1283,6 +1288,7 @@ impl SiteConfig {
         }
         contributor::normalize_registry(&mut self.contributors)?;
         self.quote.normalize()?;
+        self.reviews.check()?;
         if !self.business.trade.is_empty() {
             self.business.trade =
                 crate::job::normalize_trade(&self.business.trade, &self.extra_trades)

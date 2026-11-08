@@ -15,6 +15,7 @@ import { createAnnouncementsPanel } from "./announcements.js";
 import { createBusinessFacts } from "./business.js";
 import { createSeasonalReminders } from "./seasonal.js";
 import { createServices } from "./services.js";
+import { createReviews } from "./proof.js";
 import { createSocialAccounts } from "./social.js";
 import { createQuoteRequests } from "./quotes.js";
 import { createVoiceSession } from "./voice-session.js";
@@ -133,12 +134,13 @@ export function normalizeAdminPreferences(value) {
 
 /**
  * The pages a Simple workspace leaves out of the main navigation (#559), which Advanced tools lists.
- * The first four appear once the site uses them, so nobody loses a page they rely on. Reminders counts
+ * The first five appear once the site uses them, so nobody loses a page they rely on. Reminders counts
  * as used once the business facts name a trade or reminders are on: they are for a trade site.
  */
 export const SIMPLE_EXTRA_PAGES = Object.freeze({
   series: "Series",
   services: "Services",
+  reviews: "Reviews",
   business: "Business facts",
   reminders: "Reminders",
   shared: "Shared reflections",
@@ -152,7 +154,7 @@ export const SIMPLE_EXTRA_PAGES = Object.freeze({
 export function simpleHidesPage(page, { preset, active, meta } = {}) {
   if (preset !== "simple" || page === active) return false;
   if (page === "series") return !meta?.series?.length;
-  if (page === "services" || page === "business" || page === "reminders") return !meta?.siteUses?.[page];
+  if (page === "services" || page === "reviews" || page === "business" || page === "reminders") return !meta?.siteUses?.[page];
   return true;
 }
 
@@ -11737,6 +11739,7 @@ export class ObAdmin extends AdminElement {
         h("a", { class: "oba-tab", ...(SIMPLE_EXTRA_PAGES[kind] ? simpleOnly(kind) : {}), "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
       h("a", { class: "oba-tab", ...simpleOnly("services"), "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
+      h("a", { class: "oba-tab", ...simpleOnly("reviews"), "aria-current": active === "reviews" ? "page" : null, href: "#/reviews" }, "Reviews"),
       h("a", { class: "oba-tab", ...simpleOnly("shared"), "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
       h("a", { class: "oba-tab", ...simpleOnly("capture"), "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
@@ -11758,6 +11761,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Seasonal reminders", detail: "Get a nudge at the right time of year about what to write for your trade. A reminder only starts a draft; it never publishes." }
       : active === "services"
         ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
+      : active === "reviews"
+        ? { title: "Reviews", detail: "Save a customer's real review with its link, and show it on your Reviews page and beside the job it is about." }
       : active === "look"
         ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
@@ -12061,6 +12066,8 @@ export class ObAdmin extends AdminElement {
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
       { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
       { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
+      { label: "Reviews", category: "Content", keywords: "review reviews proof testimonial stars rating google facebook customer", run: () => go("#/reviews") },
+      { label: "New review", category: "Create", keywords: "review proof testimonial stars google facebook", run: () => go("#/reviews/new") },
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New recipe", category: "Create", keywords: "cook food ingredients dish", run: () => go("#/new/recipe") },
@@ -12306,6 +12313,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "business") await this.showBusiness();
       else if (head === "reminders") await this.showReminders();
       else if (head === "services") await this.showServices(tail);
+      else if (head === "reviews") await this.showReviews(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -14444,6 +14452,31 @@ export class ObAdmin extends AdminElement {
       },
     });
     this.mount(this.shell("services", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- reviews (ADR 0389)
+
+  /** `#/reviews`: the list; `#/reviews/new` and `#/reviews/edit/<path>`: one saved review, edited through the document routes. */
+  async showReviews(tail) {
+    const view = createReviews({
+      api: this.api,
+      route: tail || "",
+      onSaved: (path) => {
+        if (!this.stillOnOpenView()) return;
+        this.skipRoute = true;
+        location.hash = `#/reviews/edit/${encodeURIComponent(path)}`;
+      },
+      onLeave: (hash) => {
+        this.dirty = false;
+        this.viewDirty = null;
+        if (this.stillOnOpenView()) location.hash = hash;
+      },
+    });
+    this.mount(this.shell("reviews", view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     this.viewCleanup = () => view.destroy();

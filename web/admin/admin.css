@@ -5963,7 +5963,9 @@ ob-voice-library {
 .oba-business input[type="tel"],
 .oba-business input[type="email"],
 .oba-business select,
-.oba-business input[type="time"] {
+.oba-business input[type="time"],
+.oba-business input[type="url"],
+.oba-business input[type="date"] {
   width: 100%;
   min-height: 44px;
   box-sizing: border-box;

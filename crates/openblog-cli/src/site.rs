@@ -328,6 +328,7 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         "services.js",
         include_str!("../../../web/admin/services.js"),
     ),
+    ("proof.js", include_str!("../../../web/admin/proof.js")),
     ("paste.js", include_str!("../../../web/admin/paste.js")),
     (
         "landing-history.js",

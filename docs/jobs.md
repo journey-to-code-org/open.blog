@@ -50,7 +50,7 @@ job:
 | `materials` | no | Up to 50 short items. |
 | `costBand` | no | `under-500`, `500-2k`, `2k-10k`, `10k-50k`, `over-50k` or `ask`. Never free text. |
 | `media.before`, `media.after` | no | Up to 50 image references each: a site path or http(s) URL ending in `png`, `jpg`, `jpeg`, `gif`, `webp`, `avif` or `svg`. |
-| `review` | no | The id of a saved review (letters, digits, `-`, `_`). |
+| `review` | no | The id of a saved [review](reviews.md) (letters, digits, `-`, `_`). Once the site has reviews it must be one of them, and each review describes one job. |
 
 Keys you add that this version does not know are kept untouched, so a file written by a newer version
 survives an older one. The `job` mapping is the only place front matter may nest.
@@ -61,6 +61,7 @@ In Admin, open a new post, then **Settings**, and set **Content profile** to **J
 asks for the trade, service, town, region, start and finish dates, a price range and before and after photos,
 and writes the `job` mapping above for you. An empty body gets four headings, `Problem`, `What we found`,
 `What we did` and `Result`, as ordinary Markdown: change, move or delete them freely, in Visual or Markdown mode.
+**Customer review** lists the reviews saved under [Reviews](reviews.md); the one you choose shows beside the job.
 Choosing another profile hides the form and leaves your Markdown alone. **Check this job** shows what the build
 would still ask for. The service box suggests the services your other jobs already use.
 

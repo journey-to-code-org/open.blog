@@ -190,6 +190,12 @@ line under the form. Off and absent by default; with it off a `quote` fence stay
 page `quote-form` section renders nothing. The requests go to a hosted Netlify function, so it does not work on a
 site run on Render yet. See [Quote requests](quote-requests.md).
 
+### Reviews
+
+`reviews.aggregateMinimum` is how many saved reviews with stars it takes before the Reviews page states an average
+(`AggregateRating`): `{ "reviews": { "aggregateMinimum": 3 } }`. A whole number from 1 to 1000; the default is 3, and
+the member is not written while it has the default. See [Reviews](reviews.md).
+
 ## Share, analytics, related posts, snippets, CDN
 
 These are described in [Sharing, views, analytics, and embeds](features.md).

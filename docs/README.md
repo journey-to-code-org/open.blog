@@ -52,6 +52,9 @@ If you are new, read these in order; each one stands alone otherwise.
    Supabase workspace and managed in Admin. Off by default, and it needs the Netlify function: it does not work
    on a site run on Render yet.
 
+23. [Reviews](reviews.md): a customer's real review, typed in or copied once from its link, shown beside its job
+   and on a Reviews page, with `Review` data only from what the file says.
+
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
 The [shared-publication language decision](adr/0005-shared-publication-language.md) separates

@@ -2623,6 +2623,13 @@ problem, what was found, what was done, result, media. A job is a post, so feeds
 it like any other (ADR 0285).
 _Avoid_: Project, case study, ticket
 
+**Saved review**:
+A customer's own words about the work, kept as a `proof/` file with the reviewer's name, the day, the platform,
+the link where it was left, optional 1 to 5 stars and its provenance: typed in, or copied once from its link at a
+recorded time. A job links one in `job.review`; it shows beside the job and on `/reviews/`, and its `Review`
+data says only what the file says (ADR 0389).
+_Avoid_: Testimonial (one with no source), rating (only one part)
+
 **Job scaffold**:
 The four `##` headings a new job starts with (`Problem`, `What we found`, `What we did`, `Result`), written once in
 core and placed by Admin's Job mode or `openblog new --profile job`. They are ordinary Markdown; nothing is

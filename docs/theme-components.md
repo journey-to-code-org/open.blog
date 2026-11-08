@@ -66,6 +66,28 @@ must read the same on every page.
 
 A site with no business facts writes none of these.
 
+## Styling reviews
+
+A saved review ([Reviews](reviews.md)) is written by the engine as one block wherever it shows:
+
+```html
+<figure class="ob-proof" id="review-<id>">
+  <blockquote class="ob-proof-text" cite="…"><p>…</p></blockquote>
+  <figcaption>
+    <p class="ob-proof-source"><span class="ob-proof-rating" role="img" aria-label="Rated 5 out of 5">★★★★★</span>
+      <span class="ob-proof-author">Dana R.</span>, <time>…</time>, <a class="ob-proof-link">read it on Google</a></p>
+    <p class="ob-proof-provenance">Copied from the review's link on …</p>
+    <p class="ob-proof-job">About the job: <a>…</a></p>
+  </figcaption>
+</figure>
+```
+
+On a job's page it sits in `<section class="ob-proof-section">` under an `<h2>`; on `/reviews/` each one is an item of
+`<ul class="ob-proof-list">` and only there has `ob-proof-job`. A review without stars has no `ob-proof-rating`. A jobs
+list adds `<span class="ob-proof-line">` inside the link of a job that has a review. Every bundled theme styles these
+in `web/base.css` with the `--ob-*` tokens, so a theme needs nothing and restyles them by changing tokens or these
+hooks. Keep the stars' text alternative: the stars themselves are hidden behind it.
+
 ## Styling before and after pairs
 
 A `compare` fence in a post (see [Content](content.md#before-and-after)) renders as one component:
