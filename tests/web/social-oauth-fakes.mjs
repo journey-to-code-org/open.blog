@@ -29,7 +29,7 @@ export const env = (overrides = {}) => ({
 
 export const settingsFor = (overrides) => socialSettings(env(overrides));
 
-const TABLES = ["openblog_social_accounts", "openblog_social_connections", "openblog_social_credentials"];
+const TABLES = ["openblog_social_accounts", "openblog_social_connections", "openblog_social_credentials", "openblog_social_posts"];
 
 function cellMatches(row, name, expression) {
   const dot = expression.indexOf(".");

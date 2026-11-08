@@ -55,9 +55,12 @@ pub fn version_for_page(page: &Map<String, Value>) -> u64 {
         .get("sections")
         .and_then(Value::as_array)
         .is_some_and(|sections| {
-            sections
-                .iter()
-                .any(|s| s.get("type").and_then(Value::as_str) == Some("business-facts"))
+            sections.iter().any(|s| {
+                matches!(
+                    s.get("type").and_then(Value::as_str),
+                    Some("business-facts" | "quote-form")
+                )
+            })
         });
     if needs_business {
         LANDING_VERSION_BUSINESS
@@ -176,6 +179,9 @@ pub enum SectionKind {
     /// The business facts from `openblog.json`, placed on the page (ADR 0306). Needs landing
     /// version 2.
     BusinessFacts(BusinessFacts),
+    /// A quote request form placed on the page (ADR 0382). Shown only while quote requests are
+    /// switched on in `openblog.json`. Needs landing version 2.
+    QuoteForm(QuoteForm),
 }
 
 impl SectionKind {
@@ -197,12 +203,13 @@ impl SectionKind {
             Self::Faq(_) => "faq",
             Self::Callout(_) => "callout",
             Self::BusinessFacts(_) => "business-facts",
+            Self::QuoteForm(_) => "quote-form",
         }
     }
 }
 
 /// Every type name this release defines.
-pub const SECTION_TYPES: [&str; 15] = [
+pub const SECTION_TYPES: [&str; 16] = [
     "welcome",
     "rich-text",
     "latest-posts",
@@ -218,12 +225,20 @@ pub const SECTION_TYPES: [&str; 15] = [
     "faq",
     "callout",
     "business-facts",
+    "quote-form",
 ];
 
 /// The business facts section: the facts live in `openblog.json`, so the section holds only the
 /// heading it is placed under.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BusinessFacts {
+    pub heading: String,
+}
+
+/// The quote form section: the form's fields, endpoint and notice come from `openblog.json` and the
+/// site's services and areas, so the section holds only the heading it is placed under.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuoteForm {
     pub heading: String,
 }
 
@@ -276,6 +291,24 @@ pub struct LatestPosts {
     /// is what the home page lists today.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
+    /// Which posts to list. Absent means all of them.
+    #[serde(default, skip_serializing_if = "LatestShow::is_all")]
+    pub show: LatestShow,
+}
+
+/// What a latest-posts section lists (ADR 0352).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LatestShow {
+    #[default]
+    All,
+    Recipes,
+}
+
+impl LatestShow {
+    fn is_all(&self) -> bool {
+        *self == Self::All
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -450,8 +483,8 @@ fn known_keys(kind: &str) -> &'static [&'static str] {
     match kind {
         "welcome" => &["heading", "subheading", "image", "button"],
         "rich-text" => &["markdown"],
-        "latest-posts" => &["heading", "count"],
-        "series" | "business-facts" => &["heading"],
+        "latest-posts" => &["heading", "count", "show"],
+        "series" | "business-facts" | "quote-form" => &["heading"],
         "featured-post" => &["post", "heading"],
         "buttons" | "social-links" | "faq" => &["items"],
         "image" => &["src", "alt", "caption"],
@@ -540,6 +573,7 @@ impl Section {
             "social-links" => SectionKind::SocialLinks(from_fields(fields).map_err(wrong)?),
             "faq" => SectionKind::Faq(from_fields(fields).map_err(wrong)?),
             "business-facts" => SectionKind::BusinessFacts(from_fields(fields).map_err(wrong)?),
+            "quote-form" => SectionKind::QuoteForm(from_fields(fields).map_err(wrong)?),
             _ => SectionKind::Callout(from_fields(fields).map_err(wrong)?),
         };
         Ok(Self {
@@ -567,6 +601,7 @@ impl Section {
             SectionKind::Faq(v) => serde_json::to_value(v),
             SectionKind::Callout(v) => serde_json::to_value(v),
             SectionKind::BusinessFacts(v) => serde_json::to_value(v),
+            SectionKind::QuoteForm(v) => serde_json::to_value(v),
         };
         let mut object = Map::new();
         // Unknown fields first so a known field always wins a name clash.
@@ -652,12 +687,16 @@ impl LandingPage {
             match Section::from_value(index, item) {
                 Ok(section) => {
                     if version < LANDING_VERSION_BUSINESS
-                        && matches!(section.kind, SectionKind::BusinessFacts(_))
+                        && matches!(
+                            section.kind,
+                            SectionKind::BusinessFacts(_) | SectionKind::QuoteForm(_)
+                        )
                     {
                         problems.push(LandingProblem::in_section(
                             &section.id,
                             format!(
-                                "the business-facts section needs `version` {LANDING_VERSION_BUSINESS}"
+                                "the {} section needs `version` {LANDING_VERSION_BUSINESS}",
+                                section.kind.name()
                             ),
                         ));
                     }
@@ -702,11 +741,12 @@ impl LandingPage {
 
     /// The stored version this page is written as (ADR 0306).
     pub fn stored_version(&self) -> u64 {
-        if self
-            .sections
-            .iter()
-            .any(|s| matches!(s.kind, SectionKind::BusinessFacts(_)))
-        {
+        if self.sections.iter().any(|s| {
+            matches!(
+                s.kind,
+                SectionKind::BusinessFacts(_) | SectionKind::QuoteForm(_)
+            )
+        }) {
             LANDING_VERSION_BUSINESS
         } else {
             LANDING_VERSION
@@ -768,6 +808,7 @@ impl LandingPage {
                     kind: SectionKind::LatestPosts(LatestPosts {
                         heading: home.heading.clone(),
                         count: None,
+                        show: LatestShow::All,
                     }),
                     extra: Extra::new(),
                 },
@@ -795,7 +836,11 @@ impl LandingPage {
                 SectionKind::RichText(intro_text),
                 SectionKind::LatestPosts(posts),
                 SectionKind::Series(_),
-            ) if intro.id == "intro" && latest.id == "latest" && series.id == "series" => {
+            ) if intro.id == "intro"
+                && latest.id == "latest"
+                && series.id == "series"
+                && posts.show == LatestShow::All =>
+            {
                 Some(HomeConfig {
                     heading: posts.heading.clone(),
                     intro: intro_text.markdown.clone(),
@@ -1059,6 +1104,9 @@ pub(crate) fn validate_section(section: &Section, problems: &mut Vec<LandingProb
             check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
         }
         SectionKind::BusinessFacts(v) => {
+            check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
+        }
+        SectionKind::QuoteForm(v) => {
             check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
         }
         SectionKind::FeaturedPost(v) => {
@@ -1344,7 +1392,8 @@ mod tests {
     use serde_json::json;
 
     fn file(sections: Value) -> String {
-        let version = if sections.to_string().contains("business-facts") {
+        let text = sections.to_string();
+        let version = if text.contains("business-facts") || text.contains("quote-form") {
             LANDING_VERSION_BUSINESS
         } else {
             LANDING_VERSION
@@ -1382,7 +1431,8 @@ mod tests {
             {"id": "social", "type": "social-links", "items": [{"label": "Mastodon", "href": "https://example.social/@me"}]},
             {"id": "faq", "type": "faq", "items": [{"question": "Why?", "answer": "Because."}]},
             {"id": "note", "type": "callout", "tone": "warning", "title": "Heads up", "body": "Careful"},
-            {"id": "business", "type": "business-facts", "heading": "Contact and hours"}
+            {"id": "business", "type": "business-facts", "heading": "Contact and hours"},
+            {"id": "quote", "type": "quote-form", "heading": "Ask for a quote"}
         ])
     }
 
@@ -1696,6 +1746,50 @@ mod tests {
         assert!(LandingPage::parse("not json").is_err());
         assert!(LandingPage::parse("[]").is_err());
         assert!(LandingPage::parse("{\"format\":\"openblog-landing\",\"version\":1}").is_err());
+    }
+
+    #[test]
+    fn a_latest_posts_section_can_show_only_recipes() {
+        let recipes = file(json!([
+            {"id": "latest", "type": "latest-posts", "heading": "Latest", "show": "recipes"}
+        ]));
+        let page = LandingPage::parse(&recipes).expect("valid");
+        let SectionKind::LatestPosts(section) = &page.sections[0].kind else {
+            panic!("latest posts");
+        };
+        assert_eq!(section.show, LatestShow::Recipes);
+        assert!(page.sections[0].extra.is_empty());
+        let text = page.to_canonical_json();
+        assert!(text.contains("\"show\": \"recipes\""));
+        assert_eq!(LandingPage::parse(&text).expect("canonical"), page);
+
+        // A page written before the field keeps its bytes, and `all` is the absence of it.
+        let old = LandingPage::parse(&file(json!([
+            {"id": "latest", "type": "latest-posts", "heading": "Latest"}
+        ])))
+        .expect("valid");
+        let explicit = LandingPage::parse(&file(json!([
+            {"id": "latest", "type": "latest-posts", "heading": "Latest", "show": "all"}
+        ])))
+        .expect("valid");
+        assert!(!old.to_canonical_json().contains("show"));
+        assert_eq!(old.to_canonical_json(), explicit.to_canonical_json());
+
+        assert!(LandingPage::parse(&file(json!([
+            {"id": "latest", "type": "latest-posts", "heading": "Latest", "show": "soups"}
+        ])))
+        .is_err());
+    }
+
+    #[test]
+    fn a_layout_that_shows_only_recipes_is_not_the_legacy_home() {
+        let page = LandingPage::parse(&file(json!([
+            {"id": "intro", "type": "rich-text", "markdown": "Hello"},
+            {"id": "latest", "type": "latest-posts", "heading": "Latest", "show": "recipes"},
+            {"id": "series", "type": "series", "heading": "Series"}
+        ])))
+        .expect("valid");
+        assert_eq!(page.legacy_home(), None);
     }
 
     #[test]

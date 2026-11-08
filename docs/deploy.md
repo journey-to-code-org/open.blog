@@ -158,6 +158,8 @@ By default, drafts and unpublished files live **only on the Admin host's filesys
 Git publishing is not a draft backup. For an ephemeral Render service, opt into the
 separate Supabase workspace store; a public Netlify deployment still builds exclusively
 from Git. This does not change the engagement database or expose editorial data to Netlify.
+[Keep your work safe on Render](#keep-your-work-safe-on-render) is the short list of what to
+create.
 
 1. In the existing Supabase project, run
    [`supabase/workspace.sql`](../supabase/workspace.sql) in the SQL editor. It creates
@@ -173,8 +175,8 @@ from Git. This does not change the engagement database or expose editorial data 
    | `OPENBLOG_WORKSPACE_SECRET_KEY` | A server-side Supabase secret key (`sb_secret_…`) or legacy service-role JWT (never an anon/publishable key) |
    | `OPENBLOG_WORKSPACE_NAMESPACE` | A stable, unique blog identifier: 1–80 ASCII letters, digits, `-`, `_` |
 
-   Set all three, or none. Partial/invalid configuration fails startup rather than
-   silently using local storage. Use a different namespace for a staging blog.
+   Set all three, or none; a blank value counts as not set. Partial/invalid configuration
+   fails startup rather than silently using local storage. Use a different namespace for a staging blog.
    Modern secret keys are sent only in `apikey`; legacy service-role JWTs additionally
    use Bearer authorization. The private bucket name is fixed; there is no default
    namespace, so the blog identifier must be explicitly supplied.
@@ -210,12 +212,14 @@ from Git. This does not change the engagement database or expose editorial data 
    repository changes alone do not configure the live service.
 
 **What is stored.** UTF-8 database text records hold Markdown posts/pages/series,
-credit sidecars, `openblog.json`, `.gitignore`, project Assistant skills and portable/private
+credit sidecars, the Landing page (`content/landing.json`) and its previous versions
+(`.openblog/private/landing-history/`), `openblog.json`, `.gitignore`, project Assistant skills and portable/private
 context/references, per-login presentation preferences, and typed editor trash. Images,
 GPX uploads, and pending GPX data use content-addressed objects in the private bucket.
-Only the explicitly selected `.openblog/private/context/` and
-`.openblog/private/admin-preferences/` directories, plus the single research source library
-file `.openblog/private/research/sources.json` (up to 4 MiB), participate. Auth users/password hashes,
+Only the explicitly selected `.openblog/private/context/`,
+`.openblog/private/landing-history/` and `.openblog/private/admin-preferences/` directories, plus the single research source library
+file `.openblog/private/research/sources.json` (up to 4 MiB) and the seasonal reminder record
+`.openblog/private/seasonal.json`, participate. Auth users/password hashes,
 sessions, analytics, provider/moderation/API keys, Git configuration/credentials, arbitrary
 `.openblog/private/`, themes, generated output, and other files are **never** backed up.
 Unknown configuration fields are rejected rather than risking storing an inline secret.
@@ -253,7 +257,7 @@ durability transaction. Filesystem access assumes trusted/cooperating OS process
 does not defend against a hostile local account racing filesystem replacement.
 
 Use Admin's API for mutations in this mode. CLI content creation/import/migration/publish
-commands are disabled when workspace environment variables are present; direct disk edits,
+commands are disabled when any workspace environment variable has a value; direct disk edits,
 external tools, and periodic file-watcher rebuilds are **not durable acknowledgements**.
 Stop the service to perform maintenance, then restart and reconcile before accepting edits.
 The store is a recoverable working overlay, not version history or a full-repository backup.
@@ -403,13 +407,63 @@ docker run -p 8080:8080 \
   address is. Set it on any PaaS; leave it unset when you run the container directly on
   plain HTTP.
 - Mount a volume at `/blog/.openblog` to keep users, analytics, and the trash across
-  restarts.
+  restarts. It does not keep posts, drafts, or photos: those are in `content/` and
+  `static/`, outside that folder.
+- `OPENBLOG_FILES_RESET=1` tells Admin that this server's files do not last, and `0` that
+  they do. Without it, Admin goes by Render's own `RENDER=true`.
 
 `render.yaml` at the repository root is a Render blueprint for exactly this: create a
-Blueprint from the repository, then set `OPENBLOG_ADMIN_PASSWORD` in the dashboard. On
-Render's free tier there is no disk, so treat the editor there as a writing surface and
-press Publish to get posts into git; view counts survive through the analytics branch. A
-paid plan can mount the disk (the commented section in `render.yaml`).
+Blueprint from the repository, and Render asks for the settings marked `sync: false`.
+
+### Keep your work safe on Render
+
+With only the admin password filled in, nothing saved in Admin lasts. The service starts
+again from its image at every restart and deploy, and Render's free plan has no disk. An
+instance that went idle has to be started again too, and we expect it to lose the files the
+same way, though we have not watched it happen. Saved posts, drafts, photos, settings, and
+view counts go, and Publish cannot push because it has no credential. While that is so,
+Admin shows the owner a notice on Overview, a short line on every other page, and a sentence
+after each save in the editor, the Landing page, and Customize look.
+
+The person setting up the blog creates three things:
+
+1. **A GitHub credential that can push to the blog's repository.** A fine-grained personal
+   access token limited to that repository, with read and write access to its contents, goes
+   in `OPENBLOG_GIT_TOKEN`. An
+   [SSH deploy key](#publishing-from-the-container-with-an-ssh-deploy-key) works instead, but
+   not both. If a branch is protected, the credential has to be allowed through.
+2. **A Supabase project with the workspace store.** Run
+   [`supabase/workspace.sql`](../supabase/workspace.sql) in its SQL editor. Put the project's
+   address in `OPENBLOG_WORKSPACE_SUPABASE_URL` and a server-side secret key in
+   `OPENBLOG_WORKSPACE_SECRET_KEY`.
+3. **A name for this blog's stored work.** Choose one and put it in
+   `OPENBLOG_WORKSPACE_NAMESPACE`: 1 to 80 letters, digits, `-` or `_`. Keep it the same from
+   then on, and use a different one for a staging blog.
+
+Render asks for these four when the Blueprint is created. On an existing service, add them
+under Environment. The three workspace settings go together: blank is fine for all three,
+but filling in only some stops the server from starting, with a message that says why.
+The token may be left blank on a public repository. On a private repository the server needs
+it, or the SSH deploy key, just to start if Render's build leaves out the `.git` folder,
+because it then fetches the shipped commit from GitHub.
+
+On another host that resets its files, the same settings go in that host's own environment.
+Set `OPENBLOG_FILES_RESET=1` there so Admin tells the owner until they are in.
+
+Then check it yourself, following step 4 of
+[the durable workspace guide](#durable-editorial-workspace-on-ephemeral-hosts). No one has
+run this setup against a live Render service and a real Supabase project from this
+repository; only tests against a stand-in for Supabase have. The notice in Admin goes away
+once the workspace is on, but it does not prove the check passed. The three things to know
+afterwards:
+
+- A free Supabase project can pause or run out of quota. Saves and startup then stop with an
+  error rather than quietly going back to the server's files.
+- Logins come back from the environment. Login sessions, analytics, and secrets saved in
+  Admin are not stored in the workspace, so a restart signs everyone out and view counts
+  start again.
+- A disk in `render.yaml` is not a substitute. It is mounted at `/blog/.openblog`, which does
+  not hold posts, drafts, or photos.
 
 The Dockerfile assumes the blog lives in a clone of the engine repository (the layout a
 fork has). For a blog made with `openblog init`, replace the build stage with

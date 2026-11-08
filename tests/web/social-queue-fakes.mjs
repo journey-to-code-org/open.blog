@@ -33,7 +33,9 @@ import { socialSettings } from "../../netlify/lib/social-scope.mjs";
 
 const iso = (ms) => new Date(ms).toISOString();
 
-export function queueStorage({ now, failRpc, failGet } = {}) {
+// `events`, when given, stands for the recorded status history (supabase/social-history.sql);
+// without it that table does not exist and PostgREST answers 404, as on a site that did not run it.
+export function queueStorage({ now, failRpc, failGet, events } = {}) {
   const accounts = [
     { id: LINKEDIN, site_id: SITE, provider: "linkedin", kind: "member", external_id: "urn:li:person:abc", display_name: "Mikey Nichols", status: "connected", paused_until: null },
     { id: FACEBOOK, site_id: SITE, provider: "facebook", kind: "page", external_id: "1234567890", display_name: "Lantern Page", status: "connected", paused_until: null },
@@ -224,7 +226,7 @@ export function queueStorage({ now, failRpc, failGet } = {}) {
       return json(404, {});
     }
     if (failGet?.(name)) return json(500, {});
-    const table = { openblog_social_posts: posts, openblog_social_accounts: accounts, openblog_social_attempts: attempts, openblog_social_credentials: credentials }[name];
+    const table = { openblog_social_posts: posts, openblog_social_accounts: accounts, openblog_social_attempts: attempts, openblog_social_credentials: credentials, ...(events ? { openblog_social_post_events: events } : {}) }[name];
     if (!table) return json(404, {});
     if (method === "GET") {
       let found = table.filter((row) => matches(row, target.searchParams));

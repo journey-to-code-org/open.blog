@@ -110,6 +110,9 @@ struct Meta<'a> {
     tags: Vec<String>,
     highwire: Vec<(&'static str, String)>,
     noindex: bool,
+    /// The Webmention endpoint a post that accepts mentions advertises (ADR
+    /// 0364); `None` on every other page, which is then written exactly as before.
+    webmention: Option<String>,
 }
 
 /// The query projection of the published atlas, projected once per build: its
@@ -148,6 +151,8 @@ struct Renderer<'a> {
     /// whole site against [`TRAIL_BUDGET_BYTES`] (ADR 0175).
     trail_depth: std::cell::OnceCell<TrailDepth>,
     trail_budget: usize,
+    /// The recipe listing, planned once: the header on every page asks for it.
+    recipe_plan: std::cell::OnceCell<crate::recipe_listing::RecipePlan>,
 }
 
 /// Render one cover everywhere the native site shows it. `cover` remains the canonical image for
@@ -245,6 +250,7 @@ pub fn atlas_trail_warning_with_budget(site: &Site, trail_budget: usize) -> Opti
         curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget,
+        recipe_plan: Default::default(),
     };
     let bytes = renderer.atlas_trail_depth().over_budget?;
     Some(format!(
@@ -619,7 +625,7 @@ fn redirects_file(site: &Site) -> String {
     out
 }
 
-fn url_to_file(url: &str) -> String {
+pub(crate) fn url_to_file(url: &str) -> String {
     let trimmed = url.trim_start_matches('/');
     if trimmed.is_empty() {
         "index.html".to_string()
@@ -657,6 +663,7 @@ pub fn generate_with_trail_budget(
         curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget,
+        recipe_plan: Default::default(),
     };
     let c = &site.config;
     let mut out = Output {
@@ -712,6 +719,21 @@ pub fn generate_with_trail_budget(
                 r.job_archive_page(
                     default_theme,
                     &job_plan,
+                    archive,
+                    page_number,
+                    c.posts_per_page,
+                ),
+            )?;
+        }
+    }
+
+    for archive in &r.recipe_plan().archives {
+        for page_number in 1..=archive.page_count(c.posts_per_page) {
+            out.add(
+                url_to_file(&archive.page_url(page_number)),
+                r.recipe_archive_page(
+                    default_theme,
+                    r.recipe_plan(),
                     archive,
                     page_number,
                     c.posts_per_page,
@@ -943,6 +965,7 @@ pub fn generate_with_trail_budget(
             extra.extend(comparisons.comparisons.iter().map(|c| c.url.clone()));
         }
         extra.extend(job_plan.iter().map(|archive| archive.url.clone()));
+        extra.extend(r.recipe_plan().archives.iter().map(|a| a.url.clone()));
         if !site.services.is_empty() {
             extra.push(crate::service::SERVICES_URL.to_string());
             extra.extend(site.services.iter().map(|service| service.url.clone()));
@@ -1007,6 +1030,21 @@ pub fn generate_with_trail_budget(
     if let Some(manifest) = participation::legacy_feedback_manifest(site) {
         out.add("openblog-feedback.json".into(), manifest)?;
     }
+    // The posts that accept Webmentions, which the hosted receiver checks a
+    // target against (ADR 0364). Written only while receiving is on, so every
+    // other site's output is unchanged.
+    if c.webmention.receive.endpoint_url().is_some() {
+        let targets: Vec<String> = site
+            .posts
+            .iter()
+            .filter(|post| !post.webmentions_off)
+            .map(|post| c.absolute(&post.url))
+            .collect();
+        out.add(
+            "openblog-webmention.json".into(),
+            serde_json::json!({ "version": 1, "targets": targets }).to_string(),
+        )?;
+    }
 
     Ok(out.files)
 }
@@ -1029,6 +1067,7 @@ pub fn generate_document(
         curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget: TRAIL_BUDGET_BYTES,
+        recipe_plan: Default::default(),
     };
     let (url, contents) = if let Some((index, post)) = site
         .posts
@@ -1076,6 +1115,7 @@ pub fn generate_home(site: &Site, themes: &ThemeSet) -> Result<OutputFile, Strin
         curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget: TRAIL_BUDGET_BYTES,
+        recipe_plan: Default::default(),
     };
     let c = &site.config;
     let per_page = if c.posts_per_page == 0 {
@@ -1261,6 +1301,12 @@ impl<'a> Renderer<'a> {
             "<link rel=\"canonical\" href=\"{}\">\n",
             attr(&social.url)
         ));
+        if let Some(endpoint) = &meta.webmention {
+            h.push_str(&format!(
+                "<link rel=\"webmention\" href=\"{}\">\n",
+                attr(endpoint)
+            ));
+        }
         h.push_str("<meta name=\"generator\" content=\"open.blog\">\n");
         if let Some(page) = theme.colors.get("light").and_then(|m| m.get("page")) {
             h.push_str(&format!("<meta name=\"theme-color\" content=\"{}\" media=\"(prefers-color-scheme: light)\">\n", attr(page)));
@@ -1892,6 +1938,19 @@ impl<'a> Renderer<'a> {
                 crate::service_area::AREAS_URL.to_string(),
             ));
         }
+        // And to the recipe list, unless a link already goes there. A link of
+        // the owner's to her own page at /recipes/ is not a link to the list,
+        // and a label she already uses says which is which (ADR 0352).
+        if let Some(url) = &self.recipe_plan().all_url {
+            let goes_there = |href: &str| same_site_path(href, &c.url) == url.trim_end_matches('/');
+            if !links.iter().any(|(_, href)| goes_there(href)) {
+                let taken = links
+                    .iter()
+                    .any(|(label, _)| label.trim().eq_ignore_ascii_case("Recipes"));
+                let label = if taken { "All recipes" } else { "Recipes" };
+                links.push((label.to_string(), url.clone()));
+            }
+        }
         let mut h = String::new();
         h.push_str("<header class=\"ob-header\">\n<div class=\"ob-header-inner\">\n");
         let brand_inner = if c.logo.is_empty() {
@@ -2305,6 +2364,7 @@ impl<'a> Renderer<'a> {
             tags: Vec::new(),
             highwire: Vec::new(),
             noindex: false,
+            webmention: None,
         };
         self.document(&meta, &body)
     }
@@ -2617,6 +2677,9 @@ impl<'a> Renderer<'a> {
             &continued.earlier,
             &continued.titles,
         ));
+        // Approved Webmentions (ADR 0366): plain links to the other sites on
+        // the canonical page only, never in a feed or portable copy.
+        body.push_str(&crate::mention_publication::render_section(post.mentions()));
         let third_perspective = self.third_perspective(post);
         if let Some(region) = &third_perspective {
             body.push_str(region);
@@ -2671,11 +2734,7 @@ impl<'a> Renderer<'a> {
             path: post.url.clone(),
             canonical,
             kind: "article",
-            image: post.cover.clone().or_else(|| {
-                post.video
-                    .as_ref()
-                    .and_then(|video| video.thumbnail.clone())
-            }),
+            image: post.page_image().map(str::to_string),
             image_alt: (!post.cover_alt.is_empty()).then(|| post.cover_alt.clone()),
             json_ld: Some({
                 let mut posting = serde_json::json!({
@@ -2862,6 +2921,12 @@ impl<'a> Renderer<'a> {
                 Vec::new()
             },
             noindex: false,
+            // Only a post that accepts mentions advertises the endpoint, and
+            // only while receiving is on (ADR 0364).
+            webmention: (!post.webmentions_off)
+                .then(|| c.webmention.receive.endpoint_url())
+                .flatten()
+                .map(String::from),
         };
         self.document(&meta, &body)
     }
@@ -3058,7 +3123,7 @@ impl<'a> Renderer<'a> {
 
     fn recipe_card(&self, recipe: &crate::recipe::Recipe) -> String {
         let rc = &self.site.config.recipes;
-        let facts = recipe.facts_html(true);
+        let facts = recipe.facts_html(true, Some(self.recipe_plan()));
         let mut h =
             String::from("<section class=\"ob-recipe-card\" aria-label=\"Recipe summary\">\n");
         if !facts.is_empty() {
@@ -3101,69 +3166,10 @@ impl<'a> Renderer<'a> {
         tag
     }
 
-    /// schema.org `Recipe` for search engines' recipe results.
+    /// schema.org `Recipe` for search engines' recipe results; the same node the recipe export
+    /// writes (ADR 0333).
     fn recipe_json_ld(&self, post: &Post, recipe: &crate::recipe::Recipe) -> serde_json::Value {
-        use crate::recipe::iso_duration;
-        let c = &self.site.config;
-        let mut r = serde_json::json!({
-            "@type": "Recipe",
-            "name": post.title,
-            "description": post.description,
-            "datePublished": post.date.rfc3339(),
-            "url": c.absolute(&post.url),
-            "mainEntityOfPage": c.absolute(&post.url),
-            "recipeIngredient": recipe.ingredients,
-            "recipeInstructions": recipe.steps.iter().enumerate().map(|(i, s)| serde_json::json!({
-                "@type": "HowToStep",
-                "position": i + 1,
-                "text": s,
-            })).collect::<Vec<_>>(),
-            "keywords": post.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>().join(", "),
-        });
-        let obj = r.as_object_mut().expect("json object");
-        if let Some(author) = author_json_ld(c) {
-            obj.insert("author".into(), author);
-        }
-        if let Some(image) = &post.cover {
-            obj.insert("image".into(), serde_json::json!([c.absolute(image)]));
-        }
-        for (key, minutes) in [
-            ("prepTime", recipe.prep),
-            ("cookTime", recipe.cook),
-            ("totalTime", recipe.total),
-        ] {
-            if let Some(m) = minutes {
-                obj.insert(key.into(), serde_json::json!(iso_duration(m)));
-            }
-        }
-        let yields: Vec<String> = recipe
-            .servings_text
-            .iter()
-            .map(|s| {
-                if recipe.servings.is_some_and(|n| s.parse::<u32>() == Ok(n)) {
-                    format!("{s} servings")
-                } else {
-                    s.clone()
-                }
-            })
-            .chain(recipe.yield_text.clone())
-            .collect();
-        if !yields.is_empty() {
-            obj.insert("recipeYield".into(), serde_json::json!(yields));
-        }
-        if let Some(v) = &recipe.cuisine {
-            obj.insert("recipeCuisine".into(), serde_json::json!(v));
-        }
-        if let Some(v) = &recipe.category {
-            obj.insert("recipeCategory".into(), serde_json::json!(v));
-        }
-        if let Some(v) = &recipe.calories {
-            obj.insert(
-                "nutrition".into(),
-                serde_json::json!({ "@type": "NutritionInformation", "calories": v }),
-            );
-        }
-        r
+        crate::recipe_schema::recipe_node(&self.site.config, post, recipe)
     }
 
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
@@ -3527,6 +3533,62 @@ impl<'a> Renderer<'a> {
                 body.push_str("</ul>\n");
             }
         }
+        body.push_str(&self.post_list(theme, &archive.posts[start..end]));
+        body.push_str(&self.pager_with(page_number, page_count, |n| archive.page_url(n)));
+        body.push_str("\n</section>\n</div>");
+        let title = if page_number == 1 {
+            archive.title.clone()
+        } else {
+            format!("{} · Page {page_number}", archive.title)
+        };
+        self.simple(
+            theme,
+            &title,
+            &archive.description,
+            &archive.page_url(page_number),
+            &body,
+        )
+    }
+
+    fn recipe_plan(&self) -> &crate::recipe_listing::RecipePlan {
+        self.recipe_plan
+            .get_or_init(|| crate::recipe_listing::plan(self.site))
+    }
+
+    fn recipe_archive_page(
+        &self,
+        theme: &Theme,
+        plan: &crate::recipe_listing::RecipePlan,
+        archive: &crate::recipe_listing::RecipeArchive,
+        page_number: usize,
+        per_page: usize,
+    ) -> String {
+        use crate::recipe_listing::RecipeArchiveKind;
+        let page_count = archive.page_count(per_page);
+        let start = if per_page == 0 {
+            0
+        } else {
+            (page_number - 1) * per_page
+        };
+        let end = if per_page == 0 {
+            archive.posts.len()
+        } else {
+            archive.posts.len().min(start + per_page)
+        };
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
+        if archive.kind != RecipeArchiveKind::All {
+            let eyebrow = match &plan.all_url {
+                Some(url) => format!("<a href=\"{}\">Recipes</a>", attr(url)),
+                None => "Recipes".to_string(),
+            };
+            body.push_str(&format!("<p class=\"ob-eyebrow\">{eyebrow}</p>\n"));
+        }
+        body.push_str(&self.heading(theme, 1, &archive.title, "ob-section-heading"));
+        body.push('\n');
+        body.push_str(&recipe_filters(plan, archive, page_number));
+        // Fills the outline between the page's title and the recipe titles.
+        body.push_str("<h2 class=\"ob-visually-hidden\">The recipes</h2>\n");
         body.push_str(&self.post_list(theme, &archive.posts[start..end]));
         body.push_str(&self.pager_with(page_number, page_count, |n| archive.page_url(n)));
         body.push_str("\n</section>\n</div>");
@@ -4627,6 +4689,7 @@ impl<'a> Renderer<'a> {
             tags: Vec::new(),
             highwire: Vec::new(),
             noindex: false,
+            webmention: None,
         }
     }
 
@@ -4952,6 +5015,104 @@ impl<'a> Renderer<'a> {
     }
 }
 
+/// The links that filter the recipe listing, on every page of every archive
+/// so nobody loses them while paging. Plain links and a plain `<details>`:
+/// readers may have no JavaScript. Nothing when no recipe names a course or a
+/// cuisine.
+///
+/// Every group starts folded, however short, and the group the reader is in
+/// does too, with its current value beside the heading: even two chips a group
+/// push the first recipe off a small phone's first screen, and a reader who
+/// has just tapped a filter came for its recipes.
+fn recipe_filters(
+    plan: &crate::recipe_listing::RecipePlan,
+    current: &crate::recipe_listing::RecipeArchive,
+    page_number: usize,
+) -> String {
+    use crate::recipe_listing::RecipeArchiveKind;
+    // On a later page the chip is the current filter but links to its first page.
+    let current_attr = if page_number == 1 {
+        " aria-current=\"page\""
+    } else {
+        " aria-current=\"true\""
+    };
+    // The current one says so in weight as well as colour.
+    let chip = |archive: &crate::recipe_listing::RecipeArchive, label: &str, count: bool| {
+        let is_current = archive.url == current.url;
+        let label = if is_current {
+            format!("<strong>{}</strong>", text(label))
+        } else {
+            text(label)
+        };
+        let count = if count {
+            let n = archive.posts.len();
+            let noun = if n == 1 { "recipe" } else { "recipes" };
+            format!(" <span class=\"ob-count\">{n}<span class=\"ob-visually-hidden\"> {noun}</span></span>")
+        } else {
+            String::new()
+        };
+        format!(
+            "<li><a href=\"{}\"{}>{label}{count}</a></li>",
+            attr(&archive.url),
+            if is_current { current_attr } else { "" }
+        )
+    };
+    let group = |kind: RecipeArchiveKind, key: &str, label: &str| {
+        let archives: Vec<_> = plan.filters(kind).collect();
+        if archives.is_empty() {
+            return String::new();
+        }
+        let chips: String = archives
+            .iter()
+            .map(|archive| chip(archive, &archive.name, true))
+            .collect();
+        let id = format!("ob-recipes-by-{key}");
+        let heading =
+            format!("<h2 class=\"ob-meta ob-recipe-filter-heading\" id=\"{id}\">{label}</h2>");
+        let list = format!("<ul class=\"ob-tags\" aria-labelledby=\"{id}\">{chips}</ul>");
+        let chosen = archives
+            .iter()
+            .find(|a| a.url == current.url)
+            .map(|a| {
+                format!(
+                    " <strong class=\"ob-recipe-filter-current\">{}</strong>",
+                    text(&a.name)
+                )
+            })
+            .unwrap_or_default();
+        format!("<details><summary>{heading}{chosen}</summary>\n{list}\n</details>\n")
+    };
+    let courses = group(RecipeArchiveKind::Course, "course", "By course");
+    let cuisines = group(RecipeArchiveKind::Cuisine, "cuisine", "By cuisine");
+    if courses.is_empty() && cuisines.is_empty() {
+        return String::new();
+    }
+    let all: String = plan
+        .filters(RecipeArchiveKind::All)
+        .map(|archive| {
+            format!(
+                "<ul class=\"ob-tags\">{}</ul>\n",
+                chip(archive, "All recipes", false)
+            )
+        })
+        .collect();
+    format!(
+        "<nav class=\"ob-recipe-filters\" aria-label=\"Browse recipes\">\n{all}{courses}{cuisines}</nav>\n"
+    )
+}
+
+/// An address as a path within this site, with no trailing slash, query or
+/// fragment, so a link written in full counts as the same link.
+fn same_site_path<'h>(href: &'h str, site_url: &str) -> &'h str {
+    let path = href.split(['?', '#']).next().unwrap_or(href);
+    let site = site_url.trim_end_matches('/');
+    let path = match path.strip_prefix(site) {
+        Some(rest) if !site.is_empty() && (rest.is_empty() || rest.starts_with('/')) => rest,
+        _ => path,
+    };
+    path.trim_end_matches('/')
+}
+
 /// How many recent jobs the services index lists per service, and a service page lists.
 const SERVICE_INDEX_JOBS: usize = 3;
 const SERVICE_PAGE_JOBS: usize = 5;
@@ -5210,7 +5371,7 @@ fn _keep_cdata(s: &str) -> String {
     cdata(s)
 }
 
-fn author_json_ld(config: &SiteConfig) -> Option<serde_json::Value> {
+pub(crate) fn author_json_ld(config: &SiteConfig) -> Option<serde_json::Value> {
     let name = config.author.name.trim();
     if name.is_empty() {
         return None;
@@ -5371,6 +5532,7 @@ mod tests {
                 third_perspectives: None,
                 community_features: None,
                 continuations: None,
+                webmentions: None,
                 landing: None,
             },
             LoadOptions::default(),

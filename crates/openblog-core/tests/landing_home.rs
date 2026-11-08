@@ -541,3 +541,91 @@ fn landing_text_reaches_only_the_home_page_never_feeds_search_or_other_files() {
     let plain = build(&load(config(""), None));
     assert!(plain.values().all(|contents| !contents.contains(marker)));
 }
+
+// ----- a section of recipes ------------------------------------------------
+
+fn with_recipes(mut sources: Sources, recipes: &[(&str, u32)]) -> Sources {
+    for (slug, day) in recipes {
+        sources.posts.push(SourceFile {
+            path: format!("posts/{slug}.md"),
+            contents: format!(
+                "---\ntitle: Dish {slug}\ndate: 2026-09-{day:02}\nprofile: recipe\ncourse: Dinner\n---\n## Ingredients\n\n- Water\n\n## Steps\n\n1. Boil.\n"
+            ),
+        });
+    }
+    sources
+}
+
+fn recipes_section() -> serde_json::Value {
+    serde_json::json!({"id": "dishes", "type": "latest-posts", "heading": "Newest recipes", "show": "recipes", "count": 6})
+}
+
+fn recipes_site(page: &str, recipes: &[(&str, u32)]) -> Site {
+    Site::load(
+        config(""),
+        with_recipes(sources(Some(page)), recipes),
+        LoadOptions::default(),
+    )
+    .expect("site")
+}
+
+#[test]
+fn a_recipe_section_with_no_recipes_renders_nothing_and_leaves_the_h1_to_the_next_heading() {
+    let page = landing(serde_json::json!([
+        recipes_section(),
+        {"id": "hello", "type": "welcome", "heading": "Welcome"},
+    ]));
+    let html = home(&recipes_site(&page, &[]));
+    assert!(!html.contains("Newest recipes"));
+    assert!(!html.contains("/recipes/"));
+    assert!(!html.contains("All recipes"));
+    assert_eq!(count(&html, "<h1"), 1);
+    assert!(html.contains("<h1 id=\"ob-home-hello-title\""));
+}
+
+#[test]
+fn a_recipe_section_lists_only_recipes_and_links_to_all_of_them() {
+    let page = landing(serde_json::json!([recipes_section()]));
+    let site = recipes_site(&page, &[("soup", 2), ("stew", 1)]);
+    let html = home(&site);
+    assert!(html.contains("<h1 id=\"ob-home-dishes-title\""));
+    assert!(html.contains("Dish soup") && html.contains("Dish stew"));
+    assert!(!html.contains("Post five"), "no article in the list");
+    assert!(html.contains(
+        "<p class=\"ob-home-all\"><a class=\"ob-home-link\" href=\"/recipes/\">All recipes</a></p>"
+    ));
+    assert!(html.find("Dish soup").unwrap() < html.find("Dish stew").unwrap());
+
+    let limited = landing(serde_json::json!([
+        {"id": "dishes", "type": "latest-posts", "heading": "Newest", "show": "recipes", "count": 1}
+    ]));
+    let html = home(&recipes_site(&limited, &[("soup", 2), ("stew", 1)]));
+    assert!(html.contains("Dish soup") && !html.contains("Dish stew"));
+}
+
+#[test]
+fn a_recipe_section_beside_the_post_list_leaves_its_pager_and_its_link_alone() {
+    let every_post =
+        serde_json::json!({"id": "latest", "type": "latest-posts", "heading": "Latest"});
+    let one_post = serde_json::json!({"id": "latest", "type": "latest-posts", "heading": "Latest", "count": 1});
+    let dishes: &[(&str, u32)] = &[("soup", 2), ("stew", 1)];
+    for page in [
+        landing(serde_json::json!([recipes_section(), every_post])),
+        landing(serde_json::json!([every_post, recipes_section()])),
+    ] {
+        let html = home(&recipes_site(&page, dishes));
+        assert_eq!(count(&html, "class=\"ob-pager\""), 1, "the home pager");
+        assert_eq!(count(&html, "All recipes"), 1);
+        assert_eq!(count(&html, ">All posts<"), 0, "the pager covers it");
+        assert_eq!(count(&html, "<h1"), 1);
+    }
+    for page in [
+        landing(serde_json::json!([recipes_section(), one_post])),
+        landing(serde_json::json!([one_post, recipes_section()])),
+    ] {
+        let html = home(&recipes_site(&page, dishes));
+        assert_eq!(count(&html, "class=\"ob-pager\""), 0);
+        assert_eq!(count(&html, ">All posts<"), 1);
+        assert_eq!(count(&html, "All recipes"), 1);
+    }
+}

@@ -43,7 +43,26 @@ pub struct ContentProfile {
     pub label: &'static str,
     pub description: &'static str,
     pub fields: &'static [ProfileField],
+    /// The Markdown a new post of this profile starts from, if it has one.
+    pub starter: Option<&'static str>,
 }
+
+/// What a new recipe starts from: the sections the engine turns into a recipe
+/// card, scaling, checklists and timers, ready to fill in.
+const RECIPE_STARTER: &str = "A few words about this dish: where it comes from and why you make it.
+
+## Ingredients
+
+- 2 cups flour
+- 1 tsp salt
+- 1 1/2 cups milk
+
+## Steps
+
+1. Heat the oven to 200 °C (400 °F).
+2. Mix everything into a smooth batter.
+3. Bake for 25 minutes, until golden.
+";
 
 const RECIPE_FIELDS: &[ProfileField] = &[
     ProfileField {
@@ -51,6 +70,18 @@ const RECIPE_FIELDS: &[ProfileField] = &[
         label: "Servings",
         kind: ProfileFieldKind::Number,
         help: "Number of servings.",
+    },
+    ProfileField {
+        key: "course",
+        label: "Course",
+        kind: ProfileFieldKind::Text,
+        help: "What kind of dish it is, such as Dinner or Dessert. Readers can browse your recipes by this. Use a comma for more than one.",
+    },
+    ProfileField {
+        key: "cuisine",
+        label: "Cuisine",
+        kind: ProfileFieldKind::Text,
+        help: "Where the dish comes from, such as Italian or Southern. Readers can browse your recipes by this. Use a comma for more than one.",
     },
     ProfileField {
         key: "yield",
@@ -77,22 +108,17 @@ const RECIPE_FIELDS: &[ProfileField] = &[
         help: "Optional total duration.",
     },
     ProfileField {
-        key: "cuisine",
-        label: "Cuisine",
-        kind: ProfileFieldKind::Text,
-        help: "Cuisine or food tradition.",
-    },
-    ProfileField {
-        key: "category",
-        label: "Category",
-        kind: ProfileFieldKind::Text,
-        help: "Meal or recipe category.",
-    },
-    ProfileField {
         key: "calories",
         label: "Calories",
         kind: ProfileFieldKind::Text,
         help: "Free text such as 520 kcal.",
+    },
+    ProfileField {
+        key: "adaptedFrom",
+        label: "Adapted from",
+        kind: ProfileFieldKind::Text,
+        help:
+            "Web address of the recipe this one is adapted from; recipe apps get it as the source.",
     },
 ];
 
@@ -160,6 +186,54 @@ const VIDEO_FIELDS: &[ProfileField] = &[
         kind: ProfileFieldKind::Text,
         help: "A concise, creator-authored note describing meaningful AI assistance.",
     },
+    ProfileField {
+        key: "videoFile",
+        label: "Video master file",
+        kind: ProfileFieldKind::Text,
+        help: "Project-relative path of the video to upload, kept outside the static folder, such as media/episode-1.mp4.",
+    },
+    ProfileField {
+        key: "videoTitle",
+        label: "YouTube title",
+        kind: ProfileFieldKind::Text,
+        help: "Optional title for YouTube, at most 100 characters; the post title is used otherwise.",
+    },
+    ProfileField {
+        key: "videoDescription",
+        label: "YouTube description",
+        kind: ProfileFieldKind::Text,
+        help: "Optional opening of the YouTube description; the post description is used otherwise.",
+    },
+    ProfileField {
+        key: "captions",
+        label: "Caption files",
+        kind: ProfileFieldKind::Text,
+        help: "Comma-separated project-relative WebVTT or SubRip files named for their language, such as media/episode-1.en.vtt.",
+    },
+    ProfileField {
+        key: "videoRights",
+        label: "Rights to the video",
+        kind: ProfileFieldKind::Text,
+        help: "owned or licensed: you hold the rights to everything in the video.",
+    },
+    ProfileField {
+        key: "videoPeople",
+        label: "People in the video",
+        kind: ProfileFieldKind::Text,
+        help: "consented (everyone identifiable agreed) or none (no identifiable person).",
+    },
+    ProfileField {
+        key: "madeForKids",
+        label: "Made for kids",
+        kind: ProfileFieldKind::Text,
+        help: "yes or no: YouTube requires every creator to set the audience.",
+    },
+    ProfileField {
+        key: "syntheticMedia",
+        label: "Realistic altered or synthetic content",
+        kind: ProfileFieldKind::Text,
+        help: "yes or no: whether the video contains realistic altered or synthetic content YouTube asks you to disclose.",
+    },
 ];
 
 const FIELD_JOURNAL_FIELDS: &[ProfileField] = &[
@@ -213,24 +287,28 @@ const PROFILES: &[ContentProfile] = &[
         label: "Article",
         description: "A general-purpose article with standard publishing metadata.",
         fields: &[],
+        starter: None,
     },
     ContentProfile {
         id: RECIPE_ID,
         label: "Recipe",
         description: "A recipe with ingredients, steps, timing, servings, and structured data.",
         fields: RECIPE_FIELDS,
+        starter: Some(RECIPE_STARTER),
     },
     ContentProfile {
         id: RESEARCH_ID,
         label: "Research",
         description: "A research article with portable references and scholarly metadata.",
         fields: RESEARCH_FIELDS,
+        starter: None,
     },
     ContentProfile {
         id: VIDEO_ID,
         label: "Video production",
         description: "A video companion page with production metadata and discovery markup.",
         fields: VIDEO_FIELDS,
+        starter: None,
     },
     ContentProfile {
         id: FIELD_JOURNAL_ID,
@@ -238,17 +316,77 @@ const PROFILES: &[ContentProfile] = &[
         description:
             "An outdoor field note with route, conditions, observations, and location privacy.",
         fields: FIELD_JOURNAL_FIELDS,
+        starter: None,
     },
     ContentProfile {
         id: JOB_ID,
         label: "Job",
         description: "One piece of completed trade work: trade, service, town, dates, and before and after images.",
         fields: &[],
+        starter: None,
     },
 ];
 
 pub fn catalog() -> &'static [ContentProfile] {
     PROFILES
+}
+
+/// What a field says in Admin. On a site with `recipes.listing: false` there is
+/// no list to browse, so Course and Cuisine don't promise one.
+pub fn field_help(field: &ProfileField, recipe_listing: bool) -> &'static str {
+    match field.key {
+        "course" if !recipe_listing => {
+            "What kind of dish it is, such as Dinner or Dessert. Use a comma for more than one."
+        }
+        "cuisine" if !recipe_listing => {
+            "Where the dish comes from, such as Italian or Southern. Use a comma for more than one."
+        }
+        _ => field.help,
+    }
+}
+
+/// Other front matter keys a field's value may have been written under. Admin
+/// shows the value in the field and writes it back under the field's own key.
+pub fn field_aliases(key: &str) -> &'static [&'static str] {
+    match key {
+        "course" => &crate::recipe::COURSE_KEYS[1..],
+        _ => &[],
+    }
+}
+
+/// Everyday values Admin offers for a field, which can still be typed freely.
+pub fn field_suggestions(key: &str) -> &'static [&'static str] {
+    match key {
+        "course" => &[
+            "Breakfast",
+            "Lunch",
+            "Dinner",
+            "Appetizer",
+            "Side dish",
+            "Soup",
+            "Salad",
+            "Main course",
+            "Dessert",
+            "Snack",
+            "Drink",
+            "Bread",
+        ],
+        "cuisine" => &[
+            "American",
+            "Southern",
+            "Mexican",
+            "Italian",
+            "French",
+            "Greek",
+            "Mediterranean",
+            "Middle Eastern",
+            "Indian",
+            "Chinese",
+            "Japanese",
+            "Thai",
+        ],
+        _ => &[],
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

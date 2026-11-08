@@ -39,7 +39,8 @@ test("an adapter is given the announcement and a token, and nothing else of ours
   const [call] = adapter.published;
   assert.deepEqual(Object.keys(call).sort(), ["accessToken", "account", "post", "signal"]);
   assert.equal(call.accessToken, ACCESS);
-  assert.deepEqual(call.post, { id: call.post.id, idempotencyKey: call.post.idempotencyKey, caption: "Caption", canonicalUrl: "https://blog.example.org/posts/x/", work: "/posts/x/" });
+  assert.deepEqual(call.post, { id: call.post.id, idempotencyKey: call.post.idempotencyKey, caption: "Caption", canonicalUrl: "https://blog.example.org/posts/x/", work: "/posts/x/", scheduledFor: call.post.scheduledFor });
+  assert.ok(Number.isFinite(Date.parse(call.post.scheduledFor)), "the scheduled instant, which Bluesky derives its record key from");
   assert.deepEqual(call.account, { provider: "linkedin", kind: "member", externalId: "urn:li:person:abc", displayName: "Mikey Nichols" });
   assert.match(call.post.idempotencyKey, /^idem-key-/);
   assert.ok(call.signal instanceof AbortSignal);

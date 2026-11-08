@@ -186,6 +186,10 @@ const cards = (page) => page.locator("[data-prompt].oba-voice-card");
 
 test("the invitation is a labelled region, is reached and dismissed by keyboard, and fits 320px", async ({ page }) => {
   await signIn(page, "#/overview");
+  // Simple offers no Voice, so this runs in Guided.
+  const stored = await api(page, "GET", "preferences");
+  await api(page, "PUT", "preferences", { etag: stored.body.etag, preferences: { ...stored.body.preferences, preset: "guided" } });
+  await page.reload();
   await page.setViewportSize({ width: 320, height: 640 });
   const card = page.locator("[data-voice-invitation]");
   await expect(card).toBeVisible();

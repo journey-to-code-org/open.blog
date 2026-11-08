@@ -15,6 +15,8 @@
 import { ProviderError, providerJson } from "./social-providers.mjs";
 
 export const MAX_DESTINATIONS = 50;
+// A Mastodon account id: opaque, but Mastodon and its forks use short ids of these characters.
+export const MASTODON_ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_ORGANIZATIONS = 25;
 
 // Reasons a destination is not offered, and the notes about what could not be checked. Fixed text.
@@ -24,6 +26,8 @@ export const REASONS = Object.freeze({
   "no-posting-role": "Your role on this Page does not let you create posts.",
   "role-unverified": "Facebook did not say what you may do on this Page, so it cannot be offered.",
   "no-page-token": "Facebook gave no access for this Page.",
+  "account-inactive": "Bluesky says this account is not active (deactivated, suspended or taken down), so it cannot post.",
+  "account-suspended": "Mastodon says this account is suspended, so it cannot post.",
 });
 
 export const NOTES = Object.freeze({
@@ -35,6 +39,10 @@ export const NOTES = Object.freeze({
   "no-organizations": "LinkedIn lists no organization that you administer.",
   "no-pages": "Facebook lists no Page that you manage.",
   "pages-truncated": "More Pages exist than are shown.",
+  "instance-unavailable": "The Mastodon instance did not say what it accepts just now. Its limits are read again before every post.",
+  "instance-limit-low": "This Mastodon instance takes fewer than 500 characters per post, so a long caption will be refused when it is sent.",
+  "statuses-not-readable": "Reading statuses was not granted, so a post whose outcome was not seen cannot be looked up and goes to you to check.",
+  "media-not-granted": "Uploading media was not granted, so the cover image is not attached; Mastodon shows its own link preview instead.",
   "app-review-unverified": "Meta's App Review status cannot be read from the API. Until the app has Advanced access for these permissions, only people with a role on the app can post to Pages; confirm in the Meta app dashboard.",
 });
 
@@ -108,7 +116,43 @@ async function facebook(settings, tokens, fetchImpl) {
   return { destinations, notes, secrets };
 }
 
+// A Bluesky session belongs to exactly one account, which createSession named and the service
+// vouched for: that account is the only destination, offered only while the service says it is active.
+function bluesky(tokens) {
+  const name = tokens.handle ? `@${tokens.handle}` : tokens.did;
+  return { destinations: [{ id: tokens.did, kind: "account", name: cleanName(name, "Bluesky account"), eligible: tokens.active, reason: tokens.active ? null : "account-inactive" }], notes: [], secrets: {} };
+}
+
+// A Mastodon token belongs to the one account that signed in at the instance (verify_credentials
+// needs read:accounts): that account is the only destination, offered unless Mastodon says it is
+// suspended. The instance's public configuration (GET /api/v2/instance, Mastodon 4.0+) is read only
+// for what the author should know now; the adapter reads it again before every post.
+async function mastodon(settings, tokens, fetchImpl) {
+  const me = await providerJson(fetchImpl, `${settings.apiBase}/api/v1/accounts/verify_credentials`, { headers: headers(tokens.accessToken) });
+  if (typeof me.id !== "string" || !MASTODON_ACCOUNT_ID.test(me.id)) throw new ProviderError("provider-invalid");
+  const username = typeof me.username === "string" && /^[A-Za-z0-9_]{1,64}$/.test(me.username) ? me.username : null;
+  const host = new URL(settings.instance).host;
+  const suspended = me.suspended === true;
+  const notes = [];
+  const granted = new Set(tokens.granted);
+  const has = (scope) => granted.has(scope) || granted.has(scope.split(":")[0]);
+  if (!has("read:statuses")) notes.push("statuses-not-readable");
+  if (settings.media === "cover" && !has("write:media")) notes.push("media-not-granted");
+  try {
+    const instance = await providerJson(fetchImpl, `${settings.apiBase}/api/v2/instance`, { headers: { accept: "application/json" } });
+    const max = Number(instance?.configuration?.statuses?.max_characters);
+    if (Number.isInteger(max) && max > 0 && max < 500) notes.push("instance-limit-low");
+  } catch (error) {
+    if (!(error instanceof ProviderError)) throw error;
+    notes.push("instance-unavailable");
+  }
+  const name = username ? `@${username}@${host}` : `Mastodon account on ${host}`;
+  return { destinations: [{ id: me.id, kind: "account", name: cleanName(name, "Mastodon account"), eligible: !suspended, reason: suspended ? "account-suspended" : null }], notes, secrets: {} };
+}
+
 // Lists the destinations a grant can reach. Resolves to { destinations, notes, secrets } or throws a ProviderError.
 export function discover(settings, tokens, fetchImpl) {
+  if (settings.provider === "bluesky") return Promise.resolve(bluesky(tokens));
+  if (settings.provider === "mastodon") return mastodon(settings, tokens, fetchImpl);
   return settings.provider === "linkedin" ? linkedin(settings, tokens, fetchImpl) : facebook(settings, tokens, fetchImpl);
 }

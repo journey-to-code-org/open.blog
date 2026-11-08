@@ -4,7 +4,7 @@
 // previews are served from an authenticated URL into an opaque-origin sandbox.
 
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
-import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.js";
+import { blockEditor, editableBlockKind, openPhotoPicker, openPieceDialog } from "./block-forms.js";
 import { buildChecksPanel } from "./checks-panel.js";
 import { applyJobDraft, bodyTakesScaffold, buildJobForm, JOB_PROFILE } from "./job-form.js";
 import { buildHistory } from "./landing-history.js";
@@ -13,8 +13,10 @@ import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createAnnouncementsPanel } from "./announcements.js";
 import { createBusinessFacts } from "./business.js";
+import { createSeasonalReminders } from "./seasonal.js";
 import { createServices } from "./services.js";
 import { createSocialAccounts } from "./social.js";
+import { createQuoteRequests } from "./quotes.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
@@ -45,6 +47,7 @@ import {
   applyLayout,
   createTourStore,
   replacingNeedsConfirm,
+  starterDescription,
   starterSections,
   sectionInfo,
   sectionProblems,
@@ -53,6 +56,16 @@ import {
   serverProblemsBySection,
   setHidden,
 } from "./landing.js";
+import {
+  FILES_MAY_VANISH_BODY,
+  FILES_MAY_VANISH_SHORT,
+  FILES_MAY_VANISH_TITLE,
+  glossaryFor,
+  notSentYet,
+  savedLine,
+  savedMessage,
+  tourBodyFor,
+} from "./lasting.js";
 import {
   ACCENT_SWATCHES,
   CHOICES,
@@ -116,6 +129,31 @@ export function normalizeAdminPreferences(value) {
   if (!suppliedOrder.includes("research") && hiddenModules.includes("evidence") && !hiddenModules.includes("research")) hiddenModules.push("research");
   // Only a dismissed invitation is written, so every other set of preferences keeps its exact shape.
   return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules, ...(input.voiceInvitationDismissed === true ? { voiceInvitationDismissed: true } : {}) };
+}
+
+/**
+ * The pages a Simple workspace leaves out of the main navigation (#559), which Advanced tools lists.
+ * The first four appear once the site uses them, so nobody loses a page they rely on. Reminders counts
+ * as used once the business facts name a trade or reminders are on: they are for a trade site.
+ */
+export const SIMPLE_EXTRA_PAGES = Object.freeze({
+  series: "Series",
+  services: "Services",
+  business: "Business facts",
+  reminders: "Reminders",
+  shared: "Shared reflections",
+  capture: "Capture",
+  paths: "Reading paths",
+  comparisons: "Comparisons",
+  appearance: "Appearance",
+});
+
+/** Whether a Simple workspace hides this page, or an editor tool, from someone on another page. */
+export function simpleHidesPage(page, { preset, active, meta } = {}) {
+  if (preset !== "simple" || page === active) return false;
+  if (page === "series") return !meta?.series?.length;
+  if (page === "services" || page === "business" || page === "reminders") return !meta?.siteUses?.[page];
+  return true;
 }
 
 export function visibleAdminModules(preferences, available = ADMIN_OPTIONAL_MODULES) {
@@ -270,7 +308,7 @@ export function draftRoute(hash) {
 export function workspacePanelKey(hash) {
   const { head, tail } = parseAdminHash(canonicalAdminHash(hash));
   if (head === "research") return tail.split("/")[0] || null;
-  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series"].includes(tail))) return "draft";
+  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series", "recipe"].includes(tail))) return "draft";
   return null;
 }
 
@@ -1087,12 +1125,54 @@ export function preserveProfileFieldDrafts(drafts, controls) {
   return next;
 }
 
-export function applyProfileFieldDrafts(fields, drafts) {
+/** A front matter value as a profile field shows it: a list reads as the comma form the field saves. */
+export function profileFieldText(value) {
+  if (value == null) return "";
+  return Array.isArray(value) ? value.join(", ") : String(value);
+}
+
+/**
+ * Show a value written under another name in the chosen profile's field, where saving writes it
+ * under the field's own name. `seeded` remembers what was put there, so a value she never changed
+ * leaves with the profile that showed it instead of being saved under another one.
+ */
+export function seedProfileFieldAliases(drafts, profile, fields, seeded) {
+  const next = new Map(drafts);
+  for (const [key, value] of seeded) if (next.get(key) === value) next.set(key, "");
+  seeded.clear();
+  for (const field of profile?.fields || []) {
+    const written = (field.aliases || []).find((alias) => profileFieldText(fields[alias]).trim() !== "");
+    if (!written || profileFieldText(next.get(field.key)).trim()) continue;
+    const value = profileFieldText(fields[written]);
+    next.set(field.key, value);
+    seeded.set(field.key, value);
+  }
+  return next;
+}
+
+/** Other names a profile's fields may be written under, by field: the field's own name replaces the one it showed on save. */
+export function profileFieldAliases(profile) {
+  return Object.fromEntries((profile?.fields || []).filter((field) => field.aliases?.length).map((field) => [field.key, field.aliases]));
+}
+
+/**
+ * Write the fields' drafts into the front matter. The field's own name replaces any other name
+ * holding the value it showed or the value saved. A different value under another name was never on
+ * screen, so a save must not lose it: it stays in the file, unread, unless she clears the field.
+ */
+export function applyProfileFieldDrafts(fields, drafts, aliases = {}) {
   const next = { ...fields };
+  const written = (name) => profileFieldText(fields[name]).trim();
   for (const [key, rawValue] of drafts) {
     const value = String(rawValue ?? "").trim();
-    if (value) next[key] = value;
-    else delete next[key];
+    // A field left as it read keeps the file's own form, so a list stays a list.
+    if (!value) delete next[key];
+    else if (value !== written(key)) next[key] = value;
+    const names = aliases[key] || [];
+    const shown = [key, ...names].map(written).find(Boolean);
+    for (const alias of names) {
+      if (!value || !written(alias) || written(alias) === shown || written(alias) === value) delete next[alias];
+    }
   }
   return next;
 }
@@ -2735,6 +2815,10 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
       renderResults();
       return;
     }
+    // A late curation load redraws the open item, which must not lose what is being typed into it.
+    const redraw = !moveFocus && selected?.type === type && selected?.id === id;
+    const typed = redraw ? [...detail.querySelectorAll("textarea[id]")].map((field) => [field.id, field.value]) : [];
+    const typingIn = redraw && detail.contains(document.activeElement) ? document.activeElement.id : "";
     selected = { type, id };
     const record = item.record;
     const parts =
@@ -2745,6 +2829,13 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
       : type === "interpretation" ? interpretationDetail(record)
       : noteDetail(record);
     detail.replaceChildren(...parts);
+    for (const [fieldId, value] of typed) {
+      const field = detail.querySelector(`#${fieldId}`);
+      if (!field || !value) continue;
+      field.value = value;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    if (typingIn) detail.querySelector(`#${typingIn}`)?.focus();
     detail.hidden = false;
     renderResults();
     if (moveFocus) detail.querySelector(`#${idPrefix}-detail-title`)?.focus();
@@ -7870,8 +7961,112 @@ export function sharedSourceHref(value) {
   return typeof value === "string" && isAbsoluteHttpUrl(value) ? value : "";
 }
 
+/**
+ * A triple click selects a whole block by ending at the start of the next one, so typing over it
+ * would join the two. Ends the selection inside the block it started in.
+ */
+export function keepSelectionInBlock(selection, root) {
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+  const block = start?.closest("li, p, h1, h2, h3, h4, h5, h6, blockquote");
+  if (!block || !root.contains(block) || range.endOffset !== 0 || block.contains(range.endContainer)) return;
+  range.setEnd(block, block.childNodes.length);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
+}
+
+/** The Markdown a new document of this profile starts from, or nothing. */
+export function profileStarter(profiles, id) {
+  return (Array.isArray(profiles) && profiles.find((profile) => profile.id === id)?.starter) || "";
+}
+
+/**
+ * The previewed document's own warnings, without its path, apart from those about the rest of the
+ * site. Recipe advice says what the engine's "recipe has no" warnings say, so they are dropped.
+ */
+export function splitPreviewWarnings(warnings, source, { recipe = false, shownApart = [] } = {}) {
+  const prefix = source ? `${source}: ` : null;
+  const own = [];
+  const elsewhere = [];
+  for (const warning of warnings) {
+    if (shownApart.includes(warning)) continue;
+    if (prefix === null) own.push(warning);
+    else if (!warning.startsWith(prefix)) elsewhere.push(warning);
+    else if (!(recipe && warning.startsWith(`${prefix}recipe has no `))) own.push(warning.slice(prefix.length));
+  }
+  return { own, elsewhere };
+}
+
+/**
+ * What to do about each recipe check code, in the author's words (#556). The codes left out are
+ * about the site's setup, not the recipe, and already appear among the site's warnings.
+ */
+export const RECIPE_ADVICE = {
+  "no-ingredients": () => "Add your ingredients. In Write, make a heading called Ingredients and put a bulleted list under it, one ingredient per line.",
+  "no-steps": () => "Add your steps. In Write, make a heading called Steps and put a numbered list under it, one step per line.",
+  "empty-ingredient": (n) => `Ingredient ${n} is empty. Write it or remove the line.`,
+  "empty-step": (n) => `Step ${n} is empty. Write it or remove the line.`,
+  "unreadable-quantity": (n) => `Ingredient ${n} starts with an amount that can't be read, so it won't change with the servings. Write it like 2, 1.5, 1/2 or 1 1/2.`,
+  "zero-quantity": (n) => `Ingredient ${n} has an amount of zero. Give the amount or leave the number out.`,
+  "descending-range": (n) => `Ingredient ${n} has a range that runs backwards. Put the smaller amount first.`,
+  "duplicate-ingredient": (n) => `Ingredient ${n} is listed twice. Remove one of them.`,
+  "numbered-step": (n) => `Step ${n} starts with its own number. Remove it; steps are numbered for you.`,
+  "unreadable-adapted-from": () => "Adapted from, in Settings, should be a web address starting with https://.",
+  "time-not-exported": () => "A time in Settings can't be read as one length of time. Write it like 20 min or 1 hour.",
+  "zero-time": () => "A time in Settings is zero. Give the time or clear it.",
+  "total-shorter-than-parts": () => "Total time, in Settings, is shorter than prep and cook time together.",
+  "incomplete-times": () => "Only one of prep and cook time is filled in. In Settings, add the other or a total time, so readers see how long this takes.",
+  "servings-not-numeric": () => "Servings, in Settings, should start with a number so readers can scale the recipe.",
+  "calories-without-yield": () => "Calories don't say what they're for. In Settings, add the servings or the yield.",
+  "no-image": () => "Add a photo. In Settings, choose Add cover photo. Many recipe apps and search results look for one.",
+};
+
+/** The advice for a preview's recipe problems, in the order the check found them. */
+export function recipeAdvice(problems) {
+  if (!Array.isArray(problems)) return [];
+  return problems.flatMap((problem) => {
+    const advice = RECIPE_ADVICE[problem?.code];
+    return advice ? [advice(problem.ingredient ?? problem.step)] : [];
+  });
+}
+
+/**
+ * What to say when a recipe has neither a course nor a cuisine: it is valid, but readers can't
+ * browse to it, and nothing else tells her. One is enough to quiet it, and a site with its recipe
+ * list turned off has nothing to browse, so there is nothing to ask for.
+ */
+export function recipeFilterAdvice(course, cuisine, listing = true) {
+  if (listing === false || String(course ?? "").trim() || String(cuisine ?? "").trim()) return "";
+  return "Add a course, such as Dinner, or a cuisine, such as Italian, so readers can browse your recipes by it. In Settings, fill in Course or Cuisine.";
+}
+
+/** What the Slug field says, in words for someone who has never met the word. */
+export function slugHelp(kind, isNew) {
+  const noun = { posts: "post", pages: "page", series: "series", services: "service" }[kind] || "post";
+  const what = `The last part of this ${noun}'s web address, in plain words joined by hyphens, such as family-favorites.`;
+  return isNew ? what : `${what} Changing it moves the ${noun} to the new address.`;
+}
+
+/** The owner's notes about her recipe list, or nothing. They are for her, so they don't sit folded away. */
+/** The technical text of a failed publish, folded away for whoever helps her (ADR 0353). */
+function publishFailureDetail(error) {
+  const detail = error.data?.detail;
+  return detail ? h("details", { class: "oba-publish-detail", "data-publish-detail": "true" }, h("summary", {}, "Details for whoever helps you"), h("pre", {}, detail)) : null;
+}
+
+/** Bring what she has to read to where she is: Publish sits in a bar that stays put, and its answer does not. */
+function bringIntoSight(element) {
+  element.scrollIntoView({ block: "start", behavior: "instant" });
+}
+
+function recipeNotesNotice(notes) {
+  if (!Array.isArray(notes) || !notes.length) return [];
+  return [h("strong", {}, "About your recipe list"), h("ul", { "data-recipe-notes": "true" }, ...notes.map((note) => h("li", {}, note)))];
 }
 
 export function portableDiagnosticsForDisplay(diagnostics) {
@@ -9771,6 +9966,8 @@ class ApiError extends Error {
 
 class Api {
   csrf = "";
+  /** How many times she has signed in on this page; see `call`. */
+  signIns = 0;
 
   async call(method, path, { json, body, headers, signal } = {}) {
     const init = {
@@ -9784,7 +9981,11 @@ class Api {
       body: json !== undefined ? JSON.stringify(json) : body,
       signal,
     };
+    const signIn = this.signIns;
     const res = await fetch(`/admin/api/${path}`, init);
+    // Refused for the session it was sent under, and she has signed in since: this says nothing
+    // about the session she has now. It is a request that did not finish, as a lost connection is.
+    if (res.status === 401 && signIn !== this.signIns) throw new ApiError("This did not finish because you were signed out. Try again.");
     let data = null;
     try {
       data = await res.json();
@@ -9823,8 +10024,13 @@ function landingField(spec, data, ctx, prefix) {
   } else if (spec.kind === "select") {
     input = h("select", { id }, spec.options.map(([value, text]) => h("option", { value }, text)));
     input.value = data[spec.name] ?? spec.default ?? spec.options[0][0];
-    data[spec.name] = input.value;
-    input.addEventListener("change", () => { data[spec.name] = input.value; });
+    // A field that means nothing when left at its default stays out of the page.
+    const write = (value) => {
+      if (spec.omitDefault && value === spec.default) delete data[spec.name];
+      else data[spec.name] = value;
+    };
+    write(input.value);
+    input.addEventListener("change", () => write(input.value));
   } else if (spec.kind === "post" && Array.isArray(ctx.posts)) {
     const current = data[spec.name] ?? "";
     const known = ctx.posts.some((post) => post.slug === current);
@@ -9857,7 +10063,16 @@ function landingField(spec, data, ctx, prefix) {
   });
   input.addEventListener("input", () => ctx.changed());
   input.addEventListener("change", () => ctx.changed());
-  return h("div", { class: "oba-field oba-landing-field", "data-field": path }, label, input, hint, error);
+  const chooser = spec.picture && ctx.pickPhoto
+    ? h("button", { class: "oba-btn", type: "button", "data-action": "choose-photo", onClick: async () => {
+        const chosen = await ctx.pickPhoto();
+        if (!chosen) return;
+        input.value = chosen.url;
+        data[spec.name] = chosen.url;
+        ctx.changed();
+      } }, "Choose a photo")
+    : null;
+  return h("div", { class: "oba-field oba-landing-field", "data-field": path }, label, input, chooser, hint, error);
 }
 
 // Rich text landing section (ADR 0257, #330). The Visual (word-processor) editor's own Markdown
@@ -10181,7 +10396,20 @@ function landingRichText(spec, data, ctx, path, id) {
     const box = h(
       "div",
       { class: "oba-landing-rich-panel", role: "group", "aria-label": title, "data-rich-panel": name },
-      ...inputs.map(({ field, input }) => h("div", { class: "oba-field" }, h("label", { for: input.id }, field.label), input, field.hint ? h("p", { class: "oba-small" }, field.hint) : null)),
+      ...inputs.map(({ field, input }) => h(
+        "div",
+        { class: "oba-field" },
+        h("label", { for: input.id }, field.label),
+        input,
+        field.pick
+          ? h("button", { class: "oba-btn", type: "button", "data-action": `rich-${name}-choose-photo`, onClick: async () => {
+              const chosen = await field.pick();
+              if (chosen) input.value = chosen.url;
+              input.focus();
+            } }, "Choose a photo")
+          : null,
+        field.hint ? h("p", { class: "oba-small" }, field.hint) : null,
+      )),
       problem,
       h(
         "div",
@@ -10250,7 +10478,7 @@ function landingRichText(spec, data, ctx, path, id) {
   };
   const imagePanel = () => {
     panel("image", "Add an image", [
-      { key: "address", label: "Where the picture is", type: "url", hint: "A web address starting with https:// or a file on your site such as /uploads/photo.jpg." },
+      { key: "address", label: "Where the picture is", type: "url", pick: ctx.pickPhoto, hint: "Choose one of your photos, or type a web address starting with https://." },
       { key: "alt", label: "Describe the picture (needed)", hint: "A short description for people who cannot see it, such as: A cup of tea on a windowsill." },
     ], (values) => {
       if (!values.address) return "Enter where the picture is.";
@@ -10951,6 +11179,8 @@ export class ObAdmin extends AdminElement {
   dirty = false;
   editVersion = 0;
   viewVersion = 0;
+  // Every move in Admin takes the next turn; what an earlier turn was loading is dropped (see routeGate).
+  routeTurn = 0;
   // Every mount takes the next serial; a kept view returns with the version it had (ADR 0121).
   viewSerial = 0;
   // The open view's own unsaved-changes test, for views whose forms keep their own state.
@@ -10971,6 +11201,8 @@ export class ObAdmin extends AdminElement {
   workspaceMain = null;
   skipRoute = false;
   currentHash = "";
+  // The address of the page on its way; it is the open page once it mounts.
+  arrivingHash = "";
   preferences = normalizeAdminPreferences();
   preferencesSaved = normalizeAdminPreferences();
   preferencesEtag = "";
@@ -11134,6 +11366,19 @@ export class ObAdmin extends AdminElement {
     return visible;
   }
 
+  /** Choose a photo, a new upload or an earlier one, wherever a picture is asked for. Resolves to `{ url, alt }`, or null. */
+  pickPhoto(options = {}) {
+    return openPhotoPicker({
+      load: () => this.api.call("GET", "images"),
+      upload: async (file) => (await this.api.call("POST", `upload?name=${encodeURIComponent(file.name)}`, { body: file, headers: { "Content-Type": "application/octet-stream" } })).url,
+      ...options,
+    });
+  }
+
+  simpleHides(page, active = this.activeRoute) {
+    return simpleHidesPage(page, { preset: this.preferences?.preset, active, meta: this.meta });
+  }
+
   syncPreferencesWarning() {
     if (!this.preferencesWarning) return;
     this.preferencesWarning.textContent = this.preferencesError;
@@ -11150,6 +11395,9 @@ export class ObAdmin extends AdminElement {
     this.querySelectorAll?.("[data-admin-module-group]").forEach((element) => {
       const modules = element.dataset.adminModuleGroup.split(" ");
       element.hidden = !modules.some((module) => visible.has(module));
+    });
+    this.querySelectorAll?.("[data-simple-page]").forEach((element) => {
+      element.hidden = this.simpleHides(element.dataset.simplePage);
     });
     this.editor?.applyWorkspacePreferences(this.preferences);
     this.syncPreferencesWarning();
@@ -11176,6 +11424,22 @@ export class ObAdmin extends AdminElement {
 
   // ---- views
 
+  /**
+   * What a view awaits before it mounts goes through this, so the view stops when she moves on.
+   * While she is on the page that asked, the answer or the failure comes through. After that
+   * neither ever does: the view never resumes, so it cannot draw, report an error or set up its
+   * state on the page she moved to. `mount` cannot do this itself: it cannot tell which view
+   * called it, and by then `shell` has already changed what the open view holds.
+   */
+  routeGate() {
+    const turn = this.routeTurn;
+    const here = () => turn === this.routeTurn && !this.signedOut;
+    return (work) =>
+      new Promise((resolve, reject) => {
+        Promise.resolve(work).then((value) => here() && resolve(value), (error) => here() && reject(error));
+      });
+  }
+
   mount(...nodes) {
     try {
       this.viewCleanup?.();
@@ -11185,15 +11449,31 @@ export class ObAdmin extends AdminElement {
     this.viewCleanup = null;
     this.editor?.dispose();
     this.editor = null;
+    // Unsaved work is on screen until here, however long the next view took to load.
+    this.dirty = false;
     this.viewDirty = null;
     this.viewBusy = null;
     this.viewVersion = ++this.viewSerial;
+    // This is the page on screen from here on, even if it goes on loading into what it drew. The
+    // sign-in form is no page: signing in again reopens the address it took over from.
+    if (this.arrivingHash && !this.signedOut) {
+      this.currentHash = this.arrivingHash;
+      this.arrivingHash = "";
+    }
     this.replaceChildren(...nodes);
   }
 
   /** The version the next mounted view will have, for views that prepare before mounting. */
   nextViewVersion() {
     return this.viewSerial + 1;
+  }
+
+  /**
+   * Whether she is still on the view on screen. Once she asks for another page this view stays
+   * until that page has loaded, so what finishes in that time asks this before moving the address.
+   */
+  stillOnOpenView() {
+    return (location.hash || "#/overview") === this.currentHash;
   }
 
   /** Whether the open view has unsaved changes, in the editor or in a view's own form. */
@@ -11230,6 +11510,8 @@ export class ObAdmin extends AdminElement {
       // Taken out of the shell so the next mount does not dispose it.
       this.editor = null;
     }
+    // The record below answers for this work now.
+    this.dirty = false;
     const viewDirty = this.viewDirty;
     this.kept.set(key, {
       key,
@@ -11258,16 +11540,17 @@ export class ObAdmin extends AdminElement {
    * same cookie, and that user never sees them.
    */
   async restoreKept(key, requestedHash) {
+    const whileHere = this.routeGate();
     let session;
     try {
-      session = await this.api.call("GET", "session");
+      session = await whileHere(this.api.call("GET", "session"));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) this.showSessionEnded();
       else this.showFatal(err);
       return;
     }
-    // The page moved on, or signed out, while the session was checked.
-    if (this.signedOut || !this.kept.has(key)) return;
+    // The panel was given up while the session was checked.
+    if (!this.kept.has(key)) return;
     if (!session?.user || session.user !== this.user || session.user !== this.keptOwner) {
       this.forgetWorkspace();
       this.user = "";
@@ -11279,6 +11562,7 @@ export class ObAdmin extends AdminElement {
     this.kept.delete(key);
     this.editor?.dispose();
     this.editor = null;
+    this.dirty = Boolean(record.editor);
     this.viewVersion = record.viewVersion;
     this.viewDirty = record.viewDirty;
     this.viewBusy = record.viewBusy;
@@ -11290,7 +11574,6 @@ export class ObAdmin extends AdminElement {
     const label = key === "draft" ? "Your draft" : researchPanel(key)?.label || "This panel";
     if (record.editor) {
       this.editor = record.editor;
-      this.dirty = true;
       record.editor.resume();
       if (!this.openRequestedPane(hash) && record.editor.root?.dataset.editorView === "write") record.editor.writingSurface().focus();
       else this.focusPageHeading();
@@ -11311,6 +11594,8 @@ export class ObAdmin extends AdminElement {
    * signed in. Signing in again as that user returns to them; anyone else discards them.
    */
   showSessionEnded(message = "Your session ended. Sign in again.") {
+    // Another page has already said so: she may be filling in the form.
+    if (this.signedOut) return;
     // Voice copies stay on this device: signing in again as the same author gives them back, and
     // signing in as anyone else removes them (see the sign-in form).
     const key = workspacePanelKey(this.currentHash);
@@ -11372,6 +11657,9 @@ export class ObAdmin extends AdminElement {
             if (this.keptOwner !== res.user) this.forgetWorkspace();
             // So are voice copies left by an ended session: only their own author gets them back.
             clearVoiceCopies(undefined, { keepUser: res.user });
+            // Nothing asked for before signing out may arrive now that the gate would open again.
+            this.routeTurn += 1;
+            this.api.signIns += 1;
             this.signedOut = false;
             pass.value = "";
             await this.enter();
@@ -11394,8 +11682,6 @@ export class ObAdmin extends AdminElement {
       submit,
     );
     this.mount(form);
-    // The open editor, unless it was kept above, went with the view.
-    this.dirty = false;
     user.focus();
   }
 
@@ -11435,25 +11721,29 @@ export class ObAdmin extends AdminElement {
       h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
     const visibleModules = this.shownShellModules();
     const panel = researchPanelForRoute(active);
+    // Someone working in the research workspace keeps its tools in the drafts they start from it.
+    if (panel) this.researchVisited = true;
     const inDraft = Boolean(KINDS[active]) && workspacePanelKey(globalThis.location?.hash) === "draft";
     // The research workspace's own navigation: always on its panels, and beside a draft when the
     // workspace is part of the chosen layout or holds kept work to return to.
     const showResearchNav = Boolean(panel) || (inDraft && (visibleModules.has("research") || this.kept.size > 0));
+    const simpleOnly = (page) => ({ "data-simple-page": page, hidden: this.simpleHides(page, active) });
     const contentTabs = [
       h("a", { class: "oba-tab", "aria-current": active === "overview" ? "page" : null, href: "#/overview" }, "Overview"),
       ...Object.entries(KINDS).map(([kind, info]) =>
-        h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
+        h("a", { class: "oba-tab", ...(SIMPLE_EXTRA_PAGES[kind] ? simpleOnly(kind) : {}), "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
-      h("a", { class: "oba-tab", "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
-      h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
-      h("a", { class: "oba-tab", "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
+      h("a", { class: "oba-tab", ...simpleOnly("services"), "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
+      h("a", { class: "oba-tab", ...simpleOnly("shared"), "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
+      h("a", { class: "oba-tab", ...simpleOnly("capture"), "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
-      h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
-      h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
-      h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
+      h("a", { class: "oba-tab", ...simpleOnly("paths"), "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
+      h("a", { class: "oba-tab", ...simpleOnly("comparisons"), "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
+      h("a", { class: "oba-tab", ...simpleOnly("appearance"), "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
       ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
-      h("a", { class: "oba-tab", "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
+      h("a", { class: "oba-tab", ...simpleOnly("business"), "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
+      h("a", { class: "oba-tab", ...simpleOnly("reminders"), "aria-current": active === "reminders" ? "page" : null, href: "#/reminders" }, "Reminders"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
@@ -11461,6 +11751,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
       : active === "business"
         ? { title: "Business facts", detail: "Set your name, phone, hours, license and insurance once, and see them everywhere on your site." }
+      : active === "reminders"
+        ? { title: "Seasonal reminders", detail: "Get a nudge at the right time of year about what to write for your trade. A reminder only starts a draft; it never publishes." }
       : active === "services"
         ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
       : active === "look"
@@ -11472,11 +11764,13 @@ export class ObAdmin extends AdminElement {
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "social"
-        ? { title: "Social accounts", detail: "Connect LinkedIn or Facebook, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
+        ? { title: "Social accounts", detail: "Connect the social accounts your site offers, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
+      : active === "quotes"
+        ? { title: "Quote requests", detail: "Read new requests, mark them handled, export them, and erase them. Your customers' details stay yours." }
       : active === "voice"
         ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
       : active === "announcements"
-        ? { title: "Announcements", detail: "Announce a published post on LinkedIn or a Facebook Page at a time you choose, and manage what is scheduled." }
+        ? { title: "Announcements", detail: "Announce a published post on a connected social account at a time you choose, and manage what is scheduled." }
       : active === "landing"
         ? { title: "Landing page", detail: "Build the first page your visitors see from sections you add, order and preview, without writing any code." }
       : active === "paths"
@@ -11532,6 +11826,8 @@ export class ObAdmin extends AdminElement {
         )),
         // Optional social publishing (ADR 0301): no navigation entry unless the server has social settings.
         this.meta?.social || active === "social" ? h("div", { class: "oba-progressive-tools", "data-social-nav": "true" }, toolGroup("Social", h("a", { class: "oba-tab", "aria-current": active === "social" ? "page" : null, href: "#/social" }, "Social accounts"))) : null,
+        // Optional quote requests (ADR 0384): no navigation entry unless the server has quote settings.
+        this.meta?.quote || active === "quotes" ? h("div", { class: "oba-progressive-tools", "data-quote-nav": "true" }, toolGroup("Customers", h("a", { class: "oba-tab", "aria-current": active === "quotes" ? "page" : null, href: "#/quotes" }, "Quote requests"))) : null,
       ),
       h(
         "section",
@@ -11631,6 +11927,15 @@ export class ObAdmin extends AdminElement {
         h("ul", { class: "oba-advanced-grid" }, group.modules.map(tool)),
       ),
     );
+    const extraPages = Object.entries(SIMPLE_EXTRA_PAGES).filter(([page]) => this.simpleHides(page));
+    const pagesGroup = extraPages.length
+      ? h(
+          "section",
+          { class: "oba-advanced-group", "aria-labelledby": "oba-advanced-pages", "data-simple-pages": "true" },
+          h("h3", { id: "oba-advanced-pages" }, "More pages"),
+          h("ul", { class: "oba-advanced-grid" }, extraPages.map(([page, label]) => h("li", {}, h("button", { class: "oba-advanced-tool", type: "button", onClick: () => choose(() => { location.hash = `#/${page}`; }) }, h("strong", {}, label))))),
+        )
+      : null;
     const close = h("button", { class: "oba-btn", type: "button", onClick: () => dialog.close() }, "Close");
     const personalize = h("button", { class: "oba-btn", type: "button", onClick: () => choose(() => this.openWorkspacePreferences()) }, "Personalize workspace");
     const dialog = h(
@@ -11640,6 +11945,7 @@ export class ObAdmin extends AdminElement {
       h("h2", { id: "oba-advanced-title" }, "Advanced tools"),
       h("p", {}, "Everything remains reachable even when your everyday workspace is simple. Choose what you want to do next."),
       groups,
+      pagesGroup,
       h("div", { class: "oba-dialog-actions" }, personalize, h("span", { class: "oba-spacer" }), close),
     );
     this.openWorkspaceDialog(dialog, close);
@@ -11743,15 +12049,18 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
-      ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook connect accounts share announce oauth", run: () => go("#/social") }] : []),
+      ...(this.meta.quote ? [{ label: "Quote requests", category: "Site", keywords: "customers leads requests quotes enquiries inbox export erase", run: () => go("#/quotes") }] : []),
+      ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook bluesky mastodon connect accounts share announce oauth", run: () => go("#/social") }] : []),
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
-      ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook schedule announce share post", run: () => go("#/announcements") }] : []),
+      ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook bluesky mastodon schedule announce share post", run: () => go("#/announcements") }] : []),
+      { label: "Seasonal reminders", category: "Site", keywords: "seasonal reminder prompt season topic draft snooze", run: () => go("#/reminders") },
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
       { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
       { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
+      { label: "New recipe", category: "Create", keywords: "cook food ingredients dish", run: () => go("#/new/recipe") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
       { label: "New series", category: "Create", keywords: "collection", run: () => go("#/new/series") },
@@ -11867,15 +12176,18 @@ export class ObAdmin extends AdminElement {
     } catch {
       return;
     }
+    this.filesMayVanish = st.filesMayVanish === true;
+    // Overview says all of it, so it does not need the short line as well.
+    const vanishLine = this.filesMayVanish && this.activeRoute !== "overview" ? h("a", { class: "oba-publish-risk", href: "#/overview", "data-files-may-vanish-line": "true" }, FILES_MAY_VANISH_SHORT) : null;
     if (!st.repo) {
-      box.replaceChildren(h("span", { class: "oba-small", title: "Run `openblog publish setup` to publish with git" }, "Not a git repository"));
+      box.replaceChildren(h("span", { class: "oba-small", title: "Whoever set up this site can run `openblog publish setup` to publish with git" }, "Publishing is not set up yet"), ...(vanishLine ? [vanishLine] : []));
       return;
     }
     const pending = st.changed.length;
     const drafts = st.drafts.length;
     const summary = [
-      pending ? `${pending} unpublished change${pending === 1 ? "" : "s"}` : st.ahead ? `${st.ahead} commit${st.ahead === 1 ? "" : "s"} to push` : "Everything published",
-      drafts ? `${drafts} draft${drafts === 1 ? "" : "s"} kept local` : null,
+      pending ? `${pending} unpublished change${pending === 1 ? "" : "s"}` : st.ahead ? notSentYet(this.filesMayVanish) : "Everything published",
+      drafts ? `${drafts} draft${drafts === 1 ? "" : "s"} not published` : null,
       st.behind ? `${st.behind} new elsewhere` : null,
     ].filter(Boolean).join(" · ");
     const button = h(
@@ -11893,7 +12205,7 @@ export class ObAdmin extends AdminElement {
             box.replaceChildren(h("span", { class: "oba-ok" }, res.message));
             setTimeout(() => this.loadPublishStatus(box), 4000);
           } catch (err) {
-            box.replaceChildren(h("span", { class: "oba-error", role: "alert" }, err.data?.error || err.message), button);
+            box.replaceChildren(h("span", { class: "oba-error", role: "alert" }, err.data?.error || err.message), ...[publishFailureDetail(err), vanishLine].filter(Boolean), button);
             button.disabled = false;
             button.textContent = "Publish";
           }
@@ -11901,7 +12213,7 @@ export class ObAdmin extends AdminElement {
       },
       st.auto ? "Publish now" : "Publish",
     );
-    box.replaceChildren(h("span", { class: "oba-small" }, summary + (st.auto ? " · auto" : "")), " ", button);
+    box.replaceChildren(h("span", { class: "oba-small" }, summary + (st.auto ? " · auto" : "")), " ", button, ...(vanishLine ? [vanishLine] : []));
   }
 
   /**
@@ -11927,10 +12239,11 @@ export class ObAdmin extends AdminElement {
     if (this.skipRoute) {
       this.skipRoute = false;
       this.currentHash = location.hash;
-      // A saved new document now has its own address; the workspace returns to that one.
-      if (this.editor && this.workspaceDraft) this.workspaceDraft.hash = location.hash;
       return;
     }
+    // From here on she has asked for another page, or to stay: whatever was loading is not wanted.
+    const turn = ++this.routeTurn;
+    this.arrivingHash = "";
     const requested = location.hash || "#/overview";
     const nextHash = canonicalAdminHash(requested);
     // Earlier research routes redirect without adding a history entry.
@@ -11957,24 +12270,29 @@ export class ObAdmin extends AdminElement {
     });
     if (plan.confirm.length && !(await this.confirmLeave(plan.confirm))) {
       history.replaceState(null, "", this.currentHash);
+      // The panel she was moving to is dropped, so the one kept for it is still on screen: take it back.
+      const stayingOn = workspacePanelKey(this.currentHash);
+      if (this.kept.has(stayingOn)) await this.restoreKept(stayingOn, this.currentHash);
       return;
     }
     for (const key of plan.discard) this.discardKept(key);
     if (plan.keep) this.keepCurrentView(plan.keep);
-    this.dirty = false;
     if (plan.restore) {
       await this.restoreKept(plan.restore, nextHash);
       return;
     }
     const { head, tail, params } = parseAdminHash(nextHash);
+    this.arrivingHash = nextHash;
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
+      else if (head === "new" && tail === "recipe") await this.showEditor(null, "posts", "recipe");
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
       else if (head === "voice") await this.showVoice(tail, params);
       else if (head === "social") await this.showSocial();
+      else if (head === "quotes") await this.showQuotes();
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "announcements") await this.showAnnouncements();
@@ -11983,6 +12301,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "appearance") await this.showAppearance();
       else if (head === "look") await this.showLook();
       else if (head === "business") await this.showBusiness();
+      else if (head === "reminders") await this.showReminders();
       else if (head === "services") await this.showServices(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
@@ -11993,12 +12312,17 @@ export class ObAdmin extends AdminElement {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         // The view being left was kept or given up by the plan above; it is not kept again here.
-        this.viewDirty = null;
-        this.viewBusy = null;
-        this.dirty = false;
+        // After she has moved on, what is open is the page she moved to, and its work is kept.
+        if (turn === this.routeTurn) {
+          this.viewDirty = null;
+          this.viewBusy = null;
+          this.dirty = false;
+        }
         this.showSessionEnded();
-      } else this.showFatal(err);
+      } else if (turn === this.routeTurn) this.showFatal(err);
     }
+    // She moved on while this view loaded: the newer move owns the address and the focus.
+    if (turn !== this.routeTurn) return;
     this.currentHash = location.hash || "#/overview";
     // A link that started this move left with the old view; give focus to the new page's heading
     // unless the view placed it itself.
@@ -12026,7 +12350,8 @@ export class ObAdmin extends AdminElement {
   }
 
   async showAppearance() {
-    const settings = await this.api.call("GET", "appearance");
+    const whileHere = this.routeGate();
+    const settings = await whileHere(this.api.call("GET", "appearance"));
     const select = h("select", { id: "oba-color-scheme-toggle" },
       h("option", { value: "inherit" }, `Follow theme (site theme: ${settings.themeColorSchemeToggle ? "shown" : "hidden"})`),
       h("option", { value: "show" }, "Show light/dark button"),
@@ -12077,11 +12402,13 @@ export class ObAdmin extends AdminElement {
 
   async showOverview(focus) {
     const kinds = Object.keys(KINDS);
-    const responses = await Promise.all([
+    const whileHere = this.routeGate();
+    const responses = await whileHere(Promise.all([
       ...kinds.map((kind) => this.api.call("GET", `documents?kind=${kind}`)),
       this.api.call("GET", "status"),
-    ]);
+    ]));
     const status = responses.pop();
+    this.filesMayVanish = status.filesMayVanish === true;
     const inventories = Object.fromEntries(kinds.map((kind, index) => [kind, responses[index].items]));
     const posts = inventories.posts;
     const count = (wanted) => posts.filter((item) => item.status === wanted).length;
@@ -12103,13 +12430,15 @@ export class ObAdmin extends AdminElement {
       .filter((item) => item.date)
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 5);
-    const quickCreate = (kind, description) =>
+    const quickCreate = (route, label, description) =>
       h(
         "a",
-        { class: "oba-quick-create", href: `#/new/${kind}` },
+        { class: "oba-quick-create", href: `#/new/${route}` },
         h("span", { class: "oba-quick-icon", "aria-hidden": "true" }, "+"),
-        h("span", {}, h("strong", {}, `New ${KINDS[kind].single}`), h("small", {}, description)),
+        h("span", {}, h("strong", {}, label), h("small", {}, description)),
       );
+    const quickCreateKind = (kind, description) => quickCreate(kind, `New ${KINDS[kind].single}`, description);
+    const quickCreatePanel = h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("recipe", "New recipe", "Ingredients and steps, ready to fill in"), quickCreateKind("posts", "Write an article or draft"), quickCreateKind("pages", "Add evergreen site content"), quickCreateKind("series", "Group posts into a collection")));
     const recentList = h(
       "ol",
       { class: "oba-recent-list" },
@@ -12159,21 +12488,35 @@ export class ObAdmin extends AdminElement {
       issues,
     );
 
+    // The notes load the whole site and are usually empty, so the page does not wait for them or
+    // fail with them.
+    const recipeNotesBox = h("div", { hidden: true });
+    this.api.call("GET", "recipe-notes").then(({ notes }) => {
+      if (!notes?.length) return;
+      recipeNotesBox.className = "oba-notice";
+      recipeNotesBox.replaceChildren(...recipeNotesNotice(notes));
+      recipeNotesBox.hidden = false;
+    }).catch(() => {});
+
     this.mount(
       this.shell(
         "overview",
+        status.filesMayVanish === true ? h("div", { class: "oba-notice", "data-files-may-vanish": "true" }, h("strong", {}, FILES_MAY_VANISH_TITLE), h("p", {}, FILES_MAY_VANISH_BODY)) : null,
+        // Someone on Simple starts here to write, so writing comes before the numbers.
+        recipeNotesBox,
+        this.preferences?.preset === "simple" ? quickCreatePanel : null,
         h(
           "section",
           { class: "oba-overview-metrics", "aria-label": "Publishing pipeline" },
           overviewMetric("Published", count("published"), `${posts.length} posts total`, "#/posts?status=published"),
-          overviewMetric("Drafts", count("draft"), "Kept local", "#/posts?status=draft"),
+          overviewMetric("Drafts", count("draft"), "Not published", "#/posts?status=draft"),
           overviewMetric("Scheduled", count("scheduled"), "Waiting to go live", "#/posts?status=scheduled"),
           overviewMetric("Needs attention", problemCount, problemCount ? "Review errors" : "Everything looks healthy", "#/overview?focus=issues"),
         ),
         h(
           "div",
           { class: "oba-overview-grid" },
-          h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("posts", "Write an article or draft"), quickCreate("pages", "Add evergreen site content"), quickCreate("series", "Group posts into a collection"))),
+          this.preferences?.preset === "simple" ? null : quickCreatePanel,
           h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Library"), h("h2", {}, "Content inventory")), h("dl", { class: "oba-inventory" }, h("div", {}, h("dt", {}, "Posts"), h("dd", {}, posts.length)), h("div", {}, h("dt", {}, "Pages"), h("dd", {}, inventories.pages.length)), h("div", {}, h("dt", {}, "Series"), h("dd", {}, inventories.series.length)))),
           h("section", { class: "oba-overview-panel oba-overview-recent" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Continue"), h("h2", {}, "Recent posts"), h("a", { href: "#/posts" }, "View all")), recentList),
           healthPanel,
@@ -12197,6 +12540,8 @@ export class ObAdmin extends AdminElement {
     try {
       const voiceStatus = await this.api.call("GET", "voice/status");
       if (this.viewVersion !== version || !this.workspaceMain) return;
+      // Voice follows the Assistant module (ADR 0272), so a layout without it does not offer Voice either.
+      if (!this.shownShellModules().has("assistant")) return;
       if (!invitationVisible({ dismissed: this.preferences?.voiceInvitationDismissed === true, status: voiceStatus })) return;
       const invitation = buildVoiceInvitation({
         onDismiss: async () => {
@@ -12217,10 +12562,11 @@ export class ObAdmin extends AdminElement {
   }
 
   async showList(kind, initialStatus) {
-    const [list, status] = await Promise.all([
+    const whileHere = this.routeGate();
+    const [list, status] = await whileHere(Promise.all([
       this.api.call("GET", `documents?kind=${kind}`),
       this.api.call("GET", "status"),
-    ]);
+    ]));
     const items = list.items;
     const filter = h("input", { class: "oba-search", type: "search", placeholder: `Filter ${KINDS[kind].label.toLowerCase()}…`, "aria-label": "Filter" });
     const stateSel = h(
@@ -12275,8 +12621,9 @@ export class ObAdmin extends AdminElement {
         type: "button",
         onClick: async () => {
           rebuild.disabled = true;
+          const whileHere = this.routeGate();
           try {
-            await this.api.call("POST", "rebuild", { json: {} });
+            await whileHere(this.api.call("POST", "rebuild", { json: {} }));
             this.showList(kind);
           } catch (err) {
             alert(err.data?.error || err.message);
@@ -12301,14 +12648,15 @@ export class ObAdmin extends AdminElement {
       this.shell(
         kind,
         ...banner,
-        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
+        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), kind === "posts" ? h("a", { class: "oba-btn", href: "#/new/recipe" }, "New recipe") : null, filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
         table,
       ),
     );
   }
 
   async showContributors() {
-    const registry = await this.api.call("GET", "contributors");
+    const whileHere = this.routeGate();
+    const registry = await whileHere(this.api.call("GET", "contributors"));
     let drafts = normalizeContributorDraft(registry.contributors);
     let etag = registry.etag;
     let editVersion = 0;
@@ -12482,9 +12830,10 @@ export class ObAdmin extends AdminElement {
   }
 
   async showReadingPathList() {
+    const whileHere = this.routeGate();
     let list;
     try {
-      list = await this.api.call("GET", "reading-paths");
+      list = await whileHere(this.api.call("GET", "reading-paths"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("paths", h("p", { class: "oba-error", role: "alert" }, readingPathErrorText(error))));
@@ -12519,12 +12868,13 @@ export class ObAdmin extends AdminElement {
   }
 
   async showReadingPathEditor(slug) {
+    const whileHere = this.routeGate();
     const isNew = slug === null;
     let targets;
     let loaded = null;
     try {
-      targets = await this.api.call("GET", "reading-paths/targets");
-      if (!isNew) loaded = await this.api.call("GET", `reading-paths/path?slug=${encodeURIComponent(slug)}`);
+      targets = await whileHere(this.api.call("GET", "reading-paths/targets"));
+      if (!isNew) loaded = await whileHere(this.api.call("GET", `reading-paths/path?slug=${encodeURIComponent(slug)}`));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(
@@ -13044,9 +13394,11 @@ export class ObAdmin extends AdminElement {
         applySaved(result);
         if (wasNew) {
           creating = false;
-          const hash = `#/paths/edit/${encodeURIComponent(result.slug)}`;
-          history.replaceState(null, "", hash);
-          this.currentHash = hash;
+          if (this.stillOnOpenView()) {
+            const hash = `#/paths/edit/${encodeURIComponent(result.slug)}`;
+            history.replaceState(null, "", hash);
+            this.currentHash = hash;
+          }
         }
         renderAll();
         say("Saved.", "ok");
@@ -13083,7 +13435,7 @@ export class ObAdmin extends AdminElement {
           try {
             await this.api.call("DELETE", `reading-paths?slug=${encodeURIComponent(slug)}&revision=${encodeURIComponent(revision)}`);
             dirty = false;
-            location.hash = "#/paths";
+            if (this.viewVersion === mountedView && this.stillOnOpenView()) location.hash = "#/paths";
           } catch (error) {
             if (error.status === 409 && error.data?.conflict) conflict(error);
             else say(readingPathErrorText(error), "error");
@@ -13135,9 +13487,10 @@ export class ObAdmin extends AdminElement {
    * undone). Nothing is written until Save; the server owns every rule (ADR 0246).
    */
   async showLanding() {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "landing");
+      loaded = await whileHere(this.api.call("GET", "landing"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("landing", h("p", { class: "oba-error", role: "alert" }, landingErrorText(error))));
@@ -13145,14 +13498,14 @@ export class ObAdmin extends AdminElement {
     }
     let posts = null;
     try {
-      const list = await this.api.call("GET", "documents?kind=posts");
+      const list = await whileHere(this.api.call("GET", "documents?kind=posts"));
       posts = (list.items || []).filter((item) => item.status === "published" && item.slug).map((item) => ({ slug: item.slug, title: item.title }));
     } catch {
       // A post is then typed by its address name; everything else works.
     }
     let publishInfo = null;
     try {
-      publishInfo = await this.api.call("GET", "publish");
+      publishInfo = await whileHere(this.api.call("GET", "publish"));
     } catch {
       // Publishing then stays off with its reason; saving and previewing do not need it.
     }
@@ -13243,6 +13596,7 @@ export class ObAdmin extends AdminElement {
       const ctx = {
         idBase: `oba-landing-${section.id}`,
         posts,
+        pickPhoto: () => this.pickPhoto(),
         fields: [],
         changed: () => {
           refreshCard(section.id);
@@ -13575,7 +13929,7 @@ export class ObAdmin extends AdminElement {
         "ul",
         { class: "oba-landing-types" },
         [
-          ...STARTERS.map((starter) => ({ id: starter.id, label: starter.label, description: starter.description, name: `the ${starter.label} layout` })),
+          ...STARTERS.map((starter) => ({ id: starter.id, label: starter.label, description: starterDescription(starter, { recipeListing: this.meta.recipeListing }), name: `the ${starter.label} layout` })),
           { id: "scratch", label: "Start from scratch", description: "An empty page. You add the sections you want, one at a time.", name: "an empty page" },
         ].map((entry) =>
           h("li", {}, h("button", { class: "oba-landing-type", type: "button", "data-starter": entry.id, onClick: () => chooseLayout(entry.id, entry.name, () => starterSections(entry.id, layoutContext)) }, h("span", { class: "oba-landing-type-text" }, h("strong", {}, entry.label), h("span", {}, entry.description)))),
@@ -13601,13 +13955,14 @@ export class ObAdmin extends AdminElement {
       say("The tour is closed. It will not appear again.");
       if (focus) addButton.focus();
     };
+    const filesMayVanish = publishInfo?.filesMayVanish === true;
     const showTourStep = (n, move) => {
       const step = TOUR_STEPS[n];
       const last = n === TOUR_STEPS.length - 1;
       tour.hidden = false;
       tour.replaceChildren(
         h("h3", { id: "oba-landing-tour-title", tabindex: "-1", "aria-describedby": "oba-landing-tour-body" }, `Step ${n + 1} of ${TOUR_STEPS.length}: ${step.title}`),
-        h("p", { id: "oba-landing-tour-body" }, step.body),
+        h("p", { id: "oba-landing-tour-body" }, tourBodyFor(step, filesMayVanish)),
         h("div", { class: "oba-toolbar" },
           n > 0 ? h("button", { class: "oba-btn", type: "button", "data-action": "tour-back", onClick: () => showTourStep(n - 1, true) }, "Back") : null,
           h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": last ? "tour-done" : "tour-next", onClick: () => (last ? endTour() : showTourStep(n + 1, true)) }, last ? "Finish the tour" : "Next"),
@@ -13728,10 +14083,11 @@ export class ObAdmin extends AdminElement {
     // ----- saving
     const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: () => save() }, "Save");
     const dirtyNote = h("span", { class: "oba-small oba-landing-dirty", "data-landing-dirty": "true" });
+    let savedOnThisVisit = false;
     const renderBar = () => {
       dirtyNote.textContent = isDirty()
         ? `You have unsaved changes. ${drafts.inMemoryOnly ? "This device would not keep a copy, so they are held only until you close or reload this page." : "A copy is kept on this device."}`
-        : exists ? "All changes saved." : "Not saved yet. Your site still shows your home settings.";
+        : exists ? savedLine(filesMayVanish, savedOnThisVisit) : "Not saved yet. Your site still shows your home settings.";
       scheduleDraft();
     };
     /** What a save or a refused save does to the page the owner is looking at. */
@@ -13773,6 +14129,7 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call("PUT", "landing", { json: { revision, page: pagePayload(sent) } });
         if (this.viewVersion !== mountedView) return false;
         const untouched = applySaved(result, sent);
+        savedOnThisVisit = true;
         if (untouched) {
           drafts.clear();
           clearUndo();
@@ -13784,7 +14141,7 @@ export class ObAdmin extends AdminElement {
           say(`Saved, but your site could not be rebuilt yet: ${result.build.error}`, "error");
           return false;
         }
-        say(untouched ? "Saved. Your landing page is ready to publish." : "Saved. Changes you made while saving are still unsaved.", untouched ? "ok" : "small");
+        say(savedMessage(untouched ? "Saved. Your landing page is ready to publish." : "Saved. Changes you made while saving are still unsaved.", filesMayVanish), untouched ? "ok" : "small");
         return untouched;
       } catch (error) {
         // Whatever went wrong, a copy of the work is on this device now.
@@ -13810,19 +14167,25 @@ export class ObAdmin extends AdminElement {
     const canPublish = Boolean(publishInfo?.repo);
     const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-landing-publish-note", hidden: canPublish }, "Publishing is off because this site is not a git repository. Run openblog publish setup to turn it on.");
     const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", title: "Publish: make your saved page live", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-landing-publish-note", onClick: () => publish() }, "Publish");
+    const publishFailure = h("div", { class: "oba-publish-failure", "data-publish-failure": "true" });
     const publish = async () => {
       if (busy || publishing) return;
       if (isDirty() && !(await save())) return;
       publishing = true;
       publishButton.disabled = true;
+      publishFailure.replaceChildren();
       say("Publishing\u2026");
       try {
         const result = await this.api.call("POST", "publish", { json: { summary: "" } });
         if (this.viewVersion !== mountedView) return;
+        savedOnThisVisit = false;
+        renderBar();
         say(result.message || "Published.", "ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(`Publishing did not work. ${error.data?.error || landingErrorText(error)}`, "error");
+        publishFailure.replaceChildren(...[publishFailureDetail(error)].filter(Boolean));
+        bringIntoSight(status);
       } finally {
         publishing = false;
         publishButton.disabled = !canPublish;
@@ -13925,13 +14288,14 @@ export class ObAdmin extends AdminElement {
       onConflict: (current) => showConflict(current),
       onRestored: (result) => {
         applySaved(result);
+        savedOnThisVisit = true;
         drafts.clear();
         clearUndo();
         editingId = null;
         renderCards();
         renderBar();
         schedulePreview();
-        say("Restored. The version you replaced is kept in History.", "ok");
+        say("Restored. The version you replaced is in History.", "ok");
       },
     });
 
@@ -13939,7 +14303,7 @@ export class ObAdmin extends AdminElement {
       "section",
       { class: "oba-contributor-intro" },
       h("p", {}, "This is the first page your visitors see. Add the sections you want, put them in the order you like, and choose Save. Nothing changes for visitors until you save and then choose Publish (make it live)."),
-      h("details", { class: "oba-landing-help", "data-landing-help": "true" }, h("summary", {}, "Help: what the words on this page mean"), h("dl", {}, GLOSSARY.flatMap((entry) => [h("dt", {}, entry.term), h("dd", {}, entry.meaning)]))),
+      h("details", { class: "oba-landing-help", "data-landing-help": "true" }, h("summary", {}, "Help: what the words on this page mean"), h("dl", {}, glossaryFor(GLOSSARY, filesMayVanish).flatMap((entry) => [h("dt", {}, entry.term), h("dd", {}, entry.meaning)]))),
       exists ? null : h("p", { class: "oba-notice", "data-landing-legacy": "true" }, "You have not built a landing page yet. This starts from what your home page shows now. Your site stays as it is until you save."),
       readable ? null : h("div", { class: "oba-error", role: "alert", "data-landing-unreadable": "true" }, h("p", {}, "The saved landing page could not be read, so your site is using your home settings instead. You can start again below; saving replaces the unreadable file."), h("ul", {}, (loaded.problems || []).map((problem) => h("li", {}, problem.text || problem.message)))),
     );
@@ -13954,6 +14318,7 @@ export class ObAdmin extends AdminElement {
         tour,
         restoreBox,
         status,
+        publishFailure,
         conflictBox,
         h(
           "div",
@@ -14045,6 +14410,18 @@ export class ObAdmin extends AdminElement {
     await view.load();
   }
 
+  // ---- seasonal reminders (ADR 0356)
+
+  /** `#/reminders`: what to write about now for the trade; a reminder only ever starts an unpublished draft. */
+  async showReminders() {
+    const view = createSeasonalReminders({ api: this.api });
+    this.mount(this.shell("reminders", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
   // ---- services (ADR 0313)
 
   /** `#/services`: the list; `#/services/new` and `#/services/edit/<path>`: one service, edited through the document routes. */
@@ -14053,13 +14430,14 @@ export class ObAdmin extends AdminElement {
       api: this.api,
       route: tail || "",
       onSaved: (path) => {
+        if (!this.stillOnOpenView()) return;
         this.skipRoute = true;
         location.hash = `#/services/edit/${encodeURIComponent(path)}`;
       },
       onLeave: (hash) => {
         this.dirty = false;
         this.viewDirty = null;
-        location.hash = hash;
+        if (this.stillOnOpenView()) location.hash = hash;
       },
     });
     this.mount(this.shell("services", view.element));
@@ -14112,6 +14490,19 @@ export class ObAdmin extends AdminElement {
   }
 
   /**
+   * `#/quotes`: stored quote requests (ADR 0384). Optional: with no quote settings the page says so.
+   * It holds no draft, so leaving it never asks to keep changes.
+   */
+  async showQuotes() {
+    const view = createQuoteRequests({ api: this.api });
+    this.mount(this.shell("quotes", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  /**
    * `#/social`: connected social accounts (ADR 0301). Optional: when the server has no social settings
    * the page says so and offers nothing. It holds no draft, so leaving it never asks to keep changes.
    */
@@ -14144,9 +14535,10 @@ export class ObAdmin extends AdminElement {
    * is written until Save (ADR 0248 holds every rule, this screen only offers its choices).
    */
   async showLook() {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "look");
+      loaded = await whileHere(this.api.call("GET", "look"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("look", h("p", { class: "oba-error", role: "alert" }, lookErrorText(error))));
@@ -14154,7 +14546,7 @@ export class ObAdmin extends AdminElement {
     }
     let publishInfo = null;
     try {
-      publishInfo = await this.api.call("GET", "publish");
+      publishInfo = await whileHere(this.api.call("GET", "publish"));
     } catch {
       // Publishing then stays off with its reason; saving and previewing do not need it.
     }
@@ -14386,10 +14778,11 @@ export class ObAdmin extends AdminElement {
     // ----- saving
     const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: () => save() }, "Save");
     const dirtyNote = h("span", { class: "oba-small oba-landing-dirty", "data-look-dirty": "true" });
+    let savedOnThisVisit = false;
     function renderBar() {
       dirtyNote.textContent = isDirty()
         ? `You have unsaved changes. ${drafts.inMemoryOnly ? "This device would not keep a copy, so they are held only until you close or reload this page." : "A copy is kept on this device."}`
-        : "All changes saved.";
+        : savedLine(publishInfo?.filesMayVanish === true, savedOnThisVisit);
       clearTimeout(draftTimer);
       draftTimer = setTimeout(persistDraft, 250);
     }
@@ -14415,6 +14808,7 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call("PUT", "look", { json: { etag, look: lookPayload(sent) } });
         if (this.viewVersion !== mountedView) return false;
         const untouched = applySaved(result, sent);
+        savedOnThisVisit = true;
         if (untouched) {
           drafts.clear();
           history = [];
@@ -14425,7 +14819,7 @@ export class ObAdmin extends AdminElement {
           say(`Saved, but your site could not be rebuilt yet: ${result.buildError}`, "error");
           return false;
         }
-        say(untouched ? "Saved. Your look is ready to make live." : "Saved. Changes you made while saving are still unsaved.", untouched ? "ok" : "small");
+        say(savedMessage(untouched ? "Saved. Your look is ready to make live." : "Saved. Changes you made while saving are still unsaved.", publishInfo?.filesMayVanish === true), untouched ? "ok" : "small");
         return untouched;
       } catch (error) {
         persistDraft();
@@ -14445,19 +14839,25 @@ export class ObAdmin extends AdminElement {
     const canPublish = Boolean(publishInfo?.repo);
     const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-look-publish-note", hidden: canPublish }, "Making it live is off because this site is not a git repository. Run openblog publish setup to turn it on.");
     const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-look-publish-note", onClick: () => publish() }, "Make it live");
+    const publishFailure = h("div", { class: "oba-publish-failure", "data-publish-failure": "true" });
     const publish = async () => {
       if (busy || publishing) return;
       if (isDirty() && !(await save())) return;
       publishing = true;
       publishButton.disabled = true;
+      publishFailure.replaceChildren();
       say("Making it live…");
       try {
         const result = await this.api.call("POST", "publish", { json: { summary: "" } });
         if (this.viewVersion !== mountedView) return;
+        savedOnThisVisit = false;
+        renderBar();
         say(result.message || "Your look is live.", "ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(`Making it live did not work. ${error.data?.error || lookErrorText(error)}`, "error");
+        publishFailure.replaceChildren(...[publishFailureDetail(error)].filter(Boolean));
+        bringIntoSight(status);
       } finally {
         publishing = false;
         publishButton.disabled = !canPublish;
@@ -14560,6 +14960,7 @@ export class ObAdmin extends AdminElement {
         intro,
         restoreBox,
         status,
+        publishFailure,
         conflictBox,
         h(
           "div",
@@ -14605,9 +15006,10 @@ export class ObAdmin extends AdminElement {
   }
 
   async showComparisonList() {
+    const whileHere = this.routeGate();
     let list;
     try {
-      list = await this.api.call("GET", "comparisons");
+      list = await whileHere(this.api.call("GET", "comparisons"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("comparisons", h("p", { class: "oba-error", role: "alert" }, comparisonErrorText(error))));
@@ -14638,12 +15040,13 @@ export class ObAdmin extends AdminElement {
   }
 
   async showComparisonEditor(slug) {
+    const whileHere = this.routeGate();
     const isNew = slug === null;
     let refs;
     let loaded = null;
     try {
-      refs = await this.api.call("GET", "comparisons/references");
-      if (!isNew) loaded = await this.api.call("GET", `comparisons/item?slug=${encodeURIComponent(slug)}`);
+      refs = await whileHere(this.api.call("GET", "comparisons/references"));
+      if (!isNew) loaded = await whileHere(this.api.call("GET", `comparisons/item?slug=${encodeURIComponent(slug)}`));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(
@@ -15441,9 +15844,11 @@ export class ObAdmin extends AdminElement {
         applySaved(result);
         if (wasNew) {
           creating = false;
-          const hash = `#/comparisons/edit/${encodeURIComponent(result.slug)}`;
-          history.replaceState(null, "", hash);
-          this.currentHash = hash;
+          if (this.stillOnOpenView()) {
+            const hash = `#/comparisons/edit/${encodeURIComponent(result.slug)}`;
+            history.replaceState(null, "", hash);
+            this.currentHash = hash;
+          }
         }
         renderAll();
         const withdrawn = result.approvalsWithdrawn || [];
@@ -15479,7 +15884,7 @@ export class ObAdmin extends AdminElement {
           try {
             await this.api.call("DELETE", `comparisons?slug=${encodeURIComponent(slug)}&revision=${encodeURIComponent(revision)}`);
             dirty = false;
-            location.hash = "#/comparisons";
+            if (this.viewVersion === mountedView && this.stillOnOpenView()) location.hash = "#/comparisons";
           } catch (error) {
             if (error.status === 409 && error.data?.conflict) showConflict(error);
             else say(comparisonErrorText(error), "error");
@@ -15527,9 +15932,10 @@ export class ObAdmin extends AdminElement {
   // ---- research source library
 
   async showSources(focus = "") {
+    const whileHere = this.routeGate();
     let library;
     try {
-      library = await this.api.call("GET", "sources");
+      library = await whileHere(this.api.call("GET", "sources"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       // A damaged library is reported, never replaced: show where to repair it.
@@ -16034,7 +16440,8 @@ export class ObAdmin extends AdminElement {
    * read is reported in its own step while the others still show. Nothing here writes.
    */
   async showResearchOverview() {
-    const [library, notebook] = await Promise.allSettled([this.api.call("GET", "sources"), this.api.call("GET", "research/notebook")]);
+    const whileHere = this.routeGate();
+    const [library, notebook] = await whileHere(Promise.allSettled([this.api.call("GET", "sources"), this.api.call("GET", "research/notebook")]));
     for (const result of [library, notebook]) {
       if (result.status === "rejected" && result.reason?.status === 401) throw result.reason;
     }
@@ -16204,9 +16611,10 @@ export class ObAdmin extends AdminElement {
   // ---- research notebook
 
   async showResearch() {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "research/notebook");
+      loaded = await whileHere(this.api.call("GET", "research/notebook"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       // A damaged notebook (or library) is reported, never replaced: show where to repair it.
@@ -16705,9 +17113,10 @@ export class ObAdmin extends AdminElement {
    * that has no entry yet.
    */
   async showAtlas(focus = "") {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "research/atlas");
+      loaded = await whileHere(this.api.call("GET", "research/atlas"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       // A damaged atlas (or library or notebook) is reported, never replaced.
@@ -17251,9 +17660,10 @@ export class ObAdmin extends AdminElement {
   // ---- comparison workspace
 
   async showCompare(focus = "") {
+    const whileHere = this.routeGate();
     let loaded;
     try {
-      loaded = await this.api.call("GET", "research/alignments");
+      loaded = await whileHere(this.api.call("GET", "research/alignments"));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       // A damaged alignments file (or library or notebook) is reported, never replaced.
@@ -17717,7 +18127,8 @@ export class ObAdmin extends AdminElement {
   // ---- shared reflections
 
   async showSharedReflections(notice = "") {
-    const { publications = [] } = await this.api.call("GET", "collaboration/publications");
+    const whileHere = this.routeGate();
+    const { publications = [] } = await whileHere(this.api.call("GET", "collaboration/publications"));
     const kindLabel = (value) => SHARED_SOURCE_KINDS.find((kind) => kind.value === value)?.label || "Other";
     const status = h("p", { class: notice ? "oba-ok" : "oba-small", role: "status", "aria-live": "polite" }, notice);
     const cards = publications.map((publication, index) => {
@@ -17768,7 +18179,8 @@ export class ObAdmin extends AdminElement {
   }
 
   async showSharedReflectionForm() {
-    const registry = await this.api.call("GET", "contributors");
+    const whileHere = this.routeGate();
+    const registry = await whileHere(this.api.call("GET", "contributors"));
     const contributors = Object.entries(registry.contributors || {});
     const sources = [emptySharedSource()];
     const status = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
@@ -17932,9 +18344,12 @@ export class ObAdmin extends AdminElement {
           if (problem) return showProblem(problem);
           submit.disabled = true;
           try {
+            const formHash = location.hash;
             await submitSharedReflection(draft, {
               post: (json) => this.api.call("POST", "collaboration/publications", { json }),
               created: async () => {
+                // She left the form while it was sent: it was created, and she stays where she went.
+                if (location.hash !== formHash) return;
                 this.dirty = false;
                 this.skipRoute = true;
                 location.hash = "#/shared";
@@ -19875,14 +20290,18 @@ export class ObAdmin extends AdminElement {
 
   /** The page an invitation link opens. The token is sent only when the person chooses. */
   async showInvitationAccept(token) {
-    const registry = await this.api.call("GET", "contributors");
+    const whileHere = this.routeGate();
+    const registry = await whileHere(this.api.call("GET", "contributors"));
     const profiles = Object.entries(registry.contributors || {});
     const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const profile = h("select", { id: "oba-accept-profile" }, profiles.map(([key, value]) => h("option", { value: key }, value.name || key)));
     const answer = async (path, body, done) => {
       problem.hidden = true;
+      const whileHere = this.routeGate();
       try {
-        await this.api.call("POST", `collaboration/invitations/${path}`, { json: body });
+        await whileHere(this.api.call("POST", `collaboration/invitations/${path}`, { json: body }));
+        // The list drawn here carries the outcome; the route must not load another one over it.
+        this.skipRoute = true;
         location.hash = "#/shared";
         await this.showSharedReflections(done);
       } catch (error) {
@@ -19914,17 +20333,18 @@ export class ObAdmin extends AdminElement {
   // ---- analytics
 
   async showAnalytics(days) {
+    const whileHere = this.routeGate();
     let engagement = null;
     try {
-      engagement = await this.api.call("GET", "engagement/settings");
+      engagement = await whileHere(this.api.call("GET", "engagement/settings"));
     } catch {
       // Older servers still expose the local analytics dashboard.
     }
     let data;
     try {
       data = engagement?.enabled && engagement?.analytics && engagement?.credential?.configured
-        ? await this.api.call("GET", `engagement/analytics?days=${days}`)
-        : await this.api.call("GET", `analytics?days=${days}`);
+        ? await whileHere(this.api.call("GET", `engagement/analytics?days=${days}`))
+        : await whileHere(this.api.call("GET", `analytics?days=${days}`));
     } catch (err) {
       if (err.status === 404 && engagement) {
         data = { days, from: "", to: "", views: 0, uniques: 0, allTimeViews: 0, firstDay: "", series: [], topPosts: [], referrers: [], agentRequests: 0, agents: [], agentPages: [] };
@@ -21033,10 +21453,24 @@ export class ObAdmin extends AdminElement {
 
   // ---- editor
 
-  async showEditor(path, newKind) {
+  /** A save can add a course, a cuisine or a tag to what the editor offers next (Admin keeps `meta` from sign-in). */
+  async refreshEditorSuggestions() {
+    try {
+      const fresh = await this.api.call("GET", "meta");
+      this.meta.profiles = fresh.profiles;
+      this.meta.tags = fresh.tags;
+      this.suggestionsStale = false;
+    } catch {
+      // The earlier suggestions still work, and the next editor tries again.
+    }
+  }
+
+  async showEditor(path, newKind, newProfile = null) {
+    const whileHere = this.routeGate();
+    if (this.suggestionsStale) await whileHere(this.refreshEditorSuggestions());
     let doc;
     if (path) {
-      doc = await this.api.call("GET", `document?path=${encodeURIComponent(path)}`);
+      doc = await whileHere(this.api.call("GET", `document?path=${encodeURIComponent(path)}`));
       if (doc.raw !== undefined) {
         this.mount(
           this.shell(
@@ -21047,7 +21481,13 @@ export class ObAdmin extends AdminElement {
         return;
       }
     } else {
-      doc = { path: null, kind: newKind, etag: null, fields: {}, body: "" };
+      doc = {
+        path: null,
+        kind: newKind,
+        etag: null,
+        fields: newProfile ? { profile: newProfile } : {},
+        body: profileStarter(this.meta?.profiles, newProfile),
+      };
     }
     const editor = new Editor(this, doc);
     // The research workspace returns to this document until another one is opened.
@@ -21055,6 +21495,7 @@ export class ObAdmin extends AdminElement {
     this.mount(this.shell(doc.kind, editor.render()));
     this.editor = editor;
     editor.afterMount();
+    editor.syncResearchTools();
     this.openRequestedPane(location.hash);
   }
 }
@@ -21089,7 +21530,9 @@ export class Editor {
   }
 
   field(id, label, control, help) {
-    return h("div", { class: "oba-field" }, h("label", { for: id }, label), control, help ? h("p", { class: "oba-help" }, help) : null);
+    const helpId = help && control?.id === id ? `${id}-help` : null;
+    if (helpId) control.setAttribute("aria-describedby", [control.getAttribute("aria-describedby"), helpId].filter(Boolean).join(" "));
+    return h("div", { class: "oba-field" }, h("label", { for: id }, label), control, help ? h("p", { class: "oba-help", id: helpId }, help) : null);
   }
 
   creditRequestFields(includeEtag = false) {
@@ -21440,7 +21883,7 @@ export class Editor {
     }
 
     ui.slug = h("input", { id: "oba-slug", type: "text", value: f.slug || (this.isNew ? "" : this.slugFromPath()), autocapitalize: "none", spellcheck: "false" });
-    side.push(this.field("oba-slug", "Slug", ui.slug, this.isNew ? "Part of the web address." : "Changing the slug changes the post's address."));
+    side.push(this.field("oba-slug", "Slug", ui.slug, slugHelp(this.kind, this.isNew)));
 
     if (kind === "posts") {
       const profiles = this.meta.profiles || [];
@@ -21449,7 +21892,7 @@ export class Editor {
         for (const field of profile.fields || []) {
           if (!this.profileFieldDrafts.has(field.key)) {
             const value = Object.prototype.hasOwnProperty.call(this.f, field.key) ? this.f[field.key] : "";
-            this.profileFieldDrafts.set(field.key, value == null ? "" : String(value));
+            this.profileFieldDrafts.set(field.key, profileFieldText(value));
           }
         }
       }
@@ -21471,9 +21914,11 @@ export class Editor {
       const syncProfileFields = () => {
         this.profileFieldDrafts = preserveProfileFieldDrafts(this.profileFieldDrafts, ui.profileFieldControls);
         const selected = profiles.find((profile) => profile.id === ui.profile.value);
+        this.seededProfileFields ||= new Map();
+        this.profileFieldDrafts = seedProfileFieldAliases(this.profileFieldDrafts, selected, this.f, this.seededProfileFields);
         ui.profileFieldControls = new Map();
         ui.profileFields.replaceChildren(
-          ...(selected?.fields || []).map((field) => {
+          ...(selected?.fields || []).flatMap((field) => {
             const value = this.profileFieldDrafts.has(field.key) ? this.profileFieldDrafts.get(field.key) : "";
             const control = field.kind === "production-status"
               ? h("select", { id: `oba-profile-${field.key}` },
@@ -21486,6 +21931,8 @@ export class Editor {
                   value,
                   inputmode: field.kind === "number" ? "numeric" : null,
                   step: field.kind === "number" ? "any" : null,
+                  list: field.suggestions?.length ? `oba-profile-${field.key}-list` : null,
+                  autocapitalize: field.suggestions?.length ? "words" : null,
                 });
             control.addEventListener("input", () => {
               this.profileFieldDrafts.set(field.key, control.value);
@@ -21493,7 +21940,10 @@ export class Editor {
               this.schedulePreview();
             });
             ui.profileFieldControls.set(field.key, control);
-            return this.field(`oba-profile-${field.key}`, field.label, control, field.help);
+            const row = this.field(`oba-profile-${field.key}`, field.label, control, field.help);
+            return field.suggestions?.length
+              ? [row, h("datalist", { id: `oba-profile-${field.key}-list` }, field.suggestions.map((value) => h("option", { value })))]
+              : [row];
           }),
         );
       };
@@ -21512,6 +21962,8 @@ export class Editor {
         syncProfileHelp();
         syncProfileFields();
         this.syncJobMode();
+        this.startFromProfile(profiles.find((profile) => profile.id === ui.profile.value), ui.profileHelp);
+        this.syncResearchTools();
       });
       syncProfileHelp();
       syncProfileFields();
@@ -21569,48 +22021,66 @@ export class Editor {
     side.push(this.field("oba-theme", "Theme", ui.theme));
 
     if (kind !== "pages") {
-      ui.cover = h("input", { id: "oba-cover", type: "text", value: f.cover || "", placeholder: "/images/…" });
-      ui.coverFile = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", class: "oba-sr", tabindex: "-1", "aria-hidden": "true" });
-      ui.coverFile.addEventListener("change", async () => {
-        const file = ui.coverFile.files[0];
-        if (file) {
-          const url = await this.upload(file);
-          if (url) {
-            ui.cover.value = url;
-            this.app.dirty = true;
-            this.markDirty();
-            this.updateSeoAudit();
-            this.schedulePreview();
-          }
-        }
-        ui.coverFile.value = "";
-      });
-      const coverButton = h("button", { class: "oba-btn", type: "button", onClick: () => ui.coverFile.click() }, "Upload cover");
-      side.push(this.field("oba-cover", "Cover image", ui.cover), coverButton, ui.coverFile);
+      ui.cover = h("input", { id: "oba-cover", type: "text", value: f.cover || "", placeholder: "https://…" });
+      ui.coverPreview = h("div", { class: "oba-cover-preview", "data-cover-preview": "true" });
+      const coverChosen = (url) => {
+        ui.cover.value = url;
+        this.syncCoverPreview();
+        this.app.dirty = true;
+        this.markDirty();
+        this.updateSeoAudit();
+        this.schedulePreview();
+      };
+      ui.coverChoose = h("button", { class: "oba-btn", type: "button", "data-action": "cover-choose", onClick: async () => {
+        const chosen = await this.app.pickPhoto({ heading: "Choose a cover photo" });
+        if (chosen) coverChosen(chosen.url);
+      } }, "Add cover photo");
+      ui.coverRemove = h("button", { class: "oba-btn", type: "button", "data-action": "cover-remove", onClick: () => coverChosen("") }, "Remove");
+      ui.cover.addEventListener("input", () => this.syncCoverPreview());
+      side.push(h(
+        "div",
+        { class: "oba-field oba-cover-field", role: "group", "aria-label": "Cover photo" },
+        h("span", { class: "oba-cover-label" }, "Cover photo"),
+        ui.coverPreview,
+        h("div", { class: "oba-toolbar" }, ui.coverChoose, ui.coverRemove),
+      ));
+      if (kind === "posts") {
+        ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "" });
+        side.push(this.field("oba-cover-alt", "Describe the picture", ui.coverAlt, "A few words for people who cannot see it, such as: A lemon cake on a blue plate."));
+        // The cover's credit (ADR 0368): kept in `coverCredit`, sent after a Pin's description.
+        ui.coverCredit = h("input", { id: "oba-cover-credit", type: "text", maxlength: 200, value: f.coverCredit || "" });
+        side.push(this.field("oba-cover-credit", "Photo by", ui.coverCredit, "If someone else took this photo, write their name. Leave it empty if you took it."));
+        // The card's own words (ADR 0369): kept in `cardTitle` and `cardDescription`, folded away
+        // because only a Pin open.blog sends reads them.
+        ui.cardTitle = h("input", { id: "oba-card-title", type: "text", value: f.cardTitle || "" });
+        ui.cardDescription = h("textarea", { id: "oba-card-description", rows: 3, value: f.cardDescription || "" });
+        side.push(h(
+          "details",
+          { class: "oba-card-words", "data-card-words": "true", open: Boolean(f.cardTitle || f.cardDescription) },
+          h("summary", {}, "Words for a Pinterest Pin"),
+          h("p", { class: "oba-help" }, "Only used when open.blog sends a Pin of this post. Leave them empty to use the title and summary."),
+          this.field("oba-card-title", "Pin title", ui.cardTitle),
+          this.field("oba-card-description", "Pin description", ui.cardDescription),
+        ));
+      }
+      side.push(h("details", { class: "oba-cover-address", open: Boolean(f.cover) && !f.cover.startsWith("/") }, h("summary", {}, "Use a web address instead"), this.field("oba-cover", "Picture address", ui.cover)));
+      this.syncCoverPreview();
     }
     if (kind === "posts") {
       ui.canonical = h("input", { id: "oba-canonical", type: "text", value: f.canonical || "", placeholder: "https://…" });
       side.push(this.field("oba-canonical", "Canonical URL", ui.canonical, "Only for posts first published elsewhere."));
-      ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "", placeholder: "Describe the meaningful image content" });
-      side.push(this.field("oba-cover-alt", "Cover alternative text", ui.coverAlt, "Required when the cover conveys information; also helps image discovery."));
       side.push(this.renderCreditEditor());
     }
 
-    ui.saveBtn = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.save() }, this.isNew ? "Create" : "Save");
+    ui.saveBtn = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.save() }, "Save");
     ui.deleteBtn = this.isNew ? null : h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: () => this.remove() }, "Move to trash");
     ui.live = h("span", { class: "oba-small" });
 
-    const imageButton = h("button", { class: "oba-btn", type: "button", onClick: () => ui.imageFile.click() }, "Insert image");
-    const captureButton = kind === "posts" ? h("button", { class: "oba-btn", type: "button", "data-research-capture": "true", onClick: () => this.openResearchCapture() }, "Capture research") : null;
-    const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
-    ui.imageFile = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", class: "oba-sr", tabindex: "-1", "aria-hidden": "true" });
-    ui.imageFile.addEventListener("change", async () => {
-      const file = ui.imageFile.files[0];
-      if (file) await this.insertImage(file);
-      ui.imageFile.value = "";
-    });
+    const imageButton = h("button", { class: "oba-btn", type: "button", "data-action": "insert-image", onClick: () => this.chooseBodyImage() }, "Insert image");
+    const captureButton = kind === "posts" ? h("button", { class: "oba-btn", type: "button", "data-simple-page": "editor-tool", hidden: this.app.simpleHides?.("editor-tool"), "data-research-capture": "true", onClick: () => this.openResearchCapture() }, "Capture research") : null;
+    const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", "data-simple-page": "editor-tool", hidden: this.app.simpleHides?.("editor-tool"), onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
     const back = h("a", { class: "oba-btn", href: `#/${kind}` }, "← Back");
-    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, captureButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
+    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, captureButton, quizButton, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
 
     let savedPreviewWidth = "wide";
     try {
@@ -21666,12 +22136,12 @@ export class Editor {
       ),
       kind === "posts"
         ? [
-            h("button", { type: "button", class: "oba-format-button", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
-            h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
+            h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
+            h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
             h("button", { type: "button", class: "oba-format-button", title: "Add a button, video, map, image or other piece", "aria-label": "Add something", "aria-haspopup": "dialog", "data-add-something": "true", onClick: () => this.openAddSomething() }, "Add something"),
-            h("button", { type: "button", class: "oba-format-button", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
-            h("button", { type: "button", class: "oba-format-button", title: "Make a claim from the selected words, in Evidence Studio", "aria-label": "Make a claim from the selected words", "data-claim-from-selection": "true", onClick: () => void this.claimFromSelection() }, "Claim"),
-            (ui.draftResearchToggle = h("button", { type: "button", class: "oba-format-button", title: "Search your research and insert quotations, citations and links beside the draft", "aria-expanded": "false", "aria-controls": "oba-draft-research-slot", "data-draft-research-toggle": "true", onClick: () => this.toggleDraftResearch() }, "Research")),
+            h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
+            h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Make a claim from the selected words, in Evidence Studio", "aria-label": "Make a claim from the selected words", "data-claim-from-selection": "true", onClick: () => void this.claimFromSelection() }, "Claim"),
+            (ui.draftResearchToggle = h("button", { type: "button", class: "oba-format-button", "data-research-tool": "true", title: "Search your research and insert quotations, citations and links beside the draft", "aria-expanded": "false", "aria-controls": "oba-draft-research-slot", "data-draft-research-toggle": "true", onClick: () => this.toggleDraftResearch() }, "Research")),
           ]
         : null,
     );
@@ -22165,8 +22635,18 @@ export class Editor {
     }
   }
 
+  /** Research formatting stays out of a Simple workspace unless this post or this session is about research. */
+  syncResearchTools() {
+    const research = this.app.researchVisited || this.ui.profile?.value === "research" || Boolean(this.f.citations);
+    const hidden = this.app.preferences?.preset === "simple" && !research;
+    this.ui.formatToolbar?.querySelectorAll?.("[data-research-tool]").forEach((button) => {
+      button.hidden = hidden;
+    });
+  }
+
   applyWorkspacePreferences(preferences) {
     if (!this.primaryPaneNav || !this.advancedPaneActions) return;
+    this.syncResearchTools?.();
     const layout = editorPaneLayout(preferences, [...this.paneButtonMap.keys()]);
     this.morePanes = layout.more;
     this.primaryPaneNav.replaceChildren(...layout.primary.map((pane) => this.paneButtonMap.get(pane)));
@@ -22263,6 +22743,17 @@ export class Editor {
     return paragraph;
   }
 
+  /** Lays an empty post out for the chosen profile. A post with any text is left exactly as it is. */
+  startFromProfile(profile, status) {
+    if (!profile?.starter) return;
+    this.syncRichToMarkdown();
+    if (this.ui.body.value.trim()) return;
+    this.ui.body.value = profile.starter;
+    this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+    if (this.editorMode === "visual") this.renderRichEditor();
+    status.textContent += " Sample sections were added in Write, ready for you to replace.";
+  }
+
   richEditorMarkdown() {
     const blocks = [...this.ui.richBody.children].map(visualBlockMarkdown);
     return blocks.filter((block) => block.length).join("\n\n") + (blocks.length ? "\n" : "");
@@ -22311,7 +22802,7 @@ export class Editor {
    */
   editBlockWithForm(card, label, kind) {
     const source = card.dataset.markdown || "";
-    const editor = blockEditor(kind, source, { pieces: this.pieceSchemas(), build: (pieceKind, values) => this.buildPiece(pieceKind, values), upload: (file) => this.upload(file) });
+    const editor = blockEditor(kind, source, { pieces: this.pieceSchemas(), build: (pieceKind, values) => this.buildPiece(pieceKind, values), upload: (file) => this.upload(file), pick: () => this.pickPhotoAddress() });
     if (!editor) return;
     const original = [...card.childNodes];
     const status = h("p", { class: "oba-error", role: "alert", hidden: true });
@@ -22373,6 +22864,7 @@ export class Editor {
       pieces,
       build: (kind, values) => this.buildPiece(kind, values),
       upload: (file) => this.upload(file),
+      pick: () => this.pickPhotoAddress(),
       onInsert: (markdown) => {
         const refusal = this.insertFromResearch({ kind: "block", markdown: String(markdown).replace(/\n+$/, ""), label: "piece" });
         if (!refusal) inserted = true;
@@ -22752,6 +23244,7 @@ export class Editor {
     ui.richBody.addEventListener("keydown", citationUndoShortcut);
     // A citation chip opens the citation dialog to edit it: click, Enter or Space.
     ui.richBody.addEventListener("click", (event) => {
+      if (event.detail === 3) keepSelectionInBlock(globalThis.getSelection?.(), ui.richBody);
       const chip = event.target?.closest?.(".oba-citation");
       if (chip && ui.richBody.contains(chip)) {
         event.preventDefault();
@@ -24237,8 +24730,12 @@ export class Editor {
     const staleCount = portable?.sourceRevision
       ? acknowledgements.filter((acknowledgement) => acknowledgement.sourceRevision !== portable.sourceRevision).length
       : 0;
+    const filterAdvice = this.recipeFilterNudge();
+    const advice = [...recipeAdvice(preview?.recipeProblems), ...(preview && filterAdvice ? [filterAdvice] : [])];
+    const recipeNotes = Array.isArray(preview?.recipeNotes) ? preview.recipeNotes : [];
+    const { own, elsewhere } = splitPreviewWarnings(previewWarningsForDisplay(preview?.warnings), preview?.warningsSource, { recipe: Array.isArray(preview?.recipeProblems) && this.ui.profile?.value === "recipe", shownApart: recipeNotes });
     const items = [
-      ...previewWarningsForDisplay(preview?.warnings).map((warning) => h("li", {}, warning)),
+      ...own.map((warning) => h("li", {}, warning)),
       ...(staleCount
         ? [h("li", {}, `${staleCount} previous portability acknowledgement${staleCount === 1 ? " is" : "s are"} stale after source changes. Review the current warnings; stale records never suppress them.`)]
         : []),
@@ -24299,9 +24796,14 @@ export class Editor {
       ...destinationContentForDisplay(portable?.destinationContentPlans, mode).map((warning) => h("li", {}, warning)),
     ];
     this.ui.previewWarnings.replaceChildren(
+      ...(advice.length ? [h("strong", {}, "To finish this recipe"), h("ul", { "data-recipe-advice": "true" }, ...advice.map((line) => h("li", {}, line)))] : []),
+      ...recipeNotesNotice(recipeNotes),
       ...(items.length ? [h("strong", {}, "Publishing warnings"), h("ul", {}, ...items)] : []),
+      ...(elsewhere.length
+        ? [h("details", { "data-site-warnings": "true" }, h("summary", {}, `Notes about the rest of the site (${elsewhere.length})`), h("p", {}, "These don't stop this post. They're mainly for whoever set up the site."), h("ul", {}, ...elsewhere.map((warning) => h("li", {}, warning))))]
+        : []),
     );
-    this.ui.previewWarnings.hidden = items.length === 0;
+    this.ui.previewWarnings.hidden = advice.length + recipeNotes.length + items.length + elsewhere.length === 0;
   }
 
   navigatePortabilitySource(range, preview) {
@@ -24455,7 +24957,7 @@ export class Editor {
         body: file,
         headers: { "Content-Type": "application/octet-stream" },
       });
-      this.flash("ok", `Uploaded ${res.url}`);
+      this.flash("ok", "Photo added.");
       return res.url;
     } catch (err) {
       this.flash("error", err.message);
@@ -24487,10 +24989,48 @@ export class Editor {
     }
   }
 
+  /** Show the cover's picture, or say there is none, and offer what can be done next. */
+  syncCoverPreview() {
+    const { ui } = this;
+    const address = ui.cover.value.trim();
+    ui.coverChoose.textContent = address ? "Change cover photo" : "Add cover photo";
+    ui.coverRemove.hidden = !address;
+    if (!address) {
+      ui.coverPreview.replaceChildren(h("span", { class: "oba-small" }, "No cover photo yet."));
+      return;
+    }
+    const picture = h("img", { src: address, alt: "", referrerpolicy: "no-referrer" });
+    picture.addEventListener("error", () => {
+      if (picture.isConnected) ui.coverPreview.replaceChildren(h("span", { class: "oba-small", role: "status" }, "This picture could not be shown. Choose another, or check its address."));
+    });
+    ui.coverPreview.replaceChildren(picture);
+  }
+
+  pickPhotoAddress() {
+    return this.app.pickPhoto().then((chosen) => chosen?.url || null);
+  }
+
+  /** Insert image: a new or earlier photo, described, goes in where the caret was. */
+  async chooseBodyImage() {
+    const selection = getSelection();
+    const caret = this.editorMode === "visual" && selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+    const chosen = await this.app.pickPhoto({ heading: "Insert a picture", describe: true });
+    if (!chosen) return;
+    if (caret && this.ui.richBody.contains(caret.commonAncestorContainer)) {
+      const now = getSelection();
+      now.removeAllRanges();
+      now.addRange(caret);
+    }
+    this.placeImage(chosen.url, chosen.alt);
+  }
+
   async insertImage(file) {
     const url = await this.upload(file);
     if (!url) return;
-    const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+    this.placeImage(url, file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "));
+  }
+
+  placeImage(url, alt) {
     if (this.editorMode === "visual") {
       const image = h("img", { src: url, alt, class: "oba-rich-image" });
       const selection = getSelection();
@@ -25370,7 +25910,9 @@ export class Editor {
     if (this.kind === "posts") {
       this.profileFieldDrafts = preserveProfileFieldDrafts(this.profileFieldDrafts, ui.profileFieldControls);
     }
-    let fields = this.kind === "posts" ? applyProfileFieldDrafts(this.f, this.profileFieldDrafts) : { ...this.f };
+    // Only the chosen profile's other names are replaced, so an article's own `category` stays.
+    const aliases = this.kind === "posts" ? profileFieldAliases((this.meta.profiles || []).find((profile) => profile.id === ui.profile.value)) : {};
+    let fields = this.kind === "posts" ? applyProfileFieldDrafts(this.f, this.profileFieldDrafts, aliases) : { ...this.f };
     if (this.kind === "posts" && this.jobForm) fields = applyJobDraft(fields, this.jobForm.draft());
     const set = (key, value) => {
       const empty = value === "" || value === null || value === undefined || (Array.isArray(value) && !value.length);
@@ -25395,6 +25937,9 @@ export class Editor {
       set("seriesOrder", ui.order.value);
       set("canonical", ui.canonical.value.trim());
       set("coverAlt", ui.coverAlt.value.trim());
+      set("coverCredit", ui.coverCredit.value.replace(/\s+/g, " ").trim());
+      set("cardTitle", ui.cardTitle.value.replace(/\s+/g, " ").trim());
+      set("cardDescription", ui.cardDescription.value.trim());
       const status = this.currentStatus();
       const picked = fromLocalInput(ui.date.value);
       if (status === "draft") {
@@ -25677,8 +26222,14 @@ export class Editor {
     const ui = this.ui;
     this.saving = true;
     ui.saveBtn.disabled = true;
+    // Finishing the save settles the profile, so it can't change underneath it.
+    if (ui.profile) ui.profile.disabled = true;
     ui.saveState.textContent = "Saving…";
     const saveVersion = this.app.editVersion;
+    // Where the draft on screen lives: she may already have asked for another page.
+    const savedFrom = draftRoute(this.app.currentHash);
+    // The way back to this draft, which is a new one's by the time she opens another.
+    const workspaceDraft = this.app.workspaceDraft;
     const exactTrack = this.pendingTrack && fields.profile === "field-journal" && fields.locationPrivacy === "exact" ? this.pendingTrack : null;
     const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind, ...(exactTrack ? { trackToken: exactTrack.token, trackName: exactTrack.name } : {}), ...this.creditRequestFields(true) };
     try {
@@ -25686,6 +26237,8 @@ export class Editor {
         ? await this.app.api.call("PUT", `document?path=${encodeURIComponent(this.doc.path)}`, { json: payload })
         : await this.app.api.call("POST", "document", { json: payload });
       this.f = fields;
+      // What was saved is now the file's own value, not one only being shown.
+      this.seededProfileFields?.clear();
       if (res.trackUrl) {
         fields.route = res.trackUrl;
         this.profileFieldDrafts.set("route", res.trackUrl);
@@ -25704,6 +26257,12 @@ export class Editor {
       if (ui.creditError) ui.creditError.hidden = true;
       this.isNew = false;
       this.slugTouched = true;
+      this.app.suggestionsStale = true;
+      const target = `#/edit/${encodeURIComponent(res.path)}`;
+      // A saved new document has its own address, and the workspace returns to that one, even if she has left.
+      if (workspaceDraft) workspaceDraft.hash = target;
+      // She left this draft while it saved. It is saved, and the page she is on has nothing to do with it.
+      if (this.disposed) return;
       const savedState = saveStateForVersions(saveVersion, this.app.editVersion);
       this.app.dirty = savedState.dirty;
       ui.saveState.textContent = savedState.label;
@@ -25722,9 +26281,8 @@ export class Editor {
       }
       // Update the address without re-rendering the editor. Only arm the skip flag
       // when the hash really changes; otherwise no event fires and the flag would
-      // swallow the next genuine navigation.
-      const target = `#/edit/${encodeURIComponent(res.path)}`;
-      if (location.hash !== target) {
+      // swallow the next genuine navigation. A page she has started moving to keeps the address.
+      if (location.hash !== target && draftRoute(location.hash) === savedFrom) {
         this.app.skipRoute = true;
         location.hash = target;
       }
@@ -25744,6 +26302,7 @@ export class Editor {
     } finally {
       this.saving = false;
       ui.saveBtn.disabled = false;
+      if (ui.profile) ui.profile.disabled = false;
     }
   }
 
@@ -25754,22 +26313,42 @@ export class Editor {
     else if (res.status === "published" && res.url) message = "Saved and live.";
     else if (res.status === "draft") message = "Draft saved. It is not public.";
     if (!current) message = "Saved the earlier version. Your newer edits are still unsaved.";
+    message = savedMessage(message, this.app.filesMayVanish === true);
     if (res.build && res.build.ok === false) {
       this.flash("error", `Saved, but the site build failed: ${res.build.error}`);
     } else {
       this.flash("ok", message, [], link);
+      const nudge = current && (res.status === "published" || res.status === "scheduled") ? this.recipeFilterNudge() : "";
+      if (nudge) {
+        this.ui.status.append(h("p", { class: "oba-notice", "data-recipe-filter-nudge": "true" }, nudge, " ", h("button", { class: "oba-btn", type: "button", onClick: () => this.showCourseField() }, "Add a course")));
+      }
     }
     this.ui.live.textContent = "";
+  }
+
+  /** The advice for a recipe readers can't browse to, or nothing for anything else. */
+  recipeFilterNudge() {
+    if (this.kind !== "posts" || this.ui.profile?.value !== "recipe") return "";
+    const value = (key) => this.ui.profileFieldControls?.get(key)?.value;
+    return recipeFilterAdvice(value("course"), value("cuisine"), this.meta.recipeListing);
+  }
+
+  showCourseField() {
+    this.activatePane?.("settings");
+    this.ui.profileFieldControls?.get("course")?.focus();
   }
 
   async remove() {
     if (!confirm("Move this to the trash? It is removed from the site but kept in .openblog/trash.")) return;
     try {
       await this.app.api.call("DELETE", `document?path=${encodeURIComponent(this.doc.path)}`);
-      this.app.dirty = false;
       // The research workspace no longer offers a way back to a document in the trash.
       if (this.app.workspaceDraft?.hash === `#/edit/${encodeURIComponent(this.doc.path)}`) this.app.workspaceDraft = null;
-      location.hash = `#/${this.kind}`;
+      if (this.app.kept.get("draft")?.editor === this) this.app.discardKept("draft");
+      // She left this draft while it went. The page she is on has nothing to do with it.
+      if (this.app.editor !== this) return;
+      this.app.dirty = false;
+      if (this.app.stillOnOpenView()) location.hash = `#/${this.kind}`;
     } catch (err) {
       this.flash("error", err.message);
     }

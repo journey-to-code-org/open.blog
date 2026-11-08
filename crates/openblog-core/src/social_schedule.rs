@@ -29,16 +29,36 @@ pub const MAX_URL_CHARS: usize = 2000;
 pub enum Provider {
     LinkedIn,
     Facebook,
+    Bluesky,
+    Mastodon,
 }
+
+/// Mastodon's default status limit is 500 characters, and the canonical link is written into the
+/// status after a blank line, where any URL counts as 23 characters
+/// (`configuration.statuses.characters_reserved_per_url`): 500 - 2 - 23 = 475 (ADR 0360). An
+/// instance with a higher limit still takes it; the adapter checks the instance's own limit again.
+pub const MASTODON_CAPTION_CHARS: usize = 475;
+
+/// Bluesky's post text limit: `app.bsky.feed.post` takes at most 300 graphemes (and 3,000 bytes).
+/// Characters are counted here, which are never fewer than graphemes, so a caption within this
+/// bound is always within Bluesky's (and 300 characters are at most 1,200 bytes).
+pub const BLUESKY_CAPTION_CHARS: usize = 300;
 
 impl Provider {
     /// Every supported destination.
-    pub const ALL: [Provider; 2] = [Self::LinkedIn, Self::Facebook];
+    pub const ALL: [Provider; 4] = [
+        Self::LinkedIn,
+        Self::Facebook,
+        Self::Bluesky,
+        Self::Mastodon,
+    ];
 
     pub fn parse(value: &str) -> Result<Self, ScheduleError> {
         match value {
             "linkedin" => Ok(Self::LinkedIn),
             "facebook" => Ok(Self::Facebook),
+            "bluesky" => Ok(Self::Bluesky),
+            "mastodon" => Ok(Self::Mastodon),
             _ => Err(ScheduleError::UnsupportedProvider),
         }
     }
@@ -47,16 +67,21 @@ impl Provider {
         match self {
             Self::LinkedIn => "linkedin",
             Self::Facebook => "facebook",
+            Self::Bluesky => "bluesky",
+            Self::Mastodon => "mastodon",
         }
     }
 
     /// The caption bound for this provider. LinkedIn commentary is limited to 3,000 characters;
     /// Facebook allows far more, but the stored caption is bounded by the schema, so both stop
     /// at the lower of the two limits. The link is attached by the adapter, not typed into the
-    /// caption, so it does not count against it.
+    /// caption, so it does not count against it. Bluesky's limit is far lower (ADR 0358), and
+    /// Mastodon's leaves room for the link written into the status (ADR 0360).
     pub fn caption_limit(self) -> usize {
         match self {
             Self::LinkedIn | Self::Facebook => MAX_CAPTION_CHARS,
+            Self::Bluesky => BLUESKY_CAPTION_CHARS,
+            Self::Mastodon => MASTODON_CAPTION_CHARS,
         }
     }
 }
@@ -159,15 +184,19 @@ pub fn check_caption(provider: Provider, caption: &str) -> Result<String, Schedu
     Ok(text.to_string())
 }
 
-/// A caption that every supported destination accepts: the Admin checks this before it knows
+/// A caption that some supported destination accepts: the Admin checks this before it knows
 /// which destination the hosted function will resolve, and the hosted function then applies the
-/// destination's own bound. Returns the text to send, and the tightest limit.
-pub fn check_caption_for_all(caption: &str) -> Result<String, ScheduleError> {
-    let mut stored = None;
+/// destination's own bound (Bluesky's is far tighter than the others', ADR 0358). Returns the text
+/// to send. Every refusal but length is the same for every destination.
+pub fn check_caption_for_any(caption: &str) -> Result<String, ScheduleError> {
+    let mut refused = ScheduleError::UnsupportedProvider;
     for provider in Provider::ALL {
-        stored = Some(check_caption(provider, caption)?);
+        match check_caption(provider, caption) {
+            Ok(text) => return Ok(text),
+            Err(error) => refused = error,
+        }
     }
-    stored.ok_or(ScheduleError::UnsupportedProvider)
+    Err(refused)
 }
 
 /// An idempotency key is 16 to 128 of `A-Z a-z 0-9 _ -` (the schema's check).

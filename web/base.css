@@ -205,6 +205,27 @@ samp {
   text-decoration: none;
 }
 
+/* On a phone the links get a row of their own, under the name and the theme
+   button. Squeezed between those two they stack one to a line, and every link
+   then pushes the page's content a whole row further down. */
+@media (max-width: 30rem) {
+  /* A long name wraps inside its own space, so the button stays beside it. */
+  .ob-brand {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .ob-nav {
+    flex: 1 0 100%;
+    order: 1;
+  }
+
+  .ob-nav ul {
+    justify-content: flex-start;
+  }
+}
+
 .ob-nav-link:hover,
 .ob-nav-link[aria-current="page"] {
   color: var(--ob-color-accent-soft);
@@ -475,6 +496,62 @@ h2.ob-title {
 .ob-tags a:hover {
   border-color: var(--ob-color-accent-border);
   color: var(--ob-color-accent-soft);
+}
+
+.ob-recipe-filters {
+  margin-bottom: 1.5rem;
+}
+
+.ob-recipe-filters .ob-tags a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0.5rem 0.9rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.ob-recipe-filters a[aria-current] {
+  border-color: var(--ob-color-accent-border);
+  color: var(--ob-color-accent-soft);
+}
+
+.ob-recipe-filter-heading {
+  margin: 0.75rem 0 0.25rem;
+  font-family: inherit;
+  font-weight: 400;
+  line-height: inherit;
+}
+
+.ob-recipe-filters summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+/* The summary already says whether it is open; the empty alternative keeps the triangle out of its name. */
+.ob-recipe-filters summary::before {
+  content: "\25B8";
+  content: "\25B8" / "";
+  color: var(--ob-color-muted);
+}
+
+.ob-recipe-filters details[open] > summary::before {
+  content: "\25BE";
+  content: "\25BE" / "";
+}
+
+.ob-recipe-filter-current {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ob-color-accent-soft);
+}
+
+.ob-recipe-filters summary .ob-recipe-filter-heading {
+  margin: 0;
 }
 
 .ob-count {
@@ -1647,6 +1724,13 @@ ob-compare[data-enhanced] .ob-compare-pane figcaption {
 .ob-recipe-facts dd {
   margin: 0.1rem 0 0;
   font-weight: 600;
+}
+
+.ob-recipe-facts dd a {
+  display: inline-block;
+  min-height: 24px;
+  color: inherit;
+  text-decoration: underline;
 }
 
 .ob-recipe-actions {
@@ -4962,4 +5046,71 @@ ob-server-lab .ob-server-trace li + li { margin-top: 0.35rem; }
 @media (max-width: 46rem) {
   ob-server-lab .ob-server-diagram { grid-template-columns: 1fr; }
   ob-server-lab .ob-server-arrow { justify-self: center; transform: rotate(90deg); }
+}
+
+/* ---------- Quote request form: ```quote and the quote-form landing section (<ob-quote> adds checks) ---------- */
+
+.ob-quote {
+  display: block;
+  margin: 1.5rem 0;
+  max-width: 40rem;
+}
+
+.ob-quote-field {
+  margin: 0 0 1rem;
+}
+
+.ob-quote-field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.ob-quote-field input:not([type="file"]),
+.ob-quote-field select,
+.ob-quote-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  font: inherit;
+  padding: 0.5rem 0.625rem;
+}
+
+.ob-quote-hint,
+.ob-quote-notice {
+  margin: 0 0 0.375rem;
+  font-size: 0.9em;
+}
+
+.ob-quote-error {
+  margin: 0.25rem 0 0;
+  color: var(--ob-color-callout-caution, #cf222e);
+}
+
+.ob-quote-error:empty {
+  display: none;
+}
+
+.ob-quote [aria-invalid="true"] {
+  outline: 2px solid var(--ob-color-callout-caution, #cf222e);
+}
+
+.ob-quote-trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.ob-quote-send {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.25rem;
+  font: inherit;
+}
+
+.ob-quote-progress {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
 }

@@ -155,6 +155,33 @@
       "heading": "Recent issues"
     }
   ],
+  "recipes": [
+    {
+      "id": "sample-note",
+      "type": "callout",
+      "tone": "info",
+      "title": "Sample layout",
+      "body": "This is a sample layout. Every sentence marked as a sample is a stand-in: replace it with your own words, then choose Save. Delete this note when you are done."
+    },
+    {
+      "id": "welcome",
+      "type": "welcome",
+      "heading": "Welcome to my kitchen",
+      "subheading": "Sample: a short line about the food you love to make."
+    },
+    {
+      "id": "latest",
+      "type": "latest-posts",
+      "heading": "Newest recipes",
+      "show": "recipes",
+      "count": 6
+    },
+    {
+      "id": "about",
+      "type": "rich-text",
+      "markdown": "Sample: Say who taught you to cook and what you make most."
+    }
+  ],
   "portfolio-with-post": [
     {
       "id": "sample-note",

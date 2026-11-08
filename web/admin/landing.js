@@ -50,7 +50,7 @@ export const SECTION_CATALOG = Object.freeze([
         kind: "group", name: "image", label: "Picture", addLabel: "Add a picture", removeLabel: "Remove the picture",
         blank: () => ({ src: "", alt: "" }),
         fields: [
-          address("src", "Picture address", { required: true, schemes: "pictures", hint: "A picture on your site such as /images/me.jpg, or an address starting with https://." }),
+          address("src", "Picture address", { required: true, schemes: "pictures", picture: true, hint: "Choose one of your photos, or type an address starting with https://." }),
           text("alt", "Describe the picture", { required: true, max: LIMITS.alt, hint: "For people who cannot see it. Say what is in the picture." }),
         ],
       },
@@ -76,6 +76,7 @@ export const SECTION_CATALOG = Object.freeze([
     fields: [
       text("heading", "Heading", { required: true, max: LIMITS.heading }),
       { kind: "number", name: "count", label: "How many posts", optional: true, min: 1, max: LIMITS.latestCount, integer: true, hint: "Leave empty to show the usual number for your blog." },
+      { kind: "select", name: "show", label: "What to show", options: [["all", "All my posts"], ["recipes", "Only my recipes"]], default: "all", omitDefault: true, hint: "Only my recipes stays empty until you publish your first recipe." },
     ],
   },
   {
@@ -116,7 +117,7 @@ export const SECTION_CATALOG = Object.freeze([
     sample: "A photo of the shop front. Caption: Open since 1998.",
     blank: () => ({ src: "", alt: "", caption: "" }),
     fields: [
-      address("src", "Picture address", { required: true, schemes: "pictures", hint: "A picture on your site such as /images/shop.jpg, or an address starting with https://." }),
+      address("src", "Picture address", { required: true, schemes: "pictures", picture: true, hint: "Choose one of your photos, or type an address starting with https://." }),
       text("alt", "Describe the picture", { required: true, max: LIMITS.alt, hint: "For people who cannot see it. Say what is in the picture." }),
       text("caption", "Caption", { max: LIMITS.line, hint: "Optional." }),
     ],
@@ -212,6 +213,15 @@ export const SECTION_CATALOG = Object.freeze([
     blank: () => ({ heading: "Contact and hours" }),
     fields: [text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "The facts themselves are set once under Settings, then Business facts. Nothing is shown here until you have." })],
   },
+  {
+    type: "quote-form",
+    label: "Quote request form",
+    icon: "\u{1F4DD}",
+    description: "A form where visitors ask for a quote: name, phone, town, service, photos and a description.",
+    sample: "Ask for a quote. Tell us what you need and we will call you back.",
+    blank: () => ({ heading: "Ask for a quote" }),
+    fields: [text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "Visitors see nothing here until quote requests are switched on and set up. See the quote requests guide." })],
+  },
 ]);
 
 const BY_TYPE = new Map(SECTION_CATALOG.map((entry) => [entry.type, entry]));
@@ -243,7 +253,7 @@ export function sectionSummary(section) {
     case "rich-text":
       return shorten(first(section.markdown)) || "No text yet";
     case "latest-posts":
-      return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "post" : "posts"})` : ""}`;
+      return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "post" : "posts"})` : ""}${section.show === "recipes" ? " (only recipes)" : ""}`;
     case "series":
       return shorten(first(section.heading)) || "No heading yet";
     case "featured-post":
@@ -267,6 +277,7 @@ export function sectionSummary(section) {
     case "callout":
       return shorten(first(section.title, section.body)) || "No note yet";
     case "business-facts":
+    case "quote-form":
       return shorten(first(section.heading)) || "No heading yet";
     default:
       return "";
@@ -411,7 +422,24 @@ export const STARTERS = Object.freeze([
       { id: "latest", type: "latest-posts", heading: "Recent issues" },
     ],
   },
+  {
+    id: "recipes",
+    label: "Recipes",
+    description: "Your newest recipes up front, with a way to browse them all. They appear once you publish your first recipe.",
+    descriptionWithoutRecipeList: "Your newest recipes up front. They appear once you publish your first recipe.",
+    build: () => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Welcome to my kitchen", subheading: "Sample: a short line about the food you love to make." },
+      { id: "latest", type: "latest-posts", heading: "Newest recipes", show: "recipes", count: 6 },
+      { id: "about", type: "rich-text", markdown: "Sample: Say who taught you to cook and what you make most." },
+    ],
+  },
 ]);
+
+/** What a starter's card says. With the site's recipe list turned off, it promises nothing to browse. */
+export function starterDescription(starter, { recipeListing = true } = {}) {
+  return (recipeListing === false && starter.descriptionWithoutRecipeList) || starter.description;
+}
 
 /** The starter with this id, or null. */
 export function starterById(id) {

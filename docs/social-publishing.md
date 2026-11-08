@@ -1,11 +1,14 @@
 # Scheduled social publishing (optional)
 
-Social publishing announces an already-published post on a connected LinkedIn identity or Facebook Page, at a
-time you choose. It is off by default. Your site, its exports and cross-posting work exactly the same without it,
+Social publishing announces an already-published post on a connected LinkedIn identity, Facebook Page, Bluesky
+account or Mastodon account, at a time you choose. It is off by default. Your site, its exports and cross-posting work exactly the same without it,
 and nothing in this guide is needed to read, build or publish a blog.
 
 This page covers the identity and storage foundation (epic #353, story #354), scheduling announcements (story
-#356) and the delivery queue and worker (story #357). The provider adapters that actually post arrive in a later story.
+#356), the delivery queue and worker (story #357), the LinkedIn and Facebook adapters (story #358), and delivery
+status, monitoring and operations (story #359), how to roll it out, roll it back, rotate its secrets and find
+what went wrong (story #360), and Bluesky and Mastodon (epic #382, stories #391 and #392). If you only want
+the order of things, start at [Rolling it out, step by step](#rolling-it-out-step-by-step).
 
 ## Who is allowed to do what
 
@@ -31,7 +34,9 @@ The scheduled worker uses a different key and acts as `@worker`. A leaked worker
 | `OPENBLOG_SOCIAL_WORKER_KEY` | At least 32 characters; used by the scheduled worker. Differs from the admin key. |
 | `OPENBLOG_SOCIAL_TOKEN_KEYS` | Token encryption keys, `id:base64` of 32 random bytes, comma separated; the first encrypts new tokens. Required. |
 
-Neither key may equal the Supabase key, the Admin API key or an anon/publishable key. If the feature is enabled
+Neither key may equal the Supabase key (`SUPABASE_SECRET_KEY`, or the legacy `SUPABASE_SERVICE_ROLE_KEY`), the
+Admin API key (`OPENBLOG_ADMIN_API_KEY`) or an anon or publishable key (`SUPABASE_ANON_KEY`,
+`SUPABASE_PUBLISHABLE_KEY`); the function reads those only to compare. If the feature is enabled
 but something is wrong, it stays off and the log names the settings at fault, never their values.
 Never put any of these in `openblog.json`, the repository or a browser bundle.
 
@@ -43,11 +48,13 @@ safely, and creates `openblog_social_accounts`, `openblog_social_posts` (the sch
 `openblog_social_schema` (the schema version). All of them are private: row level security is on with no
 policies, the public roles have no access, and only the hosted function (`service_role`) reads and writes. Every
 row carries your site scope and relations include it, so a row cannot point at another site's account or post.
-Nothing is ever deleted by the function: cancelling and disconnecting are updates.
+Nothing is deleted by the function: cancelling and disconnecting are updates. The only exception is retention, which
+you turn on yourself (see the [operations runbook](#retention-optional-deletes-data)).
 
 To undo it, remove `OPENBLOG_SOCIAL_ENABLED`, stop the worker, export what you want to keep (the commands are in
-the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke the app at
-LinkedIn and Facebook as well; stored tokens are deleted by the rollback but stay valid there until revoked.
+the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke access at
+each provider you connected as well (LinkedIn, Facebook, Bluesky and Mastodon, as in
+[Rolling it back](#rolling-it-back)); stored tokens are deleted by the rollback but stay valid there until revoked.
 
 ## Provider tokens
 
@@ -83,7 +90,7 @@ Create an app with each provider you want and set these in the function's enviro
 | `OPENBLOG_SOCIAL_CALLBACK_BASE` | Public `https://` address of the function, such as `https://blog.example.com/api/social`. No credentials, query or fragment. |
 | `OPENBLOG_SOCIAL_LINKEDIN_CLIENT_ID`, `OPENBLOG_SOCIAL_LINKEDIN_CLIENT_SECRET` | The LinkedIn app's credentials. A provider with neither set is simply not offered. |
 | `OPENBLOG_SOCIAL_FACEBOOK_CLIENT_ID`, `OPENBLOG_SOCIAL_FACEBOOK_CLIENT_SECRET` | The Meta app's credentials. |
-| `OPENBLOG_SOCIAL_<PROVIDER>_API_VERSION` | Optional. LinkedIn `YYYYMM` (default `202510`), Facebook `vNN.N` (default `v23.0`). |
+| `OPENBLOG_SOCIAL_<PROVIDER>_API_VERSION` | Optional. LinkedIn `YYYYMM` (default `202610`, served until 2027-10-15), Facebook `vNN.N` (default `v23.0`, served until 2027-10-08). Dates as the providers listed them on 2026-10-29. |
 | `OPENBLOG_SOCIAL_<PROVIDER>_SCOPES` | Optional. Replaces the requested scopes (space or comma separated). |
 | `OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS` | Optional. `true` also asks for `r_organization_admin` and `w_organization_social`, to post as an organization. |
 | `OPENBLOG_SOCIAL_<PROVIDER>_PKCE` | Optional. `true` sends a PKCE (S256) challenge. Off by default; turn it on only if the provider documents it for your app type. |
@@ -105,6 +112,70 @@ Each attempt expires after ten minutes, works once, and at most ten may be open.
 permission, the attempt fails with a plain message and nothing is stored. The scopes shown in Admin are the ones
 the provider actually granted. Client secrets are sent in the request body to the provider, never in a URL.
 
+## Connecting Bluesky (app password)
+
+Bluesky is off until you set `OPENBLOG_SOCIAL_BLUESKY_ENABLED=true` in the function's environment
+([ADR 0357](adr/0357-a-bluesky-account-is-connected-from-an-app-password-session-and-only-the-session-is-kept.md)).
+There is no app to register and no redirect: Admin asks for your handle (such as `name.bsky.social`) and an **app
+password**, and the function signs in once with them.
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENBLOG_SOCIAL_BLUESKY_ENABLED` | Exactly `true` to offer Bluesky. Unset means no Bluesky, and nothing changes. |
+| `OPENBLOG_SOCIAL_BLUESKY_SERVICE` | Optional. The `https://` origin that signs you in and receives posts. Default `https://bsky.social`; set your own PDS if you host one. No path, query or credentials. |
+
+1. In Bluesky, open **Settings, Privacy and security, App passwords** and add one (it looks like
+   `xxxx-xxxx-xxxx-xxxx`). Do not allow direct messages for it; posting does not need them.
+2. In Admin, open **Social accounts**, type your handle and the app password under **Bluesky**, and choose
+   **Connect Bluesky**.
+3. Choose the account under **Connections in progress**. Nothing is connected until you do.
+
+What happens to the password: Admin and the function both refuse anything that is not shaped like an app password, so
+your account password is never sent. The app password is used for that one sign-in and is never stored, logged or
+shown again; the field is emptied as soon as you submit. What is kept is the session Bluesky returns (an access token
+and a refresh token), encrypted like any other provider token. The access token is refreshed shortly before it
+expires; Bluesky rotates the refresh token each time. If nothing posts for the refresh token's whole lifetime, or you
+revoke the app password, the account shows **Needs reconnecting**: choose **Reconnect…** on it and give an app
+password for the same account (a different account is refused). **Disconnect** ends the session at Bluesky too.
+
+Limits to know (checked on 2026-10-29, see [Provider capabilities](provider-capabilities.md)): signing in is limited
+to 30 times in 5 minutes and 300 a day per account, which is why the session is kept rather than signing in per post;
+a post costs 3 of 5,000 points an hour. Bluesky's OAuth (with DPoP) is not used yet; a deployment that must not use
+app passwords leaves Bluesky off.
+
+## Connecting Mastodon (OAuth on one instance)
+
+Mastodon is off until you register an application on **one** Mastodon instance and give the function its
+credentials ([ADR 0359](adr/0359-a-mastodon-account-is-connected-by-oauth-on-one-instance-the-deployer-names-with-an-application-registered-there.md)). Every Mastodon address the function uses (sign-in, token, revoke, posting) is
+built from that instance, so the client secret is only ever sent there. Accounts on other instances cannot be
+connected; to move, register an application on the new instance, change the setting, and reconnect.
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENBLOG_SOCIAL_MASTODON_INSTANCE` | The instance's `https://` origin, such as `https://mastodon.social`. No path, query or credentials. |
+| `OPENBLOG_SOCIAL_MASTODON_CLIENT_ID`, `OPENBLOG_SOCIAL_MASTODON_CLIENT_SECRET` | The application's **Client key** and **Client secret**. With neither set, Mastodon is not offered and nothing changes. |
+| `OPENBLOG_SOCIAL_MASTODON_VISIBILITY` | Optional. `public` (default), `unlisted` (quiet public) or `private` (followers only). `direct` is refused. |
+| `OPENBLOG_SOCIAL_MASTODON_MEDIA` | Optional. `cover` attaches the post's cover image with its description (below). Needs `OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS` of at least 15; otherwise it stays off and both settings are named in Admin. |
+| `OPENBLOG_SOCIAL_MASTODON_SCOPES`, `OPENBLOG_SOCIAL_MASTODON_PKCE` | Optional, as for the other OAuth providers. Turn PKCE on only for an instance on Mastodon 4.3 or later. |
+| `OPENBLOG_SOCIAL_MASTODON_API_VERSION` | Optional. Only `v1`, the default: the REST API is versioned by path, not by date. |
+
+1. On the instance, signed in as any account, open **Preferences, Development, New application**. Name it, set the
+   **Redirect URI** to exactly `<CALLBACK_BASE>/callback/mastodon` (Admin shows it), and tick only
+   `read:accounts`, `write:statuses`, `read:statuses` and `write:media`. Save, then copy the client key and secret.
+2. Set the variables above in the function's environment, and `OPENBLOG_SOCIAL_CALLBACK_BASE` if it is not set yet.
+3. In Admin, open **Social accounts**. Under **Mastodon** the instance, the visibility and whether the cover is
+   attached are shown; choose **Connect Mastodon**, sign in at the instance and approve. Then choose the account under
+   **Connections in progress**. Nothing is connected until you do.
+
+The permissions: `read:accounts` (to name the account) and `write:statuses` (to post) are required; a grant without
+them is refused and its token revoked. `read:statuses` lets the worker look up a post whose outcome it did not see,
+and `write:media` lets it upload the cover; without them that part is skipped and Admin says so when you connect.
+Admin also tells you when the instance takes fewer than 500 characters per post. Mastodon tokens do not expire:
+an account stays connected until you disconnect it in Admin (which revokes the token at the instance) or remove the
+application under **Preferences, Account, Authorized apps** in Mastodon. **Reconnect…** asks the instance to sign in
+again and works only for the same account. Admin follows a Mastodon sign-in address only when it is that instance's
+own `/oauth/authorize`.
+
 ## Choosing where to post
 
 After the author authorizes, the function asks the provider where the grant can post
@@ -123,7 +194,8 @@ Admin lists each destination and chooses one; nothing is connected until it does
 **Reconnect** signs in again and replaces the stored credential, but only for the same LinkedIn identity or the
 same Page. A different login is refused, LinkedIn is asked to withdraw that grant, and nothing is changed.
 
-**Disconnect** erases the stored tokens and keeps the account row for history. LinkedIn is asked to revoke the
+**Disconnect** erases the stored tokens, cancels the account's scheduled announcements (see the
+[operations runbook](#disconnecting-an-account)) and keeps the account row for history. LinkedIn is asked to revoke the
 grant when no other connected LinkedIn account could share it. Facebook is not asked, because withdrawing the grant
 would also cut off your other Pages: remove the app under **Settings > Business integrations** in Facebook if you
 want the grant gone. Revoke the app in the provider's settings as well when you retire the site.
@@ -214,6 +286,30 @@ Before you enable it for real, confirm in each provider's current documentation 
 (scopes) and any app review the posting API needs; none of that is part of this screen, and nothing here posts until
 delivery is set up.
 
+## Status and history
+
+Each announcement shows one **delivery state** as a word and a shape
+([ADR 0323](adr/0323-an-announcement-has-seven-delivery-states-derived-from-its-row-and-a-history-recorded-by-a-trigger.md)):
+
+| State | Stored status | What it means | What you can do |
+| --- | --- | --- | --- |
+| Scheduled (`pending`) | `scheduled` | Waiting for its time; nothing has gone wrong. | Edit, cancel. |
+| Sending (`processing`) | `claimed` | A worker holds it and may be calling the provider now. | Nothing; reload in a minute. |
+| Retrying (`retrying`) | `scheduled` with a problem code | A try certainly did not post; it is tried again by itself at the time shown. | Edit, cancel, or wait. |
+| Published | `published` | The provider confirmed it and named the post. | Nothing. |
+| Failed | `failed` | It will not be sent again by itself. | Fix the cause, then **Try again**. |
+| Needs checking (`unknown`) | `unknown` | It may have posted. It is looked up, never resent blindly. | Look at the account, then **Check the result**. |
+| Canceled | `canceled` | You canceled it, or its account was disconnected. | Schedule a new one. |
+
+**History** on each announcement lists its status changes and every try, in your time zone. To record the history
+exactly, run `supabase/social-history.sql` in the Supabase SQL editor (after `social.sql` and `social-queue.sql`). It
+adds one append-only table, `openblog_social_post_events`, and a trigger that writes an event whenever an
+announcement's status, time, caption or problem code changes, whoever changes it. An event holds the status, the
+delivery state, the try number, a short code and times, never the caption, a token or anything a provider wrote.
+Announcements that already exist get one "history starts here" event. Without the file, Admin rebuilds the history
+from the tries and says that edits and checks made by hand may be missing. Undo it with
+`supabase/social-history-rollback.sql` (it deletes the recorded events; export them first if you want them).
+
 ## Publishing adapters
 
 The delivery worker calls one adapter per provider through the interface documented in
@@ -227,7 +323,7 @@ that may have posted (a server error, a timeout, a dropped connection, a success
 again automatically.
 
 Neither LinkedIn nor Facebook accepts an idempotency key on these calls, so none is sent: only an answer that means
-"definitely not processed" is ever retried.
+"definitely not processed" is ever retried. Bluesky gets a record key of the announcement's own instead (below).
 
 **Looking up an unclear outcome.** Facebook: the worker looks at the Page's own published posts since the attempt, read
 only, made between just before the attempt started and just after it ended, and settles the announcement only when
@@ -261,12 +357,54 @@ Verify at setup, because Meta changes them: the Graph version (`OPENBLOG_SOCIAL_
 `v23.0`; old versions are retired), that your app has `pages_manage_posts` (and `pages_show_list`), and App Review:
 until the app has Advanced access, only people with a role on the app can post to Pages.
 
+### Bluesky
+
+Writes one post record to your own repository (`com.atproto.repo.createRecord` of an `app.bsky.feed.post`)
+([ADR 0358](adr/0358-a-bluesky-announcement-is-one-post-record-with-facets-and-a-link-card-under-a-record-key-derived-from-the-announcement.md)):
+the caption as the text, full `https://` links and `#hashtags` in it as clickable facets, and the post link as a link
+card titled with the caption's first line (no picture yet). `@mentions` stay plain text, so nobody is notified by
+mistake. A Bluesky caption is at most 300 characters; Admin counts against that as soon as you choose a Bluesky
+destination, and the preview says how the card and the links will look.
+
+Every try of one announcement writes the same record key, made from its scheduled time and its key, so a retry
+after a try that did land is refused by Bluesky instead of posting twice. The post's `at://` address is kept as the
+provider post id. An unclear outcome is looked up by reading exactly that record: found with the same caption and
+link, it is published; Bluesky saying it does not exist is a sure "not there"; anything else comes to you as **Needs
+checking**. An expired or revoked session asks you to reconnect, and a rate limit is tried again after the time
+Bluesky gives.
+
+### Mastodon
+
+Posts one status from the connected account (`POST /api/v1/statuses`) ([ADR 0360](adr/0360-a-mastodon-announcement-is-one-status-with-the-link-written-into-it-at-the-deployers-visibility-checked-against-the-instances-own-limits.md)): the caption, a blank
+line and the post link (left out if the caption already holds that exact link), at the visibility you set. Mastodon
+makes its own preview card from the link and reads `#hashtags` and `@name@server` mentions as written, so a
+mention notifies that person; the composer's preview says so. A Mastodon caption is at most 475 characters (a
+default instance takes 500, and the link counts as 23); before each post the instance's own limits are read and a
+status over them is refused without being sent. Every try of one announcement sends the same `Idempotency-Key`
+(made from its key), which Mastodon honours for an hour. The status id is kept as the provider post id.
+
+**The cover image.** With `OPENBLOG_SOCIAL_MASTODON_MEDIA=cover`, the worker reads the post's public page for its
+`og:image` and `og:image:alt` (written from the post's `cover` and `coverAlt`), uploads the image with that
+description, and attaches it. The image must be on your site's own address, a JPEG, PNG, WebP or GIF the instance
+takes, and within its size limit; anything else, a post without `coverAlt`, or an upload that is not ready in time
+leaves the image out and posts the text with Mastodon's link card. An image is never posted without its
+description. The composer's preview shows the description that would go with it.
+
+A refused token asks you to reconnect, a rate limit (300 calls per 5 minutes per account; media 30 per 30 minutes)
+is tried again after `Retry-After` or `X-RateLimit-Reset`, and a refusal (422, or another 4xx) fails the
+announcement. An unclear outcome is looked up read only: the account's latest statuses from around the attempt are
+read back as text, and exactly one with this announcement's text settles it; no status at all in that window is a
+sure "not there"; anything else (two matches, an edited status, more than five, no `read:statuses`) comes to you as
+**Needs checking**.
+
 ### How the adapters are tested
 
-Both adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0321](adr/0321-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-and-by-the-real-worker-over-a-scripted-provider.md)):
+All the adapters run against one fixture of provider replies (`tests/fixtures/social-publish.json`, [ADR 0321](adr/0321-adapter-behaviour-is-pinned-by-one-fixture-of-provider-replies-and-by-the-real-worker-over-a-scripted-provider.md)):
 success, 401, 403, 429, 5xx, a redirect, a network failure, a refused connection, a timeout and ambiguous successes.
 The real worker is also run with the real adapters over a scripted provider, from the reply to the stored
-announcement, with a check that no token or provider wording reaches a stored error, a summary or a log. No test uses
+announcement, with a check that no token or provider wording reaches a stored error, a summary or a log. Mastodon reads the
+instance's limits before it posts, so its replies are pinned by its own tests (`tests/web/social-publish-mastodon*.test.mjs`)
+rather than the one-call fixture. No test uses
 a real account or the network. The replies are written from the providers' documentation, so check them against the
 current documentation when you change an API version.
 
@@ -313,10 +451,11 @@ a site or change what it does.
 | `OPENBLOG_SOCIAL_PROVIDER_TIMEOUT_SECONDS` | 4 | 2 to 30 |
 | `OPENBLOG_SOCIAL_WORKER_BUDGET_SECONDS` | 8 | 5 to 50 |
 
-The defaults (a 4-second provider timeout inside an 8-second budget) fit Netlify's default 10-second function
-timeout, and a run claims only as many announcements as its budget can finish (one at the defaults; the schedule
-wakes it every minute). To deliver more per run, raise the function's timeout in Netlify first (verify the limit for
-your plan), then raise the budget to stay about 2 seconds under it. A budget smaller than the provider timeout plus 2
+The defaults (a 4-second provider timeout inside an 8-second budget) fit even a 10-second function limit, and a run
+claims only as many announcements as its budget can finish (one at the defaults; the schedule wakes it every minute).
+Netlify's [function configuration](https://docs.netlify.com/build/functions/configuration/) listed a 60-second
+synchronous execution limit on 2026-10-29; older setups and other hosts may allow less. To deliver more per run, check
+your host's limit, then raise the budget to stay about 2 seconds under it. A budget smaller than the provider timeout plus 2
 seconds is refused: both settings fall back to their defaults and the setting is reported as a problem. If the platform cuts a run off mid-delivery, the
 announcement is not lost and not repeated: its lease runs out and it becomes `unknown` if the provider may have
 been called, or returns to the queue if not.
@@ -374,3 +513,213 @@ sent and nothing relies on it.
 **What is recorded.** Each attempt keeps its number, times, outcome, HTTP status, a short code and a fixed sentence,
 and the provider's post id. It never keeps a token, a header, a request or anything the provider wrote, so the history
 is safe to show in Admin and to paste in a bug report.
+
+## Rolling it out, step by step
+
+([ADR 0331](adr/0331-social-publishing-is-an-opt-in-outward-announcement-beside-canonical-markdown-with-a-server-only-threat-model.md),
+[ADR 0332](adr/0332-social-publishing-rolls-out-through-reversible-gates-and-its-provider-versions-carry-an-end-date.md).)
+Each gate below is separate. Check it before you go on, and stop at any gate you like: everything before it keeps
+working, and readers, builds, feeds, exports and cross-posting never change. The "Undo" column takes you back one gate.
+
+| Gate | Do | Check | Undo |
+| --- | --- | --- | --- |
+| 1. Storage | Run `supabase/social.sql` in the Supabase SQL editor. | `select version from openblog_social_schema;` shows `1`. | `supabase/social-rollback.sql` |
+| 2. Hosted function | Set the [settings](#settings-hosted-function-only) on the Netlify site (generate each key as in [Rotating secrets](#rotating-secrets)) and redeploy. | `curl -s -o /dev/null -w '%{http_code}' https://YOUR-SITE/api/social/status` answers `401` (on, and wants a key), not `404` (off). If it is `404`, the function log names the setting at fault. | Remove `OPENBLOG_SOCIAL_ENABLED` and redeploy. |
+| 3. Admin | On the machine that runs `openblog serve --admin`, set `OPENBLOG_SOCIAL_ENDPOINT` and the same `OPENBLOG_SOCIAL_ADMIN_KEY`, then restart Admin. | Admin shows **Social accounts**; it lists no provider yet. | Unset both and restart Admin. |
+| 4. Providers | Create the LinkedIn and Meta apps, register the redirect addresses and add the products and permissions in [Connecting LinkedIn and Facebook](#connecting-linkedin-and-facebook-oauth); set the client id, secret and `OPENBLOG_SOCIAL_CALLBACK_BASE`; redeploy. | **Connect** an account you own and choose a destination. | **Disconnect** it in Admin, remove the client settings, and remove the app in the provider's settings. |
+| 5. Scheduling | Nothing to install. | Schedule an announcement in the **Announcements** tab. It stays **Scheduled**: nothing sends it yet. | Cancel it. |
+| 6. Delivery | Run `supabase/social-queue.sql`, and `supabase/social-history.sql` if you want the exact history. | Call the worker once by hand: `curl -s -X POST -H "Authorization: Bearer $OPENBLOG_SOCIAL_WORKER_KEY" https://YOUR-SITE/api/social-worker` answers with counts, and a due announcement to an account you own is published. | `supabase/social-history-rollback.sql`, then `supabase/social-queue-rollback.sql` |
+| 7. Schedule | Store the two Vault secrets, then run `supabase/social-cron.sql` (see [The delivery worker](#the-delivery-worker)). | `select status, start_time from cron.job_run_details order by start_time desc limit 3;` shows a successful run each minute. | `supabase/social-cron-rollback.sql` |
+| 8. Operations (optional) | Run `supabase/social-ops.sql`, set `OPENBLOG_SOCIAL_OPS=true`, redeploy. Add `OPENBLOG_SOCIAL_RETENTION_DAYS` only if you want old history deleted. | Admin shows **Delivery health**; the log has `openblog-social-ops` lines. | Remove `OPENBLOG_SOCIAL_OPS`, then `supabase/social-ops-rollback.sql` |
+
+For your first real announcement, post to an account or Page you own with a caption that says it is a test, and
+watch it go from Scheduled to Published. Delete the test post on the network by hand afterwards; open.blog never
+deletes anything it posted.
+
+The hosted function runs as a Netlify function (`netlify/functions/social.mjs` and `social-worker.mjs`, routed by
+`netlify.toml`). It is not a Supabase Edge Function: the modules use only Web APIs so they could be hosted there
+later, but this release builds, deploys and tests them on Netlify only.
+
+## Rolling it back
+
+To turn the whole feature off and remove it, in this order. Each step is safe to stop after.
+
+1. **Stop it.** Remove `OPENBLOG_SOCIAL_ENABLED` from the Netlify site and redeploy. Every social route and the worker
+   now answer 404 and touch nothing; scheduled announcements simply wait.
+2. **Hide it in Admin.** Unset `OPENBLOG_SOCIAL_ENDPOINT` and `OPENBLOG_SOCIAL_ADMIN_KEY` on the Admin machine and
+   restart Admin.
+3. **Keep what you need.** Export the announcements and their history (the commands are at the top of
+   `supabase/social-rollback.sql`).
+4. **Remove the data.** Run `supabase/social-rollback.sql`. It stops the `openblog-social-worker` cron job first (when
+   `pg_cron` is installed), then drops every `openblog_social_*` function, trigger and table that `social.sql`,
+   `social-queue.sql`, `social-history.sql`, `social-ops.sql` and `social-cron.sql` made. It touches no other table,
+   job or extension, and running it twice is harmless.
+5. **Remove the Vault secrets.**
+   `delete from vault.secrets where name in ('openblog_social_worker_url', 'openblog_social_worker_key');`
+6. **Revoke access at the providers.** Tokens deleted by the rollback stay valid at the provider until you do this,
+   for each provider you connected:
+   - **LinkedIn**: remove the app from the connected member's permitted services, or delete the app.
+   - **Facebook**: remove the app under **Settings > Business integrations**, or delete the app.
+   - **Bluesky**: delete the app password under **Settings, Privacy and security, App passwords**. The session it
+     made can no longer be renewed.
+   - **Mastodon**: remove the application under **Preferences, Account, Authorized apps** on the instance, or delete
+     it under **Preferences, Development**. Mastodon tokens never expire on their own.
+7. **Delete the remaining settings**, the token keys (`OPENBLOG_SOCIAL_TOKEN_KEYS`) last, and rotate any key you
+   shared.
+
+Check: `select count(*) from pg_tables where tablename like 'openblog_social%';` is `0`, and
+`select count(*) from cron.job where jobname = 'openblog-social-worker';` is `0`. Posts already published on LinkedIn,
+Facebook, Bluesky or Mastodon stay there; delete them on the network if you want them gone.
+
+To undo only part of it, use the rollback file of that gate (table above), newest gate first: operations, schedule,
+history, then queue. Each one leaves the gates before it working.
+
+## Rotating secrets
+
+Generate a key of the right length with `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
+(43 characters). Keep every value in a secret manager, never in `openblog.json`, the repository or a ticket.
+
+- **`OPENBLOG_SOCIAL_ADMIN_KEY`**: set the new value on the Netlify site and redeploy, then on the Admin machine and
+  restart Admin. In between, Admin reports a setup problem and changes nothing; no announcement is affected.
+- **`OPENBLOG_SOCIAL_WORKER_KEY`**: set the new value on the Netlify site and redeploy, then update the Vault secret
+  `openblog_social_worker_key`:
+  `select vault.update_secret((select id from vault.secrets where name = 'openblog_social_worker_key'), 'THE-NEW-KEY');`
+  Runs in between are refused (401) and announcements wait for the next run; nothing is lost or sent twice.
+- **`SUPABASE_SECRET_KEY`**: create a new secret key in the Supabase dashboard, set it on the Netlify site, redeploy,
+  then delete the old key in Supabase. Tokens stay readable: they are sealed with the token keys, not this one.
+- **`OPENBLOG_SOCIAL_TOKEN_KEYS`**: put the new key first and keep the old ones, as described in
+  [Provider tokens](#provider-tokens). Remove an old key only when no active connection uses it.
+- **`OPENBLOG_SOCIAL_<PROVIDER>_CLIENT_SECRET`**: generate a new secret in the provider's app, set it on the Netlify
+  site and redeploy. A provider may end existing grants when its secret changes; if accounts show **Needs
+  reconnecting** afterwards, reconnect them and use **Try again** on their failed announcements.
+
+Rotate a key at once if it may have leaked, and whenever someone who knew it leaves. The
+[threat model](adr/0331-social-publishing-is-an-opt-in-outward-announcement-beside-canonical-markdown-with-a-server-only-threat-model.md#threat-model)
+says what each key can reach.
+
+## Rate limits
+
+What the providers documented on 2026-10-29 (check again when you set up; they change):
+
+- **LinkedIn** counts calls per day, per application and per member, and resets at midnight UTC. A request over the
+  limit gets a 429. LinkedIn does not publish most limits; your app's **Analytics** tab in the Developer Portal shows
+  them for endpoints you have called today, and LinkedIn emails the app's admins at 75% of an application limit.
+  Its Share on LinkedIn guide lists 150 requests a day per member and 100,000 per application.
+  ([Rate limiting](https://learn.microsoft.com/en-us/linkedin/shared/api-guide/concepts/rate-limits),
+  [Share on LinkedIn](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/share-on-linkedin).)
+- **Facebook Pages** calls made with a Page token count against Meta's business-use-case limit for that Page:
+  4,800 calls times the number of people who engaged with the Page, over a rolling 24 hours. Over it, Graph answers
+  with code `80001`; codes `4`, `17` and `32` are app and user limits. Meta asks callers to stop until the limit
+  clears, because calls made while throttled extend it.
+  ([Rate limiting](https://developers.facebook.com/docs/graph-api/overview/rate-limiting/).)
+
+open.blog makes very few calls: one per announcement, plus a few read-only lookups for an unclear Facebook outcome
+and a token refresh now and then. When a provider says "too many", that **account is paused** until the provider's
+`Retry-After` (at most a day; by back-off if it gave none) and sends nothing in between, so the next announcement
+does not hit the limit again; the announcement shows **Retrying** with its time. A run sends at most three
+announcements per account. If you schedule many announcements to one account, space them out.
+
+## Troubleshooting
+
+| What you see | Likely cause | What to do |
+| --- | --- | --- |
+| Admin has no **Social accounts** entry | `OPENBLOG_SOCIAL_ENDPOINT` or `OPENBLOG_SOCIAL_ADMIN_KEY` is not set where Admin runs. | Set both and restart Admin (gate 3). |
+| Admin says the function rejected its key | The admin key differs between Admin and the function. | Set the same value in both places. |
+| Admin says social publishing is not enabled there, or the routes answer 404 | `OPENBLOG_SOCIAL_ENABLED` is not exactly `true`, or a hosted setting is invalid. | Read the function log: it names each setting at fault, never its value. |
+| A provider is missing under **Connect** | Its client id or secret is missing or malformed, or `OPENBLOG_SOCIAL_CALLBACK_BASE` is missing. | Admin lists the setting at fault; fix it and redeploy. |
+| The provider says the redirect address does not match | The app does not list `<CALLBACK_BASE>/callback/linkedin` or `/callback/facebook` exactly. | Copy the address Admin shows into the provider's app. |
+| No LinkedIn organization, or no Facebook Page, is offered | LinkedIn has not approved the Community Management API; the Page role lacks content creation; `pages_manage_posts` was declined; or Meta's App Review is pending. | See [Choosing where to post](#choosing-where-to-post). |
+| Announcements stay **Scheduled** after their time (`backlog-overdue` when operations are on) | The queue (gate 6) or the schedule (gate 7) is missing, a Vault secret is missing or wrong, or the worker key differs. | `select status, return_message from cron.job_run_details order by start_time desc limit 5;` and `select status_code, created from net._http_response order by created desc limit 5;` A `401` means the Vault key differs from `OPENBLOG_SOCIAL_WORKER_KEY`. pg_net keeps responses for six hours. |
+| One network's announcements wait while the other's go (`provider-not-configured`) | That provider has no settings on this deployment. | Add its settings and redeploy, or cancel them. |
+| LinkedIn announcements are all refused at once | The `Linkedin-Version` was retired, or the app lost the product that grants `w_member_social`. | Set `OPENBLOG_SOCIAL_LINKEDIN_API_VERSION` to a current version and check the app's products. |
+| An account shows **Needs reconnecting** (`accounts-need-reconnect`) | The provider refused its token: expired, revoked, a changed password, or the app removed. | **Reconnect** it, then **Try again** its failed announcements. |
+| **Needs checking** (`needs-review`) | A delivery may have posted and could not be looked up. | Look at the account and choose **Check the result**. |
+| After a deploy, announcements show **Retrying**, then **Failed**, with "The saved sign-in could not be used." (`credential-error`, then `attempts-exhausted`), while their accounts still show connected | A token key was removed from `OPENBLOG_SOCIAL_TOKEN_KEYS` while connections used it. | Put the old key back (after the new one), redeploy, then **Try again** the failed announcements. |
+| **Retrying** with a time far ahead | The account is paused after a rate limit. | Wait, or see [Rate limits](#rate-limits). |
+
+When you ask for help, paste an announcement's **History** or the `openblog-social-worker` and `openblog-social-ops`
+log lines: they hold counts and short codes only, never a token, caption or provider text.
+
+## Operations runbook
+
+([ADR 0324](adr/0324-social-operations-log-counts-only-alert-on-backlog-sweep-and-prune-by-opt-in-and-cancel-on-disconnect.md).)
+
+### Logs
+
+Every worker run writes one JSON line, `{"event":"openblog-social-worker","summary":{...}}`, with counts only
+(claimed, published, retried, failed, unknown, deferred, and the lookups). Log lines are built from whole numbers,
+true/false and short codes only, so no token, caption, account name, address or provider text can appear in them.
+Nothing else is logged, and errors are never logged with their detail.
+
+### Health and backlog alerts (optional)
+
+1. Run `supabase/social-ops.sql` in the Supabase SQL editor (after `social.sql` and `social-queue.sql`). It adds three
+   functions and changes no table or row. Undo it with `supabase/social-ops-rollback.sql`.
+2. Set `OPENBLOG_SOCIAL_OPS=true` on the hosted functions and redeploy.
+
+Each run then also reaps expired leases, expires account handshakes left open past their time (erasing any sealed
+tokens they still hold), reads the queue's health and writes an `openblog-social-ops` line. The line is a **warning**
+when there is an alert, so point your log drain or alerting at `"event":"openblog-social-ops"` at warn level:
+
+| Alert | Meaning | What to do |
+| --- | --- | --- |
+| `backlog-overdue` | Announcements the worker could take now are more than `OPENBLOG_SOCIAL_BACKLOG_ALERT_MINUTES` (default 15, 1 to 1440) late. Announcements of an account paused after a rate limit are not counted here (they show as `waiting_on_pause` and wait for the pause to end). | The worker is not running or not keeping up: check `select * from cron.job_run_details order by start_time desc limit 5;`, the Vault secrets, and the function's log. |
+| `expired-leases` | A run stopped mid-delivery. | Nothing: the next run returns it to the queue, or marks it Needs checking if it may have posted. If it repeats, raise the function timeout or lower the batch. |
+| `provider-not-configured` | Announcements wait for a provider whose settings this deployment does not have, so the worker leaves them in the queue. | Add the provider's settings and redeploy, or cancel them in Admin. |
+| `accounts-need-reconnect` | A provider refused an account's sign-in. | Reconnect it in Admin, then **Try again** its failed announcements. |
+| `needs-review` | An outcome may have posted and could not be looked up. | Check the account and use **Check the result** in Admin. |
+| `failed-recently` | Something failed in the last day. | Read its History in Admin. |
+| `stale-connections` | An unfinished account connection expired. | Nothing: the sweep cleaned it up. |
+
+Admin's Social screen shows the same health under **Delivery health**, whether or not `OPENBLOG_SOCIAL_OPS` is set,
+once the file is installed. To check by hand: `select * from openblog_social_health('<your site id>', 900);` (add a third argument such as
+`array['facebook']` to count a provider without settings apart, as the worker does).
+
+### Retention (optional, deletes data)
+
+Nothing is deleted unless you set `OPENBLOG_SOCIAL_RETENTION_DAYS` (30 to 3650) as well as `OPENBLOG_SOCIAL_OPS=true`.
+Then each run deletes, at most 200 at a time, announcements that **ended** (published, failed or canceled) longer ago
+than that, with their tries and history; finished account handshakes; and disconnected accounts nothing refers to
+any more. Scheduled, sending and Needs checking announcements are never deleted. Meta's Platform Terms (section 3.d)
+and LinkedIn's API Terms of Use (section 4) ask you to keep provider data only as long as you need it, so choose a
+period you can justify (for example 365) and export first if you want an archive:
+`copy (select * from openblog_social_attempts) to stdout with csv header;`.
+
+A person asking for their data to be deleted is a manual step: disconnect the account in Admin, then in the SQL editor
+delete its rows (replace the id):
+`delete from openblog_social_attempts where post_id in (select id from openblog_social_posts where account_id = '<id>');`
+then the same for `openblog_social_post_events` (if installed), `openblog_social_posts`, `openblog_social_credentials`
+and `openblog_social_accounts` with `account_id`/`id = '<id>'`.
+
+### Disconnecting an account
+
+Disconnecting erases its tokens and **cancels its scheduled announcements** (they show as Canceled, "its account was
+disconnected"), because a disconnected account can only come back as a new account. One a worker is sending at that
+moment fails without being sent, because its tokens are gone; one that Needs checking stays for you to check. Admin
+says how many were canceled.
+
+### Stuck work, by hand
+
+- Late queue: `select id, status, scheduled_for, next_attempt_at, last_error_code from openblog_social_posts where status = 'scheduled' and coalesce(next_attempt_at, scheduled_for) < now() - interval '15 minutes';`
+- Expired leases without waiting for a run: `select * from openblog_social_sweep('<your site id>');`
+- Needs checking: `select id, last_error_code, updated_at from openblog_social_posts where status = 'unknown';` and settle each in Admin.
+
+## How delivery safety is tested
+
+Nothing here uses a real account or the network; providers and Supabase are fakes.
+
+- **Races** (`tests/web/social-races.test.mjs`): two workers run at once over the same queue and each announcement is
+  sent exactly once; an author's cancel and a worker's claim cannot both win.
+- **Fault injection**: a storage failure (a dropped connection or a 500 carrying a key) is injected at every single
+  call of a worker run in turn, then healthy runs follow. Whatever failed, nothing is sent twice, nothing is
+  `published` without the provider's id, nothing stays claimed, and no key or token reaches a summary or a stored row.
+  Every provider failure the adapter contract allows (refused, rate limited, signed out, timed out, crashed, a success
+  without an id) is run the same way: only an answer that certainly did not post is ever sent again.
+- **The SQL** of the queue, the history and the operations runs against a real Postgres in CI
+  (`social-queue-sql`, `social-history-sql`, `social-ops-sql`), including two concurrent claimers, the append-only
+  history and retention that never touches scheduled, sending or unknown work.
+- **Security**: every Admin route needs a session and every write a CSRF token; the hosted routes take the admin key
+  only, refuse a request that names a site and read only this site's rows; captions, paths and codes are rendered
+  as text; and Admin rebuilds every reply from known fields.
+- **In a browser** (`tests/browser/social-announcements.spec.mjs`): the real binary and Admin over the real hosted
+  routes, by keyboard and at 320 px, including the status history.

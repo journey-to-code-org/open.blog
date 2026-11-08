@@ -20,7 +20,7 @@ The `openblog` CLI is the primary operational interface for:
 - **Project setup**: `init`, `new`
 - **Build and run**: `check`, `build`, `serve`
 - **Publish**: `publish`, `publish setup`
-- **Portability and syndication**: `export`, `syndicate`
+- **Portability and syndication**: `export`, `syndicate`, `video`, `youtube`
 - **Operations and users**: `analytics ...`, `user ...`
 
 ## Operating pattern

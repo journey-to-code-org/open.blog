@@ -1,6 +1,9 @@
 // <ob-social-accounts>: the Connected accounts screen of optional social publishing (ADR 0301).
-// An author connects LinkedIn or Facebook, reviews the permissions asked for, chooses where posts
-// may go, and reconnects or disconnects an account. Everything here is a request to the Admin
+// An author connects LinkedIn, Facebook or Mastodon (on the one instance the server names, ADR
+// 0359), reviews the permissions asked for, chooses where posts may go, and reconnects or
+// disconnects an account. Bluesky is connected with a handle and an app
+// password typed here (ADR 0357): the password field is emptied as soon as it is sent, and it is
+// never shown, kept or put in the page again. Everything here is a request to the Admin
 // server, which holds the key to the hosted function: this page never sees a token, a client
 // secret or a database, and it shows only what the server rebuilt for it.
 //
@@ -15,10 +18,13 @@ let uid = 0;
 /** Only these two hosts may be the target of "Continue to the provider"; the server checks too. */
 export const AUTHORIZE_HOSTS = Object.freeze(["www.linkedin.com", "www.facebook.com"]);
 
-export function safeAuthorizeUrl(value) {
+/** The address to continue at, or null. Mastodon's is accepted only at `/oauth/authorize` of `instance`. */
+export function safeAuthorizeUrl(value, instance = null) {
   try {
     const url = new URL(String(value));
-    return url.protocol === "https:" && !url.username && !url.password && !url.port && AUTHORIZE_HOSTS.includes(url.hostname) ? url.toString() : null;
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    if (!url.port && AUTHORIZE_HOSTS.includes(url.hostname)) return url.toString();
+    return instance && url.origin === instance && url.pathname === "/oauth/authorize" ? url.toString() : null;
   } catch {
     return null;
   }
@@ -33,7 +39,14 @@ export const SCOPE_WORDS = Object.freeze({
   pages_show_list: "See the Pages you manage",
   pages_manage_posts: "Create posts on your Pages",
   pages_read_engagement: "Read basic Page details (optional)",
+  "read:accounts": "Read your account's name",
+  "write:statuses": "Post as you",
+  "read:statuses": "Read your posts, to check one whose outcome was not seen",
+  "write:media": "Upload the post's cover image with its description",
 });
+
+/** How a Mastodon announcement is shown to people, in the words of Mastodon's own composer. */
+export const VISIBILITY_WORDS = Object.freeze({ public: "Public", unlisted: "Quiet public (unlisted)", private: "Followers only" });
 
 export const HEALTH = Object.freeze({
   ok: { symbol: "✓", text: "Connected" },
@@ -42,7 +55,7 @@ export const HEALTH = Object.freeze({
   disconnected: { symbol: "–", text: "Disconnected" },
 });
 
-const KIND_WORDS = Object.freeze({ member: "Member", organization: "Organization", page: "Page" });
+const KIND_WORDS = Object.freeze({ member: "Member", organization: "Organization", page: "Page", account: "Account" });
 
 export const OFF_TEXT = Object.freeze({
   off: "Social publishing is not set up. It is optional and off by default; your blog, exports and cross-posting work the same without it. To turn it on, follow docs/social-publishing.md, then set OPENBLOG_SOCIAL_ENDPOINT and OPENBLOG_SOCIAL_ADMIN_KEY where Admin runs.",
@@ -51,7 +64,10 @@ export const OFF_TEXT = Object.freeze({
 });
 
 const day = (stamp) => (stamp ? String(stamp).slice(0, 10) : "");
-const providerName = (provider) => (provider === "linkedin" ? "LinkedIn" : provider === "facebook" ? "Facebook" : "Provider");
+const providerName = (provider) => ({ linkedin: "LinkedIn", facebook: "Facebook", bluesky: "Bluesky", mastodon: "Mastodon" })[provider] || "Provider";
+
+/** Where Bluesky makes app passwords, said in the words of its settings screen. */
+export const APP_PASSWORD_HINT = "Use an app password, never your account password. Make one in Bluesky under Settings, Privacy and security, App passwords; it looks like xxxx-xxxx-xxxx-xxxx. You can revoke it there at any time.";
 const errorText = (error) => String(error?.message || "That did not work. Try again.");
 
 const badge = (health) => {
@@ -75,6 +91,8 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
   let state = null;
   let focusTarget = null;
   let confirming = null;
+  // The app-password account whose reconnect form is open, if any.
+  let signingIn = null;
   // The provider address of an attempt started in this page. The server never returns it again, so a
   // reload loses it and the author starts the attempt again.
   const links = new Map();
@@ -141,7 +159,43 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
     });
   }
 
+  // Signs in to an app-password provider. The password field is emptied before the request goes out.
+  function signIn(provider, label, form, account = null) {
+    const field = (name) => Array.from(form.querySelectorAll("input")).find((input) => input.dataset.field === name);
+    const handle = field("identifier");
+    const secret = field("app-password");
+    const identifier = String(handle?.value || "").trim();
+    const appPassword = String(secret?.value || "").trim();
+    if (secret) secret.value = "";
+    const problem = form.querySelector("[data-sign-in-problem]");
+    if (!identifier || !appPassword) {
+      if (problem) {
+        problem.hidden = false;
+        problem.textContent = !identifier ? `Enter the ${label} handle.` : "Enter an app password.";
+      }
+      (identifier ? secret : handle)?.focus?.();
+      return undefined;
+    }
+    const path = account ? `social/accounts/${account.id}/reconnect` : "social/connections";
+    const json = account ? { identifier, appPassword } : { provider, identifier, appPassword };
+    return act(account ? `Signing in to ${label} to reconnect ${account.displayName}…` : `Signing in to ${label}…`, () => api.call("POST", path, { json }), async () => {
+      signingIn = null;
+      await load();
+      focusTarget = account ? "accounts" : "choose";
+      render();
+      say(account ? `${account.displayName} is reconnected.` : `Signed in to ${label}. Choose the account to connect; nothing is connected until you do.`);
+    });
+  }
+
+  const appPasswordProvider = (name) => Boolean(state?.overview?.providers?.some((p) => p.provider === name && p.login === "app-password"));
+
   function reconnect(account) {
+    if (appPasswordProvider(account.provider)) {
+      signingIn = signingIn === account.id ? null : account.id;
+      focusTarget = signingIn ? `sign-in-${account.id}` : null;
+      render();
+      return undefined;
+    }
     return act(`Starting reconnection of ${account.displayName}…`, () => api.call("POST", `social/accounts/${account.id}/reconnect`, { json: {} }), async (reply) => {
       links.set(reply.connection?.id, reply.authorizeUrl);
       await load();
@@ -152,12 +206,14 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
   }
 
   function disconnect(account) {
-    return act(`Disconnecting ${account.displayName}…`, () => api.call("POST", `social/accounts/${account.id}/disconnect`, { json: {} }), async () => {
+    return act(`Disconnecting ${account.displayName}…`, () => api.call("POST", `social/accounts/${account.id}/disconnect`, { json: {} }), async (answer) => {
       confirming = null;
       await load();
       focusTarget = "accounts";
       render();
-      say(`${account.displayName} is disconnected. Its stored tokens were erased.`);
+      const canceled = Number(answer?.account?.canceledAnnouncements) || 0;
+      const also = canceled > 0 ? ` ${canceled === 1 ? "Its 1 scheduled announcement was" : `Its ${canceled} scheduled announcements were`} canceled.` : "";
+      say(`${account.displayName} is disconnected. Its stored tokens were erased.${also}`);
     });
   }
 
@@ -181,7 +237,49 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
 
   // ---- pieces of the page
 
+  // The handle and app password form of an app-password provider, for a new account or a reconnect.
+  function signInForm(provider, label, account = null) {
+    const base = `${ids}-${provider}-${account ? account.id : "new"}`;
+    const problem = el("p", { class: "oba-small oba-error", role: "alert", hidden: true, "data-sign-in-problem": "true" });
+    const form = el(
+      "form",
+      {
+        class: "oba-social-sign-in",
+        "data-sign-in": provider,
+        onSubmit: (event) => {
+          event.preventDefault?.();
+          signIn(provider, label, form, account);
+        },
+      },
+      el("p", { class: "oba-small", id: `${base}-hint` }, APP_PASSWORD_HINT),
+      el(
+        "div",
+        { class: "oba-field" },
+        el("label", { for: `${base}-handle` }, `${label} handle`),
+        el("input", { id: `${base}-handle`, type: "text", name: "identifier", "data-field": "identifier", autocomplete: "username", autocapitalize: "none", spellcheck: "false", placeholder: "name.bsky.social", value: account ? String(account.displayName || "").replace(/^@/, "") : "" }),
+      ),
+      el(
+        "div",
+        { class: "oba-field" },
+        el("label", { for: `${base}-password` }, "App password"),
+        el("input", { id: `${base}-password`, type: "password", name: "app-password", "data-field": "app-password", autocomplete: "off", autocapitalize: "none", spellcheck: "false", "aria-describedby": `${base}-hint` }),
+      ),
+      problem,
+      el("div", { class: "oba-landing-actions" }, el("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-action": account ? "social-sign-in-reconnect" : "social-sign-in", "data-provider": provider }, account ? `Reconnect ${account.displayName}` : `Connect ${label}`)),
+    );
+    return form;
+  }
+
   function providerCard(provider) {
+    if (provider.login === "app-password") {
+      return el(
+        "li",
+        { class: "oba-social-provider", "data-provider": provider.provider },
+        el("h4", {}, provider.label),
+        el("p", { class: "oba-small" }, `Signs in to ${provider.label} once with your handle and an app password. The password is used for that one sign-in and never stored; open.blog keeps only the session, sealed on the server. Nothing is connected until you choose the account.`),
+        signInForm(provider.provider, provider.label),
+      );
+    }
     const open = (state.connections || []).some((c) => c.provider === provider.provider && ["pending", "exchanging"].includes(c.status));
     const button = el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "social-connect", "data-provider": provider.provider, "aria-describedby": `${ids}-${provider.provider}-hint`, onClick: () => connect(provider.provider, provider.label) }, `Connect ${provider.label}`);
     return el(
@@ -196,7 +294,13 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
         scopeList(provider.scopes, provider.requiredScopes),
         el("p", { class: "oba-small" }, "Redirect address to register in the provider's app, exactly:"),
         el("p", { class: "oba-small oba-social-wrap" }, el("code", { "data-social-redirect": provider.provider }, provider.redirectUri)),
-        el("p", { class: "oba-small" }, `API version ${provider.version}. Verify it is still current when you set up.`),
+        provider.provider === "mastodon"
+          ? el(
+              "p",
+              { class: "oba-small", "data-social-instance": "mastodon" },
+              `Instance ${provider.instance ? new URL(provider.instance).host : "not named"}. Posts are ${(VISIBILITY_WORDS[provider.visibility] || "Public").toLowerCase()}${provider.media === "cover" ? ", with the post's cover image and its description when it has both" : ""}.`,
+            )
+          : el("p", { class: "oba-small" }, `API version ${provider.version}. Verify it is still current when you set up.`),
       ),
       button,
     );
@@ -204,8 +308,10 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
 
   function waitingPanel(connection) {
     const label = providerName(connection.provider);
-    // The link is built only if the server's address is one of the two providers' own hosts.
-    const link = safeAuthorizeUrl(links.get(connection.id));
+    // The link is built only if the server's address is one of the two providers' own hosts, or
+    // the sign-in page of the Mastodon instance the server is set up for.
+    const instance = connection.provider === "mastodon" ? state?.overview?.providers?.find((p) => p.provider === "mastodon")?.instance || null : null;
+    const link = safeAuthorizeUrl(links.get(connection.id), instance);
     return el(
       "li",
       { class: "oba-social-pending", "data-connection": connection.id },
@@ -264,8 +370,9 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
       "li",
       { class: "oba-social-pending", "data-connection": connection.id, "data-status": "authorized" },
       el("h4", { tabindex: "-1", "data-social-choose-title": "true" }, `${label} approved. Choose a destination.`),
-      el("p", { class: "oba-small" }, "Permissions actually granted:"),
-      scopeList(connection.grantedScopes),
+      // An app-password sign-in grants no named permissions; there is nothing to list.
+      connection.grantedScopes.length ? el("p", { class: "oba-small" }, "Permissions actually granted:") : null,
+      connection.grantedScopes.length ? scopeList(connection.grantedScopes) : null,
       connection.notes.length ? el("ul", { class: "oba-social-notes" }, connection.notes.map((note) => el("li", { class: "oba-small", "data-note": note.code }, note.text))) : null,
       form,
     );
@@ -277,6 +384,8 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
     "no-posting-role": "Your role on this Page does not let you create posts.",
     "role-unverified": "Facebook did not say what you may do on this Page, so it cannot be offered.",
     "no-page-token": "Facebook gave no access for this Page.",
+    "account-inactive": "Bluesky says this account is not active, so it cannot post.",
+    "account-suspended": "Mastodon says this account is suspended, so it cannot post.",
   };
   const reasonText = (reason) => REASONS[reason] || "It cannot be used.";
 
@@ -304,14 +413,15 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
     ].filter(Boolean);
     const actions = [];
     if (account.status !== "disconnected") {
-      actions.push(el("button", { class: `oba-btn${reauth ? " oba-btn-primary" : ""}`, type: "button", "data-action": "social-reconnect", "aria-label": `Reconnect ${account.displayName}`, onClick: () => reconnect(account) }, "Reconnect"));
+      const inline = appPasswordProvider(account.provider);
+      actions.push(el("button", { class: `oba-btn${reauth ? " oba-btn-primary" : ""}`, type: "button", "data-action": "social-reconnect", "aria-label": `Reconnect ${account.displayName}`, ...(inline ? { "aria-expanded": String(signingIn === account.id) } : {}), onClick: () => reconnect(account) }, inline ? "Reconnect…" : "Reconnect"));
       actions.push(el("button", { class: "oba-btn", type: "button", "data-action": "social-disconnect", "aria-label": `Disconnect ${account.displayName}`, "aria-expanded": String(confirming === account.id), onClick: () => { confirming = confirming === account.id ? null : account.id; focusTarget = confirming ? `confirm-${account.id}` : null; render(); } }, "Disconnect…"));
     }
     const confirm = confirming === account.id
       ? el(
           "div",
           { class: "oba-notice oba-social-confirm", role: "group", "aria-label": `Confirm disconnecting ${account.displayName}`, "data-social-confirm": account.id },
-          el("p", { tabindex: "-1", "data-confirm-text": account.id }, `Disconnect ${account.displayName}? Its stored tokens are erased and posts cannot be sent to it until you connect it again. The account stays in your history.`),
+          el("p", { tabindex: "-1", "data-confirm-text": account.id }, `Disconnect ${account.displayName}? Its stored tokens are erased, its scheduled announcements are canceled, and nothing can be posted to it until you connect it again as a new account. The account stays in your history.`),
           el(
             "div",
             { class: "oba-landing-actions" },
@@ -331,6 +441,7 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
         ? el("details", { class: "oba-social-review" }, el("summary", {}, "Permissions granted"), scopeList(account.credential.scopes))
         : null,
       el("div", { class: "oba-landing-actions" }, actions),
+      signingIn === account.id && account.status !== "disconnected" ? el("div", { class: "oba-social-confirm", role: "group", "aria-label": `Reconnect ${account.displayName}`, "data-social-sign-in": account.id }, signInForm(account.provider, providerName(account.provider), account)) : null,
       confirm,
     );
   }
@@ -338,7 +449,7 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
   function render() {
     const { overview, accounts, connections } = state;
     const children = [el("h2", { id: `${ids}-title`, tabindex: "-1" }, "Social accounts")];
-    children.push(el("p", {}, "Connect LinkedIn or Facebook so a published post can be announced there. Your blog works the same without this. Access tokens stay on the server and are never shown here."));
+    children.push(el("p", {}, "Connect LinkedIn, Facebook, Bluesky or Mastodon so a published post can be announced there. Your blog works the same without this. Access tokens stay on the server and are never shown here."));
     children.push(status);
     if (!overview.enabled) {
       children.push(el("p", { class: "oba-notice", "data-social-off": overview.state }, overview.message || OFF_TEXT[overview.state] || OFF_TEXT.off));
@@ -351,7 +462,7 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
     children.push(
       providers.length
         ? el("ul", { class: "oba-social-providers", "aria-labelledby": `${ids}-providers` }, providers.map(providerCard))
-        : el("p", { class: "oba-notice", "data-social-no-providers": "true" }, "No provider is set up on the server yet. Add a LinkedIn or Facebook app's client id and secret (see docs/social-publishing.md)."),
+        : el("p", { class: "oba-notice", "data-social-no-providers": "true" }, "No provider is set up on the server yet. Add a LinkedIn, Facebook or Mastodon app's client id and secret, or turn on Bluesky (see docs/social-publishing.md)."),
     );
     if (overview.problems?.length) {
       children.push(el("p", { class: "oba-small" }, "These provider settings are not valid and were skipped:"));
@@ -384,6 +495,8 @@ export function createSocialAccounts({ api, win = globalThis.window }) {
     if (target === "continue") node = within("a", (a) => a.dataset.action === "social-continue") || within("h4", () => true);
     else if (target === "accounts" || target === "providers") node = within("h3", (h) => h.id === `${ids}-${target}`);
     else if (target.startsWith("confirm-")) node = within("p", (p) => p.dataset.confirmText === target.slice(8));
+    else if (target === "choose") node = within("h4", (h) => h.dataset.socialChooseTitle);
+    else if (target.startsWith("sign-in-")) node = within("input", (input) => input.dataset.field === "app-password" && input.id.endsWith(`-${target.slice(8)}-password`));
     (node || root.querySelector("h2"))?.focus?.();
   }
 

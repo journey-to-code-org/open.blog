@@ -41,41 +41,57 @@ fn every_starter_is_a_valid_page_and_renders_on_every_bundled_theme() {
         for theme in &names {
             let config =
                 serde_json::json!({"title": "T", "url": "https://example.com", "theme": theme});
-            let site = Site::load(
-                SiteConfig::from_json(&config.to_string()).unwrap(),
-                Sources {
-                    posts: vec![SourceFile {
-                        path: "posts/one.md".into(),
-                        contents: "---\ntitle: One\ndate: 2026-10-01\n---\nBody.".into(),
-                    }],
-                    landing: Some(SourceFile {
-                        path: "content/landing.json".into(),
-                        contents: landing.to_string(),
-                    }),
-                    ..Default::default()
-                },
-                LoadOptions::default(),
-            )
-            .unwrap();
-            let page = site
-                .landing
-                .as_ref()
-                .unwrap_or_else(|| panic!("{id} on {theme}: {:?}", site.warnings));
-            assert!(page.validate().is_empty(), "{id} on {theme}");
-            assert!(
-                !site.warnings.iter().any(|w| w.contains("landing")),
-                "{id} on {theme}: {:?}",
-                site.warnings
-            );
-            let files = generate(&site, &set).unwrap();
-            let html = &files
-                .iter()
-                .find(|f| f.path == "index.html")
-                .unwrap()
-                .contents;
-            assert!(html.contains("Sample layout"), "{id} on {theme}");
-            assert!(html.contains("ob-home-"), "{id} on {theme}");
-            assert!(!html.contains("undefined"), "{id} on {theme}");
+            // Once with no recipes, once with one, since a section may list only recipes.
+            for recipe in [
+                None,
+                Some(
+                    "---\ntitle: Soup\ndate: 2026-10-02\nprofile: recipe\ncourse: Dinner\n---\nBody.",
+                ),
+            ] {
+                let mut posts = vec![SourceFile {
+                    path: "posts/one.md".into(),
+                    contents: "---\ntitle: One\ndate: 2026-10-01\n---\nBody.".into(),
+                }];
+                posts.extend(recipe.map(|contents| SourceFile {
+                    path: "posts/soup.md".into(),
+                    contents: contents.into(),
+                }));
+                let site = Site::load(
+                    SiteConfig::from_json(&config.to_string()).unwrap(),
+                    Sources {
+                        posts,
+                        landing: Some(SourceFile {
+                            path: "content/landing.json".into(),
+                            contents: landing.to_string(),
+                        }),
+                        ..Default::default()
+                    },
+                    LoadOptions::default(),
+                )
+                .unwrap();
+                let page = site
+                    .landing
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("{id} on {theme}: {:?}", site.warnings));
+                assert!(page.validate().is_empty(), "{id} on {theme}");
+                assert!(
+                    !site.warnings.iter().any(|w| w.contains("landing")),
+                    "{id} on {theme}: {:?}",
+                    site.warnings
+                );
+                let files = generate(&site, &set).unwrap();
+                let html = &files
+                    .iter()
+                    .find(|f| f.path == "index.html")
+                    .unwrap()
+                    .contents;
+                assert!(html.contains("Sample layout"), "{id} on {theme}");
+                assert!(html.contains("ob-home-"), "{id} on {theme}");
+                assert!(!html.contains("undefined"), "{id} on {theme}");
+                if id == "recipes" {
+                    assert_eq!(html.contains("All recipes"), recipe.is_some(), "{theme}");
+                }
+            }
         }
     }
 }

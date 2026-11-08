@@ -91,7 +91,9 @@ mod capture_assistant;
 mod comparisons;
 mod landing;
 mod look;
+mod quote;
 mod reading_paths;
+mod seasonal;
 mod social;
 mod voice;
 mod voice_guide;
@@ -103,6 +105,7 @@ use crate::clock;
 use crate::fsutil;
 use crate::http::{Request, Response};
 use crate::notebook_store;
+use crate::photo;
 use crate::research_review;
 use crate::site::{self, BuildOptions, BuildReport};
 use crate::source_store::{self, StoreError};
@@ -188,6 +191,8 @@ pub struct AppState {
     /// Serializes durable acknowledgements, including background publishing.
     pub workspace: Mutex<Option<crate::workspace::Workspace>>,
     pub workspace_enabled: bool,
+    /// This server starts again from its image when it restarts (ADR 0353).
+    pub host_resets_files: bool,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
     /// Last analytics backup to the branch, as a unix time.
@@ -269,11 +274,17 @@ impl AppState {
             publish_lock: Mutex::new(()),
             workspace: Mutex::new(None),
             workspace_enabled: false,
+            host_resets_files: crate::workspace::host_resets_files(),
             assistant_operations: AssistantConcurrency::new(2),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
             portability_acknowledgements: Mutex::new(()),
         }
+    }
+
+    /// Whether what Admin saves here can vanish when the server restarts (ADR 0353).
+    pub fn files_may_vanish(&self) -> bool {
+        self.host_resets_files && !self.workspace_enabled
     }
 
     /// Commit the analytics store to the backup branch and push it, at most
@@ -496,7 +507,7 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         authenticate(state, req).map_err(secured)?;
         if name == "upload" {
             let config = site::load_config(&state.root).unwrap_or_default();
-            return Ok(config.admin.max_upload_mb as usize * 1024 * 1024);
+            return Ok(upload_intake_bytes(&config));
         }
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
@@ -524,6 +535,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         }
         if name.starts_with("voice/") {
             return Ok(voice::request_limit(req, name));
+        }
+        if name.starts_with("quote/") {
+            return Ok(quote::MAX_QUOTE_REQUEST_BYTES);
         }
         if let Some(rest) = name.strip_prefix("social/") {
             return Ok(if announcements::owns(rest) {
@@ -567,9 +581,11 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
         "/admin/business.js" => "business.js",
+        "/admin/seasonal.js" => "seasonal.js",
         "/admin/services.js" => "services.js",
         "/admin/paste.js" => "paste.js",
         "/admin/landing-history.js" => "landing-history.js",
+        "/admin/lasting.js" => "lasting.js",
         "/admin/checks.js" => "checks.js",
         "/admin/checks-panel.js" => "checks-panel.js",
         "/admin/job-form.js" => "job-form.js",
@@ -581,6 +597,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/voice-session.js" => "voice-session.js",
         "/admin/voice-polished.js" => "voice-polished.js",
         "/admin/social.js" => "social.js",
+        "/admin/quotes.js" => "quotes.js",
         "/admin/announcements.js" => "announcements.js",
         "/admin/voice-library.js" => "voice-library.js",
         _ => return Response::error(404, "Not found"),
@@ -641,7 +658,10 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
     }
     let mut workspace = lock(&state.workspace);
     // Social routes change nothing on disk, so they never open a workspace transaction.
-    let local_write = !req.is_read_only() && name != "logout" && !name.starts_with("social/");
+    let local_write = !req.is_read_only()
+        && name != "logout"
+        && !name.starts_with("social/")
+        && !name.starts_with("quote/");
     let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
             Ok(transaction) => Some(transaction),
@@ -697,6 +717,9 @@ fn authenticated_api(
             return preview_document(state, token);
         }
     }
+    if let Some(rest) = name.strip_prefix("quote/") {
+        return quote::route(req, &session.user, rest);
+    }
     if let Some(rest) = name.strip_prefix("social/") {
         if announcements::owns(rest) {
             return announcements::handle(state, req, session, rest);
@@ -723,6 +746,10 @@ fn authenticated_api(
         ("PUT", "appearance") => save_appearance_settings(state, req),
         ("GET", "business") => business::get_business(state),
         ("PUT", "business") => business::save_business(state, req),
+        ("GET", "seasonal") => seasonal::get_seasonal(state),
+        ("PUT", "seasonal") => seasonal::save_seasonal(state, req),
+        ("POST", "seasonal/snooze") => seasonal::snooze(state, req),
+        ("POST", "seasonal/open") => seasonal::open(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
         ("POST", "look/preview") => look::preview(state, req),
@@ -917,6 +944,7 @@ fn authenticated_api(
             answer_invitation(state, req, session, false)
         }
         ("GET", "status") => status(state),
+        ("GET", "recipe-notes") => recipe_notes(state),
         ("GET", "analytics") => {
             if !state.analytics_enabled {
                 return Response::error(404, "The built-in counter is off (analytics.builtin)");
@@ -942,6 +970,7 @@ fn authenticated_api(
         ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
+        ("GET", "images") => list_images(state),
         ("POST", "capture-audio") => upload_capture_audio(state, req),
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
@@ -966,7 +995,10 @@ fn authenticated_api(
         ("GET", "publish") => {
             let config = site::load_config(&state.root).unwrap_or_default();
             match crate::publish::status(&state.root, &config) {
-                Ok(v) => Response::json(200, &v),
+                Ok(mut v) => {
+                    v["filesMayVanish"] = json!(state.files_may_vanish());
+                    Response::json(200, &v)
+                }
                 Err(e) => Response::error(500, &e),
             }
         }
@@ -990,12 +1022,24 @@ fn authenticated_api(
             {
                 return Response::error(409, "Durable workspace publishing requires a Git remote; a local-only commit is not a durable publication");
             }
+            // A commit that stays here would be lost with the server's files.
+            let git = crate::git::Git::new(&state.root);
+            if state.files_may_vanish() && git.is_repo() && !git.has_remote(&config.publish.remote)
+            {
+                return Response::error(409, crate::publish::NOWHERE_TO_PUBLISH);
+            }
             match crate::publish::publish(&state.root, &config, summary.as_deref()) {
                 Ok(o) => Response::json(
                     200,
                     &json!({ "ok": true, "message": o.message, "commit": o.commit, "pushed": o.pushed, "committed": o.committed, "drafts": o.skipped_drafts }),
                 ),
-                Err(e) => Response::json(500, &json!({ "ok": false, "error": e })),
+                Err(e) => match crate::publish::failure_for_owner(&e, state.files_may_vanish()) {
+                    Some(failure) => Response::json(
+                        500,
+                        &json!({ "ok": false, "error": failure.message, "reason": failure.reason, "detail": failure.detail }),
+                    ),
+                    None => Response::json(500, &json!({ "ok": false, "error": e })),
+                },
             }
         }
         _ => Response::error(404, "Unknown API route"),
@@ -3983,6 +4027,24 @@ fn meta(state: &AppState) -> Response {
         "services": services,
         "scaffold": openblog_core::job::scaffold_body(),
     });
+    let (owner_courses, owner_cuisines) =
+        openblog_core::recipe_listing::owner_values(&sources.posts);
+    // What the owner has written first, then everyday values, each once.
+    let suggestions = |key: &str| -> Vec<String> {
+        let owner: &[String] = match key {
+            "course" => &owner_courses,
+            "cuisine" => &owner_cuisines,
+            _ => &[],
+        };
+        let builtin = openblog_core::profile::field_suggestions(key).iter();
+        let mut out: Vec<String> = Vec::new();
+        for value in owner.iter().map(String::as_str).chain(builtin.copied()) {
+            if !out.iter().any(|x| x.eq_ignore_ascii_case(value)) {
+                out.push(value.to_string());
+            }
+        }
+        out
+    };
     let profiles: Vec<Json> = openblog_core::profile::catalog()
         .iter()
         .map(|profile| {
@@ -3990,11 +4052,14 @@ fn meta(state: &AppState) -> Response {
                 "id": profile.id,
                 "label": profile.label,
                 "description": profile.description,
+                "starter": profile.starter,
                 "fields": profile.fields.iter().map(|field| json!({
                     "key": field.key,
                     "label": field.label,
                     "kind": field.kind.as_str(),
-                    "help": field.help,
+                    "help": openblog_core::profile::field_help(field, config.recipes.listing),
+                    "aliases": openblog_core::profile::field_aliases(field.key),
+                    "suggestions": suggestions(field.key),
                 })).collect::<Vec<_>>(),
             })
         })
@@ -4024,6 +4089,7 @@ fn meta(state: &AppState) -> Response {
         200,
         &json!({
             "siteTitle": config.title,
+            "recipeListing": config.recipes.listing,
             "siteUrl": config.url,
             "authorReady": !config.author.name.trim().is_empty()
                 && !config.author.url.trim().is_empty(),
@@ -4031,8 +4097,16 @@ fn meta(state: &AppState) -> Response {
             "defaultTheme": config.theme,
             "themes": theme_list,
             "profiles": profiles,
+            "siteUses": {
+                "services": !sources.services.is_empty(),
+                "business": config.business != openblog_core::business::BusinessConfig::default(),
+                // Reminders are for a trade site: shown once a trade is named or they are on.
+                "reminders": !config.business.trade.is_empty() || config.seasonal_prompts.enabled,
+            },
             "job": job_form,
-            "capture": openblog_core::capture::limits_json(config.admin.max_upload_mb),
+            "capture": openblog_core::capture::limits_json(
+                (upload_intake_bytes(&config) / (1024 * 1024)) as u32,
+            ),
             "contributors": config.contributors,
             "creditRoles": credit_roles,
             "pieces": openblog_core::piece::schema_json(),
@@ -4044,6 +4118,7 @@ fn meta(state: &AppState) -> Response {
             "codeInteractionGeneration": assistant_ready,
             "codeRunnerLanguages": code_runner_languages,
             "social": social::is_configured(),
+            "quote": quote::is_configured(),
             "now": clock::now().rfc3339(),
         }),
     )
@@ -4298,7 +4373,7 @@ fn write_private_assistant_credential(
 }
 
 #[cfg(windows)]
-fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
@@ -4334,7 +4409,7 @@ fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(windows)]
-fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
@@ -4372,16 +4447,16 @@ fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(not(windows))]
-fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
     Ok(value.to_vec())
 }
 
 #[cfg(not(windows))]
-fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
     Ok(value.to_vec())
 }
 
-fn write_private_bytes_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
+pub(crate) fn write_private_bytes_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("cannot create private Assistant directory: {error}"))?;
@@ -11802,9 +11877,41 @@ fn status(state: &AppState) -> Response {
             "lastBuilt": s.last_built.map(|d| d.rfc3339()),
             "lastError": s.last_error,
             "nextDue": s.next_due.map(|d| d.rfc3339()),
+            "filesMayVanish": state.files_may_vanish(),
             "scheduled": s.scheduled.iter().map(|(t, slug, d)| json!({ "title": t, "slug": slug, "date": d })).collect::<Vec<_>>(),
         }),
     )
+}
+
+/// What the owner should know about her recipe list on the published site
+/// (ADR 0352). Not a problem with any one document, so it has no other way in.
+///
+/// This loads the whole site, so it has its own route, asked for only by
+/// Overview, and stays out of the content transaction: saves and builds don't
+/// wait for it. A write in progress can at worst make the notes stale or empty
+/// until the next look, and they are only advice.
+fn recipe_notes(state: &AppState) -> Response {
+    Response::json(
+        200,
+        &json!({ "notes": published_recipe_notes(&state.root) }),
+    )
+}
+
+fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
+    let Ok(config) = site::load_config(root) else {
+        return Vec::new();
+    };
+    let Ok(sources) = site::read_sources(root, &config) else {
+        return Vec::new();
+    };
+    let options = LoadOptions {
+        include_drafts: false,
+        now: Some(clock::now()),
+        preview_source: None,
+    };
+    Site::load(config, sources, options)
+        .map(|site| openblog_core::recipe_listing::plan(&site).notes)
+        .unwrap_or_default()
 }
 
 fn list_documents(state: &AppState, req: &Request) -> Response {
@@ -17931,6 +18038,20 @@ fn preview(state: &AppState, req: &Request) -> Response {
         .filter(|finding| finding.source.path == rel)
         .cloned()
         .collect();
+    // The previewed recipe's problems, as codes Admin words for its author (#556).
+    let recipe_problems = preview_site
+        .posts
+        .iter()
+        .find(|post| post.source == rel)
+        .and_then(|post| {
+            let recipe = post.recipe.as_ref()?;
+            Some(openblog_core::recipe_check::check(
+                &preview_site.config,
+                post,
+                recipe,
+            ))
+        })
+        .unwrap_or_default();
     Response::json(
         200,
         &json!({
@@ -17943,6 +18064,9 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "citationsOptedIn": citations_opted_in,
             "portablePreview": portable_preview,
             "warnings": preview_site.warnings,
+            "warningsSource": rel,
+            "recipeProblems": recipe_problems,
+            "recipeNotes": openblog_core::recipe_listing::plan(preview_site).notes,
             "accessibility": accessibility,
             "evidence": evidence
         }),
@@ -18093,27 +18217,67 @@ fn sanitize_upload_stem(name: &str) -> String {
     }
 }
 
+/// Whether these are the bytes of an HEIC or HEIF photo, the format iPhones take pictures in.
+fn is_heic(bytes: &[u8]) -> bool {
+    bytes.len() > 12
+        && &bytes[4..8] == b"ftyp"
+        && [
+            b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"mif1", b"msf1",
+        ]
+        .iter()
+        .any(|brand| &bytes[8..12] == *brand)
+}
+
+/// The largest upload that is read: a photo over `admin.maxUploadMb` can still be reduced to fit under it.
+fn upload_intake_bytes(config: &SiteConfig) -> usize {
+    (config.admin.max_upload_mb as usize).max(photo::INTAKE_MB) * 1024 * 1024
+}
+
 fn upload(state: &AppState, req: &Request) -> Response {
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
     };
-    let max = config.admin.max_upload_mb as usize * 1024 * 1024;
     if req.body.is_empty() {
         return Response::error(400, "No image data");
     }
-    if req.body.len() > max {
+    if req.body.len() > upload_intake_bytes(&config) {
         return Response::error(
             413,
-            &format!("Images can be at most {} MB", config.admin.max_upload_mb),
+            &format!(
+                "This picture is over {} MB, which is too large to use. Try a smaller copy.",
+                upload_intake_bytes(&config) / (1024 * 1024)
+            ),
         );
     }
-    let Some(ext) = sniff_image(&req.body) else {
+    let Some(sniffed) = sniff_image(&req.body) else {
+        if is_heic(&req.body) {
+            return Response::error(
+                415,
+                "This photo is in the HEIC format iPhones use, which web pages cannot show. \
+                 Choose it directly from the iPhone, or save a copy as a JPEG and upload that.",
+            );
+        }
         return Response::error(
             415,
             "Only PNG, JPEG, GIF, WebP, and AVIF images can be uploaded",
         );
     };
+    // Reduced before any lock is taken, so a large photo never holds up a save or a build.
+    let fitted = photo::fit_for_web(&req.body, sniffed);
+    let (bytes, ext) = match &fitted {
+        Some(fitted) => (fitted.bytes.as_slice(), fitted.extension),
+        None => (req.body.as_slice(), sniffed),
+    };
+    if bytes.len() > config.admin.max_upload_mb as usize * 1024 * 1024 {
+        return Response::error(
+            413,
+            &format!(
+                "This picture could not be made smaller and is over the {} MB limit. Try a smaller copy.",
+                config.admin.max_upload_mb
+            ),
+        );
+    }
     let name = req.query.get("name").map(String::as_str).unwrap_or("image");
     // A capture's photo has a fixed name per capture id and slot, so sending it again lands on the same
     // file instead of a second copy (ADR 0297).
@@ -18162,20 +18326,66 @@ fn upload(state: &AppState, req: &Request) -> Response {
         n += 1;
     }
     let rel = format!("{dir_rel}/{file_name}");
-    if let Err(e) = fsutil::write_file(&static_dir.join(&rel), &req.body) {
+    if let Err(e) = fsutil::write_file(&static_dir.join(&rel), bytes) {
         return Response::error(500, &e);
     }
     // Make it available immediately without a full rebuild.
     let out = state.out_dir(&config);
     if out.join(fsutil::MARKER).exists() {
-        let _ = fsutil::write_file(&out.join(&rel), &req.body);
+        let _ = fsutil::write_file(&out.join(&rel), bytes);
     }
     let url = format!("/{rel}");
-    eprintln!("admin: uploaded {url} ({} bytes)", req.body.len());
+    eprintln!(
+        "admin: uploaded {url} ({} bytes, {} sent)",
+        bytes.len(),
+        req.body.len()
+    );
     Response::json(
         201,
         &json!({ "url": url, "markdown": format!("![]({url})") }),
     )
+}
+
+/// The most earlier uploads listed for choosing from, newest first.
+const MAX_LISTED_IMAGES: usize = 300;
+
+/// The pictures uploaded so far, newest first, so that a picture can be used again without its address.
+fn list_images(state: &AppState) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(c) => c,
+        Err(e) => return Response::error(500, &e),
+    };
+    let static_dir = state.root.join(&config.paths.static_dir);
+    let mut images: Vec<(std::time::SystemTime, String)> =
+        fsutil::walk(&static_dir.join("images/uploads"))
+            .into_iter()
+            .filter(|path| {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ["png", "jpg", "gif", "webp", "avif"].contains(&ext))
+            })
+            .map(|path| {
+                let modified = fs::metadata(&path)
+                    .and_then(|meta| meta.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                (modified, fsutil::relative(&static_dir, &path))
+            })
+            .collect();
+    images.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let more = images.len() > MAX_LISTED_IMAGES;
+    let images: Vec<Json> = images
+        .into_iter()
+        .take(MAX_LISTED_IMAGES)
+        .map(|(_, rel)| {
+            let name = rel
+                .rsplit('/')
+                .next()
+                .and_then(|file| file.rsplit_once('.'))
+                .map_or(rel.as_str(), |(stem, _)| stem);
+            json!({ "url": format!("/{rel}"), "name": name })
+        })
+        .collect();
+    Response::json(200, &json!({ "images": images, "more": more }))
 }
 
 /// The directory of a site's capture ledger and voice notes: private, never built, never served.
@@ -18430,8 +18640,10 @@ mod tests {
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod quote_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod seasonal_routes;
     mod service_routes;
     mod social_routes;
     mod voice_assistant_routes;
@@ -19938,6 +20150,28 @@ mod tests {
                     ));
                 }
             }
+            // A recipe's schema.org export (ADR 0333).
+            if let Ok((content, _)) = crate::portable_export::recipe_export(&site, post) {
+                artifacts.push((format!("recipe export of {}", post.slug), content));
+            }
+            // Every text file of a recipe directory package and its guide page (ADR 0336).
+            if let Ok(package) = crate::recipe_package::package(
+                root,
+                &site,
+                post,
+                &openblog_core::recipe_directory::Directory::ALL,
+            ) {
+                for file in &package.files {
+                    artifacts.push((
+                        format!("recipe package {} of {}", file.name, post.slug),
+                        String::from_utf8_lossy(&file.contents).into_owned(),
+                    ));
+                }
+                artifacts.push((
+                    format!("recipe package guide of {}", post.slug),
+                    openblog_core::recipe_directory::guide_page(&package),
+                ));
+            }
         }
         artifacts
     }
@@ -19945,6 +20179,12 @@ mod tests {
     #[test]
     fn a_sentinel_in_every_private_store_reaches_no_public_artifact_and_approved_fields_do() {
         let f = boundary_fixture("boundary-corpus");
+        // A recipe, so its schema.org export is scanned too (ADR 0333).
+        fs::write(
+            f.dir.join("content/posts/soup.md"),
+            "---\ntitle: Soup\ndate: 2026-10-02\nprofile: recipe\nservings: 2\n---\n\n## Ingredients\n\n- 1 leek\n\n## Steps\n\n1. Simmer.\n",
+        )
+        .unwrap();
         let before = research_store_files(&f);
         let report = production(&f.dir);
         let artifacts = public_artifacts(&f.dir);
@@ -25497,6 +25737,224 @@ What I read:
         assert_eq!(handle(&f.state, &same).status, 201);
     }
 
+    /// A site in Git whose remote answers every push the way a host answers one with no credential.
+    fn site_whose_push_is_refused(f: &Fixture) {
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        let remote = f.dir.with_extension("remote.git");
+        let _ = fs::remove_dir_all(&remote);
+        fs::create_dir_all(&remote).unwrap();
+        crate::git::Git::new(&remote)
+            .run(&["init", "--bare", "-q"])
+            .unwrap();
+        let hook = remote.join("hooks/pre-receive");
+        fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        fs::write(
+            &hook,
+            "#!/bin/sh\necho \"fatal: Authentication failed for 'https://helper:hunter2@github.com/me/blog.git/'\" >&2\nexit 1\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git.run(&["remote", "add", "origin", remote.to_str().unwrap()])
+            .unwrap();
+    }
+
+    #[test]
+    fn admin_says_when_saved_work_can_vanish_only_on_a_host_that_resets_without_a_workspace() {
+        let mut f = fixture("files-may-vanish");
+        let session = login_ok(&f);
+        let answers = |f: &Fixture| {
+            (
+                body_json(&handle(
+                    &f.state,
+                    &authed(req("GET", "/admin/api/status"), &session, false),
+                ))["filesMayVanish"]
+                    .clone(),
+                body_json(&handle(
+                    &f.state,
+                    &authed(req("GET", "/admin/api/publish"), &session, false),
+                ))["filesMayVanish"]
+                    .clone(),
+            )
+        };
+        // A local machine.
+        assert_eq!(answers(&f), (json!(false), json!(false)));
+        // The host resets its files and nothing keeps them. The answer does not depend on Git.
+        Arc::get_mut(&mut f.state).unwrap().host_resets_files = true;
+        assert_eq!(answers(&f), (json!(true), json!(true)));
+        // The same host with the durable workspace.
+        Arc::get_mut(&mut f.state).unwrap().workspace_enabled = true;
+        assert_eq!(answers(&f), (json!(false), json!(false)));
+    }
+
+    #[test]
+    fn a_refused_push_reads_in_plain_words_with_the_detail_kept_for_whoever_helps() {
+        let mut f = fixture("publish-no-credential");
+        let session = login_ok(&f);
+        site_whose_push_is_refused(&f);
+        let publish = |f: &Fixture| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/publish", json!({ "summary": "" })),
+                    &session,
+                    true,
+                ),
+            )
+        };
+
+        let answer = publish(&f);
+        assert_eq!(answer.status, 500);
+        let answer = body_json(&answer);
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["reason"], "no-permission");
+        let words = answer["error"].as_str().unwrap();
+        assert!(words.contains("does not have permission"), "{words}");
+        assert!(words.contains("still here"), "{words}");
+        assert!(!words.to_lowercase().contains("git"), "{words}");
+        let detail = answer["detail"].as_str().unwrap();
+        assert!(detail.contains("git push failed"), "{detail}");
+        assert!(detail.contains("Authentication failed"), "{detail}");
+        assert!(!detail.contains("hunter2"), "{detail}");
+
+        // Where the server's files do not last, she hears that too.
+        Arc::get_mut(&mut f.state).unwrap().host_resets_files = true;
+        let answer = body_json(&publish(&f));
+        let words = answer["error"].as_str().unwrap();
+        assert!(words.contains("can vanish"), "{words}");
+        assert!(!words.contains("still here"), "{words}");
+    }
+
+    #[test]
+    fn a_commit_with_nowhere_to_go_is_refused_where_the_files_do_not_last() {
+        let mut f = fixture("publish-no-remote");
+        let session = login_ok(&f);
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        Arc::get_mut(&mut f.state).unwrap().host_resets_files = true;
+        let answer = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/publish", json!({ "summary": "" })),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(answer.status, 409);
+        assert!(body_json(&answer)["error"]
+            .as_str()
+            .unwrap()
+            .contains("nowhere to send your changes"));
+        assert!(git.run(&["log", "-1"]).is_err(), "nothing was committed");
+    }
+
+    #[test]
+    fn admin_says_what_moved_in_the_recipe_list_without_holding_up_status_or_saves() {
+        let f = fixture("recipe-notes");
+        let quiet = body_json(&recipe_notes(&f.state));
+        assert_eq!(quiet["notes"], json!([]));
+        std::fs::write(
+            f.dir.join("content/posts/soup.md"),
+            "---\ntitle: Soup\ndate: 2026-10-01\nprofile: recipe\ncourse: \"\u{1F370}\"\n---\nBody.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(f.dir.join("content/pages")).unwrap();
+        std::fs::write(
+            f.dir.join("content/pages/recipes.md"),
+            "---\ntitle: Recipes\n---\nMine.\n",
+        )
+        .unwrap();
+        // Every open of Overview and the Posts list asks for the status, which never loads the site.
+        assert!(body_json(&status(&f.state)).get("recipeNotes").is_none());
+        // Answered while a save holds the content transaction, so a save never waits for it.
+        let held = lock(&f.state.build);
+        let (done, answered) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| done.send(body_json(&recipe_notes(&f.state))).unwrap());
+            let notes = answered
+                .recv_timeout(std::time::Duration::from_secs(60))
+                .expect("the notes wait for nothing");
+            drop(held);
+            let notes = notes["notes"].as_array().unwrap();
+            assert_eq!(notes.len(), 2, "{notes:?}");
+            assert!(notes[0].as_str().unwrap().contains("/recipes/all/"));
+            assert!(notes[0].as_str().unwrap().contains("change its Slug"));
+            assert!(notes[1].as_str().unwrap().contains('\u{1F370}'));
+        });
+    }
+
+    #[test]
+    fn admin_meta_promises_browsing_by_course_only_on_a_site_with_a_recipe_list() {
+        let f = fixture("recipe-listing-off");
+        let help = |state: &AppState| {
+            let meta = body_json(&meta(state));
+            let recipe = meta["profiles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|profile| profile["id"] == "recipe")
+                .unwrap()
+                .clone();
+            let fields = recipe["fields"].as_array().unwrap().clone();
+            let of = |key: &str| {
+                fields.iter().find(|field| field["key"] == key).unwrap()["help"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            };
+            (meta["recipeListing"].clone(), of("course"), of("cuisine"))
+        };
+        let (listing, course, cuisine) = help(&f.state);
+        assert_eq!(listing, json!(true));
+        assert!(course.contains("Readers can browse") && cuisine.contains("Readers can browse"));
+
+        let path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        config["recipes"] = json!({ "listing": false });
+        std::fs::write(&path, config.to_string()).unwrap();
+        let (listing, course, cuisine) = help(&f.state);
+        assert_eq!(listing, json!(false));
+        assert!(!course.contains("browse") && !cuisine.contains("browse"));
+        assert!(course.contains("Use a comma") && cuisine.contains("Use a comma"));
+    }
+
+    #[test]
+    fn admin_meta_offers_the_owners_course_and_cuisine_first_and_once() {
+        let f = fixture("profile-meta-values");
+        std::fs::write(
+            f.dir.join("content/posts/soup.md"),
+            "---\ntitle: Soup\ndate: 2026-10-01\nprofile: recipe\ncategory: Weeknight, dessert\ncuisine: Nordic\n---\nBody.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            f.dir.join("content/posts/news.md"),
+            "---\ntitle: News\ndate: 2026-10-01\ncategory: Politics\n---\nBody.\n",
+        )
+        .unwrap();
+        let profiles = body_json(&meta(&f.state))["profiles"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let course = profiles[1]["fields"][1]["suggestions"].as_array().unwrap();
+        assert_eq!(course[0], "Weeknight");
+        assert_eq!(course[1], "dessert");
+        assert_eq!(course[2], "Breakfast");
+        assert!(!course.iter().any(|value| value == "Dessert"), "once");
+        assert!(!course.iter().any(|value| value == "Politics"));
+        assert_eq!(profiles[1]["fields"][2]["suggestions"][0], "Nordic");
+    }
+
     #[test]
     fn admin_meta_describes_available_content_profiles() {
         let f = fixture("profile-meta");
@@ -25507,8 +25965,23 @@ What I read:
         assert_eq!(profiles[0]["id"], "article");
         assert_eq!(profiles[0]["label"], "Article");
         assert_eq!(profiles[1]["id"], "recipe");
+        assert!(profiles[1]["starter"]
+            .as_str()
+            .unwrap()
+            .contains("## Ingredients"));
+        assert!(profiles[0]["starter"].is_null());
         assert_eq!(profiles[1]["fields"][0]["key"], "servings");
-        assert_eq!(profiles[1]["fields"][2]["kind"], "duration");
+        assert_eq!(profiles[1]["fields"][4]["kind"], "duration");
+        assert_eq!(profiles[1]["fields"][1]["key"], "course");
+        assert_eq!(
+            profiles[1]["fields"][1]["aliases"],
+            json!(["category", "recipeCategory"])
+        );
+        assert_eq!(profiles[1]["fields"][1]["suggestions"][0], "Breakfast");
+        assert_eq!(profiles[1]["fields"][2]["key"], "cuisine");
+        assert_eq!(profiles[1]["fields"][2]["aliases"], json!([]));
+        assert_eq!(profiles[1]["fields"][2]["suggestions"][0], "American");
+        assert_eq!(profiles[1]["fields"][0]["suggestions"], json!([]));
         assert_eq!(profiles[2]["id"], "research");
         assert_eq!(profiles[2]["fields"][0]["key"], "doi");
         assert_eq!(profiles[2]["fields"][1]["key"], "license");
@@ -33943,8 +34416,83 @@ href: /about/
             "existing files are never overwritten"
         );
         let mut big = authed(req("POST", "/admin/api/upload?name=x.png"), &session, true);
-        big.body = vec![0u8; 11 * 1024 * 1024];
-        assert_eq!(handle(&f.state, &big).status, 413);
+        big.body = vec![0u8; 41 * 1024 * 1024];
+        assert_eq!(handle(&f.state, &big).status, 413, "beyond what is read");
+        // Over the site's limit, and not a picture that can be decoded and reduced.
+        big.body = [&png[..], &vec![0u8; 11 * 1024 * 1024]].concat();
+        assert_eq!(handle(&f.state, &big).status, 413, "cannot be reduced");
+    }
+
+    #[test]
+    fn a_large_photo_is_reduced_on_upload_and_listed_for_use_again() {
+        let f = fixture("upload-reduce");
+        let session = login_ok(&f);
+        let mut seed = 1u32;
+        let photo = image::RgbImage::from_fn(5000, 3000, |x, y| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let noise = (seed >> 27) as u8;
+            image::Rgb([(x / 25) as u8 + noise, (y / 25) as u8 + noise, noise])
+        });
+        let mut sent = Vec::new();
+        image::ImageEncoder::write_image(
+            image::codecs::png::PngEncoder::new(&mut sent),
+            &photo,
+            5000,
+            3000,
+            image::ExtendedColorType::Rgb8,
+        )
+        .unwrap();
+        assert!(
+            sent.len() > 11 * 1024 * 1024,
+            "over the 10 MB limit: {}",
+            sent.len()
+        );
+        let send = |name: &str, body: &[u8]| {
+            let mut r = authed(
+                req("POST", &format!("/admin/api/upload?name={name}")),
+                &session,
+                true,
+            );
+            r.body = body.to_vec();
+            handle(&f.state, &r)
+        };
+        let done = send("Lemon Cake.png", &sent);
+        assert_eq!(done.status, 201, "{}", String::from_utf8_lossy(&done.body));
+        let url = body_json(&done)["url"].as_str().unwrap().to_string();
+        assert!(url.ends_with("/lemon-cake.jpg"), "{url}");
+        for root in ["static", "dist"] {
+            let kept = fs::read(f.dir.join(root).join(url.trim_start_matches('/'))).unwrap();
+            assert!(kept.len() < 2 * 1024 * 1024, "{root}: {}", kept.len());
+            assert!(kept.starts_with(&[0xFF, 0xD8, 0xFF]), "{root}");
+        }
+
+        let heic = send("IMG_0001.HEIC", b"\0\0\0\x18ftypheic\0\0\0\0heic");
+        assert_eq!(heic.status, 415);
+        assert!(body_json(&heic)["error"].as_str().unwrap().contains("HEIC"));
+
+        let listed = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/images"), &session, false),
+        );
+        assert_eq!(listed.status, 200);
+        let body = body_json(&listed);
+        assert_eq!(body["images"][0]["url"], url.as_str());
+        assert_eq!(body["images"][0]["name"], "lemon-cake");
+        assert_eq!(body["more"], false);
+        let meta = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/meta"), &session, false),
+        );
+        assert_eq!(
+            body_json(&meta)["capture"]["maxPhotoBytes"],
+            40 * 1024 * 1024,
+            "a phone sends a large photo instead of refusing it first"
+        );
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/images")).status,
+            401,
+            "only for someone signed in"
+        );
     }
 
     #[test]

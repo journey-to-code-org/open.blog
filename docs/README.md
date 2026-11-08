@@ -11,6 +11,12 @@ If you are new, read these in order; each one stands alone otherwise.
    counts on a static host, and a counter you can host for free.
 5. [Cross-posting](cross-posting.md): safely syndicate articles to Hashnode, DEV, Medium,
    Ghost, and WordPress without leaking credentials or creating duplicate originals.
+   [Provider capabilities](provider-capabilities.md) lists what each destination can take,
+   [Community submissions](community-submissions.md) prepares a post for you to submit by hand to Hacker
+   News or Reddit, or a Product Hunt launch kit, [Webmention](webmention.md) tells the sites a post links
+   that it links them, [Visual cards](visual-cards.md) builds and checks Pinterest and link preview cards
+   from your own images, and [Pinterest Pins](pinterest.md) sends a confirmed Pin of one to your board
+   (opt-in).
 6. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
 7. [Adding web components to a theme](theme-components.md): scripts, heading effects,
@@ -42,6 +48,9 @@ If you are new, read these in order; each one stands alone otherwise.
    audience explanations, and your responsibility for AI-drafted text.
 20. [Jobs](jobs.md): finished trade work as posts, with a documented `job` front matter.
 21. [Services](services.md): each service described once, with a price band, a timeline and FAQs.
+22. [Quote requests](quote-requests.md): an opt-in form a visitor uses to ask for a quote, kept in your private
+   Supabase workspace and managed in Admin. Off by default, and it needs the Netlify function: it does not work
+   on a site run on Render yet.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
@@ -148,7 +157,7 @@ openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
 openblog check [--json]                 Validate content, themes, and the private source library, notebook, Knowledge Atlas and claims, write nothing;
                                         --json prints the research readiness report as JSON
-openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
+openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld|recipe-package] [--directory names] [--out path] [--write]
                                         Preview or write portable Markdown, or the post's
                                         cited references as CSL JSON or BibTeX
 openblog syndicate <slug> [--target a,b] [--write] [--publish]

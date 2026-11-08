@@ -9,8 +9,10 @@ mod assistant_storage;
 mod atlas_store;
 mod auth;
 mod boundary;
+mod card;
 mod claims_store;
 mod clock;
+mod community;
 mod comparison_store;
 mod config_text;
 mod contributor_migration;
@@ -20,16 +22,21 @@ mod hashnode;
 mod http;
 mod landing_history;
 mod landing_store;
+mod mentions;
 mod notebook_store;
 mod paths_exchange;
+mod photo;
+mod pinterest;
 mod portable_export;
 mod private_guard;
 mod publish;
 mod readiness;
 mod reading_path_store;
+mod recipe_package;
 mod research_review;
 mod safe_http;
 mod scaffold;
+mod seasonal_store;
 mod selection_store;
 mod serve;
 mod shared_publications;
@@ -39,6 +46,7 @@ mod source_store;
 mod syndication;
 mod transaction;
 mod url_context;
+mod video_release;
 mod voice_assistant;
 mod voice_capture;
 mod voice_cli;
@@ -47,7 +55,9 @@ mod voice_exchange;
 mod voice_prompts;
 mod voice_session;
 mod voice_store;
+mod webmention;
 mod workspace;
+mod youtube;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -71,13 +81,30 @@ COMMANDS
     user add|passwd|remove|list <name>
                                Manage who can sign in to the admin editor
     check                      Validate content and themes without writing anything
-    export <slug>              Preview or write a portable Markdown article, or the
-                               post's cited references as CSL JSON or BibTeX
+    export <slug>              Preview or write a portable Markdown article, the post's
+                               cited references as CSL JSON or BibTeX, a recipe as
+                               schema.org Recipe JSON-LD, or a recipe directory package
     paths export|import        Export reading paths to one file, or check and import one
                                (dry run unless --write)
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
+    submit <slug> --to <where>  Prepare a community submission or Product Hunt launch kit to
+                               make by hand; open.blog never submits for you
+    webmention [slug]          Plan Webmentions to the sites a post links (add --write to send;
+                               needs webmention.enabled in openblog.json)
+    mentions [action]          Receive and moderate Webmentions from other sites: list, pull,
+                               approve, reject, remove, block, unblock, prune (see mentions OPTIONS)
+    card <slug>                Build and check a published post's visual cards for Pinterest
+                               and link previews from its own images; sends nothing
+    pinterest boards           List the Pinterest boards your token can pin to (opt-in)
+    pinterest pin <slug>       Preview a post's Pin; --write --confirm <digest> sends it
+    video <slug>               Check a video post's YouTube release: title, description with the
+                               article link, thumbnail, chapters, captions, transcript and consent;
+                               uploads nothing unless approved and asked to (see video OPTIONS)
+    youtube connect|disconnect|status
+                               Connect a YouTube channel for approved uploads (off until
+                               OPENBLOG_YOUTUBE_CLIENT_ID is set), revoke it, or show it
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -114,12 +141,89 @@ syndicate OPTIONS
     --write                    Send remote create/update requests and save private state
     --publish                  Request publication (also requires target allowPublish: true)
     --json                     Print a deterministic dry-run plan with before/after artifacts
+    --preview <new folder>     Write each destination's exact copy, plan.json and an accessible
+                               index.html preview with eligibility errors; sends nothing
+    --approve <digest>         Approve exactly the previewed plan (sends nothing); with
+                               syndication.requireApproval, --write sends only what is approved
+
+submit OPTIONS
+    --to hacker-news,reddit:rust
+                               Where to prepare a submission (each must be enabled under
+                               community in openblog.json; a Reddit community needs the rules
+                               you wrote down for it)
+    --to product-hunt          Prepare a launch kit, alone, from launches/<slug>.json: the
+                               fields to copy, the screenshots, a preview and Product Hunt's
+                               own form
+    --title <text>             Your own title for this submission instead of the post's
+    --kit <new folder>         Write an accessible index.html checklist and kit.json there
+                               instead of printing the kit
+    --confirm <destination>    Record that you submitted it there by hand (your word; open.blog
+                               never checks), so it is not prepared again
+    --permalink <address>      With --confirm: the address of your submission
+    --again                    Prepare an HN repost after a quiet year or a Product Hunt
+                               relaunch, or record a second submission
+    --list                     Show the submissions you confirmed for the post
+
+webmention OPTIONS
+    [slug]                     One post (default: every published post)
+    --write                    Check the post is live, then discover each linked site's endpoint and
+                               send the due Webmentions; outcomes go to the private queue
+                               (webmention.stateFile) and failures are retried later with back-off
+    --json                     Print the dry-run plan as JSON
+
+mentions OPTIONS
+    list [--status <s>]        The private inbox (pending, approved, rejected, removed, blocked)
+    pull --write               Take what the hosted receiver stored, check each source links the
+                               post (through the public-only fetcher) and queue it for moderation;
+                               needs webmention.receive in openblog.json and
+                               OPENBLOG_WEBMENTION_ADMIN_KEY (a dry run contacts nothing)
+    approve <id> --revision <n>
+                               Publish a mention at the revision you read in the list
+    reject|remove <id> [--reason spam|abusive|off-topic|duplicate|personal-data|other]
+    block|unblock <host>       Drop a site's requests unread (its subdomains too) and hide its
+                               mentions at once
+    prune [--write]            Delete closed and stale mentions older than
+                               webmention.receive.retentionDays (approved ones are kept)
+    --json                     Print list or pull as JSON
+
+card OPTIONS
+    --format a,b               pinterest-pin, facebook-link, linkedin-link (default: all)
+    --json                     Print the card plan with every check and the chosen images
+    --preview <new folder>     Write cards.json, an SVG layout preview per card and an
+                               accessible index.html; reads only the site's own image files
+
+pinterest OPTIONS (off unless syndication.pinterest.enabled; token in PINTEREST_ACCESS_TOKEN)
+    --board <id>               The board (default: syndication.pinterest.board)
+    --section <id>             An optional board section
+    --json                     Print the Pin plan, or the boards, as JSON
+    --write --confirm <digest> Send exactly the previewed Pin, after checking the board is yours
+    --reconcile                Look for the Pin an unsettled attempt may have created
+    --forget-attempt           After checking the board yourself, allow an unsettled Pin again
+video OPTIONS
+    --json                     Print the YouTube preview as JSON
+    --preview <new folder>     Write title.txt, description.txt, tags.txt, transcript.txt, the
+                               thumbnail, preview.json and an accessible index.html; uploads nothing
+    --approve <digest>         Approve exactly the previewed release and its video file (sends
+                               nothing); add --publish-at <RFC 3339 time> to have YouTube publish it
+    --upload                   Upload the approved release as a private video, resume an
+                               interrupted upload, or retry its thumbnail
+    --lookup                   After an upload whose outcome is unknown, look in the channel's uploads
+    --settle uploaded:<id>|not-uploaded
+                               Settle an unknown upload by hand after checking YouTube Studio
+    --status                   Show the release's private upload record (add --json for JSON)
 
 export OPTIONS
-    --format markdown|csl-json|bibtex
+    --format markdown|csl-json|bibtex|recipe-json-ld|recipe-package
                                Portable format (default: markdown); csl-json and bibtex
                                export the public description of the references the post
-                               cites, and list what the format leaves out
+                               cites, and list what the format leaves out; recipe-json-ld
+                               checks a recipe and exports the schema.org Recipe its page
+                               carries, refusing while the check finds an error;
+                               recipe-package prepares a folder (recipe.json, the text to
+                               paste, the cover and a guide page) for recipe directories'
+                               own submission steps, sending nothing
+    --directory google-search,pinterest,foodgawker
+                               recipe-package only: the directories to check and prepare for
     --out <path>               Output file for an explicit --write
     --write                    Write the export (otherwise print a dry-run preview)
     --json                     Print a versioned dry-run manifest with exact content
@@ -228,9 +332,23 @@ const SWITCHES: &[&str] = &[
     "scrap",
     "stdin",
     "yes",
+    "again",
+    "reconcile",
+    "forget-attempt",
+    "upload",
+    "lookup",
 ];
 
+/// Switches that only one command takes, because another command takes the same name with a
+/// value: `video --status` shows the upload record, while `mentions list --status <s>` filters.
+const COMMAND_SWITCHES: &[(&str, &str)] = &[("video", "status")];
+
+#[cfg(test)]
 fn parse_args(raw: &[String]) -> Result<Args, String> {
+    parse_command_args("", raw)
+}
+
+fn parse_command_args(command: &str, raw: &[String]) -> Result<Args, String> {
     let mut args = Args {
         positional: Vec::new(),
         options: HashMap::new(),
@@ -242,7 +360,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         if let Some(name) = token.strip_prefix("--") {
             if let Some((key, value)) = name.split_once('=') {
                 args.options.insert(key.to_string(), value.to_string());
-            } else if SWITCHES.contains(&name) {
+            } else if SWITCHES.contains(&name) || COMMAND_SWITCHES.contains(&(command, name)) {
                 args.switches.insert(name.to_string());
             } else {
                 i += 1;
@@ -275,7 +393,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         print!("{HELP}");
         return Ok(());
     };
-    let args = parse_args(&raw[1..])?;
+    let args = parse_command_args(command, &raw[1..])?;
     if args.switches.contains("help") {
         print!("{HELP}");
         return Ok(());
@@ -438,9 +556,46 @@ fn run(raw: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        "card" => {
+            let slug = args.positional.first().ok_or(
+                "usage: openblog card <slug> [--format pinterest-pin,facebook-link,linkedin-link] [--json] [--preview <new folder>]",
+            )?;
+            card::run(
+                &root,
+                slug,
+                card::Options {
+                    formats: args.options.get("format").cloned(),
+                    json: args.switches.contains("json"),
+                    preview: args.options.get("preview").cloned(),
+                },
+            )
+        }
+        "pinterest" => {
+            const USAGE: &str = "usage: openblog pinterest boards [--json] | openblog pinterest pin <slug> [--board <id>] [--section <id>] [--json] [--write --confirm <digest>] [--reconcile] [--forget-attempt]";
+            match args.positional.first().map(String::as_str) {
+                Some("boards") => pinterest::run_boards(&root, args.switches.contains("json")),
+                Some("pin") => {
+                    let slug = args.positional.get(1).ok_or(USAGE)?;
+                    pinterest::run_pin(
+                        &root,
+                        slug,
+                        pinterest::Options {
+                            board: args.options.get("board").cloned(),
+                            section: args.options.get("section").cloned(),
+                            json: args.switches.contains("json"),
+                            write: args.switches.contains("write"),
+                            confirm: args.options.get("confirm").cloned(),
+                            reconcile: args.switches.contains("reconcile"),
+                            forget_attempt: args.switches.contains("forget-attempt"),
+                        },
+                    )
+                }
+                _ => Err(USAGE.into()),
+            }
+        }
         "syndicate" => {
             let slug = args.positional.first().ok_or(
-                "usage: openblog syndicate <slug> [--target a,b] [--json] [--write] [--publish]",
+                "usage: openblog syndicate <slug> [--target a,b] [--json] [--write] [--publish] [--preview <new folder>] [--approve <digest>]",
             )?;
             let target_names = args
                 .options
@@ -462,8 +617,74 @@ fn run(raw: &[String]) -> Result<(), String> {
                     write: args.switches.contains("write"),
                     publish: args.switches.contains("publish"),
                     json: args.switches.contains("json"),
+                    preview: args.options.get("preview").cloned(),
+                    approve: args.options.get("approve").cloned(),
                 },
             )
+        }
+        "submit" => {
+            let slug = args.positional.first().ok_or(community::USAGE)?;
+            community::run(
+                &root,
+                slug,
+                community::Options {
+                    to: args.options.get("to").cloned(),
+                    title: args.options.get("title").cloned(),
+                    kit: args.options.get("kit").cloned(),
+                    confirm: args.options.get("confirm").cloned(),
+                    permalink: args.options.get("permalink").cloned(),
+                    list: args.switches.contains("list"),
+                    again: args.switches.contains("again"),
+                },
+            )
+        }
+
+        "mentions" => mentions::run(
+            &root,
+            mentions::Options {
+                action: args.positional.first().cloned(),
+                argument: args.positional.get(1).cloned(),
+                write: args.switches.contains("write"),
+                json: args.switches.contains("json"),
+                status: args.options.get("status").cloned(),
+                reason: args.options.get("reason").cloned(),
+                revision: args.options.get("revision").cloned(),
+            },
+        ),
+        "webmention" => webmention::run(
+            &root,
+            webmention::Options {
+                slug: args.positional.first().cloned(),
+                write: args.switches.contains("write"),
+                json: args.switches.contains("json"),
+            },
+        ),
+        "video" => {
+            let slug = args
+                .positional
+                .first()
+                .ok_or("usage: openblog video <slug> [--json] [--preview <new folder>]")?;
+            video_release::run(
+                &root,
+                slug,
+                video_release::Options {
+                    json: args.switches.contains("json"),
+                    preview: args.options.get("preview").cloned(),
+                    approve: args.options.get("approve").cloned(),
+                    publish_at: args.options.get("publish-at").cloned(),
+                    upload: args.switches.contains("upload"),
+                    lookup: args.switches.contains("lookup"),
+                    settle: args.options.get("settle").cloned(),
+                    status: args.switches.contains("status"),
+                },
+            )
+        }
+        "youtube" => {
+            let action = args
+                .positional
+                .first()
+                .ok_or("usage: openblog youtube connect|disconnect|status")?;
+            youtube::command(&root, action)
         }
         "paths" => {
             let options = paths_exchange::Options {
@@ -484,7 +705,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "export" => {
             let slug = args.positional.first().ok_or(
-                "usage: openblog export <slug> [--format markdown|csl-json|bibtex] [--out <path>] [--json] [--write]",
+                "usage: openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld|recipe-package] [--directory <names>] [--out <path>] [--json] [--write]",
             )?;
             let format = args
                 .options
@@ -493,14 +714,15 @@ fn run(raw: &[String]) -> Result<(), String> {
                 .unwrap_or("markdown");
             let format = portable_export::Format::parse(format).ok_or_else(|| {
                 format!(
-                    "unsupported portable export format `{format}`; expected `markdown`, `csl-json` or `bibtex`"
+                    "unsupported portable export format `{format}`; expected `markdown`, `csl-json`, `bibtex`, `recipe-json-ld` or `recipe-package`"
                 )
             })?;
-            portable_export::run(
+            portable_export::run_with_directories(
                 &root,
                 slug,
                 format,
                 args.options.get("out").map(String::as_str),
+                args.options.get("directory").map(String::as_str),
                 args.switches.contains("write"),
                 args.switches.contains("json"),
             )
@@ -1991,6 +2213,18 @@ Mine.
         assert_eq!(a.options["tags"], "a,b");
         assert!(a.switches.contains("drafts"));
         assert!(parse_args(&strings(&["--series"])).is_err());
+    }
+
+    #[test]
+    fn status_is_a_switch_for_video_and_takes_a_value_for_mentions() {
+        let video =
+            parse_command_args("video", &strings(&["episode", "--status", "--json"])).unwrap();
+        assert!(video.switches.contains("status"));
+        assert_eq!(video.positional, vec!["episode"]);
+        let mentions =
+            parse_command_args("mentions", &strings(&["list", "--status", "pending"])).unwrap();
+        assert_eq!(mentions.options["status"], "pending");
+        assert_eq!(mentions.positional, vec!["list"]);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! A theme may bring its own favicon and header logo (ADR 0268).
+//! A theme may bring its own favicon and header logo (ADR 0348).
 
 use openblog_core::{
     render, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeFile, ThemeSet,

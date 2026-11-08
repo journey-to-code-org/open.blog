@@ -60,6 +60,9 @@ pub struct Sources {
     /// The site's continuation links (`continuations.json` in the content
     /// folder, ADR 0219), when the file exists.
     pub continuations: Option<SourceFile>,
+    /// The site's approved Webmentions (`webmentions.json` in the content
+    /// folder, ADR 0366), when the file exists.
+    pub webmentions: Option<SourceFile>,
     /// The site's landing page (`landing.json` in the content folder, ADR
     /// 0245), when the file exists. Without it, or with no visible section,
     /// the home page is built from `home.*` exactly as before.
@@ -297,6 +300,12 @@ pub struct Post {
     /// Where earlier questions on this post went, and what it continues, as
     /// ordinary links on its canonical page (ADRs 0218 and 0219).
     pub(crate) continuations: PostContinuations,
+    /// The approved Webmentions this post's canonical page lists (ADR 0366);
+    /// empty for most posts.
+    pub(crate) mentions: Vec<crate::mention_publication::PublicMention>,
+    /// `webmentions: false` in the front matter: the post sends no
+    /// Webmention, advertises no endpoint and lists no mention (ADRs 0361, 0364).
+    pub webmentions_off: bool,
     /// The body HTML. A concept link (ADR 0172) is the plain text of its
     /// label here until [`Site::link_concepts`] resolves it against the
     /// public atlas, so a post nobody resolved never carries a link that
@@ -352,6 +361,17 @@ pub struct Post {
 }
 
 impl Post {
+    /// The post's own share image, the one its page declares as `og:image` before the site's
+    /// `ogImage`: the cover, else a video post's thumbnail. The page renderer and visual cards
+    /// both use this, so a card always checks the image the page really declares.
+    pub fn page_image(&self) -> Option<&str> {
+        self.cover.as_deref().or_else(|| {
+            self.video
+                .as_ref()
+                .and_then(|video| video.thumbnail.as_deref())
+        })
+    }
+
     /// Canonical authored Markdown used to derive portable representations.
     pub fn authored_markdown(&self) -> &str {
         &self.authored_markdown
@@ -416,6 +436,11 @@ impl Post {
     /// The continuation links this post's canonical page shows now.
     pub fn continuations(&self) -> &PostContinuations {
         &self.continuations
+    }
+
+    /// The approved Webmentions this post's canonical page lists (ADR 0366).
+    pub fn mentions(&self) -> &[crate::mention_publication::PublicMention] {
+        &self.mentions
     }
 
     pub fn community_features(&self) -> &[crate::community_feature::FeaturedPerspective] {
@@ -644,6 +669,9 @@ pub struct Site {
     /// Why the site's continuation links cannot be read (ADR 0219), refused
     /// like `community_features_error`.
     pub continuations_error: Option<String>,
+    /// Why the site's published Webmentions cannot be read (ADR 0366),
+    /// refused like `continuations_error`.
+    pub webmentions_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -936,6 +964,7 @@ impl Site {
             attach_community_features(&mut posts, &sources, &config, &mut warnings);
         let continuations_error =
             attach_continuations(&mut posts, &sources, options.now, &mut warnings);
+        let webmentions_error = attach_mentions(&mut posts, &sources, &mut warnings);
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
@@ -1154,7 +1183,7 @@ impl Site {
 
         scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
         let landing = load_landing(&sources, &posts, &mut warnings);
-        Ok(Site {
+        let mut site = Site {
             config,
             posts,
             series,
@@ -1179,8 +1208,13 @@ impl Site {
             third_perspectives_error,
             community_features_error,
             continuations_error,
+            webmentions_error,
             now: options.now,
-        })
+        };
+        // The owner's address wins over the recipe listing; tell her what moved (ADR 0352).
+        let notes = crate::recipe_listing::plan(&site).notes;
+        site.warnings.extend(notes);
+        Ok(site)
     }
 
     pub fn series_by_slug(&self, slug: &str) -> Option<&Series> {
@@ -1546,6 +1580,40 @@ fn attach_reader_feedback(
             "passage-questions-and-corrections",
             Some(crate::feedback_publication::READER_FEEDBACK_ANCHOR),
         ));
+    }
+    None
+}
+
+/// Give each post the approved Webmentions its canonical page lists (ADR
+/// 0366), or say why the file cannot be read. A post that opted out with
+/// `webmentions: false` lists none; a mention of a post that no longer exists
+/// is a warning, and one of a draft or scheduled post waits for it. Nothing
+/// else about the post changes: feeds and portable copies never carry them.
+fn attach_mentions(
+    posts: &mut [Post],
+    sources: &Sources,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    let file = sources.webmentions.as_ref()?;
+    let published = match crate::mention_publication::MentionsFile::from_json(&file.contents) {
+        Ok(published) => published,
+        Err(error) => return Some(format!("{}: {error}", file.path)),
+    };
+    let known: std::collections::HashSet<String> = sources
+        .posts
+        .iter()
+        .map(|post| post.path.replace('\\', "/"))
+        .collect();
+    for mention in &published.mentions {
+        if !known.contains(&mention.post) {
+            warnings.push(format!(
+                "{}: mention {} is of {}, which is not a post; it is not published",
+                file.path, mention.id, mention.post
+            ));
+        }
+    }
+    for post in posts.iter_mut().filter(|post| !post.webmentions_off) {
+        post.mentions = published.for_post(&post.source.replace('\\', "/"));
     }
     None
 }
@@ -2338,6 +2406,10 @@ fn load_post_in(
         third_perspectives: Vec::new(),
         community_features: Vec::new(),
         continuations: PostContinuations::default(),
+        mentions: Vec::new(),
+        webmentions_off: fm
+            .get("webmentions")
+            .is_some_and(|value| value.trim() == "false"),
         reading_depth: rendered.reading_depth.clone(),
         html,
         concept_html,
@@ -2579,7 +2651,9 @@ fn aliases(fm: &FrontMatter) -> Result<Vec<String>, String> {
                 "alias `{value}` must be a site path like /old-slug/"
             ));
         }
-        let trimmed = value.trim_matches('/');
+        // `/old/index.html` names the file that `/old/` is served from. Kept as a
+        // folder of that name, it would stop that file being written at all.
+        let trimmed = without_index_file(value.trim_matches('/'));
         if trimmed.is_empty() {
             return Err("an alias cannot be the site root".into());
         }
@@ -2589,6 +2663,15 @@ fn aliases(fm: &FrontMatter) -> Result<Vec<String>, String> {
         }
     }
     Ok(out)
+}
+
+fn without_index_file(path: &str) -> &str {
+    let (folder, file) = path.rsplit_once('/').unwrap_or(("", path));
+    if file.eq_ignore_ascii_case("index.html") {
+        folder.trim_end_matches('/')
+    } else {
+        path
+    }
 }
 
 /// `rust-game-dev` -> `Rust Game Dev`
@@ -2643,6 +2726,7 @@ mod tests {
             third_perspectives: None,
             community_features: None,
             continuations: None,
+            webmentions: None,
             landing: None,
         });
         assert_eq!(s.posts.len(), 2);
@@ -2763,6 +2847,13 @@ mod tests {
         });
         assert_eq!(s.posts[0].aliases, vec!["/old-a/", "/2024/03/old-a/"]);
         assert_eq!(s.pages[0].aliases, vec!["/about-me/"]);
+
+        // An alias naming a file is the address that file serves.
+        let s = site(Sources {
+            posts: vec![post("posts/f.md", "---\ntitle: F\ndate: 2026-01-01\naliases: [/old/index.html, old/INDEX.HTML/, /old/, /other.html]\n---\nx")],
+            ..Default::default()
+        });
+        assert_eq!(s.posts[0].aliases, vec!["/old/", "/other.html/"]);
         let bad = Site::load(
             SiteConfig::default(),
             Sources { posts: vec![post("posts/b.md", "---\ntitle: B\ndate: 2026-01-01\naliases: [https://elsewhere.example/x]\n---\nx")], ..Default::default() },

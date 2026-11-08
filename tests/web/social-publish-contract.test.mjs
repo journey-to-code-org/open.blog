@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { socialAdapters } from "../../netlify/lib/social-adapters.mjs";
 import { DeliveryError, KINDS } from "../../netlify/lib/social-delivery.mjs";
-import { call, networkFailure, providers, scripted, settle } from "./social-publish-fakes.mjs";
+import { allProviders, call, networkFailure, providers, scripted, settle } from "./social-publish-fakes.mjs";
 
 const fixture = JSON.parse(readFileSync(new URL("../fixtures/social-publish.json", import.meta.url), "utf8"));
 const TOKEN = fixture.token;
@@ -18,7 +18,7 @@ const replyFor = (reply) => (reply.fail ? networkFailure(reply.fail, TOKEN) : re
 
 const run = async (provider, reply, input = {}) => {
   const fake = scripted(replyFor(reply));
-  const adapters = socialAdapters({ providers: providers(), fetchImpl: fake.fetchImpl, now: () => NOW });
+  const adapters = socialAdapters({ providers: allProviders(), fetchImpl: fake.fetchImpl, now: () => NOW });
   const args = call(provider, { accessToken: TOKEN, ...input });
   return { ...(await settle(adapters[provider].publish(args))), calls: fake.calls, args };
 };
@@ -48,15 +48,17 @@ for (const entry of fixture.cases) {
     // Secrets and provider text.
     const text = JSON.stringify({ value, error, message: error?.message, stack: error?.stack });
     assert.ok(!text.includes(TOKEN), "no token in the answer");
-    for (const word of ["OAuthException", "fbtrace", "A1b2C3", "serviceErrorCode", "maintenance", "duplicate of", "partnerApi", "ECONNRESET"]) assert.ok(!text.includes(word), word);
+    for (const word of ["OAuthException", "fbtrace", "A1b2C3", "serviceErrorCode", "maintenance", "duplicate of", "partnerApi", "ECONNRESET", "graphemes", "Upstream Failure", "Token has expired"]) assert.ok(!text.includes(word), word);
   });
 }
 
-test("both adapters only call their own provider host over https", async () => {
+test("every adapter only calls its own provider host over https", async () => {
   const li = await run("linkedin", { status: 201, headers: { "x-restli-id": "urn:li:share:1" } });
   const fb = await run("facebook", { status: 200, body: { id: "10987654321_1" } });
+  const bs = await run("bluesky", { status: 500 });
   assert.equal(new URL(li.calls[0].url).origin, "https://api.linkedin.com");
   assert.equal(new URL(fb.calls[0].url).origin, "https://graph.facebook.com");
+  assert.equal(new URL(bs.calls[0].url).origin, "https://bsky.social");
 });
 
 test("an adapter is registered only for a provider this deployment configured", () => {
@@ -67,7 +69,10 @@ test("an adapter is registered only for a provider this deployment configured", 
   // A provider with a broken setting is not configured, so it gets no adapter either.
   assert.deepEqual(Object.keys(socialAdapters({ providers: providers({ OPENBLOG_SOCIAL_FACEBOOK_API_VERSION: "latest" }) })), ["linkedin"]);
   const both = socialAdapters({ providers: providers() });
-  assert.deepEqual(Object.keys(both).sort(), ["facebook", "linkedin"]);
+  assert.deepEqual(Object.keys(both).sort(), ["facebook", "linkedin"], "Bluesky is off until turned on");
+  const all = socialAdapters({ providers: allProviders() });
+  assert.deepEqual(Object.keys(all).sort(), ["bluesky", "facebook", "linkedin"]);
+  assert.equal(typeof all.bluesky.reconcile, "function", "Bluesky can look the record up by its key");
   assert.equal(typeof both.linkedin.publish, "function");
   assert.equal(both.linkedin.reconcile, undefined, "LinkedIn offers no read-only lookup to this app");
   assert.equal(typeof both.facebook.reconcile, "function");
@@ -75,13 +80,13 @@ test("an adapter is registered only for a provider this deployment configured", 
 });
 
 test("unsupported networks get no adapter", () => {
-  const adapters = socialAdapters({ providers: providers() });
+  const adapters = socialAdapters({ providers: allProviders() });
   for (const provider of fixture.unsupported) assert.equal(Object.hasOwn(adapters, String(provider)), false, String(provider));
   assert.equal(adapters.constructor, undefined, "no inherited member looks like an adapter");
 });
 
 test("the registry never exposes a client secret", () => {
-  const adapters = socialAdapters({ providers: providers() });
+  const adapters = socialAdapters({ providers: allProviders() });
   const text = JSON.stringify(adapters) + Object.values(adapters).map((adapter) => JSON.stringify(adapter)).join("");
   assert.ok(!/secret/i.test(text));
 });

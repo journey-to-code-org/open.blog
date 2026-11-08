@@ -1,5 +1,5 @@
 //! A theme with `codeWindows` frames every plain code block the way a titled one is framed
-//! (ADR 0269): `<figure class="ob-code-block">` with a `<figcaption class="ob-code-title">`
+//! (ADR 0349): `<figure class="ob-code-block">` with a `<figcaption class="ob-code-title">`
 //! naming the language. It is done while the page is written, so no script wraps the blocks
 //! after the page paints. Feeds, portable copies and other themes keep the plain blocks.
 

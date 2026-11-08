@@ -151,6 +151,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-compare-model.js"),
     ),
     (
+        "components/ob-quote.js",
+        include_str!("../../../web/components/ob-quote.js"),
+    ),
+    (
+        "components/ob-quote-model.js",
+        include_str!("../../../web/components/ob-quote-model.js"),
+    ),
+    (
         "components/ob-reading-modes.js",
         include_str!("../../../web/components/ob-reading-modes.js"),
     ),
@@ -313,6 +321,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/business.js"),
     ),
     (
+        "seasonal.js",
+        include_str!("../../../web/admin/seasonal.js"),
+    ),
+    (
         "services.js",
         include_str!("../../../web/admin/services.js"),
     ),
@@ -321,6 +333,7 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         "landing-history.js",
         include_str!("../../../web/admin/landing-history.js"),
     ),
+    ("lasting.js", include_str!("../../../web/admin/lasting.js")),
     ("checks.js", include_str!("../../../web/admin/checks.js")),
     ("voice.js", include_str!("../../../web/admin/voice.js")),
     (
@@ -328,6 +341,7 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/voice-session.js"),
     ),
     ("social.js", include_str!("../../../web/admin/social.js")),
+    ("quotes.js", include_str!("../../../web/admin/quotes.js")),
     (
         "voice-library.js",
         include_str!("../../../web/admin/voice-library.js"),
@@ -574,6 +588,12 @@ pub fn read_sources_excluding(
         root,
         config,
         openblog_core::continuation::CONTINUATIONS_FILE,
+    )?;
+    // Approved Webmentions (ADR 0366), written by `openblog mentions`.
+    sources.webmentions = read_content_file(
+        root,
+        config,
+        openblog_core::mention_publication::WEBMENTIONS_FILE,
     )?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
@@ -1128,6 +1148,10 @@ pub fn generate_site_with_boundary(
     if let Some(error) = &site.continuations_error {
         return Err(error.clone());
     }
+    // And approved Webmentions (ADR 0366).
+    if let Some(error) = &site.webmentions_error {
+        return Err(error.clone());
+    }
     // What the projections publish and withhold; a stale approval or an
     // unsafe web address withholds only what it affects, and is named.
     let stores = crate::boundary::Stores::read(root, &shared);
@@ -1311,7 +1335,7 @@ pub fn watched_paths(root: &Path, config: &SiteConfig) -> Vec<PathBuf> {
 /// unapproved AI text beside what is approved, so a configured static or theme
 /// folder that contains them (a `static` of `.`) must never copy them raw: a
 /// comparison reaches a page only through its projection (ADR 0232).
-fn comparison_files(root: &Path, config: &SiteConfig) -> PathBuf {
+pub(crate) fn comparison_files(root: &Path, config: &SiteConfig) -> PathBuf {
     root.join(&config.paths.content)
         .join(openblog_core::scholarly_comparison::COMPARISONS_DIR)
 }

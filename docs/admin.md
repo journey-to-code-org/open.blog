@@ -27,7 +27,7 @@ immediately.
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
 | **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
-| **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
+| **Images** | Insert by button, drag and drop, or paste. **Insert image**, a post's cover photo, picture pieces and the landing page builder all open the same picker: add a new photo or choose an earlier upload, shown as pictures. Large photos are reduced as they are uploaded (see [Photo uploads](#photo-uploads)). Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Write in a word-processor-style Visual mode or switch to Markdown. Choose Paragraph or Heading 2–6, then apply bold, italic, links, quotes, numbered or bulleted lists, images, and code. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in either mode. |
 | **Personal workspace** | Start with a calm writing-focused workspace, choose Guided or Advanced, or customize optional tools, their order, spacing, and default writing mode. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
@@ -40,13 +40,18 @@ immediately.
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
 | **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. Business facts have their own screen. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
-| **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
+| **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts are not published. See [publishing.md](publishing.md). |
 
 ## Workspace layout
 
 The admin is organized like a writing studio. New accounts start in **Simple**, which keeps
 the main navigation focused on content and the essential **Write**, **Site preview**, and
-**Settings** views. Every other document view sits under **More tools** in the editor bar,
+**Settings** views. Its main navigation shows Overview, Posts, Pages, Landing page, and Customize
+look, plus Series, Services, and Business facts once the site uses them, and Reminders once the
+business facts name a trade or reminders are on. The other pages are under
+**More pages** in **Advanced tools**, and research capture, knowledge checks and research formatting appear in the
+editor from **Guided** up, on a post that is research or publishes citations, or after you open
+the research workspace. Every other document view sits under **More tools** in the editor bar,
 and the header's **Advanced tools** dialog groups every optional tool by goal: getting
 writing help (the optional AI Assistant, including knowledge checks and runnable-code
 proposals), checking quality and research, sharing and distribution, and collaboration and
@@ -713,6 +718,24 @@ represent and carries advanced blocks through unchanged. Front matter remains in
 outside both body editors. Saving, conflict detection, preview sandboxing, and publishing
 use the same file-based workflow and security checks.
 
+**New recipe**, on Overview, on Posts and in the command palette, opens a post on the Recipe
+profile with sample Ingredients and Steps sections, the same ones `openblog new --recipe` writes.
+Choosing Recipe in Settings adds them to an empty post and never changes one with text. **Site
+preview** lists what a recipe still needs in everyday words, under **To finish this recipe**, and
+keeps notes about the rest of the site in their own collapsed list.
+
+A recipe's **Settings** ask for its **Course** (such as Dinner or Dessert) and **Cuisine** (such as
+Italian or Southern), with suggestions that start from what you have used before. Readers
+[browse your recipes](content.md#browsing-recipes) by these, so a comma gives a recipe two. A value
+written as `category` or `recipeCategory` shows under Course and is saved as `course`. A different
+value under the other name was never shown, so a save leaves it in the file, unread, until you clear
+Course. A recipe with
+neither is still fine, but readers can't browse to it, so **Site preview** says so under **To finish
+this recipe**, and publishing it offers an **Add a course** button that goes to the field. With
+`recipes.listing` off there is nothing to browse, so Admin doesn't ask. If a page of yours took the
+list's address, or a value can't have one, **Overview** and **Site preview** say so under **About
+your recipe list**, naming the page.
+
 In a post's **Settings** view, **Content profile** defaults to Article. Recipe posts select
 Recipe and continue through the existing recipe renderer and structured-data path. Files
 using `recipe: true` or another legacy recipe alias appear as Recipe but keep that original
@@ -904,11 +927,14 @@ nothing changes on the public site until you save and make it live.
 
 ### The Landing page
 
-Open **Landing page** (`#/landing`) to arrange the home page. A first visit offers four ready-made layouts
-(Welcome, Small business, Portfolio, Newsletter) with clearly marked sample words, or **Start from scratch**;
+Open **Landing page** (`#/landing`) to arrange the home page. A first visit offers five ready-made layouts
+(Welcome, Small business, Portfolio, Newsletter, Recipes) with clearly marked sample words, or **Start from scratch**;
 **Choose a ready-made layout** and **Reset to default** are always there, and nothing you already have is
 replaced without a yes. A site that has never built a landing page starts from what visitors see today, and
 nothing is written until you save.
+
+The Recipes layout shows your newest recipes once you publish the first one. To do the same in any other layout,
+set **What to show** to **Only my recipes** on a Latest posts section.
 
 - **Sections** are cards: a welcome banner, text, latest posts, series, a featured post, buttons, a picture, a
   video, a map, opening hours, contact details, social links, questions and answers, or a call-out. **Add a
@@ -929,7 +955,7 @@ nothing is written until you save.
   **Use the newer version** or **Compare**; nothing is overwritten silently. **Publish** (the bar calls it
   "make it live") saves first and then publishes, and stops with the reason if the site does not build.
 - **History** under the sections keeps your last twenty saves in private storage (never in the content folder,
-  the build, a feed or an export). Preview an earlier one and **Restore** it; restoring is an ordinary save, so
+  the build, a feed or an export). On a host that resets its files, they go when the server restarts. Preview an earlier one and **Restore** it; restoring is an ordinary save, so
   the page it replaces stays in the list.
 - Unsaved changes are kept on your device, offered back after a reload and warned about when you leave. A short
   three-step tour appears once, can be skipped and never comes back, and **Help** explains the words.
@@ -964,6 +990,20 @@ does not conflict with it, and it changes only the `business` key of `openblog.j
 place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
 to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
+### Seasonal reminders
+
+Open **Reminders** (`#/reminders`) to turn on prompts that suggest what to write at the right time of year for
+your trade. A reminder only opens an unpublished draft; it never publishes or sends anything. The screen reads and
+saves `GET`/`PUT /admin/api/seasonal` and uses `POST /admin/api/seasonal/snooze` and `/open` (session and CSRF as
+for every write). See [Seasonal reminders](seasonal-reminders.md).
+
+### Quote requests
+
+Open **Quote requests** (`#/quotes`) to read the requests visitors sent, mark them handled or archived, export
+them as a CSV, erase them after a preview, and send again an owner email that did not go out. The page appears once
+`OPENBLOG_QUOTE_ENDPOINT` and `OPENBLOG_QUOTE_ADMIN_KEY` are set where Admin runs; it talks to the hosted function
+through `/admin/api/quote/*` (session and CSRF as for every write). See [Quote requests](quote-requests.md).
+
 ### Services
 
 Open **Services** (`#/services`) to describe each thing you sell once, with what it includes, a price band, a
@@ -978,6 +1018,33 @@ heading and tap **Add a button**; tap **Done**, then **Preview** to see the page
 editing**; tap **Save**. Open **Customize look**, tap a color and a font style, tap **Preview** to check,
 **Back to choosing**, then **Save**. Tap **Publish** to make it live. The bar stays at the bottom of the
 screen, every control is at least 44px tall, and nothing scrolls sideways down to 320px wide.
+
+## When saved work can vanish
+
+On a host that resets its files, such as Render with no durable workspace, what you save can vanish
+when the server restarts. Admin says so: a notice on Overview, a short line at the top of every other
+page, and a sentence after a save in the editor, the Landing page, and Customize look, where the
+Landing page and Customize look say it in the bar under Save. Nothing shows on your own
+computer or once [the durable workspace](deploy.md#keep-your-work-safe-on-render) is on. If Publish
+cannot reach your site's repository, Admin says what that means in plain words, with git's own
+message folded under "Details for whoever helps you".
+
+## Photo uploads
+
+A photo can be uploaded at any size up to 40 MB. A photo that is wider or taller than 2000 pixels, is heavier
+than 1 MB, or carries camera metadata is replaced as it arrives by a JPEG (a PNG, if it has transparent parts)
+at most 2000 pixels on its longest side. The original is not kept. The copy is turned the right way up, keeps
+the photo's colour profile, and drops the metadata, including the location a phone may have recorded.
+
+Other pictures are published exactly as sent, up to `admin.maxUploadMb`: GIF and AVIF files, animations, light
+pictures without metadata, and photos above about 64 megapixels, which are too large to decode safely on a
+small host. Over that limit they are refused with a message saying so. Only one photo is reduced at a time, so
+two large uploads together cannot run a 512 MB host out of memory.
+
+iPhones take photos in HEIC, which web pages cannot show. An iPhone converts a photo to JPEG when it is chosen
+in Admin. A HEIC file copied to a computer first is refused, with a message asking for a JPEG copy.
+
+Files added some other way, such as a commit to `static/`, are not reduced.
 
 ## Scheduling
 
@@ -1008,14 +1075,14 @@ previewing.
 If your site has [scheduled social publishing](social-publishing.md) set up, Admin shows an **Announcements** tab; without it
 there is no tab and nothing changes. The screen has two parts.
 
-**Announce a post.** Choose a **Destination** (a connected LinkedIn profile or Facebook Page), a **Post to announce**,
-write a **Caption** and pick a **Date and time**. Only published posts can be chosen; a draft, or a post dated in the
-future, is listed as not available with the reason. The count under the caption shows how many characters are left,
-and the **Preview** shows the caption, the link to your post and when it will go out, before you tap **Schedule
-announcement**. Times are in your own time zone and stored in UTC; on the day the clocks change, a time that does not
-exist is refused, and a time that happens twice uses the earlier one (the preview says so). If something is wrong, the
-form lists what to fix, each a link to its field, and says it beside the field too. Tapping the button twice, or again
-after a slow connection, schedules it once.
+**Announce a post.** Choose a **Destination** (a connected LinkedIn profile, Facebook Page, Bluesky account or
+Mastodon account), a **Post to announce**, write a **Caption** and pick a **Date and time**. Only published posts can
+be chosen; a draft, or a post dated in the future, is listed as not available with the reason. The count under the
+caption shows how many characters are left, and the **Preview** shows the caption, the link to your post and when it
+will go out, before you tap **Schedule announcement**. Times are in your own time zone and stored in UTC; on the day
+the clocks change, a time that does not exist is refused, and a time that happens twice uses the earlier one (the
+preview says so). If something is wrong, the form lists what to fix, each a link to its field, and says it beside the
+field too. Tapping the button twice, or again after a slow connection, schedules it once.
 
 **Announcements.** Every announcement shows its status in words (Scheduled, Sending, Published, Failed, Needs checking,
 Canceled), its time in your zone, its destination and caption. While it is **Scheduled**, **Edit** changes the caption
@@ -1030,9 +1097,11 @@ and the provider adapters do the posting (see [social publishing](social-publish
 **When a post does not go out.** A **Failed** announcement says why in plain words, with the short code beside it.
 **Try again** asks first, then puts it back in the queue with a fresh allowance of attempts. A **Needs checking**
 announcement is one where the provider did not say whether the post went out. It is never sent again by itself: look
-at the LinkedIn or Facebook account, then choose **Check the result** and say it was posted (with the post id the
-provider shows) or was not (it then becomes Failed, and you can try it again). A **Scheduled** announcement that is
-waiting to try again says when. **What was tried** under each announcement lists every attempt with its result.
+at the LinkedIn, Facebook, Bluesky or Mastodon account, then choose **Check the result** and say it was posted (with the post id the
+provider shows) or was not (it then becomes Failed, and you can try it again). An announcement waiting to try again
+shows **Retrying** and says when; **Sending** means a worker holds it now. **History** under each announcement lists
+its status changes and every try with its result, in your time zone (see
+[status and history](social-publishing.md#status-and-history)).
 
 ## Running it for real
 

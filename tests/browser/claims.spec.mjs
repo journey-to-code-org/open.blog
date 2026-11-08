@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
+import { useGuided } from "./guided.mjs";
 
 // The real Admin Studio and the real claims API (core validation, revision-checked store, anchors
 // checked against the saved draft) over a small library, notebook and one saved post. Covers
@@ -92,6 +93,7 @@ async function openPost(page) {
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page.locator('[data-action="logout"]')).toBeVisible();
   }
+  await useGuided(page);
   await page.goto(`${origin}/admin/#/edit/${encodeURIComponent(POST)}`);
   await expect(page.getByRole("button", { name: "Make a claim from the selected words" }).first()).toBeAttached();
   await page.getByRole("button", { name: "Markdown", exact: true }).click();

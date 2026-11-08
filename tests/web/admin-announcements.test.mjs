@@ -3,21 +3,31 @@
 // errors, and the panel's behavior against a fake Admin: labelled fields, problems beside them,
 // idempotent retries, versioned edits, a confirmed cancel, and a refreshed queue after a lost race.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
   CAPTION_LIMIT,
+  CAPTION_LIMITS,
+  blueskyCardTitle,
+  blueskyNotes,
+  mastodonNotes,
+  DELIVERY_BADGES,
   STATUS_BADGES,
   captionCount,
   createAnnouncementsPanel,
+  deliveryOf,
   destinationLabel,
   errorText,
+  eventText,
   fieldForCode,
   formatWhen,
+  healthLines,
   instantToLocalInput,
   localToInstant,
   lockedReason,
   newKey,
+  nextStepText,
   problemWords,
   REFRESH_CODES,
 } from "../../web/admin/announcements.js";
@@ -111,6 +121,8 @@ const text = (node) => node.textContent;
 const dest = [
   { id: "d-1", provider: "linkedin", kind: "member", displayName: "Mikey Nichols", status: "connected" },
   { id: "d-2", provider: "facebook", kind: "page", displayName: "Lantern Page", status: "connected" },
+  { id: "d-3", provider: "bluesky", kind: "account", displayName: "@ada.bsky.social", status: "connected" },
+  { id: "d-4", provider: "mastodon", kind: "account", displayName: "@ada@social.example.org", status: "connected" },
 ];
 const found = [
   { work: "/posts/hello/", title: "Hello", eligible: true, canonicalUrl: "https://blog.example.org/posts/hello/", reason: null },
@@ -131,7 +143,7 @@ const row = (over = {}) => ({
   ...over,
 });
 
-function fakeAdmin({ queue = [row()], fail = {} } = {}) {
+function fakeAdmin({ queue = [row()], fail = {}, history = {}, health } = {}) {
   const calls = [];
   let current = queue;
   const api = {
@@ -147,7 +159,7 @@ function fakeAdmin({ queue = [row()], fail = {} } = {}) {
       if (route === "GET social/destinations") return { destinations: dest };
       if (route === "GET social/posts") return { posts: found, now: "2026-11-01T12:00:00Z" };
       if (route === "GET social/announcements") return { announcements: current };
-      if (route === "POST social/preview") return { ok: true, caption: options.json.caption.trim(), link: "https://blog.example.org/posts/hello/", scheduledFor: options.json.scheduledFor || null, problems: [] };
+      if (route === "POST social/preview") return { ok: true, caption: options.json.caption.trim(), link: "https://blog.example.org/posts/hello/", cover: { image: true, description: "A lantern at dusk" }, scheduledFor: options.json.scheduledFor || null, problems: [] };
       if (route === "POST social/announcements") {
         const made = row({ id: "a-2", caption: options.json.caption, scheduledFor: options.json.scheduledFor });
         current = [made, ...current];
@@ -174,8 +186,12 @@ function fakeAdmin({ queue = [row()], fail = {} } = {}) {
         current = [made];
         return { announcement: made };
       }
+      if (route === "GET social/announcements/health" && health) {
+        if (health instanceof Error) throw health;
+        return { health };
+      }
       if (route === "GET social/announcements/attempts") {
-        return { attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
+        return { ...history, attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
       }
       throw new Error(`unexpected ${route}`);
     },
@@ -212,7 +228,7 @@ test("the screen loads destinations and posts into labelled fields and explains 
   assert.deepEqual(labels.slice(0, 4), ["Destination", "Post to announce", "Caption", "Date and time (America/New_York)"]);
   for (const control of all(root, "select, textarea, input")) assert.ok(control.id, "every control has an id its label points at");
   const destination = all(root, "select")[0];
-  assert.deepEqual(destination.children.map(text), ["Choose where to post", "Mikey Nichols (LinkedIn profile)", "Lantern Page (Facebook Page)"]);
+  assert.deepEqual(destination.children.map(text), ["Choose where to post", "Mikey Nichols (LinkedIn profile)", "Lantern Page (Facebook Page)", "@ada.bsky.social (Bluesky account)", "@ada@social.example.org (Mastodon account)"]);
   const options = all(root, "option").filter((node) => node.parentNode.tagName === "OPTGROUP" || node.disabled);
   assert.match(text(options[0]), /Secret draft - Only a published post can be announced\./);
   assert.equal(options[0].disabled, true, "an unavailable post cannot be chosen");
@@ -237,7 +253,7 @@ test("a load that fails says so with a way to try again", withDom(async () => {
   await button(error, "social-retry").dispatch("click");
   await flush();
   assert.equal(error.hidden, true);
-  assert.equal(all(panel.element, "select")[0].children.length, 3);
+  assert.equal(all(panel.element, "select")[0].children.length, 5);
 }));
 
 test("typing a caption shows the count, and too long is said in words beside the field", withDom(async () => {
@@ -534,7 +550,7 @@ test("a refusal that the queue moved on refreshes the list and says so", withDom
 test("the history of tries loads when asked and reads in words", withDom(async () => {
   const { root, api } = await open({ queue: [failedRow()] });
   const details = byData(root, "data-history")[0];
-  assert.match(text(all(details, "summary")[0]), /What was tried \(3\)/);
+  assert.match(text(all(details, "summary")[0]), /History \(3 tries\)/);
   assert.equal(api.calls.some((call) => call.path.startsWith("social/announcements/attempts")), false, "not loaded until opened");
   details.open = true;
   await details.dispatch("toggle");
@@ -543,12 +559,194 @@ test("the history of tries loads when asked and reads in words", withDom(async (
   assert.equal(items.length, 2);
   assert.match(text(items[0]), /Try 1,.*not posted \(HTTP 503\)\. The provider could not take it just now\./);
   assert.match(text(items[1]), /Try 2,.*in progress/);
+  assert.equal(byData(details, "data-timeline").length, 0, "no timeline from an older server, and nothing invented");
   assert.equal(api.calls.filter((call) => call.path.startsWith("social/announcements/attempts")).length, 1);
   assert.equal(api.calls.find((call) => call.path.startsWith("social/announcements/attempts")).path, "social/announcements/attempts?id=a-5");
 }));
+
+test("the status history reads in words, in the author's zone, and says when it was rebuilt", withDom(async () => {
+  const timeline = [
+    { at: "2026-11-01T12:00:00Z", change: "created", state: "pending", attemptNo: 0, code: null, scheduledFor: null },
+    { at: "2026-11-01T12:01:00Z", change: "rescheduled", state: "pending", attemptNo: 0, code: null, scheduledFor: "2026-11-02T09:00:00Z" },
+    { at: "2026-11-02T09:00:05Z", change: "status", state: "processing", attemptNo: 1, code: null, scheduledFor: null },
+    { at: "2026-11-02T09:00:09Z", change: "status", state: "retrying", attemptNo: 1, code: "rate-limited", scheduledFor: null },
+    { at: "2026-11-02T09:10:00Z", change: "status", state: "failed", attemptNo: 2, code: "<img src=x onerror=alert(1)>", scheduledFor: null },
+  ];
+  for (const exact of [true, false]) {
+    const { root } = await open({ queue: [failedRow()], history: { timeline, timelineExact: exact } });
+    const details = byData(root, "data-history")[0];
+    details.open = true;
+    await details.dispatch("toggle");
+    await flush();
+    const events = all(byData(details, "data-timeline")[0], "li");
+    assert.equal(events.length, 5);
+    assert.match(text(events[0]), /Scheduled$/);
+    assert.match(text(events[1]), /time changed, now /);
+    assert.match(text(events[2]), /Sending, try 1/);
+    assert.match(text(events[3]), /Retrying, try 1\. The provider asked us to slow down\./);
+    assert.match(text(events[4]), /Failed, try 2\. <img src=x onerror=alert\(1\)>/, "a code is only ever text");
+    assert.equal(all(details, "img").length, 0);
+    assert.equal(byData(details, "data-timeline-rebuilt").length, exact ? 0 : 1);
+  }
+}));
+
+test("each delivery state has a word and a shape, and the waiting ones say what happens next", () => {
+  for (const state of ["pending", "processing", "retrying", "published", "failed", "unknown", "canceled"]) {
+    assert.ok(DELIVERY_BADGES[state].text && DELIVERY_BADGES[state].symbol, state);
+  }
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: null }), "pending");
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: "deferred" }), "pending");
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: "rate-limited" }), "retrying");
+  assert.equal(deliveryOf({ status: "claimed" }), "processing");
+  assert.equal(deliveryOf({ status: "scheduled", delivery: "retrying" }), "retrying", "the server's word wins");
+  assert.equal(deliveryOf({ status: "scheduled", delivery: "__proto__" }), "pending", "an unknown word is not trusted");
+  assert.equal(deliveryOf({ status: "bogus" }), "unknown");
+  assert.match(nextStepText("retrying"), /tried again by itself/);
+  assert.match(nextStepText("processing"), /being sent now/);
+  assert.equal(nextStepText("pending"), "");
+  assert.match(eventText({ at: "2026-11-01T12:00:00Z", change: "baseline", state: "unknown" }, NY), /Needs checking, history starts here/);
+});
 
 test("a scheduled announcement waiting to try again says when", withDom(async () => {
   const { root } = await open({ queue: [row({ attemptCount: 1, nextAttemptAt: "2099-01-01T15:05:00Z", lastErrorCode: "provider-unavailable" })] });
   assert.match(text(byData(root, "data-row-next")[0]), /Will try again/);
   assert.match(text(byData(root, "data-row-error")[0]), /could not take it just now/);
+  assert.equal(byData(root, "data-delivery")[0].getAttribute("data-delivery"), "retrying");
+  assert.match(text(byData(root, "data-status-badge")[0]), /Retrying/);
+  assert.match(text(byData(root, "data-row-next-step")[0]), /tried again by itself/);
 }));
+
+test("delivery health reads as sentences, most urgent first, and ignores codes it does not know", () => {
+  const lines = healthLines({ installed: true, overdueMinutes: 15, overdue: 2, needsReview: 1, accountsNeedReconnect: 1, alerts: ["backlog-overdue", "accounts-need-reconnect", "needs-review", "made-up"] });
+  assert.deepEqual(lines.map((line) => line.code), ["backlog-overdue", "accounts-need-reconnect", "needs-review"]);
+  assert.match(lines[0].text, /^2 announcements are more than 15 minutes late\. The delivery worker may not be running/);
+  assert.match(lines[1].text, /^1 account needs to be connected again before it can post/);
+  assert.match(lines[2].text, /^1 announcement needs you to check whether it was posted/);
+  const unset = healthLines({ installed: true, waitingOnProvider: 2, alerts: ["provider-not-configured"] });
+  assert.match(unset[0].text, /^2 announcements wait for a provider this site has not set up for posting\. Add its settings and redeploy, or cancel them\./);
+  assert.deepEqual(healthLines({ installed: false, alerts: ["backlog-overdue"] }), []);
+  assert.deepEqual(healthLines(null), []);
+});
+
+test("the Social screen shows delivery health beside the queue, and stays out of the way when it cannot", withDom(async () => {
+  const healthy = await open({ health: { installed: true, overdueMinutes: 15, alerts: [] } });
+  await flush();
+  const box = byData(healthy.root, "data-social-health")[0];
+  assert.equal(box.hidden, false);
+  assert.match(text(box), /Delivery health.*Nothing is late, stuck or waiting for you\./);
+
+  const late = await open({ health: { installed: true, overdueMinutes: 30, overdue: 3, alerts: ["backlog-overdue", "<script>"] } });
+  await flush();
+  const alerts = byData(late.root, "data-health-alert");
+  assert.equal(alerts.length, 1);
+  assert.match(text(alerts[0]), /3 announcements are more than 30 minutes late/);
+
+  const off = await open({ health: { installed: false, alerts: [] } });
+  await flush();
+  assert.match(text(byData(off.root, "data-health-off")[0]), /supabase\/social-ops\.sql/);
+
+  const broken = await open({ health: new ApiError("x", 502, { error: "down", code: "hosted-failed" }) });
+  await flush();
+  assert.equal(byData(broken.root, "data-social-health")[0].hidden, true, "a health failure never blocks the screen");
+  assert.ok(byData(broken.root, "data-announcement").length > 0);
+}));
+
+test("captions, paths and codes from the queue are only ever text (no markup is built from data)", withDom(async () => {
+  const hostile = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+  const { root } = await open({ queue: [row({ caption: hostile, work: '/posts/"><svg onload=alert(3)>/', lastErrorCode: "<b>x</b>", status: "failed", editable: false, retryable: true, attemptCount: 1 })] });
+  assert.equal(all(root, "img").length + all(root, "script").length + all(root, "svg").length + all(root, "b").length, 0);
+  assert.ok(text(byData(root, "data-row-caption")[0]).includes(hostile));
+}));
+
+// ---- Bluesky (story #391, task DIST2.1.3): its own caption limit and what the post will look like.
+
+test("Bluesky's caption limit is 300, the others' 3000, the same as the server's", () => {
+  assert.deepEqual(CAPTION_LIMITS, { linkedin: 3000, facebook: 3000, bluesky: 300, mastodon: 475 });
+  assert.equal(CAPTION_LIMIT, 3000);
+  assert.equal(destinationLabel(dest[2]), "@ada.bsky.social (Bluesky account)");
+  assert.equal(blueskyCardTitle("First line\nsecond"), "First line");
+  assert.deepEqual(blueskyNotes("Plain words", "https://blog.example.org/posts/hello/"), ['On Bluesky the link is a card titled "Plain words" that shows blog.example.org, with no picture.']);
+  assert.equal(blueskyNotes("See https://x.org #tag and @ada.bsky.social", "https://blog.example.org/").length, 3);
+});
+
+test("choosing Bluesky counts the caption against 300 and refuses a longer one before sending", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root, { caption: "a".repeat(301) });
+  fill(root, "destination", "d-3");
+  const caption = all(root, "textarea").find((node) => node.id.endsWith("-caption"));
+  await caption.dispatch("input");
+  assert.match(text(byData(root, "data-social-count")[0]), /1 characters too many \(301 of 300\)/);
+  await submit(root);
+  assert.ok(!api.calls.some((call) => call.method === "POST" && call.path === "social/announcements"), "nothing is sent");
+  assert.match(text(byData(root, "data-error-for", "caption")[0]), /1 characters too long/);
+}));
+
+test("the Bluesky preview says the link becomes a card, which words become links, and that mentions stay plain", withDom(async () => {
+  const { root } = await open();
+  await compose(root, { caption: "New post #lanterns, thanks @ada.bsky.social" });
+  fill(root, "destination", "d-3");
+  await all(root, "textarea").find((node) => node.id.endsWith("-caption")).dispatch("input");
+  await timers.last();
+  await flush();
+  const preview = byData(root, "data-social-preview")[0];
+  assert.match(text(byData(preview, "data-preview-to")[0]), /To @ada\.bsky\.social \(Bluesky account\)/);
+  const notes = text(byData(preview, "data-preview-notes")[0]);
+  assert.match(notes, /a card titled "New post #lanterns, thanks @ada\.bsky\.social" that shows blog\.example\.org/);
+  assert.match(notes, /#hashtags in the caption become clickable/);
+  assert.match(notes, /@mentions stay plain text/);
+}));
+
+// ---- Mastodon (story #392, task DIST2.2.2): its own caption limit and what the status will look like.
+
+test("Mastodon's caption limit is 475, and the notes say where the link goes, what notifies and how the cover is described", () => {
+  assert.equal(destinationLabel(dest[3]), "@ada@social.example.org (Mastodon account)");
+  const link = "https://blog.example.org/posts/hello/";
+  assert.deepEqual(mastodonNotes("Plain words", link), ["On Mastodon the link goes after the caption, on its own line; it counts as 23 characters, and Mastodon shows its own preview of it."]);
+  assert.deepEqual(mastodonNotes(`Read ${link} now`, link), [],"a caption that holds the link is not given it twice");
+  const notes = mastodonNotes("New #rust post, thanks @ada@social.example.org", link, { image: true, description: "A lantern at dusk" });
+  assert.equal(notes.length, 4);
+  assert.match(notes[1], /#hashtags/);
+  assert.match(notes[2], /notifies that person/);
+  assert.match(notes[3], /described as: "A lantern at dusk"/);
+  assert.match(mastodonNotes("x", link, { image: true, description: null }).at(-1), /no description \(coverAlt\), so it is never attached/);
+});
+
+test("choosing Mastodon counts against 475, and its preview says where the link goes and how the cover is described", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root, { caption: "a".repeat(476) });
+  fill(root, "destination", "d-4");
+  const caption = all(root, "textarea").find((node) => node.id.endsWith("-caption"));
+  await caption.dispatch("input");
+  assert.match(text(byData(root, "data-social-count")[0]), /1 characters too many \(476 of 475\)/);
+  await submit(root);
+  assert.ok(!api.calls.some((call) => call.method === "POST" && call.path === "social/announcements"), "nothing is sent");
+  caption.value = "New post #lanterns";
+  await caption.dispatch("input");
+  await timers.last();
+  await flush();
+  const preview = byData(root, "data-social-preview")[0];
+  assert.match(text(byData(preview, "data-preview-to")[0]), /To @ada@social\.example\.org \(Mastodon account\)/);
+  const notes = text(byData(preview, "data-preview-notes")[0]);
+  assert.match(notes, /the link goes after the caption, on its own line/);
+  assert.match(notes, /#hashtags in the caption become clickable on Mastodon/);
+  assert.match(notes, /described as: "A lantern at dusk"/);
+}));
+
+// Words outside the screens themselves: the page header, the command palette and the guide must not
+// name only LinkedIn and Facebook now that Bluesky and Mastodon can be connected too.
+test("the Social accounts and Announcements headers, palette and guide do not leave out Bluesky and Mastodon", () => {
+  const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+  const admin = read("web/admin/admin.js");
+  for (const title of ["Social accounts", "Announcements"]) {
+    const detail = admin.match(new RegExp(`title: "${title}", detail: "([^"]*)"`));
+    assert.ok(detail, `${title} has a page header`);
+    assert.doesNotMatch(detail[1], /LinkedIn|Facebook/, `${title} header names no single provider`);
+    const keywords = admin.match(new RegExp(`label: "${title}", category: "[^"]+", keywords: "([^"]*)"`));
+    assert.ok(keywords, `${title} is in the command palette`);
+    for (const provider of ["linkedin", "facebook", "bluesky", "mastodon"]) assert.match(keywords[1], new RegExp(provider), `${title} is found by "${provider}"`);
+  }
+  const guide = read("docs/admin.md").replace(/\s+/g, " ");
+  const destination = guide.match(/Choose a \*\*Destination\*\* \(([^)]*)\)/);
+  assert.ok(destination, "the guide says what a Destination is");
+  for (const provider of ["LinkedIn", "Facebook", "Bluesky", "Mastodon"]) assert.match(destination[1], new RegExp(provider));
+});

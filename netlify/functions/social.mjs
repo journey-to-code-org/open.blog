@@ -6,15 +6,19 @@
 // Admin user in X-OpenBlog-Actor (ADR 0293); everything under /connections and /accounts needs it.
 // The author's browser, coming back from LinkedIn or Facebook, reaches only GET /callback/<provider>,
 // which holds no key: the single-use `state` in its query is the proof, and it answers a fixed page.
+// Bluesky has no callback: Admin sends the handle and an app password once (ADR 0357), and the
+// password is used for that one sign-in and never stored or echoed.
 //
 // Scheduled announcements are served by the same function (netlify/lib/social-announcements.mjs).
 // The function is bundled by Netlify and reached at /api/social/* (netlify.toml). Provider calls
 // and Supabase both go through `fetchImpl`, so tests run against fakes.
 
+import { opsPolicy } from "../lib/social-ops.mjs";
 import { SocialScopeError, authorizeSocial, refuseClientScope, socialSettings } from "../lib/social-scope.mjs";
 import { SocialCredentialError } from "../lib/social-credentials.mjs";
 import { SocialOAuthError, createConnector, OUTCOMES } from "../lib/social-oauth.mjs";
 import { createAnnouncements } from "../lib/social-announcements.mjs";
+import { socialAdapters, waitingProviders } from "../lib/social-adapters.mjs";
 import { createAccounts } from "../lib/social-accounts.mjs";
 import { ProviderError, describeProvider, socialProviders, validProvider } from "../lib/social-providers.mjs";
 
@@ -105,7 +109,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       // announcements module authorizes the same admin key and bounds its own body.
       if (segments[0] === "announcements" || segments[0] === "destinations") {
         const raw = event.isBase64Encoded && event.body ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
-        const scheduled = createAnnouncements({ settings, fetchImpl, now });
+        const scheduled = createAnnouncements({ settings, fetchImpl, now, ops: opsPolicy(env), skipProviders: waitingProviders(socialAdapters({ providers, fetchImpl, now })) });
         const result = await scheduled({ method, route: segments.join("/"), query, headers: event.headers || {}, body: raw });
         return json(result.status, result.body);
       }
@@ -121,6 +125,11 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       if (head === "connections") {
         if (method === "GET" && segments.length === 1) return json(200, { connections: await connector.list() });
         if (method === "POST" && segments.length === 1) {
+          // Bluesky signs in with a handle and an app password (ADR 0357); the others redirect.
+          if (Object.hasOwn(body, "appPassword") || Object.hasOwn(body, "identifier")) {
+            only(body, ["provider", "identifier", "appPassword"]);
+            return json(201, await connector.appPassword({ provider: body.provider, identifier: body.identifier, password: body.appPassword, actor: identity.actor }));
+          }
           only(body, ["provider"]);
           return json(201, await connector.start({ provider: body.provider, actor: identity.actor }));
         }
@@ -136,8 +145,9 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       if (head === "accounts") {
         if (method === "GET" && segments.length === 1) return json(200, { accounts: await accounts.list() });
         if (method === "POST" && action === "reconnect" && segments.length === 3 && UUID.test(id)) {
-          only(body, []);
-          return json(201, await accounts.reconnect(id, identity.actor));
+          only(body, ["identifier", "appPassword"]);
+          const signIn = Object.keys(body).length ? { identifier: body.identifier, password: body.appPassword } : null;
+          return json(201, await accounts.reconnect(id, identity.actor, signIn));
         }
         if (method === "POST" && action === "disconnect" && segments.length === 3 && UUID.test(id)) {
           only(body, []);

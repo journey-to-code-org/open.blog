@@ -1,4 +1,4 @@
-//! A theme whose series page has its own hero renders no series cover there (ADR 0270).
+//! A theme whose series page has its own hero renders no series cover there (ADR 0350).
 
 use openblog_core::{
     render, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeFile, ThemeSet,

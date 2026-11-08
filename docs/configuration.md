@@ -43,7 +43,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
   "code": { "highlight": null, "lineNumbers": null, "copyButton": true, "playgroundLink": true },
   "codeRunner": { "endpoint": "", "languages": [] },
-  "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
+  "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true, "listing": true },
   "knowledgeChecks": { "generationEndpoint": "", "model": "" },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
   "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
@@ -175,6 +175,20 @@ Where it appears:
 
 The stored object is versioned: a newer version is refused with a message and never rewritten, and fields this
 release does not know are kept when Admin saves.
+
+### Seasonal prompts
+
+`seasonalPrompts` turns on seasonal reminders and holds your changes to the bundled topics for your trade:
+`{ "version": 1, "enabled": true, "topics": [ { "id", "disabled", "start", "end", "topic", "prompt" } ] }`.
+Off and not written back unless stated. See [Seasonal reminders](seasonal-reminders.md).
+
+### Quote requests
+
+`quote` turns on the quote request form: `{ "enabled": true, "endpoint": "/api/quote", "notice": "..." }`.
+`endpoint` is a path on your site (the default `/api/quote`) or an `https://` address, and `notice` is one optional
+line under the form. Off and absent by default; with it off a `quote` fence stays a code block and the Landing
+page `quote-form` section renders nothing. The requests go to a hosted Netlify function, so it does not work on a
+site run on Render yet. See [Quote requests](quote-requests.md).
 
 ## Share, analytics, related posts, snippets, CDN
 
@@ -334,6 +348,10 @@ Every option is on by default; set one to `false` to leave that feature out.
 - `print`: a "Print recipe" button that prints only the title, the summary, the
   ingredients, and the steps.
 - `jumpLink`: a "Jump to recipe" link in the summary card.
+- `listing`: the [list of recipes](content.md#browsing-recipes) at `/recipes/`, its course and
+  cuisine pages, and the **Recipes** link in the navigation. A landing section that shows only
+  recipes keeps working when this is off, without its link to the list. Admin then stops asking for
+  a course or cuisine so that readers can browse by it.
 
 ## Paths
 
@@ -359,7 +377,7 @@ Settings for the browser editor; see [The admin editor](admin.md).
 - `sessionHours` is how long a login lasts.
 - `secureCookies` must be `true` when the editor is served over HTTPS (it should be,
   whenever it is reachable from the internet).
-- `maxUploadMb` caps image uploads.
+- `maxUploadMb` caps a picture published as it was sent. A larger photo is reduced to fit rather than refused; see [Photo uploads](admin.md#photo-uploads).
 - `trustedProxies` lists the addresses of reverse proxies in front of the server, so login
   limits and the view counter see real client addresses.
 
@@ -374,10 +392,48 @@ keeps drafts out of public history unless set, `auto` publishes after every save
 
 `syndication.targets` is a map of user-chosen destination names to DEV, Hashnode, Ghost,
 WordPress, or manual Medium settings. `stateFile` points to private remote-ID state and
-defaults to `.openblog/syndication.json`. Credentials are environment-only and never belong
+defaults to `.openblog/syndication.json`. `requireApproval` (off by default) makes
+`openblog syndicate --write` send only a copy you previewed and approved with `--approve`;
+approvals are private, in `approvalFile` (default `.openblog/distribution-approvals.json`). See
+[Preview and approve before sending](cross-posting.md#preview-and-approve-before-sending).
+Credentials are environment-only and never belong
 in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup and the
 [automated syndication specification](specs/automated-syndication.md) for the exact fields,
 credential names, and safety behavior.
+
+## Community submissions
+
+`community` turns on guided submissions with `openblog submit` (off by default; omitted from the file while unset).
+`hackerNews.enabled` and `reddit.enabled` turn each destination on, and `reddit.communities.<name>` holds the rules you
+copied from each community (`rules`, 1 to 30 lines), the day you last read them (`reviewed`, `YYYY-MM-DD`) and an
+optional `flair` reminder. `stateFile` (default `.openblog/community-submissions.json`) keeps the submissions you
+confirmed. `productHunt.enabled` turns on Product Hunt launch kits, read from `productHunt.launchDir` (default
+`launches`, one `<slug>.json` per post). There are no credentials. Only `openblog submit` reads or checks this
+object. See [Community submissions](community-submissions.md).
+
+## Webmention
+
+`webmention` is off and absent by default. `enabled: true` lets `openblog webmention --write` send
+Webmentions to the sites a published post links; a dry run works without it. `stateFile` is the
+private queue of outcomes (default `.openblog/webmentions.json`), and `excludeHosts` lists sites
+(with their subdomains) that never receive one. A post opts out with `webmentions: false` in its
+front matter. See [Webmention](webmention.md).
+
+```json
+{ "webmention": { "enabled": true, "excludeHosts": ["tracker.example"] } }
+```
+
+`webmention.receive` is off and absent by default too. With `enabled: true` and an `https`
+`endpoint` (the hosted function's `/api/webmention`), each post that has not opted out advertises
+the endpoint, the build writes `openblog-webmention.json`, and `openblog mentions pull --write`
+takes and checks what other sites sent. `inboxFile` is the private moderation inbox (default
+`.openblog/webmention-inbox.json`) and `retentionDays` (default 90) is how long
+`openblog mentions prune --write` keeps what you did not approve. Approved mentions are published
+in `content/webmentions.json`. See [Receive Webmentions](webmention.md#receive-webmentions).
+
+```json
+{ "webmention": { "receive": { "enabled": true, "endpoint": "https://blog.example.com/api/webmention" } } }
+```
 
 ## Knowledge Atlas
 

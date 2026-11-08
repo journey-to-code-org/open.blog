@@ -2493,7 +2493,7 @@ _Avoid_: Backups, revisions, undo
 ## Landing starters
 
 **Starter layout**:
-A ready-made list of sample landing sections (Welcome, Small business, Portfolio, Newsletter) or an empty page
+A ready-made list of sample landing sections (Welcome, Small business, Portfolio, Newsletter, Recipes) or an empty page
 (Start from scratch), chosen in the Landing page builder. It is plain section data with every stand-in sentence
 marked "Sample", it is applied like any other unsaved edit, it can be undone, and it never replaces existing
 sections without asking (ADR 0258).
@@ -2690,6 +2690,18 @@ one-line note about the reach; nothing finer than a town is ever stored. A job i
 an area with no jobs says its work is not yet posted rather than filling the page.
 _Avoid_: Location (ambiguous with a job's place)
 
+**Seasonal reminder**:
+A suggestion, worked out from today's date and the business trade, to write about a topic that fits the time of year
+("Furnace tune-up before the cold", Sep 1 to Oct 31). It is not a scheduled job: nothing runs while Admin is closed. Its
+only action is to open one unpublished draft that starts with the prompt; it can be snoozed or its topic turned off.
+Off until the site turns it on, and never published, posted or sent (ADRs 0354 to 0356).
+_Avoid_: Scheduled post, campaign, auto-post
+
+**Seasonal topic**:
+A date window (`MM-DD` to `MM-DD`, which may cross the new year), a short topic and a prompt. Bundled per trade; a site
+stores only its changes and its own topics under `seasonalPrompts` in `openblog.json` (ADR 0354).
+_Avoid_: Content calendar
+
 **Before/after pair**:
 A publishing capability that shows two images of the same subject with captions, rendered as a comparison on
 the canonical page and as two captioned images everywhere else.
@@ -2698,6 +2710,40 @@ _Avoid_: Slider, gallery
 **Quote request**:
 A bounded inbound message from a prospective customer, stored server-side with explicit export and erase. It
 is not a lead pipeline, a booking or an estimate.
+A visitor sends one through the `quote` form (a fence in a post, or the quote-form landing section) to the site's
+own hosted function, which stores it in the private Supabase workspace and never in a static file (ADRs 0381,
+0382). The form is off until `quote.enabled` is set in `openblog.json`. A request has a name, phone, optional
+email, town, service, description, up to five photos in a private bucket, a status (`new`, `handled` or `archived`) and an
+owner notification state (ADR 0383).
+_Avoid_: Lead, booking, ticket
+
+**Quote form fence**:
+The `quote` fence (`service: <name>` lines optional) that places the quote form in a post. With quote requests
+off it renders nothing, and a portable copy never carries it.
+
+**Form token**:
+The signed, single-use value a quote form carries so the hosted function can tell a person who took a few
+seconds from a script; one token sends one request. A form posted without JavaScript is answered once with the
+same form and a fresh token (ADR 0381).
+
+**Requests view**:
+The Admin screen (`#/quotes`) where the owner reads stored quote requests newest first, copies a phone number or
+email, marks a request handled or archived, exports a range as CSV and erases requests. It has no scoring, pipeline
+or automation beyond the status, and exists only where Admin has quote settings (ADR 0384).
+
+**Erase**:
+Permanent removal of chosen quote requests and their photos. It is previewed (count and photos), confirmed with a
+sealed token that fits exactly that list, and reported only after a read shows none remain; a failure keeps every
+request, though photos already removed stay gone (ADR 0384).
+
+**Retention**:
+The optional number of days (`OPENBLOG_QUOTE_RETENTION_DAYS`) after which an archived request is erased by the
+daily sweep. Off by default; new and handled requests are never erased automatically (ADR 0384).
+
+**Owner notification**:
+The one email a configured provider sends to the site owner's own fixed address when a request is stored. It
+never goes to a visitor, carries no phone number or description, and its failure never loses the request; a failed
+email shows on its request in the Requests view, which can send it again (ADR 0383).
 _Avoid_: Lead, booking, ticket
 
 **Proof**:
@@ -2706,7 +2752,7 @@ _Avoid_: Rating (the number alone), social proof
 
 **Social publishing**:
 An optional, off-by-default outward announcement of an already-published canonical post to a connected LinkedIn
-identity or Facebook Page, on a schedule. It never replaces the post or cross-posting. Everything about it is
+identity, Facebook Page, Bluesky account or Mastodon account, on a schedule. It never replaces the post or cross-posting. Everything about it is
 server-side; builds and exports do not know it exists.
 _Avoid_: Syndication (a full copy of the article on another platform)
 
@@ -2721,9 +2767,22 @@ worker. It is an audit attribution; the role is decided by which server key auth
 _Avoid_: User, owner
 
 **Social account**:
-A connected LinkedIn identity or Facebook Page that a site may announce to. It is stored per site; its credentials
+A connected LinkedIn identity, Facebook Page, Bluesky account or Mastodon account that a site may announce to. It is stored per site; its credentials
 are never part of the account row. Disconnecting keeps the row for history.
 _Avoid_: Profile, channel
+
+**App-password session**:
+How a Bluesky account is connected (ADR 0357): the author types a handle and a Bluesky app password once, the hosted
+function opens an AT Protocol session with it, and only the session's two tokens are kept, sealed. The password is
+never stored, and a password that is not shaped like an app password is refused before it is sent.
+_Avoid_: Bluesky login, Bluesky OAuth (not used yet), account password
+
+**Mastodon instance**:
+The one Mastodon server a deployment connects accounts on (ADR 0359), named by `OPENBLOG_SOCIAL_MASTODON_INSTANCE`
+as an `https` origin, where the deployer registered the application whose client id and secret the hosted function
+holds. Every Mastodon endpoint is derived from it, and Admin follows only its `/oauth/authorize`. Its public limits
+(characters per status, per link, per image description) are read again before every post, never stored.
+_Avoid_: Mastodon server list, fediverse (more than Mastodon), home server when the deployer's setting is meant
 
 **Scheduled social post**:
 One queued announcement of one canonical post to one social account, with a time, a lease while a worker holds it
@@ -2846,3 +2905,307 @@ _Avoid_: Error queue
 The time until which a rate-limited social account sends nothing, for any of its posts, so one limit is not hit again by
 the next announcement.
 _Avoid_: Cooldown, ban
+
+**Delivery state**:
+What an author waits for on an announcement, derived from its stored status and problem code (ADR 0323): `pending`
+(scheduled, nothing wrong yet), `processing` (claimed), `retrying` (scheduled again after a try that did not post),
+`published`, `failed`, `unknown` or `canceled`. It decides the words and actions Admin offers; writers still fence on
+the stored status.
+_Avoid_: Status (the stored one), phase
+
+**Status history**:
+The ordered events of one announcement: created, every status, time or caption change, and each new problem code,
+recorded by a database trigger when `supabase/social-history.sql` is installed, otherwise rebuilt from the delivery
+attempts and marked as incomplete. Append-only; it holds no caption, token or provider text.
+_Avoid_: Audit log (the attempts are the delivery record), activity feed
+
+**Delivery health**:
+Counts of a site's social queue (late, in flight, expired leases, retrying, waiting for a lookup or a person, recent
+failures, accounts needing reconnect, abandoned handshakes) and the alert codes they raise, read by an opt-in database
+function for Admin and the worker's warning log line. It never holds a caption, name or token.
+_Avoid_: Metrics, dashboard
+
+**Social retention**:
+The opt-in deletion, after a configured 30 to 3650 days, of announcements that ended with their tries and history,
+finished handshakes and unreferenced disconnected accounts. Nothing scheduled, sending or unknown is ever removed.
+_Avoid_: Cleanup (the sweep only changes state), archiving
+
+**Social switch**:
+One of the three independent places social publishing is turned on (ADR 0331): `OPENBLOG_SOCIAL_ENABLED=true` with
+valid settings on the hosted functions, `OPENBLOG_SOCIAL_ENDPOINT` with the admin key on the machine running Admin,
+and the cron job with its Vault secrets in Supabase. Each is off by default and undone on its own; none lives in
+`openblog.json`.
+_Avoid_: Feature flag (there is no flag in the site file), toggle
+
+**Social release gate**:
+An automated check that must pass before a release touching social publishing: builds, feeds, exports, cross-posting
+plans and offline authoring unchanged by the settings; every hosted route a 404 when off; no Supabase or hosted social
+address in a browser file; and the guide, settings, SQL and provider versions in agreement (ADRs 0331 and 0332).
+_Avoid_: Readiness check (that is the publication readiness report), smoke test
+
+## Distribution
+
+**Provider manifest**:
+The versioned statement of what this release's adapter does at one destination (a cross-posting target or a social
+provider): each capability's support, the login method and scopes, the verified provider limits, how the canonical
+address travels, what makes something public, and the policy version and sources it was checked against. It is code,
+never a credential, and anything unknown in it refuses the whole manifest (ADR 0325).
+_Avoid_: Provider config (the deployer's settings), integration, capability flags
+
+**Distribution capability**:
+One of the closed list of things a distribution can ask of a destination: link, text, article, image, video, draft,
+schedule. A name outside the list refuses the request it appears in.
+_Avoid_: Feature, content type
+
+**Capability support**:
+How far this release goes for one capability at one destination: `adapter` (done through the provider's API),
+`manual` (the provider can, but only the author can, by hand) or `unsupported`.
+_Avoid_: Partial support, best effort
+
+**Policy version**:
+The day a provider manifest's facts were checked against the provider's documentation (`YYYY-MM-DD`, optionally
+`.N`). Any change to a manifest raises it, so a provider and policy version always mean one set of facts.
+_Avoid_: API version (the provider's own, such as LinkedIn's `YYYYMM`), manifest version (the format)
+
+**Destination eligibility**:
+Whether a destination can take a distribution request through its adapter. An ineligible destination is reported
+with destination-specific reasons (a manual or unsupported capability, a limit), never sent a part of the request.
+_Avoid_: Validation error, warning
+
+**Manifest compatibility**:
+How a newer manifest of a provider relates to the older one: same, compatible (only widened, loosened or
+documentation changes; approvals stand) or breaking (anything narrowed, tightened or changed in login, canonical or
+publishing; approvals under the old policy version are void) (ADR 0327).
+_Avoid_: Semver, upgrade safety
+
+**Distribution plan**:
+For one published post and the destinations the author chose, a preview per destination: exactly the portable
+copy the run would send (or the author would import), the intent (draft, published or manual), the capabilities that
+asks for, and its status: ready, manual (the guided workflow) or blocked, with every destination-specific reason.
+It is identified by a plan digest and written as dry-run artifacts by `openblog syndicate --preview`; with no
+destination it holds the portable copy as a fallback (ADRs 0328, 0330).
+_Avoid_: Campaign, schedule, dry-run output (the existing text and JSON plans)
+
+**Community destination**:
+A place the author submits a post to by hand, such as Hacker News, a Reddit community or Product Hunt. Its provider
+manifest (family `community`) says the link is manual, nothing is done by an adapter and there is no login, so
+open.blog only prepares and never submits (ADRs 0337, 0341).
+_Avoid_: Social network (an adapter destination), auto-post, share target
+
+**Submission kit**:
+For one published post and the community destinations the author chose, what they need to submit it by hand: the
+title, the exact canonical link, the rules as a checklist, blocking reasons and advice, and a link to the community's
+own submit form shown only when nothing blocks. Written by `openblog submit`; never a submission (ADRs 0338, 0339).
+_Avoid_: Launch kit (the Product Hunt kit of story #396), submission, campaign
+
+**Launch plan**:
+What the maker writes down for one post's Product Hunt launch, in `launches/<slug>.json`: name, tagline, short pitch,
+product address, thumbnail and gallery screenshots, YouTube demo, launch tags, co-makers, first comment and launch
+day. Outside `content/`, so nothing public reads it (ADR 0342).
+_Avoid_: Launch (the event on Product Hunt), product page, front matter
+
+**Launch kit**:
+A launch plan checked against Product Hunt's written limits, with blocking reasons and advice, the images copied
+beside a preview page with copy and open actions, and a link to Product Hunt's own form shown only when nothing
+blocks. Written by `openblog submit <slug> --to product-hunt`; never a launch (ADRs 0342, 0343).
+_Avoid_: Submission kit (the Hacker News and Reddit kit), press kit, scheduled launch
+
+**Community rules**:
+The rules of one Reddit community as the author copied them into `community.reddit.communities`, with the day they
+last read them. open.blog never reads them from Reddit; without them a Reddit kit is blocked (ADR 0339).
+_Avoid_: Subreddit policy fetched by API, provider rules (Reddit-wide rules, linked from the kit)
+
+**Author-confirmed submission**:
+A submission the author says they made, recorded privately with `--confirm` and `evidence: "author"`. It is never
+checked with the provider and is never shown as verified; it keeps a repeat submission from being prepared
+(ADR 0340). A confirmed Product Hunt launch blocks the kit until `--again` marks a relaunch (ADR 0344).
+_Avoid_: Posted, published, delivered (states a provider confirmed)
+
+**Distribution approval**:
+The author's explicit consent to one distribution plan, given by its digest: bound to the source revision, the
+canonical address, the draft or publish choice, each destination's preview digest and the manifest it was previewed
+under. Private; with `requireApproval` a write sends only what it covers (ADR 0329).
+_Avoid_: Approval (a collaboration's publish consent), acknowledgement (of a portability warning)
+
+**Recipe listing**:
+The generated pages that list a site's published recipes: every recipe at `/recipes/`, and one filter page per course
+and per cuisine, joined by plain links. It takes no reserved address: a page of the owner's keeps its address and the
+listing moves or drops that one page, with a warning (ADR 0352).
+_Avoid_: Recipe index, recipe archive (in prose), search
+
+**Visual card**:
+What one image destination shows of a published post: one of the author's own published images, a title, a
+description, the image's alternative text, the canonical link and the image's recorded credit. Built and checked by
+`openblog card`, never generated and never sent by it (ADRs 0368 to 0370).
+_Avoid_: Social image, thumbnail, generated card
+
+**Card image candidate**:
+An image a visual card may use, tried in a fixed order: the explicit `cardImage`, the authored cover, then for recipe
+and field-journal posts the photographs in the portable body. The first one a destination accepts is used (ADR 0368).
+_Avoid_: Best image, hero
+
+**Image credit**:
+The recorded source of a card image: one line of text and an optional https link, from `coverCredit` or
+`cardImageCredit` and their `...Url` keys. Never inferred; an image without one has none.
+_Avoid_: Attribution (a work credit of the post), caption
+
+**Card format**:
+One destination a visual card is built for, from a closed list (`pinterest-pin`, `facebook-link`, `linkedin-link`),
+with dated requirements verified against the provider's documentation (shape, sizes, file size and types, text
+limits). A link preview format shows the page's own metadata, never card fields (ADR 0370).
+_Avoid_: Platform, network, image size
+
+**Card fallback**:
+Passing over a card image candidate the destination cannot take, recorded with its reasons, and trying the next. A
+card is never fixed by cropping, resizing or generating anything (ADR 0370).
+_Avoid_: Auto-fix, default image
+
+**Pin plan**:
+Exactly what `openblog pinterest pin` would send to one Pinterest board: the post's Pin card (its title, its
+description followed by the image credit, the image's own alternative text, the canonical link) and the image file's
+bytes, with the environment (`sandbox` or `production`), board and section. Built without any request (ADR 0372).
+_Avoid_: Pin draft, Pin preview page
+
+**Pin digest**:
+The digest of a Pin plan, over every field the request carries and a digest of the image's bytes. `--write` sends
+only when `--confirm` repeats it, so any change after the preview stops the send (ADR 0372).
+_Avoid_: Approval id, card digest (which covers only the card)
+
+**Unsettled Pin attempt**:
+A recorded Pin request that may have created a Pin (no answer, a server error, or a reply without a Pin id). It is
+never sent again on its own: `--reconcile` looks for the one Pin linking the post since the attempt, and only the
+author, with `--forget-attempt`, may decide that none was made (ADR 0373).
+_Avoid_: Failed Pin, retry
+
+**Recipe export**:
+A published recipe post as one schema.org `Recipe` JSON-LD document: exactly the `Recipe` node its page carries, plus
+the schema.org context, written locally by `openblog export <slug> --format recipe-json-ld`. It carries the author's
+lines and times as written or leaves them out, never a converted or guessed value; `adaptedFrom` becomes `isBasedOn`
+(ADR 0333).
+_Avoid_: Recipe card (the summary on the page), recipe feed, submission (sending it to a directory)
+
+**Recipe check**:
+The closed list of problems a recipe export is checked against: unreadable, zero or backwards amounts, empty or
+missing lists, inconsistent times and a missing canonical address are errors that stop the export; gaps such as no
+photo or no author are warnings. A problem names the ingredient, step or field, never the author's words (ADR 0334).
+_Avoid_: Validation error, lint
+
+**Recipe directory**:
+A site that lists recipes from other sites (Google Search recipe results, Pinterest, Foodgawker), in a closed, dated
+list with each condition marked as read in its own documentation or not verified. open.blog never submits to one;
+the author does, by hand (ADR 0335).
+_Avoid_: Destination (a cross-posting or social target with an adapter), aggregator, recipe app (an importer)
+
+**Recipe package**:
+A new folder prepared by `openblog export <slug> --format recipe-package` for the recipe directories the author
+chose: the page's `Recipe` JSON-LD, the text to paste, the credit, the cover when it is a static file, a plan and a
+static guide to the author's steps. Prepared, never sent (ADR 0336).
+_Avoid_: Submission (the author's own act in the directory), recipe export (the single JSON-LD file)
+
+**Webmention**:
+A W3C notification that a canonical post links a page on another site: a form POST of the post's address
+(`source`) and the linked address (`target`) to the endpoint that page advertises. open.blog sends them with
+`openblog webmention --write` when `webmention.enabled` is on; nothing else sends one (ADR 0361).
+_Avoid_: Pingback, trackback, mention (a reader's reply), syndication (a copy of the article)
+
+**Webmention target**:
+A link of a post's public portable HTML to another site that may be told: absolute `http(s)`, no credentials,
+not the post's own host, not excluded, at most 100 per post. Whether it is reachable is decided per request.
+_Avoid_: Destination (a cross-posting or social target), recipient
+
+**Webmention endpoint discovery**:
+Finding where a target accepts Webmentions: its first `Link` header with `rel="webmention"`, else the first
+`<link>` or `<a>` with it, resolved against the address after redirects, with every address checked public
+before use (ADR 0361).
+_Avoid_: Crawling, scraping
+
+**Webmention queue**:
+The private file (`webmention.stateFile`) that records, per canonical post and target, the latest ping's
+status (`sent`, `no-endpoint`, `retrying`, `failed`, `rejected`, `blocked`), the post revision it was for, and
+when a retry is due. It decides what the next run sends (ADR 0362).
+_Avoid_: Outbox, delivery log (the social operations log)
+
+**Received Webmention**:
+A request from another site that one of its pages (`source`) links a post here (`target`). The hosted receiver
+checks the two addresses and stores the pair without fetching anything; `openblog mentions pull --write` fetches
+the source through the public-only fetcher and keeps it only when the page links the post exactly (ADR 0364).
+_Avoid_: Comment, reply, pingback, backlink when the request is meant
+
+**Mention inbox**:
+The private file (`webmention.receive.inboxFile`) of received mentions, their state (`pending`, `approved`,
+`rejected`, `removed`, `blocked`), the source's claims, a revision and the blocked hosts. Never published; only a
+mention approved at its current revision reaches `content/webmentions.json` (ADR 0365).
+_Avoid_: Moderation inbox (the hosted participation inbox), queue (the outbound Webmention queue)
+
+**Source claims**:
+What a source page says about itself: its title, an author's name and a day, kept as bounded plain text. Never an
+identity: only the source's host and that it linked the post were checked, and the page says so (ADR 0365).
+_Avoid_: Author, identity, verified name, h-card
+
+**Published mentions**:
+`content/webmentions.json`, the approved mentions a post's canonical page lists as plain links marked
+`nofollow ugc`, with no script, image or excerpt. Feeds and portable copies never carry them (ADR 0366).
+_Avoid_: Comments, backlinks, social proof
+**Video release**:
+What a video destination is prepared from, read only from a video-profile post: the video reference (a project
+master file and/or the YouTube address), a title and description written for the destination, the chapters and
+transcript written in the body, caption files, the thumbnail, and the author's consent declarations (ADR 0374).
+Never generated from an article.
+_Avoid_: Video export, slideshow, release kit (Admin's copy helper for the description)
+
+**Video reference**:
+Where a release's video is: `videoFile`, a project-relative master file to upload, and/or `videoUrl`, a video already
+on YouTube.
+_Avoid_: Embed, media URL
+
+**Consent declaration**:
+One of the author's own answers a release needs before anything is uploaded: rights (`owned` or `licensed`), people
+(`consented` or `none`), made for kids and realistic synthetic content (`yes` or `no`). Missing or unknown answers are
+reported, never assumed.
+_Avoid_: Disclosure (the free-text AI-assistance note), licence
+
+**Video family**:
+The provider family of destinations that receive a video the author made, whose description links the canonical
+post (YouTube). Neither a portable copy of the article nor a queued announcement (ADR 0375).
+_Avoid_: Social video, video syndication
+
+**YouTube preview**:
+The exact metadata a video release would carry to YouTube (title, composed description with the canonical article
+link, tags, thumbnail, chapters, captions, transcript, audience and synthetic-content answers, private visibility),
+its status (blocked, manual or ready), every problem with its code, the guided steps and a digest. Written by
+`openblog video --preview`; sends nothing (ADR 0376). Its digest is what a video approval binds.
+_Avoid_: Release kit (Admin's copy helper), upload plan
+
+**YouTube connection**:
+The author's Google grant for uploads, made by `openblog youtube connect` with the deployer's own Desktop-app OAuth
+client (loopback redirect, PKCE) and both scopes `youtube.upload` and `youtube.readonly`. Its refresh token is kept
+protected in `.openblog/private/youtube/credential` on the author's computer; nothing hosted holds it (ADR 0378).
+_Avoid_: Social account (a hosted LinkedIn or Facebook grant), API key
+
+**Video approval**:
+The author's consent to upload exactly one YouTube preview (its digest) from one master file (its size and digest),
+with an optional `publishAt`, under the manifest it was previewed under. Changing any of them voids it (ADR 0379).
+_Avoid_: Distribution approval (a syndication plan's), publish consent
+
+**Upload record**:
+The private, protected record of one release's upload: its state (not-uploaded, uploading, uploaded, failed or
+unknown), the resumable session and bytes received, the video id and watch address, the thumbnail's state and a
+bounded history of coded events. Never a token or the author's words (ADR 0380).
+_Avoid_: Syndication state, delivery history (the social queue's)
+
+**Unknown upload**:
+A release whose last chunk was sent but whose reply was lost and whose session has ended: the video may exist.
+Nothing is sent again until `--lookup` finds exactly the release in the channel's recent uploads, finds no upload at
+all in the attempt's window, or a person settles it with `--settle` (ADR 0380).
+_Avoid_: Failed upload, retry
+
+**Text alternative**:
+What lets a video be followed without sound: caption files or the post's Transcript section. A release without one
+is blocked (ADR 0377).
+_Avoid_: Subtitles (one kind of caption), accessibility metadata
+
+**Asset probe**:
+The caller-supplied lookup that tells core a release file's size and first bytes, asked only about clean
+project-relative paths and treating a symlink or anything but a regular file as missing. Core never reads files.
+_Avoid_: File check, scanner
+

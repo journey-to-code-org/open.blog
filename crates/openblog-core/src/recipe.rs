@@ -6,7 +6,7 @@
 //! a "Steps" (or "Method", "Instructions", "Directions") heading followed by a
 //! list. Times and servings come from the front matter.
 
-use crate::frontmatter::FrontMatter;
+use crate::frontmatter::{FrontMatter, Value};
 
 /// What a heading introduces, if it starts a recipe section.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,7 +114,14 @@ pub struct Recipe {
     pub steps: Vec<String>,
     /// Id of the first recipe heading, the target of "Jump to recipe".
     pub anchor: Option<String>,
+    /// Where the recipe comes from when it is adapted from another, as written in `adaptedFrom`
+    /// (also `adapted_from`, `basedOn`). Exported as schema.org `isBasedOn` only when it is an
+    /// http(s) address (ADR 0333).
+    pub adapted_from: Option<String>,
 }
+
+/// The front matter keys a recipe's course is read from, first found wins.
+pub const COURSE_KEYS: &[&str] = &["course", "category", "recipeCategory"];
 
 /// True when the front matter marks the post as a recipe.
 pub fn is_recipe(fm: &FrontMatter) -> bool {
@@ -122,10 +129,26 @@ pub fn is_recipe(fm: &FrontMatter) -> bool {
 }
 
 impl Recipe {
+    /// Each course as written: `Lunch, Dinner` is two.
+    pub fn courses(&self) -> Vec<String> {
+        split_values(self.category.as_deref())
+    }
+
+    /// Each cuisine as written: `Greek, Turkish` is two.
+    pub fn cuisines(&self) -> Vec<String> {
+        split_values(self.cuisine.as_deref())
+    }
+
     /// The card's facts (`<div><dt>..</dt><dd>..</dd></div>` rows, escaped):
     /// times, servings, yield, cuisine, course, and calories. `scalable` wraps
     /// a plain servings number in the span the scaling component updates.
-    pub(crate) fn facts_html(&self, scalable: bool) -> String {
+    /// With the site's recipe `listing`, a course or cuisine that has a filter
+    /// page links to it; a copy that travels off the site passes `None`.
+    pub(crate) fn facts_html(
+        &self,
+        scalable: bool,
+        listing: Option<&crate::recipe_listing::RecipePlan>,
+    ) -> String {
         use crate::escape::text;
         let mut facts = String::new();
         let mut fact = |label: &str, value: String| {
@@ -158,14 +181,16 @@ impl Recipe {
             };
             fact("Serves", value);
         }
-        for (label, value) in [
-            ("Makes", &self.yield_text),
-            ("Cuisine", &self.cuisine),
-            ("Course", &self.category),
-            ("Calories", &self.calories),
+        use crate::recipe_listing::RecipeArchiveKind::{Course, Cuisine};
+        for (label, value, kind) in [
+            ("Makes", &self.yield_text, None),
+            ("Cuisine", &self.cuisine, Some(Cuisine)),
+            ("Course", &self.category, Some(Course)),
+            ("Calories", &self.calories, None),
         ] {
             if let Some(v) = value {
-                fact(label, text(v));
+                let linked = listing.zip(kind).and_then(|(l, k)| filter_links(l, k, v));
+                fact(label, linked.unwrap_or_else(|| text(v)));
             }
         }
         facts
@@ -179,11 +204,24 @@ impl Recipe {
         ingredients: Vec<String>,
         steps: Vec<String>,
     ) -> Recipe {
+        // A key left blank says nothing, so the next spelling is read.
         let get = |keys: &[&str]| {
             keys.iter()
-                .find_map(|k| fm.get(k))
+                .filter_map(|k| fm.get(k))
                 .map(str::trim)
-                .filter(|v| !v.is_empty())
+                .find(|v| !v.is_empty())
+        };
+        // A course or cuisine can be several, so a list keeps all of them and
+        // reads the same as the comma form Admin writes. A stray comma ("Dessert, ")
+        // is not a value, so everything that reads this sees the tidy form.
+        let several = |keys: &[&str]| {
+            keys.iter().find_map(|k| {
+                let values = match fm.fields.get(*k)? {
+                    Value::Scalar(value) => split_values(Some(value)),
+                    Value::List(items) => split_values(Some(&items.join(","))),
+                };
+                (!values.is_empty()).then(|| values.join(", "))
+            })
         };
         let time = |keys: &[&str]| -> (Option<u32>, Option<String>) {
             match get(keys) {
@@ -218,14 +256,47 @@ impl Recipe {
             prep_text,
             cook_text,
             total_text,
-            cuisine: get(&["cuisine"]).map(str::to_string),
-            category: get(&["course", "category", "recipeCategory"]).map(str::to_string),
+            cuisine: several(&["cuisine"]),
+            category: several(COURSE_KEYS),
             calories: get(&["calories"]).map(str::to_string),
             ingredients,
             steps,
             anchor: None,
+            adapted_from: get(&["adaptedFrom", "adapted_from", "basedOn"]).map(str::to_string),
         }
     }
+}
+
+/// The values of a course or cuisine, each linked to its filter page where it
+/// has one, or `None` when none does, so the text stays plain.
+fn filter_links(
+    listing: &crate::recipe_listing::RecipePlan,
+    kind: crate::recipe_listing::RecipeArchiveKind,
+    written: &str,
+) -> Option<String> {
+    use crate::escape::{attr, text};
+    let values = split_values(Some(written));
+    if !values.iter().any(|v| listing.filter_url(kind, v).is_some()) {
+        return None;
+    }
+    let links: Vec<String> = values
+        .iter()
+        .map(|value| match listing.filter_url(kind, value) {
+            Some(url) => format!("<a href=\"{}\">{}</a>", attr(url), text(value)),
+            None => text(value),
+        })
+        .collect();
+    Some(links.join(", "))
+}
+
+fn split_values(value: Option<&str>) -> Vec<String> {
+    value
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Longest time accepted: 30 days. Anything longer is surely a typo.
@@ -263,9 +334,14 @@ const UNICODE_FRACTIONS: &[(char, f64)] = &[
     ('⅞', 0.875),
 ];
 
+/// True for the single-character fractions an amount may be written with (`½`, `¾`).
+pub(crate) fn is_unicode_fraction(c: char) -> bool {
+    UNICODE_FRACTIONS.iter().any(|(u, _)| *u == c)
+}
+
 /// A number at the start of `s`: `2`, `1.5`, `1,5`, `1/2`, `1 1/2`, `1½`,
 /// `1 ½`, or `½`. Returns the value and the rest of the text.
-fn leading_number(s: &str) -> Option<(f64, &str)> {
+pub(crate) fn leading_number(s: &str) -> Option<(f64, &str)> {
     let unicode = |c: char| {
         UNICODE_FRACTIONS
             .iter()
@@ -410,6 +486,70 @@ mod tests {
         assert_eq!(format_minutes(5), "5 min");
         assert_eq!(iso_duration(90), "PT1H30M");
         assert_eq!(iso_duration(60), "PT1H");
+    }
+
+    #[test]
+    fn course_wins_over_category_and_a_comma_makes_two_values() {
+        let doc = frontmatter::parse(
+            "---\nrecipe: true\ncategory: News\nrecipeCategory: Old\ncourse: Lunch, Dinner ,\ncuisine: Greek\n---\n",
+        )
+        .unwrap();
+        let r = Recipe::from_front_matter(&doc.front_matter, vec![], vec![]);
+        assert_eq!(r.category.as_deref(), Some("Lunch, Dinner"));
+        assert_eq!(r.courses(), ["Lunch", "Dinner"]);
+        assert_eq!(r.cuisines(), ["Greek"]);
+        assert!(Recipe::default().courses().is_empty());
+    }
+
+    #[test]
+    fn a_stray_comma_in_a_course_or_cuisine_reaches_nothing() {
+        let read = |front: &str| {
+            let doc = frontmatter::parse(&format!("---\nrecipe: true\n{front}\n---\n")).unwrap();
+            let r = Recipe::from_front_matter(&doc.front_matter, vec![], vec![]);
+            (r.category, r.cuisine)
+        };
+        let tidy = |course: &str, cuisine: &str| (Some(course.into()), Some(cuisine.into()));
+        assert_eq!(
+            read("course: Dessert,\ncuisine: \"Italian, \""),
+            tidy("Dessert", "Italian")
+        );
+        assert_eq!(
+            read("course: Lunch,,Dinner\ncuisine: \", Thai\""),
+            tidy("Lunch, Dinner", "Thai")
+        );
+        assert_eq!(
+            read("course:\n  - \"\"\n  - Soup\ncuisine:\n  - Thai,\n  - \" \"\n  - Greek"),
+            tidy("Soup", "Thai, Greek")
+        );
+        // Nothing but commas says nothing, so the next spelling is read.
+        assert_eq!(
+            read("course: \" , \"\ncategory: Soup").0,
+            Some("Soup".into())
+        );
+        assert_eq!(read("cuisine: \",\"").1, None);
+    }
+
+    #[test]
+    fn a_list_of_courses_or_cuisines_keeps_every_value() {
+        let doc = frontmatter::parse(
+            "---\nrecipe: true\ncourse: [Lunch, Dinner]\ncuisine:\n  - Greek\n  - Turkish\n---\n",
+        )
+        .unwrap();
+        let r = Recipe::from_front_matter(&doc.front_matter, vec![], vec![]);
+        assert_eq!(r.courses(), ["Lunch", "Dinner"]);
+        assert_eq!(r.cuisines(), ["Greek", "Turkish"]);
+        assert_eq!(r.category.as_deref(), Some("Lunch, Dinner"));
+        // Left blank in any form says nothing, so the next spelling is read.
+        for blank in ["[]", "\"\"", "", "\"  \"", "[\"\"]"] {
+            let source = format!("---\nrecipe: true\ncourse: {blank}\ncategory: Soup\n---\n");
+            let doc = frontmatter::parse(&source).unwrap();
+            let r = Recipe::from_front_matter(&doc.front_matter, vec![], vec![]);
+            assert_eq!(r.courses(), ["Soup"], "course: {blank}");
+        }
+        let doc =
+            frontmatter::parse("---\nrecipe: true\nservings: \"\"\nserves: 4\n---\n").unwrap();
+        let r = Recipe::from_front_matter(&doc.front_matter, vec![], vec![]);
+        assert_eq!(r.servings, Some(4));
     }
 
     #[test]

@@ -68,13 +68,14 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             .collect::<Vec<_>>(),
         vec![
             "servings",
+            "course",
+            "cuisine",
             "yield",
             "prepTime",
             "cookTime",
             "totalTime",
-            "cuisine",
-            "category",
-            "calories"
+            "calories",
+            "adaptedFrom"
         ]
     );
     assert_eq!(profiles[2].label, "Research");
@@ -101,7 +102,15 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             "videoUrl",
             "duration",
             "thumbnail",
-            "aiDisclosure"
+            "aiDisclosure",
+            "videoFile",
+            "videoTitle",
+            "videoDescription",
+            "captions",
+            "videoRights",
+            "videoPeople",
+            "madeForKids",
+            "syntheticMedia"
         ]
     );
     assert_eq!(profiles[4].label, "Field journal");

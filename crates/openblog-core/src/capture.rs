@@ -130,7 +130,7 @@ pub fn parse_ledger(text: &str) -> Result<String, String> {
         .ok_or_else(|| "The capture ledger entry has no path".to_string())
 }
 
-/// The limits Admin's Capture view works to. `max_photo_mb` is the site's own `admin.maxUploadMb`.
+/// The limits Admin's Capture view works to. `max_photo_mb` is the most an upload reads, since a larger photo is reduced by the server.
 pub fn limits_json(max_photo_mb: u32) -> Value {
     json!({
         "maxPhotos": MAX_PHOTOS,

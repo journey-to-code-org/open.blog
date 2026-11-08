@@ -5,11 +5,14 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::business::BusinessConfig;
+use crate::community_submission::CommunityConfig;
 use crate::contributor::{self, Contributor};
 use crate::look::LookSettings;
 use crate::participation::ParticipationConfig;
 use crate::reading_depth::ReadingMode;
+use crate::seasonal::SeasonalConfig;
 use crate::service_area::ServiceAreasConfig;
+use crate::webmention::WebmentionConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -86,6 +89,11 @@ pub struct SiteConfig {
     /// Optional server-side cross-posting destinations. Credentials are read from
     /// environment variables and are never serialized here.
     pub syndication: SyndicationConfig,
+    /// Guided community submissions (`openblog submit`, ADRs 0337 to 0340): every destination is
+    /// off by default, nothing is ever submitted for the author, and the object is omitted from
+    /// the written file while it has its defaults.
+    #[serde(skip_serializing_if = "CommunityConfig::is_default")]
+    pub community: CommunityConfig,
     /// Also write a Netlify/Cloudflare-style `_redirects` file with a real 301 for every
     /// `aliases:` address. The meta-refresh pages are always written; this adds the
     /// server-side redirect on hosts that read the file. Do not also keep your own
@@ -147,6 +155,18 @@ pub struct SiteConfig {
     /// while none are stated, so a site that never sets it builds exactly as before.
     #[serde(skip_serializing_if = "ServiceAreasConfig::is_default")]
     pub service_areas: ServiceAreasConfig,
+    /// Seasonal reminders for a trade site (ADR 0354). Off and omitted from the written file
+    /// until stated, so a site that never sets it builds exactly as before.
+    #[serde(skip_serializing_if = "SeasonalConfig::is_default")]
+    pub seasonal_prompts: SeasonalConfig,
+    /// Outbound Webmentions from canonical posts (ADR 0361). Off by default and omitted from the
+    /// written file while it has its defaults, so a site that never sets it is unchanged.
+    #[serde(skip_serializing_if = "WebmentionConfig::is_default")]
+    pub webmention: WebmentionConfig,
+    /// Quote requests (ADR 0381). Omitted from the written file while off and unset, so a site
+    /// that never sets it builds exactly as before.
+    #[serde(skip_serializing_if = "crate::quote::QuoteConfig::is_default")]
+    pub quote: crate::quote::QuoteConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -444,6 +464,9 @@ pub struct RecipesConfig {
     pub print: bool,
     /// A "Jump to recipe" link at the top of the post.
     pub jump_link: bool,
+    /// The list at `/recipes/` with its course and cuisine filter pages, and
+    /// the link to it in the site's navigation (ADR 0352).
+    pub listing: bool,
 }
 
 impl Default for RecipesConfig {
@@ -455,6 +478,7 @@ impl Default for RecipesConfig {
             cook_mode: true,
             print: true,
             jump_link: true,
+            listing: true,
         }
     }
 }
@@ -570,6 +594,7 @@ impl Default for SiteConfig {
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),
             syndication: SyndicationConfig::default(),
+            community: CommunityConfig::default(),
             redirects_file: false,
             knowledge_atlas: KnowledgeAtlasConfig::default(),
             participation: ParticipationConfig::default(),
@@ -583,6 +608,9 @@ impl Default for SiteConfig {
             extra_trades: Vec::new(),
             business: BusinessConfig::default(),
             service_areas: ServiceAreasConfig::default(),
+            seasonal_prompts: SeasonalConfig::default(),
+            webmention: WebmentionConfig::default(),
+            quote: crate::quote::QuoteConfig::default(),
         }
     }
 }
@@ -629,6 +657,44 @@ pub struct SyndicationConfig {
     pub state_file: String,
     /// User-chosen target names permit multiple sites using the same provider.
     pub targets: BTreeMap<String, SyndicationTargetConfig>,
+    /// When true, `--write` sends only what the author approved with `--approve` (ADR 0329).
+    /// Off by default, so existing runs are unchanged.
+    pub require_approval: bool,
+    /// Private approvals, relative to the project root.
+    pub approval_file: String,
+    /// Pinterest Pins sent by `openblog pinterest` (ADRs 0371 and 0372). Absent means off, and
+    /// nothing else reads it, so builds, feeds and cross-posting are unchanged by it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinterest: Option<PinterestConfig>,
+}
+
+/// The opt-in Pinterest destination. Values are checked by the command that uses them, so a
+/// mistake here never stops a build.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PinterestConfig {
+    /// Must be `true` before anything is sent.
+    pub enabled: bool,
+    /// `sandbox` (the default: Pins only the author can see) or `production`.
+    pub environment: String,
+    /// The board a Pin goes to unless `--board` names another; it must be one the token can use.
+    pub board: String,
+    /// An optional section of that board.
+    pub board_section: String,
+    /// Private record of the Pins sent and attempted, relative to the project root.
+    pub state_file: String,
+}
+
+impl Default for PinterestConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            environment: "sandbox".into(),
+            board: String::new(),
+            board_section: String::new(),
+            state_file: ".openblog/pinterest.json".into(),
+        }
+    }
 }
 
 impl Default for SyndicationConfig {
@@ -636,6 +702,9 @@ impl Default for SyndicationConfig {
         Self {
             state_file: ".openblog/syndication.json".into(),
             targets: BTreeMap::new(),
+            require_approval: false,
+            approval_file: ".openblog/distribution-approvals.json".into(),
+            pinterest: None,
         }
     }
 }
@@ -1063,6 +1132,10 @@ impl SiteConfig {
             claim_evidence_section: false,
             supplements: false,
             concept_links: false,
+            quote: self
+                .quote
+                .enabled
+                .then_some((&self.quote, &self.service_areas)),
         }
     }
 
@@ -1149,6 +1222,7 @@ impl SiteConfig {
             return Err("engagement.feedbackContact must be a mailto: address without a query, or an HTTPS URL without credentials".into());
         }
         self.participation.validate()?;
+        self.webmention.receive.validate()?;
         // B5's opt-in becomes the policy's settings before anything reads
         // them (ADR 0101).
         self.participation.fold_feedback(self.engagement.feedback);
@@ -1208,10 +1282,14 @@ impl SiteConfig {
             }
         }
         contributor::normalize_registry(&mut self.contributors)?;
+        self.quote.normalize()?;
         if !self.business.trade.is_empty() {
             self.business.trade =
                 crate::job::normalize_trade(&self.business.trade, &self.extra_trades)
                     .map_err(|error| error.replacen("job.trade", "business.trade", 1))?;
+        }
+        if let Some(problem) = crate::seasonal::incomplete(&self.seasonal_prompts).first() {
+            return Err(problem.clone());
         }
         Ok(())
     }
@@ -1363,6 +1441,23 @@ mod tests {
         assert!(bad_hours.contains("24-hour time like 08:00"), "{bad_hours}");
         let bad_trade = SiteConfig::from_json(r#"{"business":{"trade":"wizardry"}}"#).unwrap_err();
         assert!(bad_trade.contains("business.trade"), "{bad_trade}");
+    }
+
+    #[test]
+    fn seasonal_prompts_are_off_by_default_and_validated_with_the_config() {
+        let plain = SiteConfig::from_json("{}").unwrap();
+        assert!(plain.seasonal_prompts.is_default());
+        assert!(!plain.to_json().contains("seasonalPrompts"));
+        let set = SiteConfig::from_json(
+            r#"{"seasonalPrompts":{"enabled":true,"topics":[{"id":"ac-tuneup","disabled":true}]}}"#,
+        )
+        .unwrap();
+        assert!(set.seasonal_prompts.enabled);
+        assert!(set.to_json().contains("\"seasonalPrompts\""));
+        let error =
+            SiteConfig::from_json(r#"{"seasonalPrompts":{"topics":[{"id":"mine"}]}}"#).unwrap_err();
+        assert!(error.contains("needs a start"), "{error}");
+        assert!(SiteConfig::from_json(r#"{"seasonalPrompts":{"enabled":1}}"#).is_err());
     }
 
     #[test]

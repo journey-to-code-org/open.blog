@@ -13,7 +13,7 @@
 //! hosted function itself stays off unless `OPENBLOG_SOCIAL_ENABLED=true` there.
 
 use openblog_core::social_schedule::{
-    announceable, check_canonical_url, check_caption, check_caption_for_all, check_idempotency_key,
+    announceable, check_canonical_url, check_caption, check_caption_for_any, check_idempotency_key,
     check_time_zone, parse_schedule, parse_schedule_with, utc_instant, Provider, ScheduleError,
 };
 use openblog_core::LoadOptions;
@@ -154,6 +154,7 @@ pub(super) fn owns(name: &str) -> bool {
             | "announcements/retry"
             | "announcements/resolve"
             | "announcements/attempts"
+            | "announcements/health"
     )
 }
 
@@ -214,6 +215,14 @@ pub(super) fn route(
         ("POST", "announcements/retry") => retry(transport, user, req),
         ("POST", "announcements/resolve") => resolve(transport, user, req),
         ("GET", "announcements/attempts") => attempts(transport, user, req),
+        ("GET", "announcements/health") => relay(
+            transport,
+            user,
+            "GET",
+            "announcements/health",
+            Vec::new(),
+            None,
+        ),
         _ => Response::error(404, "Unknown API route"),
     }
 }
@@ -347,16 +356,18 @@ fn preview(state: &AppState, req: &Request) -> Response {
             add("timeZone", error);
         }
     }
-    let link = body
+    let (link, cover) = match body
         .work
         .as_deref()
-        .and_then(|work| match canonical_for(state, work, now) {
-            Ok(url) => Some(url),
-            Err(error) => {
-                add("work", error);
-                None
-            }
-        });
+        .map(|work| announced_for(state, work, now))
+    {
+        Some(Ok((url, cover))) => (Some(url), cover),
+        Some(Err(error)) => {
+            add("work", error);
+            (None, Json::Null)
+        }
+        None => (None, Json::Null),
+    };
     Response::json(
         200,
         &json!({
@@ -366,6 +377,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "limit": limit,
             "scheduledFor": scheduled,
             "link": link,
+            "cover": cover,
             "problems": problems,
         }),
     )
@@ -373,13 +385,32 @@ fn preview(state: &AppState, req: &Request) -> Response {
 
 /// The post's own public address, from the site and never from the request.
 fn canonical_for(state: &AppState, work: &str, now: DateTime) -> Result<String, ScheduleError> {
+    announced_for(state, work, now).map(|(url, _)| url)
+}
+
+/// The post's public address and the cover image its public page names (the page's `og:image`
+/// and `og:image:alt`, which a Mastodon announcement attaches when the server is set to, ADR
+/// 0360): `{ "image": bool, "description": text or null }`, or null when the page names none.
+/// Both are on the public page already; nothing private is read.
+fn announced_for(
+    state: &AppState,
+    work: &str,
+    now: DateTime,
+) -> Result<(String, Json), ScheduleError> {
     let (site, config) = load(state).map_err(|_| ScheduleError::PostNotPublished)?;
     let post = site
         .posts
         .iter()
         .find(|post| post.url == work)
         .ok_or(ScheduleError::PostNotPublished)?;
-    announceable(&site, &config, post, now).map(|found| found.canonical_url)
+    let url = announceable(&site, &config, post, now)?.canonical_url;
+    let cover = match social_metadata(&site, &post.source) {
+        Ok(meta) if meta.image.is_some() => {
+            json!({ "image": true, "description": meta.image_alt })
+        }
+        _ => Json::Null,
+    };
+    Ok((url, cover))
 }
 
 #[derive(Deserialize)]
@@ -404,7 +435,7 @@ fn create(state: &AppState, transport: &dyn Transport, user: &str, req: &Request
         if let Some(zone) = body.time_zone.as_deref() {
             check_time_zone(zone)?;
         }
-        let caption = check_caption_for_all(&body.caption)?;
+        let caption = check_caption_for_any(&body.caption)?;
         // Shape only: the hosted function applies the lead and horizon after it has looked for a
         // request it already holds, so a retry whose time has passed still replays.
         let at = parse_schedule_with(&body.scheduled_for, now, false)?;
@@ -538,7 +569,7 @@ fn checked_change(
         payload["timeZone"] = Json::String(zone.clone());
     }
     if let Some(caption) = caption {
-        payload["caption"] = Json::String(check_caption_for_all(caption).map_err(problem)?);
+        payload["caption"] = Json::String(check_caption_for_any(caption).map_err(problem)?);
     }
     if let Some(value) = scheduled_for {
         let at = parse_schedule(value, clock::now()).map_err(problem)?;
@@ -652,7 +683,8 @@ fn resolve(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     )
 }
 
-/// The attempts made for one announcement, as the hosted function reports them.
+/// The attempts made for one announcement and its status history (ADR 0323), as the hosted
+/// function reports them.
 fn attempts(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     let id = match announcement_id(req) {
         Ok(id) => id,
@@ -699,9 +731,23 @@ fn relay(
             "destinations",
             "replayed",
             "attempts",
+            "delivery",
+            "timeline",
+            "timelineExact",
+            "health",
         ] {
             if let Some(found) = value.get(name) {
-                kept.insert(name.to_string(), found.clone());
+                let found = match name {
+                    "timeline" => project_timeline(found),
+                    "health" => project_health(found),
+                    "delivery" => found
+                        .as_str()
+                        .filter(|s| plain_code(s))
+                        .map_or(Json::Null, |s| Json::String(s.to_string())),
+                    "timelineExact" => Json::Bool(found.as_bool() == Some(true)),
+                    _ => found.clone(),
+                };
+                kept.insert(name.to_string(), found);
             }
         }
         if kept.is_empty() {
@@ -748,6 +794,98 @@ fn relay(
             }),
         ),
     }
+}
+
+/// The status history rebuilt from known fields only (ADR 0323): a time, what changed, the delivery
+/// state, the attempt number and a short code. Anything else the function sends is dropped, and an
+/// event without a readable time, change or state is left out.
+fn project_timeline(value: &Json) -> Json {
+    let short = |value: &Json| {
+        value
+            .as_str()
+            .filter(|text| text.len() <= 40 && plain_message(text))
+            .map(|text| Json::String(text.to_string()))
+    };
+    let code = |value: &Json| {
+        value
+            .as_str()
+            .filter(|text| plain_code(text))
+            .map(|text| Json::String(text.to_string()))
+    };
+    let events = value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .take(200)
+                .filter_map(|item| {
+                    Some(json!({
+                        "at": short(item.get("at")?)?,
+                        "change": code(item.get("change")?)?,
+                        "state": code(item.get("state")?)?,
+                        "attemptNo": item.get("attemptNo").and_then(Json::as_u64).unwrap_or(0),
+                        "code": item.get("code").and_then(code).unwrap_or(Json::Null),
+                        "scheduledFor": item.get("scheduledFor").and_then(short).unwrap_or(Json::Null),
+                    }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Json::Array(events)
+}
+
+/// Delivery health rebuilt from known fields only (ADR 0324): whole-number counts, alert codes and
+/// one time. Anything else the function sends is dropped.
+fn project_health(value: &Json) -> Json {
+    const COUNTS: [&str; 14] = [
+        "overdueMinutes",
+        "due",
+        "overdue",
+        "processing",
+        "expiredLeases",
+        "retrying",
+        "unknownWaiting",
+        "needsReview",
+        "failedRecently",
+        "accountsNeedReconnect",
+        "accountsPaused",
+        "staleConnections",
+        "waitingOnPause",
+        "waitingOnProvider",
+    ];
+    let mut kept = Map::new();
+    kept.insert(
+        "installed".into(),
+        Json::Bool(value.get("installed").and_then(Json::as_bool) == Some(true)),
+    );
+    for name in COUNTS {
+        if let Some(count) = value.get(name).and_then(Json::as_u64) {
+            kept.insert(name.into(), json!(count));
+        }
+    }
+    let alerts: Vec<Json> = value
+        .get("alerts")
+        .and_then(Json::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Json::as_str)
+                .filter(|code| plain_code(code))
+                .take(20)
+                .map(|code| Json::String(code.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    kept.insert("alerts".into(), Json::Array(alerts));
+    let oldest = value
+        .get("oldestDueAt")
+        .and_then(Json::as_str)
+        .filter(|text| text.len() <= 40 && plain_message(text));
+    kept.insert(
+        "oldestDueAt".into(),
+        oldest.map_or(Json::Null, |text| Json::String(text.to_string())),
+    );
+    Json::Object(kept)
 }
 
 fn plain_code(code: &str) -> bool {

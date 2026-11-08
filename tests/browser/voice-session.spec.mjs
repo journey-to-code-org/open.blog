@@ -151,7 +151,11 @@ async function reloadHome(page) {
 
 test("the invitation shows once on the Admin home, Start opens Voice, and Dismiss is remembered", async ({ page }) => {
   await clean(page);
+  // Simple offers no Voice, so this runs in Guided.
+  const stored = await api(page, "GET", "preferences");
+  await api(page, "PUT", "preferences", { etag: stored.body.etag, preferences: { ...stored.body.preferences, preset: "guided" } });
   await page.goto(`${origin}/admin/#/overview`);
+  await page.reload();
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await expect(invitation(page)).toBeVisible();
   await expect(invitation(page).getByRole("heading", { name: "Gather your voice" })).toBeVisible();

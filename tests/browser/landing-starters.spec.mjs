@@ -86,7 +86,7 @@ const startersPanel = (page) => page.locator("[data-landing-starters]");
 test("a first visit offers the starting points and keeping the home page as it is changes nothing", async ({ page }) => {
   await openLanding(page);
   await expect(startersPanel(page).getByRole("heading", { name: "Start from a ready-made layout" })).toBeVisible();
-  for (const name of ["Welcome", "Small business", "Portfolio", "Newsletter", "Start from scratch"]) {
+  for (const name of ["Welcome", "Small business", "Portfolio", "Newsletter", "Recipes", "Start from scratch"]) {
     await expect(startersPanel(page).getByRole("button", { name })).toBeVisible();
   }
   await startersPanel(page).getByRole("button", { name: "Keep what my home page shows now" }).click();

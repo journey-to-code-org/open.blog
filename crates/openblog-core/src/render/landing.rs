@@ -17,8 +17,8 @@
 use crate::escape::{attr, text};
 use crate::landing::{
     render_inert_markdown, BusinessFacts, Callout, Contact, Faq, FeaturedPost, ImageSection,
-    LandingPage, LatestPosts, MapSection, OpeningHours, RichText, Section, SectionKind,
-    SeriesSection, SocialLinks, Video, Welcome,
+    LandingPage, LatestPosts, LatestShow, MapSection, OpeningHours, QuoteForm, RichText, Section,
+    SectionKind, SeriesSection, SocialLinks, Video, Welcome,
 };
 use crate::theme::Theme;
 
@@ -153,6 +153,7 @@ impl Renderer<'_> {
             SectionKind::Faq(v) => self.landing_faq(section, v),
             SectionKind::Callout(v) => self.landing_callout(section, v),
             SectionKind::BusinessFacts(v) => self.landing_business(cx, section, v),
+            SectionKind::QuoteForm(v) => self.landing_quote(cx, section, v),
         }
     }
 
@@ -188,6 +189,9 @@ impl Renderer<'_> {
         v: &LatestPosts,
         pager_used: &mut bool,
     ) -> String {
+        if v.show == LatestShow::Recipes {
+            return self.landing_recipes(cx, section, v);
+        }
         let client_per_page = self.site.config.latest_posts_per_page;
         let shown = v.count.map_or_else(
             || {
@@ -222,6 +226,51 @@ impl Renderer<'_> {
 ");
         }
         cx.latest_seen = true;
+        self.landing_wrap(section, true, &inner, "")
+    }
+
+    /// A latest-posts section that lists only recipes; nothing until the first
+    /// one is published. It leaves the home page's pager and "All posts" link
+    /// to the sections that list every post.
+    fn landing_recipes(&self, cx: &mut Context<'_>, section: &Section, v: &LatestPosts) -> String {
+        let recipes: Vec<usize> = self
+            .site
+            .posts
+            .iter()
+            .enumerate()
+            .filter(|(_, post)| post.recipe.is_some() && self.site.is_published(post))
+            .map(|(index, _)| index)
+            .collect();
+        if recipes.is_empty() {
+            return String::new();
+        }
+        let client_per_page = self.site.config.latest_posts_per_page;
+        let shown = v.count.map_or_else(
+            || {
+                if client_per_page > 0 {
+                    recipes.len()
+                } else {
+                    cx.per_page
+                }
+            },
+            |count| count as usize,
+        );
+        let shown = shown.min(recipes.len());
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        let posts = self.post_list(cx.theme, &recipes[..shown]);
+        inner.push_str(&self.client_pagination(
+            &posts,
+            shown,
+            client_per_page,
+            &format!("{}-page", section.id),
+            "recipes",
+        ));
+        if let Some(url) = &self.recipe_plan().all_url {
+            inner.push_str(&format!(
+                "<p class=\"ob-home-all\"><a class=\"ob-home-link\" href=\"{}\">All recipes</a></p>\n",
+                attr(url)
+            ));
+        }
         self.landing_wrap(section, true, &inner, "")
     }
 
@@ -261,6 +310,37 @@ impl Renderer<'_> {
         }
         let mut inner = self.landing_heading(cx, &section.id, &v.heading);
         inner.push_str(&block);
+        self.landing_wrap(section, true, &inner, "")
+    }
+
+    /// The quote form under its own heading; nothing while quote requests are off (ADR 0382).
+    fn landing_quote(&self, cx: &mut Context<'_>, section: &Section, v: &QuoteForm) -> String {
+        let config = &self.site.config.quote;
+        if !config.enabled {
+            return String::new();
+        }
+        let towns: Vec<String> = self
+            .site
+            .config
+            .service_areas
+            .areas
+            .iter()
+            .map(|area| area.label())
+            .collect();
+        let services: Vec<String> = self
+            .site
+            .services
+            .iter()
+            .filter(|service| !service.draft)
+            .map(|service| service.name.clone())
+            .collect();
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        inner.push_str(&crate::quote::form_html(
+            config,
+            &format!("ob-home-{}", section.id),
+            &towns,
+            &services,
+        ));
         self.landing_wrap(section, true, &inner, "")
     }
 

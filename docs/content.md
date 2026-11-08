@@ -52,7 +52,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |
 | `guidingQuestion`, `sharedSourceTitle`, `sharedSourceUrl`, `sharedSourceType` | Shared-reflection attribution: the guiding question and the original source's title, HTTP(S) link, and type (`Video`, `Article`, `Podcast`, `Book`, or `Other`), shown beside the post and in feeds and exports. The title is required with a link or type; the source is always a link, never an embed. |
-| `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. Works on posts, pages and series pages (a series page in `content/series/`). The engine always writes a redirect page; set `redirectsFile: true` in `openblog.json` to also write a `_redirects` file with real 301s on hosts that read one. |
+| `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`; `/old-slug/index.html` means the same address. Also accepted as `redirectFrom`. Works on posts, pages and series pages (a series page in `content/series/`). The engine always writes a redirect page; set `redirectsFile: true` in `openblog.json` to also write a `_redirects` file with real 301s on hosts that read one. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
 | `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, `field-journal`, and `job`. |
@@ -276,6 +276,10 @@ pair is a comparison control (`ob-compare`) where JavaScript runs and motion is 
 feeds, in syndicated copies and in portable export it is two captioned pictures, each with its label, and nothing
 else. The pictures use the same lazy loading as any Markdown image. See ADR 0291.
 
+A `quote` fence places the [quote request form](quote-requests.md) in a post or page, with one `service:` line
+for each choice. It is a form only while `quote.enabled` is true in `openblog.json`; otherwise it stays an
+ordinary code block. Feeds and exports never carry the form.
+
 #### Landing page sections
 
 When `content/landing.json` exists, the home page is built from it instead of the fixed intro, post list and
@@ -291,15 +295,20 @@ before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can 
 ```
 
 Each section has a unique `id` (lowercase letters, digits and single hyphens), a `type`, and an optional
-`hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`,
-`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout` and `business-facts`; the
-media, hours, contact, social, question and call-out types hold the same fields as the
-[pieces](#pieces-buttons-videos-maps-and-more) above. The `business-facts` section holds only a `heading`: it
-places the [business facts](configuration.md#business-facts) from `openblog.json` (name, phone, hours, license and
-insurance badge) under that heading, and renders nothing while none are stated. Because it is a new type, a page
-that holds one is stored as `"version": 2` (every other page stays version 1, byte for byte, and a version 1
-file cannot hold it). There are at most 40 sections and 256 KiB. The page is accepted whole or not at all, and
-a file from a newer release is never overwritten.
+`hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`, `image`,
+`video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout`, `business-facts` and `quote-form`;
+the media, hours, contact, social, question and call-out types hold the same fields as the
+[pieces](#pieces-buttons-videos-maps-and-more) above. A `latest-posts` section takes `"show": "recipes"` to list
+only [recipes](#browsing-recipes), with a link to all of them, and renders nothing until the first is published;
+any other value than `all` or `recipes` is refused. The `business-facts` section holds only a `heading`: it places
+the [business facts](configuration.md#business-facts) from `openblog.json` (name, phone, hours, license and
+insurance badge) under that heading, and renders nothing while none are stated. The `quote-form` section also
+holds only a `heading`: it places the [quote request form](quote-requests.md) under that heading, and renders
+nothing until `quote.enabled` is true in `openblog.json`. A page that holds a `business-facts` or `quote-form`
+section is stored as `"version": 2`, because they are newer types (every other page stays version 1, byte for
+byte, and a version 1 file cannot hold them; the build says so and builds the home page from the home settings
+instead). There are at most 40 sections and 256 KiB. The page is accepted whole or not at all, and a file from a
+newer release is never overwritten.
 
 Landing content never accepts markup. There is no HTML section; a button is a label and an address, a video is
 a provider and an id, a map is coordinates. Only Markdown is rich (the text section, answers, call-out bodies)
@@ -628,7 +637,7 @@ ingredients in a list under an `## Ingredients` heading and the steps in a list 
 
 `openblog new "Lemon garlic pasta" --recipe` creates a recipe post (older generated files
 may contain the equivalent `recipe: true` marker),
-`servings: 4`, `prep: 15 min`, `cook: 25 min`, a tip callout, and a placeholder
+`servings: 4`, `prep: 15 min`, `cook: 25 min`, and a placeholder
 Ingredients list and Steps list, ready to fill in. A finished recipe looks like this:
 
 ```markdown
@@ -664,8 +673,9 @@ A few words about the dish.
 | `servings` | How many it serves. A number (`4`) can be scaled; a range (`4-6`) scales from its first number. Also `serves`. Scaling needs a number here. |
 | `makes` | What it makes: `12 cookies`, `1 loaf`. Shown on the card only; to let readers scale a batch, also give `servings` (`servings: 24` and `makes: 24 cookies`). Also `yield`. |
 | `prep`, `cook`, `total` | One length of time: `15 min`, `1 hr 30 min`, `1.5 hours`, `1 1/2 hours`, `1h30m`, `1:30` (1 hour 30 minutes), or `PT1H30M`. Anything else, such as `overnight` or `10-15 min`, is shown on the card as written and left out of the search-engine data. `total` defaults to prep plus cook when both are given. Also `prepTime`, `cookTime`, `totalTime`. |
-| `cuisine`, `course` | Shown on the card and given to search engines. `category` also works for `course`. |
+| `cuisine`, `course` | Shown on the card, given to search engines, and how readers [browse your recipes](#browsing-recipes). Separate two values with a comma, `course: Lunch, Dinner`, or write a list. `category` and `recipeCategory` also work for `course`; saving the recipe in Admin rewrites the one in use as `course`, and leaves a different value under another name unread in the file. |
 | `calories` | Free text, per serving, such as `520 kcal`. |
+| `adaptedFrom` | The web address of the recipe yours is adapted from, such as `https://example.org/original`. Given to search engines and recipe apps as the source (`isBasedOn`); not shown on the page, so credit the original in your text too. Also `adapted_from`, `basedOn`. Anything that is not an `http(s)` address is left out. |
 
 **Sections.** The labels must be headings (`## Ingredients`), not bold text, and each
 ingredient and step must be a list item (`- ` or `1. `); `openblog check` warns about a
@@ -701,6 +711,106 @@ put an image in the post.
 
 Each extra can be switched off for the whole blog under `recipes` in
 [Configuration](configuration.md#recipes).
+
+### Browsing recipes
+
+Once a recipe is published, the site gets a list of them and a **Recipes** link in its navigation,
+and the course and cuisine on each recipe's card link to their lists. All of it is plain links, so
+it works without JavaScript:
+
+| Address | Shows |
+| --- | --- |
+| `/recipes/` | Every recipe, newest first |
+| `/recipes/course/dessert/` | The recipes with that `course` |
+| `/recipes/cuisine/italian/` | The recipes with that `cuisine` |
+
+Each list continues at `page/2/` and so on, by `postsPerPage`, and each page's links to the others
+stay at the top of it. First pages are in the sitemap; none of this goes in the feeds. Spellings
+that make the same address share one page, under the newest recipe's spelling, so `Dessert` and
+`dessert` are one list while `Desserts` is another. The course and cuisine filters start folded,
+with the one being read named beside its group, so the recipes stay on a phone's first screen. A
+value with no letters or numbers, such as a
+lone emoji, can't have an address: it still shows on the recipe, and a warning says so. A site with
+no published recipe gets none of it.
+
+**Your own pages come first.** If a page of yours is at `/recipes/`, it stays there and the list
+moves to `/recipes/all/`, with its own navigation link, called **All recipes** if **Recipes** is
+already in use. If that address is yours too, there is no list of every recipe, and the recipe cards
+lead to the filters. A page at a filter's address means that filter is left out. Each case adds a
+warning, shown on Admin's Overview and in **Site preview**, saying what to change to get it back:
+the page's **Slug** in its Settings, because a new title keeps the old address. Moving the page
+moves the list back, so links shared in the meantime stop working. An old address in a page's
+`aliases` has no field in Admin, so that warning says to have someone change the file. A file at
+`static/recipes/index.html` is not one of these: the generated page replaces it.
+
+To turn all of this off, set `recipes.listing` to `false` in
+[Configuration](configuration.md#recipes).
+
+### Exporting a recipe
+
+Recipe apps such as Mealie import a recipe from its page address: they read the schema.org
+data the page already carries, so sharing the canonical link is usually all an importer needs.
+For an app that takes a file or pasted JSON, export the same data:
+
+```sh
+openblog export lemon-garlic-pasta --format recipe-json-ld                 # preview and check
+openblog export lemon-garlic-pasta --format recipe-json-ld --json          # versioned plan with the problems
+openblog export lemon-garlic-pasta --format recipe-json-ld --out exports/pasta.recipe.json --write
+```
+
+The file is exactly the `Recipe` the page carries, with `"@context": "https://schema.org"`:
+the same ingredients and steps as written, the times that are one length of time, the yield,
+the canonical address, the site author and, when set, `adaptedFrom`. Nothing is added: amounts
+are not converted and a time written as text is left out. Only published posts are exported,
+nothing is sent anywhere, and an existing file is never replaced.
+
+Before exporting, the recipe is checked. These **stop the export** until fixed: no ingredients
+or no steps, an empty ingredient or step, an amount that cannot be read (`1/0 cup`, `1//2 cup`),
+a zero amount (`0 eggs`), a range written backwards (`3-2 cloves`), a zero time, a `total`
+shorter than `prep` and `cook` together, or a site `url` that is not an `http(s)` address.
+These are **listed** and the export goes ahead: a repeated ingredient line, a step that starts
+with its own number (`Step 1:`), a time written as text, only one of `prep` and `cook` without a
+`total`, `servings` that is not a number, `calories` without `servings` or `makes`, an
+`adaptedFrom` that is not a web address, no site author, and no `cover` image (search engines
+show recipe results only with a photo). Each problem names the ingredient or step number or the
+field, never your text. See ADRs
+[0333](adr/0333-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md)
+and [0334](adr/0334-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md).
+
+### Preparing a recipe for recipe directories
+
+No recipe directory lets open.blog submit for you, so open.blog never does: it prepares a
+folder with everything a directory's own form or check needs, and a page listing your steps.
+You choose the directories, and you make each submission yourself, by hand, if you want to.
+The `pinterest` directory here is Pinterest reading your page when you save a Pin from it yourself; it is separate
+from [Pinterest Pins](pinterest.md), the opt-in `openblog pinterest` that sends a post's visual card as a Pin with
+your own token. A recipe package never sends anything.
+
+```sh
+openblog export lemon-garlic-pasta --format recipe-package --directory google-search,pinterest   # preview and check
+openblog export lemon-garlic-pasta --format recipe-package --directory foodgawker --json          # versioned plan
+openblog export lemon-garlic-pasta --format recipe-package --directory google-search,pinterest,foodgawker   --out exports/pasta-package --write
+```
+
+The new folder holds `recipe.json` (the same schema.org data as the page), `title.txt`,
+`description.txt`, `ingredients.txt`, `steps.txt`, `link.txt` (the canonical address),
+`credit.txt` (your title, the site author, the canonical address and, when set, `adaptedFrom`),
+the cover image when it is a file in your static folder, `package.json`, and `index.html`: open it
+in a browser for each directory's conditions and steps. A cover given as a web address is linked,
+not downloaded. Without `--directory` the folder holds the recipe files only.
+
+| Directory | How it receives your recipe | Checked here |
+| --- | --- | --- |
+| `google-search` | Reads your page; test it with the Rich Results Test and ask for indexing in Search Console | Needs a cover; warns under the 50,000 pixels Google recommends |
+| `pinterest` | Reads your page's recipe data when you save a Pin from it | Needs a cover |
+| `foodgawker` | You submit a photo, title, description and link from your account; editors review it | Needs a cover; warns when it is not square or there is no `description`. Its pages could not be read directly, so every condition is marked "not verified": check them on Foodgawker |
+
+`yummly` is refused because it closed in December 2024, and `allrecipes` because its submission
+terms could not be verified. A recipe check error (above), a missing cover, or a post whose
+`canonical` names another page stops the package, and nothing is written. The facts were
+checked on 2026-10-29; see ADRs
+[0335](adr/0335-recipe-directories-are-a-closed-dated-list-whose-conditions-say-where-they-were-read-and-every-submission-is-by-hand.md)
+and [0336](adr/0336-a-recipe-package-is-a-new-folder-of-the-pages-recipe-the-text-to-paste-the-cover-and-a-static-guide-and-nothing-is-sent.md).
 
 ## Series
 

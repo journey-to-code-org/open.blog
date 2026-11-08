@@ -500,6 +500,7 @@ kbd {
 
 .oba-progressive-tools[hidden],
 [data-admin-module][hidden],
+[data-simple-page][hidden],
 [data-admin-module-group][hidden],
 .oba-editor-advanced[hidden] {
   display: none;
@@ -1702,6 +1703,7 @@ html[data-admin-density="compact"] .oba-pane {
 
 .oba-protected-block {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   align-items: center;
   justify-content: space-between;
@@ -1713,6 +1715,7 @@ html[data-admin-density="compact"] .oba-pane {
 }
 
 .oba-protected-block > div:first-child {
+  flex: 1 1 10rem;
   display: grid;
   gap: 0.15rem;
 }
@@ -1727,6 +1730,14 @@ html[data-admin-density="compact"] .oba-pane {
   display: flex;
   gap: 0.25rem;
   align-items: center;
+}
+
+.oba-protected-actions {
+  flex-wrap: wrap;
+}
+
+.oba-protected-actions button {
+  white-space: nowrap;
 }
 
 .oba-protected-actions button,
@@ -1783,6 +1794,95 @@ html[data-admin-density="compact"] .oba-pane {
   max-width: 100%;
   min-height: 44px;
   box-sizing: border-box;
+}
+
+/* The photo picker: earlier uploads as pictures, as many across as fit, with a phone-sized target for each. */
+.oba-photo-dialog {
+  width: min(44rem, calc(100vw - 2rem));
+  box-sizing: border-box;
+}
+
+.oba-photo-body {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.oba-photo-body > p:empty {
+  display: none;
+}
+
+.oba-photo-body > .oba-btn {
+  justify-self: start;
+  min-height: 44px;
+}
+
+.oba-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-photo-choice {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-photo-choice img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.oba-photo-chosen {
+  display: block;
+  max-width: 100%;
+  max-height: 16rem;
+  border-radius: var(--ob-radius-sm);
+}
+
+/* A cover is shown as the picture it is; its address is a last resort, tucked away below. */
+.oba-cover-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ob-color-muted);
+}
+
+.oba-cover-preview {
+  display: grid;
+  place-items: center;
+  min-height: 6rem;
+  padding: 0.5rem;
+  border: var(--ob-border-width) dashed var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+}
+
+.oba-cover-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 14rem;
+  border-radius: var(--ob-radius-sm);
+}
+
+.oba-cover-address {
+  margin-bottom: 0.75rem;
+}
+
+.oba-cover-address summary {
+  min-height: 44px;
+  line-height: 44px;
+  cursor: pointer;
 }
 
 .oba-bf-button,
@@ -1897,9 +1997,9 @@ html[data-admin-density="compact"] .oba-pane {
 
 .oba-format-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   padding: 0.45rem 0.55rem;
-  overflow-x: auto;
   border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
   background: var(--ob-color-surface-raised);
 }
@@ -2489,6 +2589,11 @@ html[data-admin-density="compact"] .oba-pane {
     gap: 0.75rem;
     padding-block: 0.6rem;
     overflow-x: auto;
+  }
+
+  html[data-admin-preset="simple"] .oba-toolbelt {
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   .oba-preferences-grid {
@@ -3212,8 +3317,34 @@ a.oba-btn-primary {
 
 .oba-publish {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+}
+
+.oba-publish-risk {
+  flex-basis: 100%;
+  font-size: 0.85rem;
+}
+
+.oba-publish-failure {
+  flex-basis: 100%;
+}
+
+.oba-publish-failure:empty {
+  display: none;
+}
+
+.oba-publish-detail {
+  flex-basis: 100%;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.oba-publish-detail pre {
+  margin: 0.25rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .oba-publish .oba-ok,
@@ -5229,6 +5360,10 @@ ob-voice-library {
   display: none;
 }
 
+.oba-landing-status {
+  scroll-margin-top: 0.5rem;
+}
+
 .oba-landing-toast {
   display: flex;
   flex-wrap: wrap;
@@ -6664,7 +6799,8 @@ ob-voice-library {
   min-height: 44px;
 }
 
-.oba-announce-next {
+.oba-announce-next,
+.oba-announce-next-step {
   margin: 0;
 }
 
@@ -6675,8 +6811,98 @@ ob-voice-library {
   cursor: pointer;
 }
 
+.oba-announce-health-alerts {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-announce-history-title {
+  margin: 0.5rem 0 0;
+  font-size: 1rem;
+}
+
+.oba-announce-timeline,
 .oba-announce-attempts {
   margin: 0.25rem 0 0;
   padding-left: 1.25rem;
   overflow-wrap: anywhere;
 }
+
+/* The Reminders screen (ADR 0356): designed at 400px first. One column, 44px targets, everything wraps. */
+.oba-seasonal {
+  display: grid;
+  gap: 1rem;
+  max-width: 40rem;
+  min-width: 0;
+}
+.oba-seasonal-body,
+.oba-seasonal-list {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.oba-seasonal-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.oba-seasonal-card,
+.oba-seasonal-topic {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  overflow-wrap: anywhere;
+}
+.oba-seasonal h2,
+.oba-seasonal h3 {
+  margin: 0;
+}
+.oba-seasonal-actions,
+.oba-seasonal-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.oba-seasonal-dates .oba-field {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+.oba-seasonal .oba-btn,
+.oba-seasonal input[type="text"] {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+.oba-seasonal input[type="text"] {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+}
+/* Quote requests (ADR 0384): one column, wrapping long values, phone first. */
+.oba-quotes { display: grid; gap: 0.75rem; min-width: 0; }
+.oba-quotes-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; }
+.oba-quotes-filters select { min-width: 0; max-width: 100%; }
+.oba-quotes-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.oba-quotes-card { min-width: 0; padding: 0.75rem; border: 1px solid var(--ob-color-border); border-radius: 0.5rem; overflow-wrap: anywhere; }
+.oba-quotes-card[data-status="new"] { border-width: 2px; }
+.oba-quotes-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 0.75rem; }
+.oba-quotes-head h3 { margin: 0; }
+.oba-quotes-chip { display: inline-block; padding: 0.1rem 0.5rem; border: 1px solid var(--ob-color-border); border-radius: 999px; font-size: 0.85rem; }
+.oba-quotes-chip-new { border-width: 2px; font-weight: 700; }
+.oba-quotes-meta { margin: 0.25rem 0; }
+.oba-quotes-description { margin: 0.25rem 0; white-space: pre-wrap; }
+.oba-quotes-photos { list-style: none; margin: 0.5rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.oba-quotes-photos img { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 0.35rem; border: 1px solid var(--ob-color-border); }
+.oba-quotes-contact, .oba-quotes-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+.oba-quotes-copy { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.oba-quotes-pick { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 2.75rem; }
+.oba-quotes-confirm { padding: 0.75rem; border: 2px solid var(--ob-color-border); border-radius: 0.5rem; display: grid; gap: 0.5rem; }
+.oba-quotes-export fieldset { margin: 0.5rem 0; min-width: 0; display: grid; gap: 0.4rem; }
+.oba-quotes-export input { max-width: 100%; }
+.oba-quotes-emails { padding: 0.75rem; border: 2px solid var(--ob-color-border); border-radius: 0.5rem; display: grid; gap: 0.5rem; overflow-wrap: anywhere; }
+.oba-quotes-emails p { margin: 0; }
+.oba-quotes-email { font-weight: 600; }

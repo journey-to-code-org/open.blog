@@ -1,4 +1,4 @@
-//! A theme with `codeWindows` frames plain code blocks as it writes the page (ADR 0269).
+//! A theme with `codeWindows` frames plain code blocks as it writes the page (ADR 0349).
 
 use openblog_core::{
     render, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeFile, ThemeSet,

@@ -28,19 +28,53 @@ const ALIGNMENTS_PATH: &str = ".openblog/private/research/alignments.json";
 const SELECTIONS_PATH: &str = openblog_core::curated_selection::SELECTIONS_FILE;
 /// The private review acknowledgements (ADR 0124), up to their own limit.
 const ACKNOWLEDGEMENTS_PATH: &str = crate::research_review::ACKNOWLEDGEMENTS_FILE;
+/// The Landing page and its previous versions (ADR 0264) are kept like posts.
+const LANDING_FILE: &str = openblog_core::landing::LANDING_FILE;
+const LANDING_HISTORY_PATH: &str = crate::landing_history::DIRECTORY;
+/// What the owner snoozed and which reminder opened which draft (ADR 0355).
+const SEASONAL_PATH: &str = crate::seasonal_store::STATE_PATH;
 const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
 const BUCKET: &str = "openblog-workspace";
 
+const SETTINGS: [&str; 3] = [
+    "OPENBLOG_WORKSPACE_SUPABASE_URL",
+    "OPENBLOG_WORKSPACE_SECRET_KEY",
+    "OPENBLOG_WORKSPACE_NAMESPACE",
+];
+
+/// A setting left blank counts as not set, because a host's form can hand over an
+/// empty value for a prompt nobody filled in (ADR 0353).
 pub fn configured() -> bool {
-    [
-        "OPENBLOG_WORKSPACE_SUPABASE_URL",
-        "OPENBLOG_WORKSPACE_SECRET_KEY",
-        "OPENBLOG_WORKSPACE_NAMESPACE",
-    ]
-    .iter()
-    .any(|name| std::env::var_os(name).is_some())
+    configured_given(|name| std::env::var(name).ok())
+}
+
+fn configured_given(value: impl Fn(&str) -> Option<String>) -> bool {
+    SETTINGS
+        .iter()
+        .any(|name| value(name).is_some_and(|v| !v.trim().is_empty()))
+}
+
+/// Whether this server starts again from its image when it restarts, losing what
+/// Admin saved in its files (ADR 0353). `OPENBLOG_FILES_RESET` says so outright;
+/// without it, Render's own `RENDER=true` does.
+pub fn host_resets_files() -> bool {
+    host_resets_files_given(
+        std::env::var("OPENBLOG_FILES_RESET").ok().as_deref(),
+        std::env::var("RENDER").ok().as_deref(),
+    )
+}
+
+fn host_resets_files_given(setting: Option<&str>, render: Option<&str>) -> bool {
+    match setting
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("1" | "true" | "yes") => true,
+        Some("0" | "false" | "no") => false,
+        _ => render.is_some_and(|value| value.trim().eq_ignore_ascii_case("true")),
+    }
 }
 
 type Files = BTreeMap<String, Vec<u8>>;
@@ -79,12 +113,7 @@ impl Backend {
         if !configured() {
             return Ok(None);
         }
-        let values = [
-            "OPENBLOG_WORKSPACE_SUPABASE_URL",
-            "OPENBLOG_WORKSPACE_SECRET_KEY",
-            "OPENBLOG_WORKSPACE_NAMESPACE",
-        ]
-        .map(|name| std::env::var(name).ok().filter(|v| !v.trim().is_empty()));
+        let values = SETTINGS.map(|name| std::env::var(name).ok().filter(|v| !v.trim().is_empty()));
         let [Some(url), Some(key), Some(namespace)] = values else {
             return Err(
                 "workspace persistence requires URL, server secret key and namespace together"
@@ -261,12 +290,14 @@ impl Policy {
             format!("{}/pages", self.content),
             format!("{}/series", self.content),
             format!("{}/services", self.content),
+            format!("{}/{LANDING_FILE}", self.content),
             format!("{}/images/uploads", self.static_dir),
             format!("{}/tracks/uploads", self.static_dir),
             "assistant/skills".into(),
             "assistant/context".into(),
             ".openblog/private/context".into(),
             ".openblog/private/admin-preferences".into(),
+            LANDING_HISTORY_PATH.into(),
             LIBRARY_PATH.into(),
             NOTEBOOK_PATH.into(),
             ATLAS_PATH.into(),
@@ -274,6 +305,7 @@ impl Policy {
             ALIGNMENTS_PATH.into(),
             SELECTIONS_PATH.into(),
             ACKNOWLEDGEMENTS_PATH.into(),
+            SEASONAL_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -295,10 +327,14 @@ impl Policy {
                 | ALIGNMENTS_PATH
                 | SELECTIONS_PATH
                 | ACKNOWLEDGEMENTS_PATH
+                | SEASONAL_PATH
         ) {
             return true;
         }
         if let Some(relative) = path.strip_prefix(&format!("{}/", self.content)) {
+            if relative == LANDING_FILE {
+                return true;
+            }
             return ["posts/", "pages/", "series/", "services/"]
                 .iter()
                 .any(|prefix| {
@@ -327,6 +363,19 @@ impl Policy {
             path.strip_suffix(suffix).is_some_and(|token| {
                 token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit())
             })
+        }
+        if let Some(relative) = path.strip_prefix(&format!("{LANDING_HISTORY_PATH}/")) {
+            // A kept version (`0000000001.json`) or the kept bytes of an unreadable page
+            // (`raw-<revision>.bak`), never a temporary file or a subfolder.
+            if let Some(id) = relative.strip_suffix(".json") {
+                return id.len() == 10 && id.bytes().all(|b| b.is_ascii_digit());
+            }
+            return relative
+                .strip_prefix("raw-")
+                .and_then(|rest| rest.strip_suffix(".bak"))
+                .is_some_and(|revision| {
+                    revision.len() <= 64 && revision.bytes().all(|b| b.is_ascii_alphanumeric())
+                });
         }
         if let Some(relative) = path.strip_prefix(".openblog/private/admin-preferences/") {
             return token_file(relative, ".json");
@@ -1299,6 +1348,32 @@ mod tests {
     }
 
     #[test]
+    fn a_blank_setting_counts_as_not_set_so_an_empty_prompt_does_not_stop_startup() {
+        assert!(!configured_given(|_| None));
+        assert!(!configured_given(|_| Some(String::new())));
+        assert!(!configured_given(|_| Some("  ".into())));
+        // One real value is still a half-finished setup, which stops startup with its reason.
+        assert!(configured_given(
+            |name| (name == SETTINGS[0]).then(|| "https://x.supabase.co".to_string())
+        ));
+    }
+
+    #[test]
+    fn a_host_resets_its_files_on_render_or_when_the_setting_says_so() {
+        assert!(!host_resets_files_given(None, None));
+        assert!(!host_resets_files_given(None, Some("")));
+        assert!(host_resets_files_given(None, Some("true")));
+        assert!(host_resets_files_given(Some("1"), None));
+        assert!(host_resets_files_given(Some("true"), None));
+        // A Render service whose whole project is on a disk can say its files last.
+        assert!(!host_resets_files_given(Some("0"), Some("true")));
+        assert!(!host_resets_files_given(Some("false"), Some("true")));
+        // A blank or mistyped setting decides nothing.
+        assert!(host_resets_files_given(Some(""), Some("true")));
+        assert!(!host_resets_files_given(Some("maybe"), None));
+    }
+
+    #[test]
     fn allow_list_excludes_credentials_and_arbitrary_private_state() {
         let policy = policy();
         for path in [
@@ -1354,6 +1429,103 @@ mod tests {
         ] {
             assert!(policy.allowed(path), "{path}");
         }
+    }
+
+    #[test]
+    fn the_landing_page_and_its_history_are_kept_and_come_back() {
+        let policy = policy();
+        for path in [
+            "content/landing.json",
+            ".openblog/private/landing-history/0000000001.json",
+            ".openblog/private/landing-history/raw-abc123.bak",
+        ] {
+            assert!(policy.allowed(path), "{path}");
+        }
+        for path in [
+            "content/landing.json.tmp",
+            "content/other.json",
+            ".openblog/private/landing-history/.0000000001.json.7.tmp",
+            ".openblog/private/landing-history/1.json",
+            ".openblog/private/landing-history/notes.txt",
+            ".openblog/private/landing-history/raw-a.b.bak",
+            ".openblog/private/landing-history/sub/0000000001.json",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let history = fixture.0.join(".openblog/private/landing-history");
+        fs::create_dir_all(&history).unwrap();
+        fs::write(fixture.0.join("content/landing.json"), "{\"saved\":1}").unwrap();
+        fs::write(history.join("0000000001.json"), "{\"kept\":1}").unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files["content/landing.json"], b"{\"saved\":1}");
+        assert_eq!(
+            files[".openblog/private/landing-history/0000000001.json"],
+            b"{\"kept\":1}"
+        );
+        let mut workspace =
+            fixture.workspace(backend("http://127.0.0.1:1".into()), Manifest::new());
+        for (path, text) in &files {
+            workspace.manifest.insert(
+                path.clone(),
+                Entry {
+                    base: workspace.base.get(path).cloned(),
+                    value: Some(Record::Text {
+                        text: String::from_utf8(text.clone()).unwrap(),
+                    }),
+                },
+            );
+        }
+        // A restart brings back only what the image holds.
+        fs::remove_file(fixture.0.join("content/landing.json")).unwrap();
+        fs::remove_dir_all(&history).unwrap();
+        workspace.restore(&fixture.0).unwrap();
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("content/landing.json")).unwrap(),
+            "{\"saved\":1}"
+        );
+        assert_eq!(
+            fs::read_to_string(history.join("0000000001.json")).unwrap(),
+            "{\"kept\":1}"
+        );
+    }
+
+    #[test]
+    fn seasonal_snoozes_and_opened_drafts_are_kept_and_come_back() {
+        let policy = policy();
+        assert!(policy.allowed(".openblog/private/seasonal.json"));
+        for path in [
+            ".openblog/private/seasonal.json.tmp",
+            ".openblog/private/seasonal.json/extra",
+            ".openblog/private/seasonal-other.json",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let state = fixture.0.join(".openblog/private/seasonal.json");
+        fs::create_dir_all(state.parent().unwrap()).unwrap();
+        let text = "{\"version\":1,\"snoozed\":{\"freeze-protection@2026-10-15\":\"2026-11-14\"},\"opened\":{}}
+";
+        fs::write(&state, text).unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[".openblog/private/seasonal.json"], text.as_bytes());
+        let mut workspace =
+            fixture.workspace(backend("http://127.0.0.1:1".into()), Manifest::new());
+        for (path, bytes) in &files {
+            workspace.manifest.insert(
+                path.clone(),
+                Entry {
+                    base: workspace.base.get(path).cloned(),
+                    value: Some(Record::Text {
+                        text: String::from_utf8(bytes.clone()).unwrap(),
+                    }),
+                },
+            );
+        }
+        // A restart brings back only what the image holds.
+        fs::remove_file(&state).unwrap();
+        workspace.restore(&fixture.0).unwrap();
+        assert_eq!(fs::read_to_string(&state).unwrap(), text);
     }
 
     #[test]
