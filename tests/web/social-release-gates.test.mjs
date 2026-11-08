@@ -112,6 +112,24 @@ test("the rollout lists the SQL files in the order they depend on each other, an
   for (let i = 1; i < where.length; i += 1) assert.ok(where[i - 1] < where[i], `${steps[i - 1]} comes before ${steps[i]}`);
 });
 
+test("both undo notes tell the deployer to revoke access at every provider, where each one keeps it", () => {
+  // The rollback deletes only the sealed copies: each grant stays valid at the provider until revoked there.
+  const storage = section("The hosted tables");
+  const note = storage.slice(storage.indexOf("To undo it"));
+  const rollback = section("Rolling it back");
+  const revoke = rollback.slice(rollback.indexOf("**Revoke access at the providers.**"), rollback.indexOf("7. **Delete the remaining settings**"));
+  const stays = rollback.slice(rollback.indexOf("Posts already published"));
+  for (const provider of PROVIDERS) {
+    const { label } = providerDefinition(provider);
+    assert.ok(note.includes(label), `the storage undo note names ${label}`);
+    assert.ok(revoke.includes(label), `the rollback's revoke step names ${label}`);
+    assert.ok(stays.includes(label), `the rollback says posts on ${label} stay there`);
+  }
+  // Where to revoke an account that was connected without an app to remove.
+  assert.match(revoke, /App passwords/, "the revoke step says where to delete the Bluesky app password");
+  assert.match(revoke, /Authorized apps/, "the revoke step says where to revoke the Mastodon token");
+});
+
 test("the guide says how to rotate every secret", () => {
   const rotate = section("Rotating secrets");
   for (const name of ["OPENBLOG_SOCIAL_ADMIN_KEY", "OPENBLOG_SOCIAL_WORKER_KEY", "SUPABASE_SECRET_KEY", "OPENBLOG_SOCIAL_TOKEN_KEYS", "OPENBLOG_SOCIAL_<PROVIDER>_CLIENT_SECRET", "openblog_social_worker_key"]) {

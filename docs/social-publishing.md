@@ -52,8 +52,9 @@ Nothing is deleted by the function: cancelling and disconnecting are updates. Th
 you turn on yourself (see the [operations runbook](#retention-optional-deletes-data)).
 
 To undo it, remove `OPENBLOG_SOCIAL_ENABLED`, stop the worker, export what you want to keep (the commands are in
-the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke the app at
-LinkedIn and Facebook as well; stored tokens are deleted by the rollback but stay valid there until revoked.
+the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke access at
+each provider you connected as well (LinkedIn, Facebook, Bluesky and Mastodon, as in
+[Rolling it back](#rolling-it-back)); stored tokens are deleted by the rollback but stay valid there until revoked.
 
 ## Provider tokens
 
@@ -555,15 +556,20 @@ To turn the whole feature off and remove it, in this order. Each step is safe to
    job or extension, and running it twice is harmless.
 5. **Remove the Vault secrets.**
    `delete from vault.secrets where name in ('openblog_social_worker_url', 'openblog_social_worker_key');`
-6. **Revoke access at the providers.** Remove the app from the connected LinkedIn member's permitted services and
-   from Facebook's **Settings > Business integrations**, or delete the apps. Tokens deleted by the rollback stay valid
-   there until you do.
+6. **Revoke access at the providers.** Tokens deleted by the rollback stay valid at the provider until you do this,
+   for each provider you connected:
+   - **LinkedIn**: remove the app from the connected member's permitted services, or delete the app.
+   - **Facebook**: remove the app under **Settings > Business integrations**, or delete the app.
+   - **Bluesky**: delete the app password under **Settings, Privacy and security, App passwords**. The session it
+     made can no longer be renewed.
+   - **Mastodon**: remove the application under **Preferences, Account, Authorized apps** on the instance, or delete
+     it under **Preferences, Development**. Mastodon tokens never expire on their own.
 7. **Delete the remaining settings**, the token keys (`OPENBLOG_SOCIAL_TOKEN_KEYS`) last, and rotate any key you
    shared.
 
 Check: `select count(*) from pg_tables where tablename like 'openblog_social%';` is `0`, and
-`select count(*) from cron.job where jobname = 'openblog-social-worker';` is `0`. Posts already published on LinkedIn
-or Facebook stay there; delete them on the network if you want them gone.
+`select count(*) from cron.job where jobname = 'openblog-social-worker';` is `0`. Posts already published on LinkedIn,
+Facebook, Bluesky or Mastodon stay there; delete them on the network if you want them gone.
 
 To undo only part of it, use the rollback file of that gate (table above), newest gate first: operations, schedule,
 history, then queue. Each one leaves the gates before it working.
