@@ -66,9 +66,13 @@ async function openReminders(page) {
     await username.fill("writer");
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    // Wait for the sign-in to finish, or its redraw can replace the Reminders screen after a test has used it.
+    await expect(page.locator('[data-action="logout"]')).toBeVisible();
   }
   await page.goto(`${origin}/admin/#/reminders`);
   await expect(page.locator("[data-seasonal-screen]")).toBeVisible();
+  // The screen has loaded its list (or says reminders are off) before anything on it is used.
+  await expect(page.locator("[data-seasonal-off], [data-seasonal-reminders], [data-seasonal-empty]").first()).toBeVisible();
 }
 
 async function expectFits(page) {
