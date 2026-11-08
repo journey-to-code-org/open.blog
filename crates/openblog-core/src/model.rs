@@ -60,6 +60,9 @@ pub struct Sources {
     /// The site's continuation links (`continuations.json` in the content
     /// folder, ADR 0219), when the file exists.
     pub continuations: Option<SourceFile>,
+    /// The site's approved Webmentions (`webmentions.json` in the content
+    /// folder, ADR 0366), when the file exists.
+    pub webmentions: Option<SourceFile>,
     /// The site's landing page (`landing.json` in the content folder, ADR
     /// 0245), when the file exists. Without it, or with no visible section,
     /// the home page is built from `home.*` exactly as before.
@@ -297,6 +300,12 @@ pub struct Post {
     /// Where earlier questions on this post went, and what it continues, as
     /// ordinary links on its canonical page (ADRs 0218 and 0219).
     pub(crate) continuations: PostContinuations,
+    /// The approved Webmentions this post's canonical page lists (ADR 0366);
+    /// empty for most posts.
+    pub(crate) mentions: Vec<crate::mention_publication::PublicMention>,
+    /// `webmentions: false` in the front matter: the post sends no
+    /// Webmention, advertises no endpoint and lists no mention (ADRs 0361, 0364).
+    pub webmentions_off: bool,
     /// The body HTML. A concept link (ADR 0172) is the plain text of its
     /// label here until [`Site::link_concepts`] resolves it against the
     /// public atlas, so a post nobody resolved never carries a link that
@@ -416,6 +425,11 @@ impl Post {
     /// The continuation links this post's canonical page shows now.
     pub fn continuations(&self) -> &PostContinuations {
         &self.continuations
+    }
+
+    /// The approved Webmentions this post's canonical page lists (ADR 0366).
+    pub fn mentions(&self) -> &[crate::mention_publication::PublicMention] {
+        &self.mentions
     }
 
     pub fn community_features(&self) -> &[crate::community_feature::FeaturedPerspective] {
@@ -644,6 +658,9 @@ pub struct Site {
     /// Why the site's continuation links cannot be read (ADR 0219), refused
     /// like `community_features_error`.
     pub continuations_error: Option<String>,
+    /// Why the site's published Webmentions cannot be read (ADR 0366),
+    /// refused like `continuations_error`.
+    pub webmentions_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -936,6 +953,7 @@ impl Site {
             attach_community_features(&mut posts, &sources, &config, &mut warnings);
         let continuations_error =
             attach_continuations(&mut posts, &sources, options.now, &mut warnings);
+        let webmentions_error = attach_mentions(&mut posts, &sources, &mut warnings);
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
@@ -1179,6 +1197,7 @@ impl Site {
             third_perspectives_error,
             community_features_error,
             continuations_error,
+            webmentions_error,
             now: options.now,
         };
         // The owner's address wins over the recipe listing; tell her what moved (ADR 0352).
@@ -1550,6 +1569,40 @@ fn attach_reader_feedback(
             "passage-questions-and-corrections",
             Some(crate::feedback_publication::READER_FEEDBACK_ANCHOR),
         ));
+    }
+    None
+}
+
+/// Give each post the approved Webmentions its canonical page lists (ADR
+/// 0366), or say why the file cannot be read. A post that opted out with
+/// `webmentions: false` lists none; a mention of a post that no longer exists
+/// is a warning, and one of a draft or scheduled post waits for it. Nothing
+/// else about the post changes: feeds and portable copies never carry them.
+fn attach_mentions(
+    posts: &mut [Post],
+    sources: &Sources,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    let file = sources.webmentions.as_ref()?;
+    let published = match crate::mention_publication::MentionsFile::from_json(&file.contents) {
+        Ok(published) => published,
+        Err(error) => return Some(format!("{}: {error}", file.path)),
+    };
+    let known: std::collections::HashSet<String> = sources
+        .posts
+        .iter()
+        .map(|post| post.path.replace('\\', "/"))
+        .collect();
+    for mention in &published.mentions {
+        if !known.contains(&mention.post) {
+            warnings.push(format!(
+                "{}: mention {} is of {}, which is not a post; it is not published",
+                file.path, mention.id, mention.post
+            ));
+        }
+    }
+    for post in posts.iter_mut().filter(|post| !post.webmentions_off) {
+        post.mentions = published.for_post(&post.source.replace('\\', "/"));
     }
     None
 }
@@ -2342,6 +2395,10 @@ fn load_post_in(
         third_perspectives: Vec::new(),
         community_features: Vec::new(),
         continuations: PostContinuations::default(),
+        mentions: Vec::new(),
+        webmentions_off: fm
+            .get("webmentions")
+            .is_some_and(|value| value.trim() == "false"),
         reading_depth: rendered.reading_depth.clone(),
         html,
         concept_html,
@@ -2658,6 +2715,7 @@ mod tests {
             third_perspectives: None,
             community_features: None,
             continuations: None,
+            webmentions: None,
             landing: None,
         });
         assert_eq!(s.posts.len(), 2);

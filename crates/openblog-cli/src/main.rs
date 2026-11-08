@@ -21,6 +21,7 @@ mod hashnode;
 mod http;
 mod landing_history;
 mod landing_store;
+mod mentions;
 mod notebook_store;
 mod paths_exchange;
 mod photo;
@@ -51,6 +52,7 @@ mod voice_exchange;
 mod voice_prompts;
 mod voice_session;
 mod voice_store;
+mod webmention;
 mod workspace;
 
 use std::collections::{HashMap, HashSet};
@@ -85,6 +87,10 @@ COMMANDS
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
     submit <slug> --to <where>  Prepare a community submission or Product Hunt launch kit to
                                make by hand; open.blog never submits for you
+    webmention [slug]          Plan Webmentions to the sites a post links (add --write to send;
+                               needs webmention.enabled in openblog.json)
+    mentions [action]          Receive and moderate Webmentions from other sites: list, pull,
+                               approve, reject, remove, block, unblock, prune (see mentions OPTIONS)
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -143,6 +149,28 @@ submit OPTIONS
     --again                    Prepare an HN repost after a quiet year or a Product Hunt
                                relaunch, or record a second submission
     --list                     Show the submissions you confirmed for the post
+
+webmention OPTIONS
+    [slug]                     One post (default: every published post)
+    --write                    Check the post is live, then discover each linked site's endpoint and
+                               send the due Webmentions; outcomes go to the private queue
+                               (webmention.stateFile) and failures are retried later with back-off
+    --json                     Print the dry-run plan as JSON
+
+mentions OPTIONS
+    list [--status <s>]        The private inbox (pending, approved, rejected, removed, blocked)
+    pull --write               Take what the hosted receiver stored, check each source links the
+                               post (through the public-only fetcher) and queue it for moderation;
+                               needs webmention.receive in openblog.json and
+                               OPENBLOG_WEBMENTION_ADMIN_KEY (a dry run contacts nothing)
+    approve <id> --revision <n>
+                               Publish a mention at the revision you read in the list
+    reject|remove <id> [--reason spam|abusive|off-topic|duplicate|personal-data|other]
+    block|unblock <host>       Drop a site's requests unread (its subdomains too) and hide its
+                               mentions at once
+    prune [--write]            Delete closed and stale mentions older than
+                               webmention.receive.retentionDays (approved ones are kept)
+    --json                     Print list or pull as JSON
 
 export OPTIONS
     --format markdown|csl-json|bibtex|recipe-json-ld|recipe-package
@@ -520,6 +548,27 @@ fn run(raw: &[String]) -> Result<(), String> {
                 },
             )
         }
+
+        "mentions" => mentions::run(
+            &root,
+            mentions::Options {
+                action: args.positional.first().cloned(),
+                argument: args.positional.get(1).cloned(),
+                write: args.switches.contains("write"),
+                json: args.switches.contains("json"),
+                status: args.options.get("status").cloned(),
+                reason: args.options.get("reason").cloned(),
+                revision: args.options.get("revision").cloned(),
+            },
+        ),
+        "webmention" => webmention::run(
+            &root,
+            webmention::Options {
+                slug: args.positional.first().cloned(),
+                write: args.switches.contains("write"),
+                json: args.switches.contains("json"),
+            },
+        ),
         "paths" => {
             let options = paths_exchange::Options {
                 file: args

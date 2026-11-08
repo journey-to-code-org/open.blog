@@ -580,6 +580,12 @@ pub fn read_sources_excluding(
         config,
         openblog_core::continuation::CONTINUATIONS_FILE,
     )?;
+    // Approved Webmentions (ADR 0366), written by `openblog mentions`.
+    sources.webmentions = read_content_file(
+        root,
+        config,
+        openblog_core::mention_publication::WEBMENTIONS_FILE,
+    )?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
         sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
@@ -1131,6 +1137,10 @@ pub fn generate_site_with_boundary(
     }
     // And continuation links (ADR 0219).
     if let Some(error) = &site.continuations_error {
+        return Err(error.clone());
+    }
+    // And approved Webmentions (ADR 0366).
+    if let Some(error) = &site.webmentions_error {
         return Err(error.clone());
     }
     // What the projections publish and withhold; a stale approval or an

@@ -403,6 +403,30 @@ confirmed. `productHunt.enabled` turns on Product Hunt launch kits, read from `p
 `launches`, one `<slug>.json` per post). There are no credentials. Only `openblog submit` reads or checks this
 object. See [Community submissions](community-submissions.md).
 
+## Webmention
+
+`webmention` is off and absent by default. `enabled: true` lets `openblog webmention --write` send
+Webmentions to the sites a published post links; a dry run works without it. `stateFile` is the
+private queue of outcomes (default `.openblog/webmentions.json`), and `excludeHosts` lists sites
+(with their subdomains) that never receive one. A post opts out with `webmentions: false` in its
+front matter. See [Webmention](webmention.md).
+
+```json
+{ "webmention": { "enabled": true, "excludeHosts": ["tracker.example"] } }
+```
+
+`webmention.receive` is off and absent by default too. With `enabled: true` and an `https`
+`endpoint` (the hosted function's `/api/webmention`), each post that has not opted out advertises
+the endpoint, the build writes `openblog-webmention.json`, and `openblog mentions pull --write`
+takes and checks what other sites sent. `inboxFile` is the private moderation inbox (default
+`.openblog/webmention-inbox.json`) and `retentionDays` (default 90) is how long
+`openblog mentions prune --write` keeps what you did not approve. Approved mentions are published
+in `content/webmentions.json`. See [Receive Webmentions](webmention.md#receive-webmentions).
+
+```json
+{ "webmention": { "receive": { "enabled": true, "endpoint": "https://blog.example.com/api/webmention" } } }
+```
+
 ## Knowledge Atlas
 
 `knowledgeAtlas.publish` (off by default) publishes the approved part of your private

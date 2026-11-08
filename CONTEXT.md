@@ -3023,3 +3023,48 @@ A new folder prepared by `openblog export <slug> --format recipe-package` for th
 chose: the page's `Recipe` JSON-LD, the text to paste, the credit, the cover when it is a static file, a plan and a
 static guide to the author's steps. Prepared, never sent (ADR 0336).
 _Avoid_: Submission (the author's own act in the directory), recipe export (the single JSON-LD file)
+
+**Webmention**:
+A W3C notification that a canonical post links a page on another site: a form POST of the post's address
+(`source`) and the linked address (`target`) to the endpoint that page advertises. open.blog sends them with
+`openblog webmention --write` when `webmention.enabled` is on; nothing else sends one (ADR 0361).
+_Avoid_: Pingback, trackback, mention (a reader's reply), syndication (a copy of the article)
+
+**Webmention target**:
+A link of a post's public portable HTML to another site that may be told: absolute `http(s)`, no credentials,
+not the post's own host, not excluded, at most 100 per post. Whether it is reachable is decided per request.
+_Avoid_: Destination (a cross-posting or social target), recipient
+
+**Webmention endpoint discovery**:
+Finding where a target accepts Webmentions: its first `Link` header with `rel="webmention"`, else the first
+`<link>` or `<a>` with it, resolved against the address after redirects, with every address checked public
+before use (ADR 0361).
+_Avoid_: Crawling, scraping
+
+**Webmention queue**:
+The private file (`webmention.stateFile`) that records, per canonical post and target, the latest ping's
+status (`sent`, `no-endpoint`, `retrying`, `failed`, `rejected`, `blocked`), the post revision it was for, and
+when a retry is due. It decides what the next run sends (ADR 0362).
+_Avoid_: Outbox, delivery log (the social operations log)
+
+**Received Webmention**:
+A request from another site that one of its pages (`source`) links a post here (`target`). The hosted receiver
+checks the two addresses and stores the pair without fetching anything; `openblog mentions pull --write` fetches
+the source through the public-only fetcher and keeps it only when the page links the post exactly (ADR 0364).
+_Avoid_: Comment, reply, pingback, backlink when the request is meant
+
+**Mention inbox**:
+The private file (`webmention.receive.inboxFile`) of received mentions, their state (`pending`, `approved`,
+`rejected`, `removed`, `blocked`), the source's claims, a revision and the blocked hosts. Never published; only a
+mention approved at its current revision reaches `content/webmentions.json` (ADR 0365).
+_Avoid_: Moderation inbox (the hosted participation inbox), queue (the outbound Webmention queue)
+
+**Source claims**:
+What a source page says about itself: its title, an author's name and a day, kept as bounded plain text. Never an
+identity: only the source's host and that it linked the post were checked, and the page says so (ADR 0365).
+_Avoid_: Author, identity, verified name, h-card
+
+**Published mentions**:
+`content/webmentions.json`, the approved mentions a post's canonical page lists as plain links marked
+`nofollow ugc`, with no script, image or excerpt. Feeds and portable copies never carry them (ADR 0366).
+_Avoid_: Comments, backlinks, social proof

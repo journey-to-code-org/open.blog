@@ -12,6 +12,7 @@ use crate::participation::ParticipationConfig;
 use crate::reading_depth::ReadingMode;
 use crate::seasonal::SeasonalConfig;
 use crate::service_area::ServiceAreasConfig;
+use crate::webmention::WebmentionConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -158,6 +159,10 @@ pub struct SiteConfig {
     /// until stated, so a site that never sets it builds exactly as before.
     #[serde(skip_serializing_if = "SeasonalConfig::is_default")]
     pub seasonal_prompts: SeasonalConfig,
+    /// Outbound Webmentions from canonical posts (ADR 0361). Off by default and omitted from the
+    /// written file while it has its defaults, so a site that never sets it is unchanged.
+    #[serde(skip_serializing_if = "WebmentionConfig::is_default")]
+    pub webmention: WebmentionConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -600,6 +605,7 @@ impl Default for SiteConfig {
             business: BusinessConfig::default(),
             service_areas: ServiceAreasConfig::default(),
             seasonal_prompts: SeasonalConfig::default(),
+            webmention: WebmentionConfig::default(),
         }
     }
 }
@@ -1173,6 +1179,7 @@ impl SiteConfig {
             return Err("engagement.feedbackContact must be a mailto: address without a query, or an HTTPS URL without credentials".into());
         }
         self.participation.validate()?;
+        self.webmention.receive.validate()?;
         // B5's opt-in becomes the policy's settings before anything reads
         // them (ADR 0101).
         self.participation.fold_feedback(self.engagement.feedback);

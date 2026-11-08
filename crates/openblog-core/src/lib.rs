@@ -115,6 +115,7 @@ pub mod look_presets;
 pub mod markdown;
 pub mod media_moment;
 pub mod members;
+pub mod mention_publication;
 pub mod model;
 pub mod moderation;
 pub mod moderation_inbox;
@@ -167,6 +168,8 @@ pub mod theme;
 pub mod third_perspective;
 pub mod video;
 pub mod voice;
+pub mod webmention;
+pub mod webmention_inbox;
 
 pub use config::SiteConfig;
 pub use date::DateTime;
