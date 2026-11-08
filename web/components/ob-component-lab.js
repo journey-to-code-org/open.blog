@@ -6,7 +6,16 @@ import {
   tag, TONES, defaults, normalize, shadowStyle, shadowBody,
   lightChildren, hostAttributes, lightMarkup, pageRules, notes,
 } from "./ob-component-model.js";
+import { highlight } from "./ob-highlight.js";
 import { ObLab, defineLab, el, field, uid } from "./ob-lab.js";
+
+// Paints code with the site's highlighter; `lead` is a plain first line, such as the
+// DevTools-style `#shadow-root (open)` marker, coloured as a comment.
+function paint(pre, code, language, lead = "") {
+  const spans = highlight(code, language).map((token) =>
+    token.cls ? el("span", { class: `tok-${token.cls}` }, token.text) : token.text);
+  pre.replaceChildren(...(lead ? [el("span", { class: "tok-comment" }, lead), "\n"] : []), ...spans);
+}
 
 class ObLabCard extends HTMLElement {
   static observedAttributes = ["tone"];
@@ -122,9 +131,9 @@ class ObComponentLab extends ObLab {
     this.renderCard(config);
     const rules = pageRules(config);
     this.pageStyle.textContent = rules.map((rule) => `.ob-cl-stage ${rule}`).join("\n");
-    this.lightOut.textContent = lightMarkup(config);
-    this.cssOut.textContent = rules.length ? rules.join("\n") : "/* The page has no rules for this component. */";
-    this.shadowOut.textContent = `#shadow-root (open)\n<style>\n${shadowStyle}\n</style>\n${shadowBody}`;
+    paint(this.lightOut, lightMarkup(config), "markup");
+    paint(this.cssOut, rules.length ? rules.join("\n") : "/* The page has no rules for this component. */", "css");
+    paint(this.shadowOut, `<style>\n${shadowStyle}\n</style>\n${shadowBody}`, "markup", "#shadow-root (open)");
     this.notesOut.replaceChildren(...notes(config).map((line) => el("li", {}, line)));
     this.renderSlots();
   }
