@@ -254,3 +254,16 @@ test("a refused copy is said in plain words and leaves typing it in", async ({ p
   await expect(page.locator("[data-review-fetch-status]")).toContainText("type the review in");
   await expect(page.locator('[data-review-field="sourceUrl"]')).not.toHaveAttribute("readonly", "");
 });
+
+test("a copy whose link is too long to keep is refused before the form changes, so the link box stays editable", async ({ page }) => {
+  const long = `https://www.google.com/maps/place/Crew+Flooring/@44.05,-121.31,17z/data=!4m8!3m7!1s${"0x54b8c8a1".repeat(62)}?entry=ttu`;
+  await page.route("**/admin/api/assistant/context/url/retrieve", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ snapshot: { sourceUrl: long, canonicalUrl: long, retrievedAt: "2026-11-08T15:04:05Z", contentType: "text/html", text: "Great job." } }) }));
+  await signedIn(page, "#/reviews/new");
+  await page.getByLabel("Link to copy from", { exact: true }).fill(long);
+  await page.getByRole("button", { name: "Copy the page" }).click();
+  await expect(page.locator("[data-review-fetch-status]")).toContainText("too long for your site to keep");
+  await expect(page.locator('[data-review-field="sourceUrl"]')).toHaveValue("");
+  await expect(page.locator('[data-review-field="sourceUrl"]')).not.toHaveAttribute("readonly", "");
+  await expect(page.locator('[data-review-provenance="entered"]')).toBeVisible();
+});

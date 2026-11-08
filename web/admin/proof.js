@@ -146,9 +146,24 @@ export function formFromSnapshot(form, snapshot) {
     next.platform = platformForUrl(landed);
     next.sourceUrl = landed;
   }
+  // A pasted link too long to keep gives way to the address it led to when that one can be kept (ADR 0392).
+  if (!isKeepableLink(next.sourceUrl) && isKeepableLink(landed)) {
+    next.sourceUrl = landed;
+    next.platform = platformForUrl(landed);
+  }
   const words = clean(snapshot?.text);
   if (!clean(next.text) && words && [...words].length <= LIMITS.text) next.text = words;
   return next;
+}
+
+/**
+ * Why a copy cannot be used, or "" when it can. A copy whose pasted link and landing address are both too
+ * long (or not plain web links) would leave a read-only link box the review could never be saved with, so
+ * it is refused before the form changes (ADR 0392).
+ */
+export function snapshotProblem(form, snapshot) {
+  if (isKeepableLink(formFromSnapshot(form, snapshot).sourceUrl)) return "";
+  return `That link is too long for your site to keep (over ${LIMITS.url} characters). Use the review's Share link instead, or type the review in below.`;
 }
 
 /** What the owner is told after a delete whose rebuild failed, or "" when the site was rebuilt. */
@@ -382,6 +397,13 @@ export function createReviews({ api, route = "", onSaved = () => {}, onLeave = (
     try {
       const result = await api.call("POST", SNAPSHOT_ROUTE, { json: snapshotRequest(address) });
       if (destroyed) return;
+      const problem = snapshotProblem(form, result.snapshot || {});
+      if (problem) {
+        fetchStatus.className = "oba-error";
+        fetchStatus.textContent = problem;
+        linkInput.focus();
+        return;
+      }
       form = formFromSnapshot(form, result.snapshot || {});
       build();
       pageText.value = clean(result.snapshot?.text);

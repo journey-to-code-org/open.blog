@@ -13,6 +13,7 @@ import {
   reviewErrorText,
   reviewId,
   snapshotErrorText,
+  snapshotProblem,
   snapshotRequest,
   SNAPSHOT_ROUTE,
   validateForm,
@@ -163,4 +164,23 @@ test("a refused delete says the review was not deleted, with the server's reason
   const error = { status: 422, data: { error: "The job posts/oak-floor.md shows this review, so it cannot be deleted yet." } };
   assert.equal(reviewErrorText(error, { deleting: true }), "The review was not deleted. The job posts/oak-floor.md shows this review, so it cannot be deleted yet.");
   assert.equal(reviewErrorText({}, { deleting: true }), "The review was not deleted. Check your connection and try again.");
+});
+
+test("a pasted link too long to keep gives way to a short address it led to, and a copy with neither is refused before the form changes", () => {
+  const long = `https://www.google.com/maps/place/Crew+Flooring/@44.05,-121.31,17z/data=!4m8!3m7!1s${"0x54b8c8a1".repeat(62)}?entry=ttu`;
+  assert.ok(long.length > 500);
+  const snapshot = { sourceUrl: long, canonicalUrl: "https://www.google.com/maps/place/Crew/reviews", retrievedAt: "2026-11-08T15:04:05Z", text: "Great job." };
+  const form = formFromSnapshot(blankReview(), snapshot);
+  assert.equal(form.sourceUrl, "https://www.google.com/maps/place/Crew/reviews");
+  assert.equal(form.platform, "google");
+  assert.deepEqual(validateForm({ ...form, id: "dana-r-2026-10-20", author: "Dana R.", date: "2026-10-20" }), []);
+  assert.equal(snapshotProblem(blankReview(), snapshot), "");
+
+  for (const canonicalUrl of [long, "", "ftp://www.google.com/x"]) {
+    const problem = snapshotProblem(blankReview(), { ...snapshot, canonicalUrl });
+    assert.match(problem, /too long for your site to keep/);
+    assert.match(problem, /Share link/);
+    assert.match(problem, /type the review in/);
+  }
+  assert.equal(snapshotProblem(blankReview(), { ...snapshot, sourceUrl: "https://g.page/r/crew" }), "");
 });
