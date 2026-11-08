@@ -211,6 +211,9 @@ pub struct PortableProjection<'a> {
     /// portable artifact must carry whole. Only `for_site` attaches it, from
     /// the site's public curated value and from nothing else.
     curated: Option<std::sync::Arc<crate::curated_context::CuratedContext>>,
+    /// Set while quote requests are on (ADR 0382): a `quote` fence is then the page's form, which no
+    /// copy carries. Off, it is an ordinary code block in every form, as it always was.
+    quote_forms: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -741,6 +744,7 @@ impl<'a> PortableProjection<'a> {
                 .collect(),
             slug: &post.slug,
             curated: None,
+            quote_forms: config.quote.enabled,
         })
     }
 
@@ -749,7 +753,13 @@ impl<'a> PortableProjection<'a> {
             canonical_url: &self.canonical_url,
             chapters: self.video.is_some(),
             video_id: self.video.and_then(|video| video.youtube_id.as_deref()),
+            quote_forms: self.quote_forms,
         }
+    }
+
+    /// Whether a `quote` fence is the page's form (quote requests on), which a copy drops.
+    pub(crate) fn quote_forms(&self) -> bool {
+        self.quote_forms
     }
 
     pub fn canonical_url(&self) -> &str {
@@ -2793,6 +2803,8 @@ fn portable_fence_markdown(
             &crate::markdown::portable_quiz_markdown(source)
                 .map_err(|error| format!("portable knowledge-check fallback failed: {error}"))?,
         );
+    } else if projection.quote_forms && info.trim() == crate::quote::FENCE {
+        // The form is a page feature (ADR 0382): the copy keeps nothing of it, like the portable HTML.
     } else if info.trim() == crate::compare::FENCE {
         let pair = crate::compare::parse(source).map_err(|problems| {
             format!(

@@ -132,3 +132,69 @@ fn the_landing_section_needs_version_two() {
     );
     assert!(result.is_err());
 }
+
+fn one_post(config: SiteConfig, body: &str) -> Site {
+    Site::load(
+        config,
+        Sources {
+            posts: vec![SourceFile {
+                path: "posts/2026-01-01-shakes.md".into(),
+                contents: format!("---\ntitle: Shakes\ndate: 2026-01-01\n---\n{body}"),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .expect("site")
+}
+
+#[test]
+fn off_a_quote_fence_is_the_ordinary_code_block_it_always_was() {
+    // Before quote requests existed, a fence labelled `quote` was a code block. With them off it still
+    // is: the post builds, and its words stay on the page instead of being refused or dropped.
+    for body in [
+        "```quote\nTo be, or not to be: that is the question.\n```\n",
+        "```quote\nservice: Fencing\n```\n",
+    ] {
+        for quote in [None, Some(json!({"enabled": false}))] {
+            let site = one_post(config(quote), body);
+            let files: BTreeMap<String, String> = generate(&site, &ThemeSet::new())
+                .expect("generated")
+                .into_iter()
+                .map(|file| (file.path, file.contents))
+                .collect();
+            let post = &files["posts/shakes/index.html"];
+            let words = body.lines().nth(1).unwrap();
+            assert!(post.contains("<pre"), "{post}");
+            assert!(post.contains(words), "{post}");
+            assert!(!post.contains("ob-quote"), "{post}");
+        }
+    }
+}
+
+#[test]
+fn enabled_every_portable_copy_drops_the_form() {
+    let mut config = config(Some(json!({"enabled": true})));
+    config.feeds.json = true;
+    config.feeds.full_content = true;
+    let site = one_post(config, "Ask:\n\n```quote\nservice: Fencing\n```\n");
+    let projection =
+        openblog_core::portability::PortableProjection::from_post(&site.posts[0], &site.config)
+            .unwrap();
+    let html = projection.portable_html().unwrap().html;
+    let markdown = projection.portable_markdown().unwrap();
+    let text = projection.portable_text().unwrap();
+    for (form, copy) in [("html", &html), ("markdown", &markdown), ("text", &text)] {
+        assert!(copy.contains("Ask:"), "{form}: {copy}");
+        assert!(!copy.contains("Fencing"), "{form}: {copy}");
+        assert!(!copy.contains("```quote"), "{form}: {copy}");
+    }
+    let files: BTreeMap<String, String> = generate(&site, &ThemeSet::new())
+        .expect("generated")
+        .into_iter()
+        .map(|file| (file.path, file.contents))
+        .collect();
+    let feed = &files["feed.json"];
+    assert!(feed.contains("Ask:"), "{feed}");
+    assert!(!feed.contains("Fencing"), "{feed}");
+}

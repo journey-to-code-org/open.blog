@@ -59,3 +59,16 @@ test("every server answer has words for the visitor", () => {
   assert.match(serverMessage(503, "storage-unavailable"), /nothing was sent/);
   assert.equal(fieldError("email", ""), "");
 });
+
+test("the form's ADR says how it is checked, and axe-core is really what checks it", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const root = new URL("../../", import.meta.url);
+  const adr = readdirSync(new URL("docs/adr/", root)).find((name) => name.startsWith("0382-"));
+  const text = readFileSync(new URL(`docs/adr/${adr}`, root), "utf8").replace(/\s+/g, " ");
+  const browser = JSON.parse(readFileSync(new URL("tests/browser/package.json", root), "utf8"));
+  const spec = readFileSync(new URL("tests/browser/quote-form.spec.mjs", root), "utf8");
+  assert.ok(browser.devDependencies["axe-core"], "axe-core is a dev dependency of the browser tests");
+  assert.match(spec, /axe\.run\(/);
+  assert.doesNotMatch(text, /axe is not a dependency/i);
+  assert.match(text, /axe-core/);
+});

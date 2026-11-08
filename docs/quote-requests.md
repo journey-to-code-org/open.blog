@@ -38,7 +38,8 @@ first post is answered with the same form to send once more (this stops scripts)
    ````
 
    The landing section lists your services and the form lists your service areas as choices. A fence lists the
-   services you name (or a text box if none). With `enabled` false both render nothing.
+   services you name (or a text box if none). With `enabled` false the section renders nothing
+   and a `quote` fence stays an ordinary code block, as it was before. Feeds and exports never carry the form.
 
 ## Set up the hosted function
 

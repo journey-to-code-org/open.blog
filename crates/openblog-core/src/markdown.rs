@@ -138,6 +138,8 @@ pub(crate) struct PortableContext<'a> {
     pub chapters: bool,
     /// The post's YouTube video, so chapters can link to their moment.
     pub video_id: Option<&'a str>,
+    /// Set while quote requests are on: a `quote` fence is the page's form, which a copy drops.
+    pub quote_forms: bool,
 }
 
 /// Options written after a fence's language, in the style other site
@@ -1047,6 +1049,9 @@ fn transform_blocks<'a>(
     // An open `quote` fence and its source, and how many forms the page already holds.
     let mut quote_fence: Option<String> = None;
     let mut quote_forms = 0usize;
+    // Only while quote requests are on is a `quote` fence a form (ADR 0382); off, it is the
+    // ordinary code block it was before the feature existed.
+    let forms_on = quote.is_some() || portable.is_some_and(|context| context.quote_forms);
     // An open `piece` fence: the kind it names and its `field: value` lines.
     let mut piece: Option<(String, String)> = None;
     // The section a deeper heading switched away from ("### Ingredients for the
@@ -1169,7 +1174,8 @@ fn transform_blocks<'a>(
             }
             continue;
         }
-        if matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) if info.trim() == crate::quote::FENCE)
+        if forms_on
+            && matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) if info.trim() == crate::quote::FENCE)
         {
             quote_fence = Some(String::new());
             continue;
@@ -2663,7 +2669,7 @@ pub(crate) fn portable_semantic_facts(
                     }
                     continue;
                 }
-                if info.trim() == crate::quote::FENCE {
+                if projection.quote_forms() && info.trim() == crate::quote::FENCE {
                     // A form is a page feature: a portable copy carries no part of it.
                     continue;
                 }

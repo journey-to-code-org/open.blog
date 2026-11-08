@@ -20,9 +20,12 @@ turns it on.
 - **Settings.** A versioned-free `quote` member of `openblog.json`: `enabled` (default false), `endpoint` (a
   path such as `/api/quote`, the default, or an `https://` address; no queries, spaces or markup), and one
   line of `notice`. Absent or default is omitted from the written file.
-- **Off renders nothing.** With `enabled` false the fence and the section produce no markup, no capability
-  and no script; the output is byte for byte what it was. A portable copy (feeds, export, syndication) never
-  carries the form, and a `quote` fence is not a semantic fact the copy must keep.
+- **Off renders nothing new.** With `enabled` false the section produces no markup, no capability and no
+  script, and a `quote` fence is not read as a form at all: it stays the ordinary code block it was before
+  this feature existed, so an older post with a code block labelled `quote` builds and shows as it did. The
+  output is byte for byte what it was. With `enabled` true a portable copy (feeds, export, syndication) never
+  carries the form: the portable HTML, Markdown and text all drop the fence, and it is not a semantic fact
+  the copy must keep.
 - **Choices from the site.** Towns come from `serviceAreas` (ADR 0314) in the order stated; services come from
   the services collection in the landing section, and from `service:` lines in the fence (the fence is
   rendered before the collection is known). With no list a field is a text box. Everything is escaped.
@@ -41,5 +44,6 @@ turns it on.
 ## Consequences
 
 The landing builder adds a section type (`SECTION_TYPES` is 16). Admin cannot yet show whether the hosted
-function is reachable; the setup guide says how to check. Axe is not a dependency of this repository, so the
-accessibility contract is tested as markup (labels, descriptions, live region) and in a real browser at 400 px.
+function is reachable; the setup guide says how to check. The accessibility contract is tested as markup (labels,
+descriptions, live region), in a real browser at 400 px, and with axe-core (a pinned dev dependency of
+`tests/browser`) for WCAG 2.1 A and AA in light and dark.
