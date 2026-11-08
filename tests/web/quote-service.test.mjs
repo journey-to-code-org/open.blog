@@ -90,6 +90,30 @@ test("the real function answers through the service: off by default, and a token
   }
 });
 
+test("five photos the form allows reach the function, so a visitor without JavaScript sees its own page", async () => {
+  const env = {
+    OPENBLOG_QUOTE_ENABLED: "true",
+    SUPABASE_URL: "https://proj.supabase.co",
+    SUPABASE_SECRET_KEY: "sb_secret_" + "k".repeat(30),
+    OPENBLOG_SITE_ID: "acme",
+    OPENBLOG_SITE_ORIGIN: "https://acme.example",
+    OPENBLOG_QUOTE_SECRET: "q".repeat(40),
+  };
+  const { base, close } = await listen(createHandler({ env, fetchImpl: async () => { throw new Error("no network in tests"); } }));
+  try {
+    // Each photo is under the form's 900 KB; together they are over the function's 4 MB.
+    const form = new FormData();
+    form.set("name", "Ann");
+    for (let i = 0; i < 5; i += 1) form.append("photos", new Blob([Buffer.alloc(880_000, 0xff)], { type: "image/jpeg" }), `p${i}.jpg`);
+    const response = await fetch(`${base}/api/quote/submit`, { method: "POST", headers: { origin: "https://acme.example", accept: "text/html" }, body: form });
+    assert.equal(response.status, 413);
+    assert.match(response.headers.get("content-type"), /^text\/html/);
+    assert.match(await response.text(), /Photos too large/);
+  } finally {
+    await close();
+  }
+});
+
 test("the port is read strictly, and the sweep runs soon after start and then daily", async () => {
   assert.equal(servicePort({}), 8788);
   assert.equal(servicePort({ OPENBLOG_QUOTE_SERVICE_PORT: "9100" }), 9100);

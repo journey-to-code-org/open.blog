@@ -8,6 +8,11 @@ export const MAX_PHOTOS = 5;
 export const MAX_PHOTO_BYTES = 900 * 1024;
 export const MAX_TOTAL_PHOTO_BYTES = 4 * 1024 * 1024;
 export const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
+// What a host lets through to the function: Netlify's own 6 MB request limit, and the same on a site
+// run by `openblog serve` (ADR 0387). A form the page allows (5 photos of up to 900 KB) can be larger
+// than MAX_BODY_BYTES, so it must still reach the function, which answers with its own
+// "Photos too large" page rather than the host's bare error.
+export const MAX_RELAYED_BODY_BYTES = 6 * 1024 * 1024;
 export const MIN_FILL_SECONDS = 3;
 export const MAX_FILL_SECONDS = 2 * 60 * 60;
 export const PER_CLIENT_PER_HOUR = 5;

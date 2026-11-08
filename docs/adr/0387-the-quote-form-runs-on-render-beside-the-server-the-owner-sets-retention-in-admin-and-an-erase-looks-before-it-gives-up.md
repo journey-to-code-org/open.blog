@@ -39,7 +39,8 @@ A review of ADR 0386's work found three gaps that need no person or outside acco
    the same code. The server never connects anywhere but loopback; passes on only `Content-Type`, `Accept`, `Origin`
    and `Authorization`; puts the visitor's address it worked out (behind a trusted proxy, the address the proxy saw)
    in `X-Forwarded-For`, never one the visitor wrote; returns only the reply headers a page needs; bounds the body to
-   a little over the function's own limit; and gives up after 25 seconds. If the service is not running, a visitor is
+   6 MiB, what Netlify lets through to the function (five photos the form allows can be over the function's own
+   4 MiB + 64 KiB, and must still reach it so the visitor sees its "Photos too large" page, not a bare error); and gives up after 25 seconds. If the service is not running, a visitor is
    told plainly that nothing was sent; after a time-out, that the request may not have been saved. Off, the address
    is a missing page, as before. Admin on Render reaches the same service at `http://127.0.0.1:8788/api/quote`, which
    the existing endpoint rule already allows.

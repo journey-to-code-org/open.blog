@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 
 import { createHandler } from "../netlify/functions/quote.mjs";
 import { createSweep } from "../netlify/functions/quote-retention.mjs";
-import { MAX_BODY_BYTES } from "../netlify/lib/quote-intake.mjs";
+import { MAX_RELAYED_BODY_BYTES } from "../netlify/lib/quote-intake.mjs";
 
 export const DEFAULT_PORT = 8788;
 const DAY = 24 * 60 * 60 * 1000;
@@ -24,7 +24,7 @@ const reply = (response, status, body) => {
 };
 
 // Turns one HTTP request into the event the function takes, and its answer back into HTTP.
-export function createQuoteService({ handler, maxBytes = MAX_BODY_BYTES + 16 * 1024 }) {
+export function createQuoteService({ handler, maxBytes = MAX_RELAYED_BODY_BYTES }) {
   return createServer((request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
     if (!url.pathname.startsWith("/api/quote/")) return reply(response, 404, { error: "not-found" });

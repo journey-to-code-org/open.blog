@@ -18,9 +18,11 @@ use std::time::Duration;
 
 use crate::http::{Request, Response};
 
-/// The function refuses a body over 4 MiB + 64 KiB with its own page; a little more is let through
-/// so that the visitor sees that page and not a bare error.
-pub(crate) const MAX_BODY_BYTES: usize = 4 * 1024 * 1024 + 80 * 1024;
+/// The function refuses a body over 4 MiB + 64 KiB with its own page, but a form the page allows
+/// (5 photos of up to 900 KB) can be larger than that. So this lets through what Netlify does, 6 MiB
+/// (`MAX_RELAYED_BODY_BYTES` in `netlify/lib/quote-intake.mjs`), and the visitor sees the
+/// function's "Photos too large" page, not a bare error.
+pub(crate) const MAX_BODY_BYTES: usize = 6 * 1024 * 1024;
 const DEFAULT_PORT: u16 = 8788;
 const MAX_REPLY_BYTES: u64 = 8 * 1024 * 1024;
 /// The function bounds its own work (storage calls, the owner's email); this is a last stop.
@@ -273,6 +275,39 @@ mod tests {
             String::from_utf8_lossy(&seen).to_string()
         });
         (port, handle)
+    }
+
+    fn intake_constant(name: &str) -> usize {
+        let source = include_str!("../../../netlify/lib/quote-intake.mjs");
+        let line = source
+            .lines()
+            .find(|line| line.starts_with(&format!("export const {name} = ")))
+            .unwrap_or_else(|| panic!("{name} is in quote-intake.mjs"));
+        let value = line.split('=').nth(1).unwrap().trim().trim_end_matches(';');
+        value
+            .split('+')
+            .map(|term| {
+                term.split('*')
+                    .map(|factor| factor.trim().parse::<usize>().unwrap())
+                    .product::<usize>()
+            })
+            .sum()
+    }
+
+    #[test]
+    fn a_form_the_page_allows_reaches_the_function_so_its_own_page_answers() {
+        let allowed_photos = intake_constant("MAX_PHOTOS") * intake_constant("MAX_PHOTO_BYTES");
+        // Room for the other fields and the multipart framing around five photos.
+        assert!(
+            MAX_BODY_BYTES >= allowed_photos + 64 * 1024,
+            "five photos the form allows must reach the function"
+        );
+        assert!(MAX_BODY_BYTES > intake_constant("MAX_BODY_BYTES"));
+        assert_eq!(
+            MAX_BODY_BYTES,
+            intake_constant("MAX_RELAYED_BODY_BYTES"),
+            "the same bound as the service behind it"
+        );
     }
 
     #[test]
