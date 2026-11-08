@@ -60,8 +60,9 @@ checked units at all. A check found the following problems:
 - **Private records and packages stay out of the published folders.** `community.stateFile`,
   `syndication.stateFile`, `syndication.approvalFile` and `syndication.pinterest.stateFile` are refused when
   they lie inside the static, themes, web or output folder, because the next build would publish them. So is a
-  recipe package's `--out`, whether written relative to the project or as a full path. The private `.openblog`
-  folder is never published.
+  recipe package's `--out`, whether written relative to the project or as a full path. Each folder is read the
+  way the build reads it, so one configured outside the project (`"static": "../shared-static"`) or by a full
+  path counts too. The private `.openblog` folder is never published.
 
 ## Considered options
 

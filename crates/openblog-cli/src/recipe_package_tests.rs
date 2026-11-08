@@ -314,3 +314,29 @@ fn a_package_folder_inside_a_published_folder_is_refused() {
     assert!(folder.join("recipe.json").is_file());
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn a_package_folder_inside_a_published_folder_outside_the_project_is_refused() {
+    let root = site_root(CONFIG);
+    // `paths.static` names a folder beside the project, which the build copies too.
+    let name = root.file_name().unwrap().to_string_lossy().into_owned();
+    let shared = root.with_file_name(format!("{name}-static"));
+    fs::rename(root.join("static"), &shared).unwrap();
+    let config = CONFIG.replacen(
+        '{',
+        &format!(r#"{{"paths":{{"static":"../{name}-static"}},"#),
+        1,
+    );
+    fs::write(root.join("openblog.json"), config).unwrap();
+    let folder = shared.join("pk");
+    for write in [false, true] {
+        let error = export(&root, "pasta", Some(&folder), Some(ALL), write).unwrap_err();
+        assert!(
+            error.contains("--out") && error.contains("`static`"),
+            "{error}"
+        );
+    }
+    assert!(!folder.exists());
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(shared).unwrap();
+}

@@ -361,9 +361,9 @@ impl PrivateState {
 
 /// The configured folder (`static`, `themes`, `web` or the build `output`)
 /// that `path` lies in, so that a build would publish a file written there, or
-/// `None`. The path is read as written, joined to `root` when relative; the
-/// project's private `.openblog` folder is never published, and neither is a
-/// path outside the project.
+/// `None`. The path and each folder are read as written, joined to `root` when
+/// relative, so a folder configured outside the project counts too; the
+/// project's private `.openblog` folder is never published.
 pub fn published_folder(
     root: &Path,
     config: &openblog_core::config::SiteConfig,
@@ -408,10 +408,16 @@ pub fn published_folder(
     }
     let root_parts = parts(&resolved(root));
     let full = parts(&resolved(&root.join(path)));
-    let inside = full.strip_prefix(root_parts.as_slice())?;
-    if inside.first().is_some_and(|first| first == ".openblog") {
+    if full
+        .strip_prefix(root_parts.as_slice())
+        .and_then(|inside| inside.first())
+        .is_some_and(|first| first == ".openblog")
+    {
         return None;
     }
+    // Each folder is resolved the way the build reads it, joined to `root`, so
+    // a folder configured outside the project (`../shared-static`) or by a
+    // full path is compared too.
     let paths = &config.paths;
     [
         ("static", &paths.static_dir),
@@ -420,7 +426,7 @@ pub fn published_folder(
         ("output", &paths.output),
     ]
     .into_iter()
-    .find(|(_, dir)| inside.starts_with(&parts(Path::new(dir.as_str()))))
+    .find(|(_, dir)| full.starts_with(&parts(&resolved(&root.join(dir.as_str())))))
     .map(|(name, _)| name)
 }
 
@@ -518,6 +524,38 @@ mod tests {
             super::published_folder(root, &config, &site),
             Some("static")
         );
+    }
+
+    #[test]
+    fn a_path_into_a_published_folder_outside_the_project_is_named() {
+        use std::path::Path;
+        // `paths.static` may name a folder beside the project; the build copies it.
+        let base = std::env::temp_dir().join(format!("ob-outside-static-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("site")).unwrap();
+        std::fs::create_dir_all(base.join("shared-static")).unwrap();
+        let root = base.join("site");
+        let mut config = openblog_core::config::SiteConfig::default();
+        config.paths.static_dir = "../shared-static".into();
+        let published = |config: &openblog_core::config::SiteConfig, path: &Path| {
+            super::published_folder(&root, config, path)
+        };
+        let outside = base.join("shared-static").join("pkg7");
+        assert_eq!(published(&config, &outside), Some("static"));
+        assert_eq!(
+            published(&config, Path::new("../shared-static/pkg7")),
+            Some("static")
+        );
+        assert_eq!(
+            published(&config, &base.join("elsewhere").join("pkg")),
+            None
+        );
+        assert_eq!(published(&config, Path::new("static/pkg")), None);
+        // A folder configured by its full path is compared the same way.
+        config.paths.static_dir = base.join("shared-static").to_string_lossy().into_owned();
+        assert_eq!(published(&config, &outside), Some("static"));
+        assert_eq!(published(&config, Path::new(".openblog/pkg")), None);
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
