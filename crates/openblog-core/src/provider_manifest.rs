@@ -54,10 +54,12 @@ pub enum ProviderId {
     Mastodon,
     /// Pinterest Pins of a post's visual card, sent by `openblog pinterest` (ADR 0371).
     Pinterest,
+    /// YouTube uploads of a video post's release, made by `openblog video` (ADR 0375).
+    Youtube,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 13] = [
+    pub const ALL: [ProviderId; 14] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -71,6 +73,7 @@ impl ProviderId {
         Self::Bluesky,
         Self::Mastodon,
         Self::Pinterest,
+        Self::Youtube,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -95,6 +98,7 @@ impl ProviderId {
             Self::Bluesky => "bluesky",
             Self::Mastodon => "mastodon",
             Self::Pinterest => "pinterest",
+            Self::Youtube => "youtube",
         }
     }
 
@@ -104,6 +108,7 @@ impl ProviderId {
                 Family::Social
             }
             Self::HackerNews | Self::Reddit | Self::ProductHunt => Family::Community,
+            Self::Youtube => Family::Video,
             _ => Family::Syndication,
         }
     }
@@ -135,13 +140,15 @@ impl From<social_schedule::Provider> for ProviderId {
 /// Which seam a provider is reached through: a full copy of the article (`openblog syndicate`,
 /// ADR 0004), a post that links the canonical page and carries no copy of the article (social
 /// publishing, epic #353, and Pinterest Pins, ADR 0371), or a guided submission the author makes
-/// by hand to a community (`openblog submit`, ADR 0337).
+/// by hand to a community (`openblog submit`, ADR 0337), or an authored video whose description
+/// links the canonical post (video release, epic #386).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Family {
     Syndication,
     Social,
     Community,
+    Video,
 }
 
 /// What a distribution can ask of a destination. The list is closed: a name that is not here is
@@ -540,11 +547,13 @@ pub fn policy_version_key(value: &str) -> Option<(String, u8)> {
     Some((date.to_string(), revision))
 }
 
+/// A scope in the provider's spelling: a plain name, or a URL such as Google's
+/// `https://www.googleapis.com/auth/youtube.upload` (ADR 0378). Never a space or a quote.
 fn valid_scope(scope: &str) -> bool {
     (1..=80).contains(&scope.len())
         && scope
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-' | b'/'))
 }
 
 fn valid_source(source: &str) -> bool {
@@ -586,6 +595,7 @@ impl ProviderManifest {
             "syndication" => Family::Syndication,
             "social" => Family::Social,
             "community" => Family::Community,
+            "video" => Family::Video,
             _ => return Err(ManifestError::FamilyMismatch),
         };
         if family != provider.family() {
@@ -667,7 +677,8 @@ impl ProviderManifest {
                     || self.publishing == Publishing::Manual))
             || (self.publishing == Publishing::DraftOnly
                 && self.support(Capability::Draft) != Support::Adapter)
-            || (self.family == Family::Social && self.canonical != CanonicalLink::Linked)
+            || (matches!(self.family, Family::Social | Family::Video)
+                && self.canonical != CanonicalLink::Linked)
             || matches!(
                 (
                     self.constraints.schedule_min_lead_seconds,
@@ -998,6 +1009,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 "https://dev.pinterest.com/docs/developer-tools/sandbox/",
             ]),
         },
+        Family::Video => youtube_manifest(),
         Family::Social => {
             // Scheduling is open.blog's own queue (ADRs 0308, 0316), so its window is the queue's.
             let schedule = Constraints {
@@ -1156,6 +1168,63 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 sources: sources(docs),
             }
         }
+    }
+}
+
+/// YouTube's policy version: raised above [`BUILTIN_POLICY_VERSION`] when story #400 moved it from
+/// a guided workflow to an uploading adapter (ADR 0378), so nothing approved under the guided
+/// workflow is carried over silently (ADR 0327).
+pub const YOUTUBE_POLICY_VERSION: &str = "2026-10-29.2";
+
+/// YouTube as an uploading adapter (epic #386, stories #399 and #400): open.blog uploads the video
+/// private through a resumable session, sets the thumbnail and can schedule `publishAt`, after the
+/// author connects a Google account and approves the previewed release. Captions stay in YouTube
+/// Studio (ADR 0378). Every limit lives in [`crate::video_release`], because none of them is one
+/// of the manifest's generic constraints (a title, a description in bytes, tags in total
+/// characters).
+fn youtube_manifest() -> ProviderManifest {
+    use Capability::*;
+    use Support::*;
+    ProviderManifest {
+        manifest_version: MANIFEST_VERSION,
+        provider: ProviderId::Youtube,
+        family: Family::Video,
+        label: "YouTube".to_string(),
+        policy_version: YOUTUBE_POLICY_VERSION.to_string(),
+        capabilities: [
+            (Link, Adapter),
+            (Text, Adapter),
+            (Article, Unsupported),
+            (Image, Adapter),
+            (Video, Adapter),
+            (Draft, Adapter),
+            (Schedule, Adapter),
+        ]
+        .into_iter()
+        .collect(),
+        login: Login {
+            method: LoginMethod::Oauth2,
+            scopes: crate::video_upload::SCOPES
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+        },
+        constraints: Constraints::default(),
+        canonical: CanonicalLink::Linked,
+        publishing: Publishing::ExplicitApproval,
+        sources: [
+            "https://developers.google.com/youtube/v3/docs/videos",
+            "https://developers.google.com/youtube/v3/docs/videos/insert",
+            "https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol",
+            "https://developers.google.com/youtube/v3/docs/thumbnails/set",
+            "https://developers.google.com/youtube/v3/docs/captions/insert",
+            "https://developers.google.com/youtube/v3/docs/errors",
+            "https://developers.google.com/identity/protocols/oauth2/native-app",
+            "https://support.google.com/youtube/answer/9884579",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect(),
     }
 }
 

@@ -204,7 +204,41 @@ fn provider_upgrades_are_classified_by_the_compatibility_policy() {
 fn the_builtin_policy_version_is_a_valid_one() {
     assert!(policy_version_key(BUILTIN_POLICY_VERSION).is_some());
     for manifest in builtin_manifests() {
-        assert_eq!(manifest.policy_version, BUILTIN_POLICY_VERSION);
+        let expected = if manifest.provider == ProviderId::Youtube {
+            YOUTUBE_POLICY_VERSION
+        } else {
+            BUILTIN_POLICY_VERSION
+        };
+        assert_eq!(manifest.policy_version, expected);
         assert!(manifest.sources.iter().all(|s| s.starts_with("https://")));
     }
+}
+
+#[test]
+fn the_youtube_adapter_voids_approvals_made_under_the_guided_workflow() {
+    let adapter = builtin_manifest(ProviderId::Youtube);
+    let mut guided = adapter.clone();
+    guided.policy_version = BUILTIN_POLICY_VERSION.to_string();
+    guided.login.method = LoginMethod::None;
+    guided.login.scopes.clear();
+    guided.publishing = Publishing::Manual;
+    for support in guided.capabilities.values_mut() {
+        if *support == Support::Adapter {
+            *support = Support::Manual;
+        }
+    }
+    assert!(
+        policy_version_key(YOUTUBE_POLICY_VERSION) > policy_version_key(BUILTIN_POLICY_VERSION)
+    );
+    let report = compatibility(&guided, &adapter).unwrap();
+    assert_eq!(report.level, Compatibility::Breaking);
+    assert!(report.changes.contains(&"login-changed".to_string()));
+    assert!(!approval_stands(&guided, &adapter));
+    assert_eq!(
+        adapter.login.scopes,
+        [
+            "https://www.googleapis.com/auth/youtube.upload",
+            "https://www.googleapis.com/auth/youtube.readonly"
+        ]
+    );
 }

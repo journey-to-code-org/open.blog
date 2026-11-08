@@ -46,6 +46,7 @@ mod source_store;
 mod syndication;
 mod transaction;
 mod url_context;
+mod video_release;
 mod voice_assistant;
 mod voice_capture;
 mod voice_cli;
@@ -56,6 +57,7 @@ mod voice_session;
 mod voice_store;
 mod webmention;
 mod workspace;
+mod youtube;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -97,6 +99,12 @@ COMMANDS
                                and link previews from its own images; sends nothing
     pinterest boards           List the Pinterest boards your token can pin to (opt-in)
     pinterest pin <slug>       Preview a post's Pin; --write --confirm <digest> sends it
+    video <slug>               Check a video post's YouTube release: title, description with the
+                               article link, thumbnail, chapters, captions, transcript and consent;
+                               uploads nothing unless approved and asked to (see video OPTIONS)
+    youtube connect|disconnect|status
+                               Connect a YouTube channel for approved uploads (off until
+                               OPENBLOG_YOUTUBE_CLIENT_ID is set), revoke it, or show it
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -191,6 +199,18 @@ pinterest OPTIONS (off unless syndication.pinterest.enabled; token in PINTEREST_
     --write --confirm <digest> Send exactly the previewed Pin, after checking the board is yours
     --reconcile                Look for the Pin an unsettled attempt may have created
     --forget-attempt           After checking the board yourself, allow an unsettled Pin again
+video OPTIONS
+    --json                     Print the YouTube preview as JSON
+    --preview <new folder>     Write title.txt, description.txt, tags.txt, transcript.txt, the
+                               thumbnail, preview.json and an accessible index.html; uploads nothing
+    --approve <digest>         Approve exactly the previewed release and its video file (sends
+                               nothing); add --publish-at <RFC 3339 time> to have YouTube publish it
+    --upload                   Upload the approved release as a private video, resume an
+                               interrupted upload, or retry its thumbnail
+    --lookup                   After an upload whose outcome is unknown, look in the channel's uploads
+    --settle uploaded:<id>|not-uploaded
+                               Settle an unknown upload by hand after checking YouTube Studio
+    --status                   Show the release's private upload record (add --json for JSON)
 
 export OPTIONS
     --format markdown|csl-json|bibtex|recipe-json-ld|recipe-package
@@ -315,9 +335,20 @@ const SWITCHES: &[&str] = &[
     "again",
     "reconcile",
     "forget-attempt",
+    "upload",
+    "lookup",
 ];
 
+/// Switches that only one command takes, because another command takes the same name with a
+/// value: `video --status` shows the upload record, while `mentions list --status <s>` filters.
+const COMMAND_SWITCHES: &[(&str, &str)] = &[("video", "status")];
+
+#[cfg(test)]
 fn parse_args(raw: &[String]) -> Result<Args, String> {
+    parse_command_args("", raw)
+}
+
+fn parse_command_args(command: &str, raw: &[String]) -> Result<Args, String> {
     let mut args = Args {
         positional: Vec::new(),
         options: HashMap::new(),
@@ -329,7 +360,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         if let Some(name) = token.strip_prefix("--") {
             if let Some((key, value)) = name.split_once('=') {
                 args.options.insert(key.to_string(), value.to_string());
-            } else if SWITCHES.contains(&name) {
+            } else if SWITCHES.contains(&name) || COMMAND_SWITCHES.contains(&(command, name)) {
                 args.switches.insert(name.to_string());
             } else {
                 i += 1;
@@ -362,7 +393,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         print!("{HELP}");
         return Ok(());
     };
-    let args = parse_args(&raw[1..])?;
+    let args = parse_command_args(command, &raw[1..])?;
     if args.switches.contains("help") {
         print!("{HELP}");
         return Ok(());
@@ -628,6 +659,33 @@ fn run(raw: &[String]) -> Result<(), String> {
                 json: args.switches.contains("json"),
             },
         ),
+        "video" => {
+            let slug = args
+                .positional
+                .first()
+                .ok_or("usage: openblog video <slug> [--json] [--preview <new folder>]")?;
+            video_release::run(
+                &root,
+                slug,
+                video_release::Options {
+                    json: args.switches.contains("json"),
+                    preview: args.options.get("preview").cloned(),
+                    approve: args.options.get("approve").cloned(),
+                    publish_at: args.options.get("publish-at").cloned(),
+                    upload: args.switches.contains("upload"),
+                    lookup: args.switches.contains("lookup"),
+                    settle: args.options.get("settle").cloned(),
+                    status: args.switches.contains("status"),
+                },
+            )
+        }
+        "youtube" => {
+            let action = args
+                .positional
+                .first()
+                .ok_or("usage: openblog youtube connect|disconnect|status")?;
+            youtube::command(&root, action)
+        }
         "paths" => {
             let options = paths_exchange::Options {
                 file: args
@@ -2155,6 +2213,18 @@ Mine.
         assert_eq!(a.options["tags"], "a,b");
         assert!(a.switches.contains("drafts"));
         assert!(parse_args(&strings(&["--series"])).is_err());
+    }
+
+    #[test]
+    fn status_is_a_switch_for_video_and_takes_a_value_for_mentions() {
+        let video =
+            parse_command_args("video", &strings(&["episode", "--status", "--json"])).unwrap();
+        assert!(video.switches.contains("status"));
+        assert_eq!(video.positional, vec!["episode"]);
+        let mentions =
+            parse_command_args("mentions", &strings(&["list", "--status", "pending"])).unwrap();
+        assert_eq!(mentions.options["status"], "pending");
+        assert_eq!(mentions.positional, vec!["list"]);
     }
 
     #[test]

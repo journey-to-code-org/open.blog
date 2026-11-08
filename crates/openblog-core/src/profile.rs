@@ -186,6 +186,54 @@ const VIDEO_FIELDS: &[ProfileField] = &[
         kind: ProfileFieldKind::Text,
         help: "A concise, creator-authored note describing meaningful AI assistance.",
     },
+    ProfileField {
+        key: "videoFile",
+        label: "Video master file",
+        kind: ProfileFieldKind::Text,
+        help: "Project-relative path of the video to upload, kept outside the static folder, such as media/episode-1.mp4.",
+    },
+    ProfileField {
+        key: "videoTitle",
+        label: "YouTube title",
+        kind: ProfileFieldKind::Text,
+        help: "Optional title for YouTube, at most 100 characters; the post title is used otherwise.",
+    },
+    ProfileField {
+        key: "videoDescription",
+        label: "YouTube description",
+        kind: ProfileFieldKind::Text,
+        help: "Optional opening of the YouTube description; the post description is used otherwise.",
+    },
+    ProfileField {
+        key: "captions",
+        label: "Caption files",
+        kind: ProfileFieldKind::Text,
+        help: "Comma-separated project-relative WebVTT or SubRip files named for their language, such as media/episode-1.en.vtt.",
+    },
+    ProfileField {
+        key: "videoRights",
+        label: "Rights to the video",
+        kind: ProfileFieldKind::Text,
+        help: "owned or licensed: you hold the rights to everything in the video.",
+    },
+    ProfileField {
+        key: "videoPeople",
+        label: "People in the video",
+        kind: ProfileFieldKind::Text,
+        help: "consented (everyone identifiable agreed) or none (no identifiable person).",
+    },
+    ProfileField {
+        key: "madeForKids",
+        label: "Made for kids",
+        kind: ProfileFieldKind::Text,
+        help: "yes or no: YouTube requires every creator to set the audience.",
+    },
+    ProfileField {
+        key: "syntheticMedia",
+        label: "Realistic altered or synthetic content",
+        kind: ProfileFieldKind::Text,
+        help: "yes or no: whether the video contains realistic altered or synthetic content YouTube asks you to disclose.",
+    },
 ];
 
 const FIELD_JOURNAL_FIELDS: &[ProfileField] = &[

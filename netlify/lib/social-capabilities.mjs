@@ -17,7 +17,7 @@
 export const MANIFEST_VERSION = 1;
 export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
-const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community", "product-hunt": "community", bluesky: "social", mastodon: "social", pinterest: "social" });
+const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community", "product-hunt": "community", bluesky: "social", mastodon: "social", pinterest: "social", youtube: "video" });
 const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2", "app-password"]);
 const CANONICAL = Object.freeze(["sent", "linked", "manual", "not-supported"]);
 const PUBLISHING = Object.freeze(["explicit-approval", "draft-only", "manual"]);
@@ -70,7 +70,8 @@ export function policyVersionKey(value) {
   return [`${year}-${month}-${day}`, revision ? Number(revision) : 0];
 }
 
-const validScope = (scope) => /^[A-Za-z0-9_.:-]{1,80}$/.test(scope);
+// A plain name, or a URL such as Google's https://www.googleapis.com/auth/youtube.upload (ADR 0378).
+const validScope = (scope) => /^[A-Za-z0-9_.:\/-]{1,80}$/.test(scope);
 
 function validSource(source) {
   if (source.length > 500) return false;
@@ -151,7 +152,7 @@ export function parseManifest(value) {
     (anyAdapter && method === "none") ||
     (manifest.publishing === "manual" && anyAdapter) ||
     (manifest.publishing === "draft-only" && capabilities.draft !== "adapter") ||
-    (manifest.family === "social" && manifest.canonical !== "linked") ||
+    ((manifest.family === "social" || manifest.family === "video") && manifest.canonical !== "linked") ||
     // A community destination is submitted to by the author, by hand, never by open.blog (ADR 0337).
     (manifest.family === "community" &&
       (anyAdapter || method !== "none" || manifest.publishing !== "manual" || manifest.canonical !== "linked" || capabilities.link !== "manual")) ||

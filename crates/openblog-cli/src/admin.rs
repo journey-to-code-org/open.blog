@@ -4361,7 +4361,7 @@ fn write_private_assistant_credential(
 }
 
 #[cfg(windows)]
-fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
@@ -4397,7 +4397,7 @@ fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(windows)]
-fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
@@ -4435,16 +4435,16 @@ fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(not(windows))]
-fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
     Ok(value.to_vec())
 }
 
 #[cfg(not(windows))]
-fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
     Ok(value.to_vec())
 }
 
-fn write_private_bytes_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
+pub(crate) fn write_private_bytes_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("cannot create private Assistant directory: {error}"))?;

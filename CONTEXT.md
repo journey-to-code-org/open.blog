@@ -3112,3 +3112,66 @@ _Avoid_: Author, identity, verified name, h-card
 `content/webmentions.json`, the approved mentions a post's canonical page lists as plain links marked
 `nofollow ugc`, with no script, image or excerpt. Feeds and portable copies never carry them (ADR 0366).
 _Avoid_: Comments, backlinks, social proof
+**Video release**:
+What a video destination is prepared from, read only from a video-profile post: the video reference (a project
+master file and/or the YouTube address), a title and description written for the destination, the chapters and
+transcript written in the body, caption files, the thumbnail, and the author's consent declarations (ADR 0374).
+Never generated from an article.
+_Avoid_: Video export, slideshow, release kit (Admin's copy helper for the description)
+
+**Video reference**:
+Where a release's video is: `videoFile`, a project-relative master file to upload, and/or `videoUrl`, a video already
+on YouTube.
+_Avoid_: Embed, media URL
+
+**Consent declaration**:
+One of the author's own answers a release needs before anything is uploaded: rights (`owned` or `licensed`), people
+(`consented` or `none`), made for kids and realistic synthetic content (`yes` or `no`). Missing or unknown answers are
+reported, never assumed.
+_Avoid_: Disclosure (the free-text AI-assistance note), licence
+
+**Video family**:
+The provider family of destinations that receive a video the author made, whose description links the canonical
+post (YouTube). Neither a portable copy of the article nor a queued announcement (ADR 0375).
+_Avoid_: Social video, video syndication
+
+**YouTube preview**:
+The exact metadata a video release would carry to YouTube (title, composed description with the canonical article
+link, tags, thumbnail, chapters, captions, transcript, audience and synthetic-content answers, private visibility),
+its status (blocked, manual or ready), every problem with its code, the guided steps and a digest. Written by
+`openblog video --preview`; sends nothing (ADR 0376). Its digest is what a video approval binds.
+_Avoid_: Release kit (Admin's copy helper), upload plan
+
+**YouTube connection**:
+The author's Google grant for uploads, made by `openblog youtube connect` with the deployer's own Desktop-app OAuth
+client (loopback redirect, PKCE) and both scopes `youtube.upload` and `youtube.readonly`. Its refresh token is kept
+protected in `.openblog/private/youtube/credential` on the author's computer; nothing hosted holds it (ADR 0378).
+_Avoid_: Social account (a hosted LinkedIn or Facebook grant), API key
+
+**Video approval**:
+The author's consent to upload exactly one YouTube preview (its digest) from one master file (its size and digest),
+with an optional `publishAt`, under the manifest it was previewed under. Changing any of them voids it (ADR 0379).
+_Avoid_: Distribution approval (a syndication plan's), publish consent
+
+**Upload record**:
+The private, protected record of one release's upload: its state (not-uploaded, uploading, uploaded, failed or
+unknown), the resumable session and bytes received, the video id and watch address, the thumbnail's state and a
+bounded history of coded events. Never a token or the author's words (ADR 0380).
+_Avoid_: Syndication state, delivery history (the social queue's)
+
+**Unknown upload**:
+A release whose last chunk was sent but whose reply was lost and whose session has ended: the video may exist.
+Nothing is sent again until `--lookup` finds exactly the release in the channel's recent uploads, finds no upload at
+all in the attempt's window, or a person settles it with `--settle` (ADR 0380).
+_Avoid_: Failed upload, retry
+
+**Text alternative**:
+What lets a video be followed without sound: caption files or the post's Transcript section. A release without one
+is blocked (ADR 0377).
+_Avoid_: Subtitles (one kind of caption), accessibility metadata
+
+**Asset probe**:
+The caller-supplied lookup that tells core a release file's size and first bytes, asked only about clean
+project-relative paths and treating a symlink or anything but a regular file as missing. Core never reads files.
+_Avoid_: File check, scanner
+

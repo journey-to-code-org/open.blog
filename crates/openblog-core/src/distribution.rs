@@ -144,7 +144,7 @@ impl Problem {
         }
     }
 
-    fn from_ineligibility(problem: &Ineligibility, label: &str) -> Self {
+    pub(crate) fn from_ineligibility(problem: &Ineligibility, label: &str) -> Self {
         Self {
             code: problem.code().to_string(),
             capability: problem.capability(),

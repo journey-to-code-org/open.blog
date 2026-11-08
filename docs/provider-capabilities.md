@@ -1,11 +1,13 @@
 # Provider capabilities
 
-open.blog can reach other platforms in four ways: [cross-posting](cross-posting.md) sends a portable copy of an
+open.blog can reach other platforms in five ways: [cross-posting](cross-posting.md) sends a portable copy of an
 article (DEV, Hashnode, Ghost, WordPress, or a manual Medium import), and optional
 [social publishing](social-publishing.md) announces a published post on LinkedIn, a Facebook Page, Bluesky or Mastodon. A third,
 [community submissions](community-submissions.md), prepares a post for you to submit by hand to Hacker News, a
 Reddit community or Product Hunt. A fourth, [Pinterest Pins](pinterest.md), sends a post's visual card to one of
-your boards. All four are off until you set them up, and your Markdown and your own site stay the original.
+your boards. A fifth, a [video release](video-production.md#prepare-a-youtube-release), prepares a video post's
+YouTube upload and, once you connect a channel and approve it, uploads it. All five are off until you set them up,
+and your Markdown and your own site stay the original.
 
 Each destination has a **provider manifest**: a short, versioned statement of what this release's adapter does
 there. You do not edit it; it is part of the code, and it decides what open.blog will and will not attempt
@@ -22,20 +24,20 @@ there. You do not edit it; it is part of the code, and it decides what open.blog
 
 Anything open.blog does not recognise (a capability, a provider, a manifest format) is refused, never guessed at.
 
-## The destinations (policy version 2026-10-29)
+## The destinations (policy version 2026-10-29; YouTube 2026-10-29.2)
 
-| Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | Bluesky | Mastodon |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter (link card) | adapter (in the text) |
-| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter | adapter |
-| Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported |
-| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | manual | manual (the deployer may attach the cover, with its description) |
-| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual | manual |
-| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported |
-| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) |
-| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | app password | OAuth (one instance) |
-| Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the post links it | the post links it |
-| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | your approval | your approval |
+| Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | Bluesky | Mastodon | YouTube |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter (link card) | adapter (in the text) | adapter (in the description) |
+| Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter | adapter | adapter (title and description) |
+| Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported | unsupported |
+| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | manual | manual (the deployer may attach the cover, with its description) | adapter (thumbnail) |
+| Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual | manual | adapter (uploaded private) |
+| Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported | adapter (a private upload) |
+| Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (`publishAt`, kept by YouTube) |
+| Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | app password | OAuth (one instance) | OAuth (on your computer) |
+| Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the post links it | the post links it | the description links it |
+| Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | your approval | your approval | your approval (private until `--publish-at` or by hand) |
 
 Hacker News and Reddit are *community* destinations (policy version 2026-10-29,
 [ADR 0337](adr/0337-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)):
@@ -106,6 +108,23 @@ Checked on 2026-10-29 against the providers' own documentation:
   production. Pins visible to everyone need Standard access, which Pinterest grants after reviewing a video of
   the app. Trial apps are rate limited per app per day and Standard apps per user per minute; no numbers are
   published there, so open.blog only reports a rate limit when Pinterest returns one.
+- YouTube: [videos resource](https://developers.google.com/youtube/v3/docs/videos),
+  [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert),
+  [thumbnails.set](https://developers.google.com/youtube/v3/docs/thumbnails/set),
+  [captions.insert](https://developers.google.com/youtube/v3/docs/captions/insert) and
+  [chapters](https://support.google.com/youtube/answer/9884579). A title takes at most 100 characters and a
+  description 5,000 bytes, neither with `<` or `>`; tags take 500 characters in all; chapters need three or more,
+  the first at `00:00`, each at least ten seconds. Uploads use the
+  [resumable upload protocol](https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol),
+  start private, and may carry `publishAt` only while private; quota errors are read from
+  [the API errors](https://developers.google.com/youtube/v3/docs/errors) and reset at midnight Pacific Time
+  ([quota costs](https://developers.google.com/youtube/v3/determine_quota_cost)). Captions need a scope that manages
+  the whole account, so they stay by hand in YouTube Studio. The login is
+  [OAuth for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app) with your own client
+  (ADRs [0375](adr/0375-youtube-is-a-video-family-provider-declared-as-a-guided-workflow-until-an-adapter-uploads.md),
+  [0376](adr/0376-a-youtube-preview-is-the-exact-metadata-with-the-canonical-article-link-checked-against-youtubes-rules.md),
+  [0378](adr/0378-youtube-uploads-use-the-deployers-own-google-client-a-loopback-pkce-grant-and-a-refresh-token-protected-on-the-authors-machine.md),
+  [0379](adr/0379-an-approved-release-is-uploaded-private-through-a-recorded-resumable-session-and-youtube-not-open-blog-schedules-its-publication.md)).
 - Ghost, Hashnode and Medium: as verified for [cross-posting](cross-posting.md). Scheduling there was not
   re-verified, so it is listed as unsupported.
 
