@@ -30,6 +30,7 @@ mod pinterest;
 mod portable_export;
 mod private_guard;
 mod publish;
+mod quote_relay;
 mod readiness;
 mod reading_path_store;
 mod recipe_package;

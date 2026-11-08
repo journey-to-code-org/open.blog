@@ -494,6 +494,12 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
             0
         });
     }
+    if crate::quote_relay::is_quote_path(&req.path) {
+        return Ok(crate::quote_relay::body_limit(
+            &crate::quote_relay::process_env,
+            req,
+        ));
+    }
     if !req.path.starts_with("/admin") {
         return Ok(0);
     }

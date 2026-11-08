@@ -22,6 +22,7 @@ const ROUTES: &[(&str, &str, bool)] = &[
     ("POST", "/admin/api/quote/erase/preview", true),
     ("POST", "/admin/api/quote/erase", true),
     ("POST", "/admin/api/quote/retention/run", true),
+    ("POST", "/admin/api/quote/retention", true),
     ("POST", "/admin/api/quote/notifications/retry", true),
 ];
 
@@ -198,6 +199,10 @@ fn the_list_is_rebuilt_from_known_fields_and_sent_with_the_key_actor_and_filters
         "only signed https storage addresses pass"
     );
     assert_eq!(body["retentionDays"], 30);
+    assert_eq!(
+        body["retentionSource"], "host",
+        "days with no source can only come from where the function runs"
+    );
     let text = body.to_string();
     assert!(!text.contains("must-not-pass") && !text.contains("leak"));
     let seen = server.join().unwrap();
@@ -227,6 +232,56 @@ fn a_request_with_a_c1_control_character_is_shown_not_hidden() {
     assert_eq!(list[0]["name"], "Ann Lee");
     assert_eq!(list[0]["description"], "Fence 31m please.\nThanks");
     assert_eq!(body["unreadable"], 0);
+}
+
+#[test]
+fn the_owner_sets_or_clears_the_retention_days_and_a_host_setting_is_said_plainly() {
+    let (endpoint, server) = hosted(vec![
+        (
+            200,
+            json!({ "retentionDays": 30, "retentionSource": "admin" }).to_string(),
+        ),
+        (
+            200,
+            json!({ "retentionDays": null, "retentionSource": null }).to_string(),
+        ),
+        (409, json!({ "error": "retention-set-by-host" }).to_string()),
+        (200, json!({ "retentionDays": 7 }).to_string()),
+    ]);
+    let env = env_for(&endpoint);
+    let set = |body: Json| route_with(&env, &json_req("POST", "/x", body), "mikey", "retention");
+    for bad in [
+        json!({ "days": 0 }),
+        json!({ "days": 3651 }),
+        json!({ "days": 1.5 }),
+        json!({ "days": "30" }),
+        json!({ "days": 30, "x": 1 }),
+    ] {
+        assert_eq!(set(bad.clone()).status, 400, "{bad}");
+    }
+    let ok = set(json!({ "days": 30 }));
+    assert_eq!(ok.status, 200);
+    assert_eq!(
+        body_json(&ok),
+        json!({ "retentionDays": 30, "retentionSource": "admin" })
+    );
+    let cleared = set(json!({ "days": null }));
+    assert_eq!(
+        body_json(&cleared),
+        json!({ "retentionDays": null, "retentionSource": null })
+    );
+    let fixed = set(json!({ "days": 10 }));
+    assert_eq!(fixed.status, 409);
+    assert!(String::from_utf8_lossy(&fixed.body).contains("set where the quote function runs"));
+    // A reply that does not confirm the days asked for is not taken as saved.
+    assert_eq!(set(json!({ "days": 30 })).status, 502);
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 4, "refused values never reached the function");
+    assert!(seen[0]
+        .to_ascii_lowercase()
+        .starts_with("post /api/quote/retention "));
+    assert!(seen[0].ends_with("{\"days\":30}"));
+    assert!(seen[1].ends_with("{\"days\":null}"));
 }
 
 #[test]

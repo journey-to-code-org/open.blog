@@ -189,7 +189,18 @@ fn project_list(reply: &Json) -> Json {
         .get("notifyEnabled")
         .and_then(Json::as_bool)
         .unwrap_or(false);
-    json!({ "requests": requests, "unreadable": unreadable, "services": services, "retentionDays": days, "notifyEnabled": notify_enabled })
+    json!({ "requests": requests, "unreadable": unreadable, "services": services, "retentionDays": days, "retentionSource": retention_source(reply, days), "notifyEnabled": notify_enabled })
+}
+
+/// Who set the retention days (ADR 0387): `host` (where the function runs; Admin cannot change it),
+/// `admin` (the owner, here), or nobody.
+fn retention_source(reply: &Json, days: Option<u64>) -> Option<&'static str> {
+    days?;
+    match reply.get("retentionSource").and_then(Json::as_str) {
+        Some("admin") => Some("admin"),
+        // An older function names no source: its days can only come from where it runs.
+        _ => Some("host"),
+    }
 }
 
 fn bad_reply() -> Response {
@@ -207,6 +218,9 @@ fn refusal(status: u16, body: &Json) -> Response {
         }
         (409, Some("changed")) => {
             "Some requests changed or were already erased; reload and try again"
+        }
+        (409, Some("retention-set-by-host")) => {
+            "The number of days is set where the quote function runs, so it cannot be changed here"
         }
         (409, Some("notifications-off")) => {
             "Emails to you are turned off where the quote function runs, so none can be sent again"
@@ -394,6 +408,7 @@ pub(super) fn route_with(
                 })
             })
         }
+        ("POST", ["retention"]) => set_retention(req, &config, user),
         ("POST", ["notifications", "retry"]) => retry_notifications(req, &config, user),
         _ => return Response::error(404, "Unknown API route"),
     };
@@ -418,6 +433,40 @@ fn list(req: &Request, config: &QuoteConfig, user: &str) -> Result<Json, Respons
         query.push(("service", service));
     }
     hosted(config, "GET", "requests", &query, None, user).map(|reply| project_list(&reply))
+}
+
+/// The owner's choice of how many days an archived request is kept (ADR 0387): a whole number from
+/// 1 to 3650, or `null` to keep archived requests until the owner erases them.
+fn set_retention(req: &Request, config: &QuoteConfig, user: &str) -> Result<Json, Response> {
+    let body = object_body(req, &["days"])?;
+    let days = match body.get("days") {
+        None | Some(Json::Null) => None,
+        Some(value) => match value.as_u64().filter(|d| (1..=3650).contains(d)) {
+            Some(days) => Some(days),
+            None => {
+                return Err(Response::error(
+                    400,
+                    "Choose a whole number of days from 1 to 3650",
+                ))
+            }
+        },
+    };
+    let reply = hosted(
+        config,
+        "POST",
+        "retention",
+        &[],
+        Some(&json!({ "days": days })),
+        user,
+    )?;
+    let kept = reply
+        .get("retentionDays")
+        .and_then(Json::as_u64)
+        .filter(|d| (1..=3650).contains(d));
+    if kept != days {
+        return Err(bad_reply());
+    }
+    Ok(json!({ "retentionDays": kept, "retentionSource": kept.map(|_| "admin") }))
 }
 
 /// Sends again the owner's emails that failed (at most five tries each, ADR 0383). Only counts

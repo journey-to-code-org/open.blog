@@ -34,6 +34,11 @@ case "$*" in
   "-C /blog remote get-url origin") printf '%s\\n' "$TEST_REMOTE" ;;
 esac
 `, { mode: 0o755 });
+    // The quote service stand-in records its start; a failing `sleep` ends the restart loop.
+    fs.writeFileSync(path.join(dir, "node"), `#!/bin/sh
+printf 'node %s\\n' "$*" >> "$TEST_LOG"
+`, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, "sleep"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
       if (key.startsWith("OPENBLOG_") || key.startsWith("GIT_AUTHOR_")) delete env[key];
@@ -66,6 +71,17 @@ test("container creates missing login and updates existing login before serving"
     assert.match(result.log, new RegExp(`openblog user ${action} demo`));
     assert.match(result.log, /openblog serve --admin --host 0\.0\.0\.0 --port 8080/);
   }
+});
+
+test("the quote service starts beside the server only when quote requests are on (ADR 0387)", () => {
+  const off = run();
+  assert.equal(off.status, 0, off.stderr);
+  assert.doesNotMatch(off.log, /node /);
+  for (const value of ["yes", "TRUE"]) assert.doesNotMatch(run({ OPENBLOG_QUOTE_ENABLED: value }).log, /node /, value);
+  const on = run({ OPENBLOG_QUOTE_ENABLED: "true" });
+  assert.equal(on.status, 0, on.stderr);
+  assert.match(on.log, /node \/blog\/scripts\/quote-service\.mjs/);
+  assert.match(on.log, /openblog serve --admin --host 0\.0\.0\.0 --port 8080/);
 });
 
 test("container fails visibly for incomplete credentials and failed user setup", () => {

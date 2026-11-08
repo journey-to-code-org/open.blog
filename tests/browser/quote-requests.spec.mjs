@@ -21,7 +21,7 @@ let hosted;
 let hostedPort;
 let configured;
 let plain;
-const state = { requests: [], seen: [], failErase: false };
+const state = { requests: [], seen: [], failErase: false, retention: { days: 30, source: "host" } };
 
 const freePort = async () => {
   const listener = createServer();
@@ -45,11 +45,15 @@ function handleHosted(request, response, body) {
     response.end(JSON.stringify(value));
   };
   if (url.pathname === "/__reset") {
-    Object.assign(state, { requests: seed(), seen: [], failErase: false });
+    Object.assign(state, { requests: seed(), seen: [], failErase: false, retention: { days: 30, source: "host" } });
     return send(200, {});
   }
   if (url.pathname === "/__fail-email") {
     Object.assign(state.requests[1], { notify: "failed", notifyAttempts: 1, notifyError: "network" });
+    return send(200, {});
+  }
+  if (url.pathname === "/__retention-unset") {
+    state.retention = { days: null, source: null };
     return send(200, {});
   }
   if (url.pathname === "/__fail-erase") {
@@ -64,7 +68,7 @@ function handleHosted(request, response, body) {
     const status = url.searchParams.get("status");
     const service = url.searchParams.get("service");
     const rows = state.requests.filter((r) => (!status || r.status === status) && (!service || r.service === service));
-    return send(200, { requests: rows, services: [...new Set(state.requests.map((r) => r.service))].sort(), retentionDays: 30, notifyEnabled: true });
+    return send(200, { requests: rows, services: [...new Set(state.requests.map((r) => r.service))].sort(), retentionDays: state.retention.days, retentionSource: state.retention.source, notifyEnabled: true });
   }
   if (request.method === "POST" && route === "notifications/retry") {
     const failed = state.requests.filter((r) => r.notify === "failed");
@@ -86,6 +90,10 @@ function handleHosted(request, response, body) {
     return send(200, { erased: input.ids.length, verified: true });
   }
   if (request.method === "POST" && route === "retention/run") return send(200, { enabled: true, erased: 0 });
+  if (request.method === "POST" && route === "retention") {
+    state.retention = { days: input.days, source: input.days ? "admin" : null };
+    return send(200, { retentionDays: state.retention.days, retentionSource: state.retention.source });
+  }
   return send(404, { error: "not-found" });
 }
 
@@ -199,6 +207,24 @@ test("requests read well at 400 px: newest first, status words, copy, handle, ar
   await page.locator('select[data-filter="status"]').selectOption("archived");
   await expect(page.locator("[data-request]")).toHaveCount(1);
   await expect(page.locator("[data-request]")).toContainText("Sam Lee");
+});
+
+test("the owner sets how long archived requests are kept, at 400 px and by keyboard (ADR 0387)", async ({ page }) => {
+  await fetch(`http://127.0.0.1:${hostedPort}/__retention-unset`, { method: "POST", body: "{}" });
+  await openQuotes(page, configured, "#/quotes");
+  const days = page.getByLabel("Days after archiving");
+  await expect(days).toBeVisible();
+  await expect(page.locator("[data-quote-retention]")).toContainText("kept until you erase them");
+  await days.fill("14");
+  await page.getByRole("button", { name: "Save", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-quote-status]")).toContainText("erased automatically 14 days after you archive them");
+  expect(state.retention).toEqual({ days: 14, source: "admin" });
+  await expect(page.getByLabel("Days after archiving")).toHaveValue("14");
+  expect(await overflow(page)).toEqual({ region: 0, page: 0 });
+  await page.getByRole("button", { name: "Keep until I erase them" }).click();
+  await expect(page.locator("[data-quote-status]")).toContainText("kept until you erase them");
+  expect(state.retention).toEqual({ days: null, source: null });
 });
 
 test("export downloads a CSV and erase is previewed, confirmed, verified; a failed erase keeps everything", async ({ page }) => {

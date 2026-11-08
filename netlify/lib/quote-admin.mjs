@@ -20,6 +20,23 @@ export function retentionDays(env = {}) {
   return days >= 1 && days <= 3650 ? days : null;
 }
 
+// The retention days in force (ADR 0387): the host setting when it is valid (Admin then shows it and
+// cannot change it), else the owner's choice made in Admin, else off.
+export async function retentionSetting({ store, env = {} }) {
+  const host = retentionDays(env);
+  if (host) return { days: host, source: "host" };
+  const chosen = await store.readRetention();
+  return chosen ? { days: chosen, source: "admin" } : { days: null, source: null };
+}
+
+// The owner sets or clears the days from Admin. A host setting wins, so it is refused then.
+export async function setRetention({ store, env = {}, days }) {
+  if (retentionDays(env)) throw new QuoteError(409, "retention-set-by-host");
+  if (days !== null && !(Number.isInteger(days) && days >= 1 && days <= 3650)) throw new QuoteError(400, "bad-days");
+  await store.writeRetention(days);
+  return { retentionDays: days, retentionSource: days ? "admin" : null };
+}
+
 export const isId = (value) => typeof value === "string" && UUID.test(value);
 
 const iso = (value) => (value ? new Date(value).toISOString() : null);
@@ -30,7 +47,7 @@ export function eraseAfter(row, days) {
 }
 
 // `notifyEnabled` says whether the function can send (and so retry) the owner's email (ADR 0383).
-export async function listRequests({ store, settings, query = {}, days, notifyEnabled = false }) {
+export async function listRequests({ store, settings, query = {}, days, source = days ? "host" : null, notifyEnabled = false }) {
   const status = STATUSES.includes(query.status) ? query.status : "";
   const service = String(query.service || "").slice(0, 100);
   const rows = await store.list({ status, service });
@@ -51,7 +68,7 @@ export async function listRequests({ store, settings, query = {}, days, notifyEn
   }
   // The service filter offers every service seen under the status filter alone.
   const all = service ? await store.list({ status }) : rows;
-  return { retentionDays: days, notifyEnabled: Boolean(notifyEnabled), requests, services: [...new Set(all.map((row) => row.service))].sort() };
+  return { retentionDays: days, retentionSource: days ? source : null, notifyEnabled: Boolean(notifyEnabled), requests, services: [...new Set(all.map((row) => row.service))].sort() };
 }
 
 export async function setStatus({ store, id, status, now }) {
@@ -177,9 +194,21 @@ async function eraseRows({ store, settings, rows }) {
       }
     }
   };
+  // A move that fails may still have happened (its reply was lost), or the photo may already be gone
+  // (an earlier erase moved it and could not put it back or record where it went). So before giving
+  // up, look: only a photo still where its request says it is counts as a failed move.
+  const present = async (path) => (await store.listObjects(path.slice(0, path.lastIndexOf("/")))).includes(path);
   try {
     for (const move of moves) {
-      if (move.from !== move.to) await store.moveObject(move.from, move.to);
+      if (move.from !== move.to) {
+        try {
+          await store.moveObject(move.from, move.to);
+        } catch (error) {
+          if (await present(move.from)) throw error;
+          // Gone from its place: held already if it is in the hold folder, else there is nothing to keep.
+          if (!(await present(move.to))) continue;
+        }
+      }
       held.push(move);
     }
   } catch {

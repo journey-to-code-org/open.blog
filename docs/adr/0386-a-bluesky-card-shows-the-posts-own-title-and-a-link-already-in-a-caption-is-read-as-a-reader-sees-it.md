@@ -85,4 +85,6 @@ A read-only check of work merged to develop found defects that need no person or
   The hold folder is inside the existing private bucket.
 - Still open, and recorded on the issues: the quote function runs only on Netlify, so the site's Render host has no
   `/api/quote` route (#485, #486); the retention period is set only where the function runs, not in Admin (#518);
-  no live Bluesky, Mastodon, Supabase or Resend account was tried.
+  no live Bluesky, Mastodon, Supabase or Resend account was tried. The first two are closed by
+  [ADR 0387](0387-the-quote-form-runs-on-render-beside-the-server-the-owner-sets-retention-in-admin-and-an-erase-looks-before-it-gives-up.md),
+  which also fixes an erase that a photo already gone from its place could block.

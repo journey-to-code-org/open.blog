@@ -82,4 +82,10 @@ if [ -n "$OPENBLOG_GIT_TOKEN" ]; then
   esac
 fi
 
+# Quote requests (ADR 0387): the quote function runs beside the server, reachable only from this
+# machine, and the server passes the site's /api/quote/ addresses to it. Started again if it stops.
+if [ "$OPENBLOG_QUOTE_ENABLED" = "true" ]; then
+  ( while true; do node /blog/scripts/quote-service.mjs; sleep 5 || break; done ) &
+fi
+
 exec openblog serve --admin --host 0.0.0.0 --port "${PORT:-8080}" "$@"

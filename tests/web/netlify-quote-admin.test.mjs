@@ -23,7 +23,7 @@ const row = (n, over = {}) => ({
 const photo = (n, k) => ({ path: `acme/${id(n)}/${k}.jpg`, type: "image/jpeg", bytes: 10 });
 
 // A small Supabase: rows with PostgREST-style filters, a private bucket, and switches for failures.
-function fake(rows, { failRemove = false, failDeleteRows = false, failMoveAt = 0, failMoveBack = false } = {}) {
+function fake(rows, { failRemove = false, failDeleteRows = false, failMoveAt = 0, failMoveBack = false, loseMoveReplyAt = 0 } = {}) {
   let moves = 0;
   const state = { rows: structuredClone(rows), objects: new Set(), calls: [] };
   for (const r of state.rows) for (const p of r.photos) state.objects.add(p.path);
@@ -49,6 +49,19 @@ function fake(rows, { failRemove = false, failDeleteRows = false, failMoveAt = 0
     const u = new URL(url);
     state.calls.push(`${init.method} ${u.pathname}`);
     if (u.pathname.startsWith("/storage/v1/object/sign/")) return reply(200, { signedURL: `/object/sign/${u.pathname.split("/sign/")[1]}?token=t` });
+    // The owner's retention choice (ADR 0387): one small object with a body.
+    if (u.pathname.endsWith("/openblog-quote-photos/acme/settings/retention.json")) {
+      if (init.method === "GET") return state.settings == null ? reply(400, { error: "not_found" }) : reply(200, state.settings);
+      if (init.method === "POST") {
+        if (init.headers["x-upsert"] !== "true") return reply(409);
+        state.settings = init.body;
+        return reply(200, { Key: "x" });
+      }
+      if (init.method === "DELETE") {
+        state.settings = null;
+        return reply(200, []);
+      }
+    }
     if (u.pathname === "/storage/v1/object/list/openblog-quote-photos") {
       const prefix = JSON.parse(init.body).prefix + "/";
       return reply(200, [...state.objects].filter((p) => p.startsWith(prefix)).map((p) => ({ name: p.slice(prefix.length) })));
@@ -60,6 +73,7 @@ function fake(rows, { failRemove = false, failDeleteRows = false, failMoveAt = 0
       if ((failMoveAt && moves === failMoveAt) || (back && failMoveBack) || bucketId !== "openblog-quote-photos" || !state.objects.has(sourceKey)) return reply(500);
       state.objects.delete(sourceKey);
       state.objects.add(destinationKey);
+      if (loseMoveReplyAt && moves === loseMoveReplyAt) throw new TypeError("fetch failed"); // moved, but the reply was lost
       return reply(200, { message: "Successfully moved" });
     }
     if (u.pathname === "/storage/v1/object/openblog-quote-photos" && init.method === "DELETE") {
@@ -247,6 +261,46 @@ test("a partial failure leaves every request and every photo in place (ADR 0386)
   }
 });
 
+test("an erase goes ahead when a photo is already gone or was moved but the reply was lost (ADR 0387)", async () => {
+  const archived = (n, days, photos = []) => row(n, { photos, status: "archived", archived_at: new Date(NOW - days * 86400_000).toISOString() });
+  // The second photo of request 1 is missing from storage: the erase still removes the request.
+  {
+    const { handler, f } = make([archived(1, 90, [photo(1, 1), photo(1, 2)]), archived(2, 80)]);
+    f.state.objects.delete(photo(1, 2).path);
+    const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids: [id(1)] } })).body);
+    const result = await call(handler, "POST", "erase", { body: { ids: [id(1)], token: preview.token } });
+    assert.equal(result.statusCode, 200, result.body);
+    assert.deepEqual(JSON.parse(result.body), { erased: 1, verified: true });
+    assert.deepEqual(f.state.rows.map((r) => r.id), [id(2)]);
+    assert.equal(f.state.objects.size, 0);
+  }
+  // ...and the retention run is not blocked by it: both expired requests go.
+  {
+    const { handler, f } = make([archived(1, 90, [photo(1, 1), photo(1, 2)]), archived(2, 80)], {}, { OPENBLOG_QUOTE_RETENTION_DAYS: "30" });
+    f.state.objects.delete(photo(1, 2).path);
+    const result = await call(handler, "POST", "retention/run", {});
+    assert.equal(result.statusCode, 200, result.body);
+    assert.equal(JSON.parse(result.body).erased, 2);
+    assert.equal(f.state.rows.length, 0);
+  }
+  // A move that happened but whose reply was lost is counted as held, so a later failure puts it back...
+  {
+    const before = [row(1, { photos: [photo(1, 1), photo(1, 2)] })];
+    const { handler, f } = make(before, { loseMoveReplyAt: 2, failDeleteRows: true });
+    const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids: [id(1)] } })).body);
+    assert.equal((await call(handler, "POST", "erase", { body: { ids: [id(1)], token: preview.token } })).statusCode, 503);
+    assert.deepEqual([...f.state.objects].sort(), [photo(1, 1).path, photo(1, 2).path], "both photos are back where the request says");
+  }
+  // ...and a healthy erase after it removes it with its request.
+  {
+    const { handler, f } = make([row(1, { photos: [photo(1, 1), photo(1, 2)] })], { loseMoveReplyAt: 2 });
+    const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids: [id(1)] } })).body);
+    assert.deepEqual(JSON.parse((await call(handler, "POST", "erase", { body: { ids: [id(1)], token: preview.token } })).body), { erased: 1, verified: true });
+    assert.equal(f.state.rows.length, 0);
+    assert.equal(f.state.objects.size, 0);
+  }
+});
+
 test("a photo removal that fails after the records are gone is reported, and the next erase removes it", async () => {
   const { handler, f } = make([row(1, { photos: [photo(1, 1)] }), row(2)], { failRemove: true });
   const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids: [id(1)] } })).body);
@@ -284,7 +338,7 @@ test("retention erases only archived requests past the period, and is off withou
   ];
   const off = fake(rows());
   assert.deepEqual(await createSweep({ env: ENV, fetchImpl: off.fetchImpl, now: () => NOW })(), { enabled: false, erased: 0 });
-  assert.deepEqual(off.state.calls, []);
+  assert.deepEqual(off.state.calls, ["GET /storage/v1/object/authenticated/openblog-quote-photos/acme/settings/retention.json"], "only the owner's choice is read");
   const { handler, f } = make(rows(), {}, { OPENBLOG_QUOTE_RETENTION_DAYS: "30" });
   const run = await call(handler, "POST", "retention/run", { body: {} });
   assert.deepEqual(JSON.parse(run.body), { enabled: true, erased: 1 });
@@ -297,4 +351,34 @@ test("retention erases only archived requests past the period, and is off withou
   assert.deepEqual(await createSweep({ env, fetchImpl: broken.fetchImpl, now: () => NOW })(), { enabled: true, erased: 0, error: "erase-failed" });
   assert.equal(broken.state.rows.length, 4);
   assert.equal(broken.state.objects.size, 1, "and its photo is kept");
+});
+
+test("the owner sets the retention days in Admin; a host setting wins and cannot be changed there (ADR 0387)", async () => {
+  const rows = () => [
+    row(1, { status: "archived", archived_at: new Date(NOW - 40 * 86400_000).toISOString() }),
+    row(2, { status: "archived", archived_at: new Date(NOW - 5 * 86400_000).toISOString() }),
+  ];
+  const { handler, f } = make(rows());
+  const list = async () => JSON.parse((await call(handler, "GET", "requests")).body);
+  assert.deepEqual([(await list()).retentionDays, (await list()).retentionSource], [null, null]);
+  for (const days of [0, 3651, 1.5, "30", true]) assert.equal((await call(handler, "POST", "retention", { body: { days } })).statusCode, 400, String(days));
+  assert.equal((await call(handler, "POST", "retention", { body: { days: 30 }, key: "b".repeat(40) })).statusCode, 401);
+  assert.equal(f.state.settings, undefined, "nothing was written");
+  assert.deepEqual(JSON.parse((await call(handler, "POST", "retention", { body: { days: 30 } })).body), { retentionDays: 30, retentionSource: "admin" });
+  assert.deepEqual([(await list()).retentionDays, (await list()).retentionSource], [30, "admin"]);
+  // The owner's choice is what the daily sweep and "Erase expired now" use.
+  const sweep = createSweep({ env: ENV, fetchImpl: f.fetchImpl, now: () => NOW });
+  assert.deepEqual(await sweep(), { enabled: true, erased: 1 });
+  assert.deepEqual(f.state.rows.map((r) => r.id), [id(2)]);
+  assert.deepEqual(JSON.parse((await call(handler, "POST", "retention", { body: { days: null } })).body), { retentionDays: null, retentionSource: null });
+  assert.equal((await list()).retentionDays, null);
+  // A host setting wins, and Admin is told it cannot change it.
+  const host = make(rows(), {}, { OPENBLOG_QUOTE_RETENTION_DAYS: "60" });
+  host.f.state.settings = JSON.stringify({ days: 10 });
+  const hostList = JSON.parse((await call(host.handler, "GET", "requests")).body);
+  assert.deepEqual([hostList.retentionDays, hostList.retentionSource], [60, "host"]);
+  const refused = await call(host.handler, "POST", "retention", { body: { days: 30 } });
+  assert.equal(refused.statusCode, 409);
+  assert.deepEqual(JSON.parse(refused.body), { error: "retention-set-by-host" });
+  assert.equal(host.f.state.settings, JSON.stringify({ days: 10 }));
 });
