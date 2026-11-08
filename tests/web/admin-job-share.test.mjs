@@ -119,6 +119,30 @@ test("a job already on its way to the Facebook Page is not offered again from a 
   assert.equal(action(card(byHand, "facebook"), "job-share-facebook"), undefined);
 }));
 
+test("a Facebook card she marked as posted by hand says so, not the failed Page post it hides", withDom(async () => {
+  const marked = { status: "posted-by-hand", at: "2026-11-08T12:00:00Z" };
+  for (const delivery of ["failed", "canceled"]) {
+    const queue = [{ id: "a0", work: "/posts/floor/", destination: { provider: "facebook" }, delivery, createdAt: "2026-11-08T11:00:00Z" }];
+    assert.equal(standingText(place("facebook", { record: marked }), queue[0]), "You posted it by hand on Nov 8, 2026.", delivery);
+    const root = await mount(server({ destinations: [place("facebook", { record: marked })], queue }));
+    const facebook = card(root, "facebook");
+    assert.match(text(facebook), /You posted it by hand on Nov 8, 2026\./, delivery);
+    assert.doesNotMatch(text(facebook), /On your Facebook Page/, delivery);
+    assert.equal(action(facebook, "job-share-facebook"), undefined, delivery);
+    root.remove();
+  }
+  // Pressing I posted it on a card whose Page post failed hides the Post button and says why.
+  const queue = [{ id: "a0", work: "/posts/floor/", destination: { provider: "facebook" }, delivery: "failed", createdAt: "2026-11-08T11:00:00Z" }];
+  const root = await mount(server({ destinations: [place("facebook")], queue }));
+  assert.match(text(card(root, "facebook")), /On your Facebook Page: Failed\./);
+  await action(card(root, "facebook"), "job-share-done").click();
+  await tick();
+  assert.match(text(card(root, "facebook")), /You posted it by hand on Nov 8, 2026\./);
+  assert.equal(action(card(root, "facebook"), "job-share-facebook"), undefined);
+  // A Page post still on its way, or published, is still shown as it stands.
+  assert.equal(standingText(place("facebook", { record: marked }), { delivery: "published" }), "On your Facebook Page: Published.");
+}));
+
 test("a by-hand place is marked as posted for exactly what was shown", withDom(async () => {
   const api = server({ destinations: [place("nextdoor")], announcements: false });
   const root = await mount(api);

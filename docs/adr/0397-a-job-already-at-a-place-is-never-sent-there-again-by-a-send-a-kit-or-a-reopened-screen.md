@@ -29,7 +29,9 @@ rest of the record did not hear it:
   automatic send; the by-hand steps still work.
 - **Admin offers Post to <Page> only when the job has no Facebook announcement, or its newest one failed or was
   canceled**, and not when she marked Facebook as posted by hand. A scheduled, sending, retrying, published or
-  needs-checking announcement is shown with its state and not offered again, whatever screen opened it.
+  needs-checking announcement is shown with its state and not offered again, whatever screen opened it. When she
+  marked Facebook as posted by hand and the newest announcement failed or was canceled, the card says she posted it
+  by hand rather than the failed or canceled state, so the missing Post button always has its reason in view.
 
 ## Consequences
 

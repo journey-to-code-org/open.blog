@@ -27,9 +27,14 @@ const RECORD_WORDS = Object.freeze({
   "posted-by-hand": (on) => `You posted it by hand${on}.`,
 });
 
-/** Where one place stands, in words, from the private record (and, for a Facebook Page, its announcement). */
+/**
+ * Where one place stands, in words, from the private record (and, for a Facebook Page, its
+ * announcement). A Page post that failed or was canceled gives way to her own "I posted it" mark,
+ * since that mark is what keeps Post to <Page> from being offered again (ADR 0397).
+ */
 export function standingText(destination, announcement = null) {
-  if (announcement) {
+  const byHand = destination?.record?.status === "posted-by-hand";
+  if (announcement && !(byHand && pageOpen(announcement))) {
     const state = deliveryOf(announcement);
     const badge = DELIVERY_BADGES[state]?.text || "Needs checking";
     return `On your Facebook Page: ${badge}.`;
