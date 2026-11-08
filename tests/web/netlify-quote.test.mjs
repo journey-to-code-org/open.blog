@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHandler } from "../../netlify/functions/quote.mjs";
-import { issueToken, quoteSettings, sniffImage } from "../../netlify/lib/quote-intake.mjs";
+import { PHONE, issueToken, quoteSettings, sniffImage } from "../../netlify/lib/quote-intake.mjs";
 
 const SECRET = "q".repeat(40);
 const ENV = {
@@ -172,6 +172,41 @@ test("without JavaScript the first post is answered with the form to send again"
   assert.match(response.body, /name="token"/);
   assert.ok(!response.body.includes("<b>x</b>"), "typed text is escaped");
   assert.equal(t.fake.state.rows.length, 0);
+});
+
+test("C1 control characters are stripped at intake, so Admin can always show what was stored", async () => {
+  const t = setup();
+  const response = await t.post({ ...good, name: "Ann\u0085Lee", town: "Be\u009bnd", description: "Replace\u009b31m forty feet of cedar fence.\nThanks", token: t.token() });
+  assert.equal(response.statusCode, 201);
+  const row = t.fake.state.rows[0];
+  assert.equal(row.name, "AnnLee");
+  assert.equal(row.town, "Bend");
+  assert.equal(row.description, "Replace31m forty feet of cedar fence.\nThanks", "a line break stays");
+  // Admin treats every control but a line break or tab as unreadable (Rust's char::is_control).
+  for (const value of [row.name, row.phone, row.town, row.service, row.description]) assert.ok(![...value].some((c) => /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(c)), value);
+});
+
+test("without JavaScript a refused field comes back as the form, with that field named and marked", async () => {
+  const t = setup();
+  const response = await t.post({ ...good, phone: "call me", email: "not an address", token: t.token() }, [], { accept: "text/html" });
+  assert.equal(response.statusCode, 422);
+  assert.match(response.headers["content-type"], /text\/html/);
+  const body = response.body;
+  assert.match(body, /Each one is named below/);
+  assert.match(body, /<div role="alert"><h2>Fix these 2<\/h2>/);
+  assert.match(body, /<a href="#q-phone">Phone<\/a>: Write a phone number of at least 7 digits/);
+  assert.match(body, /<a href="#q-email">Email<\/a>: This email address does not look right/);
+  assert.match(body, /<input id="q-phone" name="phone" value="call me" type="tel" minlength="7" maxlength="30" pattern="[^"]+" required aria-invalid="true" aria-describedby="q-phone-error">/);
+  assert.match(body, /<p class="error" id="q-phone-error">/);
+  assert.doesNotMatch(body, /id="q-name"[^>]*aria-invalid/, "a field that was fine is not marked");
+  assert.match(body, /name="token" value="[^"]+"/, "a fresh token to send again");
+  assert.equal(t.fake.state.rows.length, 0);
+  // The page's phone rule is the function's own.
+  const pattern = /pattern="([^"]+)"/.exec(body)[1];
+  for (const phone of ["call me", "+1 (360) 555-0142", "12345"]) assert.equal(new RegExp(`^(?:${pattern})$`, "v").test(phone), PHONE.test(phone), phone);
+  // With JavaScript the answer stays JSON naming the fields.
+  const json = await t.post({ ...good, phone: "call me", token: t.token() });
+  assert.deepEqual(JSON.parse(json.body), { error: "invalid", fields: [{ field: "phone", reason: "invalid" }] });
 });
 
 test("a storage failure loses nothing silently and leaves no orphan photo", async () => {

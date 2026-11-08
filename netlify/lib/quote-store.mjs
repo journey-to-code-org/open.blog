@@ -127,6 +127,12 @@ export function createStore({ settings, fetchImpl, now = () => Date.now() }) {
       return list.map((item) => `${prefix}/${item.name}`);
     },
 
+    // Moves one object within the bucket (an erase holds photos this way, and can move them back).
+    async moveObject(from, to) {
+      const response = await call(`/storage/v1/object/move`, { method: "POST", headers: headers({ "content-type": "application/json" }), body: JSON.stringify({ bucketId: BUCKET, sourceKey: from, destinationKey: to }) });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+    },
+
     // One bulk removal. Throws unless the provider accepted it.
     async removeObjects(paths) {
       if (!paths.length) return;

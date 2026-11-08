@@ -54,7 +54,9 @@ Your changes are stored in `openblog.json` under `seasonalPrompts`. You can edit
 }
 ```
 
-- **`enabled`** turns the whole thing on. Missing or `false` means off, and the member is not written back.
+- **`enabled`** turns the whole thing on. Missing or `false` means off. Turning reminders off in Admin keeps your
+  topic changes, so `seasonalPrompts` stays in the file with `enabled: false` while it holds any; with none, it is
+  removed.
 - **An entry with the id of a bundled topic** changes only what it states: `disabled: true` turns it off,
   `start` and `end` move it, `topic` and `prompt` reword it. Everything else stays as bundled, so improved
   bundled wording reaches you unless you reworded it yourself.

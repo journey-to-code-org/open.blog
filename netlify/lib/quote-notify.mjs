@@ -10,6 +10,13 @@
 export const MAX_ATTEMPTS = 5;
 const INLINE_TRIES = 2;
 const INLINE_PAUSE_MS = 300;
+// All the time the email may take while the visitor waits for an answer, every try included (ADR
+// 0386). A hosted function that answers synchronously can be stopped at 10 seconds; the request is
+// stored before this starts, and an email that does not go out in time is marked failed, for the
+// owner's retry in Admin, instead of making the visitor wait or be told nothing was saved.
+export const INLINE_BUDGET_MS = 4000;
+// A second try is made only with at least this much of the budget left.
+const MIN_TRY_MS = 1000;
 const RESEND_URL = "https://api.resend.com/emails";
 const ADDRESS = /^[^\s@<>",;]{1,64}@[^\s@<>",;]{1,200}\.[A-Za-z]{2,24}$/;
 // "Name <address>" or a bare address, for the sender.
@@ -65,7 +72,7 @@ export function composeMessage(settings, { id, values, photoCount }) {
 // The Resend transport (https://resend.com/docs/api-reference/emails/send-email): POST /emails with
 // a bearer key and an Idempotency-Key. Resolves { ok: true } or { ok: false, code, retryable }; the
 // code is fixed and never carries the provider's text.
-export function resendTransport({ apiKey, fetchImpl, timeoutMs = 8000 }) {
+export function resendTransport({ apiKey, fetchImpl, timeoutMs = INLINE_BUDGET_MS - 500 }) {
   return async (message, idempotencyKey) => {
     let response;
     try {
@@ -87,7 +94,7 @@ export function resendTransport({ apiKey, fetchImpl, timeoutMs = 8000 }) {
 }
 
 // Builds the function the intake handler calls after a request is stored. It never throws.
-export function createNotifier({ settings, transport, sleep = (ms) => new Promise((done) => setTimeout(done, ms)) }) {
+export function createNotifier({ settings, transport, sleep = (ms) => new Promise((done) => setTimeout(done, ms)), budgetMs = INLINE_BUDGET_MS, clock = () => Date.now() }) {
   return async ({ id, values, photoCount, store }) => {
     const record = async (changes) => {
       try {
@@ -97,16 +104,31 @@ export function createNotifier({ settings, transport, sleep = (ms) => new Promis
       }
     };
     const message = composeMessage(settings, { id, values, photoCount });
+    const deadline = clock() + budgetMs;
     let attempts = 0;
     let last = { code: "unknown", retryable: true };
     for (let turn = 0; turn < INLINE_TRIES; turn++) {
-      if (turn > 0) await sleep(INLINE_PAUSE_MS);
+      if (turn > 0) {
+        if (deadline - clock() < MIN_TRY_MS + INLINE_PAUSE_MS) break;
+        await sleep(INLINE_PAUSE_MS);
+      }
       attempts += 1;
       let result;
+      let timer;
       try {
-        result = await transport(message, `quote-${id}`);
+        // A try that outlives the budget is given up on here; the provider's Idempotency-Key keeps
+        // a later retry from sending a second email if it did go out.
+        const left = Math.max(0, deadline - clock());
+        result = await Promise.race([
+          transport(message, `quote-${id}`),
+          new Promise((done) => {
+            timer = setTimeout(() => done({ ok: false, code: "timeout", retryable: true }), left);
+          }),
+        ]);
       } catch {
         result = { ok: false, code: "network", retryable: true };
+      } finally {
+        clearTimeout(timer);
       }
       if (result.ok) return record({ notify_status: "sent", notify_attempts: attempts, notify_error_code: null });
       last = result;

@@ -983,6 +983,9 @@ fn a_preview_names_the_cover_and_description_the_public_page_carries_and_counts_
         json!({ "image": true, "description": "A lantern on a quay at dusk" })
     );
     assert_eq!(preview("/posts/hello/", "Hi".into())["cover"], Json::Null);
+    // The post's own title (its og:title) is what a Bluesky card shows, not the caption (ADR 0386).
+    assert_eq!(covered["card"]["title"], "Lantern");
+    assert!(covered["card"]["description"].is_string());
     let long = preview("/posts/hello/", "a".repeat(476));
     assert_eq!(long["problems"][0]["code"], "caption-too-long");
     assert!(calls.lock().unwrap().is_empty());

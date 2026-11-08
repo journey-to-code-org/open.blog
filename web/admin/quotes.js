@@ -203,7 +203,8 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
       async () => {
         const erased = state.erased;
         await load();
-        say(`Erased ${plural(erased.erased, "request", "requests")} and checked afterward: none remain.`);
+        const pending = erased.photosPending > 0 ? ` ${plural(erased.photosPending, "of their photos", "of their photos")} could not be removed yet. No request points to ${erased.photosPending === 1 ? "it" : "them"} any more, and the next erase removes ${erased.photosPending === 1 ? "it" : "them"}.` : "";
+        say(`Erased ${plural(erased.erased, "request", "requests")} and checked afterward: none of them remain.${pending}`);
       },
     );
   }
@@ -387,7 +388,7 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
       "div",
       { class: "oba-quotes-confirm", role: "alertdialog", "aria-labelledby": `${ids}-confirm-title`, "aria-describedby": `${ids}-confirm-text`, "data-focus": "erase-confirm", tabindex: "-1" },
       el("h3", { id: `${ids}-confirm-title` }, `Erase ${plural(confirming.count, "request", "requests")}?`),
-      el("p", { id: `${ids}-confirm-text` }, `This permanently removes ${plural(confirming.count, "request", "requests")} and ${plural(confirming.photos, "photo", "photos")}. It cannot be undone. If anything fails, every request stays, but some of their photos may already be gone.`),
+      el("p", { id: `${ids}-confirm-text` }, `This permanently removes ${plural(confirming.count, "request", "requests")} and ${plural(confirming.photos, "photo", "photos")}. It cannot be undone. If anything fails, every request and every photo stays as it is.`),
       el("button", { class: "oba-btn oba-btn-danger", type: "button", "data-action": "erase-confirm", onClick: confirmErase }, "Erase permanently"),
       el("button", { class: "oba-btn", type: "button", "data-action": "erase-cancel", onClick: () => { confirming = null; focusTarget = "list"; render(); say("Nothing was erased."); } }, "Cancel"),
     );
@@ -410,6 +411,9 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
       el("h2", { id: `${ids}-title`, tabindex: "-1" }, "Quote requests"),
       el("p", { class: "oba-small" }, "Newest first. Requests are stored privately; this list is the only place their details are shown."),
       ...[emailBanner()].filter(Boolean),
+      ...(state.unreadable > 0
+        ? [el("p", { class: "oba-error", role: "alert", "data-quote-unreadable": String(state.unreadable) }, `${plural(state.unreadable, "stored request", "stored requests")} could not be shown here because the quote function sent ${state.unreadable === 1 ? "it" : "them"} in a form Admin does not read. ${state.unreadable === 1 ? "It is" : "They are"} still stored. Ask whoever set up your quote form to check the function.`)]
+        : []),
       filterBar(),
       status,
       ...(confirming ? [confirmPanel()] : []),

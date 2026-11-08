@@ -105,10 +105,12 @@ pub struct RenderOptions<'a> {
     /// every such link as the ordinary link it is written as.
     pub concept_links: bool,
     /// Set while quote requests are switched on (ADR 0381): a `quote` fence renders the form with
-    /// the site's towns. `None` renders such a fence as nothing.
+    /// the site's towns and, when the fence names no service, the site's published services (ADR
+    /// 0386). `None` renders such a fence as nothing.
     pub quote: Option<(
         &'a crate::quote::QuoteConfig,
         &'a crate::service_area::ServiceAreasConfig,
+        &'a [String],
     )>,
 }
 
@@ -1020,6 +1022,7 @@ fn transform_blocks<'a>(
     quote: Option<(
         &crate::quote::QuoteConfig,
         &crate::service_area::ServiceAreasConfig,
+        &[String],
     )>,
 ) -> (Vec<Event<'a>>, BlockData) {
     let mut out = Vec::with_capacity(events.len());
@@ -1200,7 +1203,7 @@ fn transform_blocks<'a>(
                         // The form is a page feature: a portable copy and a site with quote
                         // requests off carry nothing for it.
                         Ok(fence) => {
-                            if let (Some((config, areas)), None) = (quote, portable) {
+                            if let (Some((config, areas, published)), None) = (quote, portable) {
                                 quote_forms += 1;
                                 data.capabilities.push(CapabilityDescriptor::describe(
                                     crate::quote::CAPABILITY_ID,
@@ -1208,11 +1211,17 @@ fn transform_blocks<'a>(
                                 ));
                                 let towns: Vec<String> =
                                     areas.areas.iter().map(|a| a.label()).collect();
+                                // A fence that names no service offers the site's own.
+                                let services = if fence.services.is_empty() {
+                                    published
+                                } else {
+                                    &fence.services[..]
+                                };
                                 out.push(Event::Html(CowStr::from(crate::quote::form_html(
                                     config,
                                     &format!("ob-quote-{quote_forms}"),
                                     &towns,
-                                    &fence.services,
+                                    services,
                                 ))));
                             }
                         }

@@ -1135,7 +1135,7 @@ impl SiteConfig {
             quote: self
                 .quote
                 .enabled
-                .then_some((&self.quote, &self.service_areas)),
+                .then_some((&self.quote, &self.service_areas, &[][..])),
         }
     }
 

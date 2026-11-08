@@ -70,6 +70,10 @@ const ERROR_TEXT = Object.freeze({
 
 export function seasonalErrorText(error) {
   const status = error?.status;
+  // A 409 is a settings conflict only when the server sent the settings back with it. Any other 409
+  // (a draft already started, reminders turned off) carries the server's own reason, which is said.
+  const reason = String(error?.data?.error || "").trim().replace(/[.;]*$/, "");
+  if (status === 409 && reason && !error?.data?.etag) return `${reason}. Reload to see today's list.`;
   if (ERROR_TEXT[status]) return ERROR_TEXT[status];
   const detail = String(error?.data?.error || error?.message || "").trim();
   return detail ? `That did not work. ${detail}` : "That did not work. Check your connection and try again.";
@@ -88,6 +92,8 @@ export function createSeasonalReminders({ api }) {
   let data = null;
   let busy = false;
   let destroyed = false;
+  // What "Start a draft" answered, by reminder key, so the card keeps the link after it is redrawn.
+  const started = new Map();
 
   const root = el("div", { class: "oba-seasonal", "data-seasonal-screen": "true" });
   const status = el("p", { class: "oba-small oba-seasonal-status", role: "status", "aria-live": "polite", "data-seasonal-status": "true" });
@@ -139,7 +145,18 @@ export function createSeasonalReminders({ api }) {
       el("p", { class: "oba-small" }, `${when}. Window: ${dayText(reminder.opens)} to ${dayText(reminder.closes)}.`),
       el("p", {}, reminder.prompt),
       el("div", { class: "oba-seasonal-actions" }, ...actions),
-      el("div", { class: "oba-seasonal-result", "data-result-for": reminder.key, hidden: true }),
+      startedResult(reminder.key),
+    );
+  };
+
+  const startedResult = (key) => {
+    const result = started.get(key);
+    if (!result) return el("div", { class: "oba-seasonal-result", "data-result-for": key, hidden: true });
+    return el("div", { class: "oba-seasonal-result", "data-result-for": key },
+      result.document ? el("a", { href: editHref(result.document), "data-action": "seasonal-write" }, "Open it in Write") : null,
+      result.voiceReady
+        ? el("p", { class: "oba-help", "data-seasonal-voice": "true" }, "You have a voice guide or voice samples. In Write, open the Assistant and choose them as context if you want a first draft in your own voice. Nothing is sent until you ask.")
+        : null,
     );
   };
 
@@ -147,19 +164,12 @@ export function createSeasonalReminders({ api }) {
     say("Starting a draft…");
     const result = await api.call("POST", "seasonal/open", { json: { key: reminder.key } });
     if (destroyed) return;
-    const slot = [...body.querySelectorAll("div")].find((node) => node.dataset?.resultFor === reminder.key);
-    say(result.created ? "A draft was started. It is not published." : "That draft was already started. It is not published.", "ok");
-    if (slot) {
-      slot.hidden = false;
-      slot.replaceChildren(
-        result.document ? el("a", { href: editHref(result.document), "data-action": "seasonal-write" }, "Open it in Write") : null,
-        result.voiceReady
-          ? el("p", { class: "oba-help", "data-seasonal-voice": "true" }, "You have a voice guide or voice samples. In Write, open the Assistant and choose them as context if you want a first draft in your own voice. Nothing is sent until you ask.")
-          : null,
-      );
-    }
+    started.set(reminder.key, result);
     const found = data.reminders.find((item) => item.key === reminder.key);
     if (found) Object.assign(found, { status: "opened", draft: result.path, document: result.document });
+    // Redrawn, so the card no longer offers "Start a draft" or "Snooze a week" for a started draft.
+    render();
+    say(result.created ? "A draft was started. It is not published." : "That draft was already started. It is not published.", "ok");
   }
 
   async function snooze(reminder) {

@@ -21,8 +21,14 @@ export function blueskyCardTitle(caption) {
   return Array.from(line).slice(0, 300).join("") || "Read the full post";
 }
 
-/** What Bluesky will make of a caption, said plainly for the preview. */
-export function blueskyNotes(caption, link) {
+const plainLine = (value, max) => Array.from(String(value ?? "").replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim()).slice(0, max).join("");
+
+/**
+ * What Bluesky will make of a caption, said plainly for the preview. `card` is the preview's
+ * `{ title, description }` of the post's public page (its og:title and og:description), which the
+ * card shows (ADR 0386); without it the card falls back to the caption's first line.
+ */
+export function blueskyNotes(caption, link, card = null) {
   const notes = [];
   let host = "";
   try {
@@ -30,10 +36,33 @@ export function blueskyNotes(caption, link) {
   } catch {
     host = "";
   }
-  if (link) notes.push(`On Bluesky the link is a card titled "${blueskyCardTitle(caption)}"${host ? ` that shows ${host}` : ""}, with no picture.`);
+  const title = plainLine(card?.title, 300);
+  const description = plainLine(card?.description, 300);
+  if (link && title) notes.push(`On Bluesky the link is a card with the post's title, "${title}"${description ? `, and its description, "${description}"` : ""}${host ? `, that shows ${host}` : ""}, with no picture.`);
+  else if (link) notes.push(`On Bluesky the link is a card titled "${blueskyCardTitle(caption)}"${host ? ` that shows ${host}` : ""}, with no picture.`);
   if (/\bhttps?:\/\/|(^|\s)#[\p{L}\p{N}_]/u.test(caption)) notes.push("Links and #hashtags in the caption become clickable on Bluesky.");
   if (/(^|\s)@[a-z0-9]/i.test(caption)) notes.push("@mentions stay plain text on Bluesky; nobody is notified.");
   return notes;
+}
+
+/**
+ * Whether the caption already holds `link`, read as Mastodon reads links: a closing bracket or a
+ * full stop after it is not part of it unless the link opened that bracket itself. The same rule as
+ * `holdsLink` in netlify/lib/social-mastodon.mjs (ADR 0386), so the preview says what will be sent.
+ */
+export function captionHoldsLink(caption, link) {
+  const pairs = { ")": "(", "]": "[", "}": "{" };
+  const occurrences = (text, char) => text.split(char).length - 1;
+  for (const match of String(caption ?? "").matchAll(/\bhttps?:\/\/[^\s<>"'`]+/gu)) {
+    let found = match[0];
+    while (/[.,;:!?)\]}]$/u.test(found)) {
+      const last = found.at(-1);
+      if (pairs[last] && occurrences(found, pairs[last]) >= occurrences(found, last)) break;
+      found = found.slice(0, -1);
+    }
+    if (found === link) return true;
+  }
+  return false;
 }
 
 /**
@@ -42,8 +71,7 @@ export function blueskyNotes(caption, link) {
  */
 export function mastodonNotes(caption, link, cover = null) {
   const notes = [];
-  const words = String(caption ?? "").split(/\s+/);
-  if (link && !words.includes(link)) notes.push("On Mastodon the link goes after the caption, on its own line; it counts as 23 characters, and Mastodon shows its own preview of it.");
+  if (link && !captionHoldsLink(caption, link)) notes.push("On Mastodon the link goes after the caption, on its own line; it counts as 23 characters, and Mastodon shows its own preview of it.");
   if (/(^|\s)#[\p{L}\p{N}_]/u.test(caption)) notes.push("#hashtags in the caption become clickable on Mastodon.");
   if (/(^|\s)@[a-z0-9_]+@[a-z0-9.-]+\.[a-z]/i.test(caption)) notes.push("On Mastodon an @name@server in the caption notifies that person.");
   if (cover?.image && cover.description) notes.push(`Where the server attaches cover images to Mastodon posts, the post's cover goes with it, described as: "${cover.description}".`);
@@ -401,7 +429,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     const typed = model.caption ?? caption.value.trim();
     const notes = [
       ...(model.notes || []),
-      ...(chosen?.provider === "bluesky" ? blueskyNotes(typed, model.link) : []),
+      ...(chosen?.provider === "bluesky" ? blueskyNotes(typed, model.link, model.card) : []),
       ...(chosen?.provider === "mastodon" ? mastodonNotes(typed, model.link, model.cover) : []),
     ];
     if (notes.length) body.push(el("ul", { class: "oba-small", "data-preview-notes": "true" }, notes.map((note) => el("li", {}, note))));

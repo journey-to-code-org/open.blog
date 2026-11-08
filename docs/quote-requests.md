@@ -38,7 +38,8 @@ first post is answered with the same form to send once more (this stops scripts)
    ````
 
    The landing section lists your services and the form lists your service areas as choices. A fence lists the
-   services you name (or a text box if none). With `enabled` false the section renders nothing
+   services you name; a fence that names none lists your published services, like the landing section, and shows a
+   text box only when you have none. With `enabled` false the section renders nothing
    and a `quote` fence stays an ordinary code block, as it was before. Feeds and exports never carry the form.
 
 ## Set up the hosted function
@@ -62,7 +63,12 @@ first post is answered with the same form to send once more (this stops scripts)
 Same-origin posts only; a signed single-use form token that must be at least 3 seconds and at most 2 hours old; a
 hidden honeypot field; at most 5 stored requests per visitor and 60 per site per hour (the visitor's address is
 kept only as a keyed hash); a 4 MB body limit, at most 5 photos of 900 KB, checked by their own bytes (JPEG, PNG,
-WebP); and no more than two links in the description.
+WebP); and no more than two links in the description. Control characters are removed from every field before it is
+stored, so Admin can always show what was stored.
+
+Without JavaScript, the browser checks the phone number before sending, and a request the function refuses comes
+back as the form with your visitor's typing kept, each wrong field named at the top and marked beside the box, and a
+fresh token to send again.
 
 ## Owner notification (optional)
 
@@ -75,7 +81,9 @@ WebP); and no more than two links in the description.
 | `OPENBLOG_QUOTE_ADMIN_URL` | optional `https://` link to put in the email |
 
 The email names the visitor, town, service and photo count only; the phone number and details stay in your
-workspace. It never goes to a visitor. If it fails, the request is kept and the failure is recorded.
+workspace. It never goes to a visitor. If it fails, the request is kept and the failure is recorded. The email gets at
+most 4 seconds while the visitor waits, so a slow mail provider never makes the visitor wait long or tells them their
+saved request was lost; an email that did not go out in that time is recorded as failed (`timeout`) for a later retry.
 In Admin's **Quote requests** page (below), a request whose email did not go out says so, and **Send those emails
 again** tries them once more. Without Admin, set `OPENBLOG_QUOTE_ADMIN_KEY` (32 or more characters, different from
 every other key) to see failures with `GET /api/quote/notifications` and retry them with
@@ -98,9 +106,11 @@ are the only workflow there is.
 
 - **Export**: choose days (both inclusive) or none for everything, and download a CSV of up to 5000 requests. It holds
   names, phone numbers and details, so keep it private. Cells starting with `=`, `+`, `-` or `@` are made text.
-- **Erase**: tick requests, press **Erase**, read the count and photos, then confirm. Photos are removed first, then
-  the records in one step, then a check confirms none remain. If anything fails, every request stays, but photos
-  already removed stay removed (Admin says so). A preview is good for 10 minutes and only for the exact list you saw.
+- **Erase**: tick requests, press **Erase**, read the count and photos, then confirm. Photos are first moved aside
+  (which can be undone), then the records go in one step, a check confirms none remain, and only then are the photos
+  removed. If anything fails before the records go, every request and every photo stays as it was. If a photo cannot
+  be removed after its record is gone, Admin says so; no request points to it, and the next erase or retention run
+  removes it. A preview is good for 10 minutes and only for the exact list you saw.
 - **Retention**: set `OPENBLOG_QUOTE_RETENTION_DAYS` (1 to 3650) on the function to erase archived requests that
   many days after you archived them. Each archived request shows its countdown. A scheduled function
   (`quote-retention`, daily) does it; **Erase expired now** does it on demand. Unset, archived requests are kept

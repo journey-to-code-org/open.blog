@@ -189,6 +189,7 @@ fn the_list_is_rebuilt_from_known_fields_and_sent_with_the_key_actor_and_filters
     let body = body_json(&r);
     let list = body["requests"].as_array().unwrap();
     assert_eq!(list.len(), 2, "a bad id or status is dropped");
+    assert_eq!(body["unreadable"], 2, "and counted, so Admin can say so");
     assert_eq!(list[0]["description"], "Replace the fence.\nSecond line.");
     assert_eq!(list[0]["photos"].as_array().unwrap().len(), 1);
     assert_eq!(
@@ -207,6 +208,25 @@ fn the_list_is_rebuilt_from_known_fields_and_sent_with_the_key_actor_and_filters
         KEY.to_ascii_lowercase()
     )));
     assert!(head.contains("x-openblog-actor: mikey"));
+}
+
+#[test]
+fn a_request_with_a_c1_control_character_is_shown_not_hidden() {
+    // Stored before the intake stripped them (ADR 0386): U+0085 in the name, U+009B in the text.
+    let reply = json!({
+        "requests": [
+            request(json!({ "name": "Ann\u{0085}Lee", "description": "Fence\u{009b}31m please.\nThanks" })),
+            request(json!({ "id": "22222222-2222-4222-8222-222222222222" })),
+        ],
+    });
+    let (endpoint, _server) = hosted(vec![(200, reply.to_string())]);
+    let env = env_for(&endpoint);
+    let body = body_json(&route_with(&env, &req("GET", "/x"), "mikey", "requests"));
+    let list = body["requests"].as_array().unwrap();
+    assert_eq!(list.len(), 2, "both requests are listed");
+    assert_eq!(list[0]["name"], "Ann Lee");
+    assert_eq!(list[0]["description"], "Fence 31m please.\nThanks");
+    assert_eq!(body["unreadable"], 0);
 }
 
 #[test]
@@ -274,7 +294,7 @@ fn export_validates_its_dates_and_returns_a_safe_download() {
 fn erase_needs_a_preview_token_and_valid_ids_and_reports_a_verified_result() {
     let (endpoint, server) = hosted(vec![
         (200, json!({ "count": 1, "photos": 2, "expiresAt": "2026-10-29T12:10:00.000Z", "token": "1700000000000.abc_-" }).to_string()),
-        (200, json!({ "erased": 1, "verified": true }).to_string()),
+        (200, json!({ "erased": 1, "verified": true, "photosPending": 1 }).to_string()),
         (502, json!({ "error": "erase-failed", "detail": "Pat Smith leaked" }).to_string()),
     ]);
     let env = env_for(&endpoint);
@@ -322,7 +342,10 @@ fn erase_needs_a_preview_token_and_valid_ids_and_reports_a_verified_result() {
         "mikey",
         "erase",
     );
-    assert_eq!(body_json(&done), json!({ "erased": 1, "verified": true }));
+    assert_eq!(
+        body_json(&done),
+        json!({ "erased": 1, "verified": true, "photosPending": 1 })
+    );
     let failed = route_with(
         &env,
         &json_req("POST", "/x", json!({ "ids": [ID], "token": "t" })),
@@ -332,7 +355,9 @@ fn erase_needs_a_preview_token_and_valid_ids_and_reports_a_verified_result() {
     assert_eq!(failed.status, 502);
     assert!(!String::from_utf8_lossy(&failed.body).contains("Pat"));
     let said = String::from_utf8_lossy(&failed.body).to_string();
-    assert!(said.contains("still here") && said.contains("photos may already be gone"));
+    // A failed erase puts every photo back first (ADR 0386), so nothing is said to be gone.
+    assert!(said.contains("Every request and its photos are still here"));
+    assert!(!said.contains("may already be gone"));
     assert_eq!(server.join().unwrap().len(), 3);
 }
 

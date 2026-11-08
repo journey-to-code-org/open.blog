@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { holdsLink } from "../../netlify/lib/social-mastodon.mjs";
 
 import {
   CAPTION_LIMIT,
@@ -12,6 +13,7 @@ import {
   blueskyCardTitle,
   blueskyNotes,
   mastodonNotes,
+  captionHoldsLink,
   DELIVERY_BADGES,
   STATUS_BADGES,
   captionCount,
@@ -666,6 +668,9 @@ test("Bluesky's caption limit is 300, the others' 3000, the same as the server's
   assert.equal(destinationLabel(dest[2]), "@ada.bsky.social (Bluesky account)");
   assert.equal(blueskyCardTitle("First line\nsecond"), "First line");
   assert.deepEqual(blueskyNotes("Plain words", "https://blog.example.org/posts/hello/"), ['On Bluesky the link is a card titled "Plain words" that shows blog.example.org, with no picture.']);
+  // With the post's public title and description, the card shows those, not the caption (ADR 0386).
+  assert.deepEqual(blueskyNotes("Soup is up, see https://blog.example.org/posts/hello/", "https://blog.example.org/posts/hello/", { title: "Hello lanterns", description: "How we light the quay." })[0], 'On Bluesky the link is a card with the post\'s title, "Hello lanterns", and its description, "How we light the quay.", that shows blog.example.org, with no picture.');
+  assert.deepEqual(blueskyNotes("Soup", "https://blog.example.org/posts/hello/", { title: "Hello", description: "" })[0], 'On Bluesky the link is a card with the post\'s title, "Hello", that shows blog.example.org, with no picture.');
   assert.equal(blueskyNotes("See https://x.org #tag and @ada.bsky.social", "https://blog.example.org/").length, 3);
 });
 
@@ -703,6 +708,12 @@ test("Mastodon's caption limit is 475, and the notes say where the link goes, wh
   const link = "https://blog.example.org/posts/hello/";
   assert.deepEqual(mastodonNotes("Plain words", link), ["On Mastodon the link goes after the caption, on its own line; it counts as 23 characters, and Mastodon shows its own preview of it."]);
   assert.deepEqual(mastodonNotes(`Read ${link} now`, link), [],"a caption that holds the link is not given it twice");
+  // The same rule as the server's (ADR 0386): brackets and a full stop around the link are not part of it.
+  for (const caption of [`Soup (${link})`, `New soup: ${link}.`, `Is it ${link}?`]) {
+    assert.deepEqual(mastodonNotes(caption, link), [], caption);
+    assert.equal(captionHoldsLink(caption, link), holdsLink(caption, link));
+  }
+  for (const caption of [`See ${link}x`, "Read (https://en.wikipedia.org/wiki/Bread_(food))", `Soup (${link}).`]) assert.equal(captionHoldsLink(caption, link), holdsLink(caption, link), caption);
   const notes = mastodonNotes("New #rust post, thanks @ada@social.example.org", link, { image: true, description: "A lantern at dusk" });
   assert.equal(notes.length, 4);
   assert.match(notes[1], /#hashtags/);

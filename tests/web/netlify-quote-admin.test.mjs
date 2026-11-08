@@ -23,7 +23,8 @@ const row = (n, over = {}) => ({
 const photo = (n, k) => ({ path: `acme/${id(n)}/${k}.jpg`, type: "image/jpeg", bytes: 10 });
 
 // A small Supabase: rows with PostgREST-style filters, a private bucket, and switches for failures.
-function fake(rows, { failRemove = false, failDeleteRows = false } = {}) {
+function fake(rows, { failRemove = false, failDeleteRows = false, failMoveAt = 0, failMoveBack = false } = {}) {
+  let moves = 0;
   const state = { rows: structuredClone(rows), objects: new Set(), calls: [] };
   for (const r of state.rows) for (const p of r.photos) state.objects.add(p.path);
   const reply = (status, body = "") => new Response(status === 204 ? null : typeof body === "string" ? body : JSON.stringify(body), { status });
@@ -51,6 +52,15 @@ function fake(rows, { failRemove = false, failDeleteRows = false } = {}) {
     if (u.pathname === "/storage/v1/object/list/openblog-quote-photos") {
       const prefix = JSON.parse(init.body).prefix + "/";
       return reply(200, [...state.objects].filter((p) => p.startsWith(prefix)).map((p) => ({ name: p.slice(prefix.length) })));
+    }
+    if (u.pathname === "/storage/v1/object/move" && init.method === "POST") {
+      const { bucketId, sourceKey, destinationKey } = JSON.parse(init.body);
+      moves += 1;
+      const back = !destinationKey.includes("/erasing/");
+      if ((failMoveAt && moves === failMoveAt) || (back && failMoveBack) || bucketId !== "openblog-quote-photos" || !state.objects.has(sourceKey)) return reply(500);
+      state.objects.delete(sourceKey);
+      state.objects.add(destinationKey);
+      return reply(200, { message: "Successfully moved" });
     }
     if (u.pathname === "/storage/v1/object/openblog-quote-photos" && init.method === "DELETE") {
       const { prefixes } = JSON.parse(init.body);
@@ -195,16 +205,65 @@ test("an expired preview and a missing request are refused", async () => {
   assert.equal(f.state.rows.length, 1);
 });
 
-test("a photo that cannot be removed leaves every request in place, with an honest photo list", async () => {
-  const { handler, f } = make([row(1, { photos: [photo(1, 1), photo(1, 2)] }), row(2, { photos: [photo(2, 1)] })], { failRemove: true });
+test("a partial failure leaves every request and every photo in place (ADR 0386)", async () => {
+  const before = [row(1, { photos: [photo(1, 1), photo(1, 2)] }), row(2, { photos: [photo(2, 1)] })];
   const ids = [id(1), id(2)];
-  const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids } })).body);
-  const result = await call(handler, "POST", "erase", { body: { ids, token: preview.token } });
-  assert.equal(result.statusCode, 502);
-  assert.deepEqual(JSON.parse(result.body), { error: "erase-failed" });
-  assert.deepEqual(f.state.rows.map((r) => r.id).sort(), ids);
-  const first = f.state.rows.find((r) => r.id === id(1));
-  assert.deepEqual(first.photos.map((p) => p.path), [photo(1, 2).path], "the list matches the photo that still exists");
+  const paths = [photo(1, 1).path, photo(1, 2).path, photo(2, 1).path].sort();
+  // The third photo cannot be moved aside: the two already moved are put back.
+  {
+    const { handler, f } = make(before, { failMoveAt: 3 });
+    const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids } })).body);
+    const result = await call(handler, "POST", "erase", { body: { ids, token: preview.token } });
+    assert.equal(result.statusCode, 502);
+    assert.deepEqual(JSON.parse(result.body), { error: "erase-failed" });
+    assert.deepEqual(f.state.rows.map((r) => r.id).sort(), ids);
+    assert.deepEqual([...f.state.objects].sort(), paths, "every photo is where it was: 3 before, 3 after");
+    assert.deepEqual(f.state.rows.find((r) => r.id === id(1)).photos, before[0].photos);
+  }
+  // The records cannot be removed: the photos are put back too.
+  {
+    const { handler, f } = make(before, { failDeleteRows: true });
+    const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids } })).body);
+    assert.equal((await call(handler, "POST", "erase", { body: { ids, token: preview.token } })).statusCode, 503);
+    assert.equal(f.state.rows.length, 2);
+    assert.deepEqual([...f.state.objects].sort(), paths);
+  }
+  // A photo that cannot even be put back is still kept, and its request points to where it is.
+  {
+    const { handler, f } = make(before, { failMoveAt: 3, failMoveBack: true });
+    const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids } })).body);
+    assert.equal((await call(handler, "POST", "erase", { body: { ids, token: preview.token } })).statusCode, 502);
+    assert.equal(f.state.objects.size, 3, "no photo is lost");
+    for (const r of f.state.rows) for (const p of r.photos) assert.ok(f.state.objects.has(p.path), p.path);
+    // ...and a later erase that works removes it with its request, and leaves nothing behind.
+    const healthy = make([], {});
+    healthy.f.state.rows = f.state.rows;
+    healthy.f.state.objects = f.state.objects;
+    const again = JSON.parse((await call(healthy.handler, "POST", "erase/preview", { body: { ids } })).body);
+    assert.equal(again.photos, 3, "the photo it could not put back is still counted");
+    assert.deepEqual(JSON.parse((await call(healthy.handler, "POST", "erase", { body: { ids, token: again.token } })).body), { erased: 2, verified: true });
+    assert.equal(f.state.objects.size, 0);
+    assert.equal(healthy.f.state.rows.length, 0);
+  }
+});
+
+test("a photo removal that fails after the records are gone is reported, and the next erase removes it", async () => {
+  const { handler, f } = make([row(1, { photos: [photo(1, 1)] }), row(2)], { failRemove: true });
+  const preview = JSON.parse((await call(handler, "POST", "erase/preview", { body: { ids: [id(1)] } })).body);
+  const result = JSON.parse((await call(handler, "POST", "erase", { body: { ids: [id(1)], token: preview.token } })).body);
+  assert.deepEqual(result, { erased: 1, verified: true, photosPending: 1 });
+  assert.deepEqual(f.state.rows.map((r) => r.id), [id(2)]);
+  assert.ok([...f.state.objects].every((path) => path.startsWith("acme/erasing/")), "anything left is held where no request points");
+  // The next erase purges what an erased request left, and only that: a held photo of a request
+  // that still exists (one an earlier erase could not put back) is kept.
+  f.state.objects.add(`acme/erasing/${id(1)}-1.jpg`);
+  f.state.objects.add(`acme/erasing/${id(3)}-1.jpg`);
+  const healthy = make([row(3, { photos: [{ path: `acme/erasing/${id(3)}-1.jpg`, type: "image/jpeg", bytes: 10 }] })], {});
+  healthy.f.state.rows.push(...f.state.rows);
+  healthy.f.state.objects = f.state.objects;
+  const next = JSON.parse((await call(healthy.handler, "POST", "erase/preview", { body: { ids: [id(2)] } })).body);
+  assert.deepEqual(JSON.parse((await call(healthy.handler, "POST", "erase", { body: { ids: [id(2)], token: next.token } })).body), { erased: 1, verified: true });
+  assert.deepEqual([...f.state.objects], [`acme/erasing/${id(3)}-1.jpg`]);
 });
 
 test("a failure removing the rows reports and keeps them; nothing personal is in the error", async () => {
@@ -234,7 +293,8 @@ test("retention erases only archived requests past the period, and is off withou
   const env = { ...ENV, OPENBLOG_QUOTE_RETENTION_DAYS: "30" };
   const sweep = fake(rows());
   assert.deepEqual(await createSweep({ env, fetchImpl: sweep.fetchImpl, now: () => NOW })(), { enabled: true, erased: 1 });
-  const broken = fake(rows(), { failRemove: true });
+  const broken = fake(rows(), { failMoveAt: 1 });
   assert.deepEqual(await createSweep({ env, fetchImpl: broken.fetchImpl, now: () => NOW })(), { enabled: true, erased: 0, error: "erase-failed" });
   assert.equal(broken.state.rows.length, 4);
+  assert.equal(broken.state.objects.size, 1, "and its photo is kept");
 });

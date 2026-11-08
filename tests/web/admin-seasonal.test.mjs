@@ -88,6 +88,9 @@ test("turning a topic off and on keeps only the changes that say something", () 
 
 test("errors are plain", () => {
   assert.match(seasonalErrorText({ status: 409 }), /changed in another window/);
+  assert.match(seasonalErrorText({ status: 409, data: { error: "The reminder settings changed since you opened them; reload before saving", etag: "e1" } }), /changed in another window/);
+  // Any other 409 is said in the server's own words, never as a change in another window.
+  assert.equal(seasonalErrorText({ status: 409, data: { error: "A draft was already opened for this reminder" } }), "A draft was already opened for this reminder. Reload to see today's list.");
   assert.match(seasonalErrorText({ status: 404 }), /no longer listed/);
   assert.match(seasonalErrorText({ data: { error: "start must be a month and day" } }), /month and day/);
 });
@@ -117,6 +120,26 @@ test("a due reminder starts a draft that is not published and offers the voice f
   assert.match(text(root), /Nothing is sent until you ask/);
   // Only the open call was made: no assistant, publish or other request.
   assert.deepEqual(api.calls.map((c) => c.path), ["seasonal", "seasonal/open"]);
+}));
+
+test("after Start a draft the card is redrawn: no Start or Snooze for a started draft, and the link stays", withDom(async () => {
+  const api = server();
+  const { root } = await mount(api);
+  await button(root, "seasonal-open").click();
+  await tick();
+  const card = root.querySelectorAll("li").find((li) => li.dataset.reminder === REMINDER.key);
+  assert.equal(card.dataset.status, "opened");
+  assert.equal(button(root, "seasonal-snooze"), undefined, "a started draft cannot be snoozed");
+  assert.equal(button(root, "seasonal-open"), undefined);
+  assert.match(text(card), /Draft started/);
+  assert.ok(card.querySelectorAll("a").some((a) => a.dataset.action === "seasonal-write"), "the new draft's link is kept");
+  assert.match(text(root), /A draft was started\. It is not published\./);
+  // Had a second window snoozed it anyway, the server's reason is said, not "another window".
+  api.next = new ApiError("conflict", 409, { error: "A draft was already opened for this reminder" });
+  await button(root, "seasonal-disable").click();
+  await tick();
+  assert.match(text(root), /A draft was already opened for this reminder/);
+  assert.doesNotMatch(text(root), /another window/);
 }));
 
 test("a reminder whose draft was started links to it by its document path", withDom(async () => {

@@ -26,8 +26,9 @@ cheap to carry: stored data that later releases read must be conservative.
   An entry whose id is a bundled topic changes only what it states: `disabled` turns it off, `start` and `end`
   move it, `topic` and `prompt` reword it. Any other id is the site's own topic and must state a start, an end,
   a topic and a prompt. Bundled wording can therefore improve in a later release without losing a site's choice.
-- **Absent means off.** With no `seasonalPrompts`, or `enabled` false, nothing is listed, the member is not
-  written back and every build is byte for byte what it was. Turning it on is a deliberate act.
+- **Absent means off.** With no `seasonalPrompts`, or `enabled` false, nothing is listed and every build is byte
+  for byte what it was. (Corrected by ADR 0386: an `enabled: false` member is written back when it holds topic
+  changes, so turning reminders off keeps them; it is left out only when it holds none.) Turning it on is a deliberate act.
 - **Strict and versioned.** Only version 1 is read or written; a newer version is refused with a message and the
   file is not touched. Unknown keys are errors, ids are lowercase slugs of at most 40 characters and unique,
   at most 60 entries, and every problem is returned in plain words.

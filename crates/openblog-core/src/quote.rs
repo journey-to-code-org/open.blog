@@ -34,6 +34,9 @@ pub const MAX_SERVICES: usize = 30;
 pub const MAX_NOTICE: usize = 240;
 const MAX_NAME: usize = 100;
 const DEFAULT_NOTICE: &str = "We use these details only to answer your request.";
+/// The phone rule of the hosted function (`PHONE` in netlify/lib/quote-intake.mjs) as an HTML
+/// `pattern`: an optional +, then 7 to 30 digits, spaces, brackets, dots or dashes.
+pub const PHONE_PATTERN: &str = r"\+?[0-9 \(\)\.\-]{7,30}";
 
 /// The `quote` member of `openblog.json`. Absent, or `enabled: false`, means nothing changes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +183,11 @@ pub fn form_html(config: &QuoteConfig, uid: &str, towns: &[String], services: &[
             if required { " required" } else { "" }
         )
     };
+    // The pattern is the hosted function's own phone rule, so a browser without JavaScript says what
+    // is wrong before sending (ADR 0386). Escaped for the `v` flag browsers apply to `pattern`.
+    let phone_input = format!(
+        "<input id=\"{uid}-phone\" name=\"phone\" type=\"tel\" autocomplete=\"tel\" minlength=\"7\" maxlength=\"30\" pattern=\"{PHONE_PATTERN}\" required aria-describedby=\"{{describe}}\">"
+    );
     let mut h = format!(
         "<ob-quote class=\"ob-quote\" endpoint=\"{}\">\n<form class=\"ob-quote-form\" method=\"post\" action=\"{}/submit\" enctype=\"multipart/form-data\" aria-describedby=\"{uid}-notice\">\n",
         attr(base),
@@ -196,7 +204,7 @@ pub fn form_html(config: &QuoteConfig, uid: &str, towns: &[String], services: &[
         uid,
         "phone",
         "Phone",
-        &text_input("phone", "tel", "tel", 30, true),
+        &phone_input,
         "Include the area code.",
     ));
     h.push_str(&field(

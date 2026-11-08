@@ -777,7 +777,13 @@ impl Site {
             accessibility::audit_site_language("openblog.json", &config.language);
         let mut evidence = Vec::new();
         let mut source_review = Vec::new();
-        let render_options = config.render_options();
+        // The published services a `quote` fence offers when it names none (ADR 0386), by name, as
+        // the quote-form landing section lists them. Read from the front matter only.
+        let quote_services = published_service_names(&sources.services);
+        let mut render_options = config.render_options();
+        render_options.quote = render_options
+            .quote
+            .map(|(quote, areas, _)| (quote, areas, &quote_services[..]));
         let credit_sidecars = associate_credit_sidecars(&sources);
         // Read and parsed on first need only, so a site whose posts cite
         // nothing never reads it and a broken library refuses only the posts
@@ -2557,6 +2563,21 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
         capabilities: rendered.capabilities,
         aliases: aliases(fm)?,
     })
+}
+
+/// The names of the services a site publishes (not drafts), sorted and without repeats.
+fn published_service_names(files: &[SourceFile]) -> Vec<String> {
+    let mut names: Vec<String> = files
+        .iter()
+        .filter(|file| crate::service::declares_service(&file.contents))
+        .filter_map(|file| frontmatter::parse(&file.contents).ok())
+        .filter(|doc| !is_draft(&doc.front_matter))
+        .filter_map(|doc| crate::service::from_front_matter(&doc.front_matter).ok())
+        .map(|metadata| metadata.name)
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 fn load_service(file: &SourceFile, options: RenderOptions<'_>) -> Result<Service, String> {

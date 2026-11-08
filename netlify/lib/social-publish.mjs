@@ -27,7 +27,7 @@
 import { checkCaption, ScheduleError } from "./social-schedule.mjs";
 import { DeliveryError, kindOfStatus, parseRetryAfter } from "./social-delivery.mjs";
 import { DID, POST_COLLECTION, announcementKey, cardTitle, facetsFor, withinPostLimits, xrpcError } from "./social-atproto.mjs";
-import { ACCOUNT_ID, COVER_TYPES, DEFAULT_LIMITS, MAX_COVER_BYTES, STATUS_ID, coverOf, idempotencyHeader, instanceLimits, rateLimitWaitMs, statusLength, statusText } from "./social-mastodon.mjs";
+import { ACCOUNT_ID, COVER_TYPES, DEFAULT_LIMITS, MAX_COVER_BYTES, STATUS_ID, coverOf, idempotencyHeader, instanceLimits, metaTags, rateLimitWaitMs, statusLength, statusText } from "./social-mastodon.mjs";
 
 // Only used when a caller gives no signal; the worker always gives its own provider timeout.
 export const PUBLISH_TIMEOUT_MS = 15_000;
@@ -289,13 +289,40 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
 //
 // One `com.atproto.repo.createRecord` of an `app.bsky.feed.post` in the author's own repository:
 // the caption as the text, its links and hashtags as facets (UTF-8 byte offsets), and the canonical
-// post as an `app.bsky.embed.external` link card. The record key is derived from the announcement
-// (social-atproto.mjs), so every attempt of one announcement names the same record: a retry after
-// an attempt that did land is refused by the repository instead of posting twice, and reconcile can
-// ask for exactly that record. The post's `at://` URI is the provider post id.
+// post as an `app.bsky.embed.external` link card. The card shows the post's own title and
+// description, read from its canonical page's og:title and og:description (ADR 0386); a page that
+// cannot be read in time leaves the card titled with the caption's first line, as before. The
+// record key is derived from the announcement (social-atproto.mjs), so every attempt of one
+// announcement names the same record: a retry after an attempt that did land is refused by the
+// repository instead of posting twice, and that refusal is checked against exactly that record, so
+// it settles as published, not failed. The post's `at://` URI is the provider post id.
 
 const BLUESKY_AUTH = new Set(["ExpiredToken", "InvalidToken", "AuthenticationRequired", "AuthMissing"]);
 const BLUESKY_THROTTLE = new Set(["RateLimitExceeded"]);
+// The share of a delivery the post's page may use, at most, so the record itself always has time left.
+export const BLUESKY_PAGE_BUDGET_MS = 3_000;
+const BLUESKY_MAX_PAGE_CHARS = 1024 * 1024;
+const BLUESKY_CARD_TEXT = 300;
+const CARD_UNSAFE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/gu;
+const cardText = (value) => Array.from(String(value ?? "").replace(CARD_UNSAFE, " ").replace(/\s+/g, " ").trim()).slice(0, BLUESKY_CARD_TEXT).join("");
+
+// The link card of an announcement: the title and description the post's canonical page states,
+// or the caption's first line when the page cannot be had. The page is public; no token goes to it.
+async function blueskyCard(fetchImpl, url, caption, signal) {
+  const fallback = { uri: url, title: cardTitle(caption), description: "" };
+  let page;
+  try {
+    page = await send(fetchImpl, url, { method: "GET", headers: { accept: "text/html" } }, AbortSignal.any([signal || AbortSignal.timeout(PUBLISH_TIMEOUT_MS), AbortSignal.timeout(BLUESKY_PAGE_BUDGET_MS)]));
+  } catch {
+    return fallback;
+  }
+  if (Number(page?.status) !== 200 || !/^text\/html\b/i.test(header(page, "content-type"))) return fallback;
+  const html = await readBounded(page, BLUESKY_MAX_PAGE_CHARS);
+  if (!html) return fallback;
+  const tags = metaTags(html);
+  const title = cardText(tags.get("og:title"));
+  return title ? { uri: url, title, description: cardText(tags.get("og:description")) } : fallback;
+}
 
 // When a 429 may be tried again: Retry-After if the service sent one, else RateLimit-Reset, read as
 // an epoch second or, if small, as seconds from now. Anything else is no hint.
@@ -331,14 +358,14 @@ export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = (
     return { repo, caption, url, rkey, uri: `at://${repo}/${POST_COLLECTION}/${rkey}` };
   };
   const headers = (accessToken, extra = {}) => ({ authorization: `Bearer ${accessToken}`, accept: "application/json", ...extra });
-  return Object.freeze({
+  const adapter = Object.freeze({
     provider: "bluesky",
     async publish({ post, account, accessToken, signal } = {}) {
       const { repo, caption, url, rkey, uri } = await plan({ post, account, accessToken });
       const record = { $type: POST_COLLECTION, text: caption, createdAt: new Date(now()).toISOString() };
       const facets = facetsFor(caption);
       if (facets.length) record.facets = facets;
-      record.embed = { $type: "app.bsky.embed.external", external: { uri: url, title: cardTitle(caption), description: "" } };
+      record.embed = { $type: "app.bsky.embed.external", external: await blueskyCard(fetchImpl, url, caption, signal) };
       const response = await send(
         fetchImpl,
         `${settings.apiBase}/xrpc/com.atproto.repo.createRecord`,
@@ -353,7 +380,14 @@ export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = (
         throw new DeliveryError("uncertain", { status });
       }
       if (status >= 200 && status < 300) throw new DeliveryError("uncertain", { status });
-      throw blueskyError(status, body, response, now);
+      const error = blueskyError(status, body, response, now);
+      // A repeat of an attempt that did land is refused because the record key is taken. When the
+      // record under that key is exactly this announcement, it was posted, not refused.
+      if (error.kind === "rejected" && status === 400) {
+        const found = await adapter.reconcile({ post, account, accessToken, signal });
+        if (found.state === "published") return { providerPostId: found.providerPostId };
+      }
+      throw error;
     },
     // Asks for exactly this announcement's record. It is "published" only when it is there and is
     // the caption with the canonical link; "absent" is conclusive because the record key is this
@@ -378,6 +412,7 @@ export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = (
       }
     },
   });
+  return adapter;
 }
 
 // ---- Mastodon (story #392, ADR 0360)

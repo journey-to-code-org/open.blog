@@ -38,13 +38,18 @@ for (const entry of fixture.cases) {
       assert.ok(MESSAGES.has(error.message), "the message is fixed text");
       assert.equal(error.requestId, null);
     }
-    // The call itself.
-    assert.equal(calls.length, 1, "exactly one provider call, never a retry inside the adapter");
-    assert.equal(calls[0].headers.authorization, `Bearer ${TOKEN}`);
-    assert.ok(!calls[0].url.includes(TOKEN) && !String(calls[0].body).includes(TOKEN), "the token is only in the header");
-    assert.equal(calls[0].redirect, "manual");
-    assert.equal(calls[0].signal, args.signal, "the worker's signal bounds the call");
-    assert.ok(!JSON.stringify(calls[0]).includes(args.post.idempotencyKey), "neither provider honours an idempotency key");
+    // The call itself. Bluesky first reads the post's own public page for its card (ADR 0386), and
+    // a refusal of the record is checked against the record by a read; neither is a second write.
+    const page = calls.filter((c) => c.url === args.post.canonicalUrl);
+    for (const c of page) assert.ok(!JSON.stringify(c).includes(TOKEN) && c.method === "GET", "the post's public page is only read, and never gets the token");
+    const writes = calls.filter((c) => c.method === "POST");
+    assert.equal(writes.length, 1, "exactly one write, never a retry inside the adapter");
+    assert.equal(calls.length - page.length - writes.length <= 1, true, "at most one read of the record besides");
+    assert.equal(writes[0].headers.authorization, `Bearer ${TOKEN}`);
+    assert.ok(!writes[0].url.includes(TOKEN) && !String(writes[0].body).includes(TOKEN), "the token is only in the header");
+    assert.equal(writes[0].redirect, "manual");
+    assert.equal(writes[0].signal, args.signal, "the worker's signal bounds the call");
+    assert.ok(!JSON.stringify(writes[0]).includes(args.post.idempotencyKey), "neither provider honours an idempotency key");
     // Secrets and provider text.
     const text = JSON.stringify({ value, error, message: error?.message, stack: error?.stack });
     assert.ok(!text.includes(TOKEN), "no token in the answer");
@@ -58,7 +63,7 @@ test("every adapter only calls its own provider host over https", async () => {
   const bs = await run("bluesky", { status: 500 });
   assert.equal(new URL(li.calls[0].url).origin, "https://api.linkedin.com");
   assert.equal(new URL(fb.calls[0].url).origin, "https://graph.facebook.com");
-  assert.equal(new URL(bs.calls[0].url).origin, "https://bsky.social");
+  assert.equal(new URL(bs.calls.find((c) => c.method === "POST").url).origin, "https://bsky.social");
 });
 
 test("an adapter is registered only for a provider this deployment configured", () => {

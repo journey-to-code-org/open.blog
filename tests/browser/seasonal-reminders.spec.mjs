@@ -109,6 +109,11 @@ test("starting a draft writes one unpublished draft and the built site does not 
   await expect(page.locator("[data-seasonal-status]")).toContainText("not published");
   await expect(card.getByRole("link", { name: "Open it in Write" })).toBeVisible();
   await expect(card.getByRole("link", { name: "Open it in Write" })).toHaveAttribute("href", /^#\/edit\/posts%2F/);
+  // The card is redrawn at once: a started draft offers no Start or Snooze (#489, #526).
+  await expect(card).toHaveAttribute("data-status", "opened");
+  await expect(card.getByRole("button", { name: "Snooze a week" })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Start a draft" })).toHaveCount(0);
+  await expect(page.locator("[data-seasonal-status]")).not.toContainText("another window");
   const posts = readdirSync(join(root, "content", "posts")).filter((name) => name.includes("winter-pipes"));
   expect(posts).toHaveLength(1);
   const text = readFileSync(join(root, "content", "posts", posts[0]), "utf8");

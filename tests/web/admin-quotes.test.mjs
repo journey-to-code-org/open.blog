@@ -32,7 +32,7 @@ function server(initial = {}) {
       if (path.startsWith("quote/requests?") || path === "quote/requests") {
         const q = new URLSearchParams(path.split("?")[1] || "");
         const rows = state.requests.filter((r) => (!q.get("status") || r.status === q.get("status")) && (!q.get("service") || r.service === q.get("service")));
-        return structuredClone({ requests: rows, services: [...new Set(state.requests.map((r) => r.service))].sort(), retentionDays: state.retentionDays, notifyEnabled: state.notifyEnabled });
+        return structuredClone({ requests: rows, unreadable: state.unreadable ?? 0, services: [...new Set(state.requests.map((r) => r.service))].sort(), retentionDays: state.retentionDays, notifyEnabled: state.notifyEnabled });
       }
       const set = /^quote\/requests\/(.+)\/status$/.exec(path);
       if (set) {
@@ -139,6 +139,15 @@ test("filters ask the server for the status and service", withDom(async () => {
 test("an empty list says what to expect", withDom(async () => {
   const { root } = await open(server({ requests: [] }));
   assert.match(text(root), /No requests yet/);
+  assert.equal(all(root, "p").find((p) => p.dataset.quoteUnreadable), undefined);
+}));
+
+test("a stored request Admin could not show is said, never silently left out", withDom(async () => {
+  const { root } = await open(server({ unreadable: 2 }));
+  const warning = all(root, "p").find((p) => p.dataset.quoteUnreadable);
+  assert.equal(warning.attributes.role, "alert");
+  assert.match(text(warning), /2 stored requests could not be shown here.*still stored/);
+  assert.equal(cards(root).length, 3, "the readable ones are still listed");
 }));
 
 test("export downloads the CSV the server built, for the chosen days", withDom(async () => {
@@ -173,7 +182,7 @@ test("erase is previewed, confirmed, reported as verified, and cancel erases not
   await click(buttons(root, "erase-confirm")[0]);
   assert.deepEqual(api.calls.find((c) => c.path === "quote/erase").body, { ids: [ID(2)], token: "tok" });
   assert.equal(cards(root).length, 2);
-  assert.match(text(root), /Erased 1 request and checked afterward: none remain/);
+  assert.match(text(root), /Erased 1 request and checked afterward: none of them remain/);
 }));
 
 test("a failed erase says so and the requests are still listed", withDom(async () => {
@@ -184,11 +193,11 @@ test("a failed erase says so and the requests are still listed", withDom(async (
   await pick.dispatch("change", { target: pick });
   await flush();
   await click(buttons(root, "erase")[0]);
-  // Photos go before the records and cannot come back (ADR 0384); the page never claims they did.
-  assert.match(text(root), /some of their photos may already be gone/);
-  api.failWith = new ApiError("Erase failed. Every request is still here, but some of their photos may already be gone; try again", 502);
+  // A failed erase puts every photo back before the records are touched (ADR 0386).
+  assert.match(text(root), /If anything fails, every request and every photo stays as it is/);
+  api.failWith = new ApiError("Erase failed. Every request and its photos are still here; try again", 502);
   await click(buttons(root, "erase-confirm")[0]);
-  assert.match(text(root), /Every request is still here/);
+  assert.match(text(root), /Every request and its photos are still here/);
   assert.equal(cards(root).length, 3);
 }));
 

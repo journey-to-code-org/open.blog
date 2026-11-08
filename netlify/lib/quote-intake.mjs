@@ -141,13 +141,16 @@ function parseMultipart(body, boundary) {
   return { fields, files };
 }
 
+// Control characters go, C1 (U+0080 to U+009F) included, so what is stored is what Admin shows
+// (it reads every control but a line break or tab as unreadable, ADR 0386). So do invisible format marks.
 const clean = (value, max) =>
   text(value)
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "")
     .trim()
     .slice(0, max + 1);
 
-const PHONE = /^\+?[0-9 ().-]{7,30}$/;
+// The form's phone box carries the same rule as a `pattern` (PHONE_PATTERN in crates/openblog-core/src/quote.rs).
+export const PHONE = /^\+?[0-9 ().-]{7,30}$/;
 const EMAIL = /^[^\s@<>]{1,100}@[^\s@<>]{1,100}\.[^\s@<>]{2,30}$/;
 
 // The image kinds accepted, decided by the file's own first bytes, never its name or declared type.

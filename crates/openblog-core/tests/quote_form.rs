@@ -198,3 +198,61 @@ fn enabled_every_portable_copy_drops_the_form() {
     assert!(feed.contains("Ask:"), "{feed}");
     assert!(!feed.contains("Fencing"), "{feed}");
 }
+
+#[test]
+fn a_fence_that_names_no_service_offers_the_sites_published_services() {
+    // ADR 0386: the fence reads the services collection, as the landing section does; a draft is
+    // not offered, and a fence that names its own services keeps them.
+    let service = |id: &str, name: &str, draft: bool| SourceFile {
+        path: format!("services/{id}.md"),
+        contents: format!(
+            "---\nid: {id}\nname: {name}\nsummary: A service.\n{}---\nBody.\n",
+            if draft { "draft: true\n" } else { "" }
+        ),
+    };
+    let load = |body: &str| {
+        let site = Site::load(
+            config(Some(json!({"enabled": true}))),
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/2026-01-01-ask.md".into(),
+                    contents: format!("---\ntitle: Ask\ndate: 2026-01-01\n---\n{body}"),
+                }],
+                services: vec![
+                    service("new-fence", "New fence", false),
+                    service("gates", "Gate repair", false),
+                    service("decks", "Decks", true),
+                ],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .expect("site");
+        let files: BTreeMap<String, String> = generate(&site, &ThemeSet::new())
+            .expect("generated")
+            .into_iter()
+            .map(|file| (file.path, file.contents))
+            .collect();
+        files["posts/ask/index.html"].clone()
+    };
+    let page = load("```quote\n```\n");
+    assert!(
+        page.contains("<select id=\"ob-quote-1-service\" name=\"service\""),
+        "{page}"
+    );
+    assert!(page.contains("<option>Gate repair</option><option>New fence</option></select>"));
+    assert!(!page.contains("Decks"), "a draft service is not offered");
+    let named = load("```quote\nservice: Fence repair\n```\n");
+    assert!(named.contains("<option>Fence repair</option></select>"));
+    assert!(!named.contains("Gate repair"));
+}
+
+#[test]
+fn the_phone_box_carries_the_functions_own_rule_so_no_javascript_is_needed_to_be_told() {
+    let html = build(config(Some(json!({"enabled": true}))), true);
+    let post = &html["posts/one/index.html"];
+    assert!(
+        post.contains(r#"type="tel" autocomplete="tel" minlength="7" maxlength="30" pattern="\+?[0-9 \(\)\.\-]{7,30}" required"#),
+        "{post}"
+    );
+}

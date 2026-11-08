@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHandler } from "../../netlify/functions/quote.mjs";
 import { issueToken } from "../../netlify/lib/quote-intake.mjs";
-import { composeMessage, notifySettings, resendTransport } from "../../netlify/lib/quote-notify.mjs";
+import { INLINE_BUDGET_MS, composeMessage, notifySettings, resendTransport } from "../../netlify/lib/quote-notify.mjs";
 
 const SECRET = "q".repeat(40);
 const ADMIN = "a".repeat(40);
@@ -52,11 +52,11 @@ function fakeSupabase() {
   return { rows, fetchImpl };
 }
 
-function setup({ env = {}, transport } = {}) {
+function setup({ env = {}, transport, extra = {} } = {}) {
   const fake = fakeSupabase();
   const clock = { now: 1_800_000_000_000 };
   let n = 0;
-  const handler = createHandler({ env: { ...ENV, ...env }, fetchImpl: fake.fetchImpl, now: () => clock.now, uuid: () => `00000000-0000-4000-8000-00000000000${++n}`, transport, sleep: async () => {} });
+  const handler = createHandler({ env: { ...ENV, ...env }, fetchImpl: fake.fetchImpl, now: () => clock.now, uuid: () => `00000000-0000-4000-8000-00000000000${++n}`, transport, sleep: async () => {}, ...extra });
   const submit = () => {
     const boundary = "b";
     const body = Object.entries({ ...good, token: issueToken(SECRET, clock.now - 10000) })
@@ -125,6 +125,25 @@ test("a failing mailer never loses the request, is visible, and is retried a bou
   const last = JSON.parse((await t.admin("POST", "/api/quote/notifications/retry")).body);
   assert.deepEqual(last, { tried: 0, sent: 0, failed: 0, gaveUp: 0 }, "a row that used every try is not picked again");
   assert.equal(mailer.sent.length, 5);
+});
+
+test("a hung mail provider never holds the visitor past the budget: the request is saved, the email marked failed", { timeout: 5000 }, async () => {
+  const hung = [];
+  const transport = (message) => new Promise(() => hung.push(message));
+  const t = setup({ env: MAIL, transport, extra: { notifyBudgetMs: 150 } });
+  const started = Date.now();
+  const response = await t.submit();
+  const waited = Date.now() - started;
+  assert.equal(response.statusCode, 201, "the visitor is told the request was received");
+  assert.ok(waited < 2000, `answered in ${waited} ms, not after the provider`);
+  assert.equal(t.fake.rows.length, 1);
+  assert.deepEqual([t.fake.rows[0].notify_status, t.fake.rows[0].notify_error_code, t.fake.rows[0].notify_attempts], ["failed", "timeout", 1], "no second try without time for it");
+  assert.equal(hung.length, 1);
+});
+
+test("the inline budget is far under a synchronous function's 10 seconds, and the Resend call is aborted within it", () => {
+  assert.ok(INLINE_BUDGET_MS <= 5000);
+  assert.ok(INLINE_BUDGET_MS + 3000 < 10_000, "room left for storage before and after");
 });
 
 test("requests that used every try do not stop a newer failed email from being sent again", async () => {
