@@ -1528,7 +1528,8 @@ fn seo_warnings(post: &Post) -> Vec<String> {
     warnings
 }
 
-fn is_draft(fm: &FrontMatter) -> bool {
+/// Whether a document's front matter holds it back as a draft (`draft: true` or `status: draft`).
+pub fn is_draft(fm: &FrontMatter) -> bool {
     fm.get_bool("draft").unwrap_or(false)
         || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"))
 }

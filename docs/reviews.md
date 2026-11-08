@@ -17,7 +17,8 @@ two ways to bring one in:
   in for you; the page's text is shown under **What the page said** so you can read off the reviewer's name, the
   day and the stars, and copy the review's own words into **The review**. When a short or shared link (such as a `share.google` one)
   led to a page on Google, Facebook or another named site, the review keeps the address it led to, so its link is on
-  the site it names. A copied review's link cannot be changed; to use another link, add a new review. Pages that need a sign-in, and pages built by script (Google and Facebook
+  the site it names. If that address is longer than a review's link can be (500 characters), the review keeps the
+  link you pasted instead, under **Somewhere else**. A copied review's link cannot be changed; to use another link, add a new review. Pages that need a sign-in, and pages built by script (Google and Facebook
   pages often are), may give little or no useful text; then type the review in.
 - **Type it in.** Fill in the reviewer's name, the day it was written, where it was left, its link, its stars (or
   **No stars**) and its words.
@@ -80,10 +81,11 @@ job:
 
 Once your site has a saved review, a published job whose `job.review` names one it does not have stops the build,
 with the known ids listed; so does a second job naming the same review. A site that has no reviews yet only gets a
-warning for a `job.review` line. Delete a review only after its job has chosen another.
+warning for a `job.review` line.
 
 Admin checks this the way the build does, which leaves drafts out. While a published job shows a review, the review
-cannot be kept as a draft or given another id: Admin names the job and asks you to choose another review for it first.
+cannot be kept as a draft, given another id or deleted: Admin names the job and asks you to choose another review for
+it first. A draft job may keep naming a review you delete; it is only warned about until it is published.
 A published job cannot be saved naming a review that is a draft.
 
 ## Where reviews show

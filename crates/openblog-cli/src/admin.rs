@@ -16521,6 +16521,38 @@ fn static_track_path(root: &Path, config: &SiteConfig, route: &str) -> Option<Pa
     )
 }
 
+/// A saved review a published job still shows cannot go to the trash: the build would stop on that job, or,
+/// for the site's only review, the job would quietly stop showing it (ADR 0391). A draft job may keep naming
+/// it; the build only warns about a draft. The sentence names the job, so the owner knows where to go.
+fn review_shown_by_published_job(
+    root: &Path,
+    config: &SiteConfig,
+    review: &Path,
+) -> Option<String> {
+    let source = fs::read_to_string(review).ok()?;
+    let id = frontmatter::parse(&source)
+        .ok()?
+        .front_matter
+        .get("id")
+        .map(str::trim)
+        .filter(|id| !id.is_empty())?
+        .to_string();
+    let sources = site::read_sources(root, config).ok()?;
+    let job = sources.posts.iter().find(|file| {
+        frontmatter::parse(&file.contents).is_ok_and(|document| {
+            let fm = &document.front_matter;
+            openblog_core::profile::resolve(fm).behavior
+                == openblog_core::profile::ProfileBehavior::Job
+                && !openblog_core::model::is_draft(fm)
+                && fm.get("job.review").map(str::trim) == Some(id.as_str())
+        })
+    })?;
+    Some(format!(
+        "The job {} shows this review, so it cannot be deleted yet. Open that job, choose another review or none in its Customer review box, and save it first.",
+        job.path
+    ))
+}
+
 fn track_is_referenced_elsewhere(
     root: &Path,
     config: &SiteConfig,
@@ -17201,6 +17233,11 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     };
     if !path.is_file() {
         return Response::error(404, "No such document");
+    }
+    if rel.starts_with("proof/") {
+        if let Some(problem) = review_shown_by_published_job(&state.root, &config, &path) {
+            return Response::error(422, &problem);
+        }
     }
     let managed_track = fs::read_to_string(&path)
         .ok()

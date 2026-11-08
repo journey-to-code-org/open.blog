@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   blankReview,
+  deleteBuildText,
   fieldsFromForm,
   formFromDocument,
   formFromSnapshot,
@@ -134,4 +135,32 @@ test("a new review whose id is taken is told to change the id, not to reload", (
   assert.match(taken, /Change the id/);
   assert.doesNotMatch(taken, /Reload/);
   assert.match(reviewErrorText({ status: 409 }), /another window/);
+});
+
+test("a copy whose link led to an address too long to keep keeps the pasted link, so the review can still be saved", () => {
+  const snapshot = { sourceUrl: "https://share.google/abc123", canonicalUrl: `https://www.google.com/search?q=crew&si=${"A".repeat(600)}`, retrievedAt: "2026-11-08T15:04:05Z", text: "x" };
+  const form = formFromSnapshot(blankReview(), snapshot);
+  assert.equal(form.sourceUrl, "https://share.google/abc123");
+  assert.equal(form.platform, "other");
+  assert.equal(form.provenance, "snapshot");
+  assert.deepEqual(validateForm({ ...form, id: "dana-r-2026-10-20", author: "Dana R.", date: "2026-10-20" }), []);
+  // Nor is a landing address that is not a plain web link taken over the pasted one.
+  for (const canonicalUrl of ["https://user:pw@www.google.com/maps/x", "ftp://www.google.com/x"]) {
+    assert.equal(formFromSnapshot(blankReview(), { ...snapshot, canonicalUrl }).sourceUrl, "https://share.google/abc123");
+  }
+});
+
+test("a delete whose rebuild failed says so, and one that was rebuilt says nothing more", () => {
+  assert.equal(deleteBuildText({ ok: true, build: { ok: true, posts: 3 } }), "");
+  assert.equal(deleteBuildText({ ok: true }), "");
+  assert.equal(
+    deleteBuildText({ ok: true, build: { ok: false, error: "posts/a.md: title: add a title" } }),
+    "Deleted. The review is in the trash, but your site could not be rebuilt yet: posts/a.md: title: add a title",
+  );
+});
+
+test("a refused delete says the review was not deleted, with the server's reason", () => {
+  const error = { status: 422, data: { error: "The job posts/oak-floor.md shows this review, so it cannot be deleted yet." } };
+  assert.equal(reviewErrorText(error, { deleting: true }), "The review was not deleted. The job posts/oak-floor.md shows this review, so it cannot be deleted yet.");
+  assert.equal(reviewErrorText({}, { deleting: true }), "The review was not deleted. Check your connection and try again.");
 });

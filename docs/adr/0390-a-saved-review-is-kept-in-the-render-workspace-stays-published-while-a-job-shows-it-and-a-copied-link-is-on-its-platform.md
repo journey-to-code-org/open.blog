@@ -1,6 +1,6 @@
 # ADR 0390: A saved review is kept in the Render workspace, stays published while a job shows it, and a copied link is on its platform
 
-- Status: Accepted
+- Status: Accepted (amended by [ADR 0391](0391-a-review-a-published-job-shows-cannot-be-deleted-and-a-copy-keeps-an-address-only-if-the-review-can.md))
 - Date: 2026-11-08
 - Parent epic: [#474](https://github.com/journey-to-code-org/open.blog/issues/474)
 - Story and tasks: #487, #519, #520, #521

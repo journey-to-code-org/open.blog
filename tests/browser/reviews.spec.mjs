@@ -232,6 +232,18 @@ test("a review a published job shows cannot be made a draft, so the site keeps b
   expect(readFileSync(file("dana-r-2026-10-20.md"), "utf8")).toBe(before);
 });
 
+test("a review a published job shows cannot be deleted, and the owner is told which job to change", async ({ page }) => {
+  const before = readFileSync(file("dana-r-2026-10-20.md"), "utf8");
+  await signedIn(page, `#/reviews/edit/${encodeURIComponent("proof/dana-r-2026-10-20.md")}`);
+  await expect(page.getByLabel("Reviewer's name", { exact: true })).toHaveValue("Dana R.");
+  await page.getByRole("button", { name: "Delete this review" }).click();
+  await page.getByRole("button", { name: "Yes, delete it" }).click();
+  await expect(status(page)).toContainText("The review was not deleted.");
+  await expect(status(page)).toContainText("posts/2026-10-16-oak-floor.md shows this review");
+  await expect(page).toHaveURL(/#\/reviews\/edit\//);
+  expect(readFileSync(file("dana-r-2026-10-20.md"), "utf8")).toBe(before);
+});
+
 test("a refused copy is said in plain words and leaves typing it in", async ({ page }) => {
   await page.route("**/admin/api/assistant/context/url/retrieve", (route) =>
     route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "URL context cannot retrieve local or private network addresses" }) }));

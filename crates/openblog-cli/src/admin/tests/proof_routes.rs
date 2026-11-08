@@ -331,3 +331,99 @@ fn a_published_job_cannot_be_saved_naming_a_draft_review() {
         validate_candidate(&f.dir, &config, rel, &source, &CreditEdit::Unchanged).unwrap();
     }
 }
+
+#[test]
+fn a_review_a_published_job_shows_cannot_be_deleted_until_the_job_lets_go() {
+    let f = fixture("proof-delete-linked");
+    let session = login_ok(&f);
+    assert_eq!(
+        create(&f, &session, review_fields(), "On time.\n").status,
+        201
+    );
+    let job = |draft: &str, review: &str| {
+        format!("---\ntitle: Oak floor\ndate: 2026-10-16\n{draft}profile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Bend\n    region: OR\n  started: 2026-10-14\n  finished: 2026-10-16\n{review}---\nDone.\n")
+    };
+    let job_path = f.dir.join("content/posts/oak-floor.md");
+    // The site's only review: without the check the delete passes and the job quietly stops showing it.
+    fs::write(&job_path, job("", "  review: dana-r-2026-10-20\n")).unwrap();
+    let delete = || {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=proof/dana-r-2026-10-20.md",
+                ),
+                &session,
+                true,
+            ),
+        )
+    };
+    let refused = delete();
+    assert_eq!(
+        refused.status,
+        422,
+        "{}",
+        String::from_utf8_lossy(&refused.body)
+    );
+    let error = body_json(&refused)["error"].to_string();
+    assert!(
+        error.contains("The job posts/oak-floor.md shows this review"),
+        "{error}"
+    );
+    assert!(review_path(&f, "dana-r-2026-10-20.md").is_file());
+    assert!(!f.dir.join(".openblog/trash").exists());
+
+    // A draft job may keep naming it; the build only warns about a draft.
+    fs::write(
+        &job_path,
+        job("draft: true\n", "  review: dana-r-2026-10-20\n"),
+    )
+    .unwrap();
+    let deleted = delete();
+    assert_eq!(
+        deleted.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&deleted.body)
+    );
+    assert!(!review_path(&f, "dana-r-2026-10-20.md").exists());
+}
+
+#[test]
+fn a_review_no_published_job_shows_is_deleted_and_the_build_stays_whole() {
+    let f = fixture("proof-delete-free");
+    let session = login_ok(&f);
+    assert_eq!(
+        create(&f, &session, review_fields(), "On time.\n").status,
+        201
+    );
+    let mut other = review_fields();
+    other["id"] = json!("sam-2026-10-01");
+    other["date"] = json!("2026-10-01");
+    assert_eq!(create(&f, &session, other, "Tidy.\n").status, 201);
+    fs::write(
+        f.dir.join("content/posts/oak-floor.md"),
+        "---\ntitle: Oak floor\ndate: 2026-10-16\nprofile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Bend\n    region: OR\n  started: 2026-10-14\n  finished: 2026-10-16\n  review: sam-2026-10-01\n---\nDone.\n",
+    )
+    .unwrap();
+    // The job shows sam, so dana is free to go.
+    let deleted = handle(
+        &f.state,
+        &authed(
+            req(
+                "DELETE",
+                "/admin/api/document?path=proof/dana-r-2026-10-20.md",
+            ),
+            &session,
+            true,
+        ),
+    );
+    assert_eq!(
+        deleted.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&deleted.body)
+    );
+    assert_eq!(body_json(&deleted)["build"]["ok"], json!(true));
+}

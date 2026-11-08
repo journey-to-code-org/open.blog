@@ -82,6 +82,18 @@ export function reviewId(author, date) {
   return [base, clean(date)].filter(Boolean).join("-").slice(0, LIMITS.id).replace(/-+$/g, "");
 }
 
+/** Whether a review can keep `address` as its link: a plain http(s) web link, no sign-in, within the limit. */
+export function isKeepableLink(address) {
+  const link = clean(address);
+  if (!link || link.length > LIMITS.url || /\s/.test(link)) return false;
+  try {
+    const url = new URL(link);
+    return /^https?:$/.test(url.protocol) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 export function isReviewId(value) {
   return /^[A-Za-z0-9_-]+$/.test(value) && value.length <= LIMITS.id;
 }
@@ -126,15 +138,24 @@ export function formFromSnapshot(form, snapshot) {
   next.provenance = "snapshot";
   next.platform = platformForUrl(next.sourceUrl);
   // A short or shared link that led onto a named platform keeps that platform with the address it led to,
-  // so the link the review keeps is on the platform it names (ADR 0390).
+  // so the link the review keeps is on the platform it names (ADR 0390). An address the review could not
+  // keep (too long, or not a plain web link) is left alone: the link box is read-only after a copy, so the
+  // pasted link stays, on Somewhere else, rather than an error the owner could never fix (ADR 0391).
   const landed = clean(snapshot?.canonicalUrl);
-  if (next.platform === "other" && landed && platformForUrl(landed) !== "other") {
+  if (next.platform === "other" && isKeepableLink(landed) && platformForUrl(landed) !== "other") {
     next.platform = platformForUrl(landed);
     next.sourceUrl = landed;
   }
   const words = clean(snapshot?.text);
   if (!clean(next.text) && words && [...words].length <= LIMITS.text) next.text = words;
   return next;
+}
+
+/** What the owner is told after a delete whose rebuild failed, or "" when the site was rebuilt. */
+export function deleteBuildText(result) {
+  if (!result?.build || result.build.ok !== false) return "";
+  const detail = clean(result.build.error);
+  return `Deleted. The review is in the trash, but your site could not be rebuilt yet${detail ? `: ${detail}` : "."}`;
 }
 
 /** What the snapshot route is sent: the link, and the owner's say-so that it may be fetched now. */
@@ -163,15 +184,9 @@ export function validateForm(form) {
   if (!PLATFORMS.some(([value]) => value === platform)) add("platform", "Choose where the review was left.");
 
   const link = clean(form.sourceUrl);
-  let url = null;
-  try {
-    url = new URL(link);
-  } catch {
-    url = null;
-  }
   if (!link) add("sourceUrl", "Add the link to the review, starting https://.");
-  else if (!url || !/^https?:$/.test(url.protocol) || url.username || url.password || /\s/.test(link) || link.length > LIMITS.url) add("sourceUrl", "Use the review's full link, starting https://.");
-  else if (platform && !platformOwnsHost(platform, url.hostname)) {
+  else if (!isKeepableLink(link)) add("sourceUrl", "Use the review's full link, starting https://.");
+  else if (platform && !platformOwnsHost(platform, new URL(link).hostname)) {
     const label = PLATFORMS.find(([value]) => value === platform)?.[1] || platform;
     add("sourceUrl", `That link is not on ${label}. Use the review's link there, or choose Somewhere else.`);
   }
@@ -218,8 +233,13 @@ export function snapshotErrorText(error) {
   return detail ? `That page could not be copied: ${detail}.${fallback}` : `That page could not be copied.${fallback}`;
 }
 
-export function reviewErrorText(error, { creating = false, id = "" } = {}) {
+export function reviewErrorText(error, { creating = false, deleting = false, id = "" } = {}) {
   const status = error?.status;
+  if (deleting) {
+    if (status === 401) return "You were signed out. Sign in again, then delete it.";
+    const detail = String(error?.data?.error || error?.message || "").trim();
+    return detail ? `The review was not deleted. ${detail}` : "The review was not deleted. Check your connection and try again.";
+  }
   if (status === 401) return "You were signed out. Sign in again, then save.";
   if (status === 413) return "That is too much to save. Shorten the review and try again.";
   if (status === 409 && creating) {
@@ -551,13 +571,20 @@ export function createReviews({ api, route = "", onSaved = () => {}, onLeave = (
     if (busy || !path) return false;
     busy = true;
     try {
-      await api.call("DELETE", `document?path=${encodeURIComponent(path)}`);
+      const result = await api.call("DELETE", `document?path=${encodeURIComponent(path)}`);
       if (destroyed) return true;
       saved = current();
+      const failed = deleteBuildText(result);
+      if (failed) {
+        // The review is gone, so its form goes too; the owner stays here to read why the site was not rebuilt.
+        formElement.replaceChildren();
+        say(failed, "error");
+        return true;
+      }
       onLeave("#/reviews");
       return true;
     } catch (error) {
-      say(reviewErrorText(error), "error");
+      say(reviewErrorText(error, { deleting: true }), "error");
       return false;
     } finally {
       busy = false;
