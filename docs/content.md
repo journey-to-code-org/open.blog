@@ -779,7 +779,7 @@ with its own number (`Step 1:`), a time written as text, only one of `prep` and 
 show recipe results only with a photo), some amounts in grams or litres while others are in cups,
 ounces or pounds (`mixed-unit-systems`: nothing is converted; a line that gives both, like
 `1 cup (240 ml)`, is fine), and text under a recipe heading that is not in its list
-(`unlisted-text`: the page shows it, the export leaves it out). Each problem names the
+(`unlisted-text`: the page shows it, the export leaves it out; a photo there is fine). Each problem names the
 ingredient or step number or the field, never your text. See ADRs
 [0333](adr/0333-a-recipe-is-exported-as-the-same-schema-org-recipe-node-its-page-carries-and-adapted-from-is-the-only-new-field.md),
 [0334](adr/0334-a-recipe-export-is-checked-against-a-closed-list-of-problems-and-an-error-stops-it.md)

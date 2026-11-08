@@ -382,8 +382,32 @@ pub fn published_folder(
             })
             .collect()
     }
-    let root_parts = parts(root);
-    let full = parts(&root.join(path));
+    // Both sides are made absolute and resolved through the part that exists,
+    // so an absolute `path` and a relative `root` (the CLI's `.`) compare.
+    fn resolved(path: &Path) -> PathBuf {
+        let Ok(absolute) = std::path::absolute(path) else {
+            return path.to_path_buf();
+        };
+        let mut rest = Vec::new();
+        let mut existing = absolute.as_path();
+        loop {
+            if let Ok(real) = fs::canonicalize(existing) {
+                return rest
+                    .iter()
+                    .rev()
+                    .fold(real, |acc: PathBuf, part| acc.join(part));
+            }
+            match (existing.parent(), existing.file_name()) {
+                (Some(parent), Some(name)) => {
+                    rest.push(name.to_os_string());
+                    existing = parent;
+                }
+                _ => return absolute,
+            }
+        }
+    }
+    let root_parts = parts(&resolved(root));
+    let full = parts(&resolved(&root.join(path)));
     let inside = full.strip_prefix(root_parts.as_slice())?;
     if inside.first().is_some_and(|first| first == ".openblog") {
         return None;
@@ -472,6 +496,27 @@ mod tests {
         assert!(
             error.contains("x.stateFile") && error.contains("`static`"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn an_absolute_path_into_a_published_folder_is_named_when_the_root_is_relative() {
+        use std::path::Path;
+        // The CLI runs with a root of `.`; `--out` may name the same folder absolutely.
+        let config = openblog_core::config::SiteConfig::default();
+        let root = Path::new(".");
+        let absolute = |path: &str| std::path::absolute(path).unwrap();
+        let published = |path: &Path| super::published_folder(root, &config, path);
+        assert_eq!(published(&absolute("static/pkg2")), Some("static"));
+        assert_eq!(published(&absolute("dist/pkg")), Some("output"));
+        assert_eq!(published(&absolute(".openblog/pkg")), None);
+        assert_eq!(published(&absolute("records/pkg")), None);
+        // A relative root that names a folder is resolved the same way.
+        let root = Path::new("site");
+        let site = std::path::absolute("site/static/x.json").unwrap();
+        assert_eq!(
+            super::published_folder(root, &config, &site),
+            Some("static")
         );
     }
 

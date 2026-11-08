@@ -1039,6 +1039,8 @@ fn transform_blocks<'a>(
     let mut item: Option<String> = None;
     // Inside a heading, whose words are its title, not recipe text.
     let mut in_heading = false;
+    // Inside an image, whose words are its alt text, not recipe text.
+    let mut in_image = 0usize;
     // The text block in a recipe section, outside its list, already counted.
     let mut unlisted_counted = false;
     // Raw HTML elements opened (and not yet closed) since the section began.
@@ -1548,6 +1550,8 @@ fn transform_blocks<'a>(
         match event {
             Event::Start(Tag::Heading { .. }) => in_heading = true,
             Event::End(TagEnd::Heading(_)) => in_heading = false,
+            Event::Start(Tag::Image { .. }) => in_image += 1,
+            Event::End(TagEnd::Image) => in_image = in_image.saturating_sub(1),
             _ => {}
         }
         if matches!(
@@ -1662,6 +1666,7 @@ fn transform_blocks<'a>(
                     buf.push_str(t);
                 } else if section.is_some()
                     && !in_heading
+                    && in_image == 0
                     && !unlisted_counted
                     && !t.trim().is_empty()
                 {

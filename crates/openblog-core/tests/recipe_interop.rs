@@ -485,3 +485,26 @@ fn text_in_a_recipe_section_outside_its_list_is_reported() {
     let (_, problems) = export_of(&site, "pasta");
     assert!(problems.iter().all(|p| p.code != Code::UnlistedText));
 }
+
+#[test]
+fn a_photo_in_a_recipe_section_is_not_text_left_out() {
+    // A photo's description is not recipe text the export could carry.
+    let photo = PASTA.replace(
+        "## Ingredients\n\n",
+        "## Ingredients\n\n![Spaghetti, lemons and a block of cheese on a board](/pantry.jpg)\n\n",
+    );
+    let site = site_from(&photo);
+    let (_, problems) = export_of(&site, "pasta");
+    assert!(
+        problems.iter().all(|p| p.code != Code::UnlistedText),
+        "{problems:?}"
+    );
+    // Words beside the photo still are.
+    let captioned = PASTA.replace(
+        "## Ingredients\n\n",
+        "## Ingredients\n\n![Spaghetti on a board](/pantry.jpg) Any long pasta works.\n\n",
+    );
+    let site = site_from(&captioned);
+    let (_, problems) = export_of(&site, "pasta");
+    assert!(problems.iter().any(|p| p.code == Code::UnlistedText));
+}
