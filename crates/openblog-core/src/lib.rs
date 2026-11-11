@@ -121,6 +121,7 @@ pub mod mention_publication;
 pub mod model;
 pub mod moderation;
 pub mod moderation_inbox;
+pub mod outcome;
 pub mod participation;
 pub mod passage_target;
 pub mod perspective_publication;
