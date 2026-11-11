@@ -1,6 +1,6 @@
 # Interactive web lessons, video workflow, and comment controls
 
-Status: approved from the 2026-10-24 product conversation
+Status: implemented (approved from the 2026-10-24 product conversation); `web runnable` is described in [web sandbox capabilities](web-sandbox-capabilities.md)
 
 ## Outcomes
 

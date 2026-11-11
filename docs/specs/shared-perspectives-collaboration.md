@@ -1,8 +1,9 @@
 # Shared perspectives collaboration contract
 
 Status: contract, authorization policy, and private shared publication record established;
-creating a shared reflection and inviting collaborators work in Admin Studio; drafting and
-quorum behavior are not implemented
+creating a shared reflection and inviting collaborators work in Admin Studio; drafting, reveal
+delivery, approval quorum and layout rendering are planned in epic
+[#592](https://github.com/journey-to-code-org/open.blog/issues/592) (PERSP1)
 Date: 2026-10-24
 
 ## Outcome
