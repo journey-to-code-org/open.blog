@@ -75,6 +75,10 @@ COMMANDS
     init [dir] --github-pages  Also write a GitHub Pages deployment workflow
     init [dir] --no-voice      Never offer a writing session afterwards (a terminal is
                                asked once; scripts and pipes are never asked)
+    init [dir] --starter trade [--trade <trade>]
+                               Start a trade business site: business facts, three example
+                               services as drafts, jobs, reviews, a quote form and a
+                               phone-first home page (trade defaults to general-contractor)
     new \"Title\"                Create content/posts/<date>-<slug>.md
     build                      Build the site into dist/
     serve                      Build, serve at http://localhost:8080, rebuild on change,
@@ -432,7 +436,22 @@ fn run(raw: &[String]) -> Result<(), String> {
         "init" => {
             let dir = args.positional.first().map(PathBuf::from).unwrap_or(root);
             let title = args.options.get("title").map(String::as_str);
-            let created = scaffold::init(&dir, title, args.switches.contains("github-pages"))?;
+            let starter = match args.options.get("starter") {
+                Some(name) => Some(scaffold::Starter::parse(
+                    name,
+                    args.options.get("trade").map(String::as_str),
+                )?),
+                None if args.options.contains_key("trade") => {
+                    return Err("--trade goes with --starter trade".into())
+                }
+                None => None,
+            };
+            let created = scaffold::init_with(
+                &dir,
+                title,
+                args.switches.contains("github-pages"),
+                starter.as_ref(),
+            )?;
             if created.is_empty() {
                 println!(
                     "Nothing to do: {} already looks like an open.blog project.",
@@ -442,9 +461,15 @@ fn run(raw: &[String]) -> Result<(), String> {
                 for file in &created {
                     println!("created {file}");
                 }
-                println!(
-                    "\nNext: cd into the folder, run `openblog serve`, and edit openblog.json."
-                );
+                if starter.is_some() {
+                    println!(
+                        "\nNext: cd into the folder, run `openblog serve --admin`, and follow the checklist on Admin's Home screen: business facts, your first service, your first job, your first review, and a place to share jobs. See docs/trades.md."
+                    );
+                } else {
+                    println!(
+                        "\nNext: cd into the folder, run `openblog serve`, and edit openblog.json."
+                    );
+                }
             }
             // A person at a terminal is asked once; pipes and scripts never are (ADR 0269).
             voice_cli::invite_after_init(
