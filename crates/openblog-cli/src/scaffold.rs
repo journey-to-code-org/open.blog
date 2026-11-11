@@ -203,6 +203,15 @@ fn trade_config(base: &SiteConfig, trade: &str) -> Result<SiteConfig, String> {
     ));
     value["author"]["name"] = serde_json::Value::String(name.clone());
     value["author"]["url"] = serde_json::Value::String("/about/".into());
+    // The first look for trades (ADR 0400), so the site reads as a business from the first build.
+    if let Some(look) = openblog_core::look_presets::trade_looks().next() {
+        if let Some(applied) = openblog_core::look_presets::apply(
+            look.id,
+            &openblog_core::look::LookSettings::default(),
+        ) {
+            value["appearance"] = applied.to_value();
+        }
+    }
     value["business"] = serde_json::json!({
         "version": 1,
         "displayName": name,
@@ -556,6 +565,7 @@ mod tests {
         assert_eq!(site.config.business.trade, "flooring");
         assert!(site.config.business.phone.is_empty(), "no invented phone");
         assert!(site.posts.is_empty(), "no hello-world post on a trade site");
+        assert_eq!(site.config.appearance.palette.as_deref(), Some("workshop"));
         assert!(site.services.is_empty(), "the example services are drafts");
         assert!(site.proof.is_empty());
         let landing = site.landing.as_ref().expect("a landing page");
