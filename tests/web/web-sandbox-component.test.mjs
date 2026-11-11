@@ -99,6 +99,36 @@ test("tabs switch whole editor shells and Reset repaints the original source", (
   assert.ok(!JSON.stringify(painted.children).includes("blue"), "Reset repaints the original source");
 });
 
+test("the preview shows first and the source stays behind a Show code toggle", () => {
+  const sandbox = fixture();
+  const [code] = findAll(sandbox, "ob-web-sandbox-code");
+  const [toggle] = findAll(sandbox, "ob-web-sandbox-toggle");
+  const [restart] = findAll(sandbox, "ob-web-sandbox-restart");
+  assert.equal(code.hidden, true);
+  assert.equal(toggle["aria-expanded"], "false");
+  assert.equal(toggle["aria-controls"], code.id);
+  assert.equal(restart.hidden, false, "Restart reruns the preview while the code is hidden");
+  toggle.click();
+  assert.equal(code.hidden, false);
+  assert.equal(toggle["aria-expanded"], "true");
+  assert.equal(toggle.textContent, "Hide code");
+  assert.equal(restart.hidden, true, "Run preview takes over once the editors are open");
+});
+
+test("an `open` fence (a challenge) starts with the editors showing", () => {
+  const code = new Node("code");
+  code.textContent = "---html\n<p>Fix me</p>";
+  const pre = new Node("pre");
+  pre.querySelector = () => code;
+  const sandbox = new Sandbox();
+  sandbox.dataset.open = "";
+  sandbox.children = [pre];
+  sandbox.querySelector = (selector) => (selector === "pre" ? pre : null);
+  sandbox.connectedCallback();
+  assert.equal(findAll(sandbox, "ob-web-sandbox-code")[0].hidden, false);
+  assert.equal(sandbox.dataset.code, "open");
+});
+
 test("sandbox controls and notes share the editable-code styles", () => {
   const sandbox = fixture();
   const [controls] = findAll(sandbox, "ob-code-editor-controls");

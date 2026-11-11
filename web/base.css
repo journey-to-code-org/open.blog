@@ -1412,7 +1412,13 @@ ob-web-sandbox { display: block; margin: 1.5em 0; }
 .ob-web-sandbox-tab { min-height: 2rem; margin-bottom: calc(var(--ob-border-width) * -1); padding: 0.3rem 0.8rem; border-color: transparent; border-bottom: 2px solid transparent; border-radius: var(--ob-radius-sm) var(--ob-radius-sm) 0 0; background: transparent; color: var(--ob-color-muted); }
 .ob-web-sandbox-tab:hover { color: var(--ob-color-text); }
 .ob-web-sandbox-tab[aria-pressed="true"] { border-bottom-color: var(--ob-color-accent); color: var(--ob-color-accent); font-weight: 600; }
-.ob-web-sandbox-preview { display: block; box-sizing: border-box; width: 100%; min-height: 18rem; margin-top: 0.65rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: #fff; }
+/* The preview takes the page's scheme (set from ob-web-sandbox.js), so an unstyled lesson sits on
+   the theme's own surface and `light-dark()` colors in lesson CSS follow the reader's theme. */
+.ob-web-sandbox-preview { display: block; box-sizing: border-box; width: 100%; min-height: 18rem; margin-top: 0.65rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: var(--ob-color-surface, Canvas); }
+.ob-web-sandbox-code { margin-bottom: 0.65rem; }
+.ob-web-sandbox-code[hidden], .ob-code-editor-controls button[hidden] { display: none; }
+.ob-web-sandbox-toggle::before { content: "</>"; margin-right: 0.45rem; color: var(--ob-color-accent); font: 700 0.75rem / 1 var(--ob-font-mono); }
+.ob-web-sandbox-toggle[aria-expanded="true"] { border-color: var(--ob-color-accent); }
 /* Console output forwarded from the preview, shown only once something is logged. */
 .ob-web-sandbox-console { margin-top: 0.5rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: var(--ob-color-code-bg); color: var(--ob-color-code-text); }
 .ob-web-sandbox-console-title { margin: 0; padding: 0.35rem 0.75rem; border-bottom: var(--ob-border-width) solid var(--ob-color-border); font: 700 0.7rem / 1.6 var(--ob-font-mono); letter-spacing: 0.06em; text-transform: uppercase; }

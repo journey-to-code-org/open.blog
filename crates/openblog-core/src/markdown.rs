@@ -169,6 +169,8 @@ pub(crate) struct FenceInfo {
     network: bool,
     /// `images`: let a web sandbox load HTTPS images.
     images: bool,
+    /// `open`: show a web sandbox's editors from the start (a challenge) instead of only the preview.
+    open: bool,
     /// `libs=react,vue`: site-hosted libraries to inline into a web sandbox.
     libs: Vec<String>,
     /// The kind named after `demo`, as in ```` ```demo git-sandbox ````.
@@ -296,6 +298,8 @@ pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
             out.network = true;
         } else if word == "images" {
             out.images = true;
+        } else if word == "open" {
+            out.open = true;
         } else if let Some(value) = word.strip_prefix("lesson=") {
             let id = value.trim_matches(|c| c == '"' || c == '\'');
             if !id.is_empty()
@@ -1448,6 +1452,7 @@ fn transform_blocks<'a>(
                         (fence.module, " data-module"),
                         (fence.network, " data-network"),
                         (fence.images, " data-images"),
+                        (fence.open, " data-open"),
                     ] {
                         if enabled {
                             html.push_str(attribute);
@@ -3312,13 +3317,13 @@ mod tests {
             web_libraries: Some(&libraries),
             ..RenderOptions::default()
         };
-        let source = "```web runnable module network images libs=React title=\"Try it\"\n---js\nawait Promise.resolve();\n```\n";
+        let source = "```web runnable module network images open libs=React title=\"Try it\"\n---js\nawait Promise.resolve();\n```\n";
         let rendered = render(source, options);
         assert!(rendered.errors.is_empty(), "{:?}", rendered.errors);
         assert!(
             rendered
                 .html
-                .contains("<ob-web-sandbox data-module data-network data-images>"),
+                .contains("<ob-web-sandbox data-module data-network data-images data-open>"),
             "{}",
             rendered.html
         );
