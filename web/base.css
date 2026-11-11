@@ -3637,6 +3637,42 @@ ob-reading-modes { display: block; }
   max-width: var(--ob-reading-width);
 }
 
+/* Services, recent jobs and reviews on the landing page (ADR 0398): one column on a phone, cards
+   side by side once there is room. Each card is a whole tap target through its title link. */
+.ob-home-services {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-home-service {
+  padding: 1rem 1.25rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+}
+
+.ob-home-service .ob-row-title {
+  margin: 0 0 0.5rem;
+}
+
+.ob-home-service .ob-row-title a {
+  display: inline-block;
+  min-height: 44px;
+  padding-block: 0.5rem;
+}
+
+.ob-home-service p {
+  margin: 0.25rem 0 0;
+}
+
+.ob-home-reviews {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+}
+
 .ob-home-image,
 .ob-home-figure img {
   display: block;

@@ -5193,7 +5193,7 @@ const SERVICE_PAGE_JOBS: usize = 5;
 const AREA_PAGE_JOBS: usize = 10;
 
 /// The price band and timeline of a service as escaped text, in a fixed order.
-fn service_facts(service: &crate::model::Service) -> Vec<String> {
+pub(crate) fn service_facts(service: &crate::model::Service) -> Vec<String> {
     let mut facts = Vec::new();
     if let Some(band) = service.price_band {
         facts.push(format!("Price band: {}", text(band.label())));

@@ -16,6 +16,7 @@ export const LIMITS = Object.freeze({
   line: 200,
   answer: 2000,
   latestCount: 50,
+  tradeCount: 12,
   buttons: 6,
   hoursRows: 14,
   socialLinks: 12,
@@ -222,6 +223,39 @@ export const SECTION_CATALOG = Object.freeze([
     blank: () => ({ heading: "Ask for a quote" }),
     fields: [text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "Visitors see nothing here until quote requests are switched on and set up. See the quote requests guide." })],
   },
+  {
+    type: "services",
+    label: "Services",
+    icon: "\u{1F9F0}",
+    description: "Cards for the services you offer, each linking to its own page.",
+    sample: "Fence repair, New fences, Gates. Each with a short summary.",
+    blank: () => ({ heading: "What we do" }),
+    fields: [text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "The services themselves are written under Services. Nothing is shown here until you publish one." })],
+  },
+  {
+    type: "recent-jobs",
+    label: "Recent jobs",
+    icon: "\u{1F6E0}",
+    description: "Your newest finished jobs, kept up to date for you.",
+    sample: "New oak floor in Maple Falls, Stair repair in Bend.",
+    blank: () => ({ heading: "Recent jobs" }),
+    fields: [
+      text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "Nothing is shown here until you publish your first job." }),
+      { kind: "number", name: "count", label: "How many jobs", optional: true, min: 1, max: LIMITS.tradeCount, integer: true, hint: "Leave empty to show 3." },
+    ],
+  },
+  {
+    type: "reviews",
+    label: "Reviews",
+    icon: "\u2B50",
+    description: "Your newest customer reviews, each with a link to where it was left.",
+    sample: "On time, careful with our things, and the floor looks great. Dana R., on Google.",
+    blank: () => ({ heading: "What customers say" }),
+    fields: [
+      text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "Reviews are saved under Reviews. Nothing is shown here until you save one." }),
+      { kind: "number", name: "count", label: "How many reviews", optional: true, min: 1, max: LIMITS.tradeCount, integer: true, hint: "Leave empty to show 3." },
+    ],
+  },
 ]);
 
 const BY_TYPE = new Map(SECTION_CATALOG.map((entry) => [entry.type, entry]));
@@ -278,7 +312,12 @@ export function sectionSummary(section) {
       return shorten(first(section.title, section.body)) || "No note yet";
     case "business-facts":
     case "quote-form":
+    case "services":
       return shorten(first(section.heading)) || "No heading yet";
+    case "recent-jobs":
+      return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "job" : "jobs"})` : ""}`;
+    case "reviews":
+      return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "review" : "reviews"})` : ""}`;
     default:
       return "";
   }

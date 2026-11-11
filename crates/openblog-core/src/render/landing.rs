@@ -17,8 +17,9 @@
 use crate::escape::{attr, text};
 use crate::landing::{
     render_inert_markdown, BusinessFacts, Callout, Contact, Faq, FeaturedPost, ImageSection,
-    LandingPage, LatestPosts, LatestShow, MapSection, OpeningHours, QuoteForm, RichText, Section,
-    SectionKind, SeriesSection, SocialLinks, Video, Welcome,
+    LandingPage, LatestPosts, LatestShow, MapSection, OpeningHours, QuoteForm, RecentJobs,
+    ReviewsSection, RichText, Section, SectionKind, SeriesSection, ServicesSection, SocialLinks,
+    Video, Welcome, DEFAULT_TRADE_COUNT,
 };
 use crate::theme::Theme;
 
@@ -154,7 +155,101 @@ impl Renderer<'_> {
             SectionKind::Callout(v) => self.landing_callout(section, v),
             SectionKind::BusinessFacts(v) => self.landing_business(cx, section, v),
             SectionKind::QuoteForm(v) => self.landing_quote(cx, section, v),
+            SectionKind::Services(v) => self.landing_services(cx, section, v),
+            SectionKind::RecentJobs(v) => self.landing_recent_jobs(cx, section, v),
+            SectionKind::Reviews(v) => self.landing_reviews(cx, section, v),
         }
+    }
+
+    /// The published services as cards, each linking to its page; nothing until the site has one
+    /// (ADR 0398). The card titles sit one level under the section heading.
+    fn landing_services(
+        &self,
+        cx: &mut Context<'_>,
+        section: &Section,
+        v: &ServicesSection,
+    ) -> String {
+        let services: Vec<&crate::model::Service> =
+            self.site.services.iter().filter(|s| !s.draft).collect();
+        if services.is_empty() {
+            return String::new();
+        }
+        let card_level = if cx.h1 { 3 } else { 2 };
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        inner.push_str("<ul class=\"ob-home-services\">\n");
+        for service in services {
+            inner.push_str(&format!(
+                "<li class=\"ob-home-service\">\n<h{card_level} class=\"ob-row-title\"><a href=\"{}\">{}</a></h{card_level}>\n<p>{}</p>\n",
+                attr(&service.url),
+                text(&service.name),
+                text(&service.summary)
+            ));
+            let facts = super::service_facts(service);
+            if !facts.is_empty() {
+                inner.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", facts.join(" · ")));
+            }
+            inner.push_str("</li>\n");
+        }
+        inner.push_str(&format!(
+            "</ul>\n<p class=\"ob-home-all\"><a class=\"ob-home-link\" href=\"{}\">All services</a></p>\n",
+            crate::service::SERVICES_URL
+        ));
+        self.landing_wrap(section, true, &inner, "")
+    }
+
+    /// The newest published jobs; nothing until the first one is published (ADR 0398).
+    fn landing_recent_jobs(
+        &self,
+        cx: &mut Context<'_>,
+        section: &Section,
+        v: &RecentJobs,
+    ) -> String {
+        let count = v.count.unwrap_or(DEFAULT_TRADE_COUNT) as usize;
+        let jobs: Vec<usize> = self
+            .site
+            .posts
+            .iter()
+            .enumerate()
+            .filter(|(_, post)| post.job.is_some() && self.site.is_published(post))
+            .map(|(index, _)| index)
+            .take(count)
+            .collect();
+        if jobs.is_empty() {
+            return String::new();
+        }
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        inner.push_str(&self.post_list(cx.theme, &jobs));
+        inner.push_str(&format!(
+            "\n<p class=\"ob-home-all\"><a class=\"ob-home-link\" href=\"{}\">All jobs</a></p>\n",
+            crate::job_archive::JOBS_URL
+        ));
+        self.landing_wrap(section, true, &inner, "")
+    }
+
+    /// The newest saved reviews, each with its source; nothing until the first one is saved. The
+    /// `Review` data stays on `/reviews/` and the job pages, so nothing is stated twice (ADR 0398).
+    fn landing_reviews(
+        &self,
+        cx: &mut Context<'_>,
+        section: &Section,
+        v: &ReviewsSection,
+    ) -> String {
+        let count = v.count.unwrap_or(DEFAULT_TRADE_COUNT) as usize;
+        if self.site.proof.is_empty() {
+            return String::new();
+        }
+        let mut inner = self.landing_heading(cx, &section.id, &v.heading);
+        inner.push_str("<ul class=\"ob-proof-list ob-home-reviews\">\n");
+        for proof in self.site.proof.iter().take(count) {
+            inner.push_str("<li>");
+            inner.push_str(&crate::proof::figure_html(proof, true));
+            inner.push_str("</li>\n");
+        }
+        inner.push_str(&format!(
+            "</ul>\n<p class=\"ob-home-all\"><a class=\"ob-home-link\" href=\"{}\">All reviews</a></p>\n",
+            crate::proof::REVIEWS_URL
+        ));
+        self.landing_wrap(section, true, &inner, "")
     }
 
     fn landing_welcome(&self, cx: &mut Context<'_>, section: &Section, v: &Welcome) -> String {
