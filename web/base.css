@@ -3200,6 +3200,30 @@ ob-series-previews {
   min-height: 44px;
 }
 
+/* On the landing page the phone number is the main action (ADR 0400): a solid, large button in the
+   accent, whose text color is the accent's own contrast token, so every look keeps it readable. */
+.ob-home-business-facts .ob-business-phone a {
+  min-height: 52px;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+  font-size: 1.25em;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ob-home-business-facts .ob-business-phone a:hover,
+.ob-home-business-facts .ob-business-phone a:focus-visible {
+  text-decoration: underline;
+}
+
+@media (forced-colors: active) {
+  .ob-home-business-facts .ob-business-phone a {
+    border: 2px solid ButtonText;
+  }
+}
+
 .ob-business-hours div {
   display: flex;
   justify-content: space-between;

@@ -28,8 +28,18 @@ pub const CONTROLS: [&str; 8] = [
 
 /// Curated palette ids (`palette: "theme"` means the theme's own colors). The palette data lives in
 /// [`crate::look_presets`].
-pub const PALETTE_IDS: [&str; 8] = [
-    "calm", "warm", "bold", "night", "garden", "paper", "ocean", "sunset",
+pub const PALETTE_IDS: [&str; 11] = [
+    "calm",
+    "warm",
+    "bold",
+    "night",
+    "garden",
+    "paper",
+    "ocean",
+    "sunset",
+    "workshop",
+    "high-vis",
+    "blueprint",
 ];
 
 macro_rules! choice_enum {

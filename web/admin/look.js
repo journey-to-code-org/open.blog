@@ -99,11 +99,16 @@ export function clearControl(look, id) {
   return next;
 }
 
-/** A curated look chosen: its palette and font style, and no chosen accent (the look brings its own). */
+/** A curated look chosen: its palette and font style, and no chosen accent (the look brings its own). A look for
+ * trades also chooses large text and bold headings where none is chosen yet, as the server does (ADR 0400). */
 export function applyCurated(look, curated) {
   const next = { ...look, palette: curated.id };
   if (curated.fontStyle) next.fontStyle = curated.fontStyle;
   delete next.accent;
+  if (curated.forTrades === true) {
+    next.textSize ??= "large";
+    next.headingWeight ??= "bold";
+  }
   return next;
 }
 
