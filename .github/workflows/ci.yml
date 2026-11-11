@@ -37,6 +37,8 @@ jobs:
         run: sh tests/docker-entrypoint.sh
       - name: Check documentation links
         run: node scripts/check-doc-links.mjs
+      - name: Generate the documentation site from docs/
+        run: node scripts/build-docs-site.mjs --out "$RUNNER_TEMP/docs-site-guides"
       - name: Build the starter site
         run: cargo run -p openblog-cli -- build
       - name: Build the portable publishing example

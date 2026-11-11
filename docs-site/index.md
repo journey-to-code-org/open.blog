@@ -19,23 +19,28 @@ This guide is built for people who need to:
 ## What you will find here
 
 1. **Quick Start** to get from install to first publish.
-2. **CLI Reference** with command patterns and practical workflows.
+2. **CLI Reference** with every command and option, generated from `openblog help`.
 3. **Admin Panel Guide** for editor, preview, SEO, scheduling, and publishing.
 4. **Content Authoring** guidance for Markdown, front matter, and quality checks.
 5. **Deployment and Troubleshooting** for GitHub Pages and production operations.
+6. **Guides, Configuration Reference, Specifications and Decision records**, published from the
+   repository's `docs/` folder on every change, so they match the code on `main`.
 
 ## Documentation map
 
 | Area | Purpose | Primary pages |
 | --- | --- | --- |
 | Getting Started | Fast path from install to first publish | [Quick Start](./getting-started) |
-| CLI | Command usage and operational workflows | [CLI Overview](./cli/overview), [Command Reference](./cli/commands), [CLI Workflows](./cli/workflows) |
+| CLI | Command usage and operational workflows | [CLI Overview](./cli/overview), [Command Reference](./guides/cli-reference.html), [CLI Workflows](./cli/workflows) |
 | Admin Panel | Browser-based drafting, preview, and publish flow | [Admin Panel Overview](./admin-panel/overview), [Drafting and Preview](./admin-panel/drafts-and-preview), [Publishing and Scheduling](./admin-panel/publishing-and-scheduling) |
 | Content Authoring | Markdown conventions, metadata, and quality | [Markdown Style Guide](./content/markdown-style-guide), [Front Matter Guide](./content/front-matter-guide), [Content Quality Checklist](./content/quality-checklist) |
 | Advanced Capabilities | Deep product features and operational workflows | [Advanced Capabilities](./advanced/overview), [Architecture and Mental Model](./advanced/architecture-and-mental-model), [Research and Evidence Workflows](./advanced/research-and-evidence-workflows) |
 | Operations | Deployment, incidents, and maintenance | [GitHub Pages Deployment](./deployment), [Troubleshooting](./troubleshooting), [Contributing to Docs](./contributing) |
 | Releases and Upgrades | Versioning policy, changelog expectations, and migrations | [Versioning and Migrations](./versioning-and-migrations) |
 | Help | Quick answers for common operator and author questions | [FAQ](./faq) |
+| Guides | Every feature guide in the repository's `docs/` folder | [Guides](./guides/) |
+| Configuration | Every `openblog.json` key and its default | [Configuration Reference](./guides/configuration.html) |
+| Specifications and decisions | Exact feature behaviour, and why the engine works the way it does | [Specifications](./guides/specs/), [Decision records](./guides/adr/) |
 
 For the complete structure rationale, see [Information Architecture](./information-architecture).
 
