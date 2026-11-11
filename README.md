@@ -60,6 +60,7 @@ starter site you can run straight away.
 ```sh
 openblog init my-blog          # a starter site: config, a post, a page, three themes
                                # add --github-pages for a ready-made deploy workflow
+                               # or --starter trade for a trade business (docs/trades.md)
 cd my-blog
 openblog serve                 # http://localhost:8080, rebuilds whenever a file changes
 ```

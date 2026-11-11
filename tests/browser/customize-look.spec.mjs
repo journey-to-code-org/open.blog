@@ -90,7 +90,7 @@ const frame = (page) => page.frameLocator("[data-landing-frame]");
 test("the screen offers looks and plain controls and no field that takes text", async ({ page }) => {
   await openLook(page);
   await expect(page.locator("main h2, main .oba-workspace-title").first()).toBeVisible();
-  await expect(control(page, "palette").locator("input[type=radio]")).toHaveCount(8);
+  await expect(control(page, "palette").locator("input[type=radio]")).toHaveCount(11);
   for (const id of ["accent", "fontStyle", "textSize", "roundness", "spacing", "pageWidth", "headingWeight"]) {
     await expect(control(page, id)).toBeVisible();
     await expect(control(page, id).getByRole("button", { name: `back to theme default`, exact: false })).toBeDisabled();

@@ -61,6 +61,10 @@ pub struct Preferences {
     /// dismissed it is written without the key.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub voice_invitation_dismissed: bool,
+    /// Whether this admin dismissed the ten-minute checklist for a trade site (ADR 0401). Absent until
+    /// dismissed, like the voice invitation, so every earlier file keeps its exact shape.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trade_checklist_dismissed: bool,
 }
 
 impl Default for Preferences {
@@ -76,6 +80,7 @@ impl Default for Preferences {
                 .collect(),
             hidden_modules: Vec::new(),
             voice_invitation_dismissed: false,
+            trade_checklist_dismissed: false,
         }
     }
 }

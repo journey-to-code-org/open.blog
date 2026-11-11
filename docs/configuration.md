@@ -74,7 +74,8 @@ default, so you can edit values in place and delete the ones you do not need.
   ```json
   "appearance": {
     "version": 1,
-    "palette": "calm",          // calm, warm, bold, night, garden, paper, ocean, sunset
+    "palette": "calm",          // calm, warm, bold, night, garden, paper, ocean, sunset,
+                                // and for trades: workshop, high-vis, blueprint
     "accent": "#2f6690",        // #rgb or #rrggbb; made readable in light and dark if needed
     "fontStyle": "classic-serif", // modern-sans, classic-serif, friendly-rounded, techie-mono
     "textSize": "large",        // small, medium, large, extra-large
@@ -84,6 +85,10 @@ default, so you can edit values in place and delete the ones you do not need.
     "headingWeight": "bold"     // normal, bold
   }
   ```
+
+  The three looks for trades (`workshop`, `high-vis` and `blueprint`) meet the stricter AAA contrast bar, and
+  choosing one in Admin also sets `textSize` to `large` and `headingWeight` to `bold` unless you chose your own
+  ([ADR 0400](adr/0400-three-looks-for-trades-meet-aaa-contrast-and-choose-large-text-and-bold-headings.md)).
 
   Leave out any field to keep the theme's own value. The engine compiles these into a short block of
   `--ob-*` tokens after the theme's, only for the controls the theme honors (see

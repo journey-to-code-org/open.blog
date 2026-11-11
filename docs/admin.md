@@ -990,6 +990,14 @@ does not conflict with it, and it changes only the `business` key of `openblog.j
 place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
 to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
+### The ten-minute checklist
+
+On a site whose business facts name a trade, Admin's home opens with **Your site in ten minutes**: add a phone
+number or email, publish a service, publish a job, save a review, and share a job. Each step is worked out from your
+files every time by `GET /admin/api/trade-checklist`, which only reads, so it ticks only when your site has it and
+unticks if that goes away. Each open step links to where it is done. **Hide** stores `tradeChecklistDismissed` in
+your workspace preferences; nothing else is stored. See [A site for a trade business](trades.md#the-checklist-on-admins-home).
+
 ### Seasonal reminders
 
 Open **Reminders** (`#/reminders`) to turn on prompts that suggest what to write at the right time of year for

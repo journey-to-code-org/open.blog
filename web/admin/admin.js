@@ -11,6 +11,7 @@ import { buildHistory } from "./landing-history.js";
 import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
+import { buildTradeChecklist, checklistVisible } from "./trade-checklist.js";
 import { createAnnouncementsPanel } from "./announcements.js";
 import { createJobShare } from "./job-share.js";
 import { createBusinessFacts } from "./business.js";
@@ -129,8 +130,17 @@ export function normalizeAdminPreferences(value) {
   // Layouts saved before the research workspace showed research only with Evidence Studio, so a
   // layout that hid Evidence Studio keeps the workspace hidden too (ADR 0120).
   if (!suppliedOrder.includes("research") && hiddenModules.includes("evidence") && !hiddenModules.includes("research")) hiddenModules.push("research");
-  // Only a dismissed invitation is written, so every other set of preferences keeps its exact shape.
-  return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules, ...(input.voiceInvitationDismissed === true ? { voiceInvitationDismissed: true } : {}) };
+  // Only a dismissed invitation or checklist is written, so every other set of preferences keeps its exact shape.
+  return {
+    schemaVersion: 1,
+    preset,
+    density,
+    editorMode,
+    moduleOrder,
+    hiddenModules,
+    ...(input.voiceInvitationDismissed === true ? { voiceInvitationDismissed: true } : {}),
+    ...(input.tradeChecklistDismissed === true ? { tradeChecklistDismissed: true } : {}),
+  };
 }
 
 /**
@@ -12540,8 +12550,38 @@ export class ObAdmin extends AdminElement {
       healthPanel.focus();
       healthPanel.scrollIntoView({ block: "start" });
     }
-    // The page is already on screen: the invitation arrives after it, so asking can never delay the home.
+    // The page is already on screen: the invitation and the checklist arrive after it, so asking can never
+    // delay the home.
     this.offerVoiceInvitation(this.viewVersion);
+    this.offerTradeChecklist(this.viewVersion);
+  }
+
+  /**
+   * The ten-minute checklist on a trade site (ADR 0401): every step comes from the server, which reads the files,
+   * so it is never ticked by a click. Hidden once dismissed or once every step is done. If the question cannot be
+   * answered, or Admin has moved on, nothing is added.
+   */
+  async offerTradeChecklist(version) {
+    try {
+      if (this.preferences?.tradeChecklistDismissed === true) return;
+      const data = await this.api.call("GET", "trade-checklist");
+      if (this.viewVersion !== version || !this.workspaceMain) return;
+      if (!checklistVisible({ dismissed: this.preferences?.tradeChecklistDismissed === true, data })) return;
+      const checklist = buildTradeChecklist({
+        data,
+        onDismiss: async () => {
+          if (this.preferencesUnreadable) return false;
+          await this.saveWorkspacePreferences((saved) => ({ ...saved, tradeChecklistDismissed: true }));
+          return true;
+        },
+        onGone: () => {
+          this.querySelector?.(".oba-overview-metrics a")?.focus();
+        },
+      });
+      this.workspaceMain.insertBefore(checklist.element, this.workspaceMain.firstChild);
+    } catch {
+      // Without an answer the checklist stays away; nothing else on this page needs it.
+    }
   }
 
   /**

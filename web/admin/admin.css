@@ -3762,6 +3762,49 @@ ob-voice-library {
   overflow-wrap: anywhere;
 }
 
+/* The ten-minute checklist for a trade site (ADR 0401): one column at 400px, each step a row with its own
+   44px action. The mark is decoration; the state is said in words for screen readers. */
+.oba-trade-checklist {
+  max-width: 48rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-trade-steps {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-trade-step {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: 0.25rem 0.75rem;
+  align-items: start;
+}
+
+.oba-trade-step > .oba-btn,
+.oba-trade-step > .oba-small {
+  grid-column: 2;
+  justify-self: start;
+  min-height: 44px;
+}
+
+.oba-trade-step-mark {
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.oba-trade-step-text {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.oba-trade-step-done .oba-trade-step-text strong {
+  text-decoration: line-through;
+}
+
 .oba-voice-timer {
   display: flex;
   flex-wrap: wrap;

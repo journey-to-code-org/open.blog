@@ -13,7 +13,9 @@ privacy-enhanced YouTube player, discovery metadata, and a release-kit workflow;
 [Video productions and release kits](video-production.md).
 Field journals add local GPX analysis and location-privacy controls; see
 [Field journals and private-by-default tracks](field-journal.md).
-Jobs record finished trade work as posts; see [Jobs](jobs.md).
+Jobs record finished trade work as posts; see [Jobs](jobs.md). A whole site for a trade business, from
+`openblog init --starter trade` to quote requests, reviews and sharing a job, is described in
+[A site for a trade business](trades.md).
 
 ## Authoring Assistant
 

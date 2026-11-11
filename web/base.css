@@ -3200,6 +3200,30 @@ ob-series-previews {
   min-height: 44px;
 }
 
+/* On the landing page the phone number is the main action (ADR 0400): a solid, large button in the
+   accent, whose text color is the accent's own contrast token, so every look keeps it readable. */
+.ob-home-business-facts .ob-business-phone a {
+  min-height: 52px;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+  font-size: 1.25em;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ob-home-business-facts .ob-business-phone a:hover,
+.ob-home-business-facts .ob-business-phone a:focus-visible {
+  text-decoration: underline;
+}
+
+@media (forced-colors: active) {
+  .ob-home-business-facts .ob-business-phone a {
+    border: 2px solid ButtonText;
+  }
+}
+
 .ob-business-hours div {
   display: flex;
   justify-content: space-between;
@@ -3635,6 +3659,42 @@ ob-reading-modes { display: block; }
 .ob-home-rich-text,
 .ob-home-faq {
   max-width: var(--ob-reading-width);
+}
+
+/* Services, recent jobs and reviews on the landing page (ADR 0398): one column on a phone, cards
+   side by side once there is room. Each card is a whole tap target through its title link. */
+.ob-home-services {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-home-service {
+  padding: 1rem 1.25rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+}
+
+.ob-home-service .ob-row-title {
+  margin: 0 0 0.5rem;
+}
+
+.ob-home-service .ob-row-title a {
+  display: inline-block;
+  min-height: 44px;
+  padding-block: 0.5rem;
+}
+
+.ob-home-service p {
+  margin: 0.25rem 0 0;
+}
+
+.ob-home-reviews {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
 }
 
 .ob-home-image,
