@@ -60,6 +60,8 @@ If you are new, read these in order; each one stands alone otherwise.
 25. [A site for a trade business](trades.md): `openblog init --starter trade`, the ten-minute checklist on Admin's
    home, looks for trades, and how jobs, services, reviews, quote requests and sharing fit together. The
    contributor view is the [trades spec](specs/trades.md).
+26. [Where your posts went](distribution-reporting.md): every place each post was sent, what each status rests on,
+   and the visits your own counter saw from there, from `openblog outcomes` or Admin's **Where it went**.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
@@ -163,6 +165,7 @@ openblog init [dir] [--title "..."] [--github-pages]
                                         Create a new blog (optionally with a Pages workflow)
 openblog init [dir] --starter trade [--trade <trade>]
                                         Start a trade business site (see trades.md)
+openblog outcomes [--json] [--days N]   Where each post went, from your own records
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]

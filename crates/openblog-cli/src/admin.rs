@@ -591,6 +591,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/business.js" => "business.js",
         "/admin/seasonal.js" => "seasonal.js",
         "/admin/trade-checklist.js" => "trade-checklist.js",
+        "/admin/distribution.js" => "distribution.js",
         "/admin/services.js" => "services.js",
         "/admin/proof.js" => "proof.js",
         "/admin/paste.js" => "paste.js",
@@ -18809,6 +18810,7 @@ mod tests {
     mod business_routes;
     mod capture_transcribe_routes;
     mod comparison_routes;
+    mod distribution_routes;
     mod job_draft_routes;
     mod job_share_routes;
     mod landing_history_routes;

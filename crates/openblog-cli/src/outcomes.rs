@@ -400,9 +400,26 @@ pub(crate) fn report(
             })
         })
         .collect();
+    // Visits by destination for the site's own post pages only, so Admin can show them beside the
+    // social announcements it reads from the hosted queue (ADR 0404).
+    let pages: std::collections::BTreeSet<&str> = posts.iter().map(|p| p.3.as_str()).collect();
+    let arrivals: BTreeMap<&String, BTreeMap<&String, &u64>> = visits
+        .into_iter()
+        .flatten()
+        .map(|(destination, paths)| {
+            (
+                destination,
+                paths
+                    .iter()
+                    .filter(|(path, _)| pages.contains(path.as_str()))
+                    .collect(),
+            )
+        })
+        .collect();
     json!({
         "version": 1,
         "days": days,
+        "arrivals": arrivals,
         "families": families.iter().map(|f| json!({ "id": f.id, "label": f.label, "state": f.state })).collect::<Vec<_>>(),
         "totals": totals,
         "reached": totals.reached(),
