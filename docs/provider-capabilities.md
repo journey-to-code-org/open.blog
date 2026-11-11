@@ -154,6 +154,11 @@ Their dated facts and sources are listed in
 that checks it against these manifests, and `--approve` records your consent to exactly that plan. See
 [Preview and approve before sending](cross-posting.md#preview-and-approve-before-sending).
 
+## Where each post went
+
+`openblog outcomes` and Admin's **Where it went** read every destination's private record and show, per post, its
+status and what it rests on, without asking any provider. See [Where your posts went](distribution-reporting.md).
+
 ## Images for a destination
 
 What a Pinterest Pin or a shared link's preview would show of a post, and whether its image fits that destination,

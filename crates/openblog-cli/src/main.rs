@@ -25,6 +25,7 @@ mod landing_history;
 mod landing_store;
 mod mentions;
 mod notebook_store;
+mod outcomes;
 mod paths_exchange;
 mod photo;
 mod pinterest;
@@ -103,6 +104,10 @@ COMMANDS
                                approve, reject, remove, block, unblock, prune (see mentions OPTIONS)
     card <slug>                Build and check a published post's visual cards for Pinterest
                                and link previews from its own images; sends nothing
+    outcomes [--json] [--days N]
+                               Where each post went: every destination's status from your own
+                               records, and visits the built-in counter attributed to it (N days,
+                               default 30). Reads only; asks no provider and sends nothing
     pinterest boards           List the Pinterest boards your token can pin to (opt-in)
     pinterest pin <slug>       Preview a post's Pin; --write --confirm <digest> sends it
     job-share <slug>           Preview a finished job for Google Business Profile, Facebook and
@@ -707,6 +712,18 @@ fn run(raw: &[String]) -> Result<(), String> {
                 revision: args.options.get("revision").cloned(),
             },
         ),
+        "outcomes" => {
+            let days = match args.options.get("days") {
+                None => 30,
+                Some(value) => value
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|d| (1..=400).contains(d))
+                    .ok_or("--days must be a whole number from 1 to 400")?,
+            };
+            outcomes::run(&root, args.switches.contains("json"), days)
+        }
         "webmention" => webmention::run(
             &root,
             webmention::Options {

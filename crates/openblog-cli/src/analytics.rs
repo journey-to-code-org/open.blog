@@ -31,6 +31,11 @@ pub struct DayStats {
     /// a bounded classifier; raw user-agent strings are never persisted.
     #[serde(default)]
     agents: BTreeMap<String, BTreeMap<String, u64>>,
+    /// Destination -> page -> visits that arrived from it (ADR 0404). Destinations come only from
+    /// the fixed vocabulary in `openblog_core::outcome`, never from what a visitor sent. Written
+    /// only once there is one, so a store without them keeps its exact shape.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    arrivals: BTreeMap<String, BTreeMap<String, u64>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -328,6 +333,57 @@ impl Store {
                         *target.entry(path.clone()).or_insert(0) += count;
                     }
                 }
+                for (destination, paths) in &stats.arrivals {
+                    if openblog_core::outcome::destination_for_utm(destination).is_none() {
+                        continue;
+                    }
+                    let target = entry.arrivals.entry(destination.clone()).or_default();
+                    for (path, count) in paths {
+                        *target.entry(path.clone()).or_insert(0) += count;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Record that a counted view arrived from a destination (ADR 0404). Call only after
+    /// [`Store::record`] counted the view. A destination outside the fixed vocabulary is ignored.
+    pub fn record_arrival(
+        &mut self,
+        now: DateTime,
+        path: &str,
+        destination: &str,
+    ) -> Result<(), String> {
+        if openblog_core::outcome::destination_for_utm(destination).is_none() {
+            return Ok(());
+        }
+        self.roll_day(now)?;
+        let day = self.data.days.entry(self.day.clone()).or_default();
+        let paths = day.arrivals.entry(destination.to_string()).or_default();
+        if paths.len() < MAX_TRACKED_PATHS || paths.contains_key(path) {
+            *paths.entry(path.to_string()).or_insert(0) += 1;
+            self.dirty = true;
+        }
+        Ok(())
+    }
+
+    /// Destination -> page -> visits over the last `days` days, the local counter and every
+    /// imported source added together.
+    pub fn arrivals(&self, now: DateTime, days: u32) -> BTreeMap<String, BTreeMap<String, u64>> {
+        let today = now.ymd();
+        let start =
+            DateTime::from_unix(now.unix() - i64::from(days.saturating_sub(1)) * 86_400).ymd();
+        let mut out: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+        for (day, stats) in self.merged_days() {
+            if day < start || day > today {
+                continue;
+            }
+            for (destination, paths) in stats.arrivals {
+                let target = out.entry(destination).or_default();
+                for (path, count) in paths {
+                    *target.entry(path).or_insert(0) += count;
+                }
             }
         }
         out
@@ -366,6 +422,16 @@ impl Store {
             }
             for (agent, paths) in stats.agents {
                 let target = entry.agents.entry(agent).or_default();
+                for (path, count) in paths {
+                    let e = target.entry(path).or_insert(0);
+                    *e = (*e).max(count);
+                }
+            }
+            for (destination, paths) in stats.arrivals {
+                if openblog_core::outcome::destination_for_utm(&destination).is_none() {
+                    continue;
+                }
+                let target = entry.arrivals.entry(destination).or_default();
                 for (path, count) in paths {
                     let e = target.entry(path).or_insert(0);
                     *e = (*e).max(count);
@@ -632,6 +698,7 @@ pub fn hit(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> Res
     let referrer = body["referrer"]
         .as_str()
         .and_then(|r| referrer_host(r, &own_host));
+    let arrival = arrival_destination(&config, body["source"].as_str(), referrer.as_deref());
     let client = crate::admin::client_ip(&config, req);
     let visitor = format!("{client}|{}", req.header("user-agent").unwrap_or(""));
     let now = crate::clock::now();
@@ -640,9 +707,53 @@ pub fn hit(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> Res
         return Response::error(429, "Too many hits").with_header("Retry-After", "60");
     }
     match store.record(now, &path, referrer.as_deref(), &visitor) {
-        Ok(views) => Response::json(200, &json!({ "views": views })),
+        Ok(views) => {
+            if let Some(destination) = arrival {
+                // Only a view that was counted is attributed; a failure here keeps the view.
+                let _ = store.record_arrival(now, &path, &destination);
+            }
+            Response::json(200, &json!({ "views": views }))
+        }
         Err(e) => Response::error(500, &e),
     }
+}
+
+/// The destination a counted view came from (ADR 0404): the page address's `utm_source` when the
+/// author turned `analytics.campaigns` on and it names a known destination, otherwise the referring
+/// site when it is one of the known destinations or one of the author's own (a cross-posting
+/// target's address). Nothing else is ever attributed.
+pub(crate) fn arrival_destination(
+    config: &openblog_core::SiteConfig,
+    utm_source: Option<&str>,
+    referrer_host: Option<&str>,
+) -> Option<String> {
+    if config.analytics.campaigns {
+        if let Some(found) = utm_source.and_then(openblog_core::outcome::destination_for_utm) {
+            return Some(found);
+        }
+    }
+    let host = referrer_host?;
+    let own: Vec<(String, String)> = config
+        .syndication
+        .targets
+        .values()
+        .filter_map(|target| {
+            let host = target
+                .endpoint
+                .trim()
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .split(['/', ':'])
+                .next()?
+                .to_ascii_lowercase();
+            let provider = serde_json::to_value(target.provider)
+                .ok()?
+                .as_str()?
+                .to_string();
+            (!host.is_empty()).then_some((host, provider))
+        })
+        .collect();
+    openblog_core::outcome::destination_for_host(host, &own)
 }
 
 /// `GET /api/views?path=/posts/x/`
@@ -766,6 +877,66 @@ mod tests {
         fresh.restore_from_json(&exported).unwrap();
         assert_eq!(fresh.views("/a/"), 7, "local 2 (kept, larger) + worker 5");
         assert!(fresh.restore_from_json("not json").is_err());
+    }
+
+    #[test]
+    fn visits_are_attributed_only_to_known_destinations_and_the_file_keeps_its_shape_without_them()
+    {
+        let mut store = Store::load(Path::new("/nonexistent/analytics.json"), 400);
+        let now = at("2026-11-10T12:00:00Z");
+        store.record(now, "/a/", Some("bsky.app"), "1|ua").unwrap();
+        // Nothing attributed yet: the stored day has no arrivals key at all.
+        let plain = store.export_json();
+        assert!(!plain.contains("arrivals"), "{plain}");
+        store.record_arrival(now, "/a/", "bluesky").unwrap();
+        store.record_arrival(now, "/a/", "bluesky").unwrap();
+        store.record_arrival(now, "/a/", "tracker-xyz").unwrap();
+        store.record_arrival(now, "/a/", "<script>").unwrap();
+        let arrivals = store.arrivals(now, 30);
+        assert_eq!(arrivals.len(), 1);
+        assert_eq!(arrivals["bluesky"]["/a/"], 2);
+        // Older than the window: not counted.
+        assert!(store.arrivals(at("2027-01-10T12:00:00Z"), 30).is_empty());
+        // A backup with a foreign key restores without it.
+        let mut other = Store::load(Path::new("/nonexistent/analytics.json"), 400);
+        other
+            .restore_from_json(r#"{"version":1,"days":{"2026-11-10":{"arrivals":{"bluesky":{"/a/":5},"evil":{"/a/":9}}}}}"#)
+            .unwrap();
+        let restored = other.arrivals(now, 30);
+        assert_eq!(restored.keys().collect::<Vec<_>>(), ["bluesky"]);
+        assert_eq!(restored["bluesky"]["/a/"], 5);
+    }
+
+    #[test]
+    fn a_campaign_tag_counts_only_when_turned_on_and_a_referrer_counts_only_when_known() {
+        let off = openblog_core::SiteConfig::default();
+        assert_eq!(arrival_destination(&off, Some("pinterest"), None), None);
+        assert_eq!(
+            arrival_destination(&off, Some("pinterest"), Some("bsky.app")).as_deref(),
+            Some("bluesky")
+        );
+        assert_eq!(arrival_destination(&off, None, Some("example.org")), None);
+        let on =
+            openblog_core::SiteConfig::from_json(r#"{"analytics":{"campaigns":true}}"#).unwrap();
+        assert_eq!(
+            arrival_destination(&on, Some("pinterest"), Some("bsky.app")).as_deref(),
+            Some("pinterest")
+        );
+        assert_eq!(
+            arrival_destination(&on, Some("newsletter"), Some("bsky.app")).as_deref(),
+            Some("bluesky")
+        );
+        let ghost = openblog_core::SiteConfig::from_json(
+            r#"{"syndication":{"targets":{"blog":{"provider":"ghost","endpoint":"https://me.ghost.io/"}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            arrival_destination(&ghost, None, Some("me.ghost.io")).as_deref(),
+            Some("ghost")
+        );
+        // Off by default and not written while off.
+        assert!(!off.to_json().contains("campaigns"));
+        assert!(on.to_json().contains("\"campaigns\": true"));
     }
 
     #[test]

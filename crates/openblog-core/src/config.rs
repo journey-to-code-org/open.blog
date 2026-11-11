@@ -825,6 +825,11 @@ pub struct AnalyticsConfig {
     /// Bake the counts known at build time into the pages and `/api/views.json`,
     /// so a static host shows them even with no live counter.
     pub bake_counts: bool,
+    /// Count a page address's `utm_source` when it names a destination open.blog knows, and add
+    /// `utm_source` to the links open.blog itself sends there (ADR 0404). Off by default and not
+    /// written while off, so existing settings keep their exact shape.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub campaigns: bool,
 }
 
 impl Default for AnalyticsConfig {
@@ -836,6 +841,7 @@ impl Default for AnalyticsConfig {
             endpoint: String::new(),
             branch: "analytics".to_string(),
             bake_counts: true,
+            campaigns: false,
         }
     }
 }
