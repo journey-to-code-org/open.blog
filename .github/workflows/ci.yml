@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -63,7 +63,7 @@ jobs:
     # Runs the real plpgsql of the social delivery queue (claim, SKIP LOCKED, leases, settle and the
     # rollbacks), and of the Webmention request store, against a throwaway Postgres, so the SQL is
     # tested and not only matched by regexes.
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     services:
       postgres:
         image: postgres:16
