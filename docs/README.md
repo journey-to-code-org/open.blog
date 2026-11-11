@@ -57,6 +57,9 @@ If you are new, read these in order; each one stands alone otherwise.
 24. [Sharing a job](job-sharing.md): one finished job prepared for Google Business Profile, a Facebook Page and
    Nextdoor, from Admin's Share this job or the command: posted by hand, to your Facebook Page through your
    connected Page, or sent to Google once Google approved your project and you turned it on.
+25. [A site for a trade business](trades.md): `openblog init --starter trade`, the ten-minute checklist on Admin's
+   home, looks for trades, and how jobs, services, reviews, quote requests and sharing fit together. The
+   contributor view is the [trades spec](specs/trades.md).
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
@@ -158,6 +161,8 @@ one public value that no private note can reach
 ```
 openblog init [dir] [--title "..."] [--github-pages]
                                         Create a new blog (optionally with a Pages workflow)
+openblog init [dir] --starter trade [--trade <trade>]
+                                        Start a trade business site (see trades.md)
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
