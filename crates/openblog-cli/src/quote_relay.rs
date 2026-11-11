@@ -428,35 +428,52 @@ mod tests {
 
     #[test]
     fn a_service_that_is_not_running_gets_a_plain_answer_and_odd_addresses_go_nowhere() {
-        // Bind and drop, so nothing listens on the port.
-        let port = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let page = route(
-            &env_with(Some(port)),
-            &request("POST", "/api/quote/submit", &[], b""),
-            "1.2.3.4",
-        )
-        .unwrap();
-        assert_eq!(page.status, 502);
-        assert!(String::from_utf8_lossy(&page.body).contains("Nothing was sent"));
-        let json = route(
-            &env_with(Some(port)),
-            &request(
-                "POST",
-                "/api/quote/submit",
-                &[("accept", "application/json")],
-                b"",
-            ),
-            "1.2.3.4",
-        )
-        .unwrap();
-        assert_eq!(
-            String::from_utf8_lossy(&json.body),
-            "{\"error\":\"failed\"}"
-        );
+        // Bind and drop, so nothing listens on the port. Another test running at the same time can
+        // be given that port before the relay connects, and then this one hears a live service. So
+        // a port another test took is skipped for a fresh one; the test passes only when a refused
+        // connection gives the visitor the plain answer, in both HTML and JSON.
+        let mut port = 0;
+        let mut checked = false;
+        for _ in 0..8 {
+            port = TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            let page = route(
+                &env_with(Some(port)),
+                &request("POST", "/api/quote/submit", &[], b""),
+                "1.2.3.4",
+            )
+            .unwrap();
+            let body = String::from_utf8_lossy(&page.body).to_string();
+            if !body.contains("Nothing was sent") {
+                continue;
+            }
+            assert_eq!(page.status, 502);
+            let json = route(
+                &env_with(Some(port)),
+                &request(
+                    "POST",
+                    "/api/quote/submit",
+                    &[("accept", "application/json")],
+                    b"",
+                ),
+                "1.2.3.4",
+            )
+            .unwrap();
+            let json = String::from_utf8_lossy(&json.body).to_string();
+            if json != "{\"error\":\"failed\"}"
+                && std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
+            {
+                // Taken between the two requests: try a fresh port.
+                continue;
+            }
+            assert_eq!(json, "{\"error\":\"failed\"}");
+            checked = true;
+            break;
+        }
+        assert!(checked, "every port tried was taken by another test");
         for path in ["/api/quote/../admin", "/api/quote/a b", "/api/quote/%2e"] {
             assert_eq!(
                 route(
