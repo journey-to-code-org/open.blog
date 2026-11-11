@@ -196,8 +196,8 @@ mod tests {
             newest_job: Some("posts/new oak.md".into()),
             ..Facts::default()
         });
-        assert_eq!(by_id(&steps, "business").0, true);
-        assert_eq!(by_id(&steps, "service").0, false);
+        assert!(by_id(&steps, "business").0);
+        assert!(!by_id(&steps, "service").0);
         assert_eq!(
             by_id(&steps, "job"),
             (true, Some("#/edit/posts%2Fnew%20oak.md".into()))
