@@ -12,6 +12,7 @@ import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { buildTradeChecklist, checklistVisible } from "./trade-checklist.js";
+import { createDistributionReport } from "./distribution.js";
 import { createAnnouncementsPanel } from "./announcements.js";
 import { createJobShare } from "./job-share.js";
 import { createBusinessFacts } from "./business.js";
@@ -159,6 +160,7 @@ export const SIMPLE_EXTRA_PAGES = Object.freeze({
   paths: "Reading paths",
   comparisons: "Comparisons",
   appearance: "Appearance",
+  distribution: "Where it went",
 });
 
 /** Whether a Simple workspace hides this page, or an editor tool, from someone on another page. */
@@ -11761,6 +11763,7 @@ export class ObAdmin extends AdminElement {
       ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
       h("a", { class: "oba-tab", ...simpleOnly("business"), "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
       h("a", { class: "oba-tab", ...simpleOnly("reminders"), "aria-current": active === "reminders" ? "page" : null, href: "#/reminders" }, "Reminders"),
+      h("a", { class: "oba-tab", ...simpleOnly("distribution"), "aria-current": active === "distribution" ? "page" : null, href: "#/distribution" }, "Where it went"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
@@ -11768,6 +11771,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
       : active === "business"
         ? { title: "Business facts", detail: "Set your name, phone, hours, license and insurance once, and see them everywhere on your site." }
+      : active === "distribution"
+        ? { title: "Where it went", detail: "See every place a post went, what each status rests on, and the visits your own counter saw from there, without asking any platform." }
       : active === "reminders"
         ? { title: "Seasonal reminders", detail: "Get a nudge at the right time of year about what to write for your trade. A reminder only starts a draft; it never publishes." }
       : active === "services"
@@ -12073,6 +12078,7 @@ export class ObAdmin extends AdminElement {
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       ...(this.social?.enabled ? [{ label: "Announcements", category: "Create", keywords: "linkedin facebook bluesky mastodon schedule announce share post", run: () => go("#/announcements") }] : []),
+      { label: "Where it went", category: "Site", keywords: "distribution report outcomes cross-post pinterest announcements shared visits referrals utm", run: () => go("#/distribution") },
       { label: "Seasonal reminders", category: "Site", keywords: "seasonal reminder prompt season topic draft snooze", run: () => go("#/reminders") },
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
       { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
@@ -12324,6 +12330,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "look") await this.showLook();
       else if (head === "business") await this.showBusiness();
       else if (head === "reminders") await this.showReminders();
+      else if (head === "distribution") await this.showDistribution();
       else if (head === "services") await this.showServices(tail);
       else if (head === "reviews") await this.showReviews(tail);
       else if (head === "research") await this.showResearchPanel(tail);
@@ -14458,6 +14465,17 @@ export class ObAdmin extends AdminElement {
     const view = createBusinessFacts({ api: this.api });
     this.mount(this.shell("business", view.element));
     this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- where it went (ADRs 0402 to 0404)
+
+  /** `#/distribution`: every place each post went, from the author's own records; reads only. */
+  async showDistribution() {
+    const view = createDistributionReport({ api: this.api, socialEnabled: Boolean(this.social?.enabled) });
+    this.mount(this.shell("distribution", view.element));
     this.viewBusy = () => view.isBusy();
     this.viewCleanup = () => view.destroy();
     await view.load();

@@ -268,6 +268,7 @@ pub(crate) fn load_job(
         region: &job.region,
         canonical_url: &canonical_url,
         photo,
+        campaigns: config.analytics.campaigns,
     };
     let projections = chosen
         .iter()
