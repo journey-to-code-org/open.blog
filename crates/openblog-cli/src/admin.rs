@@ -96,6 +96,7 @@ mod quote;
 mod reading_paths;
 mod seasonal;
 mod social;
+mod trade_checklist;
 mod voice;
 mod voice_guide;
 
@@ -589,6 +590,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/look.js" => "look.js",
         "/admin/business.js" => "business.js",
         "/admin/seasonal.js" => "seasonal.js",
+        "/admin/trade-checklist.js" => "trade-checklist.js",
         "/admin/services.js" => "services.js",
         "/admin/proof.js" => "proof.js",
         "/admin/paste.js" => "paste.js",
@@ -760,6 +762,7 @@ fn authenticated_api(
         ("POST", "seasonal/snooze") => seasonal::snooze(state, req),
         ("POST", "seasonal/open") => seasonal::open(state, req),
         ("GET", "job-share") => job_sharing::get(state, req),
+        ("GET", "trade-checklist") => trade_checklist::get(state),
         ("POST", "job-share/by-hand") => job_sharing::by_hand(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
@@ -18817,6 +18820,7 @@ mod tests {
     mod seasonal_routes;
     mod service_routes;
     mod social_routes;
+    mod trade_checklist_routes;
     mod voice_assistant_routes;
     mod voice_journey;
     mod voice_routes;
