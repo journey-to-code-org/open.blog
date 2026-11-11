@@ -10,7 +10,8 @@
 //! ([`render_inert_markdown`]).
 //!
 //! The stored file is `<content>/landing.json` (`openblog-landing`, version
-//! 1, or 2 for a page that holds a Business facts section: ADR 0306). The
+//! 1, 2 for a page that holds a Business facts or quote form section: ADR 0306,
+//! or 3 for a page that lists services, recent jobs or reviews: ADR 0398). The
 //! format is a one-way door, so it is versioned and conservative:
 //!
 //! - [`LandingPage::parse`] refuses another version, and a newer one with a
@@ -45,28 +46,32 @@ pub const LANDING_VERSION: u64 = 1;
 /// The version a page that holds a Business facts section is written as (ADR 0306). A page
 /// without one is still written as version 1, byte for byte as before.
 pub const LANDING_VERSION_BUSINESS: u64 = 2;
+/// The version a page that lists services, recent jobs or reviews is written as (ADR 0398). A
+/// page without one of those is written exactly as before.
+pub const LANDING_VERSION_TRADE: u64 = 3;
 /// The newest version this release reads.
-pub const LANDING_VERSION_MAX: u64 = LANDING_VERSION_BUSINESS;
+pub const LANDING_VERSION_MAX: u64 = LANDING_VERSION_TRADE;
 
-/// The version a stored page object needs: [`LANDING_VERSION_BUSINESS`] when any section is a
-/// Business facts section, otherwise [`LANDING_VERSION`].
-pub fn version_for_page(page: &Map<String, Value>) -> u64 {
-    let needs_business = page
-        .get("sections")
-        .and_then(Value::as_array)
-        .is_some_and(|sections| {
-            sections.iter().any(|s| {
-                matches!(
-                    s.get("type").and_then(Value::as_str),
-                    Some("business-facts" | "quote-form")
-                )
-            })
-        });
-    if needs_business {
-        LANDING_VERSION_BUSINESS
-    } else {
-        LANDING_VERSION
+/// The landing version a section type needs: the oldest version that defines it.
+pub fn version_for_type(kind: &str) -> u64 {
+    match kind {
+        "services" | "recent-jobs" | "reviews" => LANDING_VERSION_TRADE,
+        "business-facts" | "quote-form" => LANDING_VERSION_BUSINESS,
+        _ => LANDING_VERSION,
     }
+}
+
+/// The version a stored page object needs: the newest version any of its sections needs, so a
+/// page holding only version 1 sections is still written as version 1, byte for byte as before.
+pub fn version_for_page(page: &Map<String, Value>) -> u64 {
+    page.get("sections")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|s| s.get("type").and_then(Value::as_str))
+        .map(version_for_type)
+        .max()
+        .unwrap_or(LANDING_VERSION)
 }
 /// The stored file, relative to the content folder.
 pub const LANDING_FILE: &str = "landing.json";
@@ -182,6 +187,12 @@ pub enum SectionKind {
     /// A quote request form placed on the page (ADR 0382). Shown only while quote requests are
     /// switched on in `openblog.json`. Needs landing version 2.
     QuoteForm(QuoteForm),
+    /// The site's published services as a grid of cards (ADR 0398). Needs landing version 3.
+    Services(ServicesSection),
+    /// The newest published jobs (ADR 0398). Needs landing version 3.
+    RecentJobs(RecentJobs),
+    /// The newest saved reviews (ADR 0398). Needs landing version 3.
+    Reviews(ReviewsSection),
 }
 
 impl SectionKind {
@@ -204,12 +215,15 @@ impl SectionKind {
             Self::Callout(_) => "callout",
             Self::BusinessFacts(_) => "business-facts",
             Self::QuoteForm(_) => "quote-form",
+            Self::Services(_) => "services",
+            Self::RecentJobs(_) => "recent-jobs",
+            Self::Reviews(_) => "reviews",
         }
     }
 }
 
 /// Every type name this release defines.
-pub const SECTION_TYPES: [&str; 16] = [
+pub const SECTION_TYPES: [&str; 19] = [
     "welcome",
     "rich-text",
     "latest-posts",
@@ -226,6 +240,9 @@ pub const SECTION_TYPES: [&str; 16] = [
     "callout",
     "business-facts",
     "quote-form",
+    "services",
+    "recent-jobs",
+    "reviews",
 ];
 
 /// The business facts section: the facts live in `openblog.json`, so the section holds only the
@@ -241,6 +258,36 @@ pub struct BusinessFacts {
 pub struct QuoteForm {
     pub heading: String,
 }
+
+/// The services section: the services live in `content/services/`, so the section holds only the
+/// heading it is placed under (ADR 0398).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServicesSection {
+    pub heading: String,
+}
+
+/// The recent jobs section: the newest published jobs, at most `count` (ADR 0398).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentJobs {
+    pub heading: String,
+    /// How many jobs to list. Absent means [`DEFAULT_TRADE_COUNT`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+}
+
+/// The reviews section: the newest saved reviews, at most `count` (ADR 0398).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewsSection {
+    pub heading: String,
+    /// How many reviews to show. Absent means [`DEFAULT_TRADE_COUNT`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+}
+
+/// How many jobs or reviews a section lists when it does not say.
+pub const DEFAULT_TRADE_COUNT: u32 = 3;
+/// Most jobs or reviews one section lists.
+pub const MAX_TRADE_COUNT: u32 = 12;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Welcome {
@@ -484,7 +531,8 @@ fn known_keys(kind: &str) -> &'static [&'static str] {
         "welcome" => &["heading", "subheading", "image", "button"],
         "rich-text" => &["markdown"],
         "latest-posts" => &["heading", "count", "show"],
-        "series" | "business-facts" | "quote-form" => &["heading"],
+        "series" | "business-facts" | "quote-form" | "services" => &["heading"],
+        "recent-jobs" | "reviews" => &["heading", "count"],
         "featured-post" => &["post", "heading"],
         "buttons" | "social-links" | "faq" => &["items"],
         "image" => &["src", "alt", "caption"],
@@ -574,6 +622,9 @@ impl Section {
             "faq" => SectionKind::Faq(from_fields(fields).map_err(wrong)?),
             "business-facts" => SectionKind::BusinessFacts(from_fields(fields).map_err(wrong)?),
             "quote-form" => SectionKind::QuoteForm(from_fields(fields).map_err(wrong)?),
+            "services" => SectionKind::Services(from_fields(fields).map_err(wrong)?),
+            "recent-jobs" => SectionKind::RecentJobs(from_fields(fields).map_err(wrong)?),
+            "reviews" => SectionKind::Reviews(from_fields(fields).map_err(wrong)?),
             _ => SectionKind::Callout(from_fields(fields).map_err(wrong)?),
         };
         Ok(Self {
@@ -602,6 +653,9 @@ impl Section {
             SectionKind::Callout(v) => serde_json::to_value(v),
             SectionKind::BusinessFacts(v) => serde_json::to_value(v),
             SectionKind::QuoteForm(v) => serde_json::to_value(v),
+            SectionKind::Services(v) => serde_json::to_value(v),
+            SectionKind::RecentJobs(v) => serde_json::to_value(v),
+            SectionKind::Reviews(v) => serde_json::to_value(v),
         };
         let mut object = Map::new();
         // Unknown fields first so a known field always wins a name clash.
@@ -667,7 +721,7 @@ impl LandingPage {
             }
             _ => {
                 return Err(vec![LandingProblem::page(format!(
-                    "`version` must be {LANDING_VERSION} or {LANDING_VERSION_MAX}"
+                    "`version` must be a whole number from {LANDING_VERSION} to {LANDING_VERSION_MAX}"
                 ))])
             }
         };
@@ -686,16 +740,12 @@ impl LandingPage {
         for (index, item) in sections.into_iter().enumerate() {
             match Section::from_value(index, item) {
                 Ok(section) => {
-                    if version < LANDING_VERSION_BUSINESS
-                        && matches!(
-                            section.kind,
-                            SectionKind::BusinessFacts(_) | SectionKind::QuoteForm(_)
-                        )
-                    {
+                    let needed = version_for_type(section.kind.name());
+                    if version < needed {
                         problems.push(LandingProblem::in_section(
                             &section.id,
                             format!(
-                                "the {} section needs `version` {LANDING_VERSION_BUSINESS}",
+                                "the {} section needs `version` {needed}",
                                 section.kind.name()
                             ),
                         ));
@@ -741,16 +791,11 @@ impl LandingPage {
 
     /// The stored version this page is written as (ADR 0306).
     pub fn stored_version(&self) -> u64 {
-        if self.sections.iter().any(|s| {
-            matches!(
-                s.kind,
-                SectionKind::BusinessFacts(_) | SectionKind::QuoteForm(_)
-            )
-        }) {
-            LANDING_VERSION_BUSINESS
-        } else {
-            LANDING_VERSION
-        }
+        self.sections
+            .iter()
+            .map(|s| version_for_type(s.kind.name()))
+            .max()
+            .unwrap_or(LANDING_VERSION)
     }
 
     /// Whether any section would be rendered.
@@ -1109,6 +1154,21 @@ pub(crate) fn validate_section(section: &Section, problems: &mut Vec<LandingProb
         SectionKind::QuoteForm(v) => {
             check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
         }
+        SectionKind::Services(v) => {
+            check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
+        }
+        SectionKind::RecentJobs(RecentJobs { heading, count })
+        | SectionKind::Reviews(ReviewsSection { heading, count }) => {
+            check_line(id, "heading", heading, MAX_HEADING_CHARS, true, problems);
+            if let Some(count) = count {
+                if *count == 0 || *count > MAX_TRADE_COUNT {
+                    problems.push(LandingProblem::in_section(
+                        id,
+                        format!("count must be from 1 to {MAX_TRADE_COUNT}"),
+                    ));
+                }
+            }
+        }
         SectionKind::FeaturedPost(v) => {
             if !valid_id(&v.post) {
                 problems.push(LandingProblem::in_section(
@@ -1392,12 +1452,14 @@ mod tests {
     use serde_json::json;
 
     fn file(sections: Value) -> String {
-        let text = sections.to_string();
-        let version = if text.contains("business-facts") || text.contains("quote-form") {
-            LANDING_VERSION_BUSINESS
-        } else {
-            LANDING_VERSION
-        };
+        let version = sections
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|s| s.get("type").and_then(Value::as_str))
+            .map(version_for_type)
+            .max()
+            .unwrap_or(LANDING_VERSION);
         json!({ "format": LANDING_FORMAT, "version": version, "sections": sections }).to_string()
     }
 
@@ -1432,7 +1494,10 @@ mod tests {
             {"id": "faq", "type": "faq", "items": [{"question": "Why?", "answer": "Because."}]},
             {"id": "note", "type": "callout", "tone": "warning", "title": "Heads up", "body": "Careful"},
             {"id": "business", "type": "business-facts", "heading": "Contact and hours"},
-            {"id": "quote", "type": "quote-form", "heading": "Ask for a quote"}
+            {"id": "quote", "type": "quote-form", "heading": "Ask for a quote"},
+            {"id": "what-we-do", "type": "services", "heading": "What we do"},
+            {"id": "jobs", "type": "recent-jobs", "heading": "Recent jobs", "count": 4},
+            {"id": "said", "type": "reviews", "heading": "What customers say"}
         ])
     }
 
@@ -1467,19 +1532,70 @@ mod tests {
 
     #[test]
     fn a_newer_version_is_refused_with_a_clear_message_and_a_wrong_one_too() {
-        let newer = json!({"format": LANDING_FORMAT, "version": 3, "sections": []}).to_string();
+        let newer = json!({"format": LANDING_FORMAT, "version": 4, "sections": []}).to_string();
         let text = message(LandingPage::parse(&newer));
         assert!(text.contains("newer open.blog"), "{text}");
         assert!(text.contains("will not be overwritten"), "{text}");
         for bad in [json!(0), json!("1"), json!(null)] {
             let text =
                 json!({"format": LANDING_FORMAT, "version": bad, "sections": []}).to_string();
-            assert!(message(LandingPage::parse(&text)).contains("`version` must be 1 or 2"));
+            assert!(message(LandingPage::parse(&text))
+                .contains("`version` must be a whole number from 1 to 3"));
         }
         let no_version = json!({"format": LANDING_FORMAT, "sections": []}).to_string();
         assert!(LandingPage::parse(&no_version).is_err());
         let wrong_format = json!({"format": "other", "version": 1, "sections": []}).to_string();
         assert!(message(LandingPage::parse(&wrong_format)).contains("`format`"));
+    }
+
+    #[test]
+    fn a_page_is_version_three_only_once_it_lists_services_jobs_or_reviews() {
+        for kind in ["services", "recent-jobs", "reviews"] {
+            let sections = json!([
+                {"id": "b", "type": "business-facts", "heading": "Find us"},
+                {"id": "t", "type": kind, "heading": "Ours"}
+            ]);
+            let page = LandingPage::parse(&file(sections.clone())).unwrap();
+            assert_eq!(page.stored_version(), 3, "{kind}");
+            assert!(page.to_canonical_json().contains("\"version\": 3"));
+            for older in [1, 2] {
+                let text =
+                    json!({"format": LANDING_FORMAT, "version": older, "sections": sections})
+                        .to_string();
+                assert!(
+                    message(LandingPage::parse(&text)).contains("needs `version` 3"),
+                    "{kind} in version {older}"
+                );
+            }
+        }
+        // A business page without the new types stays version 2, byte for byte.
+        let business = json!([{"id": "b", "type": "business-facts", "heading": "Find us"}]);
+        assert_eq!(
+            LandingPage::parse(&file(business))
+                .unwrap()
+                .stored_version(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_jobs_or_reviews_count_is_bounded_and_a_heading_is_required() {
+        for kind in ["recent-jobs", "reviews"] {
+            for bad in [0, MAX_TRADE_COUNT + 1] {
+                let text = message(one(
+                    json!({"id": "t", "type": kind, "heading": "H", "count": bad}),
+                ));
+                assert!(
+                    text.contains("count must be from 1 to 12"),
+                    "{kind}: {text}"
+                );
+            }
+            assert!(one(json!({"id": "t", "type": kind, "heading": "H", "count": 12})).is_ok());
+            assert!(one(json!({"id": "t", "type": kind, "heading": "H"})).is_ok());
+            assert!(one(json!({"id": "t", "type": kind, "heading": ""})).is_err());
+        }
+        assert!(one(json!({"id": "s", "type": "services", "heading": ""})).is_err());
+        assert!(one(json!({"id": "s", "type": "services", "heading": "What we do"})).is_ok());
     }
 
     #[test]
