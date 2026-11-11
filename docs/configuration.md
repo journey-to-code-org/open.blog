@@ -207,6 +207,9 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
 
 - `share.networks` accepts `x`, `bluesky`, `mastodon`, `linkedin`, `facebook`, `reddit`,
   `hackernews`, and `email`.
+- `analytics.campaigns` (off by default) counts a page address's `utm_source` when it names a destination and
+  tags the links open.blog sends to Pinterest and shared-job places; see
+  [Where your posts went](distribution-reporting.md#campaign-tags-optional).
 - `analytics.builtin` turns the view counter in `openblog serve` on or off;
   `showViews` controls the count shown on posts. `endpoint` points pages at a counter
   hosted elsewhere, `branch` names the git branch that backs the counts up, and

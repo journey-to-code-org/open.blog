@@ -96,6 +96,8 @@ struct Settings {
     board: Option<String>,
     section: Option<String>,
     state_path: PathBuf,
+    /// `analytics.campaigns`: the Pin's link carries `utm_source=pinterest` (ADR 0404).
+    campaigns: bool,
 }
 
 fn digits(value: &str) -> bool {
@@ -144,6 +146,7 @@ fn settings(root: &Path, options: &Options) -> Result<Settings, String> {
         board,
         section,
         state_path,
+        campaigns: config.analytics.campaigns,
     })
 }
 
@@ -276,6 +279,13 @@ fn build_plan(
     image_file: Option<&Path>,
     settings: &Settings,
 ) -> Result<Built, String> {
+    // With campaign tags on, the link carries `utm_source=pinterest`, before the digest is made,
+    // so the preview, the digest and the Pin all name the same link (ADR 0404).
+    let link = if settings.campaigns {
+        openblog_core::outcome::tag_link(&card.link, "pinterest")
+    } else {
+        card.link.clone()
+    };
     let mut problems = Vec::new();
     let mut problem = |code: &'static str, message: String| {
         problems.push(PinProblem { code, message });
@@ -348,7 +358,7 @@ fn build_plan(
         }
         problem(ineligibility.code(), message);
     }
-    if !public_link(&card.link) {
+    if !public_link(&link) {
         problem(
             "link-not-public",
             "The post's canonical address is not a public web address, so a Pin could not lead readers to it; set `url` in openblog.json.".into(),
@@ -367,7 +377,7 @@ fn build_plan(
         settings.board.as_deref().unwrap_or(""),
         settings.section.as_deref().unwrap_or(""),
         source_path,
-        &card.link,
+        &link,
         &card.title,
         &description,
         card.alt.as_deref().unwrap_or(""),
@@ -388,7 +398,7 @@ fn build_plan(
         board_id: settings.board.clone(),
         board_section_id: settings.section.clone(),
         source_path: source_path.to_string(),
-        link: card.link.clone(),
+        link,
         title: card.title.clone(),
         description,
         alt_text: card.alt.clone(),

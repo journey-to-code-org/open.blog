@@ -990,6 +990,14 @@ does not conflict with it, and it changes only the `business` key of `openblog.j
 place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
 to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
+### Where it went
+
+**Where it went** lists every post that was sent anywhere and, for each place, its status (Delivered, Posted by
+hand, Draft or private, Waiting, Unknown, Not delivered), what that rests on (the platform's answer, your word, or
+nothing yet), a link to it there, and the visits the built-in counter saw from there in the last 7, 30 or 90 days.
+It reads `GET /admin/api/distribution` and, when social publishing is on, your announcements; it changes nothing.
+See [Where your posts went](distribution-reporting.md).
+
 ### The ten-minute checklist
 
 On a site whose business facts name a trade, Admin's home opens with **Your site in ten minutes**: add a phone

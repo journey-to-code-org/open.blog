@@ -116,6 +116,8 @@ pub struct JobSource<'a> {
     /// The job's own page, absolute.
     pub canonical_url: &'a str,
     pub photo: Photo<'a>,
+    /// `analytics.campaigns`: each place's link carries its own `utm_source` (ADR 0404).
+    pub campaigns: bool,
 }
 
 /// How a projection reaches its destination.
@@ -414,8 +416,15 @@ pub fn project(source: &JobSource<'_>, destination: JobDestination) -> JobProjec
         (true, false) => format!("In {town}, {region}."),
         (true, true) => format!("In {town}."),
     };
+    // The public check is on the page itself; a campaign tag is added after it.
     let link = source.canonical_url.to_string();
-    if !public_link(&link) {
+    let public = public_link(&link);
+    let link = if source.campaigns {
+        crate::outcome::tag_link(&link, destination.as_str())
+    } else {
+        link
+    };
+    if !public {
         problem(
             &mut problems,
             "link-not-public",
@@ -633,6 +642,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn campaign_tags_name_each_place_only_when_turned_on() {
+        let photo = Photo::None;
+        let mut on = source("Sanded and finished.", photo);
+        for destination in JobDestination::ALL {
+            assert_eq!(
+                project(&on, destination).link,
+                "https://example.com/new-oak-floor/"
+            );
+        }
+        on.campaigns = true;
+        for destination in JobDestination::ALL {
+            assert_eq!(
+                project(&on, destination).link,
+                format!(
+                    "https://example.com/new-oak-floor/?utm_source={}&utm_medium=open.blog",
+                    destination.as_str()
+                )
+            );
+        }
+        let plain = project(
+            &source("Sanded and finished.", Photo::None),
+            JobDestination::Facebook,
+        );
+        let tagged = project(&on, JobDestination::Facebook);
+        assert_ne!(
+            plain.digest, tagged.digest,
+            "the digest names the link sent"
+        );
+    }
+
     fn source<'a>(description: &'a str, photo: Photo<'a>) -> JobSource<'a> {
         JobSource {
             title: "New oak floor in Maple Falls",
@@ -642,6 +682,7 @@ mod tests {
             region: "WA",
             canonical_url: "https://example.com/new-oak-floor/",
             photo,
+            campaigns: false,
         }
     }
 

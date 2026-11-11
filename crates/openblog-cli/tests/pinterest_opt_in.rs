@@ -185,3 +185,29 @@ fn pinterest_refuses_before_any_request_while_off_and_previews_without_one_when_
     assert!(!root.join(".openblog/pinterest.json").exists());
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn with_campaign_tags_on_the_previewed_pin_links_with_utm_source_and_a_new_digest() {
+    let root = project();
+    fs::write(root.join("openblog.json"), PINTEREST).unwrap();
+    let plain: serde_json::Value =
+        serde_json::from_slice(&run(&root, &["pinterest", "pin", "tart", "--json"], true).stdout)
+            .unwrap();
+    assert_eq!(plain["link"], "https://cook.example.org/posts/tart/");
+    let tagged_config = PINTEREST.replacen(
+        r#""syndication""#,
+        r#""analytics":{"campaigns":true},"syndication""#,
+        1,
+    );
+    fs::write(root.join("openblog.json"), tagged_config).unwrap();
+    let tagged: serde_json::Value =
+        serde_json::from_slice(&run(&root, &["pinterest", "pin", "tart", "--json"], true).stdout)
+            .unwrap();
+    assert_eq!(
+        tagged["link"],
+        "https://cook.example.org/posts/tart/?utm_source=pinterest&utm_medium=open.blog"
+    );
+    assert_eq!(tagged["ready"], true);
+    assert_ne!(plain["digest"], tagged["digest"]);
+    let _ = fs::remove_dir_all(&root);
+}
