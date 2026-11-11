@@ -45,6 +45,8 @@ and remove them, on a phone, without a CRM: no scoring, no pipeline, no automati
   database step is last, single and checked. The page reports success only from a verified reply.
   Admin's words match this: a failed erase says every request is still here but some of their photos may
   already be gone, and the confirmation says so before the owner presses it.
+  (Superseded by ADR 0386: photos are now moved aside first, which can be undone, and removed only after the
+  rows are verified gone, so a failure before that leaves every request and photo in place.)
 - **Task #518's "partial failure leaves everything in place" is not met for photos, on purpose.** Photos
   removed before a later step fails stay removed. The other orders are worse or no surer: removing the
   rows first would leave a customer's photos in storage with no request in Admin to find and erase them

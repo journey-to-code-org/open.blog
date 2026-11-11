@@ -303,6 +303,8 @@ pub struct LaunchRequest<'a> {
     pub source_id: &'a str,
     pub post_title: &'a str,
     pub canonical_url: &'a str,
+    /// The post's own `canonical` names another page, so the launch would link a copy.
+    pub canonical_elsewhere: bool,
     pub plan: &'a LaunchPlan,
     /// What the caller found at each file the plan names, keyed by its spelling in the plan.
     pub images: &'a BTreeMap<String, ImageProbe>,
@@ -736,6 +738,13 @@ pub fn prepare(request: &LaunchRequest<'_>) -> LaunchKit {
                 )),
             Some(_) => {}
         },
+    }
+
+    if request.canonical_elsewhere {
+        notices.push(Notice::blocking(
+            crate::community_submission::CANONICAL_ELSEWHERE,
+            crate::community_submission::CANONICAL_ELSEWHERE_MESSAGE,
+        ));
     }
 
     let confirmed = request.records.confirmed_for(
@@ -1462,6 +1471,7 @@ mod tests {
             source_id: "source:content/posts/hello.md",
             post_title: "Hello community",
             canonical_url: CANONICAL,
+            canonical_elsewhere: false,
             plan,
             images,
             now_unix: NOW,
@@ -1472,6 +1482,29 @@ mod tests {
 
     fn codes(kit: &LaunchKit) -> Vec<&'static str> {
         kit.notices.iter().map(|n| n.code).collect()
+    }
+
+    #[test]
+    fn a_post_whose_canonical_names_another_page_gets_no_ready_launch_kit() {
+        let plan = plan();
+        let images = probes();
+        let records = SubmissionRecords::default();
+        let kit = prepare(&LaunchRequest {
+            slug: "hello",
+            source_id: "source:content/posts/hello.md",
+            post_title: "Hello community",
+            canonical_url: CANONICAL,
+            canonical_elsewhere: true,
+            plan: &plan,
+            images: &images,
+            now_unix: NOW,
+            records: &records,
+            again: false,
+        });
+        assert!(!kit.ready());
+        assert!(kit.submit_url.is_none());
+        assert_eq!(codes(&kit), ["canonical-elsewhere"]);
+        assert!(kit_text(&kit).contains("canonical-elsewhere"));
     }
 
     #[test]

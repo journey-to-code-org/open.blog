@@ -34,10 +34,58 @@ fn main() {
 const ABOUT: &str = "This page is `content/pages/about.md`. Pages with `nav: true` in their front matter appear in the header.
 ";
 
+/// A ready-made kind of site `openblog init --starter` writes on top of the plain project.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Starter {
+    /// A trade business (ADR 0399): business facts, example services as drafts, empty jobs and
+    /// reviews, a quote form, and a phone-first landing page.
+    Trade { trade: String },
+}
+
+/// The starters `--starter` accepts, as the help and errors list them.
+pub const STARTERS: &[&str] = &["trade"];
+
+impl Starter {
+    /// The starter named on the command line, with its options checked before anything is written.
+    pub fn parse(name: &str, trade: Option<&str>) -> Result<Self, String> {
+        match name {
+            "trade" => {
+                let trade = trade.unwrap_or(TRADE_DEFAULT).trim().to_string();
+                if !openblog_core::job::TRADES.contains(&trade.as_str()) {
+                    return Err(format!(
+                        "--trade `{trade}` is not a bundled trade; choose one of {} (you can add your own trades later under extraTrades in openblog.json)",
+                        openblog_core::job::TRADES.join(", ")
+                    ));
+                }
+                Ok(Self::Trade { trade })
+            }
+            other => Err(format!(
+                "--starter `{other}` is not a starter this version has; choose {}",
+                STARTERS.join(", ")
+            )),
+        }
+    }
+}
+
+/// The trade a trade starter states when `--trade` is not given.
+pub const TRADE_DEFAULT: &str = "general-contractor";
+
 /// Create a new project in `dir`. Existing content is never overwritten. In a
 /// Git project, an existing `.gitignore` keeps its rules and gains the private
 /// assistant-storage rule when that boundary is missing.
+#[cfg(test)]
 pub fn init(dir: &Path, title: Option<&str>, github_pages: bool) -> Result<Vec<String>, String> {
+    init_with(dir, title, github_pages, None)
+}
+
+/// [`init`] with an optional [`Starter`]. Without one the project is exactly what `init` wrote
+/// before starters existed.
+pub fn init_with(
+    dir: &Path,
+    title: Option<&str>,
+    github_pages: bool,
+    starter: Option<&Starter>,
+) -> Result<Vec<String>, String> {
     let mut created = Vec::new();
     let mut write = |rel: &str, contents: &str| -> Result<(), String> {
         let path = dir.join(rel);
@@ -53,27 +101,43 @@ pub fn init(dir: &Path, title: Option<&str>, github_pages: bool) -> Result<Vec<S
     if let Some(t) = title {
         config.title = t.to_string();
     }
-    write(CONFIG_FILE, &format!("{}\n", config.to_json()))?;
+    match starter {
+        None => write(CONFIG_FILE, &format!("{}\n", config.to_json()))?,
+        Some(Starter::Trade { trade }) => {
+            let config = trade_config(&config, trade)?;
+            write(CONFIG_FILE, &format!("{}\n", config.to_json()))?;
+            for (rel, contents) in trade_files(&config) {
+                write(&rel, &contents)?;
+            }
+        }
+    }
 
     let date = today().ymd();
-    let post = frontmatter::serialize(&[
-        ("title", Value::Scalar("Hello, world".into())),
-        ("date", Value::Scalar(date)),
-        ("tags", Value::List(vec!["meta".into()])),
-        (
-            "description",
-            Value::Scalar("The first post on a new open.blog.".into()),
-        ),
-    ]);
-    write(
-        "content/posts/hello-world.md",
-        &format!("{post}\n{WELCOME}"),
-    )?;
+    if starter.is_none() {
+        let post = frontmatter::serialize(&[
+            ("title", Value::Scalar("Hello, world".into())),
+            ("date", Value::Scalar(date)),
+            ("tags", Value::List(vec!["meta".into()])),
+            (
+                "description",
+                Value::Scalar("The first post on a new open.blog.".into()),
+            ),
+        ]);
+        write(
+            "content/posts/hello-world.md",
+            &format!("{post}\n{WELCOME}"),
+        )?;
+    }
     let page = frontmatter::serialize(&[
         ("title", Value::Scalar("About".into())),
         ("nav", Value::Scalar("true".into())),
     ]);
-    write("content/pages/about.md", &format!("{page}\n{ABOUT}"))?;
+    let about = if starter.is_some() {
+        TRADE_ABOUT
+    } else {
+        ABOUT
+    };
+    write("content/pages/about.md", &format!("{page}\n{about}"))?;
     write("content/series/.gitkeep", "")?;
     write("static/.gitkeep", "")?;
 
@@ -116,6 +180,138 @@ pub fn init(dir: &Path, title: Option<&str>, github_pages: bool) -> Result<Vec<S
         }
     }
     Ok(created)
+}
+
+// ----- the trade starter (ADR 0399) ---------------------------------------
+
+const TRADE_ABOUT: &str = "Tell visitors who you are: how long you have done this work, the towns you serve, and what a customer can expect from the first call to the finished job.
+
+This page is `content/pages/about.md`. Edit it in Admin under Pages, or in any text editor.
+";
+
+/// The site settings a trade starter writes: the plain defaults plus the business facts it can
+/// state truthfully (the name and the trade; nothing invented, so no phone or hours), the author
+/// as the business with its About page, and a description that says what the site is for. The
+/// result is read back through [`SiteConfig::from_json`], so the starter can never write settings
+/// the build would refuse.
+fn trade_config(base: &SiteConfig, trade: &str) -> Result<SiteConfig, String> {
+    let mut value: serde_json::Value = serde_json::from_str(&base.to_json())
+        .map_err(|error| format!("cannot read the default settings: {error}"))?;
+    let name = base.title.clone();
+    value["description"] = serde_json::Value::String(format!(
+        "{name}: what we do, recent jobs, reviews from customers, and how to ask for a quote."
+    ));
+    value["author"]["name"] = serde_json::Value::String(name.clone());
+    value["author"]["url"] = serde_json::Value::String("/about/".into());
+    // The first look for trades (ADR 0400), so the site reads as a business from the first build.
+    if let Some(look) = openblog_core::look_presets::trade_looks().next() {
+        if let Some(applied) = openblog_core::look_presets::apply(
+            look.id,
+            &openblog_core::look::LookSettings::default(),
+        ) {
+            value["appearance"] = applied.to_value();
+        }
+    }
+    value["business"] = serde_json::json!({
+        "version": 1,
+        "displayName": name,
+        "trade": trade,
+    });
+    SiteConfig::from_json(&value.to_string())
+        .map_err(|error| format!("the trade starter's settings were refused: {error}"))
+}
+
+/// The example services a trade starter writes, as drafts (never on the site until the owner
+/// edits one and turns `draft` off): id, name, summary, price band, what is included.
+const TRADE_SERVICES: [(&str, &str, &str, &str, [&str; 3]); 3] = [
+    (
+        "repairs",
+        "Example: Repairs",
+        "Fixing what is broken or worn, done properly the first time.",
+        "500-2k",
+        [
+            "A look at the problem before we start",
+            "Parts and materials",
+            "Cleaning up when we finish",
+        ],
+    ),
+    (
+        "new-installations",
+        "Example: New installations",
+        "New work built to last, from the first measurement to the final walk-through.",
+        "2k-10k",
+        [
+            "Measuring and planning with you",
+            "Materials you choose with us",
+            "A walk-through when the job is done",
+        ],
+    ),
+    (
+        "inspections",
+        "Example: Inspections",
+        "A visit to tell you what needs doing now and what can wait.",
+        "ask",
+        [
+            "A visit at a time that suits you",
+            "Photos of what we found",
+            "A plain answer on what to do next",
+        ],
+    ),
+];
+
+/// The files a trade starter adds besides the settings: three example services as drafts, the
+/// empty reviews collection, and a phone-first landing page that lists services, recent jobs and
+/// reviews and places the quote form (ADR 0398). The jobs archive needs no file: it appears with
+/// the first published job.
+fn trade_files(config: &SiteConfig) -> Vec<(String, String)> {
+    let content = config.paths.content.trim_end_matches('/');
+    let mut files = Vec::new();
+    for (id, name, summary, band, includes) in TRADE_SERVICES {
+        let fields = frontmatter::serialize(&[
+            ("version", Value::Scalar("1".into())),
+            ("id", Value::Scalar(id.into())),
+            ("name", Value::Scalar(name.into())),
+            ("summary", Value::Scalar(summary.into())),
+            (
+                "includes",
+                Value::List(includes.iter().map(|item| item.to_string()).collect()),
+            ),
+            ("priceBand", Value::Scalar(band.into())),
+            ("draft", Value::Scalar("true".into())),
+        ]);
+        files.push((
+            format!("{content}/services/{id}.md"),
+            format!(
+                "{fields}\nThis is an example service, kept as a draft so it is not on your site. Change the name, the summary and what is included to describe your own work, then turn off **Keep this as a draft** in Admin under Services (or remove the `draft` line).\n"
+            ),
+        ));
+    }
+    files.push((format!("{content}/posts/.gitkeep"), String::new()));
+    files.push((format!("{content}/proof/.gitkeep"), String::new()));
+    let landing = serde_json::json!({
+        "format": openblog_core::landing::LANDING_FORMAT,
+        "version": openblog_core::landing::LANDING_VERSION_TRADE,
+        "sections": [
+            {
+                "id": "welcome",
+                "type": "welcome",
+                "heading": config.title,
+                "subheading": "Say in one sentence what you do and where. Change this text in Admin under Landing."
+            },
+            {"id": "contact", "type": "business-facts", "heading": "Call or visit"},
+            {"id": "services", "type": "services", "heading": "What we do"},
+            {"id": "recent-jobs", "type": "recent-jobs", "heading": "Recent jobs", "count": 3},
+            {"id": "reviews", "type": "reviews", "heading": "What customers say", "count": 3},
+            {"id": "quote", "type": "quote-form", "heading": "Ask for a quote"}
+        ]
+    });
+    let page = openblog_core::landing::LandingPage::parse(&landing.to_string())
+        .expect("the trade starter's landing page is valid");
+    files.push((
+        format!("{content}/{}", openblog_core::landing::LANDING_FILE),
+        page.to_canonical_json(),
+    ));
+    files
 }
 
 /// Create `content/posts/<date>-<slug>.md` and return its path. With `recipe`,
@@ -334,6 +530,141 @@ pub fn new_service(root: &Path, name: &str, start: &ServiceStart) -> Result<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fresh(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "ob-starter-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn trade(trade: &str) -> Starter {
+        Starter::parse("trade", Some(trade)).unwrap()
+    }
+
+    #[test]
+    fn a_trade_starter_builds_with_no_warnings_and_a_clean_home_page() {
+        let dir = fresh("trade");
+        init_with(
+            &dir,
+            Some("Maple Falls Flooring"),
+            false,
+            Some(&trade("flooring")),
+        )
+        .unwrap();
+        let (mut site, themes) = crate::site::load_site(&dir, false, None).unwrap();
+        // No accessibility, SEO or content warnings with no edits.
+        assert!(site.warnings.is_empty(), "{:?}", site.warnings);
+        assert_eq!(site.config.business.display_name, "Maple Falls Flooring");
+        assert_eq!(site.config.business.trade, "flooring");
+        assert!(site.config.business.phone.is_empty(), "no invented phone");
+        assert!(site.posts.is_empty(), "no hello-world post on a trade site");
+        assert_eq!(site.config.appearance.palette.as_deref(), Some("workshop"));
+        assert!(site.services.is_empty(), "the example services are drafts");
+        assert!(site.proof.is_empty());
+        let landing = site.landing.as_ref().expect("a landing page");
+        let kinds: Vec<&str> = landing.sections.iter().map(|s| s.kind.name()).collect();
+        assert_eq!(
+            kinds,
+            [
+                "welcome",
+                "business-facts",
+                "services",
+                "recent-jobs",
+                "reviews",
+                "quote-form"
+            ]
+        );
+        let files = crate::site::generate_site(&dir, &mut site, &themes).unwrap();
+        let home = &files
+            .iter()
+            .find(|file| file.path == "index.html")
+            .unwrap()
+            .contents;
+        assert_eq!(home.matches("<h1").count(), 1);
+        assert!(home.contains("Maple Falls Flooring"));
+        // Nothing invented reaches the site: no example service, no empty headings.
+        for file in &files {
+            assert!(!file.contents.contains("Example: "), "{}", file.path);
+        }
+        for absent in [
+            "What we do",
+            "Recent jobs",
+            "What customers say",
+            "ob-quote",
+        ] {
+            assert!(!home.contains(absent), "{absent}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_example_services_are_valid_drafts_that_build_once_published() {
+        let dir = fresh("drafts");
+        init_with(&dir, Some("Crew"), false, Some(&trade("roofing"))).unwrap();
+        let (site, _) = crate::site::load_site(&dir, true, None).unwrap();
+        let ids: Vec<&str> = site.services.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids.len(), 3, "{ids:?}");
+        for id in ["repairs", "new-installations", "inspections"] {
+            assert!(ids.contains(&id), "{id}");
+        }
+        // Turning one draft off publishes it with no other edit.
+        let path = dir.join("content/services/repairs.md");
+        let text: String = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with("draft:"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        fs::write(&path, text).unwrap();
+        let (site, _) = crate::site::load_site(&dir, false, None).unwrap();
+        assert_eq!(site.services.len(), 1);
+        assert!(site.warnings.is_empty(), "{:?}", site.warnings);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_starter_never_overwrites_and_a_plain_init_is_unchanged() {
+        let dir = fresh("keep");
+        fs::create_dir_all(dir.join("content")).unwrap();
+        fs::write(dir.join("content/landing.json"), "mine").unwrap();
+        init_with(&dir, Some("Crew"), false, Some(&trade("plumbing"))).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("content/landing.json")).unwrap(),
+            "mine"
+        );
+        let plain = fresh("plain");
+        let created = init(&plain, Some("Crew"), false).unwrap();
+        assert!(created.iter().any(|f| f == "content/posts/hello-world.md"));
+        assert!(!created
+            .iter()
+            .any(|f| f.contains("services") || f.contains("landing")));
+        let config = fs::read_to_string(plain.join(CONFIG_FILE)).unwrap();
+        assert!(!config.contains("\"business\""));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&plain);
+    }
+
+    #[test]
+    fn an_unknown_starter_or_trade_is_refused_before_anything_is_written() {
+        assert!(Starter::parse("bakery", None)
+            .unwrap_err()
+            .contains("choose trade"));
+        let error = Starter::parse("trade", Some("fencing")).unwrap_err();
+        assert!(error.contains("not a bundled trade") && error.contains("extraTrades"));
+        assert_eq!(
+            Starter::parse("trade", None).unwrap(),
+            Starter::Trade {
+                trade: TRADE_DEFAULT.into()
+            }
+        );
+    }
 
     #[test]
     fn init_adds_private_assistant_storage_to_an_existing_gitignore() {

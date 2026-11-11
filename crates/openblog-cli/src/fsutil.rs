@@ -359,6 +359,94 @@ impl PrivateState {
     }
 }
 
+/// The configured folder (`static`, `themes`, `web` or the build `output`)
+/// that `path` lies in, so that a build would publish a file written there, or
+/// `None`. The path and each folder are read as written, joined to `root` when
+/// relative, so a folder configured outside the project counts too; the
+/// project's private `.openblog` folder is never published.
+pub fn published_folder(
+    root: &Path,
+    config: &openblog_core::config::SiteConfig,
+    path: &Path,
+) -> Option<&'static str> {
+    fn parts(path: &Path) -> Vec<String> {
+        path.components()
+            .filter(|c| !matches!(c, std::path::Component::CurDir))
+            .map(|c| {
+                let part = c.as_os_str().to_string_lossy();
+                if cfg!(windows) {
+                    part.to_lowercase()
+                } else {
+                    part.into_owned()
+                }
+            })
+            .collect()
+    }
+    // Both sides are made absolute and resolved through the part that exists,
+    // so an absolute `path` and a relative `root` (the CLI's `.`) compare.
+    fn resolved(path: &Path) -> PathBuf {
+        let Ok(absolute) = std::path::absolute(path) else {
+            return path.to_path_buf();
+        };
+        let mut rest = Vec::new();
+        let mut existing = absolute.as_path();
+        loop {
+            if let Ok(real) = fs::canonicalize(existing) {
+                return rest
+                    .iter()
+                    .rev()
+                    .fold(real, |acc: PathBuf, part| acc.join(part));
+            }
+            match (existing.parent(), existing.file_name()) {
+                (Some(parent), Some(name)) => {
+                    rest.push(name.to_os_string());
+                    existing = parent;
+                }
+                _ => return absolute,
+            }
+        }
+    }
+    let root_parts = parts(&resolved(root));
+    let full = parts(&resolved(&root.join(path)));
+    if full
+        .strip_prefix(root_parts.as_slice())
+        .and_then(|inside| inside.first())
+        .is_some_and(|first| first == ".openblog")
+    {
+        return None;
+    }
+    // Each folder is resolved the way the build reads it, joined to `root`, so
+    // a folder configured outside the project (`../shared-static`) or by a
+    // full path is compared too.
+    let paths = &config.paths;
+    [
+        ("static", &paths.static_dir),
+        ("themes", &paths.themes),
+        ("web", &paths.web),
+        ("output", &paths.output),
+    ]
+    .into_iter()
+    .find(|(_, dir)| full.starts_with(&parts(&resolved(&root.join(dir.as_str())))))
+    .map(|(name, _)| name)
+}
+
+/// Refuses a private file that the author configured inside a published
+/// folder (see [`published_folder`]), naming the setting, so a build never
+/// copies it to the public site.
+pub fn refuse_published(
+    root: &Path,
+    config: &openblog_core::config::SiteConfig,
+    path: &Path,
+    setting: &str,
+) -> Result<(), String> {
+    match published_folder(root, config, path) {
+        Some(folder) => Err(format!(
+            "{setting} is inside the site's `{folder}` folder, so the next build would publish it; choose a place outside it, such as under .openblog. Nothing was written."
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Marker file proving the output directory belongs to open.blog, so a
 /// misconfigured `paths.output` can never wipe an unrelated folder.
 pub const MARKER: &str = ".openblog-output";
@@ -390,6 +478,86 @@ pub fn guard_output_dir(root: &Path, out: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_path_a_build_would_publish_is_named_and_private_state_is_not() {
+        use std::path::Path;
+        let root = Path::new("site");
+        let mut config = openblog_core::config::SiteConfig::default();
+        let published = |config: &openblog_core::config::SiteConfig, path: &str| {
+            super::published_folder(root, config, Path::new(path))
+        };
+        assert_eq!(published(&config, "static/rec.json"), Some("static"));
+        assert_eq!(published(&config, "./static/a/b.json"), Some("static"));
+        assert_eq!(published(&config, "dist/rec.json"), Some("output"));
+        assert_eq!(published(&config, "site/static/rec.json"), None);
+        assert_eq!(published(&config, ".openblog/rec.json"), None);
+        assert_eq!(published(&config, "records/rec.json"), None);
+        assert_eq!(published(&config, "staticish/rec.json"), None);
+        // A static folder of `.` publishes the whole project except its private state.
+        config.paths.static_dir = ".".into();
+        assert_eq!(published(&config, "records/rec.json"), Some("static"));
+        assert_eq!(published(&config, ".openblog/rec.json"), None);
+        let error = super::refuse_published(root, &config, Path::new("rec.json"), "x.stateFile")
+            .unwrap_err();
+        assert!(
+            error.contains("x.stateFile") && error.contains("`static`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn an_absolute_path_into_a_published_folder_is_named_when_the_root_is_relative() {
+        use std::path::Path;
+        // The CLI runs with a root of `.`; `--out` may name the same folder absolutely.
+        let config = openblog_core::config::SiteConfig::default();
+        let root = Path::new(".");
+        let absolute = |path: &str| std::path::absolute(path).unwrap();
+        let published = |path: &Path| super::published_folder(root, &config, path);
+        assert_eq!(published(&absolute("static/pkg2")), Some("static"));
+        assert_eq!(published(&absolute("dist/pkg")), Some("output"));
+        assert_eq!(published(&absolute(".openblog/pkg")), None);
+        assert_eq!(published(&absolute("records/pkg")), None);
+        // A relative root that names a folder is resolved the same way.
+        let root = Path::new("site");
+        let site = std::path::absolute("site/static/x.json").unwrap();
+        assert_eq!(
+            super::published_folder(root, &config, &site),
+            Some("static")
+        );
+    }
+
+    #[test]
+    fn a_path_into_a_published_folder_outside_the_project_is_named() {
+        use std::path::Path;
+        // `paths.static` may name a folder beside the project; the build copies it.
+        let base = std::env::temp_dir().join(format!("ob-outside-static-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("site")).unwrap();
+        std::fs::create_dir_all(base.join("shared-static")).unwrap();
+        let root = base.join("site");
+        let mut config = openblog_core::config::SiteConfig::default();
+        config.paths.static_dir = "../shared-static".into();
+        let published = |config: &openblog_core::config::SiteConfig, path: &Path| {
+            super::published_folder(&root, config, path)
+        };
+        let outside = base.join("shared-static").join("pkg7");
+        assert_eq!(published(&config, &outside), Some("static"));
+        assert_eq!(
+            published(&config, Path::new("../shared-static/pkg7")),
+            Some("static")
+        );
+        assert_eq!(
+            published(&config, &base.join("elsewhere").join("pkg")),
+            None
+        );
+        assert_eq!(published(&config, Path::new("static/pkg")), None);
+        // A folder configured by its full path is compared the same way.
+        config.paths.static_dir = base.join("shared-static").to_string_lossy().into_owned();
+        assert_eq!(published(&config, &outside), Some("static"));
+        assert_eq!(published(&config, Path::new(".openblog/pkg")), None);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
     #[test]
     fn a_new_file_falls_back_to_an_exclusive_create_only_when_hard_links_are_missing() {
         let dir = std::env::temp_dir().join(format!("ob-no-links-{}", std::process::id()));

@@ -19,18 +19,20 @@ const adapter = (fetchImpl) => socialAdapters({ providers: allProviders(), fetch
 const publish = async (reply, input = {}) => {
   const fake = scripted(reply);
   const result = await settle(adapter(fake.fetchImpl).publish(call("bluesky", { accessToken: TOKEN, ...input })));
-  return { ...result, calls: fake.calls, sent: fake.calls[0] ? JSON.parse(fake.calls[0].body) : null };
+  const write = fake.calls.find((c) => c.method === "POST");
+  return { ...result, calls: fake.calls, write, sent: write ? JSON.parse(write.body) : null };
 };
 const bytes = (text, start, end) => Buffer.from(text, "utf8").subarray(start, end).toString("utf8");
 
 test("the post: caption as text, the canonical post as a link card, the record key of the announcement, one createRecord", async () => {
   const { value, calls, sent } = await publish(created);
   assert.deepEqual(value, { providerPostId: URI });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "https://bsky.social/xrpc/com.atproto.repo.createRecord");
-  assert.equal(calls[0].method, "POST");
-  assert.equal(calls[0].headers.authorization, `Bearer ${TOKEN}`);
-  assert.equal(calls[0].redirect, "manual");
+  assert.equal(calls.length, 2, "the post's page is read for its card, then one write");
+  assert.deepEqual([calls[0].method, calls[0].url, calls[0].headers.authorization], ["GET", "https://blog.example.com/posts/hello/", undefined], "the public page never gets the token");
+  assert.equal(calls[1].url, "https://bsky.social/xrpc/com.atproto.repo.createRecord");
+  assert.equal(calls[1].method, "POST");
+  assert.equal(calls[1].headers.authorization, `Bearer ${TOKEN}`);
+  assert.equal(calls[1].redirect, "manual");
   assert.deepEqual(sent, {
     repo: DID,
     collection: "app.bsky.feed.post",
@@ -42,7 +44,37 @@ test("the post: caption as text, the canonical post as a link card, the record k
       embed: { $type: "app.bsky.embed.external", external: { uri: "https://blog.example.com/posts/hello/", title: "A new post is up.", description: "" } },
     },
   });
-  assert.ok(!calls[0].body.includes("idem-key-0001"), "the idempotency key itself is never sent");
+  assert.ok(!calls[1].body.includes("idem-key-0001"), "the idempotency key itself is never sent");
+});
+
+const PAGE = '<!doctype html><html><head><meta property="og:title" content="Hello &amp; lanterns"><meta property="og:description" content="How we light the&#10;quay at dusk."><meta property="og:image" content="https://blog.example.com/c.png"></head><body></body></html>';
+const withPage = (page, write = created) => (n, url) => (url === "https://blog.example.com/posts/hello/" ? page : write);
+
+test("the card shows the post's own title and description from its public page, never the caption twice (ADR 0386)", async () => {
+  const caption = "Soup is up #recipes, see https://blog.example.com/posts/hello/ (and @friend)";
+  const { value, sent } = await publish(withPage({ status: 200, headers: { "content-type": "text/html; charset=utf-8" }, body: PAGE }), { post: { caption } });
+  assert.deepEqual(value, { providerPostId: URI });
+  assert.equal(sent.record.text, caption);
+  assert.deepEqual(sent.record.embed.external, { uri: "https://blog.example.com/posts/hello/", title: "Hello & lanterns", description: "How we light the quay at dusk." });
+  // A page that cannot be had, is not HTML, redirects, or names no title: the caption's first line, as before.
+  for (const page of [{ status: 404 }, { status: 200, headers: { "content-type": "application/json" }, body: "{}" }, { status: 301, headers: { location: "https://elsewhere.example/" } }, { status: 200, headers: { "content-type": "text/html" }, body: "<html></html>" }, new TypeError("fetch failed")]) {
+    const fallback = await publish(withPage(page), { post: { caption } });
+    assert.deepEqual(fallback.value, { providerPostId: URI });
+    assert.deepEqual(fallback.sent.record.embed.external, { uri: "https://blog.example.com/posts/hello/", title: caption, description: "" });
+  }
+});
+
+test("a repeat of an attempt that landed is refused for its taken record key and settles as posted, not failed", async () => {
+  const taken = { status: 400, body: { error: "InvalidRequest", message: "Record already exists" } };
+  const replies = (record) => (n, url, init) => (url.includes("getRecord") ? record : url.includes("createRecord") ? taken : { status: 404 });
+  const landed = await publish(replies({ status: 200, body: { uri: URI, cid: "bafyrei", value: { $type: "app.bsky.feed.post", text: "A new post is up.", embed: { $type: "app.bsky.embed.external", external: { uri: "https://blog.example.com/posts/hello/" } } } } }));
+  assert.deepEqual(landed.value, { providerPostId: URI });
+  assert.equal(landed.calls.filter((c) => c.method === "POST").length, 1, "never written twice");
+  // The record under that key is something else, or is not there: still a refusal.
+  const other = await publish(replies({ status: 200, body: { uri: URI, cid: "bafyrei", value: { $type: "app.bsky.feed.post", text: "Something else", embed: { $type: "app.bsky.embed.external", external: { uri: "https://blog.example.com/posts/hello/" } } } } }));
+  assert.ok(isDelivery(other.error, "rejected"));
+  const none = await publish(replies({ status: 400, body: { error: "RecordNotFound" } }));
+  assert.ok(isDelivery(none.error, "rejected"));
 });
 
 test("links and hashtags in the caption become facets at UTF-8 byte offsets; mentions stay plain text", async () => {

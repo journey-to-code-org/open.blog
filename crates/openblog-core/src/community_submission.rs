@@ -407,6 +407,9 @@ pub struct KitRequest<'a> {
     /// The author's own title for this run, in place of the post's.
     pub title: Option<&'a str>,
     pub canonical_url: &'a str,
+    /// The post's own `canonical` names another page ([`crate::model::Post::canonical_elsewhere`]),
+    /// so `canonical_url` is not the original to submit and nothing is prepared.
+    pub canonical_elsewhere: bool,
     pub site_title: &'a str,
     pub config: &'a CommunityConfig,
     /// Every destination of this kit, so one can see the others.
@@ -435,6 +438,12 @@ impl SubmissionKit {
         serde_json::to_value(self).unwrap_or(Json::Null)
     }
 }
+
+/// The notice for a post whose own `canonical` names another page: that page is the original,
+/// so a community or a launch would be handed the wrong address (the recipe package refuses the
+/// same post with the same code).
+pub(crate) const CANONICAL_ELSEWHERE: &str = "canonical-elsewhere";
+pub(crate) const CANONICAL_ELSEWHERE_MESSAGE: &str = "This post names another page as its original (its `canonical` setting), so its address here is not the one to share. Share that page instead, or remove the setting.";
 
 /// Collapses runs of whitespace and trims, so a title reads as one line.
 pub fn normalize_title(title: &str) -> String {
@@ -484,6 +493,12 @@ fn prepare_one(request: &KitRequest<'_>, destination: &Destination) -> Destinati
         notices.push(Notice::blocking(
             "title-invalid",
             "The title has invisible or control characters; write it again in plain text.",
+        ));
+    }
+    if request.canonical_elsewhere {
+        notices.push(Notice::blocking(
+            CANONICAL_ELSEWHERE,
+            CANONICAL_ELSEWHERE_MESSAGE,
         ));
     }
     let confirmed =
@@ -1260,6 +1275,7 @@ mod tests {
             post_title: "Why  borrow\tchecking helps",
             title,
             canonical_url: "https://blog.example.org/a-post/?x=1&y=<2>",
+            canonical_elsewhere: false,
             site_title: "Field Notes",
             config,
             destinations,
@@ -1413,6 +1429,33 @@ mod tests {
         let page = kit_page(&kit);
         assert!(page.contains("Read the community's current rules on Reddit"));
         assert!(page.contains("(your note)"));
+    }
+
+    #[test]
+    fn a_post_whose_canonical_names_another_page_gets_no_ready_kit() {
+        let config = reddit_config("2026-10-01");
+        let destinations = [
+            Destination::HackerNews,
+            Destination::parse("reddit:rust").unwrap(),
+        ];
+        let mut elsewhere = request(None, &destinations, &config);
+        elsewhere.canonical_elsewhere = true;
+        let kit = prepare(&elsewhere);
+        for d in &kit.destinations {
+            assert!(!d.ready(), "{}", d.destination);
+            assert!(d.submit_url.is_none(), "{}", d.destination);
+            assert!(
+                d.notices
+                    .iter()
+                    .any(|n| n.code == "canonical-elsewhere" && n.blocking),
+                "{:?}",
+                d.notices
+            );
+        }
+        assert!(kit_text(&kit).contains("canonical-elsewhere"));
+        // The same post with its own address is ready.
+        let kit = prepare(&request(None, &destinations, &config));
+        assert!(kit.destinations.iter().all(DestinationKit::ready));
     }
 
     #[test]

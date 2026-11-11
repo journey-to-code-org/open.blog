@@ -325,9 +325,14 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/seasonal.js"),
     ),
     (
+        "trade-checklist.js",
+        include_str!("../../../web/admin/trade-checklist.js"),
+    ),
+    (
         "services.js",
         include_str!("../../../web/admin/services.js"),
     ),
+    ("proof.js", include_str!("../../../web/admin/proof.js")),
     ("paste.js", include_str!("../../../web/admin/paste.js")),
     (
         "landing-history.js",
@@ -349,6 +354,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     (
         "announcements.js",
         include_str!("../../../web/admin/announcements.js"),
+    ),
+    (
+        "job-share.js",
+        include_str!("../../../web/admin/job-share.js"),
     ),
     (
         "voice-polished.js",

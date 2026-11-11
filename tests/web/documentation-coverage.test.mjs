@@ -44,19 +44,24 @@ test("the landing section docs name every section type this release defines", ()
   );
 });
 
-test("the landing section docs name every section type that needs version 2", () => {
+test("the landing section docs name every section type that needs a newer version, beside that version", () => {
   const source = read("crates/openblog-core/src/landing.rs");
-  const body = source.slice(source.indexOf("pub fn version_for_page"));
-  const needs = body.match(/Some\(((?:"[a-z-]+"\s*\|?\s*)+)\)/);
-  assert.ok(needs, "version_for_page list not found");
-  const types = [...needs[1].matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
-  assert.ok(types.includes("business-facts"));
-  const docs = landingSectionsParagraph();
-  const sentence = docs.slice(docs.lastIndexOf(".", docs.indexOf('`"version": 2`')));
-  const versionSentence = sentence.slice(0, sentence.indexOf(".", 2) + 1);
-  assert.deepEqual(
-    types.filter((type) => !versionSentence.includes(`\`${type}\``)),
-    [],
-    versionSentence,
-  );
+  const body = source.slice(source.indexOf("pub fn version_for_type"), source.indexOf("pub fn version_for_page"));
+  const arms = [...body.matchAll(/((?:"[a-z-]+"\s*\|?\s*)+)=>\s*(LANDING_VERSION_[A-Z]+)/g)];
+  assert.ok(arms.length >= 2, "version_for_type arms not found");
+  const value = (name) => Number(source.match(new RegExp(`pub const ${name}: u64 = (\\d+);`))[1]);
+  const docs = landingSectionsParagraph().replace(/\s+/g, " ");
+  const byVersion = new Map();
+  for (const [, list, name] of arms) {
+    const types = [...list.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
+    byVersion.set(value(name), [...(byVersion.get(value(name)) || []), ...types]);
+  }
+  assert.ok(byVersion.get(2).includes("business-facts"));
+  assert.ok(byVersion.get(3).includes("services"));
+  for (const [version, types] of byVersion) {
+    const at = docs.indexOf(`\`"version": ${version}\``);
+    assert.ok(at >= 0, `the docs name version ${version}`);
+    const sentence = docs.slice(docs.lastIndexOf(". ", at) + 1, docs.indexOf(".", at + 14) + 1);
+    assert.deepEqual(types.filter((type) => !sentence.includes(`\`${type}\``)), [], sentence);
+  }
 });

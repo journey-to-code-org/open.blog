@@ -56,10 +56,16 @@ pub enum ProviderId {
     Pinterest,
     /// YouTube uploads of a video post's release, made by `openblog video` (ADR 0375).
     Youtube,
+    /// Google Business Profile posts of a finished job, sent by `openblog job-share` once the
+    /// owner's Google project is approved and the setting is on (ADR 0393).
+    GoogleBusinessProfile,
+    /// Nextdoor: a guided kit the owner posts by hand, because its Publish API is for approved
+    /// partners only (ADR 0394).
+    Nextdoor,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 14] = [
+    pub const ALL: [ProviderId; 16] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -74,6 +80,8 @@ impl ProviderId {
         Self::Mastodon,
         Self::Pinterest,
         Self::Youtube,
+        Self::GoogleBusinessProfile,
+        Self::Nextdoor,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -99,15 +107,22 @@ impl ProviderId {
             Self::Mastodon => "mastodon",
             Self::Pinterest => "pinterest",
             Self::Youtube => "youtube",
+            Self::GoogleBusinessProfile => "google-business-profile",
+            Self::Nextdoor => "nextdoor",
         }
     }
 
     pub fn family(self) -> Family {
         match self {
-            Self::Linkedin | Self::Facebook | Self::Bluesky | Self::Mastodon | Self::Pinterest => {
-                Family::Social
+            Self::Linkedin
+            | Self::Facebook
+            | Self::Bluesky
+            | Self::Mastodon
+            | Self::Pinterest
+            | Self::GoogleBusinessProfile => Family::Social,
+            Self::HackerNews | Self::Reddit | Self::ProductHunt | Self::Nextdoor => {
+                Family::Community
             }
-            Self::HackerNews | Self::Reddit | Self::ProductHunt => Family::Community,
             Self::Youtube => Family::Video,
             _ => Family::Syndication,
         }
@@ -1009,6 +1024,9 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 "https://dev.pinterest.com/docs/developer-tools/sandbox/",
             ]),
         },
+        Family::Social if provider == ProviderId::GoogleBusinessProfile => {
+            google_business_profile_manifest()
+        }
         Family::Video => youtube_manifest(),
         Family::Social => {
             // Scheduling is open.blog's own queue (ADRs 0308, 0316), so its window is the queue's.
@@ -1129,6 +1147,16 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                         "https://api.producthunt.com/v2/docs",
                     ],
                 ),
+                // The Share Plugin opens Nextdoor's own composer with the text filled in; the owner
+                // adds the photo and posts it there (ADR 0394).
+                ProviderId::Nextdoor => (
+                    "Nextdoor",
+                    &[
+                        "https://developer.nextdoor.com/docs/sharing-overview",
+                        "https://developer.nextdoor.com/reference/share-plugin",
+                        "https://developer.nextdoor.com/docs/business-share",
+                    ],
+                ),
                 _ => (
                     "Reddit",
                     &[
@@ -1143,17 +1171,28 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
             } else {
                 Unsupported
             };
+            // A Nextdoor post is the owner's words and a photo, both entered by hand.
+            let words = if provider == ProviderId::Nextdoor {
+                Manual
+            } else {
+                launch
+            };
             ProviderManifest {
                 manifest_version: MANIFEST_VERSION,
                 provider,
                 family: Family::Community,
                 label: label.to_string(),
-                policy_version: BUILTIN_POLICY_VERSION.to_string(),
+                policy_version: if provider == ProviderId::Nextdoor {
+                    JOB_DESTINATIONS_POLICY_VERSION
+                } else {
+                    BUILTIN_POLICY_VERSION
+                }
+                .to_string(),
                 capabilities: support([
                     (Link, Manual),
-                    (Text, launch),
+                    (Text, words),
                     (Article, Unsupported),
-                    (Image, launch),
+                    (Image, words),
                     (Video, launch),
                     (Draft, launch),
                     (Schedule, launch),
@@ -1221,6 +1260,58 @@ fn youtube_manifest() -> ProviderManifest {
             "https://developers.google.com/youtube/v3/docs/errors",
             "https://developers.google.com/identity/protocols/oauth2/native-app",
             "https://support.google.com/youtube/answer/9884579",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect(),
+    }
+}
+
+/// The day Google Business Profile and Nextdoor were checked against their own documentation
+/// (ADRs 0393 and 0394).
+pub const JOB_DESTINATIONS_POLICY_VERSION: &str = "2026-11-08";
+
+/// Google Business Profile as an adapter for finished jobs (story #488, ADR 0393): one `STANDARD`
+/// local post through `accounts.locations.localPosts.create` (API v4), its words in `summary`, the
+/// job's page as a `LEARN_MORE` button and the first after-photo by its public address
+/// (`sourceUrl` is the only media field a local post takes). The API has no draft and no
+/// publishing time, and this adapter sends no video. Google's reference states no length for
+/// `summary`; 1,500 characters is the limit posting tools apply, so open.blog keeps to it.
+fn google_business_profile_manifest() -> ProviderManifest {
+    use Capability::*;
+    use Support::*;
+    ProviderManifest {
+        manifest_version: MANIFEST_VERSION,
+        provider: ProviderId::GoogleBusinessProfile,
+        family: Family::Social,
+        label: "Google Business Profile".to_string(),
+        policy_version: JOB_DESTINATIONS_POLICY_VERSION.to_string(),
+        capabilities: [
+            (Link, Adapter),
+            (Text, Adapter),
+            (Article, Unsupported),
+            (Image, Adapter),
+            (Video, Unsupported),
+            (Draft, Unsupported),
+            (Schedule, Unsupported),
+        ]
+        .into_iter()
+        .collect(),
+        login: Login {
+            method: LoginMethod::Oauth2,
+            scopes: vec!["https://www.googleapis.com/auth/business.manage".to_string()],
+        },
+        constraints: Constraints {
+            max_text_chars: Some(1500),
+            ..Constraints::default()
+        },
+        canonical: CanonicalLink::Linked,
+        publishing: Publishing::ExplicitApproval,
+        sources: [
+            "https://developers.google.com/my-business/reference/rest/v4/accounts.locations.localPosts",
+            "https://developers.google.com/my-business/reference/rest/v4/accounts.locations.localPosts/create",
+            "https://developers.google.com/my-business/content/prereqs",
+            "https://support.google.com/business/answer/7662907",
         ]
         .iter()
         .map(|s| (*s).to_string())

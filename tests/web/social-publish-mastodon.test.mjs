@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { socialAdapters } from "../../netlify/lib/social-adapters.mjs";
-import { coverOf, idempotencyHeader, instanceLimits, metaTags, rateLimitWaitMs, statusLength, statusText } from "../../netlify/lib/social-mastodon.mjs";
+import { coverOf, holdsLink, idempotencyHeader, instanceLimits, metaTags, rateLimitWaitMs, statusLength, statusText } from "../../netlify/lib/social-mastodon.mjs";
 import { call, isDelivery, providers, scripted, settle } from "./social-publish-fakes.mjs";
 
 const NOW = Date.parse("2026-11-01T12:00:00Z");
@@ -69,6 +69,20 @@ test("visibility is the deployer's, and a caption that already holds the link is
   const again = await run({ [`POST ${INSTANCE}/api/v1/statuses`]: posted }, { input: { post: { caption } } });
   assert.equal(again.form.status, caption);
   assert.equal(statusText("See https://blog.example.com/posts/hello/x", "https://blog.example.com/posts/hello/"), "See https://blog.example.com/posts/hello/x\n\nhttps://blog.example.com/posts/hello/");
+});
+
+test("a link already in the caption is not added again when brackets or a full stop sit around it (ADR 0386)", () => {
+  const url = "https://blog.example.org/posts/soup/";
+  for (const caption of [`Soup (${url})`, `New soup: ${url}.`, `Soup, ${url}, and bread`, `[${url}]`, `Is it ${url}?`, `See ${url}!\nMore soon`]) {
+    assert.equal(statusText(caption, url), caption, caption);
+    assert.ok(holdsLink(caption, url));
+  }
+  // A longer link, or a shorter one, is not the post's link.
+  for (const caption of [`See ${url}x`, `See ${url}more.`, "See https://blog.example.org/posts/soup"]) assert.equal(statusText(caption, url), `${caption}\n\n${url}`, caption);
+  // A bracket the link opened itself is part of it.
+  assert.equal(statusText("Read (https://en.wikipedia.org/wiki/Bread_(food))", "https://en.wikipedia.org/wiki/Bread_(food)"), "Read (https://en.wikipedia.org/wiki/Bread_(food))");
+  // The punctuation after a link is counted as text, the link as 23.
+  assert.equal(statusLength(`Soup (${url}).`), "Soup ().".length + 23);
 });
 
 test("length is counted as Mastodon counts it, and a status over the instance's limit is refused without a write", async () => {

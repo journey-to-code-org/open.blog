@@ -65,6 +65,14 @@ pub enum Code {
     CaloriesWithoutYield,
     /// The post has no cover image; many recipe readers and search results require one.
     NoImage,
+    /// The post's own `canonical` names another page, so the export would point at a copy.
+    CanonicalElsewhere,
+    /// Some amounts are metric and others US or imperial, so a cook must convert some of them
+    /// (ADR 0385). Nothing is rewritten.
+    MixedUnitSystems,
+    /// A recipe section holds text outside its list (a loose paragraph); the page shows it, the
+    /// export leaves it out.
+    UnlistedText,
 }
 
 impl Code {
@@ -78,6 +86,7 @@ impl Code {
             | Self::ZeroQuantity
             | Self::DescendingRange
             | Self::NoCanonicalAddress
+            | Self::CanonicalElsewhere
             | Self::ZeroTime
             | Self::TotalShorterThanParts => Severity::Error,
             _ => Severity::Warning,
@@ -105,6 +114,9 @@ impl Code {
             Self::ServingsNotNumeric => "servings-not-numeric",
             Self::CaloriesWithoutYield => "calories-without-yield",
             Self::NoImage => "no-image",
+            Self::CanonicalElsewhere => "canonical-elsewhere",
+            Self::MixedUnitSystems => "mixed-unit-systems",
+            Self::UnlistedText => "unlisted-text",
         }
     }
 
@@ -120,7 +132,7 @@ impl Code {
             Self::DuplicateIngredient => "the same ingredient line appears more than once; importers will list it twice",
             Self::NumberedStep => "a step starts with its own number; the export numbers steps already, so the label is repeated",
             Self::NoCanonicalAddress => "the site has no absolute http(s) `url` in openblog.json, so the export cannot link the canonical post",
-            Self::NoAuthor => "the site names no author in openblog.json, so the export credits nobody",
+            Self::NoAuthor => "the post credits no author and the site names none in openblog.json, so the export credits nobody",
             Self::UnreadableAdaptedFrom => "`adaptedFrom` is not an http(s) web address, so the export leaves the source out",
             Self::TimeNotExported => "a time is written as text, not one length of time, so the export leaves it out",
             Self::ZeroTime => "a time is zero; give the time or remove the field",
@@ -129,6 +141,9 @@ impl Code {
             Self::ServingsNotNumeric => "`servings` does not start with a number, so the export gives it as text and importers cannot scale it",
             Self::CaloriesWithoutYield => "`calories` is given without `servings` or `makes`, so nothing says what it is per",
             Self::NoImage => "the post has no `cover` image; many recipe apps and search results need one",
+            Self::CanonicalElsewhere => "the post names another page as its original (`canonical`), so the export would point recipe apps at this copy; share that page instead, or remove the setting",
+            Self::MixedUnitSystems => "some amounts are in grams or litres and others in cups, ounces or pounds, so cooks who use one system must convert the rest; open.blog changes nothing, so consider giving both",
+            Self::UnlistedText => "a recipe section has text outside its list; the page shows it but the export leaves it out, so put it in the list or under another heading",
         }
     }
 }
@@ -217,82 +232,354 @@ pub enum Quantity {
     Problem(Code),
 }
 
-/// The amount at the start of an ingredient line, read with the same forms the reader's scaling
-/// accepts (`2`, `1.5`, `1,5`, `1/2`, `1 1/2`, `1-1/2`, `½`, `1½`, and ranges `2-3`, `2 to 3`).
-pub fn quantity(line: &str) -> Quantity {
-    let s = line.trim_start();
-    let starts_numeric = s
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_digit() || crate::recipe::is_unicode_fraction(c));
-    if !starts_numeric {
-        return Quantity::None;
-    }
-    let Some((first, rest)) = amount(s) else {
-        return Quantity::Problem(Code::UnreadableQuantity);
-    };
-    if rest.starts_with(['/', '⁄']) {
-        return Quantity::Problem(Code::UnreadableQuantity);
-    }
-    if first <= 0.0 {
-        return Quantity::Problem(Code::ZeroQuantity);
-    }
-    let trimmed = rest.trim_start();
-    let after_separator = ["-", "–", "—", "to "]
+/// The single-character fractions the reader's scaler reads (`UNICODE_FRACTIONS` in
+/// `web/components/ob-quantity.js`).
+const SCALER_FRACTIONS: [(char, f64); 15] = [
+    ('½', 1.0 / 2.0),
+    ('⅓', 1.0 / 3.0),
+    ('⅔', 2.0 / 3.0),
+    ('¼', 1.0 / 4.0),
+    ('¾', 3.0 / 4.0),
+    ('⅕', 1.0 / 5.0),
+    ('⅖', 2.0 / 5.0),
+    ('⅗', 3.0 / 5.0),
+    ('⅘', 4.0 / 5.0),
+    ('⅙', 1.0 / 6.0),
+    ('⅚', 5.0 / 6.0),
+    ('⅛', 1.0 / 8.0),
+    ('⅜', 3.0 / 8.0),
+    ('⅝', 5.0 / 8.0),
+    ('⅞', 7.0 / 8.0),
+];
+
+fn fraction_value(c: char) -> Option<f64> {
+    SCALER_FRACTIONS
         .iter()
-        .find_map(|sep| trimmed.strip_prefix(sep))
-        .map(str::trim_start)
-        .filter(|after| {
-            after
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_digit() || crate::recipe::is_unicode_fraction(c))
-        });
-    let Some(after) = after_separator else {
-        return Quantity::Amount(vec![first]);
-    };
-    let Some((second, rest)) = amount(after) else {
-        return Quantity::Problem(Code::UnreadableQuantity);
-    };
-    if rest.starts_with(['/', '⁄']) {
-        return Quantity::Problem(Code::UnreadableQuantity);
-    }
-    if second <= 0.0 {
-        return Quantity::Problem(Code::ZeroQuantity);
-    }
-    if second < first {
-        return Quantity::Problem(Code::DescendingRange);
-    }
-    Quantity::Amount(vec![first, second])
+        .find(|(f, _)| *f == c)
+        .map(|(_, v)| *v)
 }
 
-/// One amount at the start of `s`, including the US mixed form `1-1/2`.
-fn amount(s: &str) -> Option<(f64, &str)> {
-    let digits = |t: &str| t.find(|c: char| !c.is_ascii_digit()).unwrap_or(t.len());
-    // "1-1/2": a whole number, a hyphen, then a proper fraction.
-    let whole = digits(s);
-    if whole > 0 {
-        if let Some(after) = s[whole..].strip_prefix('-') {
-            let num = digits(after);
-            if num > 0 {
-                if let Some(den_part) = after[num..].strip_prefix(['/', '⁄']) {
-                    let den = digits(den_part);
-                    if den > 0 {
-                        let w: f64 = s[..whole].parse().ok()?;
-                        let n: f64 = after[..num].parse().ok()?;
-                        let d: f64 = den_part[..den].parse().ok()?;
-                        if d == 0.0 {
-                            return None;
-                        }
-                        if n < d {
-                            return Some((w + n / d, &den_part[den..]));
-                        }
-                    }
-                }
+fn is_fraction(c: char) -> bool {
+    fraction_value(c).is_some()
+}
+
+fn digits_len(t: &str) -> usize {
+    t.bytes().take_while(u8::is_ascii_digit).count()
+}
+
+fn space_len(t: &str) -> usize {
+    t.chars()
+        .take_while(|c| c.is_whitespace())
+        .map(char::len_utf8)
+        .sum()
+}
+
+/// The byte length of the character at the start of `t` when `accept` takes it.
+fn char_len(t: &str, accept: impl Fn(char) -> bool) -> Option<usize> {
+    t.chars().next().filter(|&c| accept(c)).map(char::len_utf8)
+}
+
+fn is_slash(c: char) -> bool {
+    c == '/' || c == '⁄'
+}
+
+/// The lengths the scaler's `AMOUNT` pattern can match at the start of `t`, in the order its
+/// regular expression tries them: `1-1/2`, `1 1/2`, `1½` or `1 ½`, `1/2`, `½`, `1,000`,
+/// `1.5` or `1,5`, `12`. A shorter run of digits is never listed: it leaves a digit next, which
+/// nothing after an amount accepts.
+fn amount_lengths(t: &str) -> Vec<usize> {
+    let mut out = Vec::new();
+    let d = digits_len(t);
+    // `\d+ SLASH \d+` from `at`: where it ends, when it is there.
+    let fraction_from = |at: usize| -> Option<usize> {
+        let n = digits_len(&t[at..]);
+        if n == 0 {
+            return None;
+        }
+        let slash = char_len(&t[at + n..], is_slash)?;
+        let m = digits_len(&t[at + n + slash..]);
+        (m > 0).then_some(at + n + slash + m)
+    };
+    if d > 0 {
+        if t[d..].starts_with('-') {
+            out.extend(fraction_from(d + 1));
+        }
+        let space = space_len(&t[d..]);
+        if space > 0 {
+            out.extend(fraction_from(d + space));
+        }
+        if let Some(w) = char_len(&t[d..], char::is_whitespace) {
+            if let Some(f) = char_len(&t[d + w..], is_fraction) {
+                out.push(d + w + f);
+            }
+        }
+        if let Some(f) = char_len(&t[d..], is_fraction) {
+            out.push(d + f);
+        }
+        if let Some(slash) = char_len(&t[d..], is_slash) {
+            let m = digits_len(&t[d + slash..]);
+            if m > 0 {
+                out.push(d + slash + m);
             }
         }
     }
-    crate::recipe::leading_number(s)
+    if let Some(f) = char_len(t, is_fraction) {
+        out.push(f);
+    }
+    if d > 0 {
+        // Digit grouping, `1,000`: up to three digits, then groups of exactly three, and no
+        // digit or comma after.
+        if d <= 3 {
+            let mut end = d;
+            while t[end..].starts_with(',') && digits_len(&t[end + 1..]) >= 3 {
+                end += 4;
+            }
+            if end > d && !t[end..].starts_with(|c: char| c.is_ascii_digit() || c == ',') {
+                out.push(end);
+            }
+        }
+        if t[d..].starts_with(['.', ',']) {
+            let m = digits_len(&t[d + 1..]);
+            if m > 0 {
+                out.push(d + 1 + m);
+            }
+        }
+        out.push(d);
+    }
+    out
+}
+
+/// The scaler's range separator at the start of `t` (`-`, `–`, `—` or `to`, with any spaces).
+fn separator_len(t: &str) -> Option<usize> {
+    let before = space_len(t);
+    let sep = ["-", "–", "—", "to"]
+        .iter()
+        .find(|sep| t[before..].starts_with(**sep))?
+        .len();
+    Some(before + sep + space_len(&t[before + sep..]))
+}
+
+/// What may not follow an amount: another digit, a slash, a point or a comma.
+fn ends_cleanly(rest: &str) -> bool {
+    !rest.starts_with(|c: char| c.is_ascii_digit() || is_slash(c) || c == '.' || c == ',')
+}
+
+fn all_digits(t: &str) -> bool {
+    !t.is_empty() && digits_len(t) == t.len()
+}
+
+/// The value of one amount as written, or NaN: the scaler's `parseAmount`.
+fn parse_amount(raw: &str) -> f64 {
+    let s = raw.trim().replace('⁄', "/");
+    let num = |t: &str| t.parse::<f64>().unwrap_or(f64::NAN);
+    let ratio = |n: &str, den: &str| {
+        let den = num(den);
+        if den == 0.0 {
+            f64::NAN
+        } else {
+            num(n) / den
+        }
+    };
+    let d = digits_len(&s);
+    let (whole, after) = s.split_at(d);
+    if d > 0 {
+        // `1-1/2` and `1 1/2`.
+        let joined = after.trim_start_matches(|c: char| c == '-' || c.is_whitespace());
+        if joined.len() < after.len() {
+            if let Some((n, den)) = joined.split_once('/') {
+                if all_digits(n) && all_digits(den) {
+                    return num(whole) + ratio(n, den);
+                }
+            }
+        }
+        // `1½` and `1 ½`.
+        let mut tail = after.chars();
+        let fraction = match (tail.next(), tail.next(), tail.next()) {
+            (Some(f), None, None) => fraction_value(f),
+            (Some(w), Some(f), None) if w.is_whitespace() => fraction_value(f),
+            _ => None,
+        };
+        if let Some(f) = fraction {
+            return num(whole) + f;
+        }
+        // `1/2`.
+        if let Some(den) = after.strip_prefix('/') {
+            if all_digits(den) {
+                return ratio(whole, den);
+            }
+        }
+    }
+    // `½`.
+    let mut chars = s.chars();
+    if let (Some(f), None) = (chars.next(), chars.next()) {
+        if let Some(v) = fraction_value(f) {
+            return v;
+        }
+    }
+    // `1,000`.
+    if (1..=3).contains(&d)
+        && after.starts_with(',')
+        && after
+            .split(',')
+            .skip(1)
+            .all(|group| group.len() == 3 && all_digits(group))
+    {
+        return num(&s.replace(',', ""));
+    }
+    num(&s.replacen(',', ".", 1))
+}
+
+/// The amount (or range) at the start of an ingredient line as the scaler's `LEADING` pattern
+/// reads it: the text of each end and the byte offset just past the quantity, or `None` when
+/// the pattern does not match.
+fn scaler_match(line: &str) -> Option<(Vec<&str>, usize)> {
+    let lead = space_len(line);
+    let t = &line[lead..];
+    for first in amount_lengths(t) {
+        if let Some(sep) = separator_len(&t[first..]) {
+            let from = first + sep;
+            for second in amount_lengths(&t[from..]) {
+                let end = from + second;
+                if ends_cleanly(&t[end..]) {
+                    return Some((vec![&t[..first], &t[from..end]], lead + end));
+                }
+            }
+        }
+        if ends_cleanly(&t[first..]) {
+            return Some((vec![&t[..first]], lead + first));
+        }
+    }
+    None
+}
+
+/// The values the reader's scaler reads at the start of `line`, as `findQuantity(line).values`
+/// in `web/components/ob-quantity.js` gives them, or `None` where it reads no amount. The
+/// shared cases in `tests/fixtures/recipe-quantities.json` run through both.
+pub fn scaler_amounts(line: &str) -> Option<Vec<f64>> {
+    let (ends, _) = scaler_match(line)?;
+    let values: Vec<f64> = ends.into_iter().map(parse_amount).collect();
+    values
+        .iter()
+        .all(|v| v.is_finite() && *v > 0.0)
+        .then_some(values)
+}
+
+/// The unit after the line's leading amount: the letters right after it, as the scaler reads
+/// them.
+fn leading_unit(line: &str) -> Option<&str> {
+    let (_, end) = scaler_match(line)?;
+    let rest = line[end..].trim_start();
+    let len: usize = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic() || *c == 'µ')
+        .map(char::len_utf8)
+        .sum();
+    (len > 0).then(|| &rest[..len])
+}
+
+/// The scaler's `METRIC` words: the units it keeps as whole grams and millilitres.
+const METRIC_UNITS: &[&str] = &[
+    "g",
+    "kg",
+    "mg",
+    "gr",
+    "gram",
+    "grams",
+    "kilo",
+    "kilos",
+    "kilogram",
+    "kilograms",
+    "ml",
+    "l",
+    "dl",
+    "cl",
+    "litre",
+    "litres",
+    "liter",
+    "liters",
+    "millilitre",
+    "millilitres",
+    "milliliter",
+    "milliliters",
+];
+
+/// US and imperial measures that a cook who weighs in grams would have to convert (ADR 0385).
+/// Spoons are left out: teaspoons and tablespoons are used everywhere.
+const US_UNITS: &[&str] = &[
+    "cup", "cups", "oz", "ounce", "ounces", "lb", "lbs", "pound", "pounds", "pint", "pints", "pt",
+    "quart", "quarts", "qt", "gallon", "gallons", "gal", "fl",
+];
+
+/// The measuring system an ingredient line's amount is written in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnitSystem {
+    Metric,
+    Us,
+}
+
+/// Whether the scaler reads the unit after the line's leading amount as metric, as
+/// `findQuantity(line).metric` does: the unit's ASCII letters, which is where the `METRIC`
+/// pattern's word boundary falls.
+pub fn scaler_metric(line: &str) -> bool {
+    leading_unit(line).is_some_and(|unit| {
+        let ascii: String = unit.chars().take_while(char::is_ascii_alphabetic).collect();
+        METRIC_UNITS.contains(&ascii.to_ascii_lowercase().as_str())
+    })
+}
+
+/// The one system a line's amount is written in, or `None` when its unit is neither (`2 eggs`,
+/// `1 tsp salt`) or the line gives both (`12 oz / 340 g`), which every reader can follow.
+pub fn unit_system(line: &str) -> Option<UnitSystem> {
+    let unit = leading_unit(line)?.to_ascii_lowercase();
+    let system = if scaler_metric(line) {
+        UnitSystem::Metric
+    } else if US_UNITS.contains(&unit.as_str()) {
+        UnitSystem::Us
+    } else {
+        return None;
+    };
+    let other = match system {
+        UnitSystem::Metric => US_UNITS,
+        UnitSystem::Us => METRIC_UNITS,
+    };
+    let gives_both = line
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .any(|word| other.contains(&word.to_ascii_lowercase().as_str()));
+    (!gives_both).then_some(system)
+}
+
+fn starts_numeric(s: &str) -> bool {
+    s.trim_start()
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit() || is_fraction(c))
+}
+
+/// The amount at the start of an ingredient line, read exactly as the reader's scaler reads it
+/// ([`scaler_amounts`], ADR 0334), and what the scaler would get wrong: a number it cannot read,
+/// a zero, an amount it reads only part of (`½½`), or a range that runs backwards.
+pub fn quantity(line: &str) -> Quantity {
+    if !starts_numeric(line) {
+        return Quantity::None;
+    }
+    let Some((ends, end)) = scaler_match(line) else {
+        return Quantity::Problem(Code::UnreadableQuantity);
+    };
+    let values: Vec<f64> = ends.into_iter().map(parse_amount).collect();
+    if values.iter().any(|v| !v.is_finite()) {
+        return Quantity::Problem(Code::UnreadableQuantity);
+    }
+    if values.iter().any(|v| *v <= 0.0) {
+        return Quantity::Problem(Code::ZeroQuantity);
+    }
+    // The scaler stops before a second fraction sign: `½½` would scale as `½`.
+    if line[end..].starts_with(is_fraction) {
+        return Quantity::Problem(Code::UnreadableQuantity);
+    }
+    if values.len() == 2 && values[1] < values[0] {
+        return Quantity::Problem(Code::DescendingRange);
+    }
+    Quantity::Amount(values)
 }
 
 /// Every problem with exporting `post`'s recipe, in a stable order: the lists, each ingredient and
@@ -306,6 +593,8 @@ pub fn check(config: &SiteConfig, post: &Post, recipe: &Recipe) -> Vec<Problem> 
         problems.push(Problem::new(Code::NoSteps));
     }
     let mut seen: Vec<String> = Vec::new();
+    let mut first_system = None;
+    let mut mixed = false;
     for (i, line) in recipe.ingredients.iter().enumerate() {
         let line = line.trim();
         if line.is_empty() {
@@ -315,12 +604,25 @@ pub fn check(config: &SiteConfig, post: &Post, recipe: &Recipe) -> Vec<Problem> 
         if let Quantity::Problem(code) = quantity(line) {
             problems.push(Problem::ingredient(code, i));
         }
+        if let Some(system) = unit_system(line) {
+            match first_system {
+                None => first_system = Some(system),
+                Some(first) if first != system && !mixed => {
+                    mixed = true;
+                    problems.push(Problem::ingredient(Code::MixedUnitSystems, i));
+                }
+                Some(_) => {}
+            }
+        }
         let key = line.to_lowercase();
         if seen.contains(&key) {
             problems.push(Problem::ingredient(Code::DuplicateIngredient, i));
         } else {
             seen.push(key);
         }
+    }
+    if recipe.unlisted_text > 0 {
+        problems.push(Problem::new(Code::UnlistedText));
     }
     for (i, step) in recipe.steps.iter().enumerate() {
         let step = step.trim();
@@ -369,7 +671,10 @@ pub fn check(config: &SiteConfig, post: &Post, recipe: &Recipe) -> Vec<Problem> 
     if web_address(&config.url).is_none() {
         problems.push(Problem::new(Code::NoCanonicalAddress));
     }
-    if config.author.name.trim().is_empty() {
+    if post.canonical_elsewhere(config) {
+        problems.push(Problem::field(Code::CanonicalElsewhere, "canonical"));
+    }
+    if crate::render::post_author_names(config, post).is_empty() {
         problems.push(Problem::new(Code::NoAuthor));
     }
     if post.cover.is_none() {
@@ -487,6 +792,9 @@ mod tests {
             Code::ServingsNotNumeric,
             Code::CaloriesWithoutYield,
             Code::NoImage,
+            Code::CanonicalElsewhere,
+            Code::MixedUnitSystems,
+            Code::UnlistedText,
         ];
         let mut names: Vec<&str> = codes.iter().map(|c| c.as_str()).collect();
         for code in codes {

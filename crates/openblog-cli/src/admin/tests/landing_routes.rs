@@ -251,7 +251,7 @@ fn an_oversized_request_is_rejected_before_it_is_read() {
 fn a_file_from_a_newer_release_reads_as_invalid_and_is_never_overwritten() {
     let f = fixture("landing-newer");
     let session = login_ok(&f);
-    let newer = r#"{"format":"openblog-landing","version":3,"sections":[],"x":1}"#;
+    let newer = r#"{"format":"openblog-landing","version":4,"sections":[],"x":1}"#;
     fs::write(landing_file(&f), newer).unwrap();
     let (status, view) = get(&f, &session);
     assert_eq!(status, 200);

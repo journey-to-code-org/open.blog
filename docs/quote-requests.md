@@ -2,16 +2,15 @@
 
 Let a visitor ask for a quote from any page: name, phone, town, service, up to five photos and a description.
 The request is stored in your private Supabase workspace and never in a static file. It is **off by default**:
-a site that never turns it on builds exactly as before. The decisions are in ADRs 0381 to 0384.
+a site that never turns it on builds exactly as before. The decisions are in ADRs 0381 to 0384, 0386 and 0387.
 
 This is not a CRM. Listing, marking handled, CSV export and erasure come with the Admin request screen.
 
-> **Netlify only for now.** The hosted function that receives requests is a Netlify function. A site run by
-> `openblog serve` on its own, such as the Render setup in [deploy](deploy.md), has no `/api/quote` address, so
-> the form has nowhere to send and every request would be refused. Leave `quote.enabled` off on Render. Pointing
-> `endpoint` at a Netlify function on another address does not work either: the function sends no cross-origin
-> headers, so the browser does not let your page read the token it asks that address for, and the second form a
-> visitor without JavaScript is shown comes from the function's own address, which the function refuses.
+> **Where it runs.** The code that receives requests runs as a Netlify function on Netlify, or, on a site run by
+> `openblog serve` in the container (the Render setup in [deploy](deploy.md)), as a small service the container
+> starts beside the server. Either way the form posts to `/api/quote` on your own site. Pointing `endpoint` at
+> the function on another address does not work: the function sends no cross-origin headers, so the browser does
+> not let your page read the token it asks that address for.
 
 ## What a visitor sees
 
@@ -38,7 +37,8 @@ first post is answered with the same form to send once more (this stops scripts)
    ````
 
    The landing section lists your services and the form lists your service areas as choices. A fence lists the
-   services you name (or a text box if none). With `enabled` false the section renders nothing
+   services you name; a fence that names none lists your published services, like the landing section, and shows a
+   text box only when you have none. With `enabled` false the section renders nothing
    and a `quote` fence stays an ordinary code block, as it was before. Feeds and exports never carry the form.
 
 ## Set up the hosted function
@@ -57,12 +57,31 @@ first post is answered with the same form to send once more (this stops scripts)
 3. Deploy. `netlify.toml` maps `/api/quote/*` to the function. Until you set `OPENBLOG_QUOTE_ENABLED` every route
    answers 404.
 
+### On Render (or any host running the container)
+
+Set the same variables on the Render service (its **Environment** page), with `OPENBLOG_SITE_ORIGIN` set to the
+address visitors use, such as `https://your-blog.onrender.com`. With `OPENBLOG_QUOTE_ENABLED` set to `true`, the
+container starts `scripts/quote-service.mjs`, which runs the same function code with Node and listens on this
+machine only (port 8788, or `OPENBLOG_QUOTE_SERVICE_PORT`). `openblog serve` passes `/api/quote/...` on your site
+to it, with the visitor's address as the server saw it, so every spam control below works the same. It also runs the
+retention sweep once a few minutes after it starts and then every 24 hours. If the service is not running, a visitor
+is told nothing was sent. If it does not answer within 25 seconds, or its answer breaks off, the visitor is told
+the request may have been saved and asked to call before sending it again, since the service may still save it. Without `OPENBLOG_QUOTE_ENABLED`, `/api/quote/...` is a missing page, as before.
+
+For Admin on the same service, set `OPENBLOG_QUOTE_ENDPOINT` to `http://127.0.0.1:8788/api/quote` and
+`OPENBLOG_QUOTE_ADMIN_KEY` (see **Managing requests in Admin**).
+
 ## Spam controls (no third-party captcha)
 
 Same-origin posts only; a signed single-use form token that must be at least 3 seconds and at most 2 hours old; a
 hidden honeypot field; at most 5 stored requests per visitor and 60 per site per hour (the visitor's address is
 kept only as a keyed hash); a 4 MB body limit, at most 5 photos of 900 KB, checked by their own bytes (JPEG, PNG,
-WebP); and no more than two links in the description.
+WebP); and no more than two links in the description. Control characters are removed from every field before it is
+stored, so Admin can always show what was stored.
+
+Without JavaScript, the browser checks the phone number before sending, and a request the function refuses comes
+back as the form with your visitor's typing kept, each wrong field named at the top and marked beside the box, and a
+fresh token to send again.
 
 ## Owner notification (optional)
 
@@ -75,7 +94,9 @@ WebP); and no more than two links in the description.
 | `OPENBLOG_QUOTE_ADMIN_URL` | optional `https://` link to put in the email |
 
 The email names the visitor, town, service and photo count only; the phone number and details stay in your
-workspace. It never goes to a visitor. If it fails, the request is kept and the failure is recorded.
+workspace. It never goes to a visitor. If it fails, the request is kept and the failure is recorded. The email gets at
+most 4 seconds while the visitor waits, so a slow mail provider never makes the visitor wait long or tells them their
+saved request was lost; an email that did not go out in that time is recorded as failed (`timeout`) for a later retry.
 In Admin's **Quote requests** page (below), a request whose email did not go out says so, and **Send those emails
 again** tries them once more. Without Admin, set `OPENBLOG_QUOTE_ADMIN_KEY` (32 or more characters, different from
 every other key) to see failures with `GET /api/quote/notifications` and retry them with
@@ -89,7 +110,7 @@ address:
 
 | Variable | Value |
 | --- | --- |
-| `OPENBLOG_QUOTE_ENDPOINT` | `https://your-site.example/api/quote` (`http://127.0.0.1` is allowed for local development) |
+| `OPENBLOG_QUOTE_ENDPOINT` | `https://your-site.example/api/quote`, or `http://127.0.0.1:8788/api/quote` when the quote service runs beside Admin (Render) |
 | `OPENBLOG_QUOTE_ADMIN_KEY` | the same key as on the function (32 or more characters) |
 
 A **Quote requests** page then appears in Admin. Requests are newest first; each shows its status as a word, photo
@@ -98,14 +119,19 @@ are the only workflow there is.
 
 - **Export**: choose days (both inclusive) or none for everything, and download a CSV of up to 5000 requests. It holds
   names, phone numbers and details, so keep it private. Cells starting with `=`, `+`, `-` or `@` are made text.
-- **Erase**: tick requests, press **Erase**, read the count and photos, then confirm. Photos are removed first, then
-  the records in one step, then a check confirms none remain. If anything fails, every request stays, but photos
-  already removed stay removed (Admin says so). A preview is good for 10 minutes and only for the exact list you saw.
-- **Retention**: set `OPENBLOG_QUOTE_RETENTION_DAYS` (1 to 3650) on the function to erase archived requests that
-  many days after you archived them. Each archived request shows its countdown. A scheduled function
-  (`quote-retention`, daily) does it; **Erase expired now** does it on demand. Unset, archived requests are kept
-  until you erase them. New and handled requests are never erased automatically. Admin shows the number of days but
-  cannot change it; it is set where the function runs.
+- **Erase**: tick requests, press **Erase**, read the count and photos, then confirm. Photos are first moved aside
+  (which can be undone), then the records go in one step, a check confirms none remain, and only then are the photos
+  removed. If anything fails before the records go, every request and every photo stays as it was. A photo that is
+  already gone from storage does not stop the erase. If a photo cannot
+  be removed after its record is gone, Admin says so; no request points to it, and the next erase or retention run
+  removes it. A preview is good for 10 minutes and only for the exact list you saw.
+- **Retention**: under **Erase archived requests automatically**, write a number of days (1 to 3650) and press
+  **Save**; archived requests are then erased that many days after you archived them. **Keep until I erase them**
+  turns it off. The choice is kept as a small private file in the photo bucket, so no table changes. Each archived
+  request shows its countdown. The daily sweep (the `quote-retention` function on Netlify, or the quote service on
+  Render) does it; **Erase expired now** does it on demand. New and handled requests are never erased
+  automatically. Whoever runs the function can instead fix the number with `OPENBLOG_QUOTE_RETENTION_DAYS`; then
+  that number wins, and Admin shows it and says it is changed there.
 
 ## Privacy
 
@@ -115,7 +141,9 @@ Photos are kept in a private bucket. Tell visitors what you do with their detail
 ## Checks
 
 `node --test tests/web/netlify-quote.test.mjs tests/web/netlify-quote-notify.test.mjs tests/web/quote-form.test.mjs`
-`tests/web/netlify-quote-admin.test.mjs`, `tests/web/admin-quotes.test.mjs`, `cargo test -p openblog-cli --bin openblog quote_routes`
+`tests/web/netlify-quote-admin.test.mjs`, `tests/web/admin-quotes.test.mjs`, `tests/web/quote-service.test.mjs`,
+`cargo test -p openblog-cli --bin openblog quote_routes`, `cargo test -p openblog-cli --bin openblog quote_relay`
 and `cargo test -p openblog-core --test quote_form` run against fakes; no real provider is called.
 `tests/browser/quote-form.spec.mjs` also runs axe-core (WCAG 2.1 A and AA) on the form, its errors and its
-confirmation, in light and dark. None of this has been tried against a live Supabase project, Netlify or Resend.
+confirmation, in light and dark. None of this has been tried against a live Supabase project, Netlify, Render or Resend, and the container image
+with Node has not been built here.

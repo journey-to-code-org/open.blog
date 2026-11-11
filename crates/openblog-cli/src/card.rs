@@ -125,7 +125,11 @@ pub(crate) fn build(
 
 /// The file the site would serve at `path` from its static folder: a regular file inside the
 /// folder, reached without a symbolic link, and not private project state.
-fn static_file(static_dir: &Path, path: &str, private: &fsutil::PrivateState) -> Option<PathBuf> {
+pub(crate) fn static_file(
+    static_dir: &Path,
+    path: &str,
+    private: &fsutil::PrivateState,
+) -> Option<PathBuf> {
     let mut file = static_dir.to_path_buf();
     for part in path.split('/') {
         file.push(part);
@@ -138,7 +142,7 @@ fn static_file(static_dir: &Path, path: &str, private: &fsutil::PrivateState) ->
     (meta.is_file() && !private.contains(&file)).then_some(file)
 }
 
-fn facts(file: &Path) -> Option<openblog_core::image_facts::ImageFacts> {
+pub(crate) fn facts(file: &Path) -> Option<openblog_core::image_facts::ImageFacts> {
     let total = fs::metadata(file).ok()?.len();
     let mut prefix = Vec::new();
     fs::File::open(file)

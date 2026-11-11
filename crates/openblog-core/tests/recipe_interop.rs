@@ -337,3 +337,174 @@ fn calories_need_something_to_be_per_and_one_time_alone_is_incomplete() {
     );
     assert!(!recipe_check::has_errors(&problems));
 }
+
+/// The recipe with a credit sidecar naming Bob as its only author.
+fn credited_site() -> Site {
+    let config = r#"{"title":"Kitchen","url":"https://kitchen.example","postPath":"/{slug}/","author":{"name":"Ann"},"contributors":{"bob":{"name":"Bob Guest","url":"https://bob.example"}}}"#;
+    Site::load(
+        SiteConfig::from_json(config).unwrap(),
+        Sources {
+            posts: vec![SourceFile {
+                path: "posts/soup.md".into(),
+                contents: "---\ntitle: Guest soup\nslug: soup\ndate: 2026-02-02\ndescription: Warm.\nprofile: recipe\nservings: 2\ncover: /soup.jpg\n---\n## Ingredients\n\n- 1 leek\n\n## Steps\n\n1. Simmer.\n".into(),
+            }],
+            credits: vec![SourceFile {
+                path: "posts/soup.credits.json".into(),
+                contents: r#"{"version":1,"credits":[{"contributor":"bob","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#.into(),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_recipe_credits_the_people_its_post_credits_not_the_site_author() {
+    let site = credited_site();
+    let html = page(&site, "soup/index.html");
+    let from_page = importer_recipe(&html).unwrap();
+    let posting = html
+        .split("<script type=\"application/ld+json\">")
+        .skip(1)
+        .filter_map(|chunk| serde_json::from_str::<Value>(&chunk[..chunk.find("</script>")?]).ok())
+        .flat_map(|doc| match doc.get("@graph") {
+            Some(Value::Array(nodes)) => nodes.clone(),
+            _ => vec![doc],
+        })
+        .find(|doc| doc["@type"] == "BlogPosting")
+        .expect("the page carries a BlogPosting");
+    assert_eq!(from_page["author"][0]["name"], "Bob Guest");
+    assert_eq!(from_page["author"], posting["author"]);
+    assert!(!serde_json::to_string(&from_page["author"])
+        .unwrap()
+        .contains("Ann"));
+    let (exported, problems) = export_of(&site, "soup");
+    assert_eq!(exported["author"], from_page["author"]);
+    assert!(
+        problems.iter().all(|p| p.code != Code::NoAuthor),
+        "{problems:?}"
+    );
+    let post = &site.posts[0];
+    let credit =
+        openblog_core::recipe_directory::credit(&site.config, post, post.recipe.as_ref().unwrap());
+    assert_eq!(
+        credit,
+        "\"Guest soup\" by Bob Guest, first published at https://kitchen.example/soup/\n"
+    );
+}
+
+#[test]
+fn a_recipe_whose_canonical_names_another_page_is_not_exported() {
+    let post = PASTA.replace(
+        "tags: [dinner, quick]\n",
+        "tags: [dinner, quick]\ncanonical: https://other.example/original\n",
+    );
+    let site = site(CONFIG, &[("posts/pasta.md", &post)]);
+    let (_, problems) = export_of(&site, "pasta");
+    let elsewhere = problems
+        .iter()
+        .find(|p| p.code == Code::CanonicalElsewhere)
+        .expect("canonical-elsewhere is reported");
+    assert_eq!(elsewhere.severity, Severity::Error);
+    assert_eq!(elsewhere.field, Some("canonical"));
+    // A canonical that names the post's own address is not elsewhere.
+    let own = PASTA.replace(
+        "tags: [dinner, quick]\n",
+        "tags: [dinner, quick]\ncanonical: https://kitchen.example/pasta/\n",
+    );
+    let site = site_from(&own);
+    let (_, problems) = export_of(&site, "pasta");
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+fn site_from(post: &str) -> Site {
+    site(CONFIG, &[("posts/pasta.md", post)])
+}
+
+#[test]
+fn mixed_unit_systems_are_a_warning_and_nothing_is_rewritten() {
+    let mixed = PASTA.replace(
+        "- 1 1/2 lemons, zested & juiced\n",
+        "- 1 1/2 lemons, zested & juiced\n- 1 cup cream\n- 2 tbsp butter\n- 4 oz parmesan\n",
+    );
+    let site = site_from(&mixed);
+    let (exported, problems) = export_of(&site, "pasta");
+    let found: Vec<_> = problems
+        .iter()
+        .filter(|p| p.code == Code::MixedUnitSystems)
+        .collect();
+    assert_eq!(found.len(), 1, "{problems:?}");
+    assert_eq!(found[0].severity, Severity::Warning);
+    // The first line in the second system: "400 g spaghetti" is first, "1 cup cream" third.
+    assert_eq!(found[0].ingredient, Some(3));
+    assert!(!recipe_check::has_errors(&problems));
+    assert_eq!(exported["recipeIngredient"][2], "1 cup cream");
+    assert_eq!(exported["recipeIngredient"][4], "4 oz parmesan");
+    // One system throughout, spoons anywhere, or both measures on a line: no warning.
+    for ingredients in [
+        "- 400 g spaghetti\n- 250 ml cream\n- 2 tbsp butter\n",
+        "- 1 lb spaghetti\n- 1 cup cream\n- 1 tsp salt\n",
+        "- 400 g spaghetti\n- 1 cup (240 ml) cream\n",
+        "- 400 g spaghetti\n- 2 eggs\n",
+    ] {
+        let one = PASTA.replace(
+            "- 400 g spaghetti\n- 1 1/2 lemons, zested & juiced\n- Salt, to taste\n",
+            ingredients,
+        );
+        let site = site_from(&one);
+        let (_, problems) = export_of(&site, "pasta");
+        assert!(
+            problems.iter().all(|p| p.code != Code::MixedUnitSystems),
+            "{ingredients}: {problems:?}"
+        );
+    }
+}
+
+#[test]
+fn text_in_a_recipe_section_outside_its_list_is_reported() {
+    let loose = PASTA.replace(
+        "## Ingredients\n\n",
+        "## Ingredients\n\nYou can use any long pasta.\n\n",
+    );
+    let site = site_from(&loose);
+    let html = page(&site, "pasta/index.html");
+    assert!(html.contains("You can use any long pasta."));
+    let (exported, problems) = export_of(&site, "pasta");
+    assert!(!serde_json::to_string(&exported)
+        .unwrap()
+        .contains("any long pasta"));
+    let unlisted = problems
+        .iter()
+        .find(|p| p.code == Code::UnlistedText)
+        .expect("unlisted-text is reported");
+    assert_eq!(unlisted.severity, Severity::Warning);
+    assert!(!unlisted.message.contains("pasta"));
+    // The story before the recipe, and the headings themselves, are not recipe text.
+    let site = site_from(PASTA);
+    let (_, problems) = export_of(&site, "pasta");
+    assert!(problems.iter().all(|p| p.code != Code::UnlistedText));
+}
+
+#[test]
+fn a_photo_in_a_recipe_section_is_not_text_left_out() {
+    // A photo's description is not recipe text the export could carry.
+    let photo = PASTA.replace(
+        "## Ingredients\n\n",
+        "## Ingredients\n\n![Spaghetti, lemons and a block of cheese on a board](/pantry.jpg)\n\n",
+    );
+    let site = site_from(&photo);
+    let (_, problems) = export_of(&site, "pasta");
+    assert!(
+        problems.iter().all(|p| p.code != Code::UnlistedText),
+        "{problems:?}"
+    );
+    // Words beside the photo still are.
+    let captioned = PASTA.replace(
+        "## Ingredients\n\n",
+        "## Ingredients\n\n![Spaghetti on a board](/pantry.jpg) Any long pasta works.\n\n",
+    );
+    let site = site_from(&captioned);
+    let (_, problems) = export_of(&site, "pasta");
+    assert!(problems.iter().any(|p| p.code == Code::UnlistedText));
+}

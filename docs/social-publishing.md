@@ -362,12 +362,16 @@ until the app has Advanced access, only people with a role on the app can post t
 Writes one post record to your own repository (`com.atproto.repo.createRecord` of an `app.bsky.feed.post`)
 ([ADR 0358](adr/0358-a-bluesky-announcement-is-one-post-record-with-facets-and-a-link-card-under-a-record-key-derived-from-the-announcement.md)):
 the caption as the text, full `https://` links and `#hashtags` in it as clickable facets, and the post link as a link
-card titled with the caption's first line (no picture yet). `@mentions` stay plain text, so nobody is notified by
+card with the post's own title and description, read from its public page just before posting
+([ADR 0386](adr/0386-a-bluesky-card-shows-the-posts-own-title-and-a-link-already-in-a-caption-is-read-as-a-reader-sees-it.md)).
+If that page cannot be read in a few seconds, the card is titled with the caption's first line instead. The card
+has no picture yet. `@mentions` stay plain text, so nobody is notified by
 mistake. A Bluesky caption is at most 300 characters; Admin counts against that as soon as you choose a Bluesky
 destination, and the preview says how the card and the links will look.
 
 Every try of one announcement writes the same record key, made from its scheduled time and its key, so a retry
-after a try that did land is refused by Bluesky instead of posting twice. The post's `at://` address is kept as the
+after a try that did land is refused by Bluesky instead of posting twice; that refusal is checked by reading the
+record, and when it is this announcement it counts as posted. The post's `at://` address is kept as the
 provider post id. An unclear outcome is looked up by reading exactly that record: found with the same caption and
 link, it is published; Bluesky saying it does not exist is a sure "not there"; anything else comes to you as **Needs
 checking**. An expired or revoked session asks you to reconnect, and a rate limit is tried again after the time
@@ -376,7 +380,8 @@ Bluesky gives.
 ### Mastodon
 
 Posts one status from the connected account (`POST /api/v1/statuses`) ([ADR 0360](adr/0360-a-mastodon-announcement-is-one-status-with-the-link-written-into-it-at-the-deployers-visibility-checked-against-the-instances-own-limits.md)): the caption, a blank
-line and the post link (left out if the caption already holds that exact link), at the visibility you set. Mastodon
+line and the post link (left out if the caption already holds that link, even in brackets or before a full stop), at
+the visibility you set. Mastodon
 makes its own preview card from the link and reads `#hashtags` and `@name@server` mentions as written, so a
 mention notifies that person; the composer's preview says so. A Mastodon caption is at most 475 characters (a
 default instance takes 500, and the link counts as 23); before each post the instance's own limits are read and a

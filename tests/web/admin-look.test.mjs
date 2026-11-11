@@ -47,6 +47,13 @@ test("a curated look sets its palette and font and clears a chosen accent", () =
   assert.deepEqual(next, { palette: "warm", fontStyle: "classic-serif", textSize: "large" });
 });
 
+test("a look for trades also chooses large text and bold headings, keeping any the owner chose", () => {
+  const workshop = { id: "workshop", fontStyle: "modern-sans", forTrades: true };
+  assert.deepEqual(applyCurated({}, workshop), { palette: "workshop", fontStyle: "modern-sans", textSize: "large", headingWeight: "bold" });
+  assert.deepEqual(applyCurated({ textSize: "extra-large", headingWeight: "normal" }, workshop), { palette: "workshop", fontStyle: "modern-sans", textSize: "extra-large", headingWeight: "normal" });
+  assert.deepEqual(applyCurated({}, { id: "calm", fontStyle: "modern-sans", forTrades: false }), { palette: "calm", fontStyle: "modern-sans" });
+});
+
 test("every control has words, and every choice and swatch is a closed value", () => {
   for (const id of CONTROL_ORDER) assert.ok(controlSummary(id, {}).startsWith("Using the theme's own"));
   assert.equal(controlSummary("textSize", { textSize: "extra-large" }), "Chosen: Extra large.");

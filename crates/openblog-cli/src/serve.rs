@@ -359,6 +359,16 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
         )
         .with_header("Cache-Control", "no-store");
     }
+    // The quote form on this server (ADR 0387): passed to the local quote service when it is on.
+    if crate::quote_relay::is_quote_path(&req.path) {
+        let config = crate::site::load_config(&state.root).unwrap_or_default();
+        let client = admin::client_ip(&config, req);
+        if let Some(response) =
+            crate::quote_relay::route(&crate::quote_relay::process_env, req, &client)
+        {
+            return response;
+        }
+    }
     if state.analytics_enabled {
         if req.path == "/api/hit" {
             return crate::analytics::hit(state, req, out_dir);

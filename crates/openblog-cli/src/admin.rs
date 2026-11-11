@@ -89,12 +89,14 @@ mod announcements;
 mod business;
 mod capture_assistant;
 mod comparisons;
+mod job_sharing;
 mod landing;
 mod look;
 mod quote;
 mod reading_paths;
 mod seasonal;
 mod social;
+mod trade_checklist;
 mod voice;
 mod voice_guide;
 
@@ -494,6 +496,12 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
             0
         });
     }
+    if crate::quote_relay::is_quote_path(&req.path) {
+        return Ok(crate::quote_relay::body_limit(
+            &crate::quote_relay::process_env,
+            req,
+        ));
+    }
     if !req.path.starts_with("/admin") {
         return Ok(0);
     }
@@ -582,7 +590,9 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/look.js" => "look.js",
         "/admin/business.js" => "business.js",
         "/admin/seasonal.js" => "seasonal.js",
+        "/admin/trade-checklist.js" => "trade-checklist.js",
         "/admin/services.js" => "services.js",
+        "/admin/proof.js" => "proof.js",
         "/admin/paste.js" => "paste.js",
         "/admin/landing-history.js" => "landing-history.js",
         "/admin/lasting.js" => "lasting.js",
@@ -599,6 +609,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/social.js" => "social.js",
         "/admin/quotes.js" => "quotes.js",
         "/admin/announcements.js" => "announcements.js",
+        "/admin/job-share.js" => "job-share.js",
         "/admin/voice-library.js" => "voice-library.js",
         _ => return Response::error(404, "Not found"),
     };
@@ -750,6 +761,9 @@ fn authenticated_api(
         ("PUT", "seasonal") => seasonal::save_seasonal(state, req),
         ("POST", "seasonal/snooze") => seasonal::snooze(state, req),
         ("POST", "seasonal/open") => seasonal::open(state, req),
+        ("GET", "job-share") => job_sharing::get(state, req),
+        ("GET", "trade-checklist") => trade_checklist::get(state),
+        ("POST", "job-share/by-hand") => job_sharing::by_hand(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
         ("POST", "look/preview") => look::preview(state, req),
@@ -3615,7 +3629,8 @@ fn check_rel_path(rel: &str) -> Result<&'static str, String> {
         "series" => Ok("series"),
         "pages" => Ok("pages"),
         "services" => Ok("services"),
-        _ => Err("path must start with posts/, series/, pages/, or services/".into()),
+        "proof" => Ok("proof"),
+        _ => Err("path must start with posts/, series/, pages/, services/, or proof/".into()),
     }
 }
 
@@ -4021,10 +4036,33 @@ fn meta(state: &AppState) -> Response {
         }
     }
     services.sort();
+    // The saved reviews a job can link (ADR 0389): published and valid ones only, newest first.
+    let mut reviews: Vec<(String, Json)> = Vec::new();
+    for file in &sources.proof {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if doc.front_matter.get_bool("draft").unwrap_or(false) {
+            continue;
+        }
+        if let Ok(review) = openblog_core::proof::from_front_matter(&doc.front_matter) {
+            let platform = match review.platform {
+                openblog_core::proof::Platform::Other => "another site",
+                platform => platform.label(),
+            };
+            let label = format!("{}, {platform}, {}", review.author, review.date);
+            reviews.push((
+                review.date.clone(),
+                json!({ "id": review.id, "label": label }),
+            ));
+        }
+    }
+    reviews.sort_by(|a, b| b.0.cmp(&a.0));
     let job_form = json!({
         "trades": openblog_core::job::known_trades(&config.extra_trades),
         "costBands": openblog_core::job::CostBand::ALL.map(openblog_core::job::CostBand::as_str),
         "services": services,
+        "reviews": reviews.into_iter().map(|(_, review)| review).collect::<Vec<_>>(),
         "scaffold": openblog_core::job::scaffold_body(),
     });
     let (owner_courses, owner_cuisines) =
@@ -4099,6 +4137,13 @@ fn meta(state: &AppState) -> Response {
             "profiles": profiles,
             "siteUses": {
                 "services": !sources.services.is_empty(),
+                // Reviews are for a trade site: shown once it has jobs, a trade or a review.
+                "reviews": !sources.proof.is_empty()
+                    || !config.business.trade.is_empty()
+                    || sources.posts.iter().any(|file| {
+                        frontmatter::parse(&file.contents)
+                            .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
+                    }),
                 "business": config.business != openblog_core::business::BusinessConfig::default(),
                 // Reminders are for a trade site: shown once a trade is named or they are on.
                 "reminders": !config.business.trade.is_empty() || config.seasonal_prompts.enabled,
@@ -11917,8 +11962,8 @@ fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
 fn list_documents(state: &AppState, req: &Request) -> Response {
     let _content_transaction = lock(&state.build);
     let kind = req.query.get("kind").map(String::as_str).unwrap_or("posts");
-    if !matches!(kind, "posts" | "series" | "pages" | "services") {
-        return Response::error(400, "kind must be posts, series, pages, or services");
+    if !matches!(kind, "posts" | "series" | "pages" | "services" | "proof") {
+        return Response::error(400, "kind must be posts, series, pages, services, or proof");
     }
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
@@ -11932,6 +11977,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
         "posts" => &sources.posts,
         "series" => &sources.series,
         "services" => &sources.services,
+        "proof" => &sources.proof,
         _ => &sources.pages,
     };
     let credit_sidecars = openblog_core::model::associate_credit_sidecars(&sources);
@@ -12005,17 +12051,34 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
                         .or_else(|| doc.front_matter.get("title"))
                         .unwrap_or(stem)
                         .to_string();
-                    let status = if kind == "services"
+                    let status = if matches!(kind, "services" | "proof")
                         && doc.front_matter.get_bool("draft").unwrap_or(false)
                     {
                         "draft"
                     } else {
                         "published"
                     };
-                    (
-                        0,
-                        json!({ "path": file.path, "title": title, "slug": slugify(stem), "status": status }),
-                    )
+                    if kind == "proof" {
+                        // A review is listed newest first by the day it was written.
+                        let fm = &doc.front_matter;
+                        let get = |key: &str| fm.get(key).map(str::trim).unwrap_or("").to_string();
+                        let order = DateTime::parse(&get("date")).map_or(0, DateTime::unix);
+                        let author = get("author");
+                        (
+                            order,
+                            json!({
+                                "path": file.path, "title": if author.is_empty() { stem.to_string() } else { author.clone() },
+                                "slug": stem, "status": status, "id": get("id"), "author": author,
+                                "date": get("date"), "platform": get("platform"), "rating": get("rating"),
+                                "provenance": get("provenance"),
+                            }),
+                        )
+                    } else {
+                        (
+                            0,
+                            json!({ "path": file.path, "title": title, "slug": slugify(stem), "status": status }),
+                        )
+                    }
                 }
                 Err(e) => (
                     i64::MIN,
@@ -16194,11 +16257,29 @@ fn validate_candidate(
         .flatten();
     let mut sources = site::read_sources_excluding(root, config, excluded_sidecar.as_deref())
         .map_err(|e| vec![e])?;
+    // The ids a job may already show this review by: the one on disk and the one being saved.
+    let review_ids: Vec<String> = if rel.starts_with("proof/") {
+        sources
+            .proof
+            .iter()
+            .filter(|f| f.path == rel)
+            .map(|f| f.contents.as_str())
+            .chain([source])
+            .filter_map(|text| {
+                frontmatter::parse(text)
+                    .ok()
+                    .and_then(|doc| doc.front_matter.get("id").map(str::to_string))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     for bucket in [
         &mut sources.posts,
         &mut sources.series,
         &mut sources.pages,
         &mut sources.services,
+        &mut sources.proof,
     ] {
         bucket.retain(|f| f.path != rel);
     }
@@ -16208,6 +16289,8 @@ fn validate_candidate(
     });
     apply_credit_edit_to_sources(&mut sources, rel, credit_edit);
     let themes = site::load_themes(root, config).map_err(|e| vec![e])?;
+    let published =
+        (rel.starts_with("proof/") || rel.starts_with("posts/")).then(|| sources.clone());
     match Site::load(
         config.clone(),
         sources,
@@ -16217,7 +16300,7 @@ fn validate_candidate(
             preview_source: None,
         },
     ) {
-        Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e]),
+        Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e])?,
         Err(errors) => {
             let sidecar = openblog_core::contributor::sidecar_path(rel);
             let mine: Vec<String> = errors
@@ -16227,12 +16310,57 @@ fn validate_candidate(
                         || sidecar.as_deref().is_some_and(|path| error.contains(path))
                 })
                 .collect();
-            if mine.is_empty() {
-                Ok(())
-            } else {
-                Err(mine)
+            if !mine.is_empty() {
+                return Err(mine);
             }
         }
+    }
+    match published {
+        Some(sources) => job_review_problems(config, sources, rel, &review_ids),
+        None => Ok(()),
+    }
+}
+
+/// The build leaves drafts out, so a check that counts them can miss a published job left showing a review
+/// that is now a draft or has a new id (ADR 0390). This loads the site as the build does and keeps only the
+/// `job.review` problems that this save causes: the edited job's own, or a job naming the edited review.
+fn job_review_problems(
+    config: &SiteConfig,
+    sources: openblog_core::Sources,
+    rel: &str,
+    review_ids: &[String],
+) -> Result<(), Vec<String>> {
+    let Err(errors) = Site::load(
+        config.clone(),
+        sources,
+        LoadOptions {
+            include_drafts: false,
+            now: None,
+            preview_source: None,
+        },
+    ) else {
+        return Ok(());
+    };
+    let mut mine = Vec::new();
+    for error in errors {
+        let Some((job, problem)) = error.split_once(": job.review: ") else {
+            continue;
+        };
+        if job == rel {
+            mine.push(error);
+        } else if let Some(id) = review_ids
+            .iter()
+            .find(|id| problem.starts_with(&format!("`{id}` ")))
+        {
+            mine.push(format!(
+                "{rel}: the job {job} shows this review (`{id}`), so it has to stay published under that id; choose another review for that job first"
+            ));
+        }
+    }
+    if mine.is_empty() {
+        Ok(())
+    } else {
+        Err(mine)
     }
 }
 
@@ -16400,6 +16528,38 @@ fn static_track_path(root: &Path, config: &SiteConfig, route: &str) -> Option<Pa
     )
 }
 
+/// A saved review a published job still shows cannot go to the trash: the build would stop on that job, or,
+/// for the site's only review, the job would quietly stop showing it (ADR 0391). A draft job may keep naming
+/// it; the build only warns about a draft. The sentence names the job, so the owner knows where to go.
+fn review_shown_by_published_job(
+    root: &Path,
+    config: &SiteConfig,
+    review: &Path,
+) -> Option<String> {
+    let source = fs::read_to_string(review).ok()?;
+    let id = frontmatter::parse(&source)
+        .ok()?
+        .front_matter
+        .get("id")
+        .map(str::trim)
+        .filter(|id| !id.is_empty())?
+        .to_string();
+    let sources = site::read_sources(root, config).ok()?;
+    let job = sources.posts.iter().find(|file| {
+        frontmatter::parse(&file.contents).is_ok_and(|document| {
+            let fm = &document.front_matter;
+            openblog_core::profile::resolve(fm).behavior
+                == openblog_core::profile::ProfileBehavior::Job
+                && !openblog_core::model::is_draft(fm)
+                && fm.get("job.review").map(str::trim) == Some(id.as_str())
+        })
+    })?;
+    Some(format!(
+        "The job {} shows this review, so it cannot be deleted yet. Open that job, choose another review or none in its Customer review box, and save it first.",
+        job.path
+    ))
+}
+
 fn track_is_referenced_elsewhere(
     root: &Path,
     config: &SiteConfig,
@@ -16491,6 +16651,12 @@ fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<Strin
         Some(Value::Scalar(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
         _ => None,
     };
+    if kind == "proof" {
+        return match get("id").filter(|id| openblog_core::proof::check_id(id).is_ok()) {
+            Some(id) => Ok(format!("proof/{id}.md")),
+            None => Err("a review needs an id of letters, digits, - and _ to name its file".into()),
+        };
+    }
     if kind == "services" {
         return match get("id").filter(|id| openblog_core::service::check_id(id).is_ok()) {
             Some(id) => Ok(format!("services/{id}.md")),
@@ -16517,7 +16683,7 @@ fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<Strin
         }
         "series" => Ok(format!("series/{slug}.md")),
         "pages" => Ok(format!("pages/{slug}.md")),
-        _ => Err("kind must be posts, series, pages, or services".into()),
+        _ => Err("kind must be posts, series, pages, services, or proof".into()),
     }
 }
 
@@ -17075,6 +17241,11 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     if !path.is_file() {
         return Response::error(404, "No such document");
     }
+    if rel.starts_with("proof/") {
+        if let Some(problem) = review_shown_by_published_job(&state.root, &config, &path) {
+            return Response::error(422, &problem);
+        }
+    }
     let managed_track = fs::read_to_string(&path)
         .ok()
         .and_then(|source| frontmatter::parse(&source).ok())
@@ -17418,6 +17589,7 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
         &mut sources.series,
         &mut sources.pages,
         &mut sources.services,
+        &mut sources.proof,
     ] {
         bucket.retain(|file| file.path != rel);
     }
@@ -18637,15 +18809,18 @@ mod tests {
     mod capture_transcribe_routes;
     mod comparison_routes;
     mod job_draft_routes;
+    mod job_share_routes;
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod proof_routes;
     mod quote_routes;
     mod reading_path_routes;
     mod safety_audit;
     mod seasonal_routes;
     mod service_routes;
     mod social_routes;
+    mod trade_checklist_routes;
     mod voice_assistant_routes;
     mod voice_journey;
     mod voice_routes;

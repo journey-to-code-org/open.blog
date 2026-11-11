@@ -20,6 +20,7 @@ mod fsutil;
 mod git;
 mod hashnode;
 mod http;
+mod job_share;
 mod landing_history;
 mod landing_store;
 mod mentions;
@@ -30,6 +31,7 @@ mod pinterest;
 mod portable_export;
 mod private_guard;
 mod publish;
+mod quote_relay;
 mod readiness;
 mod reading_path_store;
 mod recipe_package;
@@ -73,6 +75,10 @@ COMMANDS
     init [dir] --github-pages  Also write a GitHub Pages deployment workflow
     init [dir] --no-voice      Never offer a writing session afterwards (a terminal is
                                asked once; scripts and pipes are never asked)
+    init [dir] --starter trade [--trade <trade>]
+                               Start a trade business site: business facts, three example
+                               services as drafts, jobs, reviews, a quote form and a
+                               phone-first home page (trade defaults to general-contractor)
     new \"Title\"                Create content/posts/<date>-<slug>.md
     build                      Build the site into dist/
     serve                      Build, serve at http://localhost:8080, rebuild on change,
@@ -99,6 +105,9 @@ COMMANDS
                                and link previews from its own images; sends nothing
     pinterest boards           List the Pinterest boards your token can pin to (opt-in)
     pinterest pin <slug>       Preview a post's Pin; --write --confirm <digest> sends it
+    job-share <slug>           Preview a finished job for Google Business Profile, Facebook and
+                               Nextdoor; --kit <new folder> writes the by-hand kit (see job-share
+                               OPTIONS)
     video <slug>               Check a video post's YouTube release: title, description with the
                                article link, thumbnail, chapters, captions, transcript and consent;
                                uploads nothing unless approved and asked to (see video OPTIONS)
@@ -191,6 +200,16 @@ card OPTIONS
     --json                     Print the card plan with every check and the chosen images
     --preview <new folder>     Write cards.json, an SVG layout preview per card and an
                                accessible index.html; reads only the site's own image files
+
+job-share OPTIONS (sending is off unless syndication.googleBusinessProfile.enabled; token in
+GOOGLE_BUSINESS_ACCESS_TOKEN)
+    --to a,b                   google-business-profile, facebook, nextdoor (default: all)
+    --json                     Print each destination's words, link, photo, problems and digest
+    --kit <new folder>         Write index.html, kit.json and the photo to post each by hand
+    --status                   Show what happened at each destination
+    --send google-business-profile --confirm <digest>
+                               Post exactly the previewed job (--forget-attempt settles an
+                               attempt that may have posted, after you checked)
 
 pinterest OPTIONS (off unless syndication.pinterest.enabled; token in PINTEREST_ACCESS_TOKEN)
     --board <id>               The board (default: syndication.pinterest.board)
@@ -341,7 +360,7 @@ const SWITCHES: &[&str] = &[
 
 /// Switches that only one command takes, because another command takes the same name with a
 /// value: `video --status` shows the upload record, while `mentions list --status <s>` filters.
-const COMMAND_SWITCHES: &[(&str, &str)] = &[("video", "status")];
+const COMMAND_SWITCHES: &[(&str, &str)] = &[("video", "status"), ("job-share", "status")];
 
 #[cfg(test)]
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -417,7 +436,22 @@ fn run(raw: &[String]) -> Result<(), String> {
         "init" => {
             let dir = args.positional.first().map(PathBuf::from).unwrap_or(root);
             let title = args.options.get("title").map(String::as_str);
-            let created = scaffold::init(&dir, title, args.switches.contains("github-pages"))?;
+            let starter = match args.options.get("starter") {
+                Some(name) => Some(scaffold::Starter::parse(
+                    name,
+                    args.options.get("trade").map(String::as_str),
+                )?),
+                None if args.options.contains_key("trade") => {
+                    return Err("--trade goes with --starter trade".into())
+                }
+                None => None,
+            };
+            let created = scaffold::init_with(
+                &dir,
+                title,
+                args.switches.contains("github-pages"),
+                starter.as_ref(),
+            )?;
             if created.is_empty() {
                 println!(
                     "Nothing to do: {} already looks like an open.blog project.",
@@ -427,9 +461,15 @@ fn run(raw: &[String]) -> Result<(), String> {
                 for file in &created {
                     println!("created {file}");
                 }
-                println!(
-                    "\nNext: cd into the folder, run `openblog serve`, and edit openblog.json."
-                );
+                if starter.is_some() {
+                    println!(
+                        "\nNext: cd into the folder, run `openblog serve --admin`, and follow the checklist on Admin's Home screen: business facts, your first service, your first job, your first review, and a place to share jobs. See docs/trades.md."
+                    );
+                } else {
+                    println!(
+                        "\nNext: cd into the folder, run `openblog serve`, and edit openblog.json."
+                    );
+                }
             }
             // A person at a terminal is asked once; pipes and scripts never are (ADR 0269).
             voice_cli::invite_after_init(
@@ -567,6 +607,22 @@ fn run(raw: &[String]) -> Result<(), String> {
                     formats: args.options.get("format").cloned(),
                     json: args.switches.contains("json"),
                     preview: args.options.get("preview").cloned(),
+                },
+            )
+        }
+        "job-share" => {
+            let slug = args.positional.first().ok_or(job_share::USAGE)?;
+            job_share::run(
+                &root,
+                slug,
+                job_share::Options {
+                    to: args.options.get("to").cloned(),
+                    json: args.switches.contains("json"),
+                    kit: args.options.get("kit").cloned(),
+                    status: args.switches.contains("status"),
+                    send: args.options.get("send").cloned(),
+                    confirm: args.options.get("confirm").cloned(),
+                    forget_attempt: args.switches.contains("forget-attempt"),
                 },
             )
         }

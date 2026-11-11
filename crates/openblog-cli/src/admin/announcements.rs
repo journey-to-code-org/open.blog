@@ -356,17 +356,17 @@ fn preview(state: &AppState, req: &Request) -> Response {
             add("timeZone", error);
         }
     }
-    let (link, cover) = match body
+    let (link, cover, card) = match body
         .work
         .as_deref()
         .map(|work| announced_for(state, work, now))
     {
-        Some(Ok((url, cover))) => (Some(url), cover),
+        Some(Ok((url, cover, card))) => (Some(url), cover, card),
         Some(Err(error)) => {
             add("work", error);
-            (None, Json::Null)
+            (None, Json::Null, Json::Null)
         }
-        None => (None, Json::Null),
+        None => (None, Json::Null, Json::Null),
     };
     Response::json(
         200,
@@ -378,6 +378,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "scheduledFor": scheduled,
             "link": link,
             "cover": cover,
+            "card": card,
             "problems": problems,
         }),
     )
@@ -385,18 +386,20 @@ fn preview(state: &AppState, req: &Request) -> Response {
 
 /// The post's own public address, from the site and never from the request.
 fn canonical_for(state: &AppState, work: &str, now: DateTime) -> Result<String, ScheduleError> {
-    announced_for(state, work, now).map(|(url, _)| url)
+    announced_for(state, work, now).map(|(url, _, _)| url)
 }
 
 /// The post's public address and the cover image its public page names (the page's `og:image`
 /// and `og:image:alt`, which a Mastodon announcement attaches when the server is set to, ADR
 /// 0360): `{ "image": bool, "description": text or null }`, or null when the page names none.
-/// Both are on the public page already; nothing private is read.
+/// Also the page's `og:title` and `og:description`, which a Bluesky link card shows (ADR 0386):
+/// `{ "title": text, "description": text }`. Both are on the public page already; nothing private
+/// is read.
 fn announced_for(
     state: &AppState,
     work: &str,
     now: DateTime,
-) -> Result<(String, Json), ScheduleError> {
+) -> Result<(String, Json, Json), ScheduleError> {
     let (site, config) = load(state).map_err(|_| ScheduleError::PostNotPublished)?;
     let post = site
         .posts
@@ -404,13 +407,18 @@ fn announced_for(
         .find(|post| post.url == work)
         .ok_or(ScheduleError::PostNotPublished)?;
     let url = announceable(&site, &config, post, now)?.canonical_url;
-    let cover = match social_metadata(&site, &post.source) {
-        Ok(meta) if meta.image.is_some() => {
+    let meta = social_metadata(&site, &post.source).ok();
+    let cover = match &meta {
+        Some(meta) if meta.image.is_some() => {
             json!({ "image": true, "description": meta.image_alt })
         }
         _ => Json::Null,
     };
-    Ok((url, cover))
+    let card = match &meta {
+        Some(meta) => json!({ "title": meta.title, "description": meta.description }),
+        None => Json::Null,
+    };
+    Ok((url, cover, card))
 }
 
 #[derive(Deserialize)]

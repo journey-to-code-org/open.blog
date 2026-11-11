@@ -11,10 +11,13 @@ import { buildHistory } from "./landing-history.js";
 import { createJobCapture } from "./job-capture.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
+import { buildTradeChecklist, checklistVisible } from "./trade-checklist.js";
 import { createAnnouncementsPanel } from "./announcements.js";
+import { createJobShare } from "./job-share.js";
 import { createBusinessFacts } from "./business.js";
 import { createSeasonalReminders } from "./seasonal.js";
 import { createServices } from "./services.js";
+import { createReviews } from "./proof.js";
 import { createSocialAccounts } from "./social.js";
 import { createQuoteRequests } from "./quotes.js";
 import { createVoiceSession } from "./voice-session.js";
@@ -127,18 +130,28 @@ export function normalizeAdminPreferences(value) {
   // Layouts saved before the research workspace showed research only with Evidence Studio, so a
   // layout that hid Evidence Studio keeps the workspace hidden too (ADR 0120).
   if (!suppliedOrder.includes("research") && hiddenModules.includes("evidence") && !hiddenModules.includes("research")) hiddenModules.push("research");
-  // Only a dismissed invitation is written, so every other set of preferences keeps its exact shape.
-  return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules, ...(input.voiceInvitationDismissed === true ? { voiceInvitationDismissed: true } : {}) };
+  // Only a dismissed invitation or checklist is written, so every other set of preferences keeps its exact shape.
+  return {
+    schemaVersion: 1,
+    preset,
+    density,
+    editorMode,
+    moduleOrder,
+    hiddenModules,
+    ...(input.voiceInvitationDismissed === true ? { voiceInvitationDismissed: true } : {}),
+    ...(input.tradeChecklistDismissed === true ? { tradeChecklistDismissed: true } : {}),
+  };
 }
 
 /**
  * The pages a Simple workspace leaves out of the main navigation (#559), which Advanced tools lists.
- * The first four appear once the site uses them, so nobody loses a page they rely on. Reminders counts
+ * The first five appear once the site uses them, so nobody loses a page they rely on. Reminders counts
  * as used once the business facts name a trade or reminders are on: they are for a trade site.
  */
 export const SIMPLE_EXTRA_PAGES = Object.freeze({
   series: "Series",
   services: "Services",
+  reviews: "Reviews",
   business: "Business facts",
   reminders: "Reminders",
   shared: "Shared reflections",
@@ -152,7 +165,7 @@ export const SIMPLE_EXTRA_PAGES = Object.freeze({
 export function simpleHidesPage(page, { preset, active, meta } = {}) {
   if (preset !== "simple" || page === active) return false;
   if (page === "series") return !meta?.series?.length;
-  if (page === "services" || page === "business" || page === "reminders") return !meta?.siteUses?.[page];
+  if (page === "services" || page === "reviews" || page === "business" || page === "reminders") return !meta?.siteUses?.[page];
   return true;
 }
 
@@ -8024,6 +8037,9 @@ export const RECIPE_ADVICE = {
   "servings-not-numeric": () => "Servings, in Settings, should start with a number so readers can scale the recipe.",
   "calories-without-yield": () => "Calories don't say what they're for. In Settings, add the servings or the yield.",
   "no-image": () => "Add a photo. In Settings, choose Add cover photo. Many recipe apps and search results look for one.",
+  "canonical-elsewhere": () => "This recipe says its original is on another website, so it can't be shared from here. Share it from that website, or ask whoever set this up to remove the other address.",
+  "mixed-unit-systems": (n) => `Ingredient ${n} uses cups, ounces or pounds while others use grams or millilitres, or the other way round. Cooks who use one kind will have to convert. Nothing was changed; you could give both, like 1 cup (240 ml).`,
+  "unlisted-text": () => "Some words under Ingredients or Steps are not in the list. Your page shows them, but recipe apps won't get them. Put them in the list, or under a heading of their own.",
 };
 
 /** The advice for a preview's recipe problems, in the order the check found them. */
@@ -11734,6 +11750,7 @@ export class ObAdmin extends AdminElement {
         h("a", { class: "oba-tab", ...(SIMPLE_EXTRA_PAGES[kind] ? simpleOnly(kind) : {}), "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
       h("a", { class: "oba-tab", ...simpleOnly("services"), "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
+      h("a", { class: "oba-tab", ...simpleOnly("reviews"), "aria-current": active === "reviews" ? "page" : null, href: "#/reviews" }, "Reviews"),
       h("a", { class: "oba-tab", ...simpleOnly("shared"), "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
       h("a", { class: "oba-tab", ...simpleOnly("capture"), "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
@@ -11755,6 +11772,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Seasonal reminders", detail: "Get a nudge at the right time of year about what to write for your trade. A reminder only starts a draft; it never publishes." }
       : active === "services"
         ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
+      : active === "reviews"
+        ? { title: "Reviews", detail: "Save a customer's real review with its link, and show it on your Reviews page and beside the job it is about." }
       : active === "look"
         ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
@@ -12058,6 +12077,8 @@ export class ObAdmin extends AdminElement {
       { label: "Business facts", category: "Site", keywords: "phone hours license insured insurance payment email name company trade", run: () => go("#/business") },
       { label: "Services", category: "Content", keywords: "service price band faq questions timeline offer", run: () => go("#/services") },
       { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
+      { label: "Reviews", category: "Content", keywords: "review reviews proof testimonial stars rating google facebook customer", run: () => go("#/reviews") },
+      { label: "New review", category: "Create", keywords: "review proof testimonial stars google facebook", run: () => go("#/reviews/new") },
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New recipe", category: "Create", keywords: "cook food ingredients dish", run: () => go("#/new/recipe") },
@@ -12296,6 +12317,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "announcements") await this.showAnnouncements();
+      else if (head === "share" && tail) await this.showJobShare(decodeURIComponent(tail));
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "appearance") await this.showAppearance();
@@ -12303,6 +12325,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "business") await this.showBusiness();
       else if (head === "reminders") await this.showReminders();
       else if (head === "services") await this.showServices(tail);
+      else if (head === "reviews") await this.showReviews(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -12527,8 +12550,38 @@ export class ObAdmin extends AdminElement {
       healthPanel.focus();
       healthPanel.scrollIntoView({ block: "start" });
     }
-    // The page is already on screen: the invitation arrives after it, so asking can never delay the home.
+    // The page is already on screen: the invitation and the checklist arrive after it, so asking can never
+    // delay the home.
     this.offerVoiceInvitation(this.viewVersion);
+    this.offerTradeChecklist(this.viewVersion);
+  }
+
+  /**
+   * The ten-minute checklist on a trade site (ADR 0401): every step comes from the server, which reads the files,
+   * so it is never ticked by a click. Hidden once dismissed or once every step is done. If the question cannot be
+   * answered, or Admin has moved on, nothing is added.
+   */
+  async offerTradeChecklist(version) {
+    try {
+      if (this.preferences?.tradeChecklistDismissed === true) return;
+      const data = await this.api.call("GET", "trade-checklist");
+      if (this.viewVersion !== version || !this.workspaceMain) return;
+      if (!checklistVisible({ dismissed: this.preferences?.tradeChecklistDismissed === true, data })) return;
+      const checklist = buildTradeChecklist({
+        data,
+        onDismiss: async () => {
+          if (this.preferencesUnreadable) return false;
+          await this.saveWorkspacePreferences((saved) => ({ ...saved, tradeChecklistDismissed: true }));
+          return true;
+        },
+        onGone: () => {
+          this.querySelector?.(".oba-overview-metrics a")?.focus();
+        },
+      });
+      this.workspaceMain.insertBefore(checklist.element, this.workspaceMain.firstChild);
+    } catch {
+      // Without an answer the checklist stays away; nothing else on this page needs it.
+    }
   }
 
   /**
@@ -14447,6 +14500,31 @@ export class ObAdmin extends AdminElement {
     await view.load();
   }
 
+  // ---- reviews (ADR 0389)
+
+  /** `#/reviews`: the list; `#/reviews/new` and `#/reviews/edit/<path>`: one saved review, edited through the document routes. */
+  async showReviews(tail) {
+    const view = createReviews({
+      api: this.api,
+      route: tail || "",
+      onSaved: (path) => {
+        if (!this.stillOnOpenView()) return;
+        this.skipRoute = true;
+        location.hash = `#/reviews/edit/${encodeURIComponent(path)}`;
+      },
+      onLeave: (hash) => {
+        this.dirty = false;
+        this.viewDirty = null;
+        if (this.stillOnOpenView()) location.hash = hash;
+      },
+    });
+    this.mount(this.shell("reviews", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
   // ---- job capture (ADR 0296)
 
   /** `#/capture`: photos, remembered picks and notes from a phone on site, saved as an unpublished job draft. */
@@ -14524,6 +14602,18 @@ export class ObAdmin extends AdminElement {
     this.mount(this.shell("announcements", view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
+    await view.load();
+  }
+
+  // ---- share a finished job (ADR 0396, #488)
+
+  /** `#/share/<path>`: what one published job would look like on Google, Facebook and Nextdoor, and where it stands. */
+  async showJobShare(path) {
+    const view = createJobShare({ api: this.api, path });
+    this.mount(this.shell("posts", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
     await view.load();
   }
 
@@ -21980,7 +22070,9 @@ export class Editor {
         },
       });
       this.jobForm.setVisible(ui.profile.value === JOB_PROFILE);
-      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp), ui.profileFields, this.jobForm.element);
+      // A saved job can be shared once it is published; the screen says so when it is not yet.
+      ui.shareJob = this.isNew ? null : h("p", { hidden: ui.profile.value !== JOB_PROFILE }, h("a", { class: "oba-btn", href: `#/share/${encodeURIComponent(this.doc.path)}`, "data-action": "job-share" }, "Share this job"));
+      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp), ui.profileFields, this.jobForm.element, ui.shareJob);
       ui.description = h("textarea", { id: "oba-desc", rows: 3, value: f.description || "" });
       side.push(this.field("oba-desc", "Description", ui.description, "Shown in search results and feeds. Leave empty to use an excerpt."));
       ui.commentPolicy = h("select", { id: "oba-comments" },
@@ -23368,6 +23460,7 @@ export class Editor {
     if (!this.jobForm) return;
     const on = this.ui.profile.value === JOB_PROFILE;
     this.jobForm.setVisible(on);
+    if (this.ui.shareJob) this.ui.shareJob.hidden = !on;
     if (!on) return;
     this.jobForm.prefillDates();
     this.syncRichToMarkdown();

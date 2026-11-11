@@ -32,7 +32,7 @@ function server(initial = {}) {
       if (path.startsWith("quote/requests?") || path === "quote/requests") {
         const q = new URLSearchParams(path.split("?")[1] || "");
         const rows = state.requests.filter((r) => (!q.get("status") || r.status === q.get("status")) && (!q.get("service") || r.service === q.get("service")));
-        return structuredClone({ requests: rows, services: [...new Set(state.requests.map((r) => r.service))].sort(), retentionDays: state.retentionDays, notifyEnabled: state.notifyEnabled });
+        return structuredClone({ requests: rows, unreadable: state.unreadable ?? 0, services: [...new Set(state.requests.map((r) => r.service))].sort(), retentionDays: state.retentionDays, retentionSource: state.retentionSource ?? null, notifyEnabled: state.notifyEnabled });
       }
       const set = /^quote\/requests\/(.+)\/status$/.exec(path);
       if (set) {
@@ -47,6 +47,11 @@ function server(initial = {}) {
         return { erased: options.json.ids.length, verified: true };
       }
       if (path === "quote/retention/run") return { enabled: true, erased: 0 };
+      if (path === "quote/retention") {
+        state.retentionDays = options.json.days;
+        state.retentionSource = options.json.days ? "admin" : null;
+        return { retentionDays: state.retentionDays, retentionSource: state.retentionSource };
+      }
       if (path === "quote/notifications/retry") {
         for (const r of state.requests) if (r.notify === "failed" && state.retried.sent) r.notify = "sent";
         return structuredClone(state.retried);
@@ -139,6 +144,15 @@ test("filters ask the server for the status and service", withDom(async () => {
 test("an empty list says what to expect", withDom(async () => {
   const { root } = await open(server({ requests: [] }));
   assert.match(text(root), /No requests yet/);
+  assert.equal(all(root, "p").find((p) => p.dataset.quoteUnreadable), undefined);
+}));
+
+test("a stored request Admin could not show is said, never silently left out", withDom(async () => {
+  const { root } = await open(server({ unreadable: 2 }));
+  const warning = all(root, "p").find((p) => p.dataset.quoteUnreadable);
+  assert.equal(warning.attributes.role, "alert");
+  assert.match(text(warning), /2 stored requests could not be shown here.*still stored/);
+  assert.equal(cards(root).length, 3, "the readable ones are still listed");
 }));
 
 test("export downloads the CSV the server built, for the chosen days", withDom(async () => {
@@ -173,7 +187,7 @@ test("erase is previewed, confirmed, reported as verified, and cancel erases not
   await click(buttons(root, "erase-confirm")[0]);
   assert.deepEqual(api.calls.find((c) => c.path === "quote/erase").body, { ids: [ID(2)], token: "tok" });
   assert.equal(cards(root).length, 2);
-  assert.match(text(root), /Erased 1 request and checked afterward: none remain/);
+  assert.match(text(root), /Erased 1 request and checked afterward: none of them remain/);
 }));
 
 test("a failed erase says so and the requests are still listed", withDom(async () => {
@@ -184,11 +198,11 @@ test("a failed erase says so and the requests are still listed", withDom(async (
   await pick.dispatch("change", { target: pick });
   await flush();
   await click(buttons(root, "erase")[0]);
-  // Photos go before the records and cannot come back (ADR 0384); the page never claims they did.
-  assert.match(text(root), /some of their photos may already be gone/);
-  api.failWith = new ApiError("Erase failed. Every request is still here, but some of their photos may already be gone; try again", 502);
+  // A failed erase puts every photo back before the records are touched (ADR 0386).
+  assert.match(text(root), /If anything fails, every request and every photo stays as it is/);
+  api.failWith = new ApiError("Erase failed. Every request and its photos are still here; try again", 502);
   await click(buttons(root, "erase-confirm")[0]);
-  assert.match(text(root), /Every request is still here/);
+  assert.match(text(root), /Every request and its photos are still here/);
   assert.equal(cards(root).length, 3);
 }));
 
@@ -204,6 +218,31 @@ test("retention is explained, and expired archived requests can be erased on dem
   assert.equal(buttons(off.root, "sweep").length, 0);
   assert.equal(countdown(null), "");
   assert.equal(countdown("2026-11-04T12:00:00.000Z", NOW), "Erased automatically in 3 days (2026-11-04)");
+}));
+
+test("the owner sets the retention days here unless they are set where the form runs (ADR 0387)", withDom(async () => {
+  const api = server({ retentionDays: null, requests: [request(1, { status: "archived" })] });
+  const { root } = await open(api);
+  const box = () => all(root, "input").find((i) => i.dataset.field === "retention-days");
+  assert.ok(box(), "the days can be written here");
+  assert.equal(all(root, "label").find((l) => l.getAttribute("for") === box().id)?.textContent, "Days after archiving");
+  box().value = "0";
+  await click(buttons(root, "retention-save")[0]);
+  assert.match(text(root), /whole number of days from 1 to 3650/);
+  assert.ok(!api.calls.some((c) => c.path === "quote/retention"), "a wrong number is not sent");
+  box().value = "45";
+  await click(buttons(root, "retention-save")[0]);
+  assert.deepEqual(api.calls.find((c) => c.path === "quote/retention").body, { days: 45 });
+  assert.match(text(root), /Saved\. Archived requests are now erased automatically 45 days after you archive them/);
+  assert.equal(box().value, "45");
+  assert.equal(buttons(root, "sweep").length, 1);
+  await click(buttons(root, "retention-off")[0]);
+  assert.deepEqual(api.calls.filter((c) => c.path === "quote/retention").at(-1).body, { days: null });
+  assert.match(text(root), /kept until you erase them/);
+  // Set where the quote form runs: shown and explained, not offered.
+  const fixed = await open(server({ retentionDays: 30, retentionSource: "host" }));
+  assert.match(text(fixed.root), /set where your quote form runs/);
+  assert.ok(!all(fixed.root, "input").some((i) => i.dataset.field === "retention-days"));
 }));
 
 test("a load failure offers a retry and shows no request", withDom(async () => {

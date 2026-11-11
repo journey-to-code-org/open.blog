@@ -33,6 +33,8 @@ const LANDING_FILE: &str = openblog_core::landing::LANDING_FILE;
 const LANDING_HISTORY_PATH: &str = crate::landing_history::DIRECTORY;
 /// What the owner snoozed and which reminder opened which draft (ADR 0355).
 const SEASONAL_PATH: &str = crate::seasonal_store::STATE_PATH;
+/// Where each finished job was shared and how (ADR 0396).
+const JOB_SHARES_PATH: &str = crate::job_share::STATE_FILE;
 const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
@@ -290,6 +292,7 @@ impl Policy {
             format!("{}/pages", self.content),
             format!("{}/series", self.content),
             format!("{}/services", self.content),
+            format!("{}/proof", self.content),
             format!("{}/{LANDING_FILE}", self.content),
             format!("{}/images/uploads", self.static_dir),
             format!("{}/tracks/uploads", self.static_dir),
@@ -306,6 +309,7 @@ impl Policy {
             SELECTIONS_PATH.into(),
             ACKNOWLEDGEMENTS_PATH.into(),
             SEASONAL_PATH.into(),
+            JOB_SHARES_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -328,6 +332,7 @@ impl Policy {
                 | SELECTIONS_PATH
                 | ACKNOWLEDGEMENTS_PATH
                 | SEASONAL_PATH
+                | JOB_SHARES_PATH
         ) {
             return true;
         }
@@ -335,7 +340,7 @@ impl Policy {
             if relative == LANDING_FILE {
                 return true;
             }
-            return ["posts/", "pages/", "series/", "services/"]
+            return ["posts/", "pages/", "series/", "services/", "proof/"]
                 .iter()
                 .any(|prefix| {
                     relative.starts_with(prefix)
@@ -1491,6 +1496,27 @@ mod tests {
     }
 
     #[test]
+    fn where_a_job_was_shared_is_kept() {
+        let policy = policy();
+        assert!(policy.allowed(".openblog/job-shares.json"));
+        for path in [
+            ".openblog/job-shares.json.tmp",
+            ".openblog/job-shares.json/extra",
+            ".openblog/job-shares-other.json",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let state = fixture.0.join(".openblog/job-shares.json");
+        fs::create_dir_all(state.parent().unwrap()).unwrap();
+        let text = "{\"version\":1,\"jobs\":{}}
+";
+        fs::write(&state, text).unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[".openblog/job-shares.json"], text.as_bytes());
+    }
+
+    #[test]
     fn seasonal_snoozes_and_opened_drafts_are_kept_and_come_back() {
         let policy = policy();
         assert!(policy.allowed(".openblog/private/seasonal.json"));
@@ -1526,6 +1552,48 @@ mod tests {
         fs::remove_file(&state).unwrap();
         workspace.restore(&fixture.0).unwrap();
         assert_eq!(fs::read_to_string(&state).unwrap(), text);
+    }
+
+    #[test]
+    fn a_saved_review_is_kept_and_comes_back() {
+        let policy = policy();
+        assert!(policy.allowed("content/proof/dana-r-2026-10-20.md"));
+        for path in [
+            "content/proof/dana-r-2026-10-20.json",
+            "content/proof/dana-r-2026-10-20.md.tmp",
+            "content/proof-other/dana.md",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let review = fixture.0.join("content/proof/dana-r-2026-10-20.md");
+        fs::create_dir_all(review.parent().unwrap()).unwrap();
+        let text = "---
+proof:
+  kind: review
+---
+Great job.
+";
+        fs::write(&review, text).unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files["content/proof/dana-r-2026-10-20.md"], text.as_bytes());
+        let mut workspace =
+            fixture.workspace(backend("http://127.0.0.1:1".into()), Manifest::new());
+        for (path, bytes) in &files {
+            workspace.manifest.insert(
+                path.clone(),
+                Entry {
+                    base: workspace.base.get(path).cloned(),
+                    value: Some(Record::Text {
+                        text: String::from_utf8(bytes.clone()).unwrap(),
+                    }),
+                },
+            );
+        }
+        // A restart brings back only what the image holds.
+        fs::remove_file(&review).unwrap();
+        workspace.restore(&fixture.0).unwrap();
+        assert_eq!(fs::read_to_string(&review).unwrap(), text);
     }
 
     #[test]

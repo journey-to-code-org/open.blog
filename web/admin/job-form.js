@@ -19,6 +19,10 @@ const KEY = {
   after: "job.media.after",
 };
 
+// The saved review this job links (ADR 0389). Written only when the draft says, so a caller that
+// never asks about it leaves the key as it was.
+const REVIEW_KEY = "job.review";
+
 export const COST_BAND_LABELS = {
   "under-500": "Under $500",
   "500-2k": "$500 to $2,000",
@@ -43,10 +47,11 @@ export function readJobDraft(fields = {}) {
     costBand: text(fields[KEY.costBand]),
     before: list(fields[KEY.before]),
     after: list(fields[KEY.after]),
+    review: text(fields[REVIEW_KEY]),
   };
 }
 
-/** The fields with the form's answers written in. Keys the form does not ask about (hours, materials, review) are left alone. */
+/** The fields with the form's answers written in. Keys the form does not ask about (hours, materials) are left alone, and so is the review unless the draft names one or clears it. */
 export function applyJobDraft(fields, draft) {
   const next = { ...fields };
   for (const [name, key] of Object.entries(KEY)) {
@@ -54,6 +59,10 @@ export function applyJobDraft(fields, draft) {
     const empty = Array.isArray(value) ? value.length === 0 : text(value) === "";
     if (empty) delete next[key];
     else next[key] = Array.isArray(value) ? [...value] : text(value);
+  }
+  if ("review" in draft) {
+    if (text(draft.review)) next[REVIEW_KEY] = text(draft.review);
+    else delete next[REVIEW_KEY];
   }
   return next;
 }
@@ -125,6 +134,14 @@ export function buildJobForm({ fields, meta = {}, upload, check, onChange = () =
   }
   bandSelect.value = state.costBand;
   bandSelect.addEventListener("change", () => { state.costBand = bandSelect.value; touch(); });
+
+  // A saved review to show beside this job; the list is the site's reviews from the Reviews screen.
+  const reviews = [...(meta.reviews || [])];
+  if (state.review && !reviews.some((review) => review.id === state.review)) reviews.push({ id: state.review, label: state.review });
+  const reviewSelect = el("select", { id: `${id}-review`, "data-job-field": "review" }, el("option", { value: "" }, "No review"),
+    ...reviews.map((review) => el("option", { value: review.id }, review.label || review.id)));
+  reviewSelect.value = state.review;
+  reviewSelect.addEventListener("change", () => { state.review = reviewSelect.value; touch(); });
 
   const photos = (name, label) => {
     const items = el("ul", { class: "oba-job-photos", "aria-label": `${label} photos` });
@@ -200,6 +217,7 @@ export function buildJobForm({ fields, meta = {}, upload, check, onChange = () =
     field("started", "Started", startedInput),
     field("finished", "Finished", finishedInput),
     field("costBand", "Price range", bandSelect, "A public signal, never a quote."),
+    field("review", "Customer review", reviewSelect, reviews.length ? "Shown beside this job. Add reviews under Reviews." : "Save a customer's review under Reviews, then choose it here to show it beside this job."),
     serviceList,
     photos("before", "Before"),
     photos("after", "After"),

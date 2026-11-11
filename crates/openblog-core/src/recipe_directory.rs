@@ -436,7 +436,12 @@ pub struct CheckInput<'a> {
 /// Every finding for `directory`, in a fixed order. Empty means ready with nothing to note.
 pub fn check(directory: Directory, input: &CheckInput) -> Vec<Finding> {
     let mut findings = Vec::new();
-    if recipe_check::has_errors(input.recipe_problems) {
+    // Another canonical page has its own finding below, so it is not counted twice.
+    if input
+        .recipe_problems
+        .iter()
+        .any(|p| p.severity == Severity::Error && p.code != recipe_check::Code::CanonicalElsewhere)
+    {
         findings.push(Finding::new(FindingCode::RecipeHasErrors));
     }
     if input.canonical_elsewhere {
@@ -596,7 +601,8 @@ pub fn text_files(config: &SiteConfig, post: &Post, recipe: &Recipe) -> Vec<Pack
 pub fn credit(config: &SiteConfig, post: &Post, recipe: &Recipe) -> String {
     let canonical = config.absolute(&post.url);
     let mut out = String::new();
-    let author = config.author.name.trim();
+    // The people the post credits, as its page and its Recipe data name them.
+    let author = crate::render::human_list(&crate::render::post_author_names(config, post));
     if author.is_empty() {
         out.push_str(&format!(
             "\"{}\", first published at {canonical}\n",

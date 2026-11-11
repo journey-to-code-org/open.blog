@@ -149,6 +149,14 @@ test("a failure says nothing was sent and keeps what was typed", async ({ page }
   await expect(page.getByRole("button", { name: "Send request" })).toBeEnabled();
 });
 
+test("a time-out does not say the request was not saved (ADR 0388)", async ({ page }) => {
+  await open(page, { submit: { status: 504, json: { error: "timeout" } } });
+  await fill(page);
+  await page.getByRole("button", { name: "Send request" }).click();
+  await expect(page.locator(".ob-quote-status")).toContainText("It may have been saved");
+  await expect(page.locator(".ob-quote-status")).not.toContainText("nothing was sent");
+});
+
 test("a field problem from the server is shown beside the field", async ({ page }) => {
   await open(page, { submit: { status: 422, json: { error: "invalid", fields: [{ field: "phone", reason: "invalid" }] } } });
   await fill(page);

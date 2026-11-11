@@ -758,6 +758,14 @@ pub fn generate_with_trail_budget(
             )?;
         }
     }
+    // Saved reviews (ADR 0389): one page that lists them all, only when the
+    // site has any.
+    if !site.proof.is_empty() {
+        out.add(
+            url_to_file(crate::proof::REVIEWS_URL),
+            r.reviews_page(default_theme),
+        )?;
+    }
     // Service areas (ADR 0315): an index and one page per area, only when the
     // site lists areas.
     if !c.service_areas.is_default() {
@@ -966,6 +974,9 @@ pub fn generate_with_trail_budget(
         }
         extra.extend(job_plan.iter().map(|archive| archive.url.clone()));
         extra.extend(r.recipe_plan().archives.iter().map(|a| a.url.clone()));
+        if !site.proof.is_empty() {
+            extra.push(crate::proof::REVIEWS_URL.to_string());
+        }
         if !site.services.is_empty() {
             extra.push(crate::service::SERVICES_URL.to_string());
             extra.extend(site.services.iter().map(|service| service.url.clone()));
@@ -1192,9 +1203,12 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // `/services/` is reserved only once the site has services (ADR 0312).
     let has_services = !site.services.is_empty();
     let has_areas = !site.config.service_areas.is_default();
+    // `/reviews/` likewise, once the site has saved reviews (ADR 0389).
+    let has_proof = !site.proof.is_empty();
     let reserved = |segment: &str| {
         RESERVED.contains(&segment)
             || (has_services && segment == crate::service::SERVICES_DIR)
+            || (has_proof && segment == crate::proof::REVIEWS_SEGMENT)
             || (has_areas && segment == crate::service_area::AREAS_DIR)
             || (publishes_atlas && segment == ATLAS_SEGMENT)
             || (publishes_comparisons && segment == COMPARISONS_SEGMENT)
@@ -1927,6 +1941,14 @@ impl<'a> Renderer<'a> {
                 crate::service::SERVICES_URL.to_string(),
             ));
         }
+        // And one to the saved reviews, only when there are any (ADR 0389).
+        if !self.site.proof.is_empty()
+            && !links
+                .iter()
+                .any(|(_, href)| href.trim_end_matches('/') == "/reviews")
+        {
+            links.push(("Reviews".to_string(), crate::proof::REVIEWS_URL.to_string()));
+        }
         // Likewise a link to the towns served, only when areas are listed.
         if !c.service_areas.is_default()
             && !links
@@ -2063,6 +2085,17 @@ impl<'a> Renderer<'a> {
     }
 
     fn post_list(&self, theme: &Theme, indices: &[usize]) -> String {
+        self.post_list_with(theme, indices, |_| String::new())
+    }
+
+    /// [`Self::post_list`] with `extra(post)` added to each entry's text. It
+    /// sits inside the entry's link, so it must be phrasing content.
+    fn post_list_with(
+        &self,
+        theme: &Theme,
+        indices: &[usize],
+        extra: impl Fn(&Post) -> String,
+    ) -> String {
         if indices.is_empty() {
             return "<p class=\"ob-empty\">Nothing here yet.</p>".to_string();
         }
@@ -2102,13 +2135,15 @@ impl<'a> Renderer<'a> {
                     "<span class=\"ob-card-summary\">{}</span>",
                     text(&post.description)
                 ));
+                h.push_str(&extra(post));
                 h.push_str("</span></a></li>\n");
             } else {
                 h.push_str(&format!(
-                    "<li class=\"ob-row-item\"><a class=\"ob-row\" href=\"{}\"><span class=\"ob-row-body\"><h3 class=\"ob-row-title\">{}</h3><span class=\"ob-meta\">{}</span></span><span class=\"ob-row-arrow\" aria-hidden=\"true\">→</span></a></li>\n",
+                    "<li class=\"ob-row-item\"><a class=\"ob-row\" href=\"{}\"><span class=\"ob-row-body\"><h3 class=\"ob-row-title\">{}</h3><span class=\"ob-meta\">{}</span>{}</span><span class=\"ob-row-arrow\" aria-hidden=\"true\">→</span></a></li>\n",
                     attr(&post.url),
                     text(&post.title),
-                    self.time(post)
+                    self.time(post),
+                    extra(post)
                 ));
             }
         }
@@ -2405,11 +2440,7 @@ impl<'a> Renderer<'a> {
             .as_deref()
             .and_then(|s| self.site.series_by_slug(s));
         let canonical = resolved_post_canonical(c, post);
-        let entity_url = if post.research.is_some() {
-            canonical.clone().unwrap_or_else(|| c.absolute(&post.url))
-        } else {
-            c.absolute(&post.url)
-        };
+        let entity_url = post_entity_url(c, post);
 
         let mut body = String::from("<div class=\"ob-container ob-container-reading\">\n");
         body.push_str("<article class=\"ob-post h-entry\">\n<header class=\"ob-post-header\">\n");
@@ -2604,6 +2635,10 @@ impl<'a> Renderer<'a> {
         if post.recipe.is_some() {
             body.push_str("</ob-recipe>\n");
         }
+        // A job's saved review, beside the work it describes (ADR 0389).
+        if let Some(proof) = self.site.proof_for(post) {
+            body.push_str(&crate::proof::job_section_html(proof));
+        }
 
         if let Some(source) = post.source_notice_html() {
             body.push_str(&source);
@@ -2762,12 +2797,8 @@ impl<'a> Renderer<'a> {
                         }
                     }
                     CreditProvenance::ExplicitSidecar => {
-                        let authors = post
-                            .authors()
-                            .map(|credit| contributor_json_ld(c, credit, &entity_url))
-                            .collect::<Vec<_>>();
-                        if !authors.is_empty() {
-                            posting["author"] = serde_json::Value::Array(authors);
+                        if let Some(authors) = post_author_json_ld(c, post) {
+                            posting["author"] = authors;
                         }
                         let contributors = post
                             .credits
@@ -2837,20 +2868,28 @@ impl<'a> Renderer<'a> {
                         });
                     }
                 }
-                match &post.recipe {
-                    // A recipe page describes both the article and the recipe.
-                    Some(recipe) => {
-                        let mut posting = posting;
-                        if let Some(o) = posting.as_object_mut() {
-                            o.remove("@context");
-                        }
-                        serde_json::json!({
-                            "@context": "https://schema.org",
-                            "@graph": [posting, self.recipe_json_ld(post, recipe)],
-                        })
-                        .to_string()
+                // A recipe page describes both the article and the recipe; a
+                // job with a saved review describes the review too (ADR 0389).
+                let mut nodes = Vec::new();
+                if let Some(recipe) = &post.recipe {
+                    nodes.push(self.recipe_json_ld(post, recipe));
+                }
+                if let Some(proof) = self.site.proof_for(post) {
+                    nodes.push(crate::proof::review_node(self.site, proof, true));
+                }
+                if nodes.is_empty() {
+                    posting.to_string()
+                } else {
+                    let mut posting = posting;
+                    if let Some(o) = posting.as_object_mut() {
+                        o.remove("@context");
                     }
-                    None => posting.to_string(),
+                    nodes.insert(0, posting);
+                    serde_json::json!({
+                        "@context": "https://schema.org",
+                        "@graph": nodes,
+                    })
+                    .to_string()
                 }
             }),
             reader_references: references.map(ReaderReferences::to_script_element),
@@ -3533,7 +3572,15 @@ impl<'a> Renderer<'a> {
                 body.push_str("</ul>\n");
             }
         }
-        body.push_str(&self.post_list(theme, &archive.posts[start..end]));
+        // A job with a saved review says so in the list (ADR 0389).
+        body.push_str(
+            &self.post_list_with(theme, &archive.posts[start..end], |post| {
+                self.site
+                    .proof_for(post)
+                    .map(crate::proof::line_html)
+                    .unwrap_or_default()
+            }),
+        );
         body.push_str(&self.pager_with(page_number, page_count, |n| archive.page_url(n)));
         body.push_str("\n</section>\n</div>");
         let title = if page_number == 1 {
@@ -3785,6 +3832,32 @@ impl<'a> Renderer<'a> {
         body.push_str("</article>\n</div>");
         let mut meta = self.meta_simple(theme, &service.name, &service.summary, &service.url);
         meta.json_ld = Some(crate::service::json_ld(self.site, service));
+        self.document(&meta, &body)
+    }
+
+    /// `/reviews/`: every saved review, newest first, each with a link to
+    /// where it was left and to the job it describes (ADR 0389).
+    fn reviews_page(&self, theme: &Theme) -> String {
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<section class=\"ob-section ob-reviews\">\n",
+        );
+        body.push_str(&self.heading(theme, 1, "Reviews", "ob-section-heading"));
+        body.push_str(
+            "\n<p class=\"ob-lede\">What customers wrote about our work, with a link to each review where they left it.</p>\n<ul class=\"ob-proof-list\">\n",
+        );
+        for proof in &self.site.proof {
+            body.push_str("<li>");
+            body.push_str(&crate::proof::figure_html(proof, true));
+            body.push_str("</li>\n");
+        }
+        body.push_str("</ul>\n</section>\n</div>");
+        let mut meta = self.meta_simple(
+            theme,
+            "Reviews",
+            "What customers wrote about our work, with a link to each review.",
+            crate::proof::REVIEWS_URL,
+        );
+        meta.json_ld = Some(crate::proof::reviews_json_ld(self.site));
         self.document(&meta, &body)
     }
 
@@ -5120,7 +5193,7 @@ const SERVICE_PAGE_JOBS: usize = 5;
 const AREA_PAGE_JOBS: usize = 10;
 
 /// The price band and timeline of a service as escaped text, in a fixed order.
-fn service_facts(service: &crate::model::Service) -> Vec<String> {
+pub(crate) fn service_facts(service: &crate::model::Service) -> Vec<String> {
     let mut facts = Vec::new();
     if let Some(band) = service.price_band {
         facts.push(format!("Price band: {}", text(band.label())));
@@ -5371,6 +5444,52 @@ fn _keep_cdata(s: &str) -> String {
     cdata(s)
 }
 
+/// The address a post's JSON-LD nodes are identified by: the canonical address of a research
+/// work, the post's own address otherwise.
+fn post_entity_url(config: &SiteConfig, post: &Post) -> String {
+    match (&post.research, resolved_post_canonical(config, post)) {
+        (Some(_), Some(canonical)) => canonical,
+        _ => config.absolute(&post.url),
+    }
+}
+
+/// The `author` of a post's JSON-LD: its credited authors in credit order when it has a credit
+/// sidecar (the same `Person` nodes its `BlogPosting` carries), the site author otherwise, or
+/// `None` when nobody is named. Every node about the post credits the same people.
+pub(crate) fn post_author_json_ld(config: &SiteConfig, post: &Post) -> Option<serde_json::Value> {
+    match post.credit_provenance {
+        CreditProvenance::LegacySiteAuthor => author_json_ld(config),
+        CreditProvenance::ExplicitSidecar => {
+            let entity_url = post_entity_url(config, post);
+            let authors = post
+                .authors()
+                .map(|credit| contributor_json_ld(config, credit, &entity_url))
+                .collect::<Vec<_>>();
+            (!authors.is_empty()).then_some(serde_json::Value::Array(authors))
+        }
+    }
+}
+
+/// The names of the people a post credits as its authors, as plain text in credit order: the
+/// same people [`post_author_json_ld`] names.
+pub(crate) fn post_author_names(config: &SiteConfig, post: &Post) -> Vec<String> {
+    match post.credit_provenance {
+        CreditProvenance::LegacySiteAuthor => {
+            let name = config.author.name.trim();
+            (!name.is_empty())
+                .then(|| name.to_string())
+                .into_iter()
+                .collect()
+        }
+        CreditProvenance::ExplicitSidecar => post
+            .authors()
+            .map(|credit| credit.contributor.name.trim())
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect(),
+    }
+}
+
 pub(crate) fn author_json_ld(config: &SiteConfig) -> Option<serde_json::Value> {
     let name = config.author.name.trim();
     if name.is_empty() {
@@ -5526,6 +5645,7 @@ mod tests {
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
                 services: Vec::new(),
+                proof: Vec::new(),
                 source_library: None,
                 claim_evidence: None,
                 reader_feedback: None,

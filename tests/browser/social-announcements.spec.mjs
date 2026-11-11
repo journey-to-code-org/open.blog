@@ -77,6 +77,11 @@ test.beforeAll(async () => {
   const { socialSettings } = await load("netlify/lib/social-scope.mjs");
   const { fakeStorage } = await load("tests/web/social-fake-storage.mjs");
   storage = fakeStorage();
+  // A Bluesky account and a Mastodon account, so the composer is driven for both (#391, #392).
+  storage.accounts.push(
+    { id: "77777777-7777-4777-8777-777777777777", site_id: "lantern-studios", provider: "bluesky", kind: "account", display_name: "@lantern.bsky.social", status: "connected" },
+    { id: "88888888-8888-4888-8888-888888888888", site_id: "lantern-studios", provider: "mastodon", kind: "account", display_name: "@lantern@social.example", status: "connected" },
+  );
   const settings = socialSettings({
     OPENBLOG_SOCIAL_ENABLED: "true",
     SUPABASE_URL: "https://project.supabase.co",
@@ -211,6 +216,38 @@ test("an announcement is composed, previewed in the author's zone, scheduled, ed
   await expect(page.locator("[data-announcement]").first().locator("[data-status-badge]")).toContainText("Canceled");
   await expect(page.locator("[data-announcement]").first().getByRole("button", { name: /Edit the announcement/ })).toHaveCount(0);
   expect(storage.posts[0].status).toBe("canceled");
+});
+
+test("composing for Bluesky shows the post's own card, and for Mastodon a link already in the caption is not added again", async ({ page }) => {
+  await openSocial(page);
+  const destination = page.getByLabel("Destination", { exact: true });
+  const preview = page.locator("[data-social-preview]");
+  const notes = preview.locator("[data-preview-notes]");
+
+  await destination.selectOption("77777777-7777-4777-8777-777777777777");
+  await page.getByLabel("Post to announce", { exact: true }).selectOption({ label: "Hello lanterns" });
+  await page.getByLabel("Caption", { exact: true }).fill("Soup is up #recipes, see https://blog.example.org/posts/hello/ (and @friend)");
+  await page.getByLabel(/^Date and time/).fill(localValue(3));
+  await expect(page.locator("[data-social-count]")).toContainText("of 300 characters");
+  // The card is titled with the post's title, not the caption a second time (ADR 0386).
+  await expect(notes).toContainText("a card with the post's title, \"Hello lanterns\"");
+  await expect(notes).not.toContainText('titled "Soup is up');
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+  expect(storage.posts.at(-1).account_id).toBe("77777777-7777-4777-8777-777777777777");
+
+  await destination.selectOption("88888888-8888-4888-8888-888888888888");
+  await page.getByLabel("Post to announce", { exact: true }).selectOption({ label: "Hello lanterns" });
+  await page.getByLabel(/^Date and time/).fill(localValue(4));
+  await page.getByLabel("Caption", { exact: true }).fill("Soup (https://blog.example.org/posts/hello/)");
+  await expect(page.locator("[data-social-count]")).toContainText("of 475 characters");
+  await expect(preview.locator("[data-preview-caption]")).toHaveText("Soup (https://blog.example.org/posts/hello/)");
+  await expect(notes).toHaveCount(0);
+  await page.getByLabel("Caption", { exact: true }).fill("Soup is up");
+  await expect(notes).toContainText("On Mastodon the link goes after the caption");
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+  expect(storage.posts.at(-1).account_id).toBe("88888888-8888-4888-8888-888888888888");
 });
 
 test("problems are explained beside the fields and nothing is sent until it is right", async ({ page }) => {

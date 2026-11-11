@@ -214,6 +214,9 @@ pub struct PortableProjection<'a> {
     /// Set while quote requests are on (ADR 0382): a `quote` fence is then the page's form, which no
     /// copy carries. Off, it is an ordinary code block in every form, as it always was.
     quote_forms: bool,
+    /// The saved review a job links (ADR 0389). It is public on the job's page, so every copy
+    /// carries it too. Only `for_site` attaches it.
+    proof: Option<crate::proof::Proof>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -630,7 +633,15 @@ impl<'a> PortableProjection<'a> {
     pub fn for_site(site: &Site, post: &'a Post) -> Result<Self, String> {
         Ok(Self::from_post(post, &site.config)?
             .with_series(site.series_context(post))
-            .with_curated(site.curated_context_for(post)))
+            .with_curated(site.curated_context_for(post))
+            .with_proof(site.proof_for(post).cloned()))
+    }
+
+    /// The same projection carrying `proof`, the job's saved review (ADR 0389). `None`
+    /// removes it.
+    pub fn with_proof(mut self, proof: Option<crate::proof::Proof>) -> Self {
+        self.proof = proof;
+        self
     }
 
     /// The same projection carrying `context`, the public curated context the
@@ -745,6 +756,7 @@ impl<'a> PortableProjection<'a> {
             slug: &post.slug,
             curated: None,
             quote_forms: config.quote.enabled,
+            proof: None,
         })
     }
 
@@ -897,6 +909,9 @@ impl<'a> PortableProjection<'a> {
             }
         }
         html.push_str(&rendered.html);
+        if let Some(proof) = &self.proof {
+            html.push_str(&crate::proof::job_section_html(proof));
+        }
         if let Some(section) = self.curated_section(RepresentationFormat::Html) {
             html.push_str(&section.text);
         }
@@ -1179,6 +1194,13 @@ impl<'a> PortableProjection<'a> {
                     source.kind.label()
                 ));
             }
+        }
+
+        if let Some(proof) = &self.proof {
+            if !output.ends_with("\n\n") {
+                output.push('\n');
+            }
+            output.push_str(&crate::proof::markdown_section(proof));
         }
 
         if let Some(section) = self.curated_section(RepresentationFormat::Markdown) {

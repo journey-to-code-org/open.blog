@@ -13,6 +13,8 @@
 # Mount a volume at /blog/.openblog to keep users, analytics, and the trash.
 # For SSH publishing, mount a repository deploy key and pinned GitHub known-hosts
 # file, then set OPENBLOG_GIT_SSH_KEY_PATH and OPENBLOG_GIT_SSH_KNOWN_HOSTS_PATH.
+# Node runs the optional quote form service (docs/quote-requests.md, ADR 0387). It is
+# started only when OPENBLOG_QUOTE_ENABLED=true, and listens on this machine only.
 
 FROM rust:1-slim-bookworm AS build
 WORKDIR /src
@@ -21,7 +23,7 @@ RUN cargo build --release -p openblog-cli --locked
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl \
+    && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl nodejs \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/openblog /usr/local/bin/openblog
 WORKDIR /blog

@@ -127,6 +127,12 @@ export function createStore({ settings, fetchImpl, now = () => Date.now() }) {
       return list.map((item) => `${prefix}/${item.name}`);
     },
 
+    // Moves one object within the bucket (an erase holds photos this way, and can move them back).
+    async moveObject(from, to) {
+      const response = await call(`/storage/v1/object/move`, { method: "POST", headers: headers({ "content-type": "application/json" }), body: JSON.stringify({ bucketId: BUCKET, sourceKey: from, destinationKey: to }) });
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+    },
+
     // One bulk removal. Throws unless the provider accepted it.
     async removeObjects(paths) {
       if (!paths.length) return;
@@ -140,6 +146,25 @@ export function createStore({ settings, fetchImpl, now = () => Date.now() }) {
       if (!response.ok) throw new QuoteError(503, "storage-unavailable");
       const rows = await response.json();
       return Array.isArray(rows) ? rows.length : 0;
+    },
+
+    // The owner's retention choice from Admin (ADR 0387): one small private object in the photo bucket,
+    // so no table changes. Absent means not chosen; a value outside 1 to 3650 days is read as absent.
+    async readRetention() {
+      const response = await call(`/storage/v1/object/authenticated/${BUCKET}/${settings.siteId}/settings/retention.json`, { method: "GET", headers: headers() });
+      if (response.status === 400 || response.status === 404) return null;
+      if (!response.ok) throw new QuoteError(503, "storage-unavailable");
+      const days = (await response.json().catch(() => null))?.days;
+      return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : null;
+    },
+
+    // Writes (or, for null, removes) that choice.
+    async writeRetention(days) {
+      const path = `/storage/v1/object/${BUCKET}/${settings.siteId}/settings/retention.json`;
+      const response = days === null
+        ? await call(path, { method: "DELETE", headers: headers() })
+        : await call(path, { method: "POST", headers: headers({ "content-type": "application/json", "x-upsert": "true" }), body: JSON.stringify({ days }) });
+      if (!response.ok && !(days === null && (response.status === 400 || response.status === 404))) throw new QuoteError(503, "storage-unavailable");
     },
 
     async setPhotos(id, photos) {

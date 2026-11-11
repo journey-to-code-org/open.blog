@@ -50,6 +50,9 @@ pub struct Rendered {
     /// and the id of the first recipe heading (for a "Jump to recipe" link).
     pub recipe_ingredients: Vec<String>,
     pub recipe_steps: Vec<String>,
+    /// How many blocks of text inside a recipe section sit outside its list (a loose
+    /// paragraph under "Ingredients"): the page shows them, the recipe data leaves them out.
+    pub recipe_unlisted_text: usize,
     pub recipe_anchor: Option<String>,
     /// With [`RenderOptions::supplements`]: the supplements read and what was
     /// reported about their markers.
@@ -102,10 +105,12 @@ pub struct RenderOptions<'a> {
     /// every such link as the ordinary link it is written as.
     pub concept_links: bool,
     /// Set while quote requests are switched on (ADR 0381): a `quote` fence renders the form with
-    /// the site's towns. `None` renders such a fence as nothing.
+    /// the site's towns and, when the fence names no service, the site's published services (ADR
+    /// 0386). `None` renders such a fence as nothing.
     pub quote: Option<(
         &'a crate::quote::QuoteConfig,
         &'a crate::service_area::ServiceAreasConfig,
+        &'a [String],
     )>,
 }
 
@@ -395,6 +400,8 @@ struct BlockData {
     capabilities: Vec<CapabilityDescriptor>,
     ingredients: Vec<String>,
     steps: Vec<String>,
+    /// Text blocks in a recipe section outside its list, as [`Rendered::recipe_unlisted_text`].
+    recipe_unlisted: usize,
     recipe_anchor: Option<String>,
     errors: Vec<String>,
 }
@@ -1015,6 +1022,7 @@ fn transform_blocks<'a>(
     quote: Option<(
         &crate::quote::QuoteConfig,
         &crate::service_area::ServiceAreasConfig,
+        &[String],
     )>,
 ) -> (Vec<Event<'a>>, BlockData) {
     let mut out = Vec::with_capacity(events.len());
@@ -1032,6 +1040,12 @@ fn transform_blocks<'a>(
     // The section's top-level list while it is open: `true` when ordered.
     let mut recipe_list: Option<bool> = None;
     let mut item: Option<String> = None;
+    // Inside a heading, whose words are its title, not recipe text.
+    let mut in_heading = false;
+    // Inside an image, whose words are its alt text, not recipe text.
+    let mut in_image = 0usize;
+    // The text block in a recipe section, outside its list, already counted.
+    let mut unlisted_counted = false;
     // Raw HTML elements opened (and not yet closed) since the section began.
     let mut html_depth = 0i32;
     // A fence the canonical page can run, collected for its static fallback.
@@ -1189,7 +1203,7 @@ fn transform_blocks<'a>(
                         // The form is a page feature: a portable copy and a site with quote
                         // requests off carry nothing for it.
                         Ok(fence) => {
-                            if let (Some((config, areas)), None) = (quote, portable) {
+                            if let (Some((config, areas, published)), None) = (quote, portable) {
                                 quote_forms += 1;
                                 data.capabilities.push(CapabilityDescriptor::describe(
                                     crate::quote::CAPABILITY_ID,
@@ -1197,11 +1211,17 @@ fn transform_blocks<'a>(
                                 ));
                                 let towns: Vec<String> =
                                     areas.areas.iter().map(|a| a.label()).collect();
+                                // A fence that names no service offers the site's own.
+                                let services = if fence.services.is_empty() {
+                                    published
+                                } else {
+                                    &fence.services[..]
+                                };
                                 out.push(Event::Html(CowStr::from(crate::quote::form_html(
                                     config,
                                     &format!("ob-quote-{quote_forms}"),
                                     &towns,
-                                    &fence.services,
+                                    services,
                                 ))));
                             }
                         }
@@ -1536,6 +1556,19 @@ fn transform_blocks<'a>(
                 buf.push(' ');
             }
         }
+        match event {
+            Event::Start(Tag::Heading { .. }) => in_heading = true,
+            Event::End(TagEnd::Heading(_)) => in_heading = false,
+            Event::Start(Tag::Image { .. }) => in_image += 1,
+            Event::End(TagEnd::Image) => in_image = in_image.saturating_sub(1),
+            _ => {}
+        }
+        if matches!(
+            event,
+            Event::Start(Tag::Paragraph | Tag::CodeBlock(_) | Tag::Table(_) | Tag::BlockQuote(_))
+        ) {
+            unlisted_counted = false;
+        }
 
         match event {
             Event::Start(Tag::Heading { level, id, .. }) if depth == 0 => {
@@ -1640,6 +1673,14 @@ fn transform_blocks<'a>(
             Event::Text(t) | Event::Code(t) => {
                 if let Some(buf) = item.as_mut() {
                     buf.push_str(t);
+                } else if section.is_some()
+                    && !in_heading
+                    && in_image == 0
+                    && !unlisted_counted
+                    && !t.trim().is_empty()
+                {
+                    data.recipe_unlisted += 1;
+                    unlisted_counted = true;
                 }
                 out.push(rendered);
             }
@@ -3133,6 +3174,7 @@ fn render_events<'a>(
         first_image,
         recipe_ingredients: blocks.ingredients,
         recipe_steps: blocks.steps,
+        recipe_unlisted_text: blocks.recipe_unlisted,
         recipe_anchor: blocks.recipe_anchor,
         reading_depth,
         concept_refusals: Vec::new(),

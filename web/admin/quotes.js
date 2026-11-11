@@ -103,7 +103,7 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
     root.replaceChildren(el("h2", { id: `${ids}-title`, tabindex: "-1" }, "Quote requests"), el("p", { class: "oba-small", role: "status", "data-quote-loading": "true" }, "Loading requests…"));
     try {
       const overview = await api.call("GET", "quote/status");
-      let list = { requests: [], services: [], retentionDays: null, notifyEnabled: false };
+      let list = { requests: [], services: [], retentionDays: null, retentionSource: null, notifyEnabled: false };
       if (overview.enabled) list = await api.call("GET", `quote/requests${query()}`);
       if (mine !== generation) return;
       state = { overview, ...list };
@@ -203,7 +203,32 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
       async () => {
         const erased = state.erased;
         await load();
-        say(`Erased ${plural(erased.erased, "request", "requests")} and checked afterward: none remain.`);
+        const pending = erased.photosPending > 0 ? ` ${plural(erased.photosPending, "of their photos", "of their photos")} could not be removed yet. No request points to ${erased.photosPending === 1 ? "it" : "them"} any more, and the next erase removes ${erased.photosPending === 1 ? "it" : "them"}.` : "";
+        say(`Erased ${plural(erased.erased, "request", "requests")} and checked afterward: none of them remain.${pending}`);
+      },
+    );
+  }
+
+  // The owner's choice of days (ADR 0387). Empty or "Keep" means archived requests stay until erased.
+  function saveRetention(raw) {
+    const value = String(raw ?? "").trim();
+    const days = value === "" ? null : Number(value);
+    if (days !== null && !(Number.isInteger(days) && days >= 1 && days <= 3650)) {
+      say("Write a whole number of days from 1 to 3650, or leave the box empty to keep archived requests until you erase them.", true);
+      focusTarget = "retention-days";
+      render();
+      return undefined;
+    }
+    focusTarget = "retention-days";
+    return act(
+      "Saving…",
+      async () => {
+        state.retentionSaved = await api.call("POST", "quote/retention", { json: { days } });
+      },
+      async () => {
+        const saved = state.retentionSaved;
+        await load();
+        say(saved.retentionDays ? `Saved. Archived requests are now erased automatically ${plural(saved.retentionDays, "day", "days")} after you archive them.` : "Saved. Archived requests are now kept until you erase them.");
       },
     );
   }
@@ -361,7 +386,7 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
         "fieldset",
         {},
         el("legend", {}, "Erase"),
-        el("p", { class: "oba-small" }, "Erasing removes the selected requests and their photos for good. You will see what will go before anything is erased. Photos go first: if erasing fails partway, the requests stay but some photos may be gone."),
+        el("p", { class: "oba-small" }, "Erasing removes the selected requests and their photos for good. You will see what will go before anything is erased. If erasing fails partway, every request and every photo stays."),
         (eraseButton = el("button", { class: "oba-btn", type: "button", "data-action": "erase", onClick: startErase })),
       ),
     );
@@ -371,14 +396,24 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
 
   function retentionNote() {
     const archived = state.requests.some((r) => r.status === "archived");
-    // The number of days lives where the quote function runs (ADR 0384), so this page shows it and says
-    // who can change it; it cannot set it.
-    if (!state.retentionDays) return el("p", { class: "oba-small", "data-quote-retention": "off" }, "Archived requests are kept until you erase them. Whoever set up your quote form can make them erase automatically a number of days after you archive them (the setting is ", el("code", {}, "OPENBLOG_QUOTE_RETENTION_DAYS"), " where the quote function runs).");
+    const days = state.retentionDays;
+    const sweep = days && archived ? el("button", { class: "oba-btn", type: "button", "data-action": "sweep", onClick: sweepNow }, "Erase expired now") : null;
+    const said = days ? `Archived requests are erased automatically ${days} days after you archive them.` : "Archived requests are kept until you erase them.";
+    // A number set where the quote function runs wins (ADR 0387), so it is shown, not offered.
+    if (days && state.retentionSource !== "admin") {
+      return el("p", { class: "oba-small", "data-quote-retention": "on", "data-quote-retention-source": "host" }, `${said} This is set where your quote form runs, so it is changed there, not here. `, sweep);
+    }
+    const box = el("input", { id: `${ids}-retention`, type: "number", inputmode: "numeric", min: "1", max: "3650", step: "1", value: days ? String(days) : "", "data-field": "retention-days", "data-focus": "retention-days", "aria-describedby": `${ids}-retention-help` });
     return el(
-      "p",
-      { class: "oba-small", "data-quote-retention": "on" },
-      `Archived requests are erased automatically ${state.retentionDays} days after you archive them. `,
-      archived ? el("button", { class: "oba-btn", type: "button", "data-action": "sweep", onClick: sweepNow }, "Erase expired now") : null,
+      "fieldset",
+      { class: "oba-quotes-retention", "data-quote-retention": days ? "on" : "off", "data-quote-retention-source": days ? "admin" : "none" },
+      el("legend", {}, "Erase archived requests automatically"),
+      el("p", { class: "oba-small", id: `${ids}-retention-help` }, `${said} To erase them a number of days after you archive them, write the days and press Save. Leave the box empty to keep them until you erase them.`),
+      el("label", { for: `${ids}-retention` }, "Days after archiving"),
+      box,
+      el("button", { class: "oba-btn", type: "button", "data-action": "retention-save", onClick: () => saveRetention(box.value) }, "Save"),
+      days ? el("button", { class: "oba-btn", type: "button", "data-action": "retention-off", onClick: () => saveRetention("") }, "Keep until I erase them") : null,
+      sweep,
     );
   }
 
@@ -387,7 +422,7 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
       "div",
       { class: "oba-quotes-confirm", role: "alertdialog", "aria-labelledby": `${ids}-confirm-title`, "aria-describedby": `${ids}-confirm-text`, "data-focus": "erase-confirm", tabindex: "-1" },
       el("h3", { id: `${ids}-confirm-title` }, `Erase ${plural(confirming.count, "request", "requests")}?`),
-      el("p", { id: `${ids}-confirm-text` }, `This permanently removes ${plural(confirming.count, "request", "requests")} and ${plural(confirming.photos, "photo", "photos")}. It cannot be undone. If anything fails, every request stays, but some of their photos may already be gone.`),
+      el("p", { id: `${ids}-confirm-text` }, `This permanently removes ${plural(confirming.count, "request", "requests")} and ${plural(confirming.photos, "photo", "photos")}. It cannot be undone. If anything fails, every request and every photo stays as it is.`),
       el("button", { class: "oba-btn oba-btn-danger", type: "button", "data-action": "erase-confirm", onClick: confirmErase }, "Erase permanently"),
       el("button", { class: "oba-btn", type: "button", "data-action": "erase-cancel", onClick: () => { confirming = null; focusTarget = "list"; render(); say("Nothing was erased."); } }, "Cancel"),
     );
@@ -410,6 +445,9 @@ export function createQuoteRequests({ api, win = globalThis.window, now = () => 
       el("h2", { id: `${ids}-title`, tabindex: "-1" }, "Quote requests"),
       el("p", { class: "oba-small" }, "Newest first. Requests are stored privately; this list is the only place their details are shown."),
       ...[emailBanner()].filter(Boolean),
+      ...(state.unreadable > 0
+        ? [el("p", { class: "oba-error", role: "alert", "data-quote-unreadable": String(state.unreadable) }, `${plural(state.unreadable, "stored request", "stored requests")} could not be shown here because the quote function sent ${state.unreadable === 1 ? "it" : "them"} in a form Admin does not read. ${state.unreadable === 1 ? "It is" : "They are"} still stored. Ask whoever set up your quote form to check the function.`)]
+        : []),
       filterBar(),
       status,
       ...(confirming ? [confirmPanel()] : []),

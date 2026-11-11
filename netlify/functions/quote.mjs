@@ -20,7 +20,7 @@ import {
 import { createStore } from "../lib/quote-store.mjs";
 import { createNotifier, MAX_ATTEMPTS, notifySettings, resendTransport, retryFailed } from "../lib/quote-notify.mjs";
 import { timingSafeEqual } from "node:crypto";
-import { erasePreview, eraseConfirmed, exportCsv, listRequests, retentionDays, retentionSweep, setStatus } from "../lib/quote-admin.mjs";
+import { erasePreview, eraseConfirmed, exportCsv, listRequests, retentionSetting, retentionSweep, setRetention, setStatus } from "../lib/quote-admin.mjs";
 
 const HOUR = 60 * 60 * 1000;
 const SECURITY = {
@@ -35,7 +35,7 @@ const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({ "&": "
 
 const MESSAGES = {
   received: ["Request received", "Thank you. We have your request and will get back to you."],
-  invalid: ["Please check your details", "Some details need fixing. Go back, correct the highlighted fields and send again."],
+  invalid: ["Please check your details", "Some details need fixing. Each one is named below. Correct them and press Send again."],
   retry: ["One more step", "Please check your details and press Send once more. This stops automated posts."],
   limited: ["Please try again later", "Too many requests were sent just now. Please try again in a little while, or call us."],
   failed: ["We could not save your request", "Nothing was sent. Please try again in a little while, or call us."],
@@ -53,10 +53,32 @@ function page(status, key, extra = "") {
   };
 }
 
-// The first post of a form without JavaScript: its typed text, a fresh token, nothing else.
-function resendForm(settings, fields, now) {
-  const field = (name, label, big) => `<label for="q-${name}">${label}</label>${big ? `<textarea id="q-${name}" name="${name}" rows="5" required>${escapeHtml(fields[name] || "")}</textarea>` : `<input id="q-${name}" name="${name}" value="${escapeHtml(fields[name] || "")}"${name === "email" ? "" : " required"}>`}`;
-  return `<form method="post" action="${escapeHtml(new URL("/api/quote/submit", settings.origin).pathname)}" enctype="multipart/form-data">${field("name", "Your name")}${field("phone", "Phone")}${field("email", "Email (optional)")}${field("town", "Town")}${field("service", "Service")}${field("description", "What do you need?", true)}<label for="q-photos">Photos (attach again if you added any)</label><input id="q-photos" type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple><input type="hidden" name="token" value="${escapeHtml(issueToken(settings.secret, now()))}"><button type="submit">Send</button></form>`;
+// What to do about a field the function refused, in plain words, by field and fixed reason.
+const FIELD_LABELS = { name: "Your name", phone: "Phone", email: "Email", town: "Town", service: "Service", description: "What do you need?", photos: "Photos" };
+const PHOTO_ADVICE = "Send at most 5 photos, JPEG, PNG or WebP, each under 900 KB.";
+function fieldAdvice(field, reason) {
+  if (field === "photos") return PHOTO_ADVICE;
+  if (field === "phone") return "Write a phone number of at least 7 digits, using only numbers, spaces, +, brackets, dots or dashes.";
+  if (field === "email") return "This email address does not look right. Check it, or leave it empty.";
+  if (field === "description" && reason === "links") return "Include at most two links.";
+  if (field === "description" && reason === "required") return "Describe the job in at least a sentence (10 characters or more).";
+  if (reason === "too-long") return "This is too long. Shorten it.";
+  return "Fill this in.";
+}
+
+// The form again, for a visitor without JavaScript: its typed text and a fresh token. After a
+// refusal (`problems`), each wrong field is named in a list at the top, marked invalid and given
+// its own message, so nobody is left to guess what "the highlighted fields" are (ADR 0386).
+function resendForm(settings, fields, now, problems = []) {
+  const wrong = new Map();
+  for (const problem of problems) if (FIELD_LABELS[problem.field] && !wrong.has(problem.field)) wrong.set(problem.field, fieldAdvice(problem.field, problem.reason));
+  const marks = (name) => (wrong.has(name) ? ` aria-invalid="true" aria-describedby="q-${name}-error"` : "");
+  const advice = (name) => (wrong.has(name) ? `<p class="error" id="q-${name}-error"><strong>${escapeHtml(FIELD_LABELS[name])}:</strong> ${escapeHtml(wrong.get(name))}</p>` : "");
+  const field = (name, label, big) => `<label for="q-${name}">${label}</label>${advice(name)}${big ? `<textarea id="q-${name}" name="${name}" rows="5" required${marks(name)}>${escapeHtml(fields[name] || "")}</textarea>` : `<input id="q-${name}" name="${name}" value="${escapeHtml(fields[name] || "")}"${name === "phone" ? ' type="tel" minlength="7" maxlength="30" pattern="\\+?[0-9 \\(\\)\\.\\-]{7,30}"' : ""}${name === "email" ? ' type="email"' : " required"}${marks(name)}>`}`;
+  const summary = wrong.size
+    ? `<div role="alert"><h2>Fix ${wrong.size === 1 ? "this" : `these ${wrong.size}`}</h2><ul>${[...wrong.keys()].map((name) => `<li><a href="#q-${name}">${escapeHtml(FIELD_LABELS[name])}</a>: ${escapeHtml(wrong.get(name))}</li>`).join("")}</ul></div>`
+    : "";
+  return `${summary}<form method="post" action="${escapeHtml(new URL("/api/quote/submit", settings.origin).pathname)}" enctype="multipart/form-data">${field("name", "Your name")}${field("phone", "Phone")}${field("email", "Email (optional)")}${field("town", "Town")}${field("service", "Service")}${field("description", "What do you need?", true)}<label for="q-photos">Photos (attach again if you added any)</label>${advice("photos")}<input id="q-photos" type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple${marks("photos")}><input type="hidden" name="token" value="${escapeHtml(issueToken(settings.secret, now()))}"><button type="submit">Send</button></form>`;
 }
 
 const wantsJson = (headers) => /application\/json/i.test(String(headers.accept || headers.Accept || ""));
@@ -70,7 +92,8 @@ const sameKey = (given, wanted) => {
 
 // Routes under /api/quote/ for the owner. `segments` ends with one of:
 //   GET requests | POST requests/<id>/status | GET export | POST erase/preview | POST erase | POST retention/run
-async function manage({ settings, method, segments, query, body, store, now, days, notifyEnabled }) {
+//   | POST retention ({ days }: the owner's retention choice, ADR 0387)
+async function manage({ settings, env, method, segments, query, body, store, now, notifyEnabled }) {
   const at = segments.indexOf("quote") + 1;
   const parts = segments.slice(at);
   const input = () => {
@@ -81,7 +104,15 @@ async function manage({ settings, method, segments, query, body, store, now, day
       throw new QuoteError(400, "malformed");
     }
   };
-  if (method === "GET" && parts.length === 1 && parts[0] === "requests") return json(200, await listRequests({ store, settings, query, days, notifyEnabled }));
+  const retention = () => retentionSetting({ store, env });
+  if (method === "GET" && parts.length === 1 && parts[0] === "requests") {
+    const { days, source } = await retention();
+    return json(200, await listRequests({ store, settings, query, days, source, notifyEnabled }));
+  }
+  if (method === "POST" && parts.length === 1 && parts[0] === "retention") {
+    const days = input().days;
+    return json(200, await setRetention({ store, env, days: days === null || days === undefined ? null : days }));
+  }
   if (method === "POST" && parts.length === 3 && parts[0] === "requests" && parts[2] === "status") return json(200, await setStatus({ store, id: parts[1], status: input().status, now }));
   if (method === "GET" && parts.length === 1 && parts[0] === "export") return json(200, await exportCsv({ store, query }));
   if (method === "POST" && parts.length === 2 && parts[0] === "erase" && parts[1] === "preview") return json(200, await erasePreview({ store, settings, ids: input().ids, now }));
@@ -89,18 +120,18 @@ async function manage({ settings, method, segments, query, body, store, now, day
     const value = input();
     return json(200, await eraseConfirmed({ store, settings, ids: value.ids, token: value.token, now }));
   }
-  if (method === "POST" && parts.length === 2 && parts[0] === "retention" && parts[1] === "run") return json(200, await retentionSweep({ store, settings, days, now }));
+  if (method === "POST" && parts.length === 2 && parts[0] === "retention" && parts[1] === "run") return json(200, await retentionSweep({ store, settings, days: (await retention()).days, now }));
   return json(404, { error: "not-found" });
 }
 
-export function createHandler({ env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), uuid = randomUUID, transport = null, sleep } = {}) {
+export function createHandler({ env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), uuid = randomUUID, transport = null, sleep, notifyBudgetMs } = {}) {
   return async (event) => {
     const settings = quoteSettings(env);
     if (!settings.enabled) return json(404, { error: "not-enabled" });
     // Owner notification is off unless a provider is named and complete (ADR 0383).
     const mail = notifySettings(env);
     const send = mail.enabled ? transport || resendTransport({ apiKey: mail.apiKey, fetchImpl }) : null;
-    const notify = send ? createNotifier({ settings: mail, transport: send, ...(sleep ? { sleep } : {}) }) : null;
+    const notify = send ? createNotifier({ settings: mail, transport: send, ...(sleep ? { sleep } : {}), ...(notifyBudgetMs ? { budgetMs: notifyBudgetMs } : {}) }) : null;
     const method = String(event.httpMethod || "GET").toUpperCase();
     const headers = lower(event.headers);
     const route = String(event.path || "").split("/").filter(Boolean).pop();
@@ -109,6 +140,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
     if (origin && origin !== settings.origin) return asJson || method === "GET" ? json(403, { error: "refused" }) : page(403, "refused");
 
     let admin = false;
+    let form = null;
     try {
       if (method === "GET" && route === "token") return json(200, { token: issueToken(settings.secret, now()) });
       const segments = String(event.path || "").split("/").filter(Boolean);
@@ -117,7 +149,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         admin = true;
         const bearer = String(headers.authorization || "").replace(/^Bearer /i, "");
         if (!settings.adminKey || !sameKey(bearer, settings.adminKey)) return json(settings.adminKey ? 401 : 404, { error: settings.adminKey ? "unauthorized" : "not-found" });
-        return await manage({ settings, method, segments, query: event.queryStringParameters || {}, body: event.body, store: createStore({ settings, fetchImpl, now }), now, days: retentionDays(env), notifyEnabled: Boolean(send) });
+        return await manage({ settings, env, method, segments, query: event.queryStringParameters || {}, body: event.body, store: createStore({ settings, fetchImpl, now }), now, notifyEnabled: Boolean(send) });
       }
       if (segments.includes("notifications")) {
         // Admin-only and personal-data-free: states and counts, then a bounded retry. JSON replies only.
@@ -138,7 +170,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       }
       if (method !== "POST" || route !== "submit") return json(404, { error: "not-found" });
 
-      const form = readForm(headers, event.body, event.isBase64Encoded);
+      form = readForm(headers, event.body, event.isBase64Encoded);
       const reply = (status, key, body) => (asJson ? json(status, body) : page(status, key));
 
       // A honeypot is answered like a success, so a script learns nothing from it.
@@ -192,11 +224,14 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         await store.removePhotos(stored.map((photo) => photo.path));
         throw error;
       }
-      // The request is safe from here: a notification can fail without losing it (ADR 0383).
+      // The request is safe from here: a notification can fail without losing it (ADR 0383), and
+      // it is bounded so the visitor's answer never waits on a slow provider (ADR 0386).
       if (notify) await notify({ id, values, photoCount: stored.length, store });
       return reply(201, "received", { status: "received" });
     } catch (error) {
       if (error instanceof QuoteError) {
+        // Without JavaScript a refused field comes back as the form, with each wrong field named.
+        if (error.status === 422 && error.fields.length && form && !wantsJson(headers) && !admin) return page(422, "invalid", resendForm(settings, form.fields, now, error.fields));
         const key = error.status === 413 ? "too-large" : error.status === 422 ? "invalid" : error.status === 409 ? "retry" : error.status >= 500 ? "failed" : "refused";
         const body = { error: error.code, ...(error.fields.length ? { fields: error.fields } : {}) };
         return wantsJson(headers) || admin ? json(error.status, body) : page(error.status === 409 ? 409 : error.status, key);

@@ -47,8 +47,8 @@ immediately.
 The admin is organized like a writing studio. New accounts start in **Simple**, which keeps
 the main navigation focused on content and the essential **Write**, **Site preview**, and
 **Settings** views. Its main navigation shows Overview, Posts, Pages, Landing page, and Customize
-look, plus Series, Services, and Business facts once the site uses them, and Reminders once the
-business facts name a trade or reminders are on. The other pages are under
+look, plus Series, Services, and Business facts once the site uses them, Reviews once it has a job, a trade or a
+review, and Reminders once the business facts name a trade or reminders are on. The other pages are under
 **More pages** in **Advanced tools**, and research capture, knowledge checks and research formatting appear in the
 editor from **Guided** up, on a post that is research or publishes citations, or after you open
 the research workspace. Every other document view sits under **More tools** in the editor bar,
@@ -990,6 +990,14 @@ does not conflict with it, and it changes only the `business` key of `openblog.j
 place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
 to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
 
+### The ten-minute checklist
+
+On a site whose business facts name a trade, Admin's home opens with **Your site in ten minutes**: add a phone
+number or email, publish a service, publish a job, save a review, and share a job. Each step is worked out from your
+files every time by `GET /admin/api/trade-checklist`, which only reads, so it ticks only when your site has it and
+unticks if that goes away. Each open step links to where it is done. **Hide** stores `tradeChecklistDismissed` in
+your workspace preferences; nothing else is stored. See [A site for a trade business](trades.md#the-checklist-on-admins-home).
+
 ### Seasonal reminders
 
 Open **Reminders** (`#/reminders`) to turn on prompts that suggest what to write at the right time of year for
@@ -1010,6 +1018,13 @@ Open **Services** (`#/services`) to describe each thing you sell once, with what
 typical timeline and the questions customers ask. The screen edits the `services/` files through the same
 document routes as posts, pages and series, so sessions, CSRF, the 2 MiB bound, revision checks and the trash all
 apply as they do there. See [Services](services.md).
+
+### Reviews
+
+Open **Reviews** (`#/reviews`) to save a customer's real review with its link, typed in or copied once from the link
+through the Assistant's URL snapshot route (**Copy the page**). The screen edits the `proof/` files through the same
+document routes as services. A job shows its review once you choose it in the job's **Customer review** box. See
+[Reviews](reviews.md).
 
 ### A short phone walkthrough
 

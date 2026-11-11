@@ -20,6 +20,23 @@ export function retentionDays(env = {}) {
   return days >= 1 && days <= 3650 ? days : null;
 }
 
+// The retention days in force (ADR 0387): the host setting when it is valid (Admin then shows it and
+// cannot change it), else the owner's choice made in Admin, else off.
+export async function retentionSetting({ store, env = {} }) {
+  const host = retentionDays(env);
+  if (host) return { days: host, source: "host" };
+  const chosen = await store.readRetention();
+  return chosen ? { days: chosen, source: "admin" } : { days: null, source: null };
+}
+
+// The owner sets or clears the days from Admin. A host setting wins, so it is refused then.
+export async function setRetention({ store, env = {}, days }) {
+  if (retentionDays(env)) throw new QuoteError(409, "retention-set-by-host");
+  if (days !== null && !(Number.isInteger(days) && days >= 1 && days <= 3650)) throw new QuoteError(400, "bad-days");
+  await store.writeRetention(days);
+  return { retentionDays: days, retentionSource: days ? "admin" : null };
+}
+
 export const isId = (value) => typeof value === "string" && UUID.test(value);
 
 const iso = (value) => (value ? new Date(value).toISOString() : null);
@@ -30,7 +47,7 @@ export function eraseAfter(row, days) {
 }
 
 // `notifyEnabled` says whether the function can send (and so retry) the owner's email (ADR 0383).
-export async function listRequests({ store, settings, query = {}, days, notifyEnabled = false }) {
+export async function listRequests({ store, settings, query = {}, days, source = days ? "host" : null, notifyEnabled = false }) {
   const status = STATUSES.includes(query.status) ? query.status : "";
   const service = String(query.service || "").slice(0, 100);
   const rows = await store.list({ status, service });
@@ -51,7 +68,7 @@ export async function listRequests({ store, settings, query = {}, days, notifyEn
   }
   // The service filter offers every service seen under the status filter alone.
   const all = service ? await store.list({ status }) : rows;
-  return { retentionDays: days, notifyEnabled: Boolean(notifyEnabled), requests, services: [...new Set(all.map((row) => row.service))].sort() };
+  return { retentionDays: days, retentionSource: days ? source : null, notifyEnabled: Boolean(notifyEnabled), requests, services: [...new Set(all.map((row) => row.service))].sort() };
 }
 
 export async function setStatus({ store, id, status, now }) {
@@ -111,10 +128,31 @@ async function rowsFor(store, ids) {
   return rows;
 }
 
+// Where an erase holds a request's photos until its record is gone (ADR 0386): one flat, private
+// folder per site, each photo named after its request, so a photo left behind can be found and
+// removed by the next erase or sweep once its request no longer exists.
+const holdFolder = (settings) => `${settings.siteId}/erasing`;
+const heldPath = (settings, row, path) => `${holdFolder(settings)}/${row.id}-${path.split("/").pop()}`;
+
 const photoPaths = (settings, row) => {
-  const prefix = `${settings.siteId}/${row.id}/`;
-  return (Array.isArray(row.photos) ? row.photos : []).map((photo) => photo?.path).filter((path) => typeof path === "string" && path.startsWith(prefix) && !path.includes(".."));
+  const prefixes = [`${settings.siteId}/${row.id}/`, `${holdFolder(settings)}/${row.id}-`];
+  return (Array.isArray(row.photos) ? row.photos : []).map((photo) => photo?.path).filter((path) => typeof path === "string" && prefixes.some((prefix) => path.startsWith(prefix)) && !path.includes(".."));
 };
+
+// Removes held photos whose request no longer exists. Best effort: a failure leaves them for next time.
+async function purgeHeld({ store, settings }) {
+  try {
+    const folder = holdFolder(settings);
+    const held = await store.listObjects(folder);
+    const owner = (path) => path.slice(folder.length + 1, folder.length + 37);
+    const owners = [...new Set(held.map(owner).filter(isId))];
+    if (!owners.length) return;
+    const alive = new Set((await store.byIds(owners)).map((row) => row.id));
+    await store.removeObjects(held.filter((path) => isId(owner(path)) && !alive.has(owner(path))));
+  } catch {
+    // Left for the next erase or sweep.
+  }
+}
 
 // What an erase would remove, and a sealed token that allows exactly that list for ten minutes.
 export async function erasePreview({ store, settings, ids, now }) {
@@ -124,30 +162,89 @@ export async function erasePreview({ store, settings, ids, now }) {
   return { count: rows.length, photos: rows.reduce((n, row) => n + photoPaths(settings, row).length, 0), expiresAt: new Date(expires).toISOString(), token: `${expires}.${sealFor(settings.secret, list, expires)}` };
 }
 
-// Erases whole requests or none of their records. Photos go first and are checked gone; only then
-// does one atomic statement remove the rows, and a last read confirms none remain. Any failure
-// before the rows go leaves every row in place (with its photo list matching what still exists).
+// Erases whole requests or nothing (ADR 0386, replacing the photo order of ADR 0384). Each photo is
+// first moved, which can be undone, into the hold folder; a failed move puts back every photo already
+// moved, so the requests and all their photos stay as they were. Then one atomic statement removes
+// the rows (a failure there puts the photos back too), a read confirms none remain, and only then
+// are the held photos removed. A removal that fails at that point leaves photos no request points
+// to; they are reported, and the next erase or sweep removes them.
 async function eraseRows({ store, settings, rows }) {
+  await purgeHeld({ store, settings });
   const ids = rows.map((row) => row.id);
-  try {
-    await store.removeObjects(rows.flatMap((row) => photoPaths(settings, row)));
-    for (const row of rows) {
-      if ((await store.listObjects(`${settings.siteId}/${row.id}`)).length) throw new QuoteError(502, "erase-failed");
-    }
-  } catch {
-    for (const row of rows) {
+  const moves = rows.flatMap((row) => photoPaths(settings, row).map((from) => ({ row, from, to: from.startsWith(`${holdFolder(settings)}/`) ? from : heldPath(settings, row, from) })));
+  const held = [];
+  // A move that fails may still have happened (its reply was lost), or the photo may already be gone
+  // (an earlier erase moved it and could not put it back or record where it went). So before giving
+  // up, look where the photo really is.
+  const present = async (path) => (await store.listObjects(path.slice(0, path.lastIndexOf("/")))).includes(path);
+  const restore = async () => {
+    const stuck = [];
+    for (const move of [...held].reverse()) {
+      if (move.from === move.to) continue;
       try {
-        const present = await store.listObjects(`${settings.siteId}/${row.id}`);
-        await store.setPhotos(row.id, (Array.isArray(row.photos) ? row.photos : []).filter((photo) => present.includes(photo?.path)));
+        await store.moveObject(move.to, move.from);
       } catch {
-        // The failure is reported either way; the rows stay.
+        // Only a photo seen in the hold folder is recorded there. One that was put back but whose
+        // reply was lost is where its request says. If it cannot be told, the request keeps its own
+        // path: the next erase looks in both places (ADR 0388).
+        try {
+          if (await present(move.to)) stuck.push(move);
+        } catch {
+          // Left as the request says.
+        }
       }
     }
+    // A photo that could not be put back is still kept, where it is now, and its request points there.
+    for (const row of rows) {
+      const mine = stuck.filter((move) => move.row === row);
+      if (!mine.length) continue;
+      try {
+        await store.setPhotos(row.id, row.photos.map((photo) => ({ ...photo, path: mine.find((move) => move.from === photo?.path)?.to ?? photo.path })));
+      } catch {
+        // The failure is reported either way; the rows and photos stay.
+      }
+    }
+  };
+  // Only a photo still where its request says it is counts as a failed move.
+  try {
+    for (const move of moves) {
+      if (move.from !== move.to) {
+        try {
+          await store.moveObject(move.from, move.to);
+        } catch (error) {
+          if (await present(move.from)) throw error;
+          // Gone from its place: held already if it is in the hold folder, else there is nothing to keep.
+          if (!(await present(move.to))) continue;
+        }
+      }
+      held.push(move);
+    }
+  } catch {
+    await restore();
     throw new QuoteError(502, "erase-failed");
   }
-  if ((await store.deleteRows(ids)) !== ids.length) throw new QuoteError(502, "erase-failed");
+  let deleted;
+  try {
+    deleted = await store.deleteRows(ids);
+  } catch (error) {
+    await restore();
+    throw error;
+  }
+  if (deleted !== ids.length) {
+    await restore();
+    throw new QuoteError(502, "erase-failed");
+  }
   if ((await store.byIds(ids)).length !== 0) throw new QuoteError(502, "erase-unverified");
-  return { erased: ids.length, verified: true };
+  const left = held.map((move) => move.to);
+  for (let turn = 0; turn < 2 && left.length; turn += 1) {
+    try {
+      await store.removeObjects(left);
+      return { erased: ids.length, verified: true };
+    } catch {
+      // Tried once more, then reported.
+    }
+  }
+  return left.length ? { erased: ids.length, verified: true, photosPending: left.length } : { erased: ids.length, verified: true };
 }
 
 export async function eraseConfirmed({ store, settings, ids, token, now }) {
@@ -165,10 +262,14 @@ export async function retentionSweep({ store, settings, days, now }) {
   if (!days) return { enabled: false, erased: 0 };
   const before = new Date(now() - days * DAY).toISOString();
   let erased = 0;
+  let photosPending = 0;
   for (let round = 0; round < 20; round += 1) {
     const rows = await store.archivedBefore(before, MAX_ERASE);
     if (!rows.length) break;
-    erased += (await eraseRows({ store, settings, rows })).erased;
+    const result = await eraseRows({ store, settings, rows });
+    erased += result.erased;
+    photosPending += result.photosPending ?? 0;
   }
-  return { enabled: true, erased };
+  if (!erased) await purgeHeld({ store, settings });
+  return photosPending ? { enabled: true, erased, photosPending } : { enabled: true, erased };
 }

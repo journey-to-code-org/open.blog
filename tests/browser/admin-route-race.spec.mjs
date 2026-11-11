@@ -34,6 +34,7 @@ const SLOW_ROUTES = [
   "#/capture",
   "#/landing",
   "#/announcements",
+  `#/share/${POST_PATH}`,
   "#/paths",
   "#/paths/new",
   "#/comparisons",
@@ -44,6 +45,7 @@ const SLOW_ROUTES = [
   "#/reminders",
   "#/quotes",
   "#/services",
+  "#/reviews",
   "#/research/overview",
   "#/research/sources",
   "#/research/notebook",
@@ -869,7 +871,7 @@ test("a rebuild that finishes after she moved on does not bring the list back", 
 
 // Views that draw at once and then load into what they drew. Capture belongs here too, but it only
 // waits on the server with a queued record to send, so holding answers does not hold it.
-for (const slow of ["#/announcements", "#/business", "#/reminders", "#/services", "#/voice", "#/research/public"]) {
+for (const slow of ["#/announcements", "#/business", "#/reminders", "#/services", "#/reviews", "#/voice", "#/research/public"]) {
   test(`${slow} is the open page from when it draws, not when it finishes loading`, async ({ page }) => {
     await signIn(page);
     await expect(socialHeading(page)).toBeVisible();

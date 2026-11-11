@@ -74,7 +74,8 @@ default, so you can edit values in place and delete the ones you do not need.
   ```json
   "appearance": {
     "version": 1,
-    "palette": "calm",          // calm, warm, bold, night, garden, paper, ocean, sunset
+    "palette": "calm",          // calm, warm, bold, night, garden, paper, ocean, sunset,
+                                // and for trades: workshop, high-vis, blueprint
     "accent": "#2f6690",        // #rgb or #rrggbb; made readable in light and dark if needed
     "fontStyle": "classic-serif", // modern-sans, classic-serif, friendly-rounded, techie-mono
     "textSize": "large",        // small, medium, large, extra-large
@@ -84,6 +85,10 @@ default, so you can edit values in place and delete the ones you do not need.
     "headingWeight": "bold"     // normal, bold
   }
   ```
+
+  The three looks for trades (`workshop`, `high-vis` and `blueprint`) meet the stricter AAA contrast bar, and
+  choosing one in Admin also sets `textSize` to `large` and `headingWeight` to `bold` unless you chose your own
+  ([ADR 0400](adr/0400-three-looks-for-trades-meet-aaa-contrast-and-choose-large-text-and-bold-headings.md)).
 
   Leave out any field to keep the theme's own value. The engine compiles these into a short block of
   `--ob-*` tokens after the theme's, only for the controls the theme honors (see
@@ -189,6 +194,12 @@ Off and not written back unless stated. See [Seasonal reminders](seasonal-remind
 line under the form. Off and absent by default; with it off a `quote` fence stays a code block and the Landing
 page `quote-form` section renders nothing. The requests go to a hosted Netlify function, so it does not work on a
 site run on Render yet. See [Quote requests](quote-requests.md).
+
+### Reviews
+
+`reviews.aggregateMinimum` is how many saved reviews with stars it takes before the Reviews page states an average
+(`AggregateRating`): `{ "reviews": { "aggregateMinimum": 3 } }`. A whole number from 1 to 1000; the default is 3, and
+the member is not written while it has the default. See [Reviews](reviews.md).
 
 ## Share, analytics, related posts, snippets, CDN
 
@@ -394,7 +405,8 @@ keeps drafts out of public history unless set, `auto` publishes after every save
 WordPress, or manual Medium settings. `stateFile` points to private remote-ID state and
 defaults to `.openblog/syndication.json`. `requireApproval` (off by default) makes
 `openblog syndicate --write` send only a copy you previewed and approved with `--approve`;
-approvals are private, in `approvalFile` (default `.openblog/distribution-approvals.json`). See
+approvals are private, in `approvalFile` (default `.openblog/distribution-approvals.json`). Both
+files are refused inside the static, themes, web or output folder, which a build publishes. See
 [Preview and approve before sending](cross-posting.md#preview-and-approve-before-sending).
 Credentials are environment-only and never belong
 in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup and the
@@ -407,7 +419,7 @@ credential names, and safety behavior.
 `hackerNews.enabled` and `reddit.enabled` turn each destination on, and `reddit.communities.<name>` holds the rules you
 copied from each community (`rules`, 1 to 30 lines), the day you last read them (`reviewed`, `YYYY-MM-DD`) and an
 optional `flair` reminder. `stateFile` (default `.openblog/community-submissions.json`) keeps the submissions you
-confirmed. `productHunt.enabled` turns on Product Hunt launch kits, read from `productHunt.launchDir` (default
+confirmed; it is refused inside the static, themes, web or output folder, which a build publishes. `productHunt.enabled` turns on Product Hunt launch kits, read from `productHunt.launchDir` (default
 `launches`, one `<slug>.json` per post). There are no credentials. Only `openblog submit` reads or checks this
 object. See [Community submissions](community-submissions.md).
 

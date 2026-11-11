@@ -4,8 +4,9 @@
 //
 // What is decided here and why:
 //   - the status is the caption, then a blank line and the canonical link, unless the caption
-//     already holds that exact link: Mastodon has no separate link field and makes its own preview
-//     card from the first link in the text;
+//     already holds that link, read as Mastodon reads it (a closing bracket or full stop after it is
+//     not part of it, ADR 0386): Mastodon has no separate link field and makes its own preview card
+//     from the first link in the text;
 //   - its length is counted as Mastodon counts it, every URL as the instance's
 //     `characters_reserved_per_url` (23 by default), mentions at their full length (Mastodon counts
 //     only the username, so this is never short);
@@ -25,19 +26,43 @@ export const COVER_TYPES = Object.freeze(["image/jpeg", "image/png", "image/webp
 const URL_IN_TEXT = /\bhttps?:\/\/[^\s<>"'`]+/gu;
 const encoder = new TextEncoder();
 
+// Punctuation after a link ends the sentence, not the link. A closing bracket stays when the link
+// opened one itself, as in https://en.wikipedia.org/wiki/Bread_(food).
+const TRAILING = /[.,;:!?)\]}]$/u;
+const PAIRS = { ")": "(", "]": "[", "}": "{" };
+const occurrences = (text, char) => text.split(char).length - 1;
+function trimLink(link) {
+  let out = link;
+  while (TRAILING.test(out)) {
+    const last = out.at(-1);
+    if (PAIRS[last] && occurrences(out, PAIRS[last]) >= occurrences(out, last)) break;
+    out = out.slice(0, -1);
+  }
+  return out;
+}
+
+// Every link in `text` as Mastodon reads it, without the punctuation around it: { index, link }.
+export function linksIn(text) {
+  return [...String(text ?? "").matchAll(URL_IN_TEXT)].map((match) => ({ index: match.index, link: trimLink(match[0]) }));
+}
+
+// Whether the caption already holds `url` as a link of its own (ADR 0386).
+export function holdsLink(caption, url) {
+  return linksIn(caption).some((found) => found.link === url);
+}
+
 // The status text of an announcement.
 export function statusText(caption, url) {
-  const words = caption.split(/\s+/);
-  return words.includes(url) ? caption : `${caption}\n\n${url}`;
+  return holdsLink(caption, url) ? caption : `${caption}\n\n${url}`;
 }
 
 // The length Mastodon counts for `text`, with every URL counted as `perUrl` characters.
 export function statusLength(text, perUrl = DEFAULT_LIMITS.charactersPerUrl) {
   let length = 0;
   let last = 0;
-  for (const match of text.matchAll(URL_IN_TEXT)) {
-    length += Array.from(text.slice(last, match.index)).length + perUrl;
-    last = match.index + match[0].length;
+  for (const { index, link } of linksIn(text)) {
+    length += Array.from(text.slice(last, index)).length + perUrl;
+    last = index + link.length;
   }
   return length + Array.from(text.slice(last)).length;
 }
