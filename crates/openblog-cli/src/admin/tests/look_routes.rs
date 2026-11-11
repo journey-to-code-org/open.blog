@@ -72,7 +72,11 @@ fn reading_the_look_describes_what_the_theme_honors() {
     assert!(look["etag"].as_str().is_some_and(|e| e.len() == 16));
     assert_eq!(look["honored"].as_array().unwrap().len(), 8);
     assert!(look["note"].is_null());
-    assert_eq!(look["looks"].as_array().unwrap().len(), 8);
+    assert_eq!(
+        look["looks"].as_array().unwrap().len(),
+        openblog_core::look_presets::LOOKS.len()
+    );
+    assert_eq!(look["looks"][8]["forTrades"], true);
     assert!(look["choices"]["textSize"]
         .as_array()
         .unwrap()
