@@ -46,18 +46,15 @@ jobs:
         run: npm ci
       - name: Install Chromium
         working-directory: tests/browser
-        # The system packages come from Ubuntu's archive, which runners sometimes cannot reach. Try
-        # three times, then install Chromium alone: the runner image already has the libraries it
-        # needs, and only extra fonts come from the archive. If a library were really missing, the
-        # browser tests below would fail on it.
+        # The system packages come from Ubuntu's archive, which runners sometimes cannot reach, and apt
+        # then waits out long timeouts. Give it five minutes, then install Chromium alone: the runner
+        # image already has the libraries it needs, and only extra fonts come from the archive. If a
+        # library were really missing, the browser tests below would fail on it.
         run: |
-          for attempt in 1 2 3; do
-            if npx playwright install --with-deps chromium; then exit 0; fi
-            echo "::warning::Installing Chromium's system packages failed (attempt $attempt of 3)."
-            sleep $((attempt * 20))
-          done
-          echo "::warning::Ubuntu's archive could not be reached; installing Chromium without system packages."
-          npx playwright install chromium
+          if ! timeout 300 npx playwright install --with-deps chromium; then
+            echo "::warning::Ubuntu's archive could not be reached in time; installing Chromium without system packages."
+            npx playwright install chromium
+          fi
       - name: Test browser publication and independent feed readers
         working-directory: tests/browser
         run: npm test
