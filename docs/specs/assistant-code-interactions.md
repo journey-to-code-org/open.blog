@@ -1,6 +1,6 @@
 # Assistant runnable examples and coding challenges
 
-Status: approved from the 2026-10-24 product conversation
+Status: implemented (approved from the 2026-10-24 product conversation); runnable examples and coding challenges are proposed through `crates/openblog-cli/src/assistant.rs`
 
 ## Problem
 
