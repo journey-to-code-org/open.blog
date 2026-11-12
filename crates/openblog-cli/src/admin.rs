@@ -95,6 +95,7 @@ mod look;
 mod quote;
 mod reading_paths;
 mod seasonal;
+mod seasons;
 mod social;
 mod trade_checklist;
 mod voice;
@@ -520,6 +521,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
         }
+        if name == "seasons" {
+            return Ok(seasons::MAX_REQUEST_BYTES);
+        }
         if name == "business" {
             return Ok(business::MAX_REQUEST_BYTES);
         }
@@ -589,6 +593,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
         "/admin/business.js" => "business.js",
+        "/admin/seasons.js" => "seasons.js",
         "/admin/seasonal.js" => "seasonal.js",
         "/admin/trade-checklist.js" => "trade-checklist.js",
         "/admin/distribution.js" => "distribution.js",
@@ -756,6 +761,8 @@ fn authenticated_api(
         ("GET", "meta") => meta(state),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
+        ("GET", "seasons") => seasons::get_seasons(state),
+        ("PUT", "seasons") => seasons::save_seasons(state, req),
         ("GET", "business") => business::get_business(state),
         ("PUT", "business") => business::save_business(state, req),
         ("GET", "seasonal") => seasonal::get_seasonal(state),

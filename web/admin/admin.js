@@ -16,6 +16,7 @@ import { createDistributionReport } from "./distribution.js";
 import { createAnnouncementsPanel } from "./announcements.js";
 import { createJobShare } from "./job-share.js";
 import { createBusinessFacts } from "./business.js";
+import { createSeasons } from "./seasons.js";
 import { createSeasonalReminders } from "./seasonal.js";
 import { createServices } from "./services.js";
 import { createReviews } from "./proof.js";
@@ -11760,6 +11761,7 @@ export class ObAdmin extends AdminElement {
       h("a", { class: "oba-tab", ...simpleOnly("comparisons"), "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
       h("a", { class: "oba-tab", ...simpleOnly("appearance"), "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
+      h("a", { class: "oba-tab", "aria-current": active === "seasons" ? "page" : null, href: "#/seasons" }, "Seasons"),
       ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
       h("a", { class: "oba-tab", ...simpleOnly("business"), "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
       h("a", { class: "oba-tab", ...simpleOnly("reminders"), "aria-current": active === "reminders" ? "page" : null, href: "#/reminders" }, "Reminders"),
@@ -11779,6 +11781,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
       : active === "reviews"
         ? { title: "Reviews", detail: "Save a customer's real review with its link, and show it on your Reviews page and beside the job it is about." }
+      : active === "seasons"
+        ? { title: "Seasons", detail: "Choose the theme your site wears, and let the calendar put up each holiday's decorations and take them down." }
       : active === "look"
         ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
@@ -12085,6 +12089,7 @@ export class ObAdmin extends AdminElement {
       { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
       { label: "Reviews", category: "Content", keywords: "review reviews proof testimonial stars rating google facebook customer", run: () => go("#/reviews") },
       { label: "New review", category: "Create", keywords: "review proof testimonial stars google facebook", run: () => go("#/reviews/new") },
+    { label: "Seasons", category: "Site", keywords: "season seasonal holiday holidays christmas thanksgiving decorations decorate theme calendar automatic", run: () => go("#/seasons") },
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New recipe", category: "Create", keywords: "cook food ingredients dish", run: () => go("#/new/recipe") },
@@ -12329,6 +12334,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "appearance") await this.showAppearance();
       else if (head === "look") await this.showLook();
       else if (head === "business") await this.showBusiness();
+      else if (head === "seasons") await this.showSeasons();
       else if (head === "reminders") await this.showReminders();
       else if (head === "distribution") await this.showDistribution();
       else if (head === "services") await this.showServices(tail);
@@ -14456,6 +14462,18 @@ export class ObAdmin extends AdminElement {
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();
     this.viewBusy = () => busy || publishing;
+  }
+
+  // ---- seasons (ADR 0407)
+
+  /** `#/seasons`: the site theme, and the calendar that changes it. */
+  async showSeasons() {
+    const view = createSeasons({ api: this.api });
+    this.mount(this.shell("seasons", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
   }
 
   // ---- business facts (ADR 0307)

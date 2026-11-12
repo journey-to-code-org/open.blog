@@ -166,6 +166,35 @@ post can override with `theme:` in its own front matter. Pages work the same way
 home page, each series card carries `data-ob-theme="<its theme>"`, so a theme's own
 stylesheet can style the cards that lead to it.
 
+## Seasons
+
+A site can wear a different theme for part of each year, as a house is decorated for a holiday and
+then put back. Make a theme for each season (usually extending the site's everyday theme and changing
+only tokens), then list when each goes up:
+
+```json
+"theme": "house",
+"seasons": { "version": 1, "enabled": true, "windows": [
+  { "theme": "thanksgiving", "start": "10-15", "end": "11-30" },
+  { "theme": "christmas", "start": "12-01", "end": "01-06" } ] }
+```
+
+On October 15 every page that would use the site theme uses `thanksgiving` instead; on January 7 the
+site is back to `house`. A series with its own theme keeps it, so a holiday's posts stay dressed for
+their holiday all year. Nothing else changes: the same pages, feeds and addresses are written.
+
+When it changes:
+
+- `openblog build` reads today's date, so a static host changes on the first build of the day. The
+  GitHub Pages workflow `openblog init --github-pages` writes builds every hour.
+- `openblog serve` rebuilds by itself at midnight UTC when the season changes, as it does when a
+  scheduled post falls due.
+- Loads without a clock (tests, `export`) use `theme` as written.
+
+Admin's **Seasons** screen (`#/seasons`) chooses the site theme, turns the calendar on or off and edits
+the windows with months by name. It is the only Admin screen that changes `theme`
+([ADR 0407](adr/0407-seasons-change-the-site-theme-by-the-calendar-and-the-stored-theme-is-the-look-between-them.md)).
+
 ## Reproducing the look of a site you already have
 
 A theme is the place to carry an existing design over. Copy the colours from the site's

@@ -159,6 +159,10 @@ pub struct SiteConfig {
     /// until stated, so a site that never sets it builds exactly as before.
     #[serde(skip_serializing_if = "SeasonalConfig::is_default")]
     pub seasonal_prompts: SeasonalConfig,
+    /// Seasons (ADR 0407): the theme the site wears for stretches of the year. Off and omitted from
+    /// the written file until stated, so a site that never sets it builds exactly as before.
+    #[serde(skip_serializing_if = "crate::seasons::SeasonsConfig::is_default")]
+    pub seasons: crate::seasons::SeasonsConfig,
     /// Outbound Webmentions from canonical posts (ADR 0361). Off by default and omitted from the
     /// written file while it has its defaults, so a site that never sets it is unchanged.
     #[serde(skip_serializing_if = "WebmentionConfig::is_default")]
@@ -617,6 +621,7 @@ impl Default for SiteConfig {
             business: BusinessConfig::default(),
             service_areas: ServiceAreasConfig::default(),
             seasonal_prompts: SeasonalConfig::default(),
+            seasons: crate::seasons::SeasonsConfig::default(),
             webmention: WebmentionConfig::default(),
             quote: crate::quote::QuoteConfig::default(),
             reviews: crate::proof::ReviewsConfig::default(),
@@ -1477,6 +1482,20 @@ mod tests {
         assert!(bad_hours.contains("24-hour time like 08:00"), "{bad_hours}");
         let bad_trade = SiteConfig::from_json(r#"{"business":{"trade":"wizardry"}}"#).unwrap_err();
         assert!(bad_trade.contains("business.trade"), "{bad_trade}");
+    }
+
+    #[test]
+    fn seasons_are_off_by_default_and_validated_with_the_config() {
+        let plain = SiteConfig::from_json("{}").unwrap();
+        assert!(plain.seasons.is_default());
+        assert!(!plain.to_json().contains("seasons"));
+        let set = SiteConfig::from_json(
+            r#"{"seasons":{"enabled":true,"windows":[{"theme":"christmas","start":"12-01","end":"01-06"}]}}"#,
+        )
+        .unwrap();
+        assert!(set.seasons.enabled);
+        assert!(set.to_json().contains("\"seasons\""));
+        assert!(SiteConfig::from_json(r#"{"seasons":{"windows":[{"theme":"x"}]}}"#).is_err());
     }
 
     #[test]

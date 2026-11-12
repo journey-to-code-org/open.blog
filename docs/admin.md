@@ -1006,6 +1006,20 @@ files every time by `GET /admin/api/trade-checklist`, which only reads, so it ti
 unticks if that goes away. Each open step links to where it is done. **Hide** stores `tradeChecklistDismissed` in
 your workspace preferences; nothing else is stored. See [A site for a trade business](trades.md#the-checklist-on-admins-home).
 
+### Seasons
+
+Open **Seasons** (`#/seasons`) to choose the theme your whole site wears, and, if you like, let the calendar change
+it. The top of the screen says what visitors see today and when that changes ("Today your site is decorated for
+Thanksgiving. On December 1 it changes to Christmas."). Turn on **Change the decorations with the calendar** and
+add a season for each holiday: what goes up, the month and day it starts and the month and day it ends. A season
+can run past New Year, and **Move up** and **Move down** decide which wins where two overlap. **Between seasons,
+your site wears** is your everyday look. With the calendar off, the screen is simply where you choose your site's
+theme.
+
+The screen reads and saves `GET`/`PUT /admin/api/seasons` (session and CSRF as for every write, bounded to 8 KiB).
+A save is checked against the revision you loaded, refused when it names a theme that does not exist, and changes
+only the `theme` and `seasons` members of `openblog.json`, edited as text. See [Seasons](themes.md#seasons).
+
 ### Seasonal reminders
 
 Open **Reminders** (`#/reminders`) to turn on prompts that suggest what to write at the right time of year for

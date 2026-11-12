@@ -324,6 +324,7 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         "business.js",
         include_str!("../../../web/admin/business.js"),
     ),
+    ("seasons.js", include_str!("../../../web/admin/seasons.js")),
     (
         "seasonal.js",
         include_str!("../../../web/admin/seasonal.js"),
@@ -890,12 +891,47 @@ pub fn load_site_from_sources_listing(
     sources: Sources,
     options: LoadOptions,
 ) -> Result<(Site, ThemeSet), Vec<String>> {
-    let config = with_asset_version(root, config);
+    let mut config = with_asset_version(root, config);
+    if let Some(now) = options.now {
+        wear_the_season(&mut config, now);
+    }
     let counts = view_counts(root, &config);
     let themes = load_themes(root, &config).map_err(|error| vec![error])?;
+    check_season_themes(&config, &themes)?;
     let mut site = Site::load(config, sources, options)?;
     site.view_counts = counts;
     Ok((site, themes))
+}
+
+/// Put up the season's theme (ADR 0407): while `seasons` is on and a window holds `now`'s day, that
+/// window's theme replaces the site theme for this load. The stored `theme` is untouched on disk and
+/// is the look between seasons. Loads without a clock (`now: None`) stay deterministic and unchanged.
+pub fn wear_the_season(config: &mut SiteConfig, now: DateTime) {
+    let day = openblog_core::seasons::month_day(now);
+    if let Some(theme) = config.seasons.theme_on(day) {
+        config.theme = theme.to_string();
+    }
+}
+
+/// Every theme a season names must exist, whether or not its window is open today, so a mistake
+/// is found in November rather than on December 1.
+pub fn check_season_themes(config: &SiteConfig, themes: &ThemeSet) -> Result<(), Vec<String>> {
+    let problems: Vec<String> = config
+        .seasons
+        .themes()
+        .into_iter()
+        .filter(|name| themes.resolve(name).is_err())
+        .map(|name| {
+            format!(
+                "openblog.json: seasons names the theme `{name}`, but there is no themes/{name}/theme.json; add the theme or change the season"
+            )
+        })
+        .collect();
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems)
+    }
 }
 
 /// An admin UI file: from `web/admin/` if present, else the embedded copy.
@@ -1326,7 +1362,17 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         pages: site.pages.len(),
         files: count,
         scheduled: site.scheduled.len(),
-        next_due: site.next_scheduled(),
+        // The next moment the built site goes stale: a scheduled post falls due, or the
+        // decorations change (ADR 0407). A server rebuilds then.
+        next_due: [
+            site.next_scheduled(),
+            options
+                .now
+                .and_then(|now| site.config.seasons.next_change(now)),
+        ]
+        .into_iter()
+        .flatten()
+        .min(),
         out_dir,
         warnings,
         accessibility: site.accessibility.clone(),

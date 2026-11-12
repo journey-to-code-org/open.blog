@@ -714,5 +714,26 @@ source, and links to files outside the folder point there. See [Documentation si
 
 ## Themes
 
-Themes are not configured here beyond `theme`; each theme has its own `theme.json`. See
+Themes are not configured here beyond `theme` and `seasons`; each theme has its own `theme.json`. See
 [Themes](themes.md).
+
+### Seasons
+
+`seasons` changes the site theme with the calendar, for a site that decorates for holidays:
+
+```json
+"seasons": {
+  "version": 1,
+  "enabled": true,
+  "windows": [
+    { "theme": "thanksgiving", "start": "10-15", "end": "11-30" },
+    { "theme": "christmas", "start": "12-01", "end": "01-06" }
+  ]
+}
+```
+
+While `enabled`, a build on a day inside a window wears that window's theme, and `theme` is the look
+between seasons. Days are `MM-DD` in UTC, a window may cross the new year, and where two overlap the
+first one listed wins. Every theme a window names must exist, or the build stops and says which. A
+series, page or post with its own `theme` keeps it whatever the season. Off and not written back unless
+stated. Admin's **Seasons** screen edits it. See [Seasons](themes.md#seasons).

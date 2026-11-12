@@ -157,6 +157,7 @@ pub mod scholarly_comparison;
 pub mod scholarly_feedback;
 pub mod search;
 pub mod seasonal;
+pub mod seasons;
 pub mod service;
 pub mod service_area;
 pub mod shared_series;
