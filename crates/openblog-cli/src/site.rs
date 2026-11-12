@@ -1060,7 +1060,14 @@ pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
         if rel.starts_with("admin/") {
             continue;
         }
-        if rel == "components/ob-episode.js" {
+        let bundled_episode =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/components/ob-episode.js");
+        if rel == "components/ob-episode.js"
+            && fs::canonicalize(&file)
+                .ok()
+                .zip(fs::canonicalize(&bundled_episode).ok())
+                .is_some_and(|(file, bundled)| file == bundled)
+        {
             continue;
         }
         let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");
@@ -1073,16 +1080,16 @@ pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
 }
 
 pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
+    let on_disk = root.join(&config.paths.web).join(rel);
+    if let Ok(bytes) = fs::read(&on_disk) {
+        return Some(bytes);
+    }
     if rel == "components/ob-episode.js" {
         return Some(
             include_str!("../../../web/components/ob-episode.js")
                 .as_bytes()
                 .to_vec(),
         );
-    }
-    let on_disk = root.join(&config.paths.web).join(rel);
-    if let Ok(bytes) = fs::read(&on_disk) {
-        return Some(bytes);
     }
     if let Some((_, c)) = EMBEDDED_WEB.iter().find(|(p, _)| *p == rel) {
         return Some(c.as_bytes().to_vec());
@@ -1464,7 +1471,13 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // 4. Generated pages, feeds, and tokens.
     let count = files.len();
     for f in files {
-        put(f.path, f.contents.as_bytes())?;
+        if f.path == "assets/components/ob-episode.js" {
+            let bytes = web_file(root, config, "components/ob-episode.js")
+                .ok_or("episode component is unavailable")?;
+            put(f.path, &bytes)?;
+        } else {
+            put(f.path, f.contents.as_bytes())?;
+        }
     }
 
     fsutil::remove_stale(&out_dir, &written);

@@ -175,3 +175,23 @@ fn configured_podcast_writes_feed_and_chapters_without_affecting_unconfigured_si
     assert_eq!(chapters["version"], "1.2.0");
     assert_eq!(chapters["chapters"][0]["startTime"], 5);
 }
+
+#[test]
+fn custom_episode_component_is_preserved_with_and_without_audio() {
+    let project = Project::new();
+    fs::create_dir_all(project.0.join("web/components")).unwrap();
+    fs::write(
+        project.0.join("web/components/ob-episode.js"),
+        "// author override\n",
+    )
+    .unwrap();
+    let first = project.run("build");
+    assert!(first.status.success(), "{}", stderr(&first));
+    let output = project.0.join("dist/assets/components/ob-episode.js");
+    assert_eq!(fs::read_to_string(&output).unwrap(), "// author override\n");
+    audio(&project.0, b"ID3abcdefghi");
+    project.post(false, "## Transcript\n\nHello.");
+    let second = project.run("build");
+    assert!(second.status.success(), "{}", stderr(&second));
+    assert_eq!(fs::read_to_string(output).unwrap(), "// author override\n");
+}
