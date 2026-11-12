@@ -33,6 +33,8 @@ pub struct Rendered {
     pub capabilities: Vec<CapabilityDescriptor>,
     /// Content errors discovered by Markdown extensions such as quiz blocks.
     pub errors: Vec<String>,
+    /// Generated diagram files, empty when experimental diagram rendering is disabled.
+    pub diagrams: Vec<crate::diagram::Asset>,
     pub headings: Vec<Heading>,
     /// Body text with markup removed; code blocks are excluded.
     pub text: String,
@@ -2217,8 +2219,10 @@ pub fn render_diagrams(
     let mut work = DiagramWork {
         fences: crate::diagram::discover(markdown),
         findings: Vec::new(),
+        assets: Vec::new(),
     };
-    let rendered = render_with_diagram_work(markdown, options, Some(&mut work));
+    let mut rendered = render_with_diagram_work(markdown, options, Some(&mut work));
+    rendered.diagrams = work.assets;
     (rendered, work.findings)
 }
 
@@ -2227,6 +2231,8 @@ struct DiagramWork {
     fences: Vec<Result<crate::diagram::Diagram, crate::diagram::Finding>>,
     #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
     findings: Vec<crate::diagram::Finding>,
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    assets: Vec<crate::diagram::Asset>,
 }
 
 fn render_with_diagram_work(
@@ -3238,6 +3244,7 @@ fn render_events<'a>(
         portable_video_ids,
         capabilities,
         errors: blocks.errors,
+        diagrams: Vec::new(),
         headings,
         text,
         prose,
@@ -3306,6 +3313,14 @@ fn render_diagram_events<'a>(events: Vec<Event<'a>>, work: &mut DiagramWork) -> 
                     continue;
                 }
                 ids.extend(diagram_ids);
+                use blake2::{Blake2s256, Digest};
+                let digest = Blake2s256::digest(svg.as_bytes());
+                let hash: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+                work.assets.push(crate::diagram::Asset {
+                    diagram: diagram.clone(),
+                    path: format!("assets/diagrams/{hash}.svg"),
+                    svg: svg.clone(),
+                });
                 let caption = diagram.options.caption.as_ref().map_or_else(String::new, |caption| {
                     format!("<figcaption>{}</figcaption>", escape::text(caption))
                 });

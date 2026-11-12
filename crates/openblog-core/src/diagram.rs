@@ -26,6 +26,14 @@ pub struct Diagram {
     pub description: String,
 }
 
+/// A derived static image associated with its validated source and text alternative.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asset {
+    pub diagram: Diagram,
+    pub path: String,
+    pub svg: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
     pub line: usize,

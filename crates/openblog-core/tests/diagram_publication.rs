@@ -1,5 +1,7 @@
 #![cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
 
+use blake2::{Blake2s256, Digest};
+use openblog_core::{feeds, portability::PortableProjection};
 use openblog_core::{
     generate, DateTime, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeSet,
 };
@@ -193,4 +195,71 @@ fn docs_publication_and_draft_preview_use_the_same_gate() {
         .iter()
         .any(|warning| warning.contains("accTitle")));
     assert!(site.pages[0].html.contains("flowchart LR"));
+}
+
+#[test]
+fn feeds_and_portable_copies_use_real_digest_named_images_with_alternatives() {
+    let nested = format!(
+        "{VALID}\n> ```mermaid title=\"Nested\" description=\"C calls D\"\n> flowchart LR\n> C --> D\n> ```\n"
+    );
+    let mut site = load(
+        Sources {
+            posts: vec![post(&nested, "")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    site.config.feeds.full_content = true;
+    let files = generate(&site, &ThemeSet::new()).unwrap();
+    let images: Vec<_> = files
+        .iter()
+        .filter(|file| file.path.starts_with("assets/diagrams/") && file.path.ends_with(".svg"))
+        .collect();
+    assert_eq!(images.len(), 2);
+    for image in &images {
+        let filename = image
+            .path
+            .trim_start_matches("assets/diagrams/")
+            .trim_end_matches(".svg");
+        assert_eq!(filename.len(), 64);
+        assert!(filename.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        let actual: String = Blake2s256::digest(image.contents.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        assert_eq!(filename, actual);
+        assert!(roxmltree::Document::parse(&image.contents).is_ok());
+    }
+    let repeated = generate(&site, &ThemeSet::new()).unwrap();
+    for image in &images {
+        assert_eq!(
+            repeated
+                .iter()
+                .find(|other| other.path == image.path)
+                .unwrap()
+                .contents,
+            image.contents
+        );
+    }
+
+    let projection = PortableProjection::for_site(&site, &site.posts[0]).unwrap();
+    let portable = projection.portable_html().unwrap();
+    let markdown = projection.portable_markdown().unwrap();
+    let rss = feeds::rss(&site).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&feeds::json_feed(&site).unwrap()).unwrap();
+    let json_html = json["items"][0]["content_html"].as_str().unwrap();
+    for image in &images {
+        let url = format!("https://example.test/{}", image.path);
+        assert!(portable.html.contains(&url), "{}", portable.html);
+        assert!(markdown.contains(&url), "{markdown}");
+        assert!(rss.contains(&url), "{rss}");
+        assert!(json_html.contains(&url), "{json_html}");
+    }
+    for html in [&portable.html, &rss, json_html] {
+        assert!(html.contains("Request: A calls B"), "{html}");
+        assert!(html.contains("Nested: C calls D"), "{html}");
+    }
+    assert!(markdown.contains("Diagram source:"));
+    assert!(!markdown.contains("```mermaid"));
 }

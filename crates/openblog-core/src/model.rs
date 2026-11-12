@@ -295,6 +295,7 @@ pub struct Post {
     pub(crate) audio_error: Option<String>,
     pub(crate) decision_error: Option<String>,
     pub(crate) diagram_error: Option<String>,
+    pub(crate) diagrams: Vec<crate::diagram::Asset>,
     pub audio: Option<crate::audio::AudioEpisode>,
     /// Validated metadata for a decision record.
     pub decision: Option<crate::decision::Decision>,
@@ -593,6 +594,7 @@ pub struct Page {
     pub doc: Option<crate::docs_section::DocPlace>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     pub(crate) diagram_error: Option<String>,
+    pub(crate) diagrams: Vec<crate::diagram::Asset>,
     /// Semantic capabilities detected in the authored Markdown.
     pub capabilities: Vec<CapabilityDescriptor>,
 }
@@ -2574,6 +2576,7 @@ fn load_post_in(
         audio_error,
         decision_error,
         diagram_error,
+        diagrams: rendered.diagrams,
         audio: None,
         decision,
         reader_feedback: Vec::new(),
@@ -2961,6 +2964,7 @@ fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, Stri
         doc: None,
         accessibility,
         diagram_error,
+        diagrams: rendered.diagrams,
         capabilities: rendered.capabilities,
     })
 }

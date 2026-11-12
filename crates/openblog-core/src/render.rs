@@ -672,6 +672,23 @@ pub fn generate_with_trail_budget(
     };
     let default_theme = &resolved[&c.theme];
 
+    let mut diagrams = std::collections::BTreeMap::new();
+    for asset in site
+        .posts
+        .iter()
+        .flat_map(|post| &post.diagrams)
+        .chain(site.pages.iter().flat_map(|page| &page.diagrams))
+    {
+        if let Some(previous) = diagrams.insert(&asset.path, &asset.svg) {
+            if previous != &asset.svg {
+                return Err(format!("conflicting diagram asset `{}`", asset.path));
+            }
+        }
+    }
+    for (path, svg) in diagrams {
+        out.add(path.clone(), svg.clone())?;
+    }
+
     if let Some(podcast) = &c.podcast {
         let (feed, files) = crate::podcast::generate(site, podcast)?;
         out.add("podcast.xml".into(), feed)?;
