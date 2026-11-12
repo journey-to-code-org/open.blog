@@ -563,6 +563,7 @@ working, and readers, builds, feeds, exports and cross-posting never change. The
 | 4. Providers | Create the LinkedIn and Meta apps, register the redirect addresses and add the products and permissions in [Connecting LinkedIn and Facebook](#connecting-linkedin-and-facebook-oauth); set the client id, secret and `OPENBLOG_SOCIAL_CALLBACK_BASE`; redeploy. | **Connect** an account you own and choose a destination. | **Disconnect** it in Admin, remove the client settings, and remove the app in the provider's settings. |
 | 5. Scheduling | Nothing to install. | Schedule an announcement in the **Announcements** tab. It stays **Scheduled**: nothing sends it yet. | Cancel it. |
 | 6. Delivery | Run `supabase/social-queue.sql`, and `supabase/social-history.sql` if you want the exact history. | Call the worker once by hand: `curl -s -X POST -H "Authorization: Bearer $OPENBLOG_SOCIAL_WORKER_KEY" https://YOUR-SITE/api/social-worker` answers with counts, and a due announcement to an account you own is published. | `supabase/social-history-rollback.sql`, then `supabase/social-queue-rollback.sql` |
+| 6a. Images (optional) | After the queue, run `supabase/social-media.sql`. | Preview and approve an image in Admin. | Resolve media-bearing announcements, then run `supabase/social-media-rollback.sql` before undoing the queue. |
 | 7. Schedule | Store the two Vault secrets, then run `supabase/social-cron.sql` (see [The delivery worker](#the-delivery-worker)). | `select status, start_time from cron.job_run_details order by start_time desc limit 3;` shows a successful run each minute. | `supabase/social-cron-rollback.sql` |
 | 8. Operations (optional) | Run `supabase/social-ops.sql`, set `OPENBLOG_SOCIAL_OPS=true`, redeploy. Add `OPENBLOG_SOCIAL_RETENTION_DAYS` only if you want old history deleted. | Admin shows **Delivery health**; the log has `openblog-social-ops` lines. | Remove `OPENBLOG_SOCIAL_OPS`, then `supabase/social-ops-rollback.sql` |
 
@@ -571,8 +572,8 @@ watch it go from Scheduled to Published. Delete the test post on the network by 
 deletes anything it posted.
 
 The hosted function runs as a Netlify function (`netlify/functions/social.mjs` and `social-worker.mjs`, routed by
-`netlify.toml`). It is not a Supabase Edge Function: the modules use only Web APIs so they could be hosted there
-later, but this release builds, deploys and tests them on Netlify only.
+`netlify.toml`). It is not a Supabase Edge Function: the hosted media preview uses the native `sharp` dependency,
+and this release builds, deploys and tests these functions on Netlify only.
 
 ## Rolling it back
 
@@ -586,7 +587,7 @@ To turn the whole feature off and remove it, in this order. Each step is safe to
    `supabase/social-rollback.sql`).
 4. **Remove the data.** Run `supabase/social-rollback.sql`. It stops the `openblog-social-worker` cron job first (when
    `pg_cron` is installed), then drops every `openblog_social_*` function, trigger and table that `social.sql`,
-   `social-queue.sql`, `social-history.sql`, `social-ops.sql` and `social-cron.sql` made. It touches no other table,
+   `social-queue.sql`, `social-history.sql`, `social-media.sql`, `social-ops.sql` and `social-cron.sql` made. It touches no other table,
    job or extension, and running it twice is harmless.
 5. **Remove the Vault secrets.**
    `delete from vault.secrets where name in ('openblog_social_worker_url', 'openblog_social_worker_key');`
@@ -606,7 +607,8 @@ Check: `select count(*) from pg_tables where tablename like 'openblog_social%';`
 Facebook, Bluesky or Mastodon stay there; delete them on the network if you want them gone.
 
 To undo only part of it, use the rollback file of that gate (table above), newest gate first: operations, schedule,
-history, then queue. Each one leaves the gates before it working.
+media and history, then queue. Media rollback refuses while media-bearing announcements remain; resolve them first.
+Each one leaves the gates before it working.
 
 ## Rotating secrets
 
