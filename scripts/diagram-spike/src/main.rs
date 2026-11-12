@@ -15,6 +15,20 @@ impl Renderer for Merman {
     }
 }
 
+#[cfg(feature = "merman")]
+struct StaticMerman;
+#[cfg(feature = "merman")]
+impl Renderer for StaticMerman {
+    fn render(&self, source: &str) -> Result<String, String> {
+        openblog_diagram_spike::render_merman_bounded(
+            source,
+            "diagram-parity",
+            200,
+            std::time::Duration::from_secs(2),
+        )
+    }
+}
+
 #[cfg(feature = "ferrigura")]
 struct Ferrigura;
 #[cfg(feature = "ferrigura")]
@@ -36,16 +50,21 @@ impl Renderer for Mermaid {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut renderers: Vec<(&str, Box<dyn Renderer>)> = Vec::new();
-    #[cfg(feature = "merman")]
-    renderers.push(("merman", Box::new(Merman)));
-    #[cfg(feature = "ferrigura")]
-    renderers.push(("ferrigura", Box::new(Ferrigura)));
-    #[cfg(feature = "mermaid")]
-    renderers.push(("mermaid-rs-renderer", Box::new(Mermaid)));
+    let argument = std::env::args().nth(1);
+    if argument.as_deref() == Some("--static") {
+        #[cfg(feature = "merman")]
+        renderers.push(("merman-static", Box::new(StaticMerman)));
+    } else {
+        #[cfg(feature = "merman")]
+        renderers.push(("merman", Box::new(Merman)));
+        #[cfg(feature = "ferrigura")]
+        renderers.push(("ferrigura", Box::new(Ferrigura)));
+        #[cfg(feature = "mermaid")]
+        renderers.push(("mermaid-rs-renderer", Box::new(Mermaid)));
+    }
     if renderers.is_empty() {
         return Err("select at least one renderer feature".into());
     }
-    let argument = std::env::args().nth(1);
     let mut corpus =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/diagrams");
     if argument.as_deref() == Some("--hostile") {
@@ -65,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ))
         })
         .collect::<Result<Vec<_>, std::io::Error>>()?;
-    if let Some(size) = argument.filter(|value| value != "--hostile") {
+    if let Some(size) = argument.filter(|value| value != "--hostile" && value != "--static") {
         let count: usize = size.parse()?;
         if count == 0 || count > 10_000 {
             return Err("large fixture node count must be between 1 and 10000".into());

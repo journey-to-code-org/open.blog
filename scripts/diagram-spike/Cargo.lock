@@ -970,6 +970,7 @@ dependencies = [
  "ferrigura",
  "mermaid-rs-renderer",
  "merman",
+ "roxmltree",
  "serde_json",
  "wasm-bindgen",
 ]

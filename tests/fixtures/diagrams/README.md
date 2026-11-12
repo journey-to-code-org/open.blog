@@ -72,6 +72,16 @@ The model-item budget is not a separately verified exact node-count limit, and
 the renderer's deadline is cooperative, not a hard wall-clock timeout. These
 checks do not cover browser-worker termination or make the raw SVG safe.
 
+The bounded harness also exercises merman's static-inline pipeline, including
+its ID rebasing: the seven valid fixtures render and the three hostile fixtures
+contain none of the active elements or attributes inspected by the test. The
+seven results are byte-identical between native and Node WASM with the same
+prefix, and malformed input is rejected in both. The static-inline contract is
+a hidden renderer API and permits some navigation and raster data; open.blog
+still needs its stricter publication allowlist and separate accessibility
+markup. The WASM call has no deadline: a host Worker must be terminated on
+timeout. This experiment is not a security certification.
+
 All three candidates compiled to `wasm32-unknown-unknown`. The restricted
 merman binding ran in Node and Chromium and produced byte-identical SVGs to
 Windows native for all seven valid fixtures; both also rejected the malformed
