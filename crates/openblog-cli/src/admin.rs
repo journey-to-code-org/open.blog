@@ -41773,6 +41773,68 @@ series: letters
     }
 
     #[test]
+    fn a_roundtable_of_two_is_written_arranged_approved_published_and_exported() {
+        let (f, mikey, id, writers, _) = group_fixture("roundtable-two", 1);
+        for (n, who) in [&mikey, &writers[0]].into_iter().enumerate() {
+            assert_eq!(draft_call(&f, who, &id, 0, &two_parts(n, "W")).status, 200);
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        let order = participant_ids(&f, &mikey, &id);
+        assert_eq!(
+            arrangement_write(&f, &mikey, true, &id, 0, roundtable_arrangement(1, &order)).status,
+            200
+        );
+        for who in [&mikey, &writers[0]] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &mikey, &id).status, 200);
+        let expected = [
+            "Opening round",
+            "W-01-OPEN",
+            "W-00-OPEN",
+            "Closing round",
+            "W-01-CLOSE",
+            "W-00-CLOSE",
+        ]
+        .map(str::to_string);
+        let published = published_post(&f, &id).unwrap();
+        in_reading_order("post", &published, &expected);
+        let (site, _) = crate::site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let post = site
+            .posts
+            .iter()
+            .find(|post| post.source.ends_with(&format!("{id}.md")))
+            .unwrap();
+        let files = public_files(&f);
+        let page = files
+            .iter()
+            .find(|(path, _)| {
+                path.ends_with("index.html") && path.to_string_lossy().contains(post.slug.as_str())
+            })
+            .expect("the reflection's page");
+        in_reading_order("page", &page.1, &expected);
+        assert_eq!(page.1.matches("<h2 class=\"ob-turn-author\">").count(), 4);
+        for feed in ["rss.xml", "feed.json", "llms-full.txt"] {
+            let (_, text) = files.iter().find(|(path, _)| path.ends_with(feed)).unwrap();
+            in_reading_order(feed, text, &expected);
+        }
+        crate::portable_export::run(
+            &f.dir,
+            &post.slug,
+            crate::portable_export::Format::Markdown,
+            Some("roundtable-two-export.md"),
+            true,
+            false,
+        )
+        .unwrap();
+        let exported = fs::read_to_string(f.dir.join("roundtable-two-export.md")).unwrap();
+        in_reading_order("export", &exported, &expected);
+    }
+
+    #[test]
     fn a_roundtable_of_three_is_written_arranged_approved_published_and_exported() {
         roundtable_end_to_end("roundtable-three", 2);
     }
@@ -41780,6 +41842,64 @@ series: letters
     #[test]
     fn a_roundtable_of_six_is_written_arranged_approved_published_and_exported() {
         roundtable_end_to_end("roundtable-six", 5);
+    }
+
+    #[test]
+    #[ignore = "generates published pages for the browser accessibility suite"]
+    fn generate_roundtable_browser_fixtures() {
+        let destination = PathBuf::from(
+            std::env::var_os("OPENBLOG_ROUNDTABLE_FIXTURES")
+                .expect("OPENBLOG_ROUNDTABLE_FIXTURES is required"),
+        );
+        for count in [2, 3, 6] {
+            let (f, mikey, id, writers, _) = group_fixture(&format!("browser-{count}"), count - 1);
+            let everyone = std::iter::once(&mikey)
+                .chain(writers.iter())
+                .collect::<Vec<_>>();
+            for (n, who) in everyone.iter().enumerate() {
+                assert_eq!(draft_call(&f, who, &id, 0, &two_parts(n, "W")).status, 200);
+                assert_eq!(
+                    reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                    200
+                );
+            }
+            let order = participant_ids(&f, &mikey, &id);
+            assert_eq!(
+                arrangement_write(&f, &mikey, true, &id, 0, roundtable_arrangement(1, &order))
+                    .status,
+                200
+            );
+            for who in everyone {
+                assert_eq!(approve_as(&f, who, &id).status, 200);
+            }
+            assert_eq!(publish_as(&f, &mikey, &id).status, 200);
+            let (site, _) = crate::site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+            let post = site
+                .posts
+                .iter()
+                .find(|p| p.source.ends_with(&format!("{id}.md")))
+                .unwrap();
+            let target = destination.join(count.to_string());
+            fs::create_dir_all(&target).unwrap();
+            let files = tree_snapshot(&f.dir.join("dist"));
+            let page = files
+                .keys()
+                .find(|path| {
+                    path.ends_with("index.html")
+                        && path.to_string_lossy().contains(post.slug.as_str())
+                })
+                .expect("the published reflection's page");
+            fs::write(
+                target.join("page-path.txt"),
+                page.to_string_lossy().replace('\\', "/"),
+            )
+            .unwrap();
+            for (path, bytes) in files {
+                let file = target.join(path);
+                fs::create_dir_all(file.parent().unwrap()).unwrap();
+                fs::write(file, bytes).unwrap();
+            }
+        }
     }
 
     #[test]
