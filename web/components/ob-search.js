@@ -115,12 +115,12 @@ class ObSearch extends HTMLElement {
     const terms = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 2);
     this.status.textContent = hits.length
       ? `${hits.length} ${hits.length === 1 ? "result" : "results"}`
-      : "No posts match that search.";
+      : "Nothing matches that search.";
     this.results.innerHTML = hits
       .map(
         (h) =>
           `<li><a href="${escapeHtml(h.url)}">${highlight(h.title, terms)}</a>` +
-          `<p class="ob-meta">${escapeHtml(h.date)}${h.series ? " · " + escapeHtml(h.series) : ""}</p>` +
+          `<p class="ob-meta">${[h.date, h.series].filter(Boolean).map(escapeHtml).join(" · ")}</p>` +
           (h.snippet ? `<p>${highlight(h.snippet, terms)}</p>` : h.description ? `<p>${highlight(h.description, terms)}</p>` : "") +
           `</li>`,
       )

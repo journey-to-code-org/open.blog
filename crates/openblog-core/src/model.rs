@@ -1016,7 +1016,7 @@ impl Site {
                 Err(e) => errors.push(format!("{}: {e}", file.path)),
             }
         }
-        load_docs(
+        let doc_addresses = load_docs(
             &sources.docs,
             &config,
             options.include_drafts,
@@ -1026,6 +1026,24 @@ impl Site {
             &mut warnings,
             &mut errors,
         );
+        // Posts and pages may link into the documentation by file too (ADR 0407).
+        if !doc_addresses.is_empty() {
+            use crate::docs_section::rewrite_links_into_docs as into_docs;
+            for post in &mut posts {
+                post.html = into_docs(&post.html, &post.source, &doc_addresses, &mut warnings);
+                if let Some(html) = post.concept_html.take() {
+                    post.concept_html = Some(into_docs(
+                        &html,
+                        &post.source,
+                        &doc_addresses,
+                        &mut warnings,
+                    ));
+                }
+            }
+            for page in pages.iter_mut().filter(|page| page.doc.is_none()) {
+                page.html = into_docs(&page.html, &page.source, &doc_addresses, &mut warnings);
+            }
+        }
         pages.sort_by(|a, b| a.title.cmp(&b.title));
         let mut services: Vec<Service> = Vec::new();
         for file in &sources.services {
@@ -1220,6 +1238,12 @@ impl Site {
 
         scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
         let landing = load_landing(&sources, &posts, &mut warnings);
+        if landing.is_some() && config.docs.enabled && config.docs.home {
+            warnings.push(
+                "content/landing.json is not shown: docs.home makes the documentation the home page"
+                    .to_string(),
+            );
+        }
         let mut site = Site {
             config,
             posts,
@@ -2822,24 +2846,24 @@ fn load_docs(
     accessibility: &mut Vec<AccessibilityFinding>,
     warnings: &mut Vec<String>,
     errors: &mut Vec<String>,
-) {
+) -> std::collections::HashMap<String, String> {
     use crate::docs_section::{doc_path, rewrite_links, url_for, DocPlace, DOCS_SEGMENT};
     if files.is_empty() {
-        return;
+        return Default::default();
     }
     if !config.docs.enabled {
         warnings.push(format!(
             "content/docs/ holds {} Markdown file(s) that are not published; set \"docs\": {{ \"enabled\": true }} in openblog.json to publish them at /docs/",
             files.len()
         ));
-        return;
+        return Default::default();
     }
     if let Some(page) = pages.iter().find(|page| page.slug == DOCS_SEGMENT) {
         errors.push(format!(
             "{}: the page slug `{DOCS_SEGMENT}` would collide with the documentation at /{DOCS_SEGMENT}/; rename the page or turn docs.enabled off",
             page.source
         ));
-        return;
+        return Default::default();
     }
     let mut docs: Vec<Page> = Vec::new();
     for file in files {
@@ -2884,6 +2908,12 @@ fn load_docs(
                     format!("{DOCS_SEGMENT}/{path}")
                 };
                 page.url = url_for(&path);
+                // The section's own index is the home page when docs.home is on (ADR 0407);
+                // its usual address sends readers there.
+                if path.is_empty() && config.docs.home {
+                    page.url = "/".to_string();
+                    page.aliases.push(url_for(""));
+                }
                 page.doc = Some(doc);
                 // A file with no front matter title, as most READMEs and guides are, is titled by
                 // its first heading; the page prints the title as its one <h1>, so that heading
@@ -2900,6 +2930,12 @@ fn load_docs(
             }
             Err(e) => errors.push(format!("{}: {e}", file.path)),
         }
+    }
+    if config.docs.home && !docs.iter().any(|page| page.url == "/") {
+        errors.push(
+            "openblog.json: docs.home needs content/docs/index.md (or README.md) to be the home page"
+                .to_string(),
+        );
     }
     let known: std::collections::HashMap<String, String> = docs
         .iter()
@@ -2920,6 +2956,7 @@ fn load_docs(
         accessibility.extend(page.accessibility.iter().cloned());
     }
     pages.extend(docs);
+    known
 }
 
 /// Normalise `aliases:` (or `redirectFrom:`) to `/path/` form and reject

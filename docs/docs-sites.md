@@ -2,7 +2,7 @@
 
 open.blog can publish a project's documentation beside the blog: a folder of Markdown files becomes a tree of pages
 at `/docs/`, with a sidebar, previous and next links, and links between the files that work both on GitHub and on
-the site. The design is [ADR 0405](adr/0405-a-documentation-section-is-a-tree-of-pages-under-content-docs-addressed-by-path-and-off-until-enabled.md) and [ADR 0406](adr/0406-a-docs-folder-read-on-github-reads-the-same-on-the-site.md).
+the site. The design is [ADR 0405](adr/0405-a-documentation-section-is-a-tree-of-pages-under-content-docs-addressed-by-path-and-off-until-enabled.md), [ADR 0406](adr/0406-a-docs-folder-read-on-github-reads-the-same-on-the-site.md) and [ADR 0407](adr/0407-documentation-can-be-the-home-page-is-searchable-and-is-linked-to-by-file.md).
 
 ## Start one
 
@@ -79,6 +79,27 @@ Each page then ends with a **View this page's source** link, and a link to a fil
 the repository instead of at an address the site does not have. A link to a `.md` file in `docs/` that does not
 exist is still reported. open.blog's own documentation site is built this way: see `docs-site/` in the repository.
 
+## Documentation as the whole site
+
+For a site that is only documentation, make the section's index the home page:
+
+```json
+"docs": { "enabled": true, "home": true }
+```
+
+`content/docs/index.md` (or `README.md`) is then published at `/` in place of the post list, and `/docs/` sends
+readers there. Posts, if there are any, keep their addresses and are listed in the archive; a `landing.json` is not
+shown, and the build says so. Without an index file, `home` is an error.
+
+## Search
+
+The site's search finds documentation pages along with posts, each labelled with the section's `title`.
+
+## Linking to the documentation from posts and pages
+
+A post or page can link into the documentation by file as well, such as `[installing](../docs/install.md)` from
+`content/posts/`. The link becomes the page's address, and a link to a file in `docs/` that is not a page is reported.
+
 ## The sidebar
 
 The sidebar lists every top-level page and folder, and opens the folders the current page is in, with the current
@@ -87,7 +108,4 @@ HTML, so it works without JavaScript.
 
 ## What is not there yet
 
-- A docs-only site whose home page is the documentation (today `/` is the blog's home; link it to `/docs/` from the
-  landing page or `nav`).
-- Search limited to the documentation (the site's search covers documentation pages with everything else).
-- Links from posts and pages into `docs/` written as `.md` files (write the address, such as `/docs/install/`).
+- Search limited to the documentation on a site that also has posts.

@@ -536,6 +536,22 @@ pub fn search_index(site: &Site) -> String {
     if let Some(paths) = &site.reading_paths {
         entries.extend(paths.listed_only().paths.iter().map(path_index_entry));
     }
+    // Documentation pages are found by search too (ADR 0407), labelled with the section's
+    // title in place of a series. Other pages are not, as before.
+    entries.extend(
+        site.pages
+            .iter()
+            .filter(|page| page.doc.is_some())
+            .map(|page| IndexEntry {
+                title: page.title.clone(),
+                url: page.url.clone(),
+                date: String::new(),
+                tags: Vec::new(),
+                series: Some(site.config.docs.title().to_string()),
+                description: page.description.clone(),
+                text: page.text.to_lowercase().chars().take(4000).collect(),
+            }),
+    );
     // Published interpretation comparisons are found by search the same way
     // (ADR 0232), from the public projection only: approved text, never a
     // draft or an unapproved AI draft. They are not feed items.

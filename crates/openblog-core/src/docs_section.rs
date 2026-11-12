@@ -32,6 +32,11 @@ pub struct DocsConfig {
     /// points there instead of at an address the site does not have.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub source: String,
+    /// Make the documentation the site's home page (ADR 0407): `content/docs/index.md` (or
+    /// `README.md`) is published at `/` in place of the post list, and `/docs/` sends readers
+    /// there. Posts keep their own addresses and are listed in the archive.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub home: bool,
 }
 
 impl DocsConfig {
@@ -179,6 +184,73 @@ pub fn rewrite_links(
     }
     out.push_str(rest);
     out
+}
+
+/// Rewrite the links in a post's or page's HTML (`source` is its file, relative to the content
+/// folder) that point at a Markdown file or folder under `docs/`, such as `../docs/install.md`,
+/// to the documentation page's address. Other links are untouched; a link into `docs/` that is
+/// not a page is reported.
+pub fn rewrite_links_into_docs(
+    html: &str,
+    source: &str,
+    known: &HashMap<String, String>,
+    warnings: &mut Vec<String>,
+) -> String {
+    let marker = "href=\"";
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(at) = rest.find(marker) {
+        let (before, after) = rest.split_at(at + marker.len());
+        out.push_str(before);
+        let end = after.find('"').unwrap_or(after.len());
+        let href = &after[..end];
+        let (path, anchor) = match href.split_once('#') {
+            Some((path, anchor)) => (path, format!("#{anchor}")),
+            None => (href, String::new()),
+        };
+        let relative = !path.is_empty()
+            && !path.starts_with('/')
+            && !path
+                .split_once(':')
+                .is_some_and(|(scheme, _)| !scheme.contains('/'));
+        let into_docs = relative
+            && (path.ends_with(".md") || path.ends_with(".markdown") || path.ends_with('/'))
+            && joined(source, path)
+                .is_some_and(|j| j.starts_with(&format!("{DOCS_DIR}/")) || j == DOCS_DIR);
+        if into_docs {
+            match resolve(source, path).and_then(|doc| known.get(&doc)) {
+                Some(url) => out.push_str(&format!("{url}{anchor}")),
+                None => {
+                    warnings.push(format!(
+                        "{source}: the link to `{path}` does not match a page under docs/"
+                    ));
+                    out.push_str(href);
+                }
+            }
+        } else {
+            out.push_str(href);
+        }
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `target` resolved against the folder of `from` (both relative to the content folder), or
+/// `None` when it climbs above the content folder.
+fn joined(from: &str, target: &str) -> Option<String> {
+    let mut parts: Vec<&str> = from.split('/').collect();
+    parts.pop();
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other),
+        }
+    }
+    Some(parts.join("/"))
 }
 
 fn rewrite_href(
@@ -584,6 +656,7 @@ mod tests {
             enabled: true,
             title: String::new(),
             source: "https://github.com/o/r/blob/main/docs".into(),
+            home: false,
         };
         assert_eq!(
             config.source_url("docs/specs/b.md").as_deref(),
