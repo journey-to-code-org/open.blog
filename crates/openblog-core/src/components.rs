@@ -47,6 +47,9 @@ pub struct ComponentDecl {
     pub script: String,
     /// One line said where scripts do not run (a reader without JavaScript, Admin's preview).
     pub fallback: String,
+    /// The Zubra source, relative to the theme folder (ADR 0409). A build with the `zubra` feature
+    /// renders it with the section's values, so the element has its content before it starts.
+    pub source: String,
     pub props: Vec<PropDecl>,
 }
 
@@ -85,6 +88,8 @@ pub struct Component {
     /// Relative to the theme folder until the theme makes it an absolute site URL.
     pub script: String,
     pub fallback: String,
+    /// The `.zb` source; relative until the theme makes it an absolute site path. Empty when none.
+    pub source: String,
     pub props: Vec<PropDecl>,
 }
 
@@ -107,8 +112,8 @@ fn valid_attribute(name: &str) -> bool {
         )
 }
 
-/// A script path inside the theme folder: relative, no `..`, ending in `.js` or `.mjs`.
-fn valid_script(path: &str) -> bool {
+/// A path inside the theme folder: relative, with no `..`, no empty part and no address.
+fn valid_path(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')
         && !path.contains("://")
@@ -116,7 +121,11 @@ fn valid_script(path: &str) -> bool {
         && !path
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == "..")
-        && (path.ends_with(".js") || path.ends_with(".mjs"))
+}
+
+/// A script path inside the theme folder, ending in `.js` or `.mjs`.
+fn valid_script(path: &str) -> bool {
+    valid_path(path) && (path.ends_with(".js") || path.ends_with(".mjs"))
 }
 
 fn one_line(text: &str) -> bool {
@@ -141,6 +150,12 @@ impl Component {
         }
         if !one_line(&decl.fallback) || decl.fallback.chars().count() > 200 {
             return Err("the `fallback` is one line of at most 200 characters".into());
+        }
+        if !decl.source.is_empty() && !(valid_path(&decl.source) && decl.source.ends_with(".zb")) {
+            return Err(
+                "`source` must be a .zb file inside the theme folder, like `components/my-sign.zb`"
+                    .into(),
+            );
         }
         if !valid_script(&decl.script) {
             return Err(
@@ -229,6 +244,7 @@ impl Component {
             description: decl.description.trim().to_string(),
             script: decl.script.clone(),
             fallback: decl.fallback.trim().to_string(),
+            source: decl.source.clone(),
             props: decl.props.clone(),
         })
     }

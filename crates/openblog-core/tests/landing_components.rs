@@ -44,6 +44,11 @@ fn landing(sections: Value) -> String {
 }
 
 fn home(landing_json: String) -> String {
+    home_with(landing_json, &[])
+}
+
+/// The home page, with content a build rendered ahead for some sections (ADR 0409).
+fn home_with(landing_json: String, rendered: &[(&str, &str)]) -> String {
     let config = SiteConfig::from_json(
         r#"{"title":"Grammi's House","url":"https://example.com","theme":"house"}"#,
     )
@@ -55,7 +60,10 @@ fn home(landing_json: String) -> String {
         }),
         ..Default::default()
     };
-    let site = Site::load(config, sources, LoadOptions::default()).expect("site");
+    let mut site = Site::load(config, sources, LoadOptions::default()).expect("site");
+    for (id, html) in rendered {
+        site.component_html.insert(id.to_string(), html.to_string());
+    }
     generate(&site, &themes(house()))
         .expect("generated")
         .into_iter()
@@ -161,5 +169,22 @@ fn a_child_theme_inherits_its_parents_components() {
         theme.components["holiday-countdown"].script,
         "/themes/house/components/holiday-countdown.js",
         "the script stays where the theme that declared it keeps it"
+    );
+}
+
+#[test]
+fn content_rendered_ahead_goes_inside_the_element_and_replaces_the_fallback() {
+    let page = home_with(
+        landing(json!([
+            { "id": "sign", "type": "component", "tag": "holiday-countdown", "props": { "holiday": "christmas" } }
+        ])),
+        &[("sign", "<p class=\"sign\">Counting down to Christmas</p>")],
+    );
+    assert!(page.contains(
+        "<holiday-countdown holiday=\"christmas\"><p class=\"sign\">Counting down to Christmas</p></holiday-countdown>"
+    ), "{page}");
+    assert!(
+        !page.contains("<noscript><p class=\"ob-home-note\">"),
+        "no fallback when there is content"
     );
 }

@@ -67,7 +67,11 @@ the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-place
   The build checks every value against the declaration and writes the element with escaped attributes,
   followed by its module script (a browser runs a module once, however often it is linked).
 - **`fallback`** is one plain line shown where scripts do not run: Admin's preview, and readers without
-  JavaScript.
+  JavaScript, when the component has no content rendered ahead (below).
+- **`source`** (optional) is the component's Zubra `.zb` file in the theme folder. When the `zubra` command is
+  installed, the build renders it with the section's values and writes that HTML inside the element, so the
+  component is there before its script runs: readers without JavaScript and Admin's preview see the component
+  itself, and the fallback is left out.
 - **Every theme the site can wear must offer it.** With [seasons](themes.md#seasons), that is the site
   theme and every season's, so declare components on the theme the seasons extend. A page that places a
   component no wearable theme offers, or a value its declaration refuses, stops the build and names the section.
@@ -76,6 +80,27 @@ the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-place
 A component written in [Zubra](https://github.com/journey-to-code-org/zubra) compiles to a plain custom
 element with `zubra compile <file>.zb --emit element`, which needs nothing installed on the page; a
 hand-written element works the same way.
+
+### Rendered ahead with Zubra
+
+A component with a `source` gets its content at build time
+([ADR 0409](adr/0409-components-with-a-zubra-source-are-rendered-ahead-by-the-zubra-command-when-it-is-installed.md)):
+
+```sh
+npm install --global @zubra/compiler      # or the Rust CLI; or set OPENBLOG_ZUBRA, e.g. "npx -y @zubra/compiler"
+zubra compile components/my-sign.zb --emit element --output components/my-sign.js   # the script
+zubra compile components/my-sign.zb --emit css > components/my-sign.css            # its styles, for before the script runs
+```
+
+List the CSS file under the theme's `stylesheets` so the rendered content is styled before the script adopts
+its own copy. The build runs `zubra compile <source> --props <values> --partial` once per placed component and
+keeps the result while the source and the values are unchanged, so Admin's live preview does not run it again.
+Whatever only the browser can compute (today's date, the window size) is left for the element to fill in when it
+starts: write those parts so the server has something to say without them, such as "Counting down to Christmas"
+before the number of days is known. The plain element replaces the rendered content with its own when it starts.
+
+Without the `zubra` command, nothing is rendered ahead: every element is written empty with its fallback, as
+before. A source that cannot be compiled is a warning naming the section, never a failed build.
 
 ## Styling the landing page
 

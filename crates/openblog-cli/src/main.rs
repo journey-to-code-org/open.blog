@@ -14,6 +14,7 @@ mod claims_store;
 mod clock;
 mod community;
 mod comparison_store;
+mod component_render;
 mod config_text;
 mod contributor_migration;
 mod fsutil;

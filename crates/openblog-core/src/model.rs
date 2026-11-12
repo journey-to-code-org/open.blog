@@ -669,6 +669,10 @@ pub struct Site {
     /// (ADR 0245). The home page renders its visible sections instead of the
     /// `home.*` layout; `None` leaves the home page as it always was.
     pub landing: Option<crate::landing::LandingPage>,
+    /// Server-rendered content for the landing page's component sections, by section id (ADR 0409):
+    /// what the element shows before its script runs, or without JavaScript. Filled by a build that
+    /// can compile the component's source; empty otherwise, and the element is written empty.
+    pub component_html: std::collections::BTreeMap<String, String>,
     /// Why this site's claim evidence cannot be published (ADR 0075): the
     /// claims file, or the library or notebook it is checked against, cannot
     /// be read or validated. A full build or `check` refuses while it is set,
@@ -1241,6 +1245,7 @@ impl Site {
             curation: None,
             curated_cache: std::sync::OnceLock::new(),
             landing,
+            component_html: Default::default(),
             claim_evidence_error,
             reader_feedback_error,
             third_perspectives_error,

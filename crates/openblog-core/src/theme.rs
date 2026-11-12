@@ -344,6 +344,11 @@ impl ThemeSet {
                     tag.clone(),
                     crate::components::Component {
                         script: absolutize(&base_url, &component.script),
+                        source: if component.source.is_empty() {
+                            String::new()
+                        } else {
+                            absolutize(&base_url, &component.source)
+                        },
                         ..component
                     },
                 );

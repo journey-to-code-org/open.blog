@@ -909,6 +909,8 @@ pub fn load_site_from_sources_listing(
                 .collect());
         }
     }
+    // Components with a Zubra source get their content ahead of their script (ADR 0409).
+    crate::component_render::render(root, &themes, &mut site);
     site.view_counts = counts;
     Ok((site, themes))
 }

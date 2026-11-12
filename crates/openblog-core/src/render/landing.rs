@@ -186,7 +186,12 @@ impl Renderer<'_> {
                 None => element.push_str(&format!(" {name}")),
             }
         }
-        element.push_str(&format!("></{}>\n", v.tag));
+        element.push('>');
+        let rendered = self.site.component_html.get(&section.id);
+        if let Some(html) = rendered {
+            element.push_str(html);
+        }
+        element.push_str(&format!("</{}>\n", v.tag));
         let labelled = !v.heading.trim().is_empty();
         let mut inner = if labelled {
             self.landing_heading(cx, &section.id, &v.heading)
@@ -194,7 +199,8 @@ impl Renderer<'_> {
             String::new()
         };
         inner.push_str(&element);
-        if !component.fallback.is_empty() {
+        // The fallback is for where the element has nothing to show without its script.
+        if rendered.is_none() && !component.fallback.is_empty() {
             inner.push_str(&format!(
                 "<noscript><p class=\"ob-home-note\">{}</p></noscript>\n",
                 text(&component.fallback)
