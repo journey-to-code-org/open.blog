@@ -76,6 +76,8 @@ COMMANDS
     init [dir] --github-pages  Also write a GitHub Pages deployment workflow
     init [dir] --no-voice      Never offer a writing session afterwards (a terminal is
                                asked once; scripts and pipes are never asked)
+    init [dir] --starter docs  Add a documentation section: pages under content/docs/ published
+                               at /docs/ with a sidebar, and a Docs link in the header
     init [dir] --starter trade [--trade <trade>]
                                Start a trade business site: business facts, three example
                                services as drafts, jobs, reviews, a quote form and a
@@ -466,7 +468,11 @@ fn run(raw: &[String]) -> Result<(), String> {
                 for file in &created {
                     println!("created {file}");
                 }
-                if starter.is_some() {
+                if starter == Some(scaffold::Starter::Docs) {
+                    println!(
+                        "\nNext: cd into the folder, run `openblog serve`, and open http://localhost:8080/docs/. The pages are Markdown files in content/docs/; see docs/docs-sites.md."
+                    );
+                } else if starter.is_some() {
                     println!(
                         "\nNext: cd into the folder, run `openblog serve --admin`, and follow the checklist on Admin's Home screen: business facts, your first service, your first job, your first review, and a place to share jobs. See docs/trades.md."
                     );
@@ -2411,5 +2417,170 @@ Mine.
             args.push("--write".into());
             assert!(run(&args).unwrap_err().contains("dry run"));
         }
+    }
+}
+
+/// The command reference in `docs/cli-reference.md` is generated from [`HELP`], so the published
+/// documentation can never list fewer commands than the binary has. Regenerate it with
+/// `OPENBLOG_BLESS_DOCS=1 cargo test -p openblog-cli cli_reference`.
+#[cfg(test)]
+mod reference_docs {
+    use super::HELP;
+    use std::path::PathBuf;
+
+    fn reference_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/cli-reference.md")
+    }
+
+    /// The section title for an unindented help line: `COMMANDS` -> `Commands`,
+    /// `video OPTIONS` -> `` `video` options ``, `COMMON OPTIONS` -> `Common options`.
+    fn title(line: &str) -> String {
+        if let Some(command) = line.strip_suffix(" OPTIONS") {
+            if command.chars().all(|c| c.is_ascii_uppercase()) {
+                let lower = command.to_lowercase();
+                let mut chars = lower.chars();
+                let first = chars
+                    .next()
+                    .map(|c| c.to_ascii_uppercase())
+                    .unwrap_or_default();
+                return format!("{first}{} options", chars.as_str());
+            }
+            return format!("`{command}` options");
+        }
+        let lower = line.to_lowercase();
+        let mut chars = lower.chars();
+        let first = chars
+            .next()
+            .map(|c| c.to_ascii_uppercase())
+            .unwrap_or_default();
+        format!("{first}{}", chars.as_str())
+    }
+
+    pub(super) fn render(help: &str) -> String {
+        let mut lines = help.lines().peekable();
+        let intro = lines.next().unwrap_or_default();
+        let mut out = String::from(
+            "# Command reference\n\n\
+             <!-- Generated from `openblog help` by the reference_docs test in\n\
+             crates/openblog-cli/src/main.rs. Do not edit by hand: change HELP and run\n\
+             OPENBLOG_BLESS_DOCS=1 cargo test -p openblog-cli cli_reference -->\n\n",
+        );
+        out.push_str(&format!(
+            "This page is the full output of `openblog help`, one section per heading. \
+             Run `openblog help` for the same text in a terminal.\n\n{intro}\n"
+        ));
+        let mut sections: Vec<(String, Option<String>, Vec<String>)> = Vec::new();
+        while let Some(line) = lines.next() {
+            if line.trim().is_empty() && sections.is_empty() {
+                continue;
+            }
+            if !line.is_empty() && !line.starts_with(' ') {
+                // A heading, optionally followed by a parenthesised note that may wrap onto
+                // further unindented lines: `job-share OPTIONS (sending is off ... token in`.
+                let (head, mut note) = match line.split_once(" (") {
+                    Some((head, rest)) => (head.to_string(), Some(rest.to_string())),
+                    None => (line.to_string(), None),
+                };
+                while let Some(n) = note.as_mut() {
+                    if n.ends_with(')') {
+                        n.pop();
+                        break;
+                    }
+                    match lines.peek() {
+                        Some(next) if !next.is_empty() && !next.starts_with(' ') => {
+                            n.push(' ');
+                            n.push_str(next);
+                            lines.next();
+                        }
+                        _ => break,
+                    }
+                }
+                sections.push((title(&head), note, Vec::new()));
+            } else if let Some((_, _, body)) = sections.last_mut() {
+                body.push(line.to_string());
+            }
+        }
+        for (heading, note, mut body) in sections {
+            while body.last().is_some_and(|l| l.trim().is_empty()) {
+                body.pop();
+            }
+            out.push_str(&format!("\n## {heading}\n\n"));
+            if let Some(note) = note {
+                let mut chars = note.chars();
+                let first = chars
+                    .next()
+                    .map(|c| c.to_ascii_uppercase())
+                    .unwrap_or_default();
+                out.push_str(&format!("{first}{}.\n\n", chars.as_str()));
+            }
+            out.push_str("```text\n");
+            for line in body {
+                out.push_str(line.strip_prefix("    ").unwrap_or(&line));
+                out.push('\n');
+            }
+            out.push_str("```\n");
+        }
+        out
+    }
+
+    /// The command names `run` dispatches on, read from its `match command.as_str()`.
+    fn dispatched_commands() -> Vec<String> {
+        let source = include_str!("main.rs");
+        let start = source
+            .find("match command.as_str() {")
+            .expect("the dispatch match");
+        let end = start + source[start..].find("\n}\n").expect("end of run");
+        source[start..end]
+            .lines()
+            .filter(|line| line.starts_with("        \"") && line.contains("=>"))
+            .flat_map(|line| {
+                let arm = line.trim().split("=>").next().unwrap_or_default();
+                arm.split('|')
+                    .map(|name| name.trim().trim_matches('"').to_string())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|name| !name.starts_with('-'))
+            .collect()
+    }
+
+    #[test]
+    fn cli_reference_every_command_is_in_help() {
+        let commands_section = HELP
+            .split("\nCOMMANDS\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\n\n").next())
+            .expect("a COMMANDS section");
+        let listed: Vec<&str> = commands_section
+            .lines()
+            .filter_map(|line| line.strip_prefix("    "))
+            .filter(|line| !line.starts_with(' '))
+            .filter_map(|line| line.split_whitespace().next())
+            .collect();
+        let commands = dispatched_commands();
+        assert!(commands.len() > 20, "found too few commands: {commands:?}");
+        let missing: Vec<&String> = commands
+            .iter()
+            .filter(|c| !listed.contains(&c.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "commands missing from HELP's COMMANDS section (and so from docs/cli-reference.md): {missing:?}"
+        );
+    }
+
+    #[test]
+    fn cli_reference_matches_help() {
+        let expected = render(HELP);
+        let path = reference_path();
+        if std::env::var_os("OPENBLOG_BLESS_DOCS").is_some() {
+            std::fs::write(&path, &expected).expect("write docs/cli-reference.md");
+            return;
+        }
+        let actual = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            actual == expected,
+            "docs/cli-reference.md is out of date with `openblog help`; regenerate it with \
+             OPENBLOG_BLESS_DOCS=1 cargo test -p openblog-cli cli_reference"
+        );
     }
 }

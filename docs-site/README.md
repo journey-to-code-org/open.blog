@@ -1,21 +1,20 @@
-# open.blog GitHub Pages Documentation
+# The documentation site
 
-This folder contains the standalone technical documentation suite intended for GitHub Pages.
+This folder is an open.blog project that publishes the repository's [`docs/`](../docs/README.md) folder at
+<https://journey-to-code-org.github.io/open.blog/>. The documentation is written once, in `docs/`, and read either
+on GitHub or on the site; nothing here is a copy of it.
 
-## Structure
+- `openblog.json` turns on the [documentation section](../docs/docs-sites.md), points `docs.source` at `docs/` on
+  GitHub, and uses the engine's own `themes/` and `web/` folders.
+- `content/landing.json` is the home page.
+- `content/docs/` is filled from `docs/` when the site is built and is never committed.
 
-- `index.md` – entry page
-- `getting-started.md` – install + first publish flow
-- `cli/` – CLI overview, commands, and workflows
-- `admin-panel/` – Admin usage and publishing flow
-- `content/` – Markdown, front matter, and quality guidance
-- `advanced/` – architecture, research, syndication, themes, analytics, migrations
-- `deployment.md` – GitHub Pages deployment notes
-- `troubleshooting.md` – operational troubleshooting
-- `contributing.md` – documentation maintenance guidance
-- `versioning-and-migrations.md` – changelog policy and upgrade runbook
-- `faq.md` – quick answers to common usage questions
+Build and preview it from the repository root:
 
-## Deployment
+```bash
+node scripts/build-docs-site.mjs           # copies docs/ into docs-site/content/docs/
+cargo run -p openblog-cli -- serve --root docs-site
+```
 
-Deployment is handled by `.github/workflows/docs-pages.yml`.
+`.github/workflows/docs-pages.yml` does the same and deploys `docs-site/dist/` on every push to `main` that changes
+`docs/`, this folder, the engine or the themes.

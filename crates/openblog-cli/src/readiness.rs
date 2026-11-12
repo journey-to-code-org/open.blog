@@ -506,7 +506,9 @@ pub fn saved_site(root: &Path) -> Result<std::sync::Arc<Site>, String> {
     let (site, _) = crate::site::load_site(root, true, None)?;
     let site = Arc::new(site);
     if let (Some(revision), Ok(mut kept)) = (revision, kept.lock()) {
-        if kept.len() >= 8 {
+        // Tests share this cache across threads, one project each; at eight, a
+        // many-core machine evicted a project between its own two requests.
+        if kept.len() >= if cfg!(test) { 256 } else { 8 } {
             kept.clear();
         }
         kept.insert(root.to_path_buf(), (revision, Arc::clone(&site)));
@@ -746,7 +748,7 @@ date: 2026-10-25
 draft: true
 ---
 
-Late.
+Later than planned.
 ",
         )
         .unwrap();

@@ -1,4 +1,7 @@
 /target
+# The documentation site: filled from docs/ by scripts/build-docs-site.mjs, and its build.
+/docs-site/content/docs/
+/docs-site/dist/
 /dist
 # wasm-pack output; only the two files the engine embeds are committed.
 /web/wasm/*

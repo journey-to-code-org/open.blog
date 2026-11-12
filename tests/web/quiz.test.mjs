@@ -98,6 +98,7 @@ test("answers immediately, announces the correction, persists, and retries", () 
   assert.equal(inputs[0].label.notes[0].textContent, " Correct answer.");
   assert.ok(inputs.every((input) => input.disabled));
   assert.equal(saved.get("ob-quiz:/lesson/:question"), "1");
+  assert.equal(retry.hidden, false);
 
   retry.click();
   assert.equal(feedback.hidden, true);
@@ -112,6 +113,7 @@ test("restores only an unchanged question's local attempt", () => {
   const restored = fixture("same-content");
   assert.equal(restored.inputs[0].checked, true);
   assert.equal(restored.feedback.result.textContent, "Correct.");
+  assert.equal(restored.retry.hidden, true, "a right answer offers no retry");
 
   const changed = fixture("changed-content");
   assert.ok(changed.inputs.every((input) => !input.checked && !input.disabled));

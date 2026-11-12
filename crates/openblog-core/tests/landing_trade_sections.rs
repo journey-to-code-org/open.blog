@@ -81,6 +81,7 @@ fn home(sources: Sources) -> String {
 fn an_empty_trade_site_renders_none_of_the_three_sections() {
     let page = home(Sources {
         landing: Some(landing(None)),
+        docs: Vec::new(),
         services: vec![service("draft-one", true)],
         ..Default::default()
     });
@@ -101,6 +102,7 @@ fn an_empty_trade_site_renders_none_of_the_three_sections() {
 fn the_sections_list_published_items_newest_first_up_to_their_count() {
     let page = home(Sources {
         landing: Some(landing(Some(2))),
+        docs: Vec::new(),
         services: vec![service("gates", false), service("secret", true)],
         proof: vec![
             review("old", "2026-01-01"),

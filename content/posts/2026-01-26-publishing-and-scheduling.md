@@ -35,6 +35,9 @@ Scheduled posts stay out of the pages, feeds, sitemap, and search index. When th
 comes, `openblog serve` rebuilds by itself. On a static host, any `openblog build` after
 that time publishes it, so a daily build (a cron job or a scheduled workflow) is enough.
 
+This demo has one waiting: `content/posts/2026-12-24-a-post-from-the-future.md`. It is not on
+the site until 9:00 UTC on 24 December 2026. Run `openblog serve --drafts` to read it early.
+
 ## The admin editor
 
 For editing from a browser, including on the server that hosts the blog:

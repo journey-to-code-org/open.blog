@@ -1,7 +1,9 @@
 ---
 title: Executable code lessons, with a safe fallback
 date: 2026-10-24
-tags: [tutorial, rust, web]
+series: teaching-with-code
+seriesOrder: 1
+tags: [tutorial, rust, web, teaching]
 description: Rust and browser lessons work out of the box; configured languages fail closed until a separate runner is enabled.
 ---
 
@@ -43,3 +45,13 @@ print(f"Welcome, {name}!")
 
 That fail-closed behavior lets an author keep portable lesson source without silently turning the
 blog or Admin server into a code-execution service.
+
+## Turning on more languages
+
+To let readers run Python, Go or another language, the site owner deploys a separate execution
+gateway, an isolated, network-disabled sandbox, and lists the languages under `codeRunner` in
+`openblog.json`. The blog only forwards the source and shows the text that comes back. The
+[deployment guide](https://github.com/journey-to-code-org/open.blog/blob/main/docs/deploy.md#execution-gateway)
+explains what that gateway must guarantee before you enable it.
+
+Next: [Rust challenges with hidden checks](/posts/rust-challenges-with-hidden-checks/).

@@ -99,6 +99,12 @@ Put files in `static/`; they are copied to the site root. `static/images/photo.p
 
 The admin editor uploads and inserts images for you, including by drag and drop or paste.
 
+## Going further
+
+This part covers the basics. [The writer's toolkit](/series/writers-toolkit/) shows everything
+else a post can hold: all five callouts, collapsible sections, buttons, maps, opening hours,
+FAQs, before-and-after photos, and more on code blocks and quizzes.
+
 Next: [Tags and series](/posts/tags-and-series/).
 
 [^1]: Footnotes render at the end of the post.

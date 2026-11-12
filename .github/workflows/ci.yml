@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,6 +37,17 @@ jobs:
         run: sh tests/docker-entrypoint.sh
       - name: Check documentation links
         run: node scripts/check-doc-links.mjs
+      - name: Build the documentation site
+        # docs-site/ publishes docs/ with open.blog itself; a link between docs that does not
+        # resolve fails the build here rather than on the deployed site.
+        run: |
+          set -o pipefail
+          node scripts/build-docs-site.mjs
+          cargo run -p openblog-cli -- build --root docs-site 2>&1 | tee "$RUNNER_TEMP/docs-site.log"
+          if grep -q "does not match a page under docs/" "$RUNNER_TEMP/docs-site.log"; then
+            echo "::error::a link in docs/ does not resolve on the documentation site"
+            exit 1
+          fi
       - name: Build the starter site
         run: cargo run -p openblog-cli -- build
       - name: Build the portable publishing example
@@ -63,7 +74,7 @@ jobs:
     # Runs the real plpgsql of the social delivery queue (claim, SKIP LOCKED, leases, settle and the
     # rollbacks), and of the Webmention request store, against a throwaway Postgres, so the SQL is
     # tested and not only matched by regexes.
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     services:
       postgres:
         image: postgres:16

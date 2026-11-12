@@ -4,6 +4,8 @@ An open-source, self-hosted blogging platform. Write Markdown files, get a fast 
 site with feeds, search, themes, scheduling, and an optional browser editor. Built in Rust
 and WebAssembly on native HTML and web components, with a focus on owning your content.
 
+**Documentation: <https://journey-to-code-org.github.io/open.blog/>**
+
 - **Markdown in, static site out.** Posts are plain `.md` files in a folder. No database.
 - **Themes are design tokens.** A theme is a JSON file of colours, fonts, and sizes that
   compiles to CSS custom properties. Themes inherit from each other, each series can have
@@ -128,10 +130,13 @@ dist/                 the generated site (do not edit; rebuilt every time)
 
 ## Documentation
 
-Start with [the docs index](docs/README.md). The main guides:
+Read the docs at <https://journey-to-code-org.github.io/open.blog/>, with search and
+navigation. The site is built with open.blog itself from [`docs/`](docs/README.md) on every
+push to `main` (see [`docs-site/`](docs-site/README.md)), so the same files read the same on
+GitHub. New here? Start with [Getting started](docs/getting-started.md). The main guides:
 
-- [GitHub Pages documentation suite source](docs-site/README.md): a docs-portal
-  structure for CLI, Admin, Markdown authoring, and deployment guidance
+- [Command reference](docs/cli-reference.md): every command and option, generated from
+  `openblog help`
 
 - [Writing content](docs/content.md): posts, series, pages, and every front matter field
 - [Configuration](docs/configuration.md): every setting in `openblog.json`

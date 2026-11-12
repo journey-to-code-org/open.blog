@@ -1,6 +1,8 @@
 ---
 title: Research posts and contributor credits
 date: 2026-02-16
+series: research-and-collaboration
+seriesOrder: 1
 tags:
   - research
   - guide
@@ -44,7 +46,19 @@ After `openblog build`, inspect this page, `rss.xml`, `feed.json`, and the page'
 Only the Crossref author appears in author-only metadata; both people and all their roles remain
 visible in the Contributions panel.
 
+## Footnotes as references
+
+Research posts can use ordinary Markdown footnotes for asides and sources.[^roles] The Evidence
+view checks that a References or Bibliography section exists and that its links are well formed.
+It does not judge whether a source is right; that is the author's job.
+
+Next: [Which writing rules still matter?](/posts/which-writing-rules-still-matter/), a shared
+reflection by two contributors.
+
 ## References
 
 1. [CRediT role taxonomy](https://credit.niso.org/)
 2. [Crossref contributor guidance](https://www.crossref.org/documentation/schema-library/markup-guide-metadata-segments/contributors/)
+
+[^roles]: CRediT has fourteen roles, from `conceptualization` to `writing-review-editing`. Crossref
+    roles such as `author`, `editor` and `translator` decide who appears in the byline.

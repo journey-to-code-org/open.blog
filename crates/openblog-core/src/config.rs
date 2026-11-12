@@ -171,6 +171,10 @@ pub struct SiteConfig {
     /// Omitted from the written file while it has its default.
     #[serde(skip_serializing_if = "crate::proof::ReviewsConfig::is_default")]
     pub reviews: crate::proof::ReviewsConfig,
+    /// The documentation section (ADR 0405): `content/docs/` published at `/docs/` with a
+    /// sidebar. Off and omitted from the written file until stated.
+    #[serde(skip_serializing_if = "crate::docs_section::DocsConfig::is_default")]
+    pub docs: crate::docs_section::DocsConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -616,6 +620,7 @@ impl Default for SiteConfig {
             webmention: WebmentionConfig::default(),
             quote: crate::quote::QuoteConfig::default(),
             reviews: crate::proof::ReviewsConfig::default(),
+            docs: crate::docs_section::DocsConfig::default(),
         }
     }
 }
@@ -1807,5 +1812,49 @@ mod captcha_tests {
         )
         .unwrap();
         assert!(!off.engagement.captcha.enabled());
+    }
+    /// Every top-level `openblog.json` key has to be mentioned in `docs/configuration.md`, which
+    /// the documentation site publishes as the configuration reference. A key counts as
+    /// documented when the page shows it as `"key"` in the example or names it in backticks.
+    #[test]
+    fn every_top_level_key_is_in_the_configuration_reference() {
+        let source = include_str!("config.rs");
+        let doc = include_str!("../../../docs/configuration.md");
+        let start = source.find("pub struct SiteConfig {").expect("SiteConfig");
+        let end = start + source[start..].find("\n}\n").expect("end of SiteConfig");
+        let keys: Vec<String> = source[start..end]
+            .lines()
+            .filter_map(|line| line.trim_start().strip_prefix("pub "))
+            .filter_map(|rest| rest.split_once(':').map(|(field, _)| field.trim()))
+            .filter(|field| field.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
+            .map(|field| {
+                let mut key = String::new();
+                let mut upper = false;
+                for c in field.chars() {
+                    if c == '_' {
+                        upper = true;
+                    } else if upper {
+                        key.push(c.to_ascii_uppercase());
+                        upper = false;
+                    } else {
+                        key.push(c);
+                    }
+                }
+                key
+            })
+            .collect();
+        assert!(keys.len() > 40, "found too few keys: {keys:?}");
+        let missing: Vec<&String> = keys
+            .iter()
+            .filter(|key| {
+                !doc.contains(&format!("\"{key}\""))
+                    && !doc.contains(&format!("`{key}`"))
+                    && !doc.contains(&format!("`{key}."))
+            })
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "openblog.json keys missing from docs/configuration.md: {missing:?}"
+        );
     }
 }

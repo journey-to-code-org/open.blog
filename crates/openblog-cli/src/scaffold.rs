@@ -40,10 +40,13 @@ pub enum Starter {
     /// A trade business (ADR 0399): business facts, example services as drafts, empty jobs and
     /// reviews, a quote form, and a phone-first landing page.
     Trade { trade: String },
+    /// A documentation section (ADR 0405) beside the blog: `docs.enabled`, a "Docs" link in the
+    /// header and a short example tree under `content/docs/` that shows ordering and links.
+    Docs,
 }
 
 /// The starters `--starter` accepts, as the help and errors list them.
-pub const STARTERS: &[&str] = &["trade"];
+pub const STARTERS: &[&str] = &["trade", "docs"];
 
 impl Starter {
     /// The starter named on the command line, with its options checked before anything is written.
@@ -59,6 +62,8 @@ impl Starter {
                 }
                 Ok(Self::Trade { trade })
             }
+            "docs" if trade.is_some() => Err("--trade goes with --starter trade".into()),
+            "docs" => Ok(Self::Docs),
             other => Err(format!(
                 "--starter `{other}` is not a starter this version has; choose {}",
                 STARTERS.join(", ")
@@ -110,10 +115,18 @@ pub fn init_with(
                 write(&rel, &contents)?;
             }
         }
+        Some(Starter::Docs) => {
+            let config = docs_config(&config)?;
+            write(CONFIG_FILE, &format!("{}\n", config.to_json()))?;
+            for (rel, contents) in docs_files(&config) {
+                write(&rel, &contents)?;
+            }
+        }
     }
+    let trade = matches!(starter, Some(Starter::Trade { .. }));
 
     let date = today().ymd();
-    if starter.is_none() {
+    if !trade {
         let post = frontmatter::serialize(&[
             ("title", Value::Scalar("Hello, world".into())),
             ("date", Value::Scalar(date)),
@@ -132,11 +145,7 @@ pub fn init_with(
         ("title", Value::Scalar("About".into())),
         ("nav", Value::Scalar("true".into())),
     ]);
-    let about = if starter.is_some() {
-        TRADE_ABOUT
-    } else {
-        ABOUT
-    };
+    let about = if trade { TRADE_ABOUT } else { ABOUT };
     write("content/pages/about.md", &format!("{page}\n{about}"))?;
     write("content/series/.gitkeep", "")?;
     write("static/.gitkeep", "")?;
@@ -180,6 +189,48 @@ pub fn init_with(
         }
     }
     Ok(created)
+}
+
+// ----- the docs starter (ADR 0405) ----------------------------------------
+
+/// The plain defaults with the documentation section on and a "Docs" link in the header after
+/// Home. Read back through [`SiteConfig::from_json`] like the trade starter's.
+fn docs_config(base: &SiteConfig) -> Result<SiteConfig, String> {
+    let mut value: serde_json::Value = serde_json::from_str(&base.to_json())
+        .map_err(|error| format!("cannot read the default settings: {error}"))?;
+    value["docs"] = serde_json::json!({ "enabled": true });
+    if let Some(nav) = value["nav"].as_array_mut() {
+        let at = usize::from(!nav.is_empty());
+        nav.insert(at, serde_json::json!({ "label": "Docs", "href": "/docs/" }));
+    }
+    SiteConfig::from_json(&value.to_string())
+}
+
+/// The example documentation: a home, a page with an `order`, and a folder with its own index,
+/// linking to each other as `.md` files so the same files read correctly on GitHub.
+fn docs_files(config: &SiteConfig) -> Vec<(String, String)> {
+    let content = config.paths.content.trim_end_matches('/');
+    [
+        (
+            "docs/index.md",
+            "---\ntitle: Introduction\ndescription: Everything you need to use this project.\n---\n\nWelcome. These pages are Markdown files in `content/docs/`; each file is a page at the address its path gives, so `content/docs/getting-started.md` is `/docs/getting-started/`.\n\nStart with [Getting started](getting-started.md), then read [the guides](guides/index.md).\n",
+        ),
+        (
+            "docs/getting-started.md",
+            "---\ntitle: Getting started\ndescription: Install it and take the first steps.\norder: 1\n---\n\nReplace this page with how to get started.\n\n## Install\n\nSay how to install it.\n\n## First steps\n\nWhen you are done, carry on with [the guides](guides/index.md).\n",
+        ),
+        (
+            "docs/guides/index.md",
+            "---\ntitle: Guides\ndescription: How to do the common tasks.\norder: 2\n---\n\nA folder's `index.md` heads its group in the sidebar. The pages in the folder are listed under it, by their `order` and then by title.\n\n- [Writing pages](writing-pages.md)\n",
+        ),
+        (
+            "docs/guides/writing-pages.md",
+            "---\ntitle: Writing documentation pages\nnavTitle: Writing pages\ndescription: Front matter, ordering and links in the documentation.\n---\n\n## Front matter\n\n- `title` is the page's heading.\n- `navTitle` is an optional shorter title for the sidebar.\n- `order` puts pages in a folder in order, lowest first; pages without one follow, by title.\n- `draft: true` keeps a page off the site.\n\n## Links\n\nLink to another page by its file, such as [Getting started](../getting-started.md) or [a heading on it](../getting-started.md#install). The build turns the link into the page's address and warns about a link to a file that does not exist.\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(rel, contents)| (format!("{content}/{rel}"), contents.to_string()))
+    .collect()
 }
 
 // ----- the trade starter (ADR 0399) ---------------------------------------
@@ -652,10 +703,43 @@ mod tests {
     }
 
     #[test]
+    fn a_docs_starter_builds_a_linked_documentation_section_with_no_warnings() {
+        let dir = fresh("docs");
+        init_with(&dir, Some("Widget"), false, Some(&Starter::Docs)).unwrap();
+        let (mut site, themes) = crate::site::load_site(&dir, false, None).unwrap();
+        // The plain project's own reminders (author, the welcome post) are left to the author;
+        // nothing about the documentation is.
+        let about_docs: Vec<&String> = site
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("docs"))
+            .collect();
+        assert!(about_docs.is_empty(), "{about_docs:?}");
+        assert!(site.config.docs.enabled);
+        assert!(site.config.nav.iter().any(|link| link.href == "/docs/"));
+        assert_eq!(site.posts.len(), 1, "the blog's hello-world post stays");
+        let files = crate::site::generate_site(&dir, &mut site, &themes).unwrap();
+        let page = |path: &str| {
+            &files
+                .iter()
+                .find(|file| file.path == path)
+                .unwrap_or_else(|| panic!("missing {path}"))
+                .contents
+        };
+        assert!(page("docs/index.html").contains("href=\"/docs/getting-started/\""));
+        let writing = page("docs/guides/writing-pages/index.html");
+        assert!(writing.contains("href=\"/docs/getting-started/#install\""));
+        assert!(writing.contains("aria-current=\"page\">Writing pages</a>"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn an_unknown_starter_or_trade_is_refused_before_anything_is_written() {
         assert!(Starter::parse("bakery", None)
             .unwrap_err()
-            .contains("choose trade"));
+            .contains("choose trade, docs"));
+        assert_eq!(Starter::parse("docs", None).unwrap(), Starter::Docs);
+        assert!(Starter::parse("docs", Some("flooring")).is_err());
         let error = Starter::parse("trade", Some("fencing")).unwrap_err();
         assert!(error.contains("not a bundled trade") && error.contains("extraTrades"));
         assert_eq!(

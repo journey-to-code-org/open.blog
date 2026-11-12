@@ -287,6 +287,7 @@ fn services_reserve_their_address() {
     let site = Site::load(
         SiteConfig::from_json(CONFIG).unwrap(),
         Sources {
+            docs: Vec::new(),
             services: vec![file("services/hardwood.md", HARDWOOD)],
             pages: vec![file("pages/services.md", "---\ntitle: Services\n---\nHi")],
             ..Default::default()

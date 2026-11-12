@@ -5,6 +5,19 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Documentation sites (ADR 0405): with `"docs": { "enabled": true }`, Markdown under `content/docs/` is published as a tree of pages at `/docs/`, each at the address its path gives (`guides/deploy.md` is `/docs/guides/deploy/`, a folder's `index.md` is the folder). Pages get a sidebar that opens the folder the reader is in (plain HTML in a `<details>`, folded on narrow screens by the new `<ob-docs-nav>`), and **Previous** and **Next** links in reading order; `order:` and `navTitle:` set the order and a shorter sidebar title. Links written between files (`install.md`, `../guides/`, `deploy.md#netlify`) become the pages' addresses, and a link to a missing file is a warning. `openblog init --starter docs` writes an example section and a Docs link. Off by default: until it is enabled, a `content/docs/` folder is still left out, and the build says so. See [Documentation sites](docs/docs-sites.md). A folder's `README.md` is its page as on GitHub, a file without a front matter title is titled by its first heading (not repeated on the page), and with `docs.source` set each page links to its source and links to files outside `docs/` point at the repository (ADR 0406).
+- Web sandboxes (`web runnable`) show the live preview first, with the source behind a **Show code**
+  button; a new `open` fence word shows the editors from the start for challenges. The preview takes the
+  page's light or dark scheme and follows the reader's theme toggle without reloading, so lesson CSS
+  written with `light-dark()` matches the page. The preview frame no longer forces a white background,
+  and the sandbox notes line up with its buttons.
+- Quiz choices are shuffled at build time with a seed from the quiz's own key, so the right answer is
+  no longer usually second and the order is stable across builds; portable copies keep the authored
+  order. The question sits inside its card, and **Retry** appears only after a wrong answer.
+- The component lab colours its light DOM, shadow DOM and page CSS panels with the shared highlighter
+  and the theme's code tokens.
+- Docs site from one source, built with open.blog: the documentation site (<https://journey-to-code-org.github.io/open.blog/>) is now an open.blog project (`docs-site/`) that publishes every guide, specification and decision record in `docs/` with the new documentation section, in place of the Jekyll site. Getting started, the FAQ, Troubleshooting and Versioning moved into `docs/`; the other hand-written Jekyll pages repeated the guides and are gone. It redeploys whenever `docs/`, the engine or the themes change, and CI fails when a link between docs does not resolve. The hand-written command reference, which listed 12 of about 35 commands, is replaced by [`docs/cli-reference.md`](docs/cli-reference.md), generated from `openblog help`; a test fails when it is out of date or a command is missing from the help, and another fails when a top-level `openblog.json` key is missing from the configuration reference.
+
 ## [0.56.0] - 2026-11-11
 
 - Where your posts went (epic #388, story #403; ADRs 0402 and 0403): `openblog outcomes [--json] [--days N]` and Admin's **Where it went** read every destination's private record (cross-posting, Pinterest, community submissions, shared jobs, YouTube, and in Admin the social announcements queue) and show, per post, each place's status (Delivered, Posted by hand, Draft or private, Waiting, Unknown, Not delivered), what it rests on (the platform's answer, your word, or nothing yet), its link and its attempts. Several records for the same post and place are one row; an unknown never overrules a settled outcome and never counts as reached. Problems are shown only as short codes and links without their query, so no provider text or token can appear. The report asks no platform anything and writes nothing.
