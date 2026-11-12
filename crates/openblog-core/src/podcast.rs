@@ -100,7 +100,7 @@ pub fn generate(site: &Site, config: &PodcastConfig) -> Result<(String, Vec<Outp
         out.push_str(&format!("<itunes:owner><itunes:name>{}</itunes:name><itunes:email>{}</itunes:email></itunes:owner>\n", x(&config.author), x(email)));
     }
     let mut files = Vec::new();
-    for post in site.posts.iter().filter(|post| !post.draft) {
+    for post in site.posts.iter().filter(|post| site.is_published(post)) {
         let Some(audio) = &post.audio else { continue };
         let source = audio
             .sources

@@ -101,3 +101,51 @@ fn missing_transcript_names_the_fix_before_audio_can_be_published() {
         "{errors}"
     );
 }
+
+#[test]
+fn podcast_excludes_drafts_and_future_posts_even_in_preview() {
+    let make_post = |name: &str, date: &str, draft: bool| {
+        SourceFile {
+        path: format!("posts/{name}.md"),
+        contents: format!("---\ntitle: {name}\ndate: {date}\ndraft: {draft}\naudio:\n  version: 1\n  durationSeconds: 30\n  sources:\n    - url: /a.mp3\n      type: audio/mpeg\n      sizeBytes: 123\n---\n## Transcript\n\nWords.\n"),
+    }
+    };
+    let reader = FileReader::new(|_, _| {
+        Ok(FileEvidence {
+            size_bytes: 123,
+            bytes: b"ID3".to_vec(),
+        })
+    });
+    let site = Site::load(
+        SiteConfig::default(),
+        Sources {
+            posts: vec![
+                make_post("Public", "2026-01-01", false),
+                make_post("Future", "2027-01-01", false),
+                make_post("Draft", "2026-01-01", true),
+            ],
+            audio_files: Some(reader),
+            ..Default::default()
+        },
+        LoadOptions {
+            include_drafts: true,
+            now: openblog_core::DateTime::parse("2026-06-01"),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let config = openblog_core::podcast::PodcastConfig {
+        version: 1,
+        title: "Show".into(),
+        description: "Description".into(),
+        author: "Host".into(),
+        email: None,
+        category: "Technology".into(),
+        explicit: false,
+        image: "/cover.jpg".into(),
+    };
+    let (feed, _) = openblog_core::podcast::generate(&site, &config).unwrap();
+    assert!(feed.contains("<title>Public</title>"));
+    assert!(!feed.contains("<title>Future</title>"));
+    assert!(!feed.contains("<title>Draft</title>"));
+}
