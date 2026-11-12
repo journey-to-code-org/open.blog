@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import axe from "axe-core";
 import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio page and sign-in, with the collaboration API replaced by a small in-memory
@@ -136,6 +137,37 @@ test("on a phone-sized screen the draft panel does not scroll sideways", async (
   });
   expect(wide).toEqual([]);
   await expect(editor(page)).toBeVisible();
+});
+
+test("the private draft and conflict recovery are accessible at 400px", async ({ page, context }) => {
+  await install(context);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.evaluate(axe.source);
+  const audit = async () => page.evaluate(async () => window.axe.run(document.querySelector(".oba-draft"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  await editor(page).fill("My unsaved perspective.");
+  store = { number: 1, markdown: "Another saved perspective." };
+  await saveDraft(page).click();
+  await expect(page.getByRole("heading", { name: "Your draft changed elsewhere" })).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await expect(editor(page)).toHaveValue("My unsaved perspective.");
+});
+
+test("restoring after a conflict keeps edits made while deciding", async ({ page, context }) => {
+  await install(context);
+  await openPanel(page);
+  await editor(page).fill("Original unsaved text.");
+  store = { number: 1, markdown: "Newer saved text." };
+  await saveDraft(page).click();
+  await expect(page.getByRole("heading", { name: "Your draft changed elsewhere" })).toBeVisible();
+  await editor(page).fill("Edited while deciding.");
+  await page.getByRole("button", { name: "Use the newer copy instead" }).click();
+  await expect(editor(page)).toHaveValue("Newer saved text.");
+  await page.getByRole("button", { name: "Restore my earlier text" }).click();
+  await expect(editor(page)).toHaveValue("Edited while deciding.");
 });
 
 test("going offline keeps the text and says so, and saving works again afterwards", async ({ page, context }) => {

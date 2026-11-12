@@ -19164,7 +19164,7 @@ export class ObAdmin extends AdminElement {
         if (conflict.hidden && problem.hidden) text.focus();
       });
       useNewer.addEventListener("click", () => {
-        stash = mine;
+        stash = text.value;
         text.value = current?.markdown || "";
         adoptDraft(current);
         loadSharing(); // an open offer box names the old revision
