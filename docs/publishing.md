@@ -163,6 +163,10 @@ wrangler secret put EXPORT_SECRET      # any long random string; you need it bel
 wrangler deploy                        # prints https://<name>.<you>.workers.dev
 ```
 
+The generated Worker attributes visits using the same fixed destination and host table as the built-in
+counter. Its `CAMPAIGNS` and `OWN_HOSTS` settings are filled from `openblog.json` when the Worker is generated;
+`openblog analytics attribution` prints the current values if you later change your settings.
+
 Then in `openblog.json`:
 
 ```jsonc
@@ -180,6 +184,25 @@ openblog analytics backup
 Pulling replaces the worker's share of the data each time, so pulling twice never counts
 twice. A scheduled job that runs these two commands keeps the branch, and therefore the
 baked counts, fresh; the admin's Analytics tab shows the merged numbers.
+
+### Hosted engagement function
+
+The hosted Netlify engagement function can record arrivals in addition to views. After its regular setup, run
+[`supabase/arrivals.sql`](../supabase/arrivals.sql) after `supabase/openblog.sql`, then set
+`OPENBLOG_ARRIVALS_ENABLED=true` and redeploy. To use the same attribution as the built-in counter, run
+`openblog analytics attribution` and set `OPENBLOG_ANALYTICS_CAMPAIGNS` and
+`OPENBLOG_ANALYTICS_OWN_HOSTS` to the values it prints. The schema and function are unchanged until this opt-in.
+
+Pull and back up the hosted function's counts with its Admin API key:
+
+```sh
+openblog analytics pull https://<site>/api --secret <OPENBLOG_ADMIN_API_KEY> --name hosted
+openblog analytics backup
+```
+
+The export is private and uses the same version-1 shape as the Worker; pulling replaces that source's prior
+snapshot, so it is safe to repeat. The report uses pulled arrivals even with `analytics.builtin: false`.
+See the [hosted-function setup](../netlify/functions/README.md#visit-attribution-optional).
 
 ## A counter you host: Render with MongoDB
 
@@ -215,13 +238,14 @@ Any service that answers these three routes works with `<ob-views>` and
 `openblog analytics pull`:
 
 ```
-POST /hit            JSON {path, referrer}            → {views}
+POST /hit            JSON {path, referrer, source?}   → {views}
 GET  /views?path=    → {views}
 GET  /export         Authorization: Bearer <secret>   → {version: 1, days: {...}, totals: {...}}
 ```
 
-`days` maps `YYYY-MM-DD` to `{views: {path: n}, uniques: {path: n}, referrers: {host: n}}`
-and `totals` maps paths to all-time views. The two shipped counters are the reference.
+`days` maps `YYYY-MM-DD` to `{views: {path: n}, uniques: {path: n}, referrers: {host: n}}` and optionally
+`arrivals: {destination: {path: n}}`; `totals` maps paths to all-time views. Unknown arrival destinations are
+dropped on import. The two counters that support arrivals are the reference.
 
 ## What stays manual
 

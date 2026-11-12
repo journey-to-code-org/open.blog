@@ -70,6 +70,7 @@ analytics backup           Save view counts to the analytics branch (and push)
 analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
 analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
 analytics service [dir]    Write a Node + MongoDB counter for Render (default: counter-service/)
+analytics attribution      Print the visit attribution settings for a hosted counter
 voice [prompt-id]          A timed writing session: draw three prompts (or name one),
                            write in your editor or the terminal, and keep the rough draft
                            exactly as written (see voice OPTIONS)
