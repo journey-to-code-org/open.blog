@@ -3291,11 +3291,11 @@ fn render_diagram_events<'a>(events: Vec<Event<'a>>, work: &mut DiagramWork) -> 
         let rendered = found.and_then(|diagram| {
             for _ in 0..100 {
                 ordinal += 1;
-                let svg = crate::diagram_svg::render(&diagram, ordinal).map_err(|message| {
+                let svg = crate::diagram_svg::render_diagnostic(&diagram, ordinal).map_err(|error| {
                     crate::diagram::Finding {
-                        line: diagram.line,
-                        column: diagram.column,
-                        message,
+                        line: error.position.map_or(diagram.line, |(line, _)| diagram.line + line),
+                        column: if error.position.is_some() { 1 } else { diagram.column },
+                        message: error.message,
                     }
                 })?;
                 let document = roxmltree::Document::parse(&svg).map_err(|error| {

@@ -156,7 +156,25 @@ fn malformed_syntax_is_rejected_even_with_accessible_text() {
     )
     .unwrap_err();
     assert!(
-        errors.iter().any(|error| error.contains("line 5")),
+        errors.iter().any(|error| error.contains("line 8")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn nested_diagram_syntax_reports_the_source_line() {
+    let body =
+        "Intro.\n\n> ```mermaid title=Broken description=Broken\n> flowchart LR\n> A -->\n> ```\n";
+    let errors = load(
+        Sources {
+            pages: vec![page(body)],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap_err();
+    assert!(
+        errors.iter().any(|error| error.contains("line 9")),
         "{errors:?}"
     );
 }
