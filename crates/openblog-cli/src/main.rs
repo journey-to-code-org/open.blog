@@ -315,6 +315,7 @@ new OPTIONS
     --recipe                   Start from a recipe template (servings, times, ingredients, steps)
     --profile job              Start a job: the job front matter and the headings Problem, What we
                                found, What we did, Result. Always a draft until it is filled in
+    --profile decision         Start a draft decision record with before and after diagram slots
     --trade <id>               With --profile job: the trade (bundled, or from extraTrades)
     --service <id>             With --profile job: the service, such as hardwood-install
     --town <name>              With --profile job: the town (never an address)
@@ -542,6 +543,18 @@ fn run(raw: &[String]) -> Result<(), String> {
                     scaffold::new_job(&root, title, series, &tags, &start)?
                 }
                 Some("job") => return Err("--recipe and --profile job cannot be combined".into()),
+                Some("decision") if !recipe => {
+                    if ["trade", "service", "town", "region", "id", "price-band"]
+                        .iter()
+                        .any(|name| args.options.contains_key(*name))
+                    {
+                        return Err("trade and service options cannot be used with a decision".into());
+                    }
+                    scaffold::new_decision(&root, title, series, &tags)?
+                }
+                Some("decision") => {
+                    return Err("--recipe and --profile decision cannot be combined".into())
+                }
                 None | Some("article") | Some("recipe") => {
                     if ["trade", "service", "town", "region"]
                         .iter()
@@ -562,13 +575,16 @@ fn run(raw: &[String]) -> Result<(), String> {
                 }
                 Some(other) => {
                     return Err(format!(
-                        "`--profile {other}` is not supported by `new`; use article, recipe, job or service"
+                        "`--profile {other}` is not supported by `new`; use article, recipe, job, decision or service"
                     ))
                 }
             };
             println!("created {created}");
             if profile.as_deref() == Some("job") {
                 println!("It is a draft until you fill in the job's details; `openblog check` lists what is missing.");
+            }
+            if profile.as_deref() == Some("decision") {
+                println!("It is a draft until you fill in the decision record and remove `draft`.");
             }
             if profile.as_deref() == Some("service") {
                 println!("It is a draft until you write its summary and remove `draft`; `openblog check` lists what is missing.");

@@ -324,7 +324,7 @@ export function draftRoute(hash) {
 export function workspacePanelKey(hash) {
   const { head, tail } = parseAdminHash(canonicalAdminHash(hash));
   if (head === "research") return tail.split("/")[0] || null;
-  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series", "recipe"].includes(tail))) return "draft";
+  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series", "recipe", "decision"].includes(tail))) return "draft";
   return null;
 }
 
@@ -12089,6 +12089,7 @@ export class ObAdmin extends AdminElement {
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New recipe", category: "Create", keywords: "cook food ingredients dish", run: () => go("#/new/recipe") },
+      { label: "New decision record", category: "Create", keywords: "decision context options consequences", run: () => go("#/new/decision") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
       { label: "New series", category: "Create", keywords: "collection", run: () => go("#/new/series") },
@@ -12313,7 +12314,7 @@ export class ObAdmin extends AdminElement {
     this.arrivingHash = nextHash;
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
-      else if (head === "new" && tail === "recipe") await this.showEditor(null, "posts", "recipe");
+      else if (head === "new" && ["recipe", "decision"].includes(tail)) await this.showEditor(null, "posts", tail);
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
@@ -12469,7 +12470,7 @@ export class ObAdmin extends AdminElement {
         h("span", {}, h("strong", {}, label), h("small", {}, description)),
       );
     const quickCreateKind = (kind, description) => quickCreate(kind, `New ${KINDS[kind].single}`, description);
-    const quickCreatePanel = h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("recipe", "New recipe", "Ingredients and steps, ready to fill in"), quickCreateKind("posts", "Write an article or draft"), quickCreateKind("pages", "Add evergreen site content"), quickCreateKind("series", "Group posts into a collection")));
+    const quickCreatePanel = h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("recipe", "New recipe", "Ingredients and steps, ready to fill in"), quickCreate("decision", "New decision record", "Context, options, decision and consequences"), quickCreateKind("posts", "Write an article or draft"), quickCreateKind("pages", "Add evergreen site content"), quickCreateKind("series", "Group posts into a collection")));
     const recentList = h(
       "ol",
       { class: "oba-recent-list" },
@@ -12709,7 +12710,7 @@ export class ObAdmin extends AdminElement {
       this.shell(
         kind,
         ...banner,
-        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), kind === "posts" ? h("a", { class: "oba-btn", href: "#/new/recipe" }, "New recipe") : null, filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
+        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), kind === "posts" ? h("a", { class: "oba-btn", href: "#/new/recipe" }, "New recipe") : null, kind === "posts" ? h("a", { class: "oba-btn", href: "#/new/decision" }, "New decision record") : null, filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
         table,
       ),
     );
@@ -21594,7 +21595,7 @@ export class ObAdmin extends AdminElement {
         path: null,
         kind: newKind,
         etag: null,
-        fields: newProfile ? { profile: newProfile } : {},
+        fields: newProfile === "decision" ? { profile: newProfile, decisionStatus: "proposed" } : newProfile ? { profile: newProfile } : {},
         body: profileStarter(this.meta?.profiles, newProfile),
       };
     }

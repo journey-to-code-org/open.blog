@@ -2574,6 +2574,19 @@ impl<'a> Renderer<'a> {
             body.push_str("</ul>\n");
         }
         body.push_str("</header>\n");
+        if let Some(decision) = &post.decision {
+            body.push_str(&format!(
+                "<p class=\"ob-decision-status\">Decision status: <strong>{}</strong>",
+                text(decision.status.as_str())
+            ));
+            if let Some(successor) = &decision.superseded_by {
+                body.push_str(&format!(
+                    ". <a href=\"{}\">Read the decision that supersedes this one</a>",
+                    attr(successor)
+                ));
+            }
+            body.push_str(".</p>\n");
+        }
         if post.credit_provenance == CreditProvenance::ExplicitSidecar && !post.credits.is_empty() {
             body.push_str(&contributions_html(post));
         }
@@ -2862,6 +2875,9 @@ impl<'a> Renderer<'a> {
                 });
                 if let Some(subtitle) = &post.subtitle {
                     posting["alternativeHeadline"] = serde_json::json!(subtitle);
+                }
+                if let Some(decision) = &post.decision {
+                    posting["creativeWorkStatus"] = serde_json::json!(decision.status.as_str());
                 }
                 match post.credit_provenance {
                     CreditProvenance::LegacySiteAuthor => {

@@ -9,6 +9,7 @@ pub const RESEARCH_ID: &str = "research";
 pub const VIDEO_ID: &str = "video";
 pub const FIELD_JOURNAL_ID: &str = "field-journal";
 pub const JOB_ID: &str = "job";
+pub const DECISION_ID: &str = "decision";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileFieldKind {
@@ -281,6 +282,21 @@ const FIELD_JOURNAL_FIELDS: &[ProfileField] = &[
     },
 ];
 
+const DECISION_FIELDS: &[ProfileField] = &[
+    ProfileField {
+        key: "decisionStatus",
+        label: "Decision status",
+        kind: ProfileFieldKind::Text,
+        help: "proposed, accepted, or superseded.",
+    },
+    ProfileField {
+        key: "supersededBy",
+        label: "Superseded by",
+        kind: ProfileFieldKind::Text,
+        help: "For a superseded decision, the site-relative path of its published successor.",
+    },
+];
+
 const PROFILES: &[ContentProfile] = &[
     ContentProfile {
         id: ARTICLE_ID,
@@ -325,6 +341,13 @@ const PROFILES: &[ContentProfile] = &[
         fields: &[],
         starter: None,
     },
+    ContentProfile {
+        id: DECISION_ID,
+        label: "Decision record",
+        description: "A decision with context, options, consequences, and before and after diagrams.",
+        fields: DECISION_FIELDS,
+        starter: Some(crate::decision::STARTER),
+    },
 ];
 
 pub fn catalog() -> &'static [ContentProfile] {
@@ -357,6 +380,7 @@ pub fn field_aliases(key: &str) -> &'static [&'static str] {
 /// Everyday values Admin offers for a field, which can still be typed freely.
 pub fn field_suggestions(key: &str) -> &'static [&'static str] {
     match key {
+        "decisionStatus" => &["proposed", "accepted", "superseded"],
         "course" => &[
             "Breakfast",
             "Lunch",
@@ -397,6 +421,7 @@ pub enum ProfileBehavior {
     Video,
     FieldJournal,
     Job,
+    Decision,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -423,6 +448,7 @@ pub fn resolve(front_matter: &FrontMatter) -> ProfileResolution {
             VIDEO_ID => ProfileBehavior::Video,
             FIELD_JOURNAL_ID => ProfileBehavior::FieldJournal,
             JOB_ID => ProfileBehavior::Job,
+            DECISION_ID => ProfileBehavior::Decision,
             _ => ProfileBehavior::Article,
         };
         let mut warnings = Vec::new();

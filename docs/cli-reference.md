@@ -321,6 +321,7 @@ was saved when you resume after the deadline. Nothing edits a rough draft.
 --recipe                   Start from a recipe template (servings, times, ingredients, steps)
 --profile job              Start a job: the job front matter and the headings Problem, What we
                            found, What we did, Result. Always a draft until it is filled in
+--profile decision         Start a draft decision record with before and after diagram slots
 --trade <id>               With --profile job: the trade (bundled, or from extraTrades)
 --service <id>             With --profile job: the service, such as hardwood-install
 --town <name>              With --profile job: the town (never an address)

@@ -293,7 +293,10 @@ pub struct Post {
     /// decide as for citations: refuse a post it publishes, warn otherwise.
     pub(crate) evidence_error: Option<String>,
     pub(crate) audio_error: Option<String>,
+    pub(crate) decision_error: Option<String>,
     pub audio: Option<crate::audio::AudioEpisode>,
+    /// Validated metadata for a decision record.
+    pub decision: Option<crate::decision::Decision>,
     /// The approved reader notes this post's canonical page shows, read
     /// through the public projection (ADR 0083); empty for most posts.
     pub(crate) reader_feedback: Vec<crate::feedback_publication::PublicFeedback>,
@@ -958,10 +961,24 @@ impl Site {
                         None
                     };
                     let mut refused = false;
-                    for (what, error) in [
-                        ("citations are", post.citation_error.take()),
-                        ("claim evidence is", post.evidence_error.take()),
-                        ("audio is", post.audio_error.take()),
+                    let decision_reason = if post.draft {
+                        reason
+                    } else if options.now.is_some_and(|now| post.date > now) {
+                        Some("until the post is due, and must resolve before then")
+                    } else if options.preview_source.is_some() {
+                        Some("in this preview")
+                    } else {
+                        None
+                    };
+                    for (what, error, reason) in [
+                        ("citations are", post.citation_error.take(), reason),
+                        ("claim evidence is", post.evidence_error.take(), reason),
+                        ("audio is", post.audio_error.take(), reason),
+                        (
+                            "decision record is",
+                            post.decision_error.take(),
+                            decision_reason,
+                        ),
                     ] {
                         let Some(error) = error else { continue };
                         match reason {
@@ -1046,6 +1063,36 @@ impl Site {
             &mut warnings,
             &mut errors,
         );
+        let public_successors: std::collections::HashSet<String> = posts
+            .iter()
+            .filter(|post| !post.draft && options.now.is_none_or(|now| post.date <= now))
+            .map(|post| post.url.clone())
+            .chain(pages.iter().map(|page| page.url.clone()))
+            .collect();
+        for post in &mut posts {
+            let Some(successor) = post
+                .decision
+                .as_ref()
+                .and_then(|decision| decision.superseded_by.as_ref())
+            else {
+                continue;
+            };
+            if successor == &post.url || !public_successors.contains(successor) {
+                let message = format!(
+                    "{}: decision successor `{successor}` must name another published post or page",
+                    post.source
+                );
+                if post.draft
+                    || options.now.is_some_and(|now| post.date > now)
+                    || options.preview_source.is_some()
+                {
+                    warnings.push(message);
+                    post.decision = None;
+                } else {
+                    errors.push(message);
+                }
+            }
+        }
         // Posts and pages may link into the documentation by file too (ADR 0407).
         if !doc_addresses.is_empty() {
             use crate::docs_section::rewrite_links_into_docs as into_docs;
@@ -2285,6 +2332,14 @@ fn load_post_in(
         (profile.behavior == ProfileBehavior::Video).then(|| VideoMetadata::from_front_matter(fm));
     let field_journal = (profile.behavior == ProfileBehavior::FieldJournal)
         .then(|| FieldJournalMetadata::from_front_matter(fm));
+    let (decision, decision_error) = if profile.behavior == ProfileBehavior::Decision {
+        match crate::decision::parse(fm, &doc.body) {
+            Ok(decision) => (Some(decision), None),
+            Err(problems) => (None, Some(problems.join("; "))),
+        }
+    } else {
+        (None, None)
+    };
     let job = if profile.behavior == ProfileBehavior::Job {
         match crate::job::from_front_matter(fm, &config.extra_trades) {
             Ok(job) => Some(job),
@@ -2501,7 +2556,9 @@ fn load_post_in(
         claim_evidence: claim_section.map(|(_, post_evidence)| post_evidence),
         evidence_error,
         audio_error,
+        decision_error,
         audio: None,
+        decision,
         reader_feedback: Vec::new(),
         third_perspectives: Vec::new(),
         community_features: Vec::new(),
