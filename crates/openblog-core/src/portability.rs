@@ -2827,6 +2827,18 @@ fn portable_fence_markdown(
         );
     } else if projection.quote_forms && info.trim() == crate::quote::FENCE {
         // The form is a page feature (ADR 0382): the copy keeps nothing of it, like the portable HTML.
+    } else if crate::text_compare::is_fence(info) {
+        let fence_title = fence.title.clone();
+        let points =
+            crate::text_compare::parse_fence(source, fence_title.as_deref(), fence.title_count)
+                .map_err(|problems| {
+                    format!(
+                        "portable textual comparison fallback failed: {}",
+                        problems.join("; ")
+                    )
+                })?;
+        let title = points[0].title.clone();
+        output.push_str(&crate::text_compare::portable_markdown(&title, &points));
     } else if info.trim() == crate::compare::FENCE {
         let pair = crate::compare::parse(source).map_err(|problems| {
             format!(

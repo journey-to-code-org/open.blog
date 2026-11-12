@@ -1570,6 +1570,32 @@ ob-compare {
   }
 }
 
+/* ---------- Textual comparison: ```text-compare (one <ob-text-compare> per point) ---------- */
+
+ob-text-compare.ob-text-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ob-space-4, 1rem);
+  margin: 1.5rem 0;
+}
+
+ob-text-compare.ob-text-comparison > div {
+  min-width: 0;
+  padding: 1rem 1.2rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+}
+
+ob-text-compare.ob-text-comparison .ob-compare-label {
+  margin-bottom: 0.4rem;
+}
+
+@media (max-width: 36rem) {
+  ob-text-compare.ob-text-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .ob-compare-pane {
   margin: 0;
   min-width: 0;
