@@ -3,7 +3,7 @@
 
 use openblog_core::approval::{ApprovalSet, Readiness};
 use openblog_core::assembly::{
-    assemble, post_path, with_subject, AssemblyError, Outcome, MAX_OUTCOME_BYTES,
+    assemble, post_path, with_subject, AssemblyError, Outcome, PublishedRevision, MAX_OUTCOME_BYTES,
 };
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
@@ -386,6 +386,53 @@ fn outcomes_round_trip_and_reject_anything_else() {
         assert_eq!(Outcome::from_json(bad), None, "{bad}");
     }
     assert_eq!(Outcome::from_json(&" ".repeat(MAX_OUTCOME_BYTES + 1)), None);
+}
+
+#[test]
+fn published_revision_receipt_is_private_validated_and_bound_to_both_files() {
+    let record = record();
+    let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve(&record, &set, &mut approvals, who);
+    }
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let made = assemble(
+        &record, None, &set, &synthesis, &moments, &approvals, &ALL, DATE,
+    )
+    .unwrap();
+    let revision = PublishedRevision::capture(
+        &record, None, &set, &synthesis, &moments, &approvals, &ALL, &made,
+    );
+    assert_eq!(revision.sections.len(), 2);
+    assert!(revision.matches_files(&made.source, &made.credits));
+    assert!(!revision.matches_files(&(made.source.clone() + "x"), &made.credits));
+    assert!(!revision.matches_files(&made.source, &(made.credits.clone() + "x")));
+    let outcome = Outcome::published_with_revision(T, revision);
+    let encoded = outcome.to_json();
+    assert!(!encoded.contains("Ann words") && !encoded.contains("Bo words"));
+    assert_eq!(Outcome::from_json(&encoded), Some(outcome));
+    let original: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+    for (field, value) in [
+        ("sourceDigest", serde_json::json!("bad")),
+        ("creditsDigest", serde_json::json!("")),
+        ("sections", serde_json::json!([])),
+    ] {
+        let mut malformed = original.clone();
+        malformed["revision"][field] = value;
+        assert!(Outcome::from_json(&malformed.to_string()).is_none());
+    }
+    let mut malformed = original.clone();
+    malformed["revision"]["sections"][0]["revision"] = serde_json::json!(0);
+    assert!(Outcome::from_json(&malformed.to_string()).is_none());
+    let mut malformed = original.clone();
+    malformed["revision"]["sections"][1]["contributionId"] =
+        malformed["revision"]["sections"][0]["contributionId"].clone();
+    assert!(Outcome::from_json(&malformed.to_string()).is_none());
+    let mut malformed = original;
+    malformed["revision"]["sections"][0]["digest"] = serde_json::json!("z".repeat(64));
+    assert!(Outcome::from_json(&malformed.to_string()).is_none());
 }
 
 #[test]

@@ -19608,7 +19608,7 @@ export class ObAdmin extends AdminElement {
       "div",
       { class: "oba-approval-rule", hidden: true },
       h("h4", { id: `${prefix}-rule-heading`, tabindex: "-1" }, "Approval rule"),
-      h("p", { class: "oba-small" }, "Everyone who wrote approves their own words. A new approval rule takes effect only after every active writer agrees; it then clears the piece approvals."),
+      h("p", { class: "oba-small" }, "Everyone who wrote approves their own words. A new approval rule takes effect only after every active participant agrees; it then clears the piece approvals."),
       ruleStatus,
       ruleProblem,
       ruleBody,

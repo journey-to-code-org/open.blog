@@ -22,6 +22,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Approval rule changes now require each active, bound participant, including readers and
   coordinators, to agree to the exact proposed rule. Existing approvals remain in force until
   the group agrees, then are cleared.
+- Shared publication outcomes retain a private receipt for the approved section revisions and
+  the exact published Post and credit sidecar, without storing draft prose in the receipt.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
   chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
   Directory submission is manual. See [Audio episodes](docs/audio.md) for limits and hosting requirements.

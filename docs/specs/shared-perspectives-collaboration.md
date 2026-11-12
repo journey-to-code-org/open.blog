@@ -478,6 +478,10 @@ participants must unanimously replace it with a whole-piece rule before approvin
 publishing. Legacy reflections retain their existing scope. Numeric quorum remains open in epic
 #592.
 
+Publishing stores a private receipt identifying the approved section revisions and hashing the
+exact resulting Post and credit sidecar. The receipt contains no draft prose and is not public
+output. Older timestamp-only publication outcomes remain readable.
+
 ## Named-recipient sharing
 
 Alongside the mutual-reveal default, a coordinator may select named-recipient sharing. Each

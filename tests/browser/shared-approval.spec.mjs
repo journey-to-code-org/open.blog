@@ -140,6 +140,7 @@ test("all participants unanimously change the approval rule through the real Adm
     await grace.setViewportSize({ width: 400, height: 800 });
     await openDraft(page, "mikey", "correct horse battery");
     await openDraft(grace, "grace", "another correct horse");
+    await expect(page.getByText("A new approval rule takes effect only after every active participant agrees", { exact: false })).toBeVisible();
     await expect(page.getByRole("radio", { name: "The approver's own sections" })).toBeDisabled();
     await page.getByRole("radio", { name: "Everyone who wrote" }).check();
     await page.getByLabel(/changing the rule clears every approval/).check();

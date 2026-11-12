@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
 
 use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, Section};
@@ -26,7 +27,7 @@ use crate::slug;
 use crate::synthesis::{self, ItemRule, SynthesisKind, SynthesisSet};
 
 pub const OUTCOME_VERSION: u8 = 1;
-pub const MAX_OUTCOME_BYTES: usize = 2 * 1024;
+pub const MAX_OUTCOME_BYTES: usize = 512 * 1024;
 /// Between sections. The blank line before `---` matters: without it the rule would turn the
 /// last line of the previous section into a heading.
 const SECTION_BREAK: &str = "\n\n---\n\n";
@@ -806,6 +807,101 @@ fn has_unsafe_markup(
     None
 }
 
+/// The identity of one draft revision included in the approval subject.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PublishedSectionRevision {
+    pub contribution_id: String,
+    pub participant_id: String,
+    pub revision: u64,
+    pub digest: String,
+}
+
+/// Private receipt for the approved section revisions and the canonical files that were published.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PublishedRevision {
+    pub policy_revision: u64,
+    pub sections: Vec<PublishedSectionRevision>,
+    pub source_digest: String,
+    pub credits_digest: String,
+}
+
+fn receipt_digest(bytes: &[u8]) -> String {
+    Blake2s256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn valid_receipt_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+impl PublishedRevision {
+    #[allow(clippy::too_many_arguments)]
+    pub fn capture(
+        record: &SharedPublication,
+        structure: Option<&ReflectionStructure>,
+        drafts: &DraftSet,
+        synthesis: &SynthesisSet,
+        moments: &MomentSet,
+        approvals: &ApprovalSet,
+        active: &[&str],
+        assembly: &Assembly,
+    ) -> Self {
+        let sections = with_subject(
+            record,
+            structure,
+            drafts,
+            synthesis,
+            moments,
+            active,
+            |subject| {
+                subject
+                    .sections
+                    .iter()
+                    .map(|section| PublishedSectionRevision {
+                        contribution_id: section.contribution_id.to_string(),
+                        participant_id: section.owner.to_string(),
+                        revision: section.revision,
+                        digest: section.digest.to_string(),
+                    })
+                    .collect()
+            },
+        );
+        Self {
+            policy_revision: approvals.policy_revision(),
+            sections,
+            source_digest: receipt_digest(assembly.source.as_bytes()),
+            credits_digest: receipt_digest(assembly.credits.as_bytes()),
+        }
+    }
+
+    fn is_valid(&self) -> bool {
+        let mut ids = std::collections::HashSet::new();
+        !self.sections.is_empty()
+            && self.sections.len() <= crate::collaboration::MAX_CONTRIBUTIONS
+            && self.sections.iter().all(|section| {
+                crate::collaboration::valid_id(&section.contribution_id)
+                    && crate::collaboration::valid_id(&section.participant_id)
+                    && section.revision > 0
+                    && valid_receipt_digest(&section.digest)
+                    && ids.insert(section.contribution_id.to_ascii_lowercase())
+            })
+            && valid_receipt_digest(&self.source_digest)
+            && valid_receipt_digest(&self.credits_digest)
+    }
+
+    pub fn matches_files(&self, source: &str, credits: &str) -> bool {
+        self.source_digest == receipt_digest(source.as_bytes())
+            && self.credits_digest == receipt_digest(credits.as_bytes())
+    }
+}
+
 /// What happened to a publication after approval. Absent means neither scheduled nor published.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(
@@ -823,7 +919,12 @@ pub enum Outcome {
         requested_by: String,
     },
     /// The Post and its credits were written. A retry changes nothing.
-    Published { version: u8, published_at: i64 },
+    Published {
+        version: u8,
+        published_at: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        revision: Option<PublishedRevision>,
+    },
 }
 
 impl Outcome {
@@ -839,6 +940,15 @@ impl Outcome {
         Self::Published {
             version: OUTCOME_VERSION,
             published_at,
+            revision: None,
+        }
+    }
+
+    pub fn published_with_revision(published_at: i64, revision: PublishedRevision) -> Self {
+        Self::Published {
+            version: OUTCOME_VERSION,
+            published_at,
+            revision: Some(revision),
         }
     }
 
@@ -860,7 +970,12 @@ impl Outcome {
             Self::Published {
                 version,
                 published_at,
-            } => *version == OUTCOME_VERSION && *published_at >= 0,
+                revision,
+            } => {
+                *version == OUTCOME_VERSION
+                    && *published_at >= 0
+                    && revision.as_ref().is_none_or(PublishedRevision::is_valid)
+            }
         };
         valid.then_some(outcome)
     }

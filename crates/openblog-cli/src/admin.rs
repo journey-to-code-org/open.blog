@@ -13699,6 +13699,21 @@ fn commit_publication(
         return Ok(json!({ "state": "published", "alreadyPublished": true }));
     }
     let prepared = prepare_post(state, record, &inputs, date)?;
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let revision = openblog_core::assembly::PublishedRevision::capture(
+        record,
+        inputs.structure.structure.as_ref(),
+        &inputs.drafts,
+        &inputs.synthesis,
+        &inputs.moments,
+        &inputs.approvals.set,
+        &active,
+        &prepared.assembly,
+    );
+    let published = Outcome::published_with_revision(clock::now().unix(), revision);
+    if Outcome::from_json(&published.to_json()).is_none() {
+        return Err(publish_failed("the publication receipt is not usable"));
+    }
     let id = &record.publication_id;
     let rollback_files = |prepared: &Prepared| {
         let _ = restore_file(&prepared.path, prepared.previous_document.as_deref());
@@ -13714,7 +13729,6 @@ fn commit_publication(
         &CreditEdit::Set(prepared.assembly.credits.clone()),
     )
     .map_err(|error| publish_failed(&error))?;
-    let published = Outcome::published(clock::now().unix());
     let stored = match replace_outcome(&state.root, id, &inputs.outcome, Some(&published)) {
         Ok(stored) => stored,
         Err(error) => {
@@ -39410,10 +39424,31 @@ series: letters
         let credits =
             fs::read_to_string(f.dir.join(format!("content/posts/{id}.credits.json"))).unwrap();
         assert!(credits.contains("mikey-writer") && credits.contains("grace"));
+        let receipt_text = fs::read_to_string(outcome_file(&f, &id)).unwrap();
+        let receipt = openblog_core::assembly::Outcome::from_json(&receipt_text).unwrap();
+        let openblog_core::assembly::Outcome::Published {
+            revision: Some(revision),
+            ..
+        } = receipt
+        else {
+            panic!("published outcome must retain its revision receipt");
+        };
+        assert_eq!(revision.sections.len(), 2);
+        assert!(revision
+            .sections
+            .iter()
+            .all(|section| section.revision == 1));
+        assert!(revision.matches_files(&post, &credits));
+        assert!(!revision.matches_files(&(post.clone() + "changed"), &credits));
+        assert!(!revision.matches_files(&post, &(credits.clone() + "changed")));
+        assert!(!receipt_text.contains("MIKEY-SECRET") && !receipt_text.contains("GRACE-SECRET"));
         // No collaboration metadata rides along in content or in any public file.
         for text in [&post, &credits] {
             assert!(!text.contains(&id) && !text.contains("token") && !text.contains("invitation"));
             assert!(!text.contains("grace-admin") && !text.contains("approvedAt"));
+            assert!(
+                !text.contains(&revision.source_digest) && !text.contains(&revision.credits_digest)
+            );
         }
         let public = state_trees(&f)[1].clone();
         assert!(public
@@ -39550,6 +39585,16 @@ series: letters
         let post = published_post(&f, &id).unwrap();
         assert!(post.contains("MIKEY-NEWER") && post.contains("GRACE-SECRET"));
         assert!(!post.contains("MIKEY-SECRET"));
+        let receipt: Json =
+            serde_json::from_str(&fs::read_to_string(outcome_file(&f, &id)).unwrap()).unwrap();
+        let mikey_id = participant_of(&f, &id, "mikey");
+        let section = receipt["revision"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|section| section["participantId"] == mikey_id)
+            .unwrap();
+        assert_eq!(section["revision"], 4);
     }
 
     // ---- Layout and arrangement (ADR 0031) ----
