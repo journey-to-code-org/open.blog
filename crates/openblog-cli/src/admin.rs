@@ -3880,9 +3880,7 @@ fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
     Json::Object(map)
 }
 
-/// A front matter key. The only dotted keys are the flattened `job.*` ones the
-/// job profile uses (ADR 0285) and a service's `faq.<n>.<key>` ones (ADR 0311);
-/// every segment is a plain word.
+/// A front matter key, including flattened mappings used by structured fields.
 fn is_field_name(key: &str) -> bool {
     let plain = |part: &str| {
         !part.is_empty()
@@ -3897,6 +3895,20 @@ fn is_field_name(key: &str) -> bool {
             (Some(number), Some(name), None)
                 if number.len() <= 3 && number.bytes().all(|b| b.is_ascii_digit()) && plain(name)
         );
+    }
+    if let Some(rest) = key.strip_prefix("audio.") {
+        let parts: Vec<_> = rest.split('.').collect();
+        return match parts.as_slice() {
+            [name] => plain(name),
+            [kind, number, name] => {
+                matches!(*kind, "sources" | "chapters")
+                    && !number.is_empty()
+                    && number.len() <= 3
+                    && number.bytes().all(|b| b.is_ascii_digit())
+                    && plain(name)
+            }
+            _ => false,
+        };
     }
     match key.strip_prefix("job.") {
         Some(rest) => rest.split('.').count() <= 3 && rest.split('.').all(plain),
@@ -26192,6 +26204,80 @@ What I read:
             .as_str()
             .unwrap()
             .contains("## What we found"));
+    }
+
+    #[test]
+    fn admin_round_trips_audio_fields_and_enforces_publication_gate() {
+        let f = fixture("audio-document");
+        let session = login_ok(&f);
+        fs::create_dir_all(f.dir.join("static/audio")).unwrap();
+        fs::write(f.dir.join("static/audio/episode.mp3"), b"ID3abcdefghi").unwrap();
+        let fields = json!({
+            "title": "Audio draft", "draft": "true", "audio.version": "1",
+            "audio.durationSeconds": "30", "audio.sources.1.url": "/audio/episode.mp3",
+            "audio.sources.1.type": "audio/mpeg", "audio.sources.1.sizeBytes": "12",
+            "audio.chapters.1.timeSeconds": "5", "audio.chapters.1.title": "Intro"
+        });
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields": fields, "body":"No transcript."}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let path = body_json(&saved)["path"].as_str().unwrap().to_string();
+        let fetched = handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={path}")),
+                &session,
+                false,
+            ),
+        );
+        let mut document = body_json(&fetched);
+        assert_eq!(document["fields"]["audio.chapters.1.title"], "Intro");
+        document["fields"]["draft"] = Json::Null;
+        document["fields"]["date"] = json!("2026-01-01");
+        let update = |body: &str| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        &format!("/admin/api/document?path={path}"),
+                        json!({"kind":"posts","fields":document["fields"],"etag":document["etag"],"body":body}),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let refused = update("No transcript.");
+        assert_eq!(
+            refused.status,
+            422,
+            "{}",
+            String::from_utf8_lossy(&refused.body)
+        );
+        let published = update("## Transcript\n\nWords.");
+        assert_eq!(
+            published.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&published.body)
+        );
+        assert!(fields_from_json(&json!({"audio.sources.x.url": "/x"})).is_err());
     }
 
     #[test]
