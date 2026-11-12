@@ -70,6 +70,9 @@ pub struct SiteConfig {
     /// Optional CDN for static assets.
     pub cdn: CdnConfig,
     pub feeds: FeedsConfig,
+    /// Optional podcast feed. Absent means no podcast output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub podcast: Option<crate::podcast::PodcastConfig>,
     /// Discoverability and crawler controls.
     pub seo: SeoConfig,
     pub markdown: MarkdownConfig,
@@ -591,6 +594,7 @@ impl Default for SiteConfig {
             related_posts: 3,
             cdn: CdnConfig::default(),
             feeds: FeedsConfig::default(),
+            podcast: None,
             seo: SeoConfig::default(),
             markdown: MarkdownConfig::default(),
             code: CodeConfig::default(),
@@ -1188,6 +1192,9 @@ impl SiteConfig {
     }
 
     fn normalize(&mut self) -> Result<(), String> {
+        if let Some(podcast) = &self.podcast {
+            podcast.validate()?;
+        }
         while self.url.ends_with('/') {
             self.url.pop();
         }

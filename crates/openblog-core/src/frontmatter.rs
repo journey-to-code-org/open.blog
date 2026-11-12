@@ -125,7 +125,9 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
         };
         let key = line[..colon].trim().to_string();
         let rest = line[colon + 1..].trim();
-        if rest.is_empty() && key == NESTED_KEY && next_is_mapping(lines, i) {
+        if rest.is_empty() && key == "audio" && next_is_mapping(lines, i) {
+            parse_audio(lines, &mut i, &mut fields)?;
+        } else if rest.is_empty() && key == NESTED_KEY && next_is_mapping(lines, i) {
             let indent = indent_of(lines[next_significant(lines, i)])?;
             parse_nested(lines, &mut i, indent, &key, 1, &mut fields)?;
         } else if rest.is_empty() && key == FAQ_KEY && next_is_faq_entry(lines, i) {
@@ -181,6 +183,106 @@ const MAX_NESTING: usize = 3;
 const FAQ_KEY: &str = "faq";
 const FAQ_PREFIX: &str = "faq.";
 const MAX_FAQ_ENTRIES: usize = 100;
+
+fn parse_audio(
+    lines: &[&str],
+    i: &mut usize,
+    fields: &mut BTreeMap<String, Value>,
+) -> Result<(), String> {
+    let start = next_significant(lines, *i);
+    let indent = indent_of(lines[start])?;
+    let mut list: Option<(String, usize, usize)> = None;
+    let mut sections = std::collections::BTreeSet::new();
+    *i = start;
+    while *i < lines.len() {
+        let line = lines[*i].trim_end();
+        *i += 1;
+        if is_skipped(line) {
+            continue;
+        }
+        let depth = indent_of(line)?;
+        if depth < indent {
+            *i -= 1;
+            break;
+        }
+        let text = line.trim();
+        if depth == indent {
+            list = None;
+            let Some(colon) = find_key_colon(text) else {
+                return Err(format!("expected a key in `audio`, found `{text}`"));
+            };
+            let name = text[..colon].trim();
+            if name.is_empty() || name.contains('.') || !sections.insert(name.to_string()) {
+                return Err(format!("invalid or duplicate `audio` key `{name}`"));
+            }
+            let value = text[colon + 1..].trim();
+            if matches!(name, "sources" | "chapters") {
+                if !value.is_empty() {
+                    return Err(format!("`audio.{name}` must be a block list of mappings"));
+                }
+                let key = format!("audio.{name}");
+                if fields
+                    .insert(key.clone(), Value::List(Vec::new()))
+                    .is_some()
+                {
+                    return Err(format!("duplicate `{key}`"));
+                }
+                list = Some((name.to_string(), 0, 0));
+                continue;
+            }
+            if value.is_empty() || value.starts_with('[') {
+                return Err(format!("`audio.{name}` must be a scalar"));
+            }
+            let key = format!("audio.{name}");
+            if fields
+                .insert(key.clone(), Value::Scalar(unquote(value)))
+                .is_some()
+            {
+                return Err(format!("duplicate `{key}`"));
+            }
+            continue;
+        }
+        let Some((name, entry, list_indent)) = list.as_mut() else {
+            return Err(format!("unexpected indentation in `audio`: `{text}`"));
+        };
+        let item = if let Some(first) = text.strip_prefix("- ") {
+            if *list_indent == 0 {
+                *list_indent = depth;
+            }
+            if depth != *list_indent {
+                return Err(format!("inconsistent indentation in `audio.{name}`"));
+            }
+            *entry += 1;
+            if *entry > 100 {
+                return Err(format!("`audio.{name}` has more than 100 entries"));
+            }
+            first
+        } else {
+            if *entry == 0 || depth != *list_indent + 2 {
+                return Err(format!(
+                    "unexpected indentation in `audio.{name}`: `{text}`"
+                ));
+            }
+            text
+        };
+        let Some(colon) = find_key_colon(item) else {
+            return Err(format!("expected a key in `audio.{name}`: `{item}`"));
+        };
+        let field = item[..colon].trim();
+        let value = item[colon + 1..].trim();
+        if field.is_empty() || field.contains('.') || value.is_empty() || value.starts_with('[') {
+            return Err(format!("invalid field in `audio.{name}`: `{item}`"));
+        }
+        let key = format!("audio.{name}.{entry}.{field}");
+        if fields
+            .insert(key.clone(), Value::Scalar(unquote(value)))
+            .is_some()
+        {
+            return Err(format!("duplicate `{key}`"));
+        }
+    }
+    Ok(())
+}
 
 fn next_is_faq_entry(lines: &[&str], from: usize) -> bool {
     lines
@@ -489,7 +591,15 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
     let nested_prefix = format!("{NESTED_KEY}.");
     let mut nested_written = false;
     let mut faq_written = false;
+    let mut audio_written = false;
     for (key, value) in fields {
+        if key.starts_with("audio.") {
+            if !audio_written {
+                audio_written = true;
+                serialize_audio(fields, &mut out);
+            }
+            continue;
+        }
         if key.starts_with(FAQ_PREFIX) {
             if !faq_written {
                 faq_written = true;
@@ -524,6 +634,137 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
     }
     out.push_str("---\n");
     out
+}
+
+fn audio_list_is_contiguous(fields: &[(&str, Value)], name: &str) -> bool {
+    let prefix = format!("audio.{name}.");
+    let mut indices = std::collections::BTreeSet::new();
+    for (key, value) in fields {
+        let Some((number, field)) = key
+            .strip_prefix(&prefix)
+            .and_then(|rest| rest.split_once('.'))
+        else {
+            continue;
+        };
+        if !matches!(value, Value::Scalar(_)) || field.is_empty() || field.contains('.') {
+            continue;
+        }
+        let Ok(index) = number.parse::<usize>() else {
+            continue;
+        };
+        if index.to_string() != number || index == 0 {
+            continue;
+        }
+        indices.insert(index);
+    }
+    indices.iter().copied().eq(1..=indices.len())
+}
+
+fn serialize_audio(fields: &[(&str, Value)], out: &mut String) {
+    let has_nested = fields.iter().any(|(key, value)| {
+        key.strip_prefix("audio.").is_some_and(|name| {
+            !name.contains('.')
+                && (!matches!(name, "sources" | "chapters") && matches!(value, Value::Scalar(_))
+                    || (matches!(name, "sources" | "chapters")
+                        && matches!(value, Value::List(items) if items.is_empty())))
+                || ["sources.", "chapters."].iter().any(|prefix| {
+                    name.strip_prefix(prefix)
+                        .and_then(|rest| rest.split_once('.'))
+                        .is_some_and(|(index, field)| {
+                            index.parse::<usize>().is_ok_and(|number| {
+                                number > 0
+                                    && number.to_string() == index
+                                    && audio_list_is_contiguous(fields, &prefix[..prefix.len() - 1])
+                            }) && !field.is_empty()
+                                && !field.contains('.')
+                                && matches!(value, Value::Scalar(_))
+                        })
+                })
+        })
+    });
+    if has_nested {
+        out.push_str("audio:\n");
+    }
+    for (key, value) in fields {
+        let Some(name) = key.strip_prefix("audio.") else {
+            continue;
+        };
+        if name.contains('.') || matches!(name, "sources" | "chapters") {
+            continue;
+        }
+        if let Value::Scalar(value) = value {
+            out.push_str(&format!("  {name}: {}\n", quote_scalar(value)));
+        }
+    }
+    for name in ["sources", "chapters"] {
+        let prefix = format!("audio.{name}.");
+        let mut entries: BTreeMap<usize, Vec<(&str, &str)>> = BTreeMap::new();
+        for (key, value) in fields {
+            let Some(rest) = key.strip_prefix(&prefix) else {
+                continue;
+            };
+            let (Some((index, field)), Value::Scalar(value)) = (rest.split_once('.'), value) else {
+                continue;
+            };
+            if !field.is_empty() && !field.contains('.') && audio_list_is_contiguous(fields, name) {
+                if let Ok(number) = index.parse::<usize>() {
+                    if number > 0 && number.to_string() == index {
+                        entries.entry(number).or_default().push((field, value));
+                    }
+                }
+            }
+        }
+        if entries.is_empty()
+            && !fields.iter().any(|(key, value)| {
+                *key == format!("audio.{name}")
+                    && matches!(value, Value::List(items) if items.is_empty())
+            })
+        {
+            continue;
+        }
+        out.push_str(&format!("  {name}:\n"));
+        for (_, fields) in entries {
+            for (position, (field, value)) in fields.iter().enumerate() {
+                let lead = if position == 0 { "    - " } else { "      " };
+                out.push_str(&format!("{lead}{field}: {}\n", quote_scalar(value)));
+            }
+        }
+    }
+    for (key, value) in fields {
+        let Some(name) = key.strip_prefix("audio.") else {
+            continue;
+        };
+        let is_entry = ["sources.", "chapters."].iter().any(|prefix| {
+            name.strip_prefix(prefix)
+                .and_then(|rest| rest.split_once('.'))
+                .is_some_and(|(index, field)| {
+                    index.parse::<usize>().is_ok_and(|number| {
+                        number > 0
+                            && number.to_string() == index
+                            && audio_list_is_contiguous(fields, &prefix[..prefix.len() - 1])
+                    }) && !field.is_empty()
+                        && !field.contains('.')
+                        && matches!(value, Value::Scalar(_))
+                })
+        });
+        let is_field = !name.contains('.')
+            && !matches!(name, "sources" | "chapters")
+            && matches!(value, Value::Scalar(_));
+        let is_marker = matches!(name, "sources" | "chapters")
+            && matches!(value, Value::List(items) if items.is_empty());
+        if is_entry || is_field || is_marker {
+            continue;
+        }
+        match value {
+            Value::Scalar(value) => out.push_str(&format!("{key}: {}\n", quote_scalar(value))),
+            Value::List(items) => {
+                out.push_str(&format!("{key}:\n"));
+                for item in items {
+                    out.push_str(&format!("  - {}\n", quote_scalar(item)));
+                }
+            }
+        }
+    }
 }
 
 /// Write the flattened `job.*` keys back as one nested mapping, in key order,
@@ -606,9 +847,11 @@ pub fn compose(fields: &BTreeMap<String, Value>, body: &str) -> String {
             ordered.push((key.as_str(), v.clone()));
         }
     }
-    ordered.retain(|(_, v)| match v {
+    ordered.retain(|(key, v)| match v {
         Value::Scalar(s) => !s.trim().is_empty(),
-        Value::List(items) => !items.is_empty(),
+        Value::List(items) => {
+            !items.is_empty() || matches!(*key, "audio.sources" | "audio.chapters")
+        }
     });
     let mut out = serialize(&ordered);
     out.push('\n');
@@ -645,6 +888,65 @@ fn quote_scalar(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_lists_of_mappings_round_trip() {
+        let source = "---\ntitle: Episode\naudio:\n  version: 1\n  durationSeconds: 120\n  sources:\n    - url: /audio/one.mp3\n      type: audio/mpeg\n      sizeBytes: 123\n    - url: /audio/two.ogg\n      type: audio/ogg\n      sizeBytes: 456\n  chapters:\n    - timeSeconds: 0\n      title: Intro\n    - timeSeconds: 60\n      title: \"A: chapter\"\n      link: /notes/\n---\nBody";
+        let doc = parse(source).unwrap();
+        assert_eq!(
+            doc.front_matter.get("audio.sources.2.url"),
+            Some("/audio/two.ogg")
+        );
+        assert_eq!(
+            doc.front_matter.get("audio.chapters.2.title"),
+            Some("A: chapter")
+        );
+        let composed = compose(&doc.front_matter.fields, &doc.body);
+        assert_eq!(parse(&composed).unwrap().front_matter, doc.front_matter);
+    }
+
+    #[test]
+    fn audio_rejects_duplicate_fields_and_malformed_lists() {
+        for audio in [
+            "  version: 1\n  version: 2\n",
+            "  sources:\n    - url: /one\n      url: /two\n",
+            "  sources:\n    - url: /one\n       type: audio/mpeg\n",
+            "  sources: [one, two]\n",
+            "  sources:\n    - url: /one\n      nested:\n        value: x\n",
+        ] {
+            assert!(
+                parse(&format!("---\naudio:\n{audio}---\n")).is_err(),
+                "{audio}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_audio_lists_survive_editor_composition() {
+        let doc = parse("---\naudio:\n  version: 1\n  sources:\n  chapters:\n---\nBody").unwrap();
+        let composed = compose(&doc.front_matter.fields, &doc.body);
+        assert_eq!(parse(&composed).unwrap().front_matter, doc.front_matter);
+    }
+
+    #[test]
+    fn unknown_dotted_audio_fields_are_not_lost_by_editor_composition() {
+        for source in [
+            "---\naudio.other.detail: keep me\n---\nBody",
+            "---\naudio.version: 1\naudio.other.detail: keep me\n---\nBody",
+            "---\naudio.other:\n  - one\n  - two\n---\nBody",
+            "---\naudio.sources.2.url: /two.mp3\n---\nBody",
+            "---\naudio.sources.01.url: /one.mp3\n---\nBody",
+            "---\naudio.sources.0.url: /zero.mp3\n---\nBody",
+        ] {
+            let doc = parse(source).unwrap();
+            let composed = compose(&doc.front_matter.fields, &doc.body);
+            assert_eq!(
+                parse(&composed).unwrap().front_matter,
+                doc.front_matter,
+                "{composed}"
+            );
+        }
+    }
 
     #[test]
     fn parses_scalars_lists_and_body() {

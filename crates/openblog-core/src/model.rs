@@ -34,6 +34,8 @@ pub struct SourceFile {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sources {
     pub posts: Vec<SourceFile>,
+    /// Host-provided access to static audio and transcript files.
+    pub audio_files: Option<crate::audio::FileReader>,
     /// Adjacent, versioned work-credit sidecars for posts.
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
@@ -290,6 +292,8 @@ pub struct Post {
     /// Why its claim evidence could not be published, for the site load to
     /// decide as for citations: refuse a post it publishes, warn otherwise.
     pub(crate) evidence_error: Option<String>,
+    pub(crate) audio_error: Option<String>,
+    pub audio: Option<crate::audio::AudioEpisode>,
     /// The approved reader notes this post's canonical page shows, read
     /// through the public projection (ADR 0083); empty for most posts.
     pub(crate) reader_feedback: Vec<crate::feedback_publication::PublicFeedback>,
@@ -886,6 +890,21 @@ impl Site {
                 claim_mode,
             ) {
                 Ok(mut post) => {
+                    if post.audio_error.is_some() {
+                        let document = frontmatter::parse(&file.contents)
+                            .expect("post was parsed by load_post_in");
+                        match crate::audio::prepare(
+                            &document.front_matter,
+                            &document.body,
+                            sources.audio_files.as_ref(),
+                        ) {
+                            Ok(audio) => {
+                                post.audio = audio;
+                                post.audio_error = None;
+                            }
+                            Err(problems) => post.audio_error = Some(problems.join("; ")),
+                        }
+                    }
                     if let Err(error) = apply_credits(&mut post, &config, sidecar) {
                         errors.push(format!(
                             "{}: {error}",
@@ -942,6 +961,7 @@ impl Site {
                     for (what, error) in [
                         ("citations are", post.citation_error.take()),
                         ("claim evidence is", post.evidence_error.take()),
+                        ("audio is", post.audio_error.take()),
                     ] {
                         let Some(error) = error else { continue };
                         match reason {
@@ -2103,6 +2123,11 @@ fn load_post_in(
 ) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
+    let audio_error = match crate::audio::from_front_matter(fm) {
+        Ok(Some(_)) => Some("audio file verification is unavailable".into()),
+        Ok(None) => None,
+        Err(errors) => Some(errors.join("; ")),
+    };
     let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
     // `readingModes: true`, or `{default: guided}` (ADR 0142).
@@ -2475,6 +2500,8 @@ fn load_post_in(
         citations: citation_summary,
         claim_evidence: claim_section.map(|(_, post_evidence)| post_evidence),
         evidence_error,
+        audio_error,
+        audio: None,
         reader_feedback: Vec::new(),
         third_perspectives: Vec::new(),
         community_features: Vec::new(),
@@ -3048,6 +3075,7 @@ mod tests {
                 post("posts/draft.md", "---\ntitle: Draft\ndraft: true\n---\nnot yet"),
             ],
             credits: Vec::new(),
+            audio_files: None,
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
 docs: Vec::new(),

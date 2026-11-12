@@ -5,6 +5,7 @@
 //! the browser (the `openblog-wasm` package):
 //!
 //! - [`frontmatter`]: a small YAML-subset parser for post metadata
+//! - [`audio`]: versioned audio episode metadata and source validation
 //! - [`markdown`]: CommonMark + GFM rendering with heading ids, reading time, excerpts
 //! - [`model`]: posts, series, tags, and pages
 //! - [`theme`]: design tokens in JSON, emitted as CSS custom properties, with inheritance
@@ -59,6 +60,7 @@ pub mod assistant_guide;
 pub mod atlas_publication;
 pub mod atlas_query;
 pub mod attributed_perspective;
+pub mod audio;
 pub mod author_response;
 pub mod bibliography;
 pub mod business;
@@ -127,6 +129,7 @@ pub mod participation;
 pub mod passage_target;
 pub mod perspective_publication;
 pub mod piece;
+pub mod podcast;
 pub mod portability;
 pub mod preview;
 pub mod profile;

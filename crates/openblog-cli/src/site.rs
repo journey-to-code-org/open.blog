@@ -551,6 +551,47 @@ pub fn read_sources_excluding(
 ) -> Result<Sources, String> {
     let content_dir = root.join(&config.paths.content);
     let mut sources = Sources::default();
+    let static_dir = root.join(&config.paths.static_dir);
+    let private = fsutil::PrivateState::of(root).withhold(&comparison_files(root, config));
+    sources.audio_files = Some(openblog_core::audio::FileReader::new(move |url, limit| {
+        use std::io::Read;
+        let relative = url
+            .strip_prefix('/')
+            .ok_or("audio file path must be site-relative")?;
+        if relative.is_empty()
+            || relative.contains(['\\', ':', '%', '?', '#'])
+            || relative
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            return Err("invalid static file path".into());
+        }
+        let directory = fs::canonicalize(&static_dir)
+            .map_err(|error| format!("cannot read static directory: {error}"))?;
+        let path = static_dir.join(relative);
+        let resolved =
+            fs::canonicalize(&path).map_err(|error| format!("cannot read {url}: {error}"))?;
+        if !resolved.starts_with(&directory) || private.contains(&resolved) {
+            return Err(format!("{url} is outside public static files"));
+        }
+        let mut file =
+            fs::File::open(&resolved).map_err(|error| format!("cannot open {url}: {error}"))?;
+        let metadata = file
+            .metadata()
+            .map_err(|error| format!("cannot inspect {url}: {error}"))?;
+        if !metadata.is_file() {
+            return Err(format!("{url} is not a regular file"));
+        }
+        let mut bytes = Vec::new();
+        file.by_ref()
+            .take(limit)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("cannot read {url}: {error}"))?;
+        Ok(openblog_core::audio::FileEvidence {
+            size_bytes: metadata.len(),
+            bytes,
+        })
+    }));
     for path in content_files(&content_dir)? {
         let rel = fsutil::relative(&content_dir, &path);
         if excluded.is_some_and(|excluded| excluded == rel) {
@@ -920,6 +961,9 @@ pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
         if rel.starts_with("admin/") {
             continue;
         }
+        if rel == "components/ob-episode.js" {
+            continue;
+        }
         let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");
         let is_wasm = rel.starts_with("wasm/") && (rel.ends_with(".js") || rel.ends_with(".wasm"));
         if is_asset || is_wasm {
@@ -930,6 +974,13 @@ pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
 }
 
 pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
+    if rel == "components/ob-episode.js" {
+        return Some(
+            include_str!("../../../web/components/ob-episode.js")
+                .as_bytes()
+                .to_vec(),
+        );
+    }
     let on_disk = root.join(&config.paths.web).join(rel);
     if let Ok(bytes) = fs::read(&on_disk) {
         return Some(bytes);

@@ -672,6 +672,21 @@ pub fn generate_with_trail_budget(
     };
     let default_theme = &resolved[&c.theme];
 
+    if let Some(podcast) = &c.podcast {
+        let (feed, files) = crate::podcast::generate(site, podcast)?;
+        out.add("podcast.xml".into(), feed)?;
+        for file in files {
+            out.add(file.path, file.contents)?;
+        }
+    }
+
+    if site.posts.iter().any(|post| post.audio.is_some()) {
+        out.add(
+            "assets/components/ob-episode.js".into(),
+            include_str!("../../../web/components/ob-episode.js").into(),
+        )?;
+    }
+
     // Home and pagination.
     let per_page = if c.posts_per_page == 0 {
         site.posts.len().max(1)
@@ -1543,6 +1558,12 @@ impl<'a> Renderer<'a> {
             h.push_str(
                 "<script type=\"module\" src=\"/assets/components/ob-explanation-levels.js\"></script>\n",
             );
+        }
+        if let Some(podcast) = &c.podcast {
+            h.push_str(&format!(
+                "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"/podcast.xml\">\n",
+                attr(&podcast.title)
+            ));
         }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
@@ -2598,6 +2619,41 @@ impl<'a> Renderer<'a> {
             body.push_str(&self.recipe_open_tag(post, recipe));
             body.push_str(&self.recipe_card(recipe));
         }
+        if let Some(audio) = &post.audio {
+            body.push_str("<ob-episode><figure><audio controls preload=\"none\" aria-label=\"");
+            body.push_str(&attr(&format!("Audio: {}", post.title)));
+            body.push_str("\">\n");
+            for source in &audio.sources {
+                body.push_str(&format!(
+                    "<source src=\"{}\" type=\"{}\">\n",
+                    attr(&source.url),
+                    attr(&source.media_type)
+                ));
+            }
+            body.push_str("Your browser does not support audio.</audio></figure>\n");
+            if let Some(transcript) = &audio.transcript {
+                body.push_str(&format!(
+                    "<p><a href=\"{}\">Read the transcript</a></p>\n",
+                    attr(transcript)
+                ));
+            }
+            if !audio.chapters.is_empty() {
+                body.push_str("<section aria-label=\"Chapters\"><h2>Chapters</h2><ol>\n");
+                for chapter in &audio.chapters {
+                    body.push_str(&format!(
+                        "<li><button type=\"button\" disabled data-audio-time=\"{}\">{}</button>",
+                        chapter.time_seconds,
+                        text(&chapter.title)
+                    ));
+                    if let Some(link) = &chapter.link {
+                        body.push_str(&format!(" <a href=\"{}\">Related link</a>", attr(link)));
+                    }
+                    body.push_str("</li>\n");
+                }
+                body.push_str("</ol></section>\n");
+            }
+            body.push_str("</ob-episode>\n");
+        }
         // Table of contents.
         let toc: Vec<_> = post
             .headings
@@ -2912,6 +2968,7 @@ impl<'a> Renderer<'a> {
             }),
             reader_references: references.map(ReaderReferences::to_script_element),
             participation_scripts: [
+                post.audio.as_ref().map(|_| "ob-episode.js"),
                 passage_feedback.as_ref().map(|_| "ob-passage-feedback.js"),
                 reader_annotations.then_some("ob-annotations.js"),
                 reader_annotations.then_some("ob-reflection-history.js"),
@@ -5704,6 +5761,7 @@ mod tests {
                     src("posts/solo.md", "---\ntitle: Solo\ndate: 2026-03-01\n---\nbody"),
                 ],
                 credits: Vec::new(),
+                audio_files: None,
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
 docs: Vec::new(),
