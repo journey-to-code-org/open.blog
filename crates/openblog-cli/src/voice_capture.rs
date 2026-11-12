@@ -237,6 +237,13 @@ fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
+/// The modified time and length together: a save soon after the file was written can keep its
+/// modified time (the clock behind it is coarse), but an edit that changes the text changes its length.
+fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.modified().ok()?, metadata.len()))
+}
+
 /// An editor that returns sooner than this with the file untouched did not wait for its window.
 const NOT_WAITING_WITHIN: Duration = Duration::from_secs(3);
 
@@ -271,7 +278,7 @@ pub fn capture_in_editor(
     };
     let deadline_at = SystemTime::UNIX_EPOCH + Duration::from_secs(deadline_unix.max(0) as u64);
     let saved_late = |stamp: Option<SystemTime>| stamp.is_some_and(|at| at >= deadline_at);
-    let mut seen = modified(path);
+    let mut seen = stamp(path);
     let first_stamp = seen;
     let started = std::time::Instant::now();
     // The last text accepted before the deadline.
@@ -303,7 +310,7 @@ pub fn capture_in_editor(
                     && !late
                     && now_unix() < deadline_unix
                     && started.elapsed() < NOT_WAITING_WITHIN
-                    && modified(path) == first_stamp
+                    && stamp(path) == first_stamp
                     && content.as_deref() == Some(file_content)
                 {
                     break Err(not_waiting(editor));
@@ -335,10 +342,10 @@ pub fn capture_in_editor(
                 break Err(format!("Lost track of the editor: {error}"));
             }
         }
-        let stamp = modified(path);
-        if stamp != seen {
-            seen = stamp;
-            if !saved_late(stamp) {
+        let now_seen = stamp(path);
+        if now_seen != seen {
+            seen = now_seen;
+            if !saved_late(now_seen.map(|(at, _)| at)) {
                 if let Some(content) = read_lossy(path) {
                     accepted = text_below_marker(&content, header);
                     progress(&accepted);

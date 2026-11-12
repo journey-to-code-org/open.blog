@@ -33,7 +33,7 @@ jobs:
     # The engine repository deploys its example site. In a fork, change the name
     # below to your own repository to deploy, or delete this file if you host elsewhere.
     if: github.repository == 'journey-to-code-org/open.blog'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -53,7 +53,7 @@ jobs:
   deploy:
     needs: build
     if: github.repository == 'journey-to-code-org/open.blog'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

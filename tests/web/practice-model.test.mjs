@@ -190,16 +190,16 @@ test("case-rename: the twin names are listed, only the index entry is removed, a
   assert.match(status.lines.at(-1).text, /never edited that file/);
   const listed = submit(session, "git ls-files");
   assert.ok(listed.advanced);
-  assert.match(listed.lines[1].text, /^This\.component\.test\.jsx\nheader\.jsx\nthis\.component\.test\.jsx$/);
+  assert.match(listed.lines[1].text, /^LearnPage\.test\.jsx\nheader\.jsx\nlearnPage\.test\.jsx$/);
   session = listed.session;
   assert.equal(submit(session, "git config core.ignorecase").lines[1].text, "true");
   session = submit(session, "git config core.ignorecase").session;
 
-  const plainRm = submit(session, "git rm This.component.test.jsx");
+  const plainRm = submit(session, "git rm LearnPage.test.jsx");
   assert.equal(plainRm.advanced, false, "plain git rm refuses on the twin, so it must not advance");
   assert.match(plainRm.lines[1].text, /--cached/);
   assert.equal(submit(session, "git rm --cached header.jsx").advanced, false, "removing an unrelated file is not the goal");
-  session = submit(session, "git rm --cached This.component.test.jsx").session;
+  session = submit(session, "git rm --cached LearnPage.test.jsx").session;
 
   const plainMv = submit(session, "mv header.jsx Header.jsx");
   assert.equal(plainMv.advanced, false);
@@ -213,14 +213,14 @@ test("case-rename: the twin names are listed, only the index entry is removed, a
 
   assert.equal(submit(session, "git commit -m").advanced, false);
   const committed = submit(session, 'git commit -m "Tidy names"');
-  assert.match(committed.lines[1].text, /^\[main 44d9f80\] Tidy names\n 2 files changed, 1 deletion\(-\)\n rename header\.jsx => Header\.jsx \(100%\)\n delete mode 100644 This\.component\.test\.jsx$/);
+  assert.match(committed.lines[1].text, /^\[main 44d9f80\] Tidy names\n 2 files changed, 1 deletion\(-\)\n rename header\.jsx => Header\.jsx \(100%\)\n delete mode 100644 LearnPage\.test\.jsx$/);
   const check = submit(committed.session, "git ls-files | sort -f | uniq -di");
   assert.ok(check.advanced && isDone(check.session));
   assert.match(check.lines.at(-1).text, /no two tracked names differ only by case/);
 });
 
 test("case-rename: the check step rejects a pipe that does not fold case", () => {
-  const session = type(start("case-rename"), ["git ls-files", "git config core.ignorecase", "git rm --cached This.component.test.jsx", "git mv header.jsx Header.jsx", 'git commit -m "x"']).session;
+  const session = type(start("case-rename"), ["git ls-files", "git config core.ignorecase", "git rm --cached LearnPage.test.jsx", "git mv header.jsx Header.jsx", 'git commit -m "x"']).session;
   assert.equal(submit(session, "git ls-files | sort | uniq -d").advanced, false);
   assert.match(submit(session, "git ls-files").lines.at(-2).text, /Pipe it/);
 });

@@ -13,6 +13,14 @@ test("web sandbox parses bounded HTML CSS and JavaScript sections", () => {
   assert.equal(parseWebSandbox(`---html\n${"x".repeat(100001)}`), null);
 });
 
+test("web sandbox preview takes the host page's color scheme", () => {
+  assert.match(webSandboxDocument({ scheme: "dark" }), /^<!doctype html><html style="color-scheme:dark">/);
+  assert.match(webSandboxDocument({}), /<html style="color-scheme:light">/);
+  assert.match(webSandboxDocument({ scheme: "</style>" }), /<html style="color-scheme:light">/, "only light or dark is written");
+  assert.match(webSandboxDocument({}), /obWebSandboxScheme/, "the preview restyles itself when the reader switches theme");
+  assert.match(webSandboxDocument({}), /window\.matchMedia = /, "matchMedia answers from the preview's scheme, not only the system's");
+});
+
 test("web sandbox preview stays opaque-origin and blocks external resources by default", () => {
   // No allow-same-origin: the preview never shares the blog's origin, cookies, or storage.
   assert.equal(WEB_SANDBOX_PERMISSIONS, "allow-scripts allow-forms allow-modals");

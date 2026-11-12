@@ -127,6 +127,26 @@ function bootstrap(hostOrigin) {
   for (const name of ["localStorage", "sessionStorage"]) {
     try { void window[name]; } catch { Object.defineProperty(window, name, { value: memoryStorage(), configurable: true }); }
   }
+  // Chrome answers matchMedia from the reader's system setting even when the page's own theme
+  // toggle chose the other scheme; CSS media queries already follow the frame. Make a plain
+  // \`(prefers-color-scheme: …)\` query agree with the scheme this preview was given.
+  const nativeMatchMedia = typeof matchMedia === "function" ? matchMedia.bind(window) : null;
+  if (nativeMatchMedia) {
+    window.matchMedia = (query) => {
+      const list = nativeMatchMedia(query);
+      const asked = /^\\s*\\(\\s*prefers-color-scheme\\s*:\\s*(dark|light)\\s*\\)\\s*$/i.exec(String(query));
+      if (asked) {
+        const want = asked[1].toLowerCase();
+        Object.defineProperty(list, "matches", { configurable: true, get: () => (document.documentElement.style.colorScheme || "light") === want });
+      }
+      return list;
+    };
+  }
+  // The host page sends its light/dark scheme when the reader's theme changes.
+  addEventListener("message", (event) => {
+    const scheme = event.source === parent && event.data && event.data.obWebSandboxScheme;
+    if (scheme === "light" || scheme === "dark") document.documentElement.style.colorScheme = scheme;
+  });
 })();`;
 }
 
@@ -149,9 +169,12 @@ export function parseWebSandbox(source) {
 
 const inlineScript = (source, type = "") => `<script${type ? ` type="${type}"` : ""}>${source.replace(/<\/script/gi, "<\\/script")}<\/script>`;
 
-export function webSandboxDocument({ html = "", css = "", js = "", module = false, network = false, images = false, libraries = [], hostOrigin = "*" }) {
+// The preview's root carries the host page's scheme inline, so it outranks a lesson's own
+// `color-scheme: light dark` and `light-dark()` colors follow the reader's theme.
+export function webSandboxDocument({ html = "", css = "", js = "", module = false, network = false, images = false, libraries = [], hostOrigin = "*", scheme = "light" }) {
   const safeCss = css.replace(/<\/style/gi, "<\\/style");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${webSandboxPolicy({ network, images })}">${inlineScript(bootstrap(hostOrigin))}<style>${safeCss}</style></head><body>${html}${libraries.map((source) => inlineScript(source)).join("")}${inlineScript(js, module ? "module" : "")}</body></html>`;
+  const colorScheme = scheme === "dark" ? "dark" : "light";
+  return `<!doctype html><html style="color-scheme:${colorScheme}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${webSandboxPolicy({ network, images })}">${inlineScript(bootstrap(hostOrigin))}<style>${safeCss}</style></head><body>${html}${libraries.map((source) => inlineScript(source)).join("")}${inlineScript(js, module ? "module" : "")}</body></html>`;
 }
 
 // Library files are fetched once per page, same-origin, and inlined into each preview.
@@ -174,6 +197,31 @@ if (typeof window !== "undefined") {
     if (write && event.data && event.data.obWebSandbox === 1) write(event.data);
   });
 }
+
+// The scheme the page is showing: a theme or toggle that pins one scheme wins, otherwise the
+// system preference decides (as it does for a theme that compiles both).
+export function hostScheme(node) {
+  const value = typeof getComputedStyle === "function" && node ? getComputedStyle(node).colorScheme || "" : "";
+  const dark = /\bdark\b/.test(value);
+  const light = /\blight\b/.test(value);
+  if (dark !== light) return dark ? "dark" : "light";
+  return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+// Every sandbox on the page hears one theme watcher: the header toggle flips `data-theme`
+// on <html>, and the system preference can change while the page is open.
+const schemeListeners = new Set();
+let watchingScheme = false;
+const watchScheme = (listener) => {
+  schemeListeners.add(listener);
+  if (watchingScheme || typeof document === "undefined" || !document.documentElement) return;
+  watchingScheme = true;
+  const notify = () => schemeListeners.forEach((each) => each());
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(notify).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class", "style"] });
+  }
+  if (typeof matchMedia === "function") matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", notify);
+};
 
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -237,13 +285,50 @@ export class ObWebSandbox extends HTMLElement {
     const run = el("button", "ob-code-editor-run ob-web-sandbox-run", "Run preview");
     const reset = el("button", "ob-web-sandbox-reset", "Reset");
     run.type = reset.type = "button";
+    controls.append(run, reset);
+
+    // The preview is the lesson; the source stays one click away. A fence marked `open` (a
+    // challenge that asks the reader to edit) shows the editors from the start.
+    const source = el("div", "ob-web-sandbox-code");
+    source.id = `${instanceId}-code`;
+    source.append(tabs, panels, controls);
+    const toolbar = el("div", "ob-code-editor-controls ob-web-sandbox-toolbar");
+    const toggle = el("button", "ob-web-sandbox-toggle");
+    const restart = el("button", "ob-web-sandbox-restart", "Restart preview");
+    toggle.type = restart.type = "button";
+    toggle.setAttribute("aria-controls", source.id);
+    const showCode = (open) => {
+      source.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.textContent = open ? "Hide code" : "Show code";
+      // With the editors open, Run preview does what Restart would.
+      restart.hidden = open;
+      this.dataset.code = open ? "open" : "closed";
+    };
+    toggle.addEventListener("click", () => showCode(source.hidden));
+    toolbar.append(toggle, restart);
+
     const warning = el("p", "ob-code-editor-note ob-web-sandbox-warning", webSandboxWarning(mode));
-    const status = el("p", "ob-code-editor-status ob-web-sandbox-status", "Preview ready.");
+    const status = el("p", "ob-code-editor-status ob-web-sandbox-status ob-visually-hidden", "Preview ready.");
     status.setAttribute("role", "status");
     const frame = el("iframe", "ob-web-sandbox-preview");
     frame.title = "Web sandbox preview";
     frame.setAttribute("sandbox", WEB_SANDBOX_PERMISSIONS);
     frame.setAttribute("referrerpolicy", "no-referrer");
+    let scheme = hostScheme(this);
+    // On the iframe element too, so the preview's canvas matches its document.
+    frame.style.colorScheme = scheme;
+    watchScheme(() => {
+      const next = hostScheme(this);
+      if (next === scheme) return;
+      scheme = next;
+      frame.style.colorScheme = scheme;
+      // A lesson that asks `prefers-color-scheme` (usually once, at load) reruns so it asks again.
+      // Any other lesson is restyled in place and keeps its state.
+      if (sourceAsksScheme()) return render();
+      try { frame.contentWindow?.postMessage({ obWebSandboxScheme: scheme }, "*"); } catch {}
+    });
+    const sourceAsksScheme = () => ["html", "css", "js"].some((name) => /prefers-color-scheme/.test(editors[name].value));
 
     // Console output from the preview, rendered as text and capped.
     const output = el("div", "ob-web-sandbox-console");
@@ -279,6 +364,7 @@ export class ObWebSandbox extends HTMLElement {
         js: editors.js.value,
         ...mode,
         libraries,
+        scheme,
         // A file:// page has the origin "null", which postMessage cannot target.
         hostOrigin: typeof location !== "undefined" && location.origin !== "null" ? location.origin : "*",
       });
@@ -297,6 +383,7 @@ export class ObWebSandbox extends HTMLElement {
       );
     };
     run.addEventListener("click", render);
+    restart.addEventListener("click", render);
     reset.addEventListener("click", () => {
       for (const name of ["html", "css", "js"]) {
         editors[name].value = initial[name];
@@ -305,11 +392,11 @@ export class ObWebSandbox extends HTMLElement {
       render();
       editors[active].focus();
     });
-    controls.append(run, reset);
-    shell.append(tabs, panels, controls, warning, status, frame, output);
+    shell.append(source, frame, output, toolbar, warning, status);
     this.append(shell);
     this.dataset.enhanced = "true";
     select("html", false);
+    showCode("open" in this.dataset);
     render();
   }
 }
