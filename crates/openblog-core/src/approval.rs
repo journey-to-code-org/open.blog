@@ -266,7 +266,8 @@ pub fn public_metadata(record: &SharedPublication) -> Vec<String> {
 /// site owner may drop anyone the rule currently requires (amending ADR 0020, recorded in ADR
 /// 0052): a coordinator may only keep or add required approvers, so a coordinator can never
 /// take a site owner, or anyone else, out of the people whose consent publication waits on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum RuleAuthority {
     /// May make any rule change, including one that drops required approvers.
     SiteOwner,
@@ -333,6 +334,20 @@ struct Approval {
     binding: String,
 }
 
+/// A pending policy proposal and the participants who have independently agreed to it.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PolicyProposal {
+    pub id: u64,
+    pub policy: ApprovalPolicy,
+    pub policy_revision: u64,
+    pub membership_revision: u64,
+    pub authorization_revision: u64,
+    pub authority: RuleAuthority,
+    pub participants: Vec<String>,
+    pub consenting: Vec<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ApprovalSet {
@@ -343,6 +358,14 @@ pub struct ApprovalSet {
     policy_revision: u64,
     #[serde(default)]
     approvals: Vec<Approval>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    proposal: Option<PolicyProposal>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    proposal_sequence: u64,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 impl Default for ApprovalSet {
@@ -512,6 +535,8 @@ impl ApprovalSet {
             },
             policy_revision: 0,
             approvals: Vec::new(),
+            proposal: None,
+            proposal_sequence: 0,
         }
     }
 
@@ -546,6 +571,25 @@ impl ApprovalSet {
                         .all(|byte| byte.is_ascii_hexdigit())
             })
             && self.policy.is_canonical()
+            && self.proposal.as_ref().is_none_or(|proposal| {
+                let mut participants = HashSet::new();
+                let mut consenting = HashSet::new();
+                proposal.id > 0
+                    && proposal.id == self.proposal_sequence
+                    && proposal.policy_revision == self.policy_revision
+                    && proposal.policy.is_canonical()
+                    && proposal.policy != self.policy
+                    && !proposal.participants.is_empty()
+                    && proposal.participants.len() <= MAX_PARTICIPANTS
+                    && proposal
+                        .participants
+                        .iter()
+                        .all(|id| valid_id(id) && participants.insert(id.to_ascii_lowercase()))
+                    && proposal.consenting.iter().all(|id| {
+                        proposal.participants.contains(id)
+                            && consenting.insert(id.to_ascii_lowercase())
+                    })
+            })
     }
 
     pub fn policy(&self) -> &ApprovalPolicy {
@@ -556,6 +600,145 @@ impl ApprovalSet {
     /// they change the policy, so a change made in between is refused instead of overwritten.
     pub fn policy_revision(&self) -> u64 {
         self.policy_revision
+    }
+
+    pub fn proposal(&self) -> Option<&PolicyProposal> {
+        self.proposal.as_ref()
+    }
+
+    /// Begin a fresh proposal without recording consent for its proposer.
+    pub fn propose_policy(
+        &mut self,
+        policy: ApprovalPolicy,
+        expected_revision: u64,
+        membership_revision: u64,
+        authorization_revision: u64,
+        authority: RuleAuthority,
+        participants: &[&str],
+    ) -> Result<u64, PolicyError> {
+        if expected_revision != self.policy_revision {
+            return Err(PolicyError::Stale);
+        }
+        let policy = policy.normalized().map_err(|_| PolicyError::Invalid)?;
+        let mut unique = HashSet::new();
+        if policy == self.policy
+            || participants.is_empty()
+            || participants.len() > MAX_PARTICIPANTS
+            || !participants
+                .iter()
+                .all(|id| valid_id(id) && unique.insert(id.to_ascii_lowercase()))
+        {
+            return Err(PolicyError::Invalid);
+        }
+        let id = self
+            .proposal_sequence
+            .checked_add(1)
+            .ok_or(PolicyError::Invalid)?;
+        self.proposal_sequence = id;
+        self.proposal = Some(PolicyProposal {
+            id,
+            policy,
+            policy_revision: self.policy_revision,
+            membership_revision,
+            authorization_revision,
+            authority,
+            participants: participants.iter().map(|id| (*id).to_string()).collect(),
+            consenting: Vec::new(),
+        });
+        Ok(id)
+    }
+
+    /// Record only the requester's consent to the exact proposal and membership they reviewed.
+    pub fn consent_policy(
+        &mut self,
+        requester: &str,
+        proposal_id: u64,
+        membership_revision: u64,
+        authorization_revision: u64,
+        participants: &[&str],
+        affirmed: bool,
+    ) -> Result<bool, PolicyError> {
+        let proposal = self.proposal.as_mut().ok_or(PolicyError::Stale)?;
+        if proposal.id != proposal_id
+            || proposal.policy_revision != self.policy_revision
+            || proposal.membership_revision != membership_revision
+            || proposal.authorization_revision != authorization_revision
+            || proposal
+                .participants
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                != participants
+        {
+            return Err(PolicyError::Stale);
+        }
+        if !affirmed {
+            return Err(PolicyError::Unconfirmed);
+        }
+        if !proposal.participants.iter().any(|id| id == requester) {
+            return Err(PolicyError::Invalid);
+        }
+        if !proposal.consenting.iter().any(|id| id == requester) {
+            proposal.consenting.push(requester.to_string());
+        }
+        Ok(proposal.consenting.len() == proposal.participants.len())
+    }
+
+    /// Withdraw one's own consent while the proposal remains open.
+    pub fn withdraw_policy_consent(
+        &mut self,
+        requester: &str,
+        proposal_id: u64,
+    ) -> Result<bool, PolicyError> {
+        let proposal = self.proposal.as_mut().ok_or(PolicyError::Stale)?;
+        if proposal.id != proposal_id {
+            return Err(PolicyError::Stale);
+        }
+        if !proposal.participants.iter().any(|id| id == requester) {
+            return Err(PolicyError::Invalid);
+        }
+        let before = proposal.consenting.len();
+        proposal.consenting.retain(|id| id != requester);
+        Ok(before != proposal.consenting.len())
+    }
+
+    /// Apply a unanimous proposal only while its membership and base rule are still current.
+    pub fn apply_consented_policy(
+        &mut self,
+        proposal_id: u64,
+        membership_revision: u64,
+        authorization_revision: u64,
+        participants: &[&str],
+        subject: &ApprovalSubject<'_>,
+        approvers: &[&str],
+    ) -> Result<PolicyChange, PolicyError> {
+        let proposal = self.proposal.as_ref().ok_or(PolicyError::Stale)?;
+        if proposal.id != proposal_id
+            || proposal.policy_revision != self.policy_revision
+            || proposal.membership_revision != membership_revision
+            || proposal.authorization_revision != authorization_revision
+            || proposal
+                .participants
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                != participants
+        {
+            return Err(PolicyError::Stale);
+        }
+        if proposal.consenting.len() != proposal.participants.len() {
+            return Err(PolicyError::Unconfirmed);
+        }
+        let policy = proposal.policy.clone();
+        let authority = proposal.authority;
+        self.change_policy(
+            policy,
+            self.policy_revision,
+            true,
+            authority,
+            subject,
+            approvers,
+        )
     }
 
     /// Change the policy. A real change advances the policy revision and drops every approval,
@@ -573,6 +756,7 @@ impl ApprovalSet {
         self.policy = policy;
         self.policy_revision += 1;
         self.approvals.clear();
+        self.proposal = None;
         true
     }
 
@@ -1204,6 +1388,141 @@ mod tests {
     }
 
     const APPROVERS: [&str; 3] = ["ann", "bo", "cy"];
+
+    #[test]
+    fn policy_proposals_require_each_participant_and_bind_membership() {
+        let mut set = ApprovalSet::new();
+        let policy = named(&["cy"]);
+        let id = set
+            .propose_policy(
+                policy.clone(),
+                0,
+                3,
+                5,
+                RuleAuthority::SiteOwner,
+                &APPROVERS,
+            )
+            .unwrap();
+        assert_eq!(set.proposal().unwrap().consenting, Vec::<String>::new());
+        assert_eq!(
+            set.consent_policy("ann", id, 3, 5, &APPROVERS, true),
+            Ok(false)
+        );
+        assert_eq!(
+            set.withdraw_policy_consent("di", id),
+            Err(PolicyError::Invalid)
+        );
+        assert_eq!(set.withdraw_policy_consent("ann", id), Ok(true));
+        assert_eq!(set.withdraw_policy_consent("ann", id), Ok(false));
+        assert_eq!(
+            set.consent_policy("ann", id, 3, 5, &APPROVERS, true),
+            Ok(false)
+        );
+        assert_eq!(
+            set.consent_policy("ann", id, 3, 5, &APPROVERS, true),
+            Ok(false)
+        );
+        assert_eq!(
+            set.consent_policy("bo", id, 4, 5, &APPROVERS, true),
+            Err(PolicyError::Stale)
+        );
+        assert_eq!(
+            set.consent_policy("bo", id, 3, 6, &APPROVERS, true),
+            Err(PolicyError::Stale)
+        );
+        assert_eq!(
+            set.consent_policy("bo", id, 3, 5, &["ann", "bo"], true),
+            Err(PolicyError::Stale)
+        );
+        assert_eq!(
+            set.consent_policy("di", id, 3, 5, &APPROVERS, true),
+            Err(PolicyError::Invalid)
+        );
+        assert_eq!(
+            set.consent_policy("bo", id, 3, 5, &APPROVERS, false),
+            Err(PolicyError::Unconfirmed)
+        );
+        assert_eq!(
+            set.consent_policy("bo", id, 3, 5, &APPROVERS, true),
+            Ok(false)
+        );
+        let mut restored = ApprovalSet::from_json(&set.to_json()).unwrap();
+        let json = restored.to_json();
+        for malformed in [
+            json.replace(
+                "\"consenting\":[\"ann\",\"bo\"]",
+                "\"consenting\":[\"ann\",\"ann\"]",
+            ),
+            json.replace("\"consenting\":[\"ann\",\"bo\"]", "\"consenting\":[\"di\"]"),
+            json.replace("\"membershipRevision\":3", "\"membershipRevision\":\"3\""),
+            json.replace("\"proposalSequence\":1", "\"proposalSequence\":0"),
+        ] {
+            assert_ne!(malformed, json);
+            assert_eq!(
+                ApprovalSet::from_json(&malformed),
+                Err(ApprovalError::Invalid)
+            );
+        }
+        assert_eq!(
+            restored.consent_policy("cy", id, 3, 5, &APPROVERS, true),
+            Ok(true)
+        );
+        assert_eq!(restored.policy(), &ApprovalPolicy::default());
+        let next = restored
+            .propose_policy(policy, 0, 3, 5, RuleAuthority::SiteOwner, &APPROVERS)
+            .unwrap();
+        assert!(next > id);
+        assert_eq!(
+            restored.consent_policy("cy", id, 3, 5, &APPROVERS, true),
+            Err(PolicyError::Stale)
+        );
+    }
+
+    #[test]
+    fn applying_a_policy_proposal_needs_unanimity_and_clears_piece_approvals() {
+        let piece = group();
+        let mut set = ApprovalSet::new();
+        for author in APPROVERS {
+            approve(&mut set, &piece, author);
+        }
+        let proposal = set
+            .propose_policy(
+                named(&["cy"]),
+                0,
+                4,
+                7,
+                RuleAuthority::SiteOwner,
+                &APPROVERS,
+            )
+            .unwrap();
+        for who in ["ann", "bo"] {
+            set.consent_policy(who, proposal, 4, 7, &APPROVERS, true)
+                .unwrap();
+        }
+        let before = set.clone();
+        piece.with(|subject| {
+            assert_eq!(
+                set.apply_consented_policy(proposal, 4, 7, &APPROVERS, subject, &APPROVERS),
+                Err(PolicyError::Unconfirmed)
+            );
+        });
+        assert_eq!(set, before);
+        set.consent_policy("cy", proposal, 4, 7, &APPROVERS, true)
+            .unwrap();
+        piece.with(|subject| {
+            assert_eq!(
+                set.apply_consented_policy(proposal, 5, 7, &APPROVERS, subject, &APPROVERS),
+                Err(PolicyError::Stale)
+            );
+            assert_eq!(
+                set.apply_consented_policy(proposal, 4, 7, &APPROVERS, subject, &APPROVERS),
+                Ok(PolicyChange::Changed { cleared: 3 })
+            );
+            assert!(!set.is_approved(subject, "ann"));
+        });
+        assert_eq!(set.policy_revision(), 1);
+        assert!(set.proposal().is_none());
+    }
 
     #[test]
     fn writers_always_approve_and_named_or_role_rules_only_add_people() {
