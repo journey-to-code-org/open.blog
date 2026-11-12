@@ -9,6 +9,73 @@ const MAX_SOURCE_BYTES: usize = 16 * 1024;
 const MAX_ALT_BYTES: usize = 1024;
 const MAX_SVG_BYTES: usize = 1_000_000;
 
+#[cfg(not(target_arch = "wasm32"))]
+const CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
+#[cfg(not(target_arch = "wasm32"))]
+const CACHE_MAX_ENTRIES: usize = 32;
+#[cfg(not(target_arch = "wasm32"))]
+static CACHE: std::sync::OnceLock<std::sync::Mutex<RenderCache>> = std::sync::OnceLock::new();
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
+struct RenderCache {
+    entries: std::collections::BTreeMap<[u8; 32], String>,
+    order: std::collections::VecDeque<[u8; 32]>,
+    bytes: usize,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl RenderCache {
+    fn get(&mut self, key: &[u8; 32]) -> Option<String> {
+        let value = self.entries.get(key)?.clone();
+        self.order.retain(|entry| entry != key);
+        self.order.push_back(*key);
+        Some(value)
+    }
+
+    fn insert(&mut self, key: [u8; 32], svg: String) {
+        if svg.len() > CACHE_MAX_BYTES {
+            return;
+        }
+        if let Some(previous) = self.entries.remove(&key) {
+            self.bytes -= previous.len();
+            self.order.retain(|entry| *entry != key);
+        }
+        while self.entries.len() >= CACHE_MAX_ENTRIES || self.bytes + svg.len() > CACHE_MAX_BYTES {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(removed) = self.entries.remove(&oldest) {
+                self.bytes -= removed.len();
+            }
+        }
+        self.bytes += svg.len();
+        self.entries.insert(key, svg);
+        self.order.push_back(key);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn cache_key(diagram: &Diagram, ordinal: usize) -> [u8; 32] {
+    use blake2::{Blake2s256, Digest};
+    let mut digest = Blake2s256::new();
+    for value in [
+        "merman-0.10.0-static-inline-v1",
+        &diagram.source,
+        &diagram.title,
+        &diagram.description,
+        diagram.options.title.as_deref().unwrap_or(""),
+        diagram.options.description.as_deref().unwrap_or(""),
+        diagram.options.caption.as_deref().unwrap_or(""),
+        diagram.options.source.as_deref().unwrap_or(""),
+    ] {
+        digest.update((value.len() as u64).to_le_bytes());
+        digest.update(value.as_bytes());
+    }
+    digest.update((ordinal as u64).to_le_bytes());
+    digest.finalize().into()
+}
+
 /// A renderer diagnostic, with a source position when the parser provides one.
 #[derive(Debug)]
 pub struct RenderFailure {
@@ -41,7 +108,39 @@ pub fn render(diagram: &Diagram, ordinal: usize) -> Result<String, String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn render_diagnostic(diagram: &Diagram, ordinal: usize) -> Result<String, RenderFailure> {
     let control = merman::OperationControl::new().with_deadline(std::time::Duration::from_secs(2));
-    render_with_control(diagram, ordinal, control)
+    if diagram.source.len() > MAX_SOURCE_BYTES
+        || diagram.title.len() > MAX_ALT_BYTES
+        || diagram.description.len() > MAX_ALT_BYTES
+        || [
+            &diagram.options.title,
+            &diagram.options.description,
+            &diagram.options.caption,
+            &diagram.options.source,
+        ]
+        .iter()
+        .any(|value| {
+            value
+                .as_ref()
+                .is_some_and(|text| text.len() > MAX_ALT_BYTES)
+        })
+    {
+        return render_with_control(diagram, ordinal, control);
+    }
+    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(RenderCache::default()));
+    let key = cache_key(diagram, ordinal);
+    if let Some(svg) = cache
+        .lock()
+        .map_err(|_| RenderFailure::from("diagram render cache lock is poisoned"))?
+        .get(&key)
+    {
+        return Ok(svg);
+    }
+    let svg = render_with_control(diagram, ordinal, control)?;
+    cache
+        .lock()
+        .map_err(|_| RenderFailure::from("diagram render cache lock is poisoned"))?
+        .insert(key, svg.clone());
+    Ok(svg)
 }
 
 /// Render inside a host-controlled Web Worker. The host must terminate it on timeout.
@@ -240,6 +339,58 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_keys_include_source_options_renderer_and_svg_scope() {
+        let original = diagram("flowchart LR\nA --> B");
+        let key = cache_key(&original, 1);
+        assert_eq!(key, cache_key(&original, 1));
+        assert_ne!(key, cache_key(&original, 2));
+        let mut changed = original.clone();
+        changed.source.push_str("\nB --> C");
+        assert_ne!(key, cache_key(&changed, 1));
+        changed = original.clone();
+        changed.options.caption = Some("A caption".into());
+        assert_ne!(key, cache_key(&changed, 1));
+        changed = original;
+        changed.title.push('!');
+        assert_ne!(key, cache_key(&changed, 1));
+    }
+
+    #[test]
+    fn render_cache_is_bounded_and_evicts_least_recently_used() {
+        let mut cache = RenderCache::default();
+        for index in 0..CACHE_MAX_ENTRIES {
+            let mut key = [0; 32];
+            key[0] = index as u8;
+            cache.insert(key, "svg".into());
+        }
+        assert_eq!(cache.get(&[0; 32]).as_deref(), Some("svg"));
+        let mut next = [0; 32];
+        next[0] = CACHE_MAX_ENTRIES as u8;
+        cache.insert(next, "svg".into());
+        let mut evicted = [0; 32];
+        evicted[0] = 1;
+        assert!(cache.get(&evicted).is_none());
+        assert!(cache.get(&[0; 32]).is_some());
+        cache.insert([255; 32], "x".repeat(CACHE_MAX_BYTES));
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.bytes, CACHE_MAX_BYTES);
+        cache.insert([254; 32], "x".repeat(CACHE_MAX_BYTES + 1));
+        assert_eq!(cache.entries.len(), 1);
+    }
+
+    #[test]
+    fn successful_render_is_cached_but_failures_are_not() {
+        let valid = diagram("flowchart LR\nCacheNode --> OtherNode");
+        let invalid = diagram("flowchart LR\nCacheNode[Unclosed --> OtherNode");
+        let first = render_diagnostic(&valid, 41).unwrap();
+        assert_eq!(render_diagnostic(&valid, 41).unwrap(), first);
+        assert!(render_diagnostic(&invalid, 42).is_err());
+        let cache = CACHE.get().unwrap().lock().unwrap();
+        assert_eq!(cache.entries.get(&cache_key(&valid, 41)), Some(&first));
+        assert!(!cache.entries.contains_key(&cache_key(&invalid, 42)));
+    }
 
     #[test]
     fn parser_positions_count_unicode_characters_and_reject_invalid_offsets() {

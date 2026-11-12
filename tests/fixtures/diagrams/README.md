@@ -38,6 +38,11 @@ is cooperative, and callers on the web must enforce a timeout by terminating
 their Worker. It is not yet a complete or independently security-audited
 publication boundary.
 
+Native rendering caches successful SVGs in memory using a digest of source,
+options, alternatives, renderer version and SVG ID scope. The cache is limited
+to 32 entries and 8 MiB and is discarded when the process exits. It never caches
+failures; browser previews continue to use a separately terminated Worker.
+
 Run the comparison from the repository root:
 
 ```sh
