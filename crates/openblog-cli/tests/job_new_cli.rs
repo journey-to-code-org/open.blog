@@ -263,3 +263,35 @@ fn a_decision_starts_as_a_draft_and_check_enforces_publication() {
     );
     let _ = fs::remove_dir_all(&root);
 }
+
+#[cfg(feature = "diagram-rendering")]
+#[test]
+fn opt_in_cli_check_and_build_enforce_diagram_accessibility() {
+    let root = project("diagram", &[]);
+    let path = root.join("content/posts/diagram.md");
+    let source = "---\ntitle: Diagram\ndate: 2020-01-01\ndraft: true\n---\n```mermaid\nflowchart LR\nA --> B\n```\n";
+    fs::write(&path, source).unwrap();
+    let draft = run(&root, &["check"]);
+    assert!(draft.status.success(), "{}", text(&draft.stderr));
+    let report = format!("{}{}", text(&draft.stdout), text(&draft.stderr));
+    assert!(report.contains("accTitle"), "{report}");
+    let published = source.replace("draft: true", "draft: false");
+    fs::write(&path, &published).unwrap();
+    for command in ["check", "build"] {
+        let output = run(&root, &[command]);
+        assert!(!output.status.success(), "{command}");
+        let report = format!("{}{}", text(&output.stdout), text(&output.stderr));
+        assert!(report.contains("accTitle"), "{report}");
+        assert!(report.contains("line 6"), "{report}");
+    }
+    let valid = published.replace(
+        "```mermaid\n",
+        "```mermaid title=\"Request\" description=\"A calls B\"\n",
+    );
+    fs::write(path, valid).unwrap();
+    let output = run(&root, &["build"]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    let html = fs::read_to_string(root.join("dist/posts/diagram/index.html")).unwrap();
+    assert!(html.contains("<figure class=\"ob-diagram\">"));
+    let _ = fs::remove_dir_all(&root);
+}

@@ -294,6 +294,7 @@ pub struct Post {
     pub(crate) evidence_error: Option<String>,
     pub(crate) audio_error: Option<String>,
     pub(crate) decision_error: Option<String>,
+    pub(crate) diagram_error: Option<String>,
     pub audio: Option<crate::audio::AudioEpisode>,
     /// Validated metadata for a decision record.
     pub decision: Option<crate::decision::Decision>,
@@ -591,6 +592,7 @@ pub struct Page {
     /// Where the page sits in the documentation section, for a page from `docs/` (ADR 0405).
     pub doc: Option<crate::docs_section::DocPlace>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
+    pub(crate) diagram_error: Option<String>,
     /// Semantic capabilities detected in the authored Markdown.
     pub capabilities: Vec<CapabilityDescriptor>,
 }
@@ -979,6 +981,7 @@ impl Site {
                             post.decision_error.take(),
                             decision_reason,
                         ),
+                        ("diagram is", post.diagram_error.take(), decision_reason),
                     ] {
                         let Some(error) = error else { continue };
                         match reason {
@@ -1033,6 +1036,17 @@ impl Site {
         for file in &sources.pages {
             match load_page(file, concept_options(render_options)) {
                 Ok(mut page) => {
+                    if let Some(error) = page.diagram_error.take() {
+                        if options.preview_source.is_some() {
+                            warnings.push(format!(
+                                "{}: diagram not published in this preview: {error}",
+                                file.path
+                            ));
+                        } else {
+                            errors.push(format!("{}: {error}", file.path));
+                            continue;
+                        }
+                    }
                     let (html, notes) = crate::concept_links::plain_outside_post(
                         &page.html,
                         &page.concept_refusals,
@@ -1057,6 +1071,7 @@ impl Site {
             &sources.docs,
             &config,
             options.include_drafts,
+            options.preview_source.is_some(),
             concept_options(render_options),
             &mut pages,
             &mut accessibility,
@@ -2271,7 +2286,7 @@ fn load_post_in(
         }
         _ => None,
     };
-    let mut rendered = markdown::render(
+    let (mut rendered, diagram_error) = render_site_markdown(
         published
             .as_ref()
             .map_or(base, |(published, _)| &published.markdown),
@@ -2290,6 +2305,7 @@ fn load_post_in(
             supplements: reading_setting.enabled,
             ..options
         },
+        doc.body_line,
     );
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
@@ -2557,6 +2573,7 @@ fn load_post_in(
         evidence_error,
         audio_error,
         decision_error,
+        diagram_error,
         audio: None,
         decision,
         reader_feedback: Vec::new(),
@@ -2868,10 +2885,41 @@ fn load_service(file: &SourceFile, options: RenderOptions<'_>) -> Result<Service
     })
 }
 
+fn render_site_markdown(
+    source: &str,
+    options: RenderOptions<'_>,
+    body_line: usize,
+) -> (markdown::Rendered, Option<String>) {
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    {
+        let (rendered, findings) = markdown::render_diagrams(source, options);
+        let error = (!findings.is_empty()).then(|| {
+            findings
+                .iter()
+                .map(|finding| {
+                    format!(
+                        "line {}, column {}: {}",
+                        body_line + finding.line.saturating_sub(1),
+                        finding.column,
+                        finding.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        });
+        (rendered, error)
+    }
+    #[cfg(not(all(feature = "diagram-rendering", not(target_arch = "wasm32"))))]
+    {
+        let _ = body_line;
+        (markdown::render(source, options), None)
+    }
+}
+
 fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
-    let rendered = markdown::render(&doc.body, options);
+    let (rendered, diagram_error) = render_site_markdown(&doc.body, options, doc.body_line);
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
     }
@@ -2912,6 +2960,7 @@ fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, Stri
         source: file.path.clone(),
         doc: None,
         accessibility,
+        diagram_error,
         capabilities: rendered.capabilities,
     })
 }
@@ -2925,6 +2974,7 @@ fn load_docs(
     files: &[SourceFile],
     config: &SiteConfig,
     include_drafts: bool,
+    preview: bool,
     options: RenderOptions<'_>,
     pages: &mut Vec<Page>,
     accessibility: &mut Vec<AccessibilityFinding>,
@@ -2955,9 +3005,11 @@ fn load_docs(
             continue;
         };
         let titled_by_heading;
+        let draft;
         let doc = match frontmatter::parse(&file.contents) {
             Ok(document) => {
-                if is_draft(&document.front_matter) && !include_drafts {
+                draft = is_draft(&document.front_matter);
+                if draft && !include_drafts {
                     continue;
                 }
                 titled_by_heading = first(&document.front_matter, &["title"]).is_none();
@@ -2974,6 +3026,14 @@ fn load_docs(
         };
         match load_page(file, options) {
             Ok(mut page) => {
+                if let Some(error) = page.diagram_error.take() {
+                    if draft || preview {
+                        warnings.push(format!("{}: diagram not published while this document is a draft or preview: {error}", file.path));
+                    } else {
+                        errors.push(format!("{}: {error}", file.path));
+                        continue;
+                    }
+                }
                 if let Some(other) = docs
                     .iter()
                     .find(|other| other.doc.as_ref().is_some_and(|d| d.path == path))

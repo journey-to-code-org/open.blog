@@ -17,14 +17,17 @@ pipeline with accessible title and description markup and stricter rejection
 of links, images and interaction/configuration directives. The experimental
 `markdown::render_diagrams` entry point adds figure markup, caption, source
 disclosure, collision-checked IDs and source-scoped findings; invalid diagrams
-remain escaped code. Callers must inspect the findings: this entry point is not
-wired to site builds, previews, portable projections or publication gates.
+remain escaped code. Native builds explicitly compiled with the feature use it
+for posts, pages and documentation, failing publication on findings and
+warning for drafts and previews. Portable projections and other content
+surfaces are not integrated. This is not yet a complete production feature.
 The feature is disabled by default and requires Rust 1.95 or newer. It updates
 the shared `pulldown-cmark` lockfile entry from 0.13.5 to 0.13.6. Test it with:
 
 ```sh
 cargo test --locked -p openblog-core --features diagram-rendering --lib diagram_svg::tests
 cargo test --locked -p openblog-core --features diagram-rendering --lib experimental_diagram
+cargo test --locked -p openblog-core --features diagram-rendering --test diagram_publication
 ```
 
 Its 200-item model budget is not an exact node-count limit, the native timeout
