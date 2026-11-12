@@ -178,7 +178,7 @@ fn other_profiles_and_stray_job_options_are_refused_and_plain_new_is_unchanged()
     let root = project("other", &[]);
     let odd = run(&root, &["new", "A post", "--profile", "video"]);
     assert!(!odd.status.success());
-    assert!(text(&odd.stderr).contains("article, recipe, job or service"));
+    assert!(text(&odd.stderr).contains("article, recipe, job, decision or service"));
     let stray = run(&root, &["new", "A post", "--trade", "flooring"]);
     assert!(!stray.status.success());
     assert!(text(&stray.stderr).contains("--profile job"));
@@ -188,5 +188,78 @@ fn other_profiles_and_stray_job_options_are_refused_and_plain_new_is_unchanged()
     let source = only_post(&root);
     assert!(!source.contains("job") && !source.contains("profile"));
     assert!(source.contains("Write your post here."));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_decision_starts_as_a_draft_and_check_enforces_publication() {
+    let root = project("decision", &[]);
+    let created = run(&root, &["new", "Use a queue", "--profile", "decision"]);
+    assert!(created.status.success(), "{}", text(&created.stderr));
+    let source = only_post(&root);
+    let document = frontmatter::parse(&source).unwrap();
+    assert_eq!(document.front_matter.get("profile"), Some("decision"));
+    assert_eq!(document.front_matter.get("draft"), Some("true"));
+    assert_eq!(
+        document.front_matter.get("decisionStatus"),
+        Some("proposed")
+    );
+    for heading in [
+        "## Context",
+        "### Before",
+        "## Options considered",
+        "## Decision",
+        "## Consequences",
+        "### After",
+    ] {
+        assert!(document.body.contains(heading), "{heading}");
+    }
+
+    let draft_check = run(&root, &["check"]);
+    assert!(
+        draft_check.status.success(),
+        "{}",
+        text(&draft_check.stderr)
+    );
+    let report = format!("{}{}", text(&draft_check.stdout), text(&draft_check.stderr));
+    assert!(report.contains("decision"), "{report}");
+    let path = fs::read_dir(root.join("content/posts"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let published = source.replace("draft: \"true\"", "draft: \"false\"");
+    assert_ne!(published, source);
+    fs::write(&path, &published).unwrap();
+    let incomplete_check = run(&root, &["check"]);
+    assert!(!incomplete_check.status.success());
+    let report = format!(
+        "{}{}",
+        text(&incomplete_check.stdout),
+        text(&incomplete_check.stderr)
+    );
+    assert!(report.contains("Context"), "{report}");
+
+    let complete = [
+        ("## Context\n", "## Context\n\nThe problem.\n"),
+        (
+            "## Options considered\n",
+            "## Options considered\n\nTwo choices.\n",
+        ),
+        ("## Decision\n", "## Decision\n\nUse a queue.\n"),
+        ("## Consequences\n", "## Consequences\n\nMore components.\n"),
+    ]
+    .into_iter()
+    .fold(published, |source, (before, after)| {
+        source.replace(before, after)
+    });
+    fs::write(path, complete).unwrap();
+    let complete_check = run(&root, &["check"]);
+    assert!(
+        complete_check.status.success(),
+        "{}",
+        text(&complete_check.stderr)
+    );
     let _ = fs::remove_dir_all(&root);
 }
