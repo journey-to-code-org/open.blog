@@ -89,6 +89,7 @@ mod announcements;
 mod business;
 mod capture_assistant;
 mod comparisons;
+mod greetings;
 mod job_sharing;
 mod landing;
 mod look;
@@ -555,6 +556,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name.starts_with("quote/") {
             return Ok(quote::MAX_QUOTE_REQUEST_BYTES);
         }
+        if name.starts_with("greetings/") {
+            return Ok(greetings::MAX_GREETINGS_REQUEST_BYTES);
+        }
         if let Some(rest) = name.strip_prefix("social/") {
             return Ok(if announcements::owns(rest) {
                 announcements::MAX_REQUEST_BYTES
@@ -619,6 +623,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/voice-polished.js" => "voice-polished.js",
         "/admin/social.js" => "social.js",
         "/admin/quotes.js" => "quotes.js",
+        "/admin/greetings.js" => "greetings.js",
         "/admin/announcements.js" => "announcements.js",
         "/admin/job-share.js" => "job-share.js",
         "/admin/voice-library.js" => "voice-library.js",
@@ -683,7 +688,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
     let local_write = !req.is_read_only()
         && name != "logout"
         && !name.starts_with("social/")
-        && !name.starts_with("quote/");
+        && !name.starts_with("quote/")
+        && !name.starts_with("greetings/");
     let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
             Ok(transaction) => Some(transaction),
@@ -741,6 +747,13 @@ fn authenticated_api(
     }
     if let Some(rest) = name.strip_prefix("quote/") {
         return quote::route(req, &session.user, rest);
+    }
+    if let Some(rest) = name.strip_prefix("greetings/") {
+        let response = greetings::route(req, &session.user, rest);
+        if rest == "preview" && response.status == 200 {
+            return greeting_preview(state, response);
+        }
+        return response;
     }
     if let Some(rest) = name.strip_prefix("social/") {
         if announcements::owns(rest) {
@@ -4182,6 +4195,7 @@ fn meta(state: &AppState) -> Response {
             "codeRunnerLanguages": code_runner_languages,
             "social": social::is_configured(),
             "quote": quote::is_configured(),
+            "greetings": greetings::is_configured(),
             "now": clock::now().rfc3339(),
         }),
     )
@@ -18332,6 +18346,40 @@ fn store_preview(state: &AppState, token: &str, html: String, csp: String) {
     }
 }
 
+/// A greeting card's preview (ADR 0411) is served like any preview: kept here under a random token,
+/// in a document whose policy allows its inline styles and nothing that runs, so Admin's own policy
+/// stays strict and the frame shows the card as the mail program will.
+fn greeting_preview(state: &AppState, response: Response) -> Response {
+    let Ok(mut body) = serde_json::from_slice::<Json>(&response.body) else {
+        return Response::error(
+            502,
+            "The greetings function sent a reply Admin could not use",
+        );
+    };
+    let Some(html) = body
+        .as_object_mut()
+        .and_then(|object| object.remove("html"))
+        .and_then(|html| html.as_str().map(str::to_string))
+    else {
+        return Response::error(
+            502,
+            "The greetings function sent a reply Admin could not use",
+        );
+    };
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(e) => return Response::error(500, &e),
+    };
+    store_preview(
+        state,
+        &token,
+        html,
+        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'".into(),
+    );
+    body["previewUrl"] = json!(format!("/admin/api/preview/{token}"));
+    Response::json(200, &body)
+}
+
 fn preview_document(state: &AppState, token: &str) -> Response {
     if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Response::error(404, "Preview not found");
@@ -18831,6 +18879,7 @@ mod tests {
     mod capture_transcribe_routes;
     mod comparison_routes;
     mod distribution_routes;
+    mod greeting_routes;
     mod job_draft_routes;
     mod job_share_routes;
     mod landing_history_routes;

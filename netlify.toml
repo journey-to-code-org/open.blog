@@ -40,6 +40,19 @@
 [functions."webmention"]
   node_bundler = "esbuild"
 
+# Optional greeting cards (ADR 0411). Off unless OPENBLOG_GREETINGS_ENABLED is set.
+[functions."greetings"]
+  node_bundler = "esbuild"
+
+# The hourly sender of greeting cards that are due (ADR 0411); does nothing unless they are on.
+[functions."greetings-send"]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/greetings/*"
+  to = "/.netlify/functions/greetings/:splat"
+  status = 200
+
 # Optional quote requests (ADR 0381). Off unless OPENBLOG_QUOTE_ENABLED is set.
 [functions."quote"]
   node_bundler = "esbuild"
