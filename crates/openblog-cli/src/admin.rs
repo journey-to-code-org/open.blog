@@ -14959,8 +14959,10 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
     };
     let mut slots = Vec::new();
     let mut ready = false;
+    let mut ready_revision = None;
     if let Some(own) = &own {
         ready = set.is_ready(own);
+        ready_revision = set.ready_revision(own);
         let participants = &record.collaboration.participants;
         let order = participants
             .iter()
@@ -14989,7 +14991,7 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
     }
     Response::json(
         200,
-        &json!({ "policy": set.policy(), "ready": ready, "slots": slots, "canSetPolicy": coordinator }),
+        &json!({ "policy": set.policy(), "ready": ready, "readyRevision": ready_revision, "slots": slots, "canSetPolicy": coordinator }),
     )
 }
 
@@ -38295,7 +38297,12 @@ series: letters
         let waiting = body_json(&reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))));
         assert_eq!(waiting["ready"], true);
         assert_eq!(waiting["revealed"], false);
+        assert_eq!(
+            body_json(&reveal_state(&f, &grace, &id))["readyRevision"],
+            1
+        );
         let seen = body_json(&reveal_state(&f, &mikey, &id));
+        assert!(seen["readyRevision"].is_null());
         assert_eq!(slot(&seen, "Grace")["ready"], true);
         assert!(!seen.to_string().contains("GRACE-SECRET"));
         let back = body_json(&reveal_call(
@@ -38722,6 +38729,21 @@ series: letters
             );
         }
         (f, mikey, grace, ada, id)
+    }
+
+    #[test]
+    #[ignore = "generates a private test site for the browser approval suite"]
+    fn generate_approval_browser_fixture() {
+        let destination = PathBuf::from(
+            std::env::var_os("OPENBLOG_APPROVAL_FIXTURE")
+                .expect("OPENBLOG_APPROVAL_FIXTURE is required"),
+        );
+        let (f, _, _, _, _) = approval_fixture("browser-approval");
+        for (path, bytes) in tree_snapshot(&f.dir) {
+            let file = destination.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, bytes).unwrap();
+        }
     }
 
     fn approval_body(f: &Fixture, who: &(String, String), id: &str) -> Json {

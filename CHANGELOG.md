@@ -11,6 +11,8 @@ All notable changes to open.blog are recorded here. Releases follow
   section invalidates every author's approval. Existing approval policies are unchanged.
 - Authors can approve a complete combined preview in Admin, explicitly confirming the current
   public contributor-profile credit. Additional credit choices are not yet available.
+- The sharing panel names the revision an author offered, and warns when it is older than their
+  latest saved draft.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
   chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
   Directory submission is manual. See [Audio episodes](docs/audio.md) for limits and hosting requirements.

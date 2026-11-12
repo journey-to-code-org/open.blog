@@ -640,7 +640,15 @@ impl DraftSet {
     }
 
     pub fn is_ready(&self, participant: &str) -> bool {
-        self.ready.iter().any(|r| r.participant_id == participant)
+        self.ready_revision(participant).is_some()
+    }
+
+    /// The exact revision the participant currently offers, if any.
+    pub fn ready_revision(&self, participant: &str) -> Option<u64> {
+        self.ready
+            .iter()
+            .find(|r| r.participant_id == participant)
+            .map(|r| r.revision)
     }
 
     /// Offer one exact revision of the requester's own draft for reveal. `active` lists the

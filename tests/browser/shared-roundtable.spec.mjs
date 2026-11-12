@@ -17,7 +17,8 @@ const origins = new Map();
 
 test.setTimeout(180000);
 
-test.beforeAll(async () => {
+test.beforeAll(async ({}, testInfo) => {
+  testInfo.setTimeout(360000);
   root = mkdtempSync(join(tmpdir(), "openblog-roundtable-browser-"));
   execFileSync("cargo", [
     "test", "--locked", "-p", "openblog-cli", "generate_roundtable_browser_fixtures",

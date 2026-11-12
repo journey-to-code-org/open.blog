@@ -56,6 +56,9 @@ each draft would allow.
   `DraftSet::view`), or a placeholder that is identical for missing, unrevealed, withdrawn and
   unknown drafts. A placeholder says only whether that participant has offered a revision. Prose,
   names and metadata are JSON strings; a client renders them as text, never as markup.
+- The sharing response names the requester's own offered revision, if any. Admin warns when the
+  offer names an older revision than the latest save; no other participant's offered revision
+  number is disclosed by that field.
 - Routes: `GET /admin/api/collaboration/reveal`, `PUT .../reveal/policy`, `PUT .../reveal/ready`.
   All need the Admin session, writes need CSRF and strict JSON, every refusal is the same 404, and
   writes use the revision-checked draft store (409 on a race, nothing changed). Manual exchange

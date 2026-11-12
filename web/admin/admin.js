@@ -19686,7 +19686,13 @@ export class ObAdmin extends AdminElement {
         if (reveal.ready) {
           const takeBack = h("button", { class: "oba-btn", type: "button" }, "Take back my offer");
           takeBack.addEventListener("click", () => runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision: null }, () => "Your offer was taken back."));
-          parts.push(h("p", { class: "oba-small" }, "You have offered a revision to share."), takeBack);
+          const offeredRevision = Number.isSafeInteger(reveal.readyRevision) ? reveal.readyRevision : null;
+          const offerText = offeredRevision === null
+            ? "You have offered a revision to share."
+            : offeredRevision === saved.number
+              ? `You have offered revision ${offeredRevision} to share.`
+              : `You have offered revision ${offeredRevision}, not your latest revision ${saved.number}. Take back the offer before offering your latest revision.`;
+          parts.push(h("p", { class: "oba-small" }, offerText), takeBack);
         } else if (policy.value !== "independent") {
           const offer = h("button", { class: "oba-btn", type: "button" }, `Offer revision ${saved.number} to the group`);
           const holder = h("div", {});
