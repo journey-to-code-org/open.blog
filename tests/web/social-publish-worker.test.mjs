@@ -42,6 +42,28 @@ test("the worker delivers an approved LinkedIn image with its alt text", async (
   assert.deepEqual(JSON.parse(providerCalls(s, "/rest/posts")[0].body).content, { media: { id: "urn:li:image:abc123", altText: "A lantern" } });
 });
 
+test("the worker sends the approved Facebook photo and never repeats an uncertain write", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  for (const uncertain of [false, true]) {
+    const s = await setup((n, url) => url === "https://blog.example.org/cover.png"
+      ? { status: 200, headers: { "content-type": "image/png" }, body: png }
+      : uncertain ? { status: 503 } : { status: 200, body: { id: "99887766", post_id: FB_ID } });
+    const post = s.addPost({ account_id: FACEBOOK });
+    const snapshot = await captureMedia({ url: "https://blog.example.org/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, post.canonical_url);
+    post.media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, post.canonical_url) };
+    await s.worker.run();
+    assert.equal(post.status, uncertain ? "unknown" : "published");
+    const photo = providerCalls(s, "/photos")[0];
+    assert.equal(photo.body.get("alt_text_custom"), "A lantern");
+    assert.deepEqual(new Uint8Array(await photo.body.get("source").arrayBuffer()), png);
+    s.advance(10 * MIN);
+    await s.worker.run();
+    assert.equal(providerCalls(s, "/photos").length, 1);
+    assert.equal(providerCalls(s, "/feed").length, 0);
+    if (uncertain) assert.equal(post.last_error_code, "needs-review");
+  }
+});
+
 test("a 201 from LinkedIn and a 200 from Facebook publish with the provider's own ids", async () => {
   const s = await setup((n, url) => (url.endsWith("/rest/posts") ? { status: 201, headers: { "x-restli-id": URN } } : { status: 200, body: { id: FB_ID } }));
   const li = s.addPost({ body: "LinkedIn caption" });

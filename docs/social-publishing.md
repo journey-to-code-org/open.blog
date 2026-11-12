@@ -332,7 +332,8 @@ you shared by hand, another announcement of the same post, a caption you edited 
 the announcement comes to you as **Needs checking** instead of being guessed at. This needs
 `pages_read_engagement` (requested by default); without it the lookup cannot tell and you settle it. LinkedIn: there
 is no lookup, because reading a member's or organization's posts needs permissions LinkedIn gives only to approved
-partners, so an unclear LinkedIn outcome comes straight to you as **Needs checking**.
+partners, so an unclear LinkedIn outcome comes straight to you as **Needs checking**. Facebook photo announcements
+also require a person to check: the feed lookup cannot verify the approved image and its alt text.
 
 ### LinkedIn
 
@@ -360,6 +361,12 @@ The token goes in the `Authorization` header, never in the address. Facebook's o
 expired token or a removed app asks you to reconnect, a missing permission or Page role is reported as such, a rate
 limit (including Meta's Page-level limit, code `80001`, and the other business-use-case codes `80000`-`80014`) pauses
 that Page and is tried again later, and an "unknown error" is `unknown` because the post may exist.
+
+After installing `supabase/social-media.sql`, an author can preview and approve a public JPEG or PNG cover up to
+1,000,000 bytes. Facebook receives the approved bytes, caption and link as a Page photo, with the description as alt
+text ([Page photos](https://developers.facebook.com/docs/graph-api/reference/page/photos/), checked 2026-11-12).
+If the image changes or a photo request is definitively refused, the author chooses whether to post the link without
+the image or stop. A photo request with an uncertain outcome never falls back to a second post: check the Page first.
 
 Verify at setup, because Meta changes them: the Graph version (`OPENBLOG_SOCIAL_FACEBOOK_API_VERSION`, for example
 `v23.0`; old versions are retired), that your app has `pages_manage_posts` (and `pages_show_list`), and App Review:
@@ -448,7 +455,7 @@ It is additive and re-runnable: five columns, one index and four functions, no e
 
 Without this file announcements wait in the queue exactly as before.
 
-The optional `supabase/social-media.sql` adds storage for approved Bluesky and LinkedIn media snapshots after the queue is installed.
+The optional `supabase/social-media.sql` adds storage for approved Bluesky, LinkedIn and Facebook media snapshots after the queue is installed.
 Run it before scheduling an announcement with a cover. Existing announcements remain unchanged.
 `supabase/social-media-rollback.sql` refuses to remove the column while any media-bearing announcement remains.
 

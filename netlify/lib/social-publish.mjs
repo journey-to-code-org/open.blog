@@ -270,6 +270,39 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
     async publish({ post, account, accessToken, signal } = {}) {
       const page = pageOf(account);
       const { caption, url } = prepare("facebook", { post, accessToken });
+      const media = await approvedMedia(post, url);
+      if (media) {
+        if (!["image/jpeg", "image/png"].includes(media.mimeType) || media.size > 1_000_000) throw new DeliveryError("rejected");
+        let bytes = null;
+        try {
+          bytes = await fetchApprovedMedia(fetchImpl, media, url, signal);
+        } catch (error) {
+          if (!(error instanceof MediaError)) throw error;
+          if (media.fallback !== "text") throw new DeliveryError("rejected");
+        }
+        if (bytes) {
+          const form = new FormData();
+          form.set("source", new Blob([bytes], { type: media.mimeType }), media.mimeType === "image/png" ? "cover.png" : "cover.jpg");
+          form.set("caption", statusText(caption, url));
+          form.set("alt_text_custom", media.description);
+          form.set("published", "true");
+          const photo = await send(fetchImpl, `${settings.apiBase}/${page}/photos`,
+            { method: "POST", headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" }, body: form }, signal);
+          const status = Number(photo?.status) || 0;
+          const answer = await readJson(photo);
+          if (status === 200) {
+            const postId = answer?.post_id;
+            if (typeof postId === "string" && FACEBOOK_POST_ID.test(postId) && postId.startsWith(`${page}_`)) return { providerPostId: postId };
+            if (postId != null) throw new DeliveryError("uncertain", { status });
+            const photoId = answer?.id;
+            if (typeof photoId === "string" && FACEBOOK_PAGE.test(photoId)) return { providerPostId: photoId };
+            throw new DeliveryError("uncertain", { status });
+          }
+          if (status >= 200 && status < 300) throw new DeliveryError("uncertain", { status });
+          const error = facebookError(status, answer, photo, now);
+          if (media.fallback !== "text" || error.kind !== "rejected" || ![400, 403, 404, 410, 422].includes(status)) throw error;
+        }
+      }
       // The Page token goes in the header, never in the URL or body, so no access log can keep it.
       const response = await send(
         fetchImpl,
@@ -300,6 +333,7 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
     // permission included, is "unknown": the worker keeps looking, then asks a person.
     async reconcile({ post, account, accessToken, attemptedAt, finishedAt, signal } = {}) {
       try {
+        if (post?.media != null) return { state: "unknown" };
         const page = pageOf(account);
         const { caption, url } = prepare("facebook", { post, accessToken });
         const started = Date.parse(attemptedAt ?? "");

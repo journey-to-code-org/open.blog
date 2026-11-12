@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { facebookAdapter } from "../../netlify/lib/social-publish.mjs";
+import { captureMedia, mediaApprovalDigest } from "../../netlify/lib/social-media.mjs";
 import { PAGE_TOKEN, call, isDelivery, networkFailure, providers, scripted, settle } from "./social-publish-fakes.mjs";
 
 const PAGE = "10987654321";
@@ -15,6 +16,65 @@ const run = async (reply, input = {}, overrides) => {
   const fake = scripted(reply);
   return { ...(await settle(adapterFor(fake, overrides).publish(call("facebook", input)))), calls: fake.calls };
 };
+
+test("an approved Facebook cover is published with the link and alt text", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const page = "https://blog.example.com/posts/hello/";
+  const snapshot = await captureMedia({ url: "https://blog.example.com/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "stop" }, page);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, page) };
+  const result = await run((n, url) => url === snapshot.url
+    ? { status: 200, headers: { "content-type": "image/png" }, body: png }
+    : { status: 200, body: { id: "99887766", post_id: POST_ID } }, { post: { media } });
+  assert.deepEqual(result.value, { providerPostId: POST_ID });
+  assert.equal(result.calls[0].headers.authorization, undefined);
+  const photo = result.calls[1];
+  assert.equal(photo.url, `https://graph.facebook.com/v23.0/${PAGE}/photos`);
+  assert.equal(photo.redirect, "manual");
+  assert.equal(photo.body.get("caption"), `A new post is up.\n\n${page}`);
+  assert.equal(photo.body.get("alt_text_custom"), "A lantern");
+  assert.equal(photo.body.get("published"), "true");
+  assert.deepEqual(new Uint8Array(await photo.body.get("source").arrayBuffer()), png);
+  assert.equal(photo.headers["content-type"], undefined);
+});
+
+test("Facebook never falls back after an uncertain photo write", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const page = "https://blog.example.com/posts/hello/";
+  const snapshot = await captureMedia({ url: "https://blog.example.com/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, page);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, page) };
+  for (const photoReply of [{ status: 500 }, networkFailure("timeout"), { status: 200, body: {} }, { status: 200, body: { id: "99887766", post_id: "99_1" } }]) {
+    const result = await run((n, url) => url === snapshot.url
+      ? { status: 200, headers: { "content-type": "image/png" }, body: png }
+      : photoReply, { post: { media } });
+    assert.ok(isDelivery(result.error, "uncertain"));
+    assert.equal(result.calls.some((item) => item.url.endsWith("/feed")), false);
+  }
+  const refused = await run((n, url) => url === snapshot.url
+    ? { status: 200, headers: { "content-type": "image/png" }, body: png }
+    : url.endsWith("/photos") ? error(100) : { status: 200, body: { id: POST_ID } }, { post: { media } });
+  assert.deepEqual(refused.value, { providerPostId: POST_ID });
+  assert.equal(refused.calls.filter((item) => item.url.endsWith("/feed")).length, 1);
+  const fake = scripted({ status: 200, body: { data: [] } });
+  assert.deepEqual(await adapterFor(fake).reconcile({ ...call("facebook", { post: { media } }), attemptedAt: "2026-11-01T11:50:00Z" }), { state: "unknown" });
+  assert.equal(fake.calls.length, 0);
+});
+
+test("Facebook never uploads changed bytes and follows the selected fallback", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const changed = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 43]);
+  const page = "https://blog.example.com/posts/hello/";
+  for (const fallback of ["stop", "text"]) {
+    const snapshot = await captureMedia({ url: "https://blog.example.com/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback }, page);
+    const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, page) };
+    const result = await run((n, url) => url === snapshot.url
+      ? { status: 200, headers: { "content-type": "image/png" }, body: changed }
+      : { status: 200, body: { id: POST_ID } }, { post: { media } });
+    assert.equal(result.calls.some((item) => item.url.endsWith("/photos")), false);
+    assert.equal(result.calls.some((item) => item.url.endsWith("/feed")), fallback === "text");
+    if (fallback === "stop") assert.ok(isDelivery(result.error, "rejected"));
+    else assert.deepEqual(result.value, { providerPostId: POST_ID });
+  }
+});
 
 test("a 200 with the Page post id resolves to the id", async () => {
   const { value, calls } = await run({ status: 200, body: { id: POST_ID } });

@@ -265,6 +265,23 @@ test("LinkedIn cover approval preserves the chosen failure behavior", async ({ p
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test("Facebook cover approval carries its description and stop choice", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openSocial(page);
+  await compose(page);
+  await page.getByLabel("Destination", { exact: true }).selectOption("22222222-2222-4222-8222-222222222222");
+  await page.getByLabel("If the image cannot be uploaded").selectOption("stop");
+  await page.getByRole("button", { name: "Preview cover image" }).click();
+  await expect(page.getByRole("img", { name: "A lantern" })).toBeVisible();
+  await expect(page.locator("[data-social-media-result]")).toContainText("check the Page");
+  await page.getByLabel("Include this previewed image").check();
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+  expect(storage.posts[0].media.snapshot.fallback).toBe("stop");
+  expect(storage.posts[0].media.snapshot.description).toBe("A lantern");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test("composing for Bluesky shows the post's own card, and for Mastodon a link already in the caption is not added again", async ({ page }) => {
   await openSocial(page);
   const destination = page.getByLabel("Destination", { exact: true });

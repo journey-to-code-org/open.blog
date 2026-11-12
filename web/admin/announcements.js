@@ -414,15 +414,15 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     mediaResult.replaceChildren();
     mediaMessage.textContent = "";
     const provider = selectedDestination()?.provider;
-    mediaPanel.hidden = !["bluesky", "linkedin"].includes(provider);
-    fallbackField.hidden = provider !== "linkedin";
+    mediaPanel.hidden = !["bluesky", "linkedin", "facebook"].includes(provider);
+    fallbackField.hidden = provider === "bluesky";
   }
 
   mediaPreview.addEventListener("click", async () => {
     clearMedia();
     const chosen = selectedDestination();
     const picked = selectedPost();
-    if (!chosen || !["bluesky", "linkedin"].includes(chosen.provider) || !picked) {
+    if (!chosen || !["bluesky", "linkedin", "facebook"].includes(chosen.provider) || !picked) {
       mediaMessage.textContent = "Choose a supported destination and a published post first.";
       return;
     }
@@ -430,7 +430,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     mediaPreview.disabled = true;
     mediaMessage.textContent = "Reading the public cover...";
     try {
-      const answer = await api.call("POST", "social/announcements/media-preview", { json: { accountId: chosen.id, work: picked.work, ...(chosen.provider === "linkedin" ? { fallback: mediaFallback.value } : {}) } });
+      const answer = await api.call("POST", "social/announcements/media-preview", { json: { accountId: chosen.id, work: picked.work, ...(chosen.provider !== "bluesky" ? { fallback: mediaFallback.value } : {}) } });
       if (ticket !== mediaTicket) return;
       mediaApproval = answer.media;
       mediaResult.replaceChildren(
@@ -438,7 +438,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
         el("p", { class: "oba-small" }, `Image description: ${answer.media.snapshot.description}`),
         el("p", { class: "oba-small" }, chosen.provider === "bluesky"
           ? "If the image changes or cannot be uploaded, the card will be posted without it. Bluesky link cards do not carry a separate image description."
-          : `The description will be sent as image alt text. If the image changes or cannot be uploaded, ${mediaFallback.value === "stop" ? "the announcement will not be posted" : "the link will be posted without it"}.`),
+          : `The description will be sent as image alt text. If the image changes or cannot be uploaded, ${mediaFallback.value === "stop" ? "the announcement will not be posted" : "the link will be posted without it"}.${chosen.provider === "facebook" ? " If Facebook cannot confirm whether the photo posted, check the Page before trying again." : ""}`),
       );
       mediaAccept.disabled = false;
       mediaMessage.textContent = "Review the image, then choose whether to include it.";

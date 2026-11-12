@@ -133,7 +133,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
     }
     const adapter = adapterFor(account.provider);
     if (!adapter) return failed(summary, post, "unsupported-provider", "This destination is not supported by this deployment.");
-    if (post.media != null && !["bluesky", "linkedin"].includes(account.provider)) return failed(summary, post, "unsupported-media", "This destination cannot deliver the approved image.");
+    if (post.media != null && !["bluesky", "linkedin", "facebook"].includes(account.provider)) return failed(summary, post, "unsupported-media", "This destination cannot deliver the approved image.");
     // Not enough time left to finish safely: give the attempt back instead of starting a send that
     // the platform may cut off.
     if (deadline - now() < policy.providerTimeoutMs + SPARE_MS) {

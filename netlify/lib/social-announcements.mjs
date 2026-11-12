@@ -239,15 +239,15 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     if (typeof body.work !== "string" || typeof body.canonicalUrl !== "string") throw new RouteError(400, "invalid-request", "The request has a field of the wrong type.");
     checkCanonicalUrl(body.canonicalUrl, body.work);
     const account = await usable(body.accountId);
-    if (!["bluesky", "linkedin"].includes(account.provider)) throw new RouteError(422, "invalid-media", "That destination cannot preview an image yet.");
+    if (!["bluesky", "linkedin", "facebook"].includes(account.provider)) throw new RouteError(422, "invalid-media", "That destination cannot preview an image yet.");
     const fallback = body.fallback ?? "text";
     if (!["text", "stop"].includes(fallback) || (account.provider === "bluesky" && fallback !== "text")) {
       throw new RouteError(422, "invalid-media", "Choose how an unavailable image is handled.");
     }
     try {
       const preview = await previewMedia(fetchImpl, body.canonicalUrl, body.work, AbortSignal.timeout(10_000), fallback);
-      if (account.provider === "linkedin" && preview.media.snapshot.mimeType === "image/webp") {
-        throw new RouteError(422, "invalid-media", "LinkedIn needs a JPEG or PNG cover.");
+      if (account.provider !== "bluesky" && preview.media.snapshot.mimeType === "image/webp") {
+        throw new RouteError(422, "invalid-media", "This destination needs a JPEG or PNG cover.");
       }
       return reply(200, preview);
     } catch (error) {
@@ -274,14 +274,14 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     checkCanonicalUrl(body.canonicalUrl, body.work);
     let media = null;
     if (body.media !== undefined && body.media !== null) {
-      if (!["bluesky", "linkedin"].includes(account.provider) || !isPlainObject(body.media) ||
+      if (!["bluesky", "linkedin", "facebook"].includes(account.provider) || !isPlainObject(body.media) ||
           Object.keys(body.media).some((key) => !["snapshot", "approvalDigest"].includes(key))) {
         throw new RouteError(422, "invalid-media", "That image selection cannot be used for this destination.");
       }
       try {
         const snapshot = await verifyMediaApproval(body.media.snapshot, body.canonicalUrl, body.media.approvalDigest);
         if ((account.provider === "bluesky" && snapshot.fallback !== "text") ||
-            (account.provider === "linkedin" && snapshot.mimeType === "image/webp")) throw new MediaError("invalid");
+            (account.provider !== "bluesky" && snapshot.mimeType === "image/webp")) throw new MediaError("invalid");
         media = { snapshot, approvalDigest: body.media.approvalDigest };
       } catch (error) {
         if (error instanceof MediaError) throw new RouteError(422, "invalid-media", "Preview and approve the image again.");
