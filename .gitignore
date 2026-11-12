@@ -1,4 +1,6 @@
 /target
+# Generated from docs/ by scripts/build-docs-site.mjs when the docs site is built.
+/docs-site/guides/
 /dist
 # wasm-pack output; only the two files the engine embeds are committed.
 /web/wasm/*

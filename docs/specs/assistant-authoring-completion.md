@@ -1,6 +1,6 @@
 # Assistant authoring completion
 
-Status: approved from the 2026-10-23 product conversation
+Status: implemented (approved from the 2026-10-23 product conversation); caret continuations and actionable review findings live in `crates/openblog-cli/src/assistant.rs`
 
 ## Problem
 

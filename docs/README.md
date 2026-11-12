@@ -1,5 +1,8 @@
 # open.blog documentation
 
+These guides are also published, with search and navigation, at
+<https://journey-to-code-org.github.io/open.blog/>.
+
 If you are new, read these in order; each one stands alone otherwise.
 
 1. [Writing content](content.md): where files go, what a post looks like, series, pages,
@@ -160,36 +163,17 @@ one public value that no private note can reach
 
 ## Command reference
 
+The [command reference](cli-reference.md) lists every command and option. It is generated from
+`openblog help`, so it always matches the binary. The ones you use most:
+
 ```
-openblog init [dir] [--title "..."] [--github-pages]
-                                        Create a new blog (optionally with a Pages workflow)
-openblog init [dir] --starter trade [--trade <trade>]
-                                        Start a trade business site (see trades.md)
-openblog outcomes [--json] [--days N]   Where each post went, from your own records
-openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
-openblog build [--drafts] [--out dir]   Write the site to dist/
-openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check [--json]                 Validate content, themes, and the private source library, notebook, Knowledge Atlas and claims, write nothing;
-                                        --json prints the research readiness report as JSON
-openblog export <slug> [--format markdown|csl-json|bibtex|recipe-json-ld|recipe-package] [--directory names] [--out path] [--write]
-                                        Preview or write portable Markdown, or the post's
-                                        cited references as CSL JSON or BibTeX
-openblog syndicate <slug> [--target a,b] [--write] [--publish]
-                                        Preview or explicitly send portable copies
-openblog themes                         List themes and what they extend
+openblog init [dir] [--github-pages]    Create a new blog (--starter trade for a trade site)
+openblog new "Title" [--draft]          Start a post
+openblog serve [--admin]                Preview at http://localhost:8080, with the editor at /admin
+openblog check                          Validate content and themes, writing nothing
+openblog build                          Write the site to dist/
 openblog publish [summary]              Commit changed content with git and push
-openblog publish setup                  Create the repository and Pages workflow
-openblog analytics backup               Save view counts to the analytics branch
-openblog analytics pull <url> --secret s
-                                        Merge counts from a hosted counter
-openblog analytics worker [dir]         Write a Cloudflare Worker counter
-openblog analytics service [dir]        Write a Node + MongoDB counter (Render)
-openblog user add|passwd|remove|list <name> [--password-stdin]
-openblog contributors migrate --id <stable-id> [--write]
-                                        Dry-run or write explicit legacy-author credits
-openblog import hashnode <host> [--source public|graphql] [--token t]
-                                        [--limit n] [--no-images] [--delay ms] [--overwrite]
-openblog help
+openblog help                           Every command and option
 ```
 
 Every command accepts `--root <dir>` to work on a blog in another folder. `--drafts`
