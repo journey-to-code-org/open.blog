@@ -6,6 +6,12 @@ renderer. It pins the candidate versions and uses its own lockfile. The
 [proposed renderer decision](../../../docs/adr/0411-diagram-rendering-needs-a-bounded-headless-engine.md)
 records what must happen before integration.
 
+The renderer-independent `openblog-core::diagram::discover` function validates
+fence options, source size and accessible text against this corpus. It does not
+render diagrams, check Mermaid syntax or sanitize output, and is not yet a
+publication gate. Until the rest of the feature is integrated, Mermaid fences
+continue to render as code.
+
 Run the comparison from the repository root:
 
 ```sh
