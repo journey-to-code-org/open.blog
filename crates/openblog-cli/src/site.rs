@@ -1010,11 +1010,16 @@ pub fn check_season_themes(config: &SiteConfig, themes: &ThemeSet) -> Result<(),
         .seasons
         .themes()
         .into_iter()
-        .filter(|name| themes.resolve(name).is_err())
-        .map(|name| {
-            format!(
-                "openblog.json: seasons names the theme `{name}`, but there is no themes/{name}/theme.json; add the theme or change the season"
-            )
+        .filter_map(|name| themes.resolve(name).err().map(|problem| (name, problem)))
+        .map(|(name, problem)| {
+            if themes.names().iter().any(|known| known == name) {
+                // The theme is there but can't be worn: say why, not that it's missing.
+                format!("openblog.json: seasons names the theme `{name}`, which has a problem: {problem}")
+            } else {
+                format!(
+                    "openblog.json: seasons names the theme `{name}`, but there is no themes/{name}/theme.json; add the theme or change the season"
+                )
+            }
         })
         .collect();
     if problems.is_empty() {
@@ -1993,6 +1998,39 @@ The cave educates.
                 .all(|path| !path.starts_with("interpretations/cave/")));
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_season_theme_that_cannot_be_worn_says_why_rather_than_that_it_is_missing() {
+        let root = reading_path_project(
+            "season-theme-problem",
+            r#"{"theme":"base","seasons":{"enabled":true,"windows":[
+                {"theme":"broken","start":"01-01","end":"01-02"},
+                {"theme":"gone","start":"02-01","end":"02-02"}]}}"#,
+        );
+        fs::create_dir_all(root.join("themes/broken")).unwrap();
+        fs::write(
+            root.join("themes/broken/theme.json"),
+            r#"{"extends":"nowhere"}"#,
+        )
+        .unwrap();
+        let Err(error) = load_site(
+            &root,
+            false,
+            Some(DateTime::parse("2026-06-01T00:00:00Z").unwrap()),
+        ) else {
+            panic!("neither season can be worn")
+        };
+        assert!(
+            error.contains(
+                "`broken`, which has a problem: theme `broken` extends unknown theme `nowhere`"
+            ),
+            "{error}"
+        );
+        assert!(
+            error.contains("`gone`, but there is no themes/gone/theme.json"),
+            "{error}"
+        );
     }
 
     #[test]
