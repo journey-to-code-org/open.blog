@@ -174,6 +174,7 @@ fn a_draft_job_with_an_unknown_service_is_only_a_warning() {
     let site = Site::load(
         config,
         Sources {
+            docs: Vec::new(),
             services: vec![file("services/hardwood.md", HARDWOOD)],
             posts: vec![job("oak", "nope", true)],
             ..Default::default()
@@ -225,6 +226,7 @@ fn a_draft_service_is_unpublished_and_only_warns_while_unfinished() {
 
     let config = SiteConfig::from_json(r#"{"title":"Crew","url":"https://crew.example"}"#).unwrap();
     let sources = Sources {
+        docs: Vec::new(),
         services: vec![
             file("services/hardwood.md", HARDWOOD),
             file("services/gutters.md", unfinished),

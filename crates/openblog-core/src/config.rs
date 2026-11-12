@@ -171,6 +171,10 @@ pub struct SiteConfig {
     /// Omitted from the written file while it has its default.
     #[serde(skip_serializing_if = "crate::proof::ReviewsConfig::is_default")]
     pub reviews: crate::proof::ReviewsConfig,
+    /// The documentation section (ADR 0405): `content/docs/` published at `/docs/` with a
+    /// sidebar. Off and omitted from the written file until stated.
+    #[serde(skip_serializing_if = "crate::docs_section::DocsConfig::is_default")]
+    pub docs: crate::docs_section::DocsConfig,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -616,6 +620,7 @@ impl Default for SiteConfig {
             webmention: WebmentionConfig::default(),
             quote: crate::quote::QuoteConfig::default(),
             reviews: crate::proof::ReviewsConfig::default(),
+            docs: crate::docs_section::DocsConfig::default(),
         }
     }
 }

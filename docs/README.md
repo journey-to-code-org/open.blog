@@ -3,7 +3,11 @@
 These guides are also published, with search and navigation, at
 <https://journey-to-code-org.github.io/open.blog/>.
 
-If you are new, read these in order; each one stands alone otherwise.
+New to open.blog? [Getting started](getting-started.md) goes from installing to a published site in a few
+commands. The [FAQ](faq.md) and [Troubleshooting](troubleshooting.md) answer the common questions, and
+[Versioning](versioning.md) says how releases and upgrades are described.
+
+Then read these in order; each one stands alone otherwise.
 
 1. [Writing content](content.md): where files go, what a post looks like, series, pages,
    drafts, scheduling, images, code blocks, callouts, recipes, and every front matter field.
@@ -65,6 +69,8 @@ If you are new, read these in order; each one stands alone otherwise.
    contributor view is the [trades spec](specs/trades.md).
 26. [Where your posts went](distribution-reporting.md): every place each post was sent, what each status rests on,
    and the visits your own counter saw from there, from `openblog outcomes` or Admin's **Where it went**.
+27. [Documentation sites](docs-sites.md): a folder of Markdown published as a tree of pages at `/docs/`, with
+    a sidebar, previous and next links, and links between the files that work on GitHub and on the site.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

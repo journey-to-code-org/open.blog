@@ -76,6 +76,8 @@ COMMANDS
     init [dir] --github-pages  Also write a GitHub Pages deployment workflow
     init [dir] --no-voice      Never offer a writing session afterwards (a terminal is
                                asked once; scripts and pipes are never asked)
+    init [dir] --starter docs  Add a documentation section: pages under content/docs/ published
+                               at /docs/ with a sidebar, and a Docs link in the header
     init [dir] --starter trade [--trade <trade>]
                                Start a trade business site: business facts, three example
                                services as drafts, jobs, reviews, a quote form and a
@@ -466,7 +468,11 @@ fn run(raw: &[String]) -> Result<(), String> {
                 for file in &created {
                     println!("created {file}");
                 }
-                if starter.is_some() {
+                if starter == Some(scaffold::Starter::Docs) {
+                    println!(
+                        "\nNext: cd into the folder, run `openblog serve`, and open http://localhost:8080/docs/. The pages are Markdown files in content/docs/; see docs/docs-sites.md."
+                    );
+                } else if starter.is_some() {
                     println!(
                         "\nNext: cd into the folder, run `openblog serve --admin`, and follow the checklist on Admin's Home screen: business facts, your first service, your first job, your first review, and a place to share jobs. See docs/trades.md."
                     );

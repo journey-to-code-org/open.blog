@@ -1215,8 +1215,9 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
             || (publishes_paths && segment == crate::reading_path::PATHS_SEGMENT)
             || (publishes_interpretations
                 && segment == crate::interpretation_publication::INTERPRETATIONS_SEGMENT)
+            || (site.config.docs.enabled && segment == crate::docs_section::DOCS_SEGMENT)
     };
-    for page in &site.pages {
+    for page in site.pages.iter().filter(|page| page.doc.is_none()) {
         if reserved(page.slug.as_str()) {
             return Err(format!(
                 "{}: the page slug `{}` is reserved by open.blog; choose another",
@@ -3706,6 +3707,9 @@ impl<'a> Renderer<'a> {
     }
 
     fn page(&self, page: &crate::model::Page) -> String {
+        if page.doc.is_some() {
+            return self.doc_page(page);
+        }
         let theme = self.theme(self.site.theme_for_page(page));
         let mut body = String::from(
             "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page\">\n",
@@ -3716,6 +3720,40 @@ impl<'a> Renderer<'a> {
             self.code_attr(theme, None),
             page.html
         ));
+        self.simple(theme, &page.title, &page.description, &page.url, &body)
+    }
+
+    /// A page of the documentation section (ADR 0405): the sidebar beside the article, and the
+    /// previous and next pages in reading order under it.
+    fn doc_page(&self, page: &crate::model::Page) -> String {
+        let theme = self.theme(self.site.theme_for_page(page));
+        let pages = &self.site.pages;
+        let current = pages
+            .iter()
+            .position(|p| std::ptr::eq(p, page))
+            .unwrap_or_default();
+        let order = crate::docs_section::reading_order(pages);
+        let mut body = String::from("<div class=\"ob-container ob-docs\">\n");
+        body.push_str(&crate::docs_section::sidebar(
+            pages,
+            current,
+            self.site.config.docs.title(),
+        ));
+        body.push_str("<article class=\"ob-page ob-docs-page\">\n");
+        body.push_str(&self.heading(theme, 1, &page.title, "ob-post-title"));
+        body.push_str(&format!(
+            "\n<ob-code{}><div class=\"ob-prose\">{}</div></ob-code>\n",
+            self.code_attr(theme, None),
+            page.html
+        ));
+        if let Some(url) = self.site.config.docs.source_url(&page.source) {
+            body.push_str(&format!(
+                "<p class=\"ob-meta ob-docs-source\"><a href=\"{}\">View this page's source</a></p>\n",
+                attr(&url)
+            ));
+        }
+        body.push_str(&crate::docs_section::pager(pages, &order, current));
+        body.push_str("</article>\n</div>");
         self.simple(theme, &page.title, &page.description, &page.url, &body)
     }
 
@@ -5644,6 +5682,7 @@ mod tests {
                 credits: Vec::new(),
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+docs: Vec::new(),
                 services: Vec::new(),
                 proof: Vec::new(),
                 source_library: None,

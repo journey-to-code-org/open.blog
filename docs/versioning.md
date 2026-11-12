@@ -1,8 +1,3 @@
----
-title: Versioning and Migrations
-nav_order: 9
----
-
 # Versioning and Migrations
 
 Use this section to communicate change impact clearly across releases.

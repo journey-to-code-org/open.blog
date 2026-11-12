@@ -5036,3 +5036,106 @@ ob-server-lab .ob-server-trace li + li { margin-top: 0.35rem; }
   width: 100%;
   margin-top: 0.5rem;
 }
+
+/* ---------- Documentation section (ADR 0405) ---------- */
+
+.ob-docs {
+  display: grid;
+  gap: 1.5rem 2.5rem;
+  align-items: start;
+}
+
+ob-docs-nav {
+  display: block;
+}
+
+@media (min-width: 60rem) {
+  ob-docs-nav {
+    position: sticky;
+    top: 1rem;
+  }
+
+  .ob-docs {
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, var(--ob-reading-width));
+  }
+
+  .ob-docs-nav {
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+}
+
+.ob-docs-nav > summary {
+  font-weight: 600;
+  cursor: pointer;
+  padding-block: 0.25rem;
+}
+
+.ob-docs-nav ul {
+  list-style: none;
+  margin: 0;
+  padding-inline-start: 0;
+}
+
+.ob-docs-nav ul ul {
+  padding-inline-start: 0.9rem;
+  border-inline-start: var(--ob-border-width) solid var(--ob-color-border);
+  margin-block: 0.15rem 0.35rem;
+}
+
+.ob-docs-nav li {
+  margin: 0;
+}
+
+.ob-docs-nav a,
+.ob-docs-nav .ob-docs-folder > span {
+  display: block;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.3rem;
+  color: var(--ob-color-text);
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.ob-docs-nav .ob-docs-folder > a,
+.ob-docs-nav .ob-docs-folder > span {
+  font-weight: 600;
+}
+
+.ob-docs-nav a:hover {
+  background: var(--ob-color-glow, var(--ob-color-surface-raised));
+}
+
+.ob-docs-nav a[aria-current="page"] {
+  background: var(--ob-color-glow, var(--ob-color-surface-raised));
+  box-shadow: inset 3px 0 0 var(--ob-color-accent);
+  color: var(--ob-color-accent-soft);
+  font-weight: 600;
+}
+
+.ob-docs-page {
+  min-width: 0;
+}
+
+.ob-docs-pager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-block-start: 3rem;
+  padding-block-start: 1.5rem;
+  border-top: var(--ob-border-width) solid var(--ob-color-border);
+}
+
+.ob-docs-pager a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: 48%;
+  text-decoration: none;
+}
+
+.ob-docs-pager .ob-docs-next {
+  margin-inline-start: auto;
+  text-align: end;
+}

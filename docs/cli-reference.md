@@ -21,6 +21,8 @@ init [dir]                 Create a new blog in dir (default: current directory)
 init [dir] --github-pages  Also write a GitHub Pages deployment workflow
 init [dir] --no-voice      Never offer a writing session afterwards (a terminal is
                            asked once; scripts and pipes are never asked)
+init [dir] --starter docs  Add a documentation section: pages under content/docs/ published
+                           at /docs/ with a sidebar, and a Docs link in the header
 init [dir] --starter trade [--trade <trade>]
                            Start a trade business site: business facts, three example
                            services as drafts, jobs, reviews, a quote form and a

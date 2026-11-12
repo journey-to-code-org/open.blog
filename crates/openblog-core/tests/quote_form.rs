@@ -218,6 +218,7 @@ fn a_fence_that_names_no_service_offers_the_sites_published_services() {
                     path: "posts/2026-01-01-ask.md".into(),
                     contents: format!("---\ntitle: Ask\ndate: 2026-01-01\n---\n{body}"),
                 }],
+                docs: Vec::new(),
                 services: vec![
                     service("new-fence", "New fence", false),
                     service("gates", "Gate repair", false),
