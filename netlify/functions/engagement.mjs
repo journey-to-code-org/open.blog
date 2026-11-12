@@ -1,4 +1,5 @@
 import { captchaSettings, checkPass, issuePass, verifyCaptcha } from "../lib/comment-captcha.mjs";
+import { attributionArrival, attributionSettings } from "../lib/attribution.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { AUTHOR_RESPONSE_KIND, PARENT_UNAVAILABLE, checkAnswerParent, mayDecideResponse, parentFactsOfRow, readAuthorResponseRequest, receiveAuthorResponse } from "../lib/author-response.mjs";
@@ -1543,7 +1544,33 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           method: "POST",
           body: JSON.stringify({ p_site_id: settings.siteId, p_day: day, p_path: path, p_visitor_hash: visitor, p_referrer: referrer }),
         });
+        // A counted view is attributed to where it came from (ADR 0407), only after the deployer ran
+        // supabase/arrivals.sql; a failure here keeps the view.
+        const attribution = attributionSettings(env);
+        const arrival = attribution.enabled
+          ? attributionArrival({ campaigns: attribution.campaigns, source: body.source, referrerHost: referrer, ownHosts: attribution.ownHosts })
+          : null;
+        if (arrival) {
+          try {
+            await database(settings, "/rest/v1/rpc/openblog_record_arrival", {
+              method: "POST",
+              body: JSON.stringify({ p_site_id: settings.siteId, p_day: day, p_destination: arrival, p_path: path }),
+            });
+          } catch (error) {
+            console.error("open.blog engagement: arrival not recorded:", error.message);
+          }
+        }
         return json(200, { views: Number(result?.views ?? result ?? 0) }, corsOrigin);
+      }
+      // `openblog analytics pull <endpoint> --secret <OPENBLOG_ADMIN_API_KEY>` reads this, the same
+      // shape as the Cloudflare Worker's export, and merges it into Where it went (ADR 0407).
+      if (operation === "export" && event.httpMethod === "GET") {
+        if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
+        if (!attributionSettings(env).enabled) {
+          return json(404, { error: "Run supabase/arrivals.sql and set OPENBLOG_ARRIVALS_ENABLED=true to export counts.", code: "exportOff" }, corsOrigin);
+        }
+        const result = await database(settings, "/rest/v1/rpc/openblog_analytics_export", { method: "POST", body: JSON.stringify({ p_site_id: settings.siteId }) });
+        return json(200, result, corsOrigin);
       }
       if (operation === "views" && event.httpMethod === "GET") {
         const path = cleanPath(query.path);

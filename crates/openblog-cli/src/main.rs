@@ -125,6 +125,7 @@ COMMANDS
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
     analytics service [dir]    Write a Node + MongoDB counter for Render (default: counter-service/)
+    analytics attribution      Print the visit attribution settings for a hosted counter
     voice [prompt-id]          A timed writing session: draw three prompts (or name one),
                                write in your editor or the terminal, and keep the rough draft
                                exactly as written (see voice OPTIONS)
@@ -1022,7 +1023,7 @@ fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> 
                 .get("secret")
                 .cloned()
                 .or_else(|| std::env::var("OPENBLOG_COUNTER_SECRET").ok())
-                .ok_or("pass --secret <secret> (the worker's EXPORT_SECRET) or set OPENBLOG_COUNTER_SECRET")?;
+                .ok_or("pass --secret <secret> (the worker's EXPORT_SECRET, or the hosted function's OPENBLOG_ADMIN_API_KEY) or set OPENBLOG_COUNTER_SECRET")?;
             let name = args
                 .options
                 .get("name")
@@ -1069,12 +1070,7 @@ fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> 
                 ));
             }
             fsutil::write_file(&worker, site::COUNTER_WORKER.as_bytes())?;
-            fsutil::write_file(
-                &toml,
-                site::COUNTER_WRANGLER
-                    .replace("SITE_URL", &config.url)
-                    .as_bytes(),
-            )?;
+            fsutil::write_file(&toml, analytics::worker_settings(&config).as_bytes())?;
             println!("wrote {} and {}", worker.display(), toml.display());
             println!("Next: follow the steps at the top of worker.js (wrangler kv namespace create, secret put, deploy),");
             println!("then set \"analytics\": {{ \"endpoint\": \"https://<name>.<you>.workers.dev\" }} in openblog.json.");
@@ -1112,8 +1108,22 @@ fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> 
             println!("then set \"analytics\": {{ \"endpoint\": \"https://<service>.onrender.com\" }} in openblog.json.");
             Ok(())
         }
+        "attribution" => {
+            let (campaigns, own_hosts) = analytics::counter_attribution(&config);
+            println!("Visit attribution settings for a counter you host (ADR 0407).");
+            println!();
+            println!("Cloudflare Worker (wrangler.toml, under [vars]):");
+            println!("  CAMPAIGNS = \"{campaigns}\"");
+            println!("  OWN_HOSTS = \"{own_hosts}\"");
+            println!();
+            println!("Hosted engagement function (environment variables):");
+            println!("  OPENBLOG_ARRIVALS_ENABLED=true   (after running supabase/arrivals.sql)");
+            println!("  OPENBLOG_ANALYTICS_CAMPAIGNS={campaigns}");
+            println!("  OPENBLOG_ANALYTICS_OWN_HOSTS={own_hosts}");
+            Ok(())
+        }
         _ => Err(
-            "usage: openblog analytics backup | pull <url> --secret <s> | worker [dir] | service [dir]"
+            "usage: openblog analytics backup | pull <url> --secret <s> | worker [dir] | service [dir] | attribution"
                 .into(),
         ),
     }

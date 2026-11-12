@@ -1,0 +1,39 @@
+{
+  "about": "Attribution cases every counter must agree on (ADRs 0404 and 0407). Read by openblog_core::outcome's tests and by tests/web/attribution.test.mjs, which runs them through the generated JavaScript in the Cloudflare Worker template and in netlify/lib/attribution.mjs.",
+  "hosts": [
+    { "host": "l.facebook.com", "own": [], "expect": "facebook" },
+    { "host": "www.reddit.com", "own": [], "expect": "reddit" },
+    { "host": "old.reddit.com", "own": [], "expect": "reddit" },
+    { "host": "BSKY.APP.", "own": [], "expect": "bluesky" },
+    { "host": "business.google.com", "own": [], "expect": "google-business-profile" },
+    { "host": "google.com", "own": [], "expect": null },
+    { "host": "notreddit.com", "own": [], "expect": null },
+    { "host": "example.org", "own": [], "expect": null },
+    { "host": "", "own": [], "expect": null },
+    { "host": "news.ycombinator.com", "own": [], "expect": "hacker-news" },
+    { "host": "lnkd.in", "own": [], "expect": "linkedin" },
+    { "host": "hachyderm.io", "own": [], "expect": null },
+    { "host": "hachyderm.io", "own": [["hachyderm.io", "mastodon"]], "expect": "mastodon" },
+    { "host": "www.Hachyderm.io", "own": [["hachyderm.io", "mastodon"]], "expect": "mastodon" },
+    { "host": "me.ghost.io", "own": [["me.ghost.io", "ghost"]], "expect": "ghost" },
+    { "host": "evil.example", "own": [["evil.example", "tracker"]], "expect": null },
+    { "host": "bsky.app", "own": [["bsky.app", "tracker"]], "expect": null },
+    { "host": "bsky.app", "own": [["", "mastodon"]], "expect": "bluesky" }
+  ],
+  "utm": [
+    { "value": "Pinterest", "expect": "pinterest" },
+    { "value": " bluesky ", "expect": "bluesky" },
+    { "value": "newsletter", "expect": null },
+    { "value": "pinterest<script>", "expect": null },
+    { "value": "", "expect": null }
+  ],
+  "arrivals": [
+    { "campaigns": false, "source": "pinterest", "referrerHost": null, "own": [], "expect": null },
+    { "campaigns": false, "source": "pinterest", "referrerHost": "bsky.app", "own": [], "expect": "bluesky" },
+    { "campaigns": false, "source": null, "referrerHost": "example.org", "own": [], "expect": null },
+    { "campaigns": true, "source": "pinterest", "referrerHost": "bsky.app", "own": [], "expect": "pinterest" },
+    { "campaigns": true, "source": "newsletter", "referrerHost": "bsky.app", "own": [], "expect": "bluesky" },
+    { "campaigns": true, "source": "mastodon", "referrerHost": null, "own": [], "expect": "mastodon" },
+    { "campaigns": false, "source": null, "referrerHost": "fosstodon.org", "own": [["fosstodon.org", "mastodon"]], "expect": "mastodon" }
+  ]
+}

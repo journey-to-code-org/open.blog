@@ -345,9 +345,13 @@ const REFERRERS: [(&str, &str); 21] = [
 pub fn destination_for_host(host: &str, extra_hosts: &[(String, String)]) -> Option<String> {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
     let host = host.strip_prefix("www.").unwrap_or(&host);
+    if host.is_empty() {
+        return None;
+    }
     let matches = |known: &str| host == known || host.ends_with(&format!(".{known}"));
     for (known, destination) in extra_hosts {
-        if matches(known.trim().to_ascii_lowercase().as_str()) {
+        let known = known.trim().to_ascii_lowercase();
+        if !known.is_empty() && matches(known.as_str()) {
             return DESTINATIONS
                 .contains(&destination.as_str())
                 .then(|| destination.clone());
@@ -370,6 +374,23 @@ pub fn destination_for_utm(value: &str) -> Option<String> {
     DESTINATIONS.contains(&value.as_str()).then_some(value)
 }
 
+/// The destination a counted view came from (ADRs 0404 and 0407): the page address's `utm_source`
+/// when campaign tags are on and it names a known destination, otherwise the referring host when
+/// it stands for one, from the fixed table or the author's own hosts. Nothing else is attributed.
+pub fn arrival(
+    campaigns: bool,
+    utm_source: Option<&str>,
+    referrer_host: Option<&str>,
+    own_hosts: &[(String, String)],
+) -> Option<String> {
+    if campaigns {
+        if let Some(found) = utm_source.and_then(destination_for_utm) {
+            return Some(found);
+        }
+    }
+    destination_for_host(referrer_host?, own_hosts)
+}
+
 /// A link with `utm_source=<destination>` and `utm_medium=open.blog` added, for a link open.blog
 /// itself sends, and only when the author turned campaign tags on. The canonical page is unchanged:
 /// the tag only reaches the counter. A link that already has a query or a fragment, or a
@@ -383,6 +404,200 @@ pub fn tag_link(link: &str, destination: &str) -> String {
         return link.to_string();
     }
     format!("{link}?utm_source={destination}&utm_medium=open.blog")
+}
+
+/// The most fediverse instance hosts an author may list in `analytics.fediverseHosts` (ADR 0407).
+pub const MAX_FEDIVERSE_HOSTS: usize = 20;
+
+/// The most of the author's own hosts a generated counter reads from its settings (ADR 0407).
+pub const MAX_OWN_HOSTS: usize = 32;
+
+/// A bare host name, lower-cased, from a host or an `https://` origin the author wrote: letters,
+/// digits, dots and hyphens, at least one dot, no `www.`, up to 253 characters. `None` for
+/// anything else, including a path, a port or credentials.
+pub fn clean_host(value: &str) -> Option<String> {
+    let value = value.trim().to_ascii_lowercase();
+    let value = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))
+        .unwrap_or(&value);
+    let value = value.strip_suffix('/').unwrap_or(value);
+    let value = value.strip_prefix("www.").unwrap_or(value);
+    let ok = !value.is_empty()
+        && value.len() <= 253
+        && value.contains('.')
+        && !value.starts_with(['.', '-'])
+        && !value.ends_with(['.', '-'])
+        && !value.contains("..")
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-'));
+    ok.then(|| value.to_string())
+}
+
+/// The author's own hosts, each with the destination it stands for: every cross-posting target's
+/// address (ADR 0404), every instance listed in `analytics.fediverseHosts` and the social Mastodon
+/// instance when one is configured (`OPENBLOG_SOCIAL_MASTODON_INSTANCE`), both as `mastodon`
+/// (ADR 0407). The first spelling of a host wins and the list is bounded by [`MAX_OWN_HOSTS`].
+pub fn author_hosts(
+    config: &crate::SiteConfig,
+    mastodon_instance: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut add = |host: Option<String>, destination: &str| {
+        if let Some(host) = host {
+            if DESTINATIONS.contains(&destination)
+                && out.len() < MAX_OWN_HOSTS
+                && !out.iter().any(|(known, _)| *known == host)
+            {
+                out.push((host, destination.to_string()));
+            }
+        }
+    };
+    for target in config.syndication.targets.values() {
+        let host = target
+            .endpoint
+            .trim()
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split(['/', ':'])
+            .next()
+            .and_then(clean_host);
+        if let Some(provider) = serde_json::to_value(target.provider)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_string))
+        {
+            add(host, &provider);
+        }
+    }
+    for host in &config.analytics.fediverse_hosts {
+        add(clean_host(host), "mastodon");
+    }
+    add(mastodon_instance.and_then(clean_host), "mastodon");
+    out
+}
+
+/// The author's own hosts as a generated counter reads them from its settings:
+/// `host=destination` pairs separated by commas.
+pub fn own_hosts_setting(hosts: &[(String, String)]) -> String {
+    hosts
+        .iter()
+        .map(|(host, destination)| format!("{host}={destination}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The markers around the generated attribution block in the Cloudflare Worker template and in
+/// `netlify/lib/attribution.mjs`.
+pub const ATTRIBUTION_BEGIN: &str =
+    "// BEGIN openblog attribution: generated from openblog_core::outcome::attribution_js. Do not edit by hand.";
+pub const ATTRIBUTION_END: &str = "// END openblog attribution";
+
+/// The attribution rules as plain JavaScript for the counters open.blog writes but does not run:
+/// the Cloudflare Worker and the hosted engagement function (ADR 0407). The vocabulary and the host
+/// table are written out from [`DESTINATIONS`] and the referrer table here, and the functions do
+/// what [`destination_for_utm`], [`destination_for_host`] and the built-in counter's choice between
+/// them do, so every counter attributes the same way. Tests fail if either copy drifts.
+pub fn attribution_js() -> String {
+    let mut referrers: Vec<&(&str, &str)> = REFERRERS.iter().collect();
+    referrers.sort_by_key(|(host, _)| std::cmp::Reverse(host.len()));
+    let quote = |value: &str| serde_json::to_string(value).unwrap_or_default();
+    let destinations = DESTINATIONS
+        .iter()
+        .map(|d| quote(d))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let referrers = referrers
+        .iter()
+        .map(|(host, destination)| format!("  [{}, {}],", quote(host), quote(destination)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        r#"{ATTRIBUTION_BEGIN}
+// The destinations a visit may be attributed to (ADRs 0404 and 0407). Nothing else is ever stored.
+const ATTRIBUTION_DESTINATIONS = Object.freeze([{destinations}]);
+// Referring hosts that stand for a destination, longest first. A host matches itself and its subdomains.
+const ATTRIBUTION_REFERRERS = Object.freeze([
+{referrers}
+]);
+const ATTRIBUTION_MAX_OWN_HOSTS = {MAX_OWN_HOSTS};
+const attributionLower = (value) => String(value ?? "").trim().replace(/[A-Z]/g, (c) => c.toLowerCase());
+const attributionMatches = (host, known) => host === known || host.endsWith(`.${{known}}`);
+// The destination a `utm_source` value names, or null.
+function attributionForUtm(value) {{
+  const name = attributionLower(value);
+  return ATTRIBUTION_DESTINATIONS.includes(name) ? name : null;
+}}
+// The destination a referring host stands for, or null: the author's own hosts first, then the fixed table.
+function attributionForHost(value, ownHosts = []) {{
+  let host = attributionLower(value).replace(/\.+$/, "");
+  if (host.startsWith("www.")) host = host.slice(4);
+  if (!host) return null;
+  for (const [ownHost, destination] of ownHosts) {{
+    const known = attributionLower(ownHost);
+    if (known && attributionMatches(host, known)) return ATTRIBUTION_DESTINATIONS.includes(destination) ? destination : null;
+  }}
+  const found = ATTRIBUTION_REFERRERS.find(([known]) => attributionMatches(host, known));
+  return found ? found[1] : null;
+}}
+// A bare host name, by the same rules as the engine's clean_host, or null.
+function attributionCleanHost(value) {{
+  let host = attributionLower(value);
+  if (host.startsWith("www.")) host = host.slice(4);
+  const ok = host.length > 0 && host.length <= 253 && host.includes(".") && /^[a-z0-9.-]+$/.test(host) && !/^[.-]|[.-]$/.test(host) && !host.includes("..");
+  return ok ? host : null;
+}}
+// The author's own hosts from a setting of `host=destination` pairs separated by commas; anything else is dropped.
+function attributionOwnHosts(setting) {{
+  const out = [];
+  for (const pair of String(setting ?? "").split(",")) {{
+    const [raw, destination, extra] = pair.split("=");
+    const host = attributionCleanHost(raw);
+    const name = attributionLower(destination);
+    if (extra === undefined && host && ATTRIBUTION_DESTINATIONS.includes(name) && !out.some(([known]) => known === host) && out.length < ATTRIBUTION_MAX_OWN_HOSTS) out.push([host, name]);
+  }}
+  return out;
+}}
+// The destination a counted view came from: the page address's utm_source when campaign tags are on and it
+// names a destination, otherwise the referring host when it stands for one. Nothing else is attributed.
+function attributionArrival({{ campaigns = false, source = null, referrerHost = null, ownHosts = [] }} = {{}}) {{
+  if (campaigns === true && typeof source === "string") {{
+    const found = attributionForUtm(source);
+    if (found) return found;
+  }}
+  return typeof referrerHost === "string" && referrerHost ? attributionForHost(referrerHost, ownHosts) : null;
+}}
+{ATTRIBUTION_END}"#
+    )
+}
+
+/// The generated attribution block found between the markers in `text`, markers included.
+pub fn attribution_block(text: &str) -> Option<&str> {
+    let start = text.find(ATTRIBUTION_BEGIN)?;
+    let end = text[start..].find(ATTRIBUTION_END)? + start + ATTRIBUTION_END.len();
+    Some(&text[start..end])
+}
+
+/// Markers around the SQL destination allow-list generated from [`DESTINATIONS`].
+pub const ATTRIBUTION_SQL_BEGIN: &str =
+    "-- BEGIN openblog destinations: generated from openblog_core::outcome::DESTINATIONS. Do not edit by hand.";
+pub const ATTRIBUTION_SQL_END: &str = "-- END openblog destinations";
+
+/// The destination allow-list as a SQL `IN` expression.
+pub fn attribution_sql() -> String {
+    let destinations = DESTINATIONS
+        .iter()
+        .map(|destination| format!("'{destination}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{ATTRIBUTION_SQL_BEGIN}\ndestination in ({destinations})\n{ATTRIBUTION_SQL_END}")
+}
+
+/// The generated SQL allow-list found between its markers, markers included.
+pub fn attribution_sql_block(text: &str) -> Option<&str> {
+    let start = text.find(ATTRIBUTION_SQL_BEGIN)?;
+    let end = text[start..].find(ATTRIBUTION_SQL_END)? + start + ATTRIBUTION_SQL_END.len();
+    Some(&text[start..end])
 }
 
 #[cfg(test)]
@@ -574,5 +789,159 @@ mod tests {
             "https://a.example/post/"
         );
         assert_eq!(tag_link("javascript:x", "pinterest"), "javascript:x");
+    }
+
+    fn pairs(value: &serde_json::Value) -> Vec<(String, String)> {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pair| {
+                (
+                    pair[0].as_str().unwrap().to_string(),
+                    pair[1].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_shared_cases_attribute_as_every_counter_must() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/attribution-cases.json"
+        ))
+        .unwrap();
+        for case in cases["hosts"].as_array().unwrap() {
+            let found = destination_for_host(case["host"].as_str().unwrap(), &pairs(&case["own"]));
+            assert_eq!(found.as_deref(), case["expect"].as_str(), "{case}");
+        }
+        for case in cases["utm"].as_array().unwrap() {
+            let found = destination_for_utm(case["value"].as_str().unwrap());
+            assert_eq!(found.as_deref(), case["expect"].as_str(), "{case}");
+        }
+        for case in cases["arrivals"].as_array().unwrap() {
+            let found = arrival(
+                case["campaigns"].as_bool().unwrap(),
+                case["source"].as_str(),
+                case["referrerHost"].as_str(),
+                &pairs(&case["own"]),
+            );
+            assert_eq!(found.as_deref(), case["expect"].as_str(), "{case}");
+        }
+    }
+
+    const GENERATED_COPIES: [(&str, &str); 2] = [
+        (
+            "crates/openblog-cli/templates/counter-worker.js",
+            include_str!("../../openblog-cli/templates/counter-worker.js"),
+        ),
+        (
+            "netlify/lib/attribution.mjs",
+            include_str!("../../../netlify/lib/attribution.mjs"),
+        ),
+    ];
+
+    #[test]
+    fn every_generated_counter_carries_the_same_attribution_block() {
+        let expected = attribution_js();
+        for (path, text) in GENERATED_COPIES {
+            let block = attribution_block(text)
+                .unwrap_or_else(|| panic!("{path} has no generated attribution block"));
+            assert!(
+                block.replace("\r\n", "\n") == expected,
+                "{path} differs from openblog_core::outcome::attribution_js(); regenerate it with \
+                 `cargo test -p openblog-core write_generated_attribution -- --ignored`"
+            );
+            assert_eq!(text.matches(ATTRIBUTION_BEGIN).count(), 1, "{path}");
+        }
+        let sql = include_str!("../../../supabase/arrivals.sql");
+        let sql_block = attribution_sql_block(sql).expect("arrivals.sql has no destination list");
+        assert_eq!(
+            sql_block, attribution_sql(),
+            "supabase/arrivals.sql differs from openblog_core::outcome::DESTINATIONS; regenerate it with \
+             `cargo test -p openblog-core write_generated_attribution -- --ignored`"
+        );
+        for destination in DESTINATIONS {
+            assert!(expected.contains(&format!("\"{destination}\"")));
+        }
+        for (host, _) in REFERRERS {
+            assert!(expected.contains(&format!("[\"{host}\"")));
+        }
+    }
+
+    /// Rewrites the generated block in every copy. Run after changing the vocabulary or the table.
+    #[test]
+    #[ignore]
+    fn write_generated_attribution() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for (path, _) in GENERATED_COPIES {
+            let file = root.join(path);
+            let text = std::fs::read_to_string(&file)
+                .unwrap()
+                .replace("\r\n", "\n");
+            let block = attribution_block(&text).unwrap().to_string();
+            std::fs::write(&file, text.replacen(&block, &attribution_js(), 1)).unwrap();
+        }
+        let file = root.join("supabase/arrivals.sql");
+        let text = std::fs::read_to_string(&file)
+            .unwrap()
+            .replace("\r\n", "\n");
+        let block = attribution_sql_block(&text).unwrap().to_string();
+        std::fs::write(&file, text.replacen(&block, &attribution_sql(), 1)).unwrap();
+    }
+
+    #[test]
+    fn the_authors_own_hosts_come_from_targets_listed_instances_and_the_social_instance() {
+        let config = crate::SiteConfig::from_json(
+            r#"{"syndication":{"targets":{"blog":{"provider":"ghost","endpoint":"https://Me.Ghost.io/ghost/"}}},
+                "analytics":{"fediverseHosts":["https://hachyderm.io/","fosstodon.org","hachyderm.io"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.analytics.fediverse_hosts,
+            vec!["hachyderm.io".to_string(), "fosstodon.org".to_string()]
+        );
+        let hosts = author_hosts(&config, Some("https://mastodon.social"));
+        assert_eq!(
+            own_hosts_setting(&hosts),
+            "me.ghost.io=ghost,hachyderm.io=mastodon,fosstodon.org=mastodon,mastodon.social=mastodon"
+        );
+        assert_eq!(
+            author_hosts(&config, Some("https://hachyderm.io")).len(),
+            3,
+            "a host already listed is not added twice"
+        );
+        assert_eq!(author_hosts(&config, Some("not a host")).len(), 3);
+        assert!(crate::SiteConfig::default()
+            .to_json()
+            .find("fediverseHosts")
+            .is_none());
+    }
+
+    #[test]
+    fn a_listed_fediverse_host_must_be_a_host_and_the_list_is_bounded() {
+        for bad in [
+            "https://x.example/@me",
+            "localhost",
+            "a..b",
+            "-a.b",
+            "x y.z",
+            "me@x.y",
+        ] {
+            let json = format!(r#"{{"analytics":{{"fediverseHosts":["{bad}"]}}}}"#);
+            assert!(crate::SiteConfig::from_json(&json).is_err(), "{bad}");
+        }
+        let many: Vec<String> = (0..=MAX_FEDIVERSE_HOSTS)
+            .map(|n| format!("\"i{n}.example\""))
+            .collect();
+        let json = format!(
+            r#"{{"analytics":{{"fediverseHosts":[{}]}}}}"#,
+            many.join(",")
+        );
+        assert!(crate::SiteConfig::from_json(&json).is_err());
+        assert_eq!(
+            clean_host("WWW.Example.org/").as_deref(),
+            Some("example.org")
+        );
     }
 }

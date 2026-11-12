@@ -170,10 +170,14 @@ fn rate_key(address: &str) -> String {
 
 impl Store {
     pub fn load(path: &Path, retention_days: u32) -> Store {
-        let data = fs::read_to_string(path)
+        let mut data = fs::read_to_string(path)
             .ok()
             .and_then(|t| serde_json::from_str::<Data>(&t).ok())
             .unwrap_or_default();
+        retain_known_arrivals(&mut data.days);
+        for source in data.sources.values_mut() {
+            retain_known_arrivals(&mut source.days);
+        }
         Store {
             data,
             dirty: false,
@@ -389,10 +393,17 @@ impl Store {
         out
     }
 
-    /// Replace the data of a named external source (idempotent).
-    pub fn import_source(&mut self, name: &str, data: SourceData) {
+    /// Replace the data of a named external source (idempotent). Arrivals under any key outside the
+    /// fixed vocabulary are dropped before anything is stored (ADR 0407).
+    pub fn import_source(&mut self, name: &str, mut data: SourceData) {
+        retain_known_arrivals(&mut data.days);
         self.data.sources.insert(name.to_string(), data);
         self.dirty = true;
+    }
+
+    /// `true` once counts from a counter elsewhere (the Worker, the hosted function) were pulled.
+    pub fn has_sources(&self) -> bool {
+        !self.data.sources.is_empty()
     }
 
     /// The whole store as JSON, for the backup branch. Unlike `snapshot` this
@@ -404,8 +415,12 @@ impl Store {
     /// Replace everything with a previously exported store, keeping whichever
     /// side has more for each counter so a restore never loses local hits.
     pub fn restore_from_json(&mut self, json: &str) -> Result<(), String> {
-        let other: Data =
+        let mut other: Data =
             serde_json::from_str(json).map_err(|e| format!("invalid analytics backup: {e}"))?;
+        retain_known_arrivals(&mut other.days);
+        for source in other.sources.values_mut() {
+            retain_known_arrivals(&mut source.days);
+        }
         for (day, stats) in other.days {
             let entry = self.data.days.entry(day).or_default();
             for (k, v) in stats.views {
@@ -549,6 +564,14 @@ impl Store {
                 })
             }).collect::<Vec<_>>(),
         })
+    }
+}
+
+fn retain_known_arrivals(days: &mut BTreeMap<String, DayStats>) {
+    for stats in days.values_mut() {
+        stats.arrivals.retain(|destination, _| {
+            openblog_core::outcome::DESTINATIONS.contains(&destination.as_str())
+        });
     }
 }
 
@@ -710,7 +733,9 @@ pub fn hit(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> Res
         Ok(views) => {
             if let Some(destination) = arrival {
                 // Only a view that was counted is attributed; a failure here keeps the view.
-                let _ = store.record_arrival(now, &path, &destination);
+                if let Err(error) = store.record_arrival(now, &path, &destination) {
+                    eprintln!("open.blog analytics: arrival not recorded: {error}");
+                }
             }
             Response::json(200, &json!({ "views": views }))
         }
@@ -718,42 +743,64 @@ pub fn hit(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> Res
     }
 }
 
-/// The destination a counted view came from (ADR 0404): the page address's `utm_source` when the
-/// author turned `analytics.campaigns` on and it names a known destination, otherwise the referring
-/// site when it is one of the known destinations or one of the author's own (a cross-posting
-/// target's address). Nothing else is ever attributed.
+/// The destination a counted view came from (ADRs 0404 and 0407), by the rules in
+/// [`openblog_core::outcome::arrival`], with the author's own hosts: cross-posting targets, the
+/// listed fediverse hosts and the social Mastodon instance when this process is told it.
 pub(crate) fn arrival_destination(
     config: &openblog_core::SiteConfig,
     utm_source: Option<&str>,
     referrer_host: Option<&str>,
 ) -> Option<String> {
-    if config.analytics.campaigns {
-        if let Some(found) = utm_source.and_then(openblog_core::outcome::destination_for_utm) {
-            return Some(found);
-        }
-    }
-    let host = referrer_host?;
-    let own: Vec<(String, String)> = config
-        .syndication
-        .targets
-        .values()
-        .filter_map(|target| {
-            let host = target
-                .endpoint
-                .trim()
-                .trim_start_matches("https://")
-                .trim_start_matches("http://")
-                .split(['/', ':'])
-                .next()?
-                .to_ascii_lowercase();
-            let provider = serde_json::to_value(target.provider)
-                .ok()?
-                .as_str()?
-                .to_string();
-            (!host.is_empty()).then_some((host, provider))
-        })
-        .collect();
-    openblog_core::outcome::destination_for_host(host, &own)
+    let mastodon = std::env::var("OPENBLOG_SOCIAL_MASTODON_INSTANCE").ok();
+    arrival_destination_with(config, utm_source, referrer_host, mastodon.as_deref())
+}
+
+fn arrival_destination_with(
+    config: &openblog_core::SiteConfig,
+    utm_source: Option<&str>,
+    referrer_host: Option<&str>,
+    mastodon_instance: Option<&str>,
+) -> Option<String> {
+    let own = openblog_core::outcome::author_hosts(config, mastodon_instance);
+    openblog_core::outcome::arrival(config.analytics.campaigns, utm_source, referrer_host, &own)
+}
+
+/// The attribution settings a generated counter reads (ADR 0407): whether campaign tags count, and
+/// the author's own hosts as `host=destination` pairs.
+pub(crate) fn counter_attribution(config: &openblog_core::SiteConfig) -> (bool, String) {
+    let mastodon = std::env::var("OPENBLOG_SOCIAL_MASTODON_INSTANCE").ok();
+    counter_attribution_with(config, mastodon.as_deref())
+}
+
+fn counter_attribution_with(
+    config: &openblog_core::SiteConfig,
+    mastodon_instance: Option<&str>,
+) -> (bool, String) {
+    let own = openblog_core::outcome::author_hosts(config, mastodon_instance);
+    (
+        config.analytics.campaigns,
+        openblog_core::outcome::own_hosts_setting(&own),
+    )
+}
+
+/// `wrangler.toml` for the Worker counter, with the site's address and attribution settings.
+pub(crate) fn worker_settings(config: &openblog_core::SiteConfig) -> String {
+    let mastodon = std::env::var("OPENBLOG_SOCIAL_MASTODON_INSTANCE").ok();
+    worker_settings_with(config, mastodon.as_deref())
+}
+
+fn worker_settings_with(
+    config: &openblog_core::SiteConfig,
+    mastodon_instance: Option<&str>,
+) -> String {
+    let (campaigns, own_hosts) = counter_attribution_with(config, mastodon_instance);
+    crate::site::COUNTER_WRANGLER
+        .replace("SITE_URL", &config.url)
+        .replace(
+            "CAMPAIGNS_SETTING",
+            if campaigns { "true" } else { "false" },
+        )
+        .replace("OWN_HOSTS_SETTING", &own_hosts)
 }
 
 /// `GET /api/views?path=/posts/x/`
@@ -910,20 +957,26 @@ mod tests {
     #[test]
     fn a_campaign_tag_counts_only_when_turned_on_and_a_referrer_counts_only_when_known() {
         let off = openblog_core::SiteConfig::default();
-        assert_eq!(arrival_destination(&off, Some("pinterest"), None), None);
         assert_eq!(
-            arrival_destination(&off, Some("pinterest"), Some("bsky.app")).as_deref(),
+            arrival_destination_with(&off, Some("pinterest"), None, None),
+            None
+        );
+        assert_eq!(
+            arrival_destination_with(&off, Some("pinterest"), Some("bsky.app"), None).as_deref(),
             Some("bluesky")
         );
-        assert_eq!(arrival_destination(&off, None, Some("example.org")), None);
+        assert_eq!(
+            arrival_destination_with(&off, None, Some("example.org"), None),
+            None
+        );
         let on =
             openblog_core::SiteConfig::from_json(r#"{"analytics":{"campaigns":true}}"#).unwrap();
         assert_eq!(
-            arrival_destination(&on, Some("pinterest"), Some("bsky.app")).as_deref(),
+            arrival_destination_with(&on, Some("pinterest"), Some("bsky.app"), None).as_deref(),
             Some("pinterest")
         );
         assert_eq!(
-            arrival_destination(&on, Some("newsletter"), Some("bsky.app")).as_deref(),
+            arrival_destination_with(&on, Some("newsletter"), Some("bsky.app"), None).as_deref(),
             Some("bluesky")
         );
         let ghost = openblog_core::SiteConfig::from_json(
@@ -931,12 +984,93 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            arrival_destination(&ghost, None, Some("me.ghost.io")).as_deref(),
+            arrival_destination_with(&ghost, None, Some("me.ghost.io"), None).as_deref(),
             Some("ghost")
         );
         // Off by default and not written while off.
         assert!(!off.to_json().contains("campaigns"));
         assert!(on.to_json().contains("\"campaigns\": true"));
+    }
+
+    #[test]
+    fn listed_fediverse_hosts_attribute_to_mastodon_and_nothing_else_changes() {
+        let config = openblog_core::SiteConfig::from_json(
+            r#"{"analytics":{"fediverseHosts":["hachyderm.io"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            arrival_destination_with(&config, None, Some("hachyderm.io"), None).as_deref(),
+            Some("mastodon")
+        );
+        assert_eq!(
+            arrival_destination_with(&config, None, Some("fosstodon.org"), None),
+            None
+        );
+        assert_eq!(
+            arrival_destination_with(&config, None, Some("bsky.app"), None).as_deref(),
+            Some("bluesky")
+        );
+        assert_eq!(
+            arrival_destination_with(
+                &config,
+                None,
+                Some("mastodon.social"),
+                Some("https://mastodon.social")
+            )
+            .as_deref(),
+            Some("mastodon")
+        );
+        let settings = worker_settings_with(&config, Some("https://mastodon.social"));
+        assert!(settings.contains("CAMPAIGNS = \"false\""), "{settings}");
+        assert!(
+            settings.contains("OWN_HOSTS = \"hachyderm.io=mastodon,mastodon.social=mastodon\""),
+            "{settings}"
+        );
+        assert!(!settings.contains("_SETTING"));
+    }
+
+    #[test]
+    fn arrivals_pulled_from_a_counter_elsewhere_merge_once_and_drop_unknown_keys() {
+        let mut store = Store::load(Path::new("/nonexistent/analytics.json"), 400);
+        let now = at("2026-11-10T12:00:00Z");
+        assert!(!store.has_sources());
+        store.record(now, "/a/", Some("bsky.app"), "1|ua").unwrap();
+        store.record_arrival(now, "/a/", "bluesky").unwrap();
+        let worker: SourceData = serde_json::from_str(
+            r#"{"version":1,"days":{"2026-11-10":{"views":{"/a/":3},"uniques":{"/a/":2},"referrers":{"bsky.app":2},
+                "arrivals":{"bluesky":{"/a/":2},"mastodon":{"/b/":1},"evil":{"/a/":9}}}},"totals":{"/a/":3}}"#,
+        )
+        .unwrap();
+        let hosted: SourceData = serde_json::from_str(
+            r#"{"version":1,"days":{"2026-11-09":{"views":{"/a/":1},"arrivals":{"bluesky":{"/a/":1}}}},"totals":{"/a/":1}}"#,
+        )
+        .unwrap();
+        // Pulling the same counter twice replaces its counts rather than adding them again.
+        store.import_source("worker", worker.clone());
+        store.import_source("worker", worker);
+        store.import_source("hosted", hosted);
+        assert!(store.has_sources());
+        let arrivals = store.arrivals(now, 30);
+        assert_eq!(
+            arrivals["bluesky"]["/a/"], 4,
+            "local 1 + worker 2 + hosted 1"
+        );
+        assert_eq!(arrivals["mastodon"]["/b/"], 1);
+        assert!(!arrivals.contains_key("evil"));
+        assert!(
+            !store.export_json().contains("evil"),
+            "an unknown key is never stored"
+        );
+        let mut restored = Store::load(Path::new("/nonexistent/analytics.json"), 400);
+        restored
+            .restore_from_json(
+                r#"{"version":1,"sources":{"worker":{"version":1,"days":{"2026-11-10":{"arrivals":{"evil":{"/a/":9}}}},"totals":{}}}}"#,
+            )
+            .unwrap();
+        assert!(
+            !restored.export_json().contains("evil"),
+            "an unknown key in a restored source is never stored"
+        );
     }
 
     #[test]

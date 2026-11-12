@@ -7,7 +7,8 @@ browser script.
 ## Setup
 
 1. Create a Supabase project and run [`supabase/openblog.sql`](../../supabase/openblog.sql) in its
-   SQL editor.
+   SQL editor. To attribute visits, also follow [Visit attribution](#visit-attribution-optional)
+   after this setup.
 2. In Netlify, open **Site configuration → Environment variables** and set:
 
    | Variable | Value |
@@ -43,6 +44,38 @@ manifest from `OPENBLOG_SITE_ORIGIN` and enforces its open, locked, or hidden po
 Keep that origin current and publicly reachable. Public pages never receive any Supabase key or the
 moderation token. Supabase-backed hourly quotas limit comment submissions and analytics writes
 before content is stored.
+
+## Visit attribution (optional)
+
+The function's existing view counter is unchanged until you opt in to attribution.
+
+1. Run [`supabase/arrivals.sql`](../../supabase/arrivals.sql) in the Supabase SQL editor, after
+   `openblog.sql`. It adds only the private daily arrivals table and its record/export functions.
+2. Run `openblog analytics attribution` in your blog repository. Set these Netlify environment
+   variables to the values it prints, then redeploy:
+
+   | Variable | Value |
+   | --- | --- |
+   | `OPENBLOG_ARRIVALS_ENABLED` | `true` |
+   | `OPENBLOG_ANALYTICS_CAMPAIGNS` | `true` or `false`, from the command |
+   | `OPENBLOG_ANALYTICS_OWN_HOSTS` | The bounded `host=destination` list from the command |
+
+   `analytics.fediverseHosts` supplies listed Mastodon instances. When
+   `OPENBLOG_SOCIAL_MASTODON_INSTANCE` is configured, that instance is included automatically.
+3. Import the function's private export into your local analytics store:
+
+   ```sh
+   openblog analytics pull https://<site>/api \
+     --secret <OPENBLOG_ADMIN_API_KEY> --name hosted
+   openblog analytics backup
+   ```
+
+   The export is protected by `OPENBLOG_ADMIN_API_KEY` and has the same version-1 shape as the
+   Cloudflare Worker. Repeated pulls replace that source instead of double-counting it. **Where it
+   went** uses pulled arrivals even when the built-in counter is off.
+
+To turn arrivals off, remove or change `OPENBLOG_ARRIVALS_ENABLED` and redeploy. Existing rows remain
+private until you run [`supabase/arrivals-rollback.sql`](../../supabase/arrivals-rollback.sql).
 
 ## Webmentions (optional)
 
