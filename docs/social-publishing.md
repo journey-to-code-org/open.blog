@@ -435,6 +435,11 @@ It is additive and re-runnable: five columns, one index and four functions, no e
 
 Without this file announcements wait in the queue exactly as before.
 
+The optional `supabase/social-media.sql` adds storage for approved media snapshots after the queue is installed. This
+is groundwork only: Admin does not yet offer media selection, and the Bluesky adapter does not yet resize oversized
+images. Existing announcements remain unchanged. `supabase/social-media-rollback.sql` refuses to remove the column
+while any media-bearing announcement remains.
+
 ## The delivery worker
 
 The worker is a hosted function, `netlify/functions/social-worker.mjs`, reached at `POST /api/social-worker`

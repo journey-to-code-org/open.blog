@@ -15,6 +15,7 @@
 import { ACTOR_HEADER, SocialScopeError, authorizeSocial, ensureOwned, refuseClientScope, scopedQuery } from "./social-scope.mjs";
 import { validProviderPostId } from "./social-delivery.mjs";
 import { NEXT_STEPS, deliveryState, derivedTimeline, timelineFromEvents } from "./social-status.mjs";
+import { MediaError, verifyMediaApproval } from "./social-media.mjs";
 import { OpsError, createOps, opsPolicy } from "./social-ops.mjs";
 import {
   ScheduleError,
@@ -40,7 +41,7 @@ const EVENTS = "openblog_social_post_events";
 const MAX_EVENTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const CREATE_FIELDS = ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "timeZone", "idempotencyKey"];
+const CREATE_FIELDS = ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "timeZone", "idempotencyKey", "media"];
 const EDIT_FIELDS = ["version", "caption", "scheduledFor", "timeZone"];
 const RESCHEDULE_FIELDS = ["version", "scheduledFor", "timeZone"];
 const CANCEL_FIELDS = ["version"];
@@ -83,6 +84,7 @@ const postView = (row, account) => ({
   work: row.work,
   canonicalUrl: row.canonical_url,
   caption: row.body,
+  media: row.media ?? null,
   scheduledFor: instant(row.scheduled_for),
   status: row.status,
   // The author's delivery state and what they may do about it (ADR 0323).
@@ -228,7 +230,8 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
   };
 
   const sameRequest = (row, wanted) =>
-    row.work === wanted.work && row.canonical_url === wanted.canonicalUrl && row.body === wanted.caption && instant(row.scheduled_for) === wanted.scheduledFor;
+    row.work === wanted.work && row.canonical_url === wanted.canonicalUrl && row.body === wanted.caption &&
+    instant(row.scheduled_for) === wanted.scheduledFor && (row.media?.approvalDigest ?? null) === (wanted.media?.approvalDigest ?? null);
 
   const create = async (identity, rawBody) => {
     const body = readBody(rawBody, CREATE_FIELDS, ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "idempotencyKey"]);
@@ -245,13 +248,28 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     providerOf(account.provider);
     const caption = checkCaption(account.provider, body.caption);
     checkCanonicalUrl(body.canonicalUrl, body.work);
+    let media = null;
+    if (body.media !== undefined && body.media !== null) {
+      if (account.provider !== "bluesky" || !isPlainObject(body.media) ||
+          Object.keys(body.media).some((key) => !["snapshot", "approvalDigest"].includes(key))) {
+        throw new RouteError(422, "invalid-media", "That image selection cannot be used for this destination.");
+      }
+      try {
+        const snapshot = await verifyMediaApproval(body.media.snapshot, body.canonicalUrl, body.media.approvalDigest);
+        if (snapshot.fallback !== "text") throw new MediaError("invalid");
+        media = { snapshot, approvalDigest: body.media.approvalDigest };
+      } catch (error) {
+        if (error instanceof MediaError) throw new RouteError(422, "invalid-media", "Preview and approve the image again.");
+        throw error;
+      }
+    }
 
     // The same key means the same request: a retry of a timed-out submit gets the original row
     // back, even if time has since passed, and never a second post.
     const existing = await rest("GET", POSTS, scopedQuery(settings, { account_id: `eq.${account.id}`, idempotency_key: `eq.${body.idempotencyKey}`, select: "*" }).toString());
     const replay = (rows) => {
       ensureOwned(settings, rows);
-      const wanted = { work: body.work, canonicalUrl: body.canonicalUrl, caption, scheduledFor: utcInstant(parseSchedule(body.scheduledFor, 0, { bounds: false })) };
+      const wanted = { work: body.work, canonicalUrl: body.canonicalUrl, caption, scheduledFor: utcInstant(parseSchedule(body.scheduledFor, 0, { bounds: false })), media };
       if (!sameRequest(rows[0], wanted)) throw new RouteError(409, "idempotency-conflict", "That request key was already used for a different announcement.");
       return reply(200, { announcement: postView(rows[0], account), replayed: true });
     };
@@ -260,7 +278,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     await usable(account.id);
     const at = parseSchedule(body.scheduledFor, now());
     const stamp = iso(now());
-    const inserted = await rest("POST", POSTS, "select=*", {
+    const newRow = {
       site_id: settings.siteId,
       account_id: account.id,
       work: body.work,
@@ -272,7 +290,9 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
       created_by: identity.actor,
       created_at: stamp,
       updated_at: stamp,
-    });
+    };
+    if (media) newRow.media = media;
+    const inserted = await rest("POST", POSTS, "select=*", newRow);
     if (inserted.conflict) {
       // Two submits with one key raced: the one that lost reads the winner.
       const winner = await rest("GET", POSTS, scopedQuery(settings, { account_id: `eq.${account.id}`, idempotency_key: `eq.${body.idempotencyKey}`, select: "*" }).toString());

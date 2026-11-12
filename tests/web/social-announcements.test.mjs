@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createAnnouncements, MAX_BODY_BYTES } from "../../netlify/lib/social-announcements.mjs";
+import { captureMedia, mediaApprovalDigest } from "../../netlify/lib/social-media.mjs";
 import { socialSettings } from "../../netlify/lib/social-scope.mjs";
 import { createHandler } from "../../netlify/functions/social.mjs";
 import { FACEBOOK, FUTURE, GONE, LINKEDIN, OTHER_SITE, REAUTH, SITE, fakeStorage } from "./social-fake-storage.mjs";
@@ -26,6 +27,7 @@ const NOW = Date.parse("2026-11-01T12:00:00Z");
 const KEY = "request-key-0000001";
 const WORK = "/posts/hello/";
 const URL_OK = "https://blog.example.org/posts/hello/";
+const BLUESKY = "77777777-7777-4777-8777-777777777777";
 
 function setup(options = {}) {
   const storage = fakeStorage(options);
@@ -122,6 +124,26 @@ test("a valid announcement is stored for this site, in UTC, as the named actor",
   // What comes back has no lease owner, no idempotency key and no credential.
   const text = JSON.stringify(announcement);
   for (const secret of [KEY, SERVICE_KEY, ADMIN_KEY, WORKER_KEY, "claimed_by", "idempotency"]) assert.ok(!text.includes(secret), secret);
+});
+
+test("an approved Bluesky image is stored and participates in idempotent scheduling", async () => {
+  const t = setup();
+  t.accounts.push({ id: BLUESKY, site_id: SITE, provider: "bluesky", kind: "account", display_name: "@ada", status: "connected" });
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const snapshot = await captureMedia({ url: "https://blog.example.org/images/c.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, URL_OK);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, URL_OK) };
+  const body = draft({ accountId: BLUESKY, media });
+  const result = await t.call(post(body));
+  assert.equal(result.status, 201);
+  assert.deepEqual(t.posts[0].media, media);
+  assert.deepEqual(result.body.announcement.media, media);
+  assert.equal((await t.call(post(body))).status, 200);
+  const changed = { ...snapshot, description: "Another lantern" };
+  const changedMedia = { snapshot: changed, approvalDigest: await mediaApprovalDigest(changed, URL_OK) };
+  assert.equal((await t.call(post({ ...body, media: changedMedia }))).status, 409);
+  assert.equal((await t.call(post({ ...body, media: { ...media, snapshot: changed } }))).body.code, "invalid-media");
+  assert.equal((await t.call(post(draft({ media })))).body.code, "invalid-media");
+  assert.equal(t.posts.length, 1);
 });
 
 test("destination ownership: another site's, unknown, disconnected, stale and unsupported accounts are refused", async () => {
