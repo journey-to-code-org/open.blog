@@ -143,7 +143,7 @@ test("creating a shared reflection is accessible at 400px, including validation"
   await page.getByRole("link", { name: "Start a shared reflection" }).click();
   await expect(page.getByRole("button", { name: "Create shared reflection" })).toBeVisible();
   await page.evaluate(axe.source);
-  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-shared-form"), {
+  const audit = () => page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect((await audit()).violations).toEqual([]);
@@ -174,8 +174,7 @@ test("invitation acceptance and its error are accessible at 400px", async ({ pag
   await expect(page.getByRole("heading", { name: "Invitation to a shared reflection" })).toBeVisible();
   expect(requests).toBe(0);
   await page.evaluate(axe.source);
-  const audit = () => page.evaluate(() => window.axe.run(
-    [...document.querySelectorAll("h2")].find((heading) => heading.textContent === "Invitation to a shared reflection").closest("section"), {
+  const audit = () => page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect((await audit()).violations).toEqual([]);
