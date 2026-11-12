@@ -13224,7 +13224,11 @@ fn draft_set_for(
         .collect::<Vec<_>>();
     let mut set = match stored {
         Some(set) => set.clone(),
-        None => DraftSet::new(&ids)?,
+        None => {
+            let mut set = DraftSet::new(&ids)?;
+            set.set_policy(record.initial_reveal_policy);
+            set
+        }
     };
     for id in ids {
         set.admit(id)?;
@@ -38100,6 +38104,55 @@ series: letters
     }
 
     #[test]
+    fn new_reflections_reveal_only_after_all_authors_offer_and_legacy_sets_stay_private() {
+        let (f, mikey, id) = invitation_fixture("default-reveal");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let record = stored_record(&f, &id);
+        let mut legacy_json = serde_json::to_value(&record).unwrap();
+        legacy_json
+            .as_object_mut()
+            .unwrap()
+            .remove("initialRevealPolicy");
+        let legacy = SharedPublication::from_json(&legacy_json.to_string()).unwrap();
+        assert_eq!(
+            draft_set_for(None, &legacy).unwrap().policy(),
+            RevealPolicy::Independent
+        );
+        let legacy_set = draft_set_for(None, &legacy).unwrap();
+        assert_eq!(
+            draft_set_for(Some(&legacy_set), &record).unwrap().policy(),
+            RevealPolicy::Independent
+        );
+
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "MIKEY-SECRET").status, 200);
+        assert_eq!(draft_call(&f, &grace, &id, 0, "GRACE-SECRET").status, 200);
+        assert_eq!(
+            body_json(&reveal_state(&f, &mikey, &id))["policy"],
+            "allReady"
+        );
+        let first = body_json(&reveal_call(&f, &mikey, "ready", ready_body(&id, json!(1))));
+        assert_eq!(first["revealed"], false);
+        assert!(!body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("MIKEY-SECRET"));
+        let last = body_json(&reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))));
+        assert_eq!(last["revealed"], true);
+        assert!(body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("MIKEY-SECRET"));
+        assert!(body_json(&reveal_state(&f, &mikey, &id))
+            .to_string()
+            .contains("GRACE-SECRET"));
+    }
+
+    #[test]
     fn mutual_reveal_obeys_the_policy_and_never_exposes_an_unrevealed_draft() {
         let (f, mikey, id) = invitation_fixture("reveal-policy");
         let grace = join_via_api(
@@ -38138,7 +38191,25 @@ series: letters
         let contract_before = stored_record(&f, &id).collaboration;
         let participants = contract_before.participants.clone();
 
-        // Sharing starts off: nothing can be offered and every other slot is a placeholder.
+        // New reflections wait for all active authors; one offer reveals nothing.
+        let initial = body_json(&reveal_state(&f, &grace, &id));
+        assert_eq!(initial["policy"], "allReady");
+        let offered = body_json(&reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))));
+        assert_eq!(offered["revealed"], false);
+        assert!(!body_json(&reveal_state(&f, &mikey, &id))
+            .to_string()
+            .contains("GRACE-SECRET"));
+        assert_eq!(
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "allReady", "independent")
+            )
+            .status,
+            200
+        );
+        // Independent mode cannot offer drafts.
         let off = reveal_call(&f, &grace, "ready", ready_body(&id, json!(1)));
         assert_eq!(off.status, 422);
         let state = body_json(&reveal_state(&f, &grace, &id));
@@ -38325,13 +38396,13 @@ series: letters
         for (who, text) in [(&mikey, "MIKEY-SECRET"), (&grace, "GRACE-SECRET")] {
             assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
         }
-        // Mikey turns on allReady and offers; Grace's offer would complete the reveal.
+        // Mikey offers under the default; Grace's offer would complete the reveal.
         assert_eq!(
             reveal_call(
                 &f,
                 &mikey,
                 "policy",
-                policy_body(&id, "independent", "allReady")
+                policy_body(&id, "allReady", "allReady")
             )
             .status,
             200
@@ -38496,7 +38567,7 @@ series: letters
                 &f,
                 &ada,
                 "policy",
-                policy_body(&id, "independent", "voluntary")
+                policy_body(&id, "allReady", "voluntary")
             )
             .status,
             200
@@ -38627,7 +38698,7 @@ series: letters
                 &f,
                 &ada,
                 "policy",
-                policy_body(&id, "independent", "voluntary")
+                policy_body(&id, "allReady", "voluntary")
             )
             .status,
             200
@@ -41403,7 +41474,7 @@ series: letters
                 &f,
                 &mikey,
                 "policy",
-                policy_body(&id, "independent", "voluntary")
+                policy_body(&id, "allReady", "voluntary")
             )
             .status,
             200
@@ -41869,13 +41940,7 @@ series: letters
             assert_eq!(own["draft"]["markdown"], two_parts(n, "C"));
         }
         assert_eq!(
-            reveal_call(
-                f,
-                &mikey,
-                "policy",
-                policy_body(id, "independent", "allReady")
-            )
-            .status,
+            reveal_call(f, &mikey, "policy", policy_body(id, "allReady", "allReady")).status,
             200
         );
         let offered = std::thread::scope(|scope| {

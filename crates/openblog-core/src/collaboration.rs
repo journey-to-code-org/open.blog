@@ -755,6 +755,9 @@ pub struct SharedPublication {
     pub sources: Vec<SourceReference>,
     pub collaboration: CollaborationContract,
     pub authorization: AuthorizationPolicy,
+    /// Policy used only when a draft set is first created. Absent on legacy records.
+    #[serde(default, skip_serializing_if = "is_independent_reveal_policy")]
+    pub initial_reveal_policy: crate::draft::RevealPolicy,
     /// Publication-scoped invitations. They live in the record so accepting one adds the
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -769,6 +772,10 @@ pub struct SharedPublication {
     /// Zero, and absent from the file, until the first change.
     #[serde(default, skip_serializing_if = "crate::shared_series::is_zero")]
     pub series_revision: u64,
+}
+
+fn is_independent_reveal_policy(policy: &crate::draft::RevealPolicy) -> bool {
+    *policy == crate::draft::RevealPolicy::Independent
 }
 
 /// Author-entered attribution for material that prompted a shared publication. It is not a
@@ -1023,6 +1030,7 @@ impl SharedPublication {
                 }],
             },
             invitations: Vec::new(),
+            initial_reveal_policy: crate::draft::RevealPolicy::AllReady,
             audit: Vec::new(),
             series: None,
             series_revision: 0,

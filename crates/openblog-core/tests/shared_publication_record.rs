@@ -4,6 +4,7 @@ use openblog_core::collaboration::{
     SharedPublicationError, SourceField, SourceKind, SourceProvenance, MAX_GUIDING_QUESTION_BYTES,
     MAX_PUBLICATION_TITLE_BYTES, MAX_SHARED_PUBLICATION_BYTES, MAX_SOURCES, MAX_SOURCE_URL_BYTES,
 };
+use openblog_core::draft::RevealPolicy;
 use serde_json::{json, Value};
 
 fn ada() -> NewParticipant {
@@ -47,6 +48,29 @@ fn create(sources: Vec<NewSourceReference>) -> Result<SharedPublication, SharedP
 
 fn record_json(record: &SharedPublication) -> Value {
     serde_json::to_value(record).unwrap()
+}
+
+#[test]
+fn new_reflections_default_to_mutual_reveal_without_changing_legacy_records() {
+    let record = create(vec![video()]).unwrap();
+    assert_eq!(record.initial_reveal_policy, RevealPolicy::AllReady);
+    let mut stored = record_json(&record);
+    assert_eq!(stored["initialRevealPolicy"], "allReady");
+    let reloaded = SharedPublication::from_json(&stored.to_string()).unwrap();
+    assert_eq!(reloaded.initial_reveal_policy, RevealPolicy::AllReady);
+
+    stored
+        .as_object_mut()
+        .unwrap()
+        .remove("initialRevealPolicy");
+    let legacy = SharedPublication::from_json(&stored.to_string()).unwrap();
+    assert_eq!(legacy.initial_reveal_policy, RevealPolicy::Independent);
+    let reloaded_legacy =
+        SharedPublication::from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
+    assert_eq!(
+        reloaded_legacy.initial_reveal_policy,
+        RevealPolicy::Independent
+    );
 }
 
 #[test]

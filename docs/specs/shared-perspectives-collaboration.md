@@ -1,9 +1,8 @@
 # Shared perspectives collaboration contract
 
-Status: contract, authorization policy, and private shared publication record established;
-creating a shared reflection and inviting collaborators work in Admin Studio; drafting, reveal
-delivery, approval quorum and layout rendering are planned in epic
-[#592](https://github.com/journey-to-code-org/open.blog/issues/592) (PERSP1)
+Status: contract, authorization policy, private drafting, reveal, approval and publication
+workflow established. Epic [#592](https://github.com/journey-to-code-org/open.blog/issues/592)
+(PERSP1) tracks remaining group-workflow requirements.
 Date: 2026-10-24
 
 ## Outcome
@@ -449,11 +448,12 @@ browser tests in `tests/web/admin-shared-reflection.test.mjs` cover the client s
 a `422` or `500` maps to a field or to the status message without discarding the draft, and an
 error without a known field focuses the status alert.
 
-## Out of scope
+## Outside the original contract scope
 
-- Group workflow UI, layout rendering, reveal delivery, approval quorum, authentication, provider
-  identity verification, and persistence beyond creating a shared publication record.
-- Adding collaboration data to existing documents, generated pages, feeds, or public APIs.
+The original contract did not define the group workflow UI, layout rendering, reveal delivery,
+approval quorum, authentication, provider identity verification, or persistence beyond creating
+a shared publication record. Later decisions and implementations cover parts of that work;
+the remaining requirements are tracked in epic #592.
 
 ## Public source attribution
 
