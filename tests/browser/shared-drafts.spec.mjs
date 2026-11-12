@@ -157,6 +157,40 @@ test("creating a shared reflection is accessible at 400px, including validation"
   expect((await audit()).violations).toEqual([]);
 });
 
+test("invitation acceptance and its error are accessible at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  let requests = 0;
+  const token = `invitation.${"a".repeat(64)}`;
+  await context.route("**/admin/api/collaboration/invitations/accept", (route) => {
+    requests += 1;
+    expect(route.request().postDataJSON()).toEqual({ token, contributorId: "writer" });
+    return requests === 1
+      ? json(route, 409, { error: "This invitation could not be accepted." })
+      : json(route, 200, {});
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.goto(`${origin}/admin/#/shared/accept/${token}`);
+  await expect(page.getByRole("heading", { name: "Invitation to a shared reflection" })).toBeVisible();
+  expect(requests).toBe(0);
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(
+    [...document.querySelectorAll("h2")].find((heading) => heading.textContent === "Invitation to a shared reflection").closest("section"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "Accept and join" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert")).toBeFocused();
+  await expect(page.getByRole("alert")).toContainText("This invitation could not be accepted.");
+  expect((await audit()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Accept and join" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("You joined the shared reflection.")).toBeVisible();
+  expect(requests).toBe(2);
+});
+
 test("the draft can be written and saved with the keyboard alone", async ({ page, context }) => {
   await install(context);
   await openPanel(page);
