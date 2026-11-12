@@ -189,8 +189,15 @@ test("all participants unanimously change the approval rule through the real Adm
     expect(readerAudit.violations).toEqual([]);
     expect(await reader.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await reader.getByLabel(/I agree to this exact approval rule/).check();
+    await reader.route("**/admin/api/collaboration/approval-policy?*", (route) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Could not reload the rule." }) }),
+      { times: 1 });
     await reader.getByRole("button", { name: "Agree to this rule" }).click();
     await expect(reader.getByText("Everyone agreed. The rule changed", { exact: false })).toBeVisible();
+    await expect(reader.getByRole("alert")).toBeFocused();
+    await reader.locator("summary", { hasText: "Approval rule" }).click();
+    await reader.locator("summary", { hasText: "Approval rule" }).click();
+    await expect(reader.getByRole("alert")).toBeHidden();
     await expect(reader.getByRole("heading", { name: "Proposed approval rule" })).toHaveCount(0);
   } finally {
     await graceContext.close();

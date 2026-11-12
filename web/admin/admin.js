@@ -18830,6 +18830,7 @@ export class ObAdmin extends AdminElement {
     const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const body = h("div", {});
     const load = async () => {
+      problem.hidden = true;
       try {
         const rule = await this.api.call("GET", `collaboration/approval-policy?publicationId=${encodeURIComponent(id)}`);
         const parts = [h("p", { class: "oba-small" }, `Current rule: ${rule.summary}`)];
@@ -18852,10 +18853,12 @@ export class ObAdmin extends AdminElement {
           }
         } else parts.push(h("p", { class: "oba-small" }, "There is no proposed rule."));
         body.replaceChildren(...parts);
+        return true;
       } catch (error) {
         problem.textContent = approvalRuleFailure(error).message;
         problem.hidden = false;
         problem.focus();
+        return false;
       }
     };
     const change = async (action, json) => {
@@ -18865,8 +18868,7 @@ export class ObAdmin extends AdminElement {
         status.textContent = action === "withdraw" ? "Your agreement to the proposed rule was withdrawn."
           : result.changed ? "Everyone agreed. The rule changed and the piece approvals were cleared."
             : "Your agreement was recorded. The current rule remains in effect until everyone agrees.";
-        await load();
-        heading.focus();
+        if (await load()) heading.focus();
       } catch (error) {
         problem.textContent = approvalRuleFailure(error).message;
         problem.hidden = false;
