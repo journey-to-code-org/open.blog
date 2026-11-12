@@ -136,6 +136,27 @@ async function openPanel(page) {
 const editor = (page) => page.getByLabel("Your reflection (Markdown)");
 const saveDraft = (page) => page.getByRole("button", { name: "Save draft" });
 
+test("creating a shared reflection is accessible at 400px, including validation", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByRole("link", { name: "Start a shared reflection" }).click();
+  await expect(page.getByRole("button", { name: "Create shared reflection" })).toBeVisible();
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-shared-form"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "Create shared reflection" }).click();
+  await expect(page.getByLabel("Source title")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await page.getByLabel("Source title").fill("A source");
+  await page.getByRole("button", { name: "Create shared reflection" }).click();
+  await expect(page.getByLabel("Working title")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+});
+
 test("the draft can be written and saved with the keyboard alone", async ({ page, context }) => {
   await install(context);
   await openPanel(page);
