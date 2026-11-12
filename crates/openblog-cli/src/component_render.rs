@@ -29,7 +29,7 @@ fn values(
     for prop in &component.props {
         let value = given
             .get(&prop.name)
-            .filter(|v| !v.is_null())
+            .filter(|v| !v.is_null() && v.as_str() != Some(""))
             .or(prop.default.as_ref());
         match value {
             Some(serde_json::Value::Bool(false)) | None => {}
@@ -105,7 +105,23 @@ pub fn render(root: &Path, themes: &ThemeSet, site: &mut Site) {
         let Some(command) = command() else {
             return;
         };
-        match render_one(command, &themes_dir, rel, component, &placed.props) {
+        // A post setting is rendered with the post's address. The element's attribute carries the
+        // site's base path; here the address stays root-relative, because the page's links are
+        // given the base path when the page is written, and a link would otherwise get it twice.
+        let mut given = placed.props.clone();
+        for (name, value) in given.iter_mut() {
+            if !component.picks_post(name) {
+                continue;
+            }
+            let address = value.as_str().and_then(|slug| {
+                site.posts
+                    .iter()
+                    .find(|post| post.slug == slug && !post.draft)
+                    .map(|post| post.url.clone())
+            });
+            *value = address.map_or(serde_json::Value::Null, serde_json::Value::String);
+        }
+        match render_one(command, &themes_dir, rel, component, &given) {
             Ok(html) => {
                 site.component_html.insert(section.id.clone(), html);
             }

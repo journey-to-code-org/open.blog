@@ -270,7 +270,7 @@ export function setComponents(list) {
   themeComponents = new Map((Array.isArray(list) ? list : []).filter((c) => isObject(c) && typeof c.tag === "string").map((c) => [c.tag, c]));
 }
 
-/** A component's settings as field specs: text, a choice list, a number, on and off, or a day. */
+/** A component's settings as field specs: text, a choice list, a number, on and off, a day, or a post. */
 export function componentFields(component) {
   return (Array.isArray(component?.props) ? component.props : []).map((prop) => {
     const hint = typeof prop.help === "string" && prop.help ? prop.help : undefined;
@@ -283,6 +283,8 @@ export function componentFields(component) {
         return { kind: "toggle", name: prop.name, label: prop.label, default: prop.default === true, hint };
       case "date":
         return { kind: "date", name: prop.name, label: prop.label, required: prop.required === true, hint };
+      case "post":
+        return { kind: "post", name: prop.name, label: prop.label, required: prop.required === true, optional: prop.required !== true, hint };
       default:
         return text(prop.name, prop.label, { required: prop.required === true, max: prop.maxLength || LIMITS.line, hint });
     }
@@ -670,7 +672,7 @@ export function fieldProblem(spec, value) {
     return "";
   }
   if (spec.kind === "select" || spec.kind === "toggle") return "";
-  if (spec.kind === "post") return empty ? "Choose a post." : "";
+  if (spec.kind === "post") return empty && !spec.optional ? "Choose a post." : "";
   if (empty) return spec.required ? `${spec.label} is needed. Fill it in before you save.` : "";
   const str = String(value);
   if (/[\u0000-\u001f]/u.test(str) && spec.kind !== "textarea" && spec.kind !== "richtext") return `${spec.label} must be on one line. Remove the line breaks.`;

@@ -20,8 +20,9 @@
 //! ```
 //!
 //! A setting is `text` (one line, at most `maxLength` characters), `choice` (one of `choices`),
-//! `number` (between `min` and `max`), `toggle` (on or off) or `date` (a calendar day, written
-//! `YYYY-MM-DD`, which Admin offers as a date picker). The section that places a component
+//! `number` (between `min` and `max`), `toggle` (on or off), `date` (a calendar day, written
+//! `YYYY-MM-DD`, which Admin offers as a date picker) or `post` (one of the site's posts, chosen from
+//! a list; the element is given the post's address, or nothing while the post isn't published). The section that places a component
 //! holds only its name and the values of these settings, so nothing an owner types is ever markup:
 //! every value is checked against its declaration and written as an escaped attribute. The script
 //! is a file of the theme itself, never an address elsewhere.
@@ -226,10 +227,10 @@ impl Component {
                         }
                     }
                 }
-                "toggle" | "date" => {}
+                "toggle" | "date" | "post" => {}
                 other => {
                     return Err(format!(
-                    "the setting `{name}` has the type `{}`; use text, choice, number, toggle or date",
+                    "the setting `{name}` has the type `{}`; use text, choice, number, toggle, date or post",
                     printable(other)
                 ))
                 }
@@ -269,7 +270,11 @@ impl Component {
         }
         let mut out = Vec::new();
         for prop in &self.props {
-            let given = values.get(&prop.name).filter(|v| !v.is_null());
+            // An empty date or post is one left unfilled (Admin's picker writes "" when cleared).
+            let given = values.get(&prop.name).filter(|v| {
+                !v.is_null()
+                    && !(matches!(prop.kind.as_str(), "date" | "post") && v.as_str() == Some(""))
+            });
             let Some(value) = given.or(prop.default.as_ref()) else {
                 if prop.required {
                     problems.push(format!("{}: fill in {}", self.label, prop.label));
@@ -288,6 +293,31 @@ impl Component {
         } else {
             Err(problems)
         }
+    }
+
+    /// Whether the setting called `name` picks a post, so its slug is given to the element as the
+    /// post's address (see [`Component::with_post_addresses`]).
+    pub fn picks_post(&self, name: &str) -> bool {
+        self.props
+            .iter()
+            .any(|prop| prop.name == name && prop.kind == "post")
+    }
+
+    /// `attributes` with each post setting's slug turned into the post's address by `address`;
+    /// a post `address` doesn't know (a draft, a deleted post) leaves the attribute out, so the
+    /// element shows what it shows without one.
+    pub fn with_post_addresses(
+        &self,
+        attributes: Vec<(String, Option<String>)>,
+        address: impl Fn(&str) -> Option<String>,
+    ) -> Vec<(String, Option<String>)> {
+        attributes
+            .into_iter()
+            .filter_map(|(name, value)| match value {
+                Some(slug) if self.picks_post(&name) => address(&slug).map(|url| (name, Some(url))),
+                other => Some((name, other)),
+            })
+            .collect()
     }
 
     /// What Admin needs to list the component and build its form.
@@ -363,15 +393,35 @@ impl PropDecl {
                     Err("must be a day, written like 2026-12-25".into())
                 }
             }
+            ("post", Value::String(slug)) => {
+                if is_slug(slug) {
+                    Ok(Some(slug.clone()))
+                } else {
+                    Err("must be one of your posts".into())
+                }
+            }
             ("toggle", Value::Bool(true)) => Ok(None),
             ("toggle", Value::Bool(false)) => Err("is off".into()),
             ("text" | "choice", _) => Err("must be text".into()),
             ("date", _) => Err("must be a day, written like 2026-12-25".into()),
+            ("post", _) => Err("must be one of your posts".into()),
             ("number", _) => Err("must be a number".into()),
             ("toggle", _) => Err("must be on or off".into()),
             _ => Err("has a type this release does not know".into()),
         }
     }
+}
+
+/// A post's slug: lowercase letters and digits in words joined by single hyphens.
+fn is_slug(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= 200
+        && text.split('-').all(|word| {
+            !word.is_empty()
+                && word
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        })
 }
 
 /// `YYYY-MM-DD` naming a day that exists (2026-02-30 does not).
@@ -529,6 +579,46 @@ mod tests {
         assert!(Component::check("holiday-countdown", &decl)
             .unwrap_err()
             .contains("default of `day`"));
+    }
+
+    #[test]
+    fn a_post_setting_gives_the_element_the_post_address() {
+        let mut decl = countdown();
+        decl.props.push(
+            serde_json::from_value(
+                json!({ "name": "recipe", "type": "post", "label": "Their favorite" }),
+            )
+            .unwrap(),
+        );
+        let c = Component::check("holiday-countdown", &decl).unwrap();
+        let attrs = c
+            .attributes(&values(json!({ "recipe": "grilled-cheese" })))
+            .unwrap();
+        let address = |slug: &str| {
+            (slug == "grilled-cheese").then(|| "/blog/posts/grilled-cheese/".to_string())
+        };
+        assert!(c
+            .with_post_addresses(attrs.clone(), address)
+            .contains(&("recipe".into(), Some("/blog/posts/grilled-cheese/".into()))));
+        assert!(
+            !c.with_post_addresses(attrs, |_| None)
+                .iter()
+                .any(|(name, _)| name == "recipe"),
+            "a post that isn't published is left out"
+        );
+        assert!(
+            !c.attributes(&values(json!({ "recipe": "" })))
+                .unwrap()
+                .iter()
+                .any(|(name, _)| name == "recipe"),
+            "a cleared post picker means none"
+        );
+        for bad in ["Grilled Cheese", "../x", "a--b"] {
+            assert!(
+                c.attributes(&values(json!({ "recipe": bad }))).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

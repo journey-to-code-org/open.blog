@@ -179,6 +179,13 @@ impl Renderer<'_> {
         let Ok(attributes) = component.attributes(&v.props) else {
             return String::new();
         };
+        let attributes = component.with_post_addresses(attributes, |slug| {
+            self.site
+                .posts
+                .iter()
+                .find(|post| post.slug == slug && !post.draft)
+                .map(|post| format!("{}{}", self.site.config.base_path(), post.url))
+        });
         let mut element = format!("<{}", v.tag);
         for (name, value) in attributes {
             match value {

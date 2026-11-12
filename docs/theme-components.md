@@ -57,8 +57,10 @@ the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-place
 ```
 
 - **Settings** are `text` (one line; `maxLength`, default 200), `choice` (`choices`), `number` (`min`, `max`),
-  `toggle` (written as an attribute with no value when on, left out when off) or `date` (a calendar day
-  written `2026-12-25`; Admin shows a date picker and refuses a day that doesn't exist, such as February 30).
+  `toggle` (written as an attribute with no value when on, left out when off), `date` (a calendar day
+  written `2026-12-25`; Admin shows a date picker and refuses a day that doesn't exist, such as February 30),
+  or `post` (Admin lists the site's posts; the element's attribute is the post's address, such as
+  `/blog/posts/meatloaf/`, and is left out while that post is a draft).
   Each has a `name` (the attribute), a `label`, and optionally `help`, `required` and `default`. A name is lowercase letters,
   digits and hyphens and never an event handler (`on…`), `id`, `class`, `style`, `src` or `href`.
 - **The script** is a `.js` file inside the theme folder. An address elsewhere is refused, so a theme

@@ -87,3 +87,13 @@ test("a date setting is a date picker that takes only a real day", () => {
   }
   assert.equal(sectionSummary(sign("1986-06-14")), "Christmas, 1986-06-14");
 });
+
+test("a post setting is a list of the site's posts, and may be left empty", () => {
+  const withRecipe = { ...COUNTDOWN, props: [...COUNTDOWN.props, { name: "recipe", type: "post", label: "Their favorite" }] };
+  setComponents([withRecipe]);
+  const field = componentFields(withRecipe).at(-1);
+  assert.deepEqual([field.name, field.kind, field.optional], ["recipe", "post", true]);
+  const sign = (recipe) => ({ id: "sign", type: "component", tag: "holiday-countdown", props: { holiday: "christmas", recipe } });
+  assert.deepEqual(sectionProblems(sign("")), []);
+  assert.deepEqual(sectionProblems(sign("meatloaf")), []);
+});
