@@ -460,6 +460,14 @@ struct MediaSnapshot {
     size: u64,
     sha256: String,
     fallback: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transform: Option<String>,
 }
 
 #[derive(Deserialize)]

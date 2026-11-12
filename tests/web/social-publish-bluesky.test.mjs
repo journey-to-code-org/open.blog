@@ -4,15 +4,18 @@
 // Scripted service only; no real network.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 import { socialAdapters } from "../../netlify/lib/social-adapters.mjs";
 import { announcementKey, blobCid, cardTitle, facetsFor, graphemes, tid, TID, withinPostLimits } from "../../netlify/lib/social-atproto.mjs";
-import { captureMedia, mediaApprovalDigest } from "../../netlify/lib/social-media.mjs";
+import { captureMedia, mediaApprovalDigest, previewMedia } from "../../netlify/lib/social-media.mjs";
 import { allProviders, call, isDelivery, scripted, settle } from "./social-publish-fakes.mjs";
 
 const NOW = Date.parse("2026-11-01T12:00:00Z");
 const DID = "did:plc:abcdefghijklmnopqrstuvwx";
 const RKEY = "3mzar4gvw36e6";
 const URI = `at://${DID}/app.bsky.feed.post/${RKEY}`;
+const sharp = createRequire(new URL("../../netlify/package.json", import.meta.url))("sharp");
 const TOKEN = "eyJhbGciOiJFUzI1NksifQ.eyJleHAiOjF9.c2ln";
 const created = { status: 200, body: { uri: URI, cid: "bafyreib2rxk3rh6kzwq" } };
 
@@ -62,6 +65,42 @@ test("an explicitly approved thumbnail is checked, uploaded as a blob and attach
     const lookup = scripted(record(value));
     assert.equal((await adapter(lookup.fetchImpl).reconcile(input)).state, expected);
   }
+});
+
+test("the approved resized thumbnail, not its oversized source, is uploaded and attached", async () => {
+  const raw = randomBytes(1100 * 1100 * 3);
+  const source = new Uint8Array(await sharp(raw, { raw: { width: 1100, height: 1100, channels: 3 } }).png().toBuffer());
+  const url = "https://blog.example.com/posts/hello/";
+  const imageUrl = "https://blog.example.com/c.png";
+  const preview = await previewMedia(async (target) => target === url
+    ? new Response('<meta property="og:image" content="/c.png"><meta property="og:image:alt" content="A lantern">', { headers: { "content-type": "text/html" } })
+    : new Response(source, { headers: { "content-type": "image/png" } }), url, "/posts/hello/", undefined, "text", true);
+  const approved = new Uint8Array(Buffer.from(preview.imageDataUrl.split(",")[1], "base64"));
+  const snapshot = preview.media.snapshot;
+  assert.equal(snapshot.version, 2);
+  assert.ok(snapshot.size <= 1_000_000 && source.length > 1_000_000);
+  const blob = { $type: "blob", ref: { $link: blobCid(snapshot.sha256) }, mimeType: "image/jpeg", size: approved.length };
+  const fake = scripted((n, target) => {
+    if (target === url) return { status: 200, headers: { "content-type": "text/html" }, body: PAGE };
+    if (target === imageUrl) return { status: 200, headers: { "content-type": "image/png" }, body: source };
+    if (target.endsWith(".uploadBlob")) return { status: 200, body: { blob } };
+    if (target.endsWith(".createRecord")) return created;
+    return { status: 599 };
+  });
+  assert.deepEqual(await adapter(fake.fetchImpl).publish(call("bluesky", { accessToken: TOKEN, post: { media: preview.media } })), { providerPostId: URI });
+  assert.deepEqual(fake.calls.find((item) => item.url.endsWith(".uploadBlob")).body, approved);
+  assert.deepEqual(JSON.parse(fake.calls.find((item) => item.url.endsWith(".createRecord")).body).record.embed.external.thumb, blob);
+  const changed = source.slice();
+  changed[changed.length - 1] ^= 1;
+  const changedFetch = scripted((n, target) => {
+    if (target === url) return { status: 200, headers: { "content-type": "text/html" }, body: PAGE };
+    if (target === imageUrl) return { status: 200, headers: { "content-type": "image/png" }, body: changed };
+    if (target.endsWith(".createRecord")) return created;
+    return { status: 599 };
+  });
+  assert.deepEqual(await adapter(changedFetch.fetchImpl).publish(call("bluesky", { accessToken: TOKEN, post: { media: preview.media } })), { providerPostId: URI });
+  assert.equal(changedFetch.calls.some((item) => item.url.endsWith(".uploadBlob")), false);
+  assert.equal(JSON.parse(changedFetch.calls.find((item) => item.url.endsWith(".createRecord")).body).record.embed.external.thumb, undefined);
 });
 
 test("thumbnail failure uses the approved fallback; a changed approval never posts", async () => {

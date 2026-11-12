@@ -245,13 +245,13 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
       throw new RouteError(422, "invalid-media", "Choose how an unavailable image is handled.");
     }
     try {
-      const preview = await previewMedia(fetchImpl, body.canonicalUrl, body.work, AbortSignal.timeout(10_000), fallback);
+      const preview = await previewMedia(fetchImpl, body.canonicalUrl, body.work, AbortSignal.timeout(10_000), fallback, account.provider === "bluesky");
       if (account.provider !== "bluesky" && preview.media.snapshot.mimeType === "image/webp") {
         throw new RouteError(422, "invalid-media", "This destination needs a JPEG or PNG cover.");
       }
       return reply(200, preview);
     } catch (error) {
-      if (error instanceof MediaError && error.code === "too-large") throw new RouteError(422, "media-too-large", "The cover is too large for a Bluesky thumbnail.");
+      if (error instanceof MediaError && error.code === "too-large") throw new RouteError(422, "media-too-large", "The cover is too large to prepare.");
       if (error instanceof MediaError) throw new RouteError(422, "invalid-media", "The public cover and its description could not be previewed.");
       throw error;
     }
@@ -283,8 +283,9 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
       }
       try {
         const snapshot = await verifyMediaApproval(body.media.snapshot, body.canonicalUrl, body.media.approvalDigest);
-        if ((account.provider === "bluesky" && snapshot.fallback !== "text") ||
-            (account.provider !== "bluesky" && snapshot.mimeType === "image/webp")) throw new MediaError("invalid");
+        if (snapshot.size > 1_000_000 ||
+            (account.provider === "bluesky" && snapshot.fallback !== "text") ||
+            (account.provider !== "bluesky" && (snapshot.mimeType === "image/webp" || snapshot.version !== 1))) throw new MediaError("invalid");
         media = { snapshot, approvalDigest: body.media.approvalDigest };
       } catch (error) {
         if (error instanceof MediaError) throw new RouteError(422, "invalid-media", "Preview and approve the image again.");

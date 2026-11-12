@@ -35,6 +35,7 @@
 # Optional social publishing (ADRs 0293 and 0331). Off unless OPENBLOG_SOCIAL_ENABLED is set.
 [functions."social"]
   node_bundler = "esbuild"
+  external_node_modules = ["sharp"]
 
 # Optional received Webmentions (ADRs 0364 and 0365). Off unless OPENBLOG_WEBMENTION_ENABLED is set.
 [functions."webmention"]
@@ -56,6 +57,7 @@
 # The delivery worker, called by pg_cron through pg_net with the worker key (ADR 0317).
 [functions."social-worker"]
   node_bundler = "esbuild"
+  external_node_modules = ["sharp"]
 
 [[redirects]]
   from = "/api/webmention"

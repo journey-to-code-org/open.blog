@@ -381,9 +381,10 @@ card with the post's own title and description, read from its public page just b
 ([ADR 0386](adr/0386-a-bluesky-card-shows-the-posts-own-title-and-a-link-already-in-a-caption-is-read-as-a-reader-sees-it.md)).
 If that page cannot be read in a few seconds, the card is titled with the caption's first line instead. After installing
 `supabase/social-media.sql`, you may preview and explicitly select the public cover for the card. The cover must be a
-same-origin JPEG, PNG or WebP of at most 1,000,000 bytes with a description; larger images are not resized yet.
-The preview shows the exact bytes that are approved, and delivery verifies them again. If the image changes or its
-upload fails, the card goes without a picture. Bluesky's external-card schema does not offer a separate image
+same-origin JPEG, PNG or WebP of at most 8 MiB with a description. Images over 1,000,000 bytes are resized to a
+JPEG thumbnail of at most 1,000,000 bytes (transparent areas become white). Admin shows the exact thumbnail for
+approval; delivery verifies the original bytes, recreates the thumbnail and verifies its bytes again. If either
+differs or the upload fails, the card goes without a picture. Bluesky's external-card schema does not offer a separate image
 description; the description is shown in Admin but is not included in the card.
 `@mentions` stay plain text, so nobody is notified by
 mistake. A Bluesky caption is at most 300 characters; Admin counts against that as soon as you choose a Bluesky
@@ -457,6 +458,10 @@ Without this file announcements wait in the queue exactly as before.
 
 The optional `supabase/social-media.sql` adds storage for approved Bluesky, LinkedIn and Facebook media snapshots after the queue is installed.
 Run it before scheduling an announcement with a cover. Existing announcements remain unchanged.
+
+The social functions use the pinned `sharp` image library. When bundling them yourself, run `npm ci --prefix netlify`
+on the deployment platform before building the functions; the supplied GitHub publishing workflows do this. Install
+on Linux for a Linux Netlify deployment so the native module matches the function runtime.
 `supabase/social-media-rollback.sql` refuses to remove the column while any media-bearing announcement remains.
 
 ## The delivery worker

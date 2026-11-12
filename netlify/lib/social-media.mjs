@@ -2,11 +2,15 @@
 // the bytes and keep the returned snapshot with the announcement.
 import { coverOf, MAX_COVER_BYTES } from "./social-mastodon.mjs";
 import { checkCanonicalUrl, ScheduleError } from "./social-schedule.mjs";
+import sharp from "sharp";
 
 const TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
 const HEX = /^[0-9a-f]{64}$/;
 const FIELDS = ["version", "url", "description", "mimeType", "size", "sha256", "fallback"];
+const RESIZED_FIELDS = [...FIELDS, "sourceMimeType", "sourceSize", "sourceSha256", "transform"];
+const THUMBNAIL_BYTES = 1_000_000;
+const TRANSFORM = "bluesky-jpeg-v1";
 
 export class MediaError extends Error {
   constructor(code) {
@@ -26,15 +30,21 @@ function validImage(bytes, mimeType) {
 }
 
 function validate(snapshot, canonicalUrl) {
+  const fields = snapshot?.version === 2 ? RESIZED_FIELDS : FIELDS;
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
-      Object.keys(snapshot).some((key) => !FIELDS.includes(key)) ||
-      FIELDS.some((key) => !Object.hasOwn(snapshot, key)) ||
-      snapshot.version !== 1 || typeof snapshot.url !== "string" ||
+      Object.keys(snapshot).some((key) => !fields.includes(key)) ||
+      fields.some((key) => !Object.hasOwn(snapshot, key)) ||
+      ![1, 2].includes(snapshot.version) || typeof snapshot.url !== "string" ||
       typeof snapshot.description !== "string" || snapshot.description !== snapshot.description.trim() ||
       !snapshot.description || CONTROL.test(snapshot.description) || Array.from(snapshot.description).length > 1500 ||
       !TYPES.has(snapshot.mimeType) || !Number.isSafeInteger(snapshot.size) || snapshot.size < 1 ||
       snapshot.size > MAX_COVER_BYTES || typeof snapshot.sha256 !== "string" || !HEX.test(snapshot.sha256) ||
       !["stop", "text"].includes(snapshot.fallback)) throw new MediaError("invalid");
+  if (snapshot.version === 2 && (snapshot.transform !== TRANSFORM || snapshot.mimeType !== "image/jpeg" ||
+      snapshot.size > THUMBNAIL_BYTES || !TYPES.has(snapshot.sourceMimeType) ||
+      !Number.isSafeInteger(snapshot.sourceSize) || snapshot.sourceSize <= THUMBNAIL_BYTES ||
+      snapshot.sourceSize > MAX_COVER_BYTES || typeof snapshot.sourceSha256 !== "string" ||
+      !HEX.test(snapshot.sourceSha256))) throw new MediaError("invalid");
   let page;
   let image;
   try {
@@ -75,9 +85,10 @@ export async function verifyMedia(snapshot, canonicalUrl, bytes, mimeType) {
 export async function mediaApprovalDigest(snapshot, canonicalUrl) {
   validate(snapshot, canonicalUrl);
   const approval = [
-    "openblog-social-media-v1", canonicalUrl, snapshot.url, snapshot.description, snapshot.mimeType,
+    snapshot.version === 2 ? "openblog-social-media-v2" : "openblog-social-media-v1", canonicalUrl, snapshot.url, snapshot.description, snapshot.mimeType,
     snapshot.size, snapshot.sha256, snapshot.fallback,
   ];
+  if (snapshot.version === 2) approval.push(snapshot.sourceMimeType, snapshot.sourceSize, snapshot.sourceSha256, snapshot.transform);
   return hash(new TextEncoder().encode(JSON.stringify(approval)));
 }
 
@@ -130,7 +141,21 @@ async function getPublic(fetchImpl, url, accept, signal) {
 
 const responseType = (response) => (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
 
-export async function previewMedia(fetchImpl, canonicalUrl, work, signal, fallback = "text") {
+async function thumbnail(bytes) {
+  try {
+    for (const side of [1200, 900, 640, 480, 320, 160]) {
+      const output = await sharp(bytes, { limitInputPixels: 40_000_000, failOn: "warning" })
+        .rotate().resize(side, side, { fit: "inside", withoutEnlargement: true })
+        .flatten({ background: "#ffffff" }).jpeg({ quality: 82 }).toBuffer();
+      if (output.byteLength <= THUMBNAIL_BYTES) return new Uint8Array(output);
+    }
+  } catch {
+    throw new MediaError("invalid");
+  }
+  throw new MediaError("too-large");
+}
+
+export async function previewMedia(fetchImpl, canonicalUrl, work, signal, fallback = "text", resize = false) {
   try {
     checkCanonicalUrl(canonicalUrl, work);
   } catch (error) {
@@ -146,13 +171,24 @@ export async function previewMedia(fetchImpl, canonicalUrl, work, signal, fallba
   const response = await getPublic(fetchImpl, cover.url, "image/jpeg,image/png,image/webp", signal);
   const mimeType = responseType(response);
   if (!TYPES.has(mimeType)) throw new MediaError("unavailable");
-  const bytes = await readBytes(response, 1_000_000, "too-large");
-  const snapshot = await captureMedia({ ...cover, mimeType, bytes, fallback }, canonicalUrl);
+  const source = await readBytes(response, resize ? MAX_COVER_BYTES : THUMBNAIL_BYTES, "too-large");
+  let bytes = source;
+  let snapshot;
+  if (resize && source.byteLength > THUMBNAIL_BYTES) {
+    if (!validImage(source, mimeType)) throw new MediaError("invalid");
+    bytes = await thumbnail(source);
+    snapshot = Object.freeze(validate({
+      version: 2, ...cover, mimeType: "image/jpeg", size: bytes.byteLength, sha256: await hash(bytes), fallback,
+      sourceMimeType: mimeType, sourceSize: source.byteLength, sourceSha256: await hash(source), transform: TRANSFORM,
+    }, canonicalUrl));
+  } else {
+    snapshot = await captureMedia({ ...cover, mimeType, bytes, fallback }, canonicalUrl);
+  }
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return {
     media: { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, canonicalUrl) },
-    imageDataUrl: `data:${mimeType};base64,${btoa(binary)}`,
+    imageDataUrl: `data:${snapshot.mimeType};base64,${btoa(binary)}`,
   };
 }
 
@@ -160,10 +196,16 @@ export async function previewMedia(fetchImpl, canonicalUrl, work, signal, fallba
 // byte limit while reading rather than trusting Content-Length.
 export async function fetchApprovedMedia(fetchImpl, snapshot, canonicalUrl, signal) {
   validate(snapshot, canonicalUrl);
-  const response = await getPublic(fetchImpl, snapshot.url, snapshot.mimeType, signal);
+  const sourceType = snapshot.version === 2 ? snapshot.sourceMimeType : snapshot.mimeType;
+  const response = await getPublic(fetchImpl, snapshot.url, sourceType, signal);
   const mimeType = responseType(response);
-  if (mimeType !== snapshot.mimeType) throw new MediaError("changed");
-  const bytes = await readBytes(response, snapshot.size);
-  await verifyMedia(snapshot, canonicalUrl, bytes, mimeType);
+  if (mimeType !== sourceType) throw new MediaError("changed");
+  const source = await readBytes(response, snapshot.version === 2 ? snapshot.sourceSize : snapshot.size);
+  let bytes = source;
+  if (snapshot.version === 2) {
+    if (source.byteLength !== snapshot.sourceSize || !validImage(source, mimeType) || await hash(source) !== snapshot.sourceSha256) throw new MediaError("changed");
+    bytes = await thumbnail(source);
+  }
+  await verifyMedia(snapshot, canonicalUrl, bytes, snapshot.mimeType);
   return bytes;
 }

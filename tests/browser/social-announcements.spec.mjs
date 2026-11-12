@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 
 // The Social screen in Admin (ADR 0310, #369), from the real binary and the real Admin Studio, with
 // the real hosted routes (netlify/lib/social-announcements.mjs) behind a local HTTP server over an
@@ -31,6 +32,8 @@ let storage;
 let on;
 let off;
 let sawKey = [];
+let oversizedCover;
+let useOversizedCover = false;
 
 test.use({ timezoneId: ZONE, locale: "en-US" });
 
@@ -81,6 +84,8 @@ test.beforeAll(async () => {
   const { socialSettings } = await load("netlify/lib/social-scope.mjs");
   const { fakeStorage } = await load("tests/web/social-fake-storage.mjs");
   storage = fakeStorage();
+  const sharp = createRequire(pathToFileURL(join(repository, "netlify", "package.json")))("sharp");
+  oversizedCover = await sharp(randomBytes(1100 * 1100 * 3), { raw: { width: 1100, height: 1100, channels: 3 } }).png().toBuffer();
   // A Bluesky account and a Mastodon account, so the composer is driven for both (#391, #392).
   storage.accounts.push(
     { id: "77777777-7777-4777-8777-777777777777", site_id: "lantern-studios", provider: "bluesky", kind: "account", display_name: "@lantern.bsky.social", status: "connected" },
@@ -97,7 +102,7 @@ test.beforeAll(async () => {
   });
   const fetchImpl = (url, init) => {
     if (url === "https://blog.example.org/posts/hello/") return Promise.resolve(new Response('<meta property="og:image" content="/cover.png"><meta property="og:image:alt" content="A lantern">', { headers: { "content-type": "text/html" } }));
-    if (url === "https://blog.example.org/cover.png") return Promise.resolve(new Response(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aN8AAAAASUVORK5CYII=", "base64"), { headers: { "content-type": "image/png" } }));
+    if (url === "https://blog.example.org/cover.png") return Promise.resolve(new Response(useOversizedCover ? oversizedCover : Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aN8AAAAASUVORK5CYII=", "base64"), { headers: { "content-type": "image/png" } }));
     return storage.fetchImpl(url, init);
   };
   const handle = createAnnouncements({ settings, fetchImpl });
@@ -250,6 +255,28 @@ test("a cover is previewed and explicitly approved before scheduling on a narrow
   expect(storage.posts[0].media.snapshot.description).toBe("A lantern");
   expect(storage.posts[0].media.approvalDigest).toMatch(/^[a-f0-9]{64}$/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("an oversized Bluesky cover is previewed as the exact resized thumbnail", async ({ page }) => {
+  useOversizedCover = true;
+  try {
+    await page.setViewportSize({ width: 400, height: 800 });
+    await openSocial(page);
+    await compose(page);
+    await page.getByLabel("Destination", { exact: true }).selectOption("77777777-7777-4777-8777-777777777777");
+    await page.getByRole("button", { name: "Preview cover image" }).click();
+    await expect(page.getByRole("img", { name: "A lantern" })).toBeVisible();
+    await expect(page.locator("[data-social-media-result]")).toContainText("resized JPEG");
+    await page.getByLabel("Include this previewed image").check();
+    await page.getByRole("button", { name: "Schedule announcement" }).click();
+    await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+    expect(storage.posts[0].media.snapshot.version).toBe(2);
+    expect(storage.posts[0].media.snapshot.sourceSize).toBeGreaterThan(1_000_000);
+    expect(storage.posts[0].media.snapshot.size).toBeLessThanOrEqual(1_000_000);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally {
+    useOversizedCover = false;
+  }
 });
 
 test("LinkedIn cover approval preserves the chosen failure behavior", async ({ page }) => {

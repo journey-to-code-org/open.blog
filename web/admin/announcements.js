@@ -437,7 +437,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
         el("img", { src: answer.imageDataUrl, alt: answer.media.snapshot.description }),
         el("p", { class: "oba-small" }, `Image description: ${answer.media.snapshot.description}`),
         el("p", { class: "oba-small" }, chosen.provider === "bluesky"
-          ? "If the image changes or cannot be uploaded, the card will be posted without it. Bluesky link cards do not carry a separate image description."
+          ? `If the image changes or cannot be uploaded, the card will be posted without it. Bluesky link cards do not carry a separate image description.${answer.media.snapshot.version === 2 ? " This resized JPEG is the image that will be uploaded; transparency is shown on white." : ""}`
           : `The description will be sent as image alt text. If the image changes or cannot be uploaded, ${mediaFallback.value === "stop" ? "the announcement will not be posted" : "the link will be posted without it"}.${chosen.provider === "facebook" ? " If Facebook cannot confirm whether the photo posted, check the Page before trying again." : ""}`),
       );
       mediaAccept.disabled = false;
