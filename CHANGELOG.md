@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Social announcements can opt into an approved Bluesky card image after installing the optional
+  media schema. Admin previews the exact public cover and verifies it again at delivery; oversized
+  covers are not resized yet and an unavailable image leaves a text-only card.
 - YouTube release preview digests now cover the full contents of caption files. Existing approvals
   for releases with captions need to be reviewed again if the video has not already been uploaded.
 - A YouTube channel can opt in to caption-management permission. Approved caption files are then

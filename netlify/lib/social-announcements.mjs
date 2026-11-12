@@ -15,7 +15,7 @@
 import { ACTOR_HEADER, SocialScopeError, authorizeSocial, ensureOwned, refuseClientScope, scopedQuery } from "./social-scope.mjs";
 import { validProviderPostId } from "./social-delivery.mjs";
 import { NEXT_STEPS, deliveryState, derivedTimeline, timelineFromEvents } from "./social-status.mjs";
-import { MediaError, verifyMediaApproval } from "./social-media.mjs";
+import { MediaError, previewMedia, verifyMediaApproval } from "./social-media.mjs";
 import { OpsError, createOps, opsPolicy } from "./social-ops.mjs";
 import {
   ScheduleError,
@@ -232,6 +232,22 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
   const sameRequest = (row, wanted) =>
     row.work === wanted.work && row.canonical_url === wanted.canonicalUrl && row.body === wanted.caption &&
     instant(row.scheduled_for) === wanted.scheduledFor && (row.media?.approvalDigest ?? null) === (wanted.media?.approvalDigest ?? null);
+
+  const previewImage = async (rawBody) => {
+    const body = readBody(rawBody, ["accountId", "work", "canonicalUrl"], ["accountId", "work", "canonicalUrl"]);
+    if (typeof body.accountId !== "string" || !UUID.test(body.accountId)) throw new RouteError(400, "invalid-account", "That is not a destination id.");
+    if (typeof body.work !== "string" || typeof body.canonicalUrl !== "string") throw new RouteError(400, "invalid-request", "The request has a field of the wrong type.");
+    checkCanonicalUrl(body.canonicalUrl, body.work);
+    const account = await usable(body.accountId);
+    if (account.provider !== "bluesky") throw new RouteError(422, "invalid-media", "That destination cannot preview an image yet.");
+    try {
+      return reply(200, await previewMedia(fetchImpl, body.canonicalUrl, body.work, AbortSignal.timeout(10_000)));
+    } catch (error) {
+      if (error instanceof MediaError && error.code === "too-large") throw new RouteError(422, "media-too-large", "The cover is too large for a Bluesky thumbnail.");
+      if (error instanceof MediaError) throw new RouteError(422, "invalid-media", "The public cover and its description could not be previewed.");
+      throw error;
+    }
+  };
 
   const create = async (identity, rawBody) => {
     const body = readBody(rawBody, CREATE_FIELDS, ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "idempotencyKey"]);
@@ -474,6 +490,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
         "GET destinations": () => destinations(),
         "GET announcements": () => list(params),
         "POST announcements": (parsed) => create(identity, parsed),
+        "POST announcements/media-preview": (parsed) => previewImage(parsed),
         "PATCH announcements": (parsed) => edit(params, parsed),
         "POST announcements/reschedule": (parsed) => reschedule(params, parsed),
         "POST announcements/cancel": (parsed) => cancel(params, parsed),

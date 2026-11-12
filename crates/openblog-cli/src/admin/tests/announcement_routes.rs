@@ -137,6 +137,7 @@ fn every_route_needs_a_session_and_every_write_a_csrf_token() {
         ("GET", "destinations"),
         ("GET", "announcements"),
         ("POST", "announcements"),
+        ("POST", "announcements/media-preview"),
         ("PATCH", "announcements"),
         ("POST", "announcements/reschedule"),
         ("POST", "announcements/cancel"),
@@ -343,6 +344,72 @@ fn a_create_is_checked_against_the_site_then_sent_with_the_actor_and_the_sites_o
     assert_eq!(sent["scheduledFor"], utc.as_str(), "sent as UTC");
     assert_eq!(sent["accountId"], ACCOUNT);
     assert!(sent.get("site_id").is_none() && sent.get("siteId").is_none());
+}
+
+#[test]
+fn media_preview_and_schedule_use_the_sites_canonical_url_and_keep_the_approval() {
+    let f = social_site("media");
+    let calls = Calls::default();
+    let media = json!({
+        "snapshot": {
+            "version": 1, "url": "https://blog.example.org/cover.png",
+            "description": "A lantern", "mimeType": "image/png", "size": 9,
+            "sha256": "2a040b0881c18593d21859f4107cee1c9c5f40521161b2acdf3b392b8158e05a", "fallback": "text",
+        },
+        "approvalDigest": "1".repeat(64),
+    });
+    let transport = fake(
+        &calls,
+        200,
+        json!({"media": media, "imageDataUrl": "data:image/png;base64,iVBORw0KGgoq"}),
+    );
+    let (status, answer) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/announcements/media-preview",
+        Some(json!({"accountId": ACCOUNT, "work": "/posts/hello/"})),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(answer["media"], media);
+    assert_eq!(answer["imageDataUrl"], "data:image/png;base64,iVBORw0KGgoq");
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded[0].1, "announcements/media-preview");
+    assert_eq!(
+        recorded[0].4.as_ref().unwrap()["canonicalUrl"],
+        "https://blog.example.org/posts/hello/"
+    );
+    drop(recorded);
+    let (status, _) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/announcements/media-preview",
+        Some(json!({"accountId": ACCOUNT, "work": "/posts/secret/"})),
+    );
+    assert_ne!(status, 200);
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    let (status, _) = call(
+        &f,
+        &fake(&calls, 201, json!({"announcement": announcement()})),
+        "POST",
+        "/admin/api/social/announcements",
+        Some(draft(json!({"media": media}))),
+    );
+    assert_eq!(status, 201);
+    assert_eq!(calls.lock().unwrap()[1].4.as_ref().unwrap()["media"], media);
+    let (status, _) = call(
+        &f,
+        &fake(
+            &calls,
+            200,
+            json!({"media": media, "imageDataUrl": "data:image/png;base64,AAAA"}),
+        ),
+        "POST",
+        "/admin/api/social/announcements/media-preview",
+        Some(json!({"accountId": ACCOUNT, "work": "/posts/hello/"})),
+    );
+    assert_eq!(status, 502, "preview bytes must match the approved digest");
 }
 
 #[test]

@@ -1,10 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { captureMedia, fetchApprovedMedia, mediaApprovalDigest, MediaError, verifyMedia, verifyMediaApproval } from "../../netlify/lib/social-media.mjs";
+import { captureMedia, fetchApprovedMedia, mediaApprovalDigest, MediaError, previewMedia, verifyMedia, verifyMediaApproval } from "../../netlify/lib/social-media.mjs";
 
 const page = "https://blog.example.org/posts/one/";
 const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
 const image = { url: "https://blog.example.org/images/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "stop" };
+
+test("preview reads a same-origin cover and returns the exact selection to approve", async () => {
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push({ url, init });
+    if (url === page) return new Response(`<meta property="og:image" content="/images/cover.png"><meta property="og:image:alt" content="A lantern">`, { headers: { "content-type": "text/html" } });
+    return new Response(png, { headers: { "content-type": "image/png" } });
+  };
+  const result = await previewMedia(fetch, page, "/posts/one/");
+  assert.equal(result.media.snapshot.url, image.url);
+  assert.equal(result.media.snapshot.description, image.description);
+  assert.equal(result.media.snapshot.fallback, "text");
+  assert.equal(await verifyMediaApproval(result.media.snapshot, page, result.media.approvalDigest), result.media.snapshot);
+  assert.deepEqual(Buffer.from(result.imageDataUrl.split(",")[1], "base64"), Buffer.from(png));
+  assert.deepEqual(calls.map((call) => call.url), [page, image.url]);
+  assert.ok(calls.every((call) => call.init.redirect === "manual" && !call.init.headers.authorization));
+});
+
+test("preview refuses invalid canonical links and off-origin or undescribed covers", async () => {
+  let calls = 0;
+  const fetch = async () => {
+    calls += 1;
+    return new Response(`<meta property="og:image" content="https://other.example.org/c.png"><meta property="og:image:alt" content="Lantern">`, { headers: { "content-type": "text/html" } });
+  };
+  await assert.rejects(previewMedia(fetch, page, "/posts/other/"), (error) => error.code === "invalid");
+  assert.equal(calls, 0);
+  await assert.rejects(previewMedia(fetch, page, "/posts/one/"), (error) => error.code === "unavailable");
+  assert.equal(calls, 1);
+});
 
 test("the approved image snapshot binds exact bytes, type, description and fallback", async () => {
   const snapshot = await captureMedia(image, page);

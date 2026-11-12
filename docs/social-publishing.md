@@ -364,8 +364,13 @@ Writes one post record to your own repository (`com.atproto.repo.createRecord` o
 the caption as the text, full `https://` links and `#hashtags` in it as clickable facets, and the post link as a link
 card with the post's own title and description, read from its public page just before posting
 ([ADR 0386](adr/0386-a-bluesky-card-shows-the-posts-own-title-and-a-link-already-in-a-caption-is-read-as-a-reader-sees-it.md)).
-If that page cannot be read in a few seconds, the card is titled with the caption's first line instead. The card
-has no picture yet. `@mentions` stay plain text, so nobody is notified by
+If that page cannot be read in a few seconds, the card is titled with the caption's first line instead. After installing
+`supabase/social-media.sql`, you may preview and explicitly select the public cover for the card. The cover must be a
+same-origin JPEG, PNG or WebP of at most 1,000,000 bytes with a description; larger images are not resized yet.
+The preview shows the exact bytes that are approved, and delivery verifies them again. If the image changes or its
+upload fails, the card goes without a picture. Bluesky's external-card schema does not offer a separate image
+description; the description is shown in Admin but is not included in the card.
+`@mentions` stay plain text, so nobody is notified by
 mistake. A Bluesky caption is at most 300 characters; Admin counts against that as soon as you choose a Bluesky
 destination, and the preview says how the card and the links will look.
 
@@ -373,7 +378,7 @@ Every try of one announcement writes the same record key, made from its schedule
 after a try that did land is refused by Bluesky instead of posting twice; that refusal is checked by reading the
 record, and when it is this announcement it counts as posted. The post's `at://` address is kept as the
 provider post id. An unclear outcome is looked up by reading exactly that record: found with the same caption and
-link, it is published; Bluesky saying it does not exist is a sure "not there"; anything else comes to you as **Needs
+link and, when selected, the approved image or permitted image-free fallback, it is published; Bluesky saying it does not exist is a sure "not there"; anything else comes to you as **Needs
 checking**. An expired or revoked session asks you to reconnect, and a rate limit is tried again after the time
 Bluesky gives.
 
@@ -435,10 +440,9 @@ It is additive and re-runnable: five columns, one index and four functions, no e
 
 Without this file announcements wait in the queue exactly as before.
 
-The optional `supabase/social-media.sql` adds storage for approved media snapshots after the queue is installed. This
-is groundwork only: Admin does not yet offer media selection, and the Bluesky adapter does not yet resize oversized
-images. Existing announcements remain unchanged. `supabase/social-media-rollback.sql` refuses to remove the column
-while any media-bearing announcement remains.
+The optional `supabase/social-media.sql` adds storage for approved Bluesky media snapshots after the queue is installed.
+Run it before scheduling an announcement with a cover. Existing announcements remain unchanged.
+`supabase/social-media-rollback.sql` refuses to remove the column while any media-bearing announcement remains.
 
 ## The delivery worker
 

@@ -32,7 +32,10 @@ const BLUESKY = "77777777-7777-4777-8777-777777777777";
 function setup(options = {}) {
   const storage = fakeStorage(options);
   const settings = socialSettings(env());
-  const handle = createAnnouncements({ settings, fetchImpl: storage.fetchImpl, now: () => options.now ?? NOW });
+  const fetchImpl = options.siteFetch
+    ? (url, init) => String(url).startsWith("https://blog.example.org/") ? options.siteFetch(url, init) : storage.fetchImpl(url, init)
+    : storage.fetchImpl;
+  const handle = createAnnouncements({ settings, fetchImpl, now: () => options.now ?? NOW });
   const call = (request) =>
     handle({ headers: { authorization: `Bearer ${ADMIN_KEY}`, "x-openblog-actor": "mikey" }, ...request });
   return { ...storage, handle, call };
@@ -144,6 +147,26 @@ test("an approved Bluesky image is stored and participates in idempotent schedul
   assert.equal((await t.call(post({ ...body, media: { ...media, snapshot: changed } }))).body.code, "invalid-media");
   assert.equal((await t.call(post(draft({ media })))).body.code, "invalid-media");
   assert.equal(t.posts.length, 1);
+});
+
+test("the authorized preview returns a bound public image only for a connected Bluesky account", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const calls = [];
+  const t = setup({ siteFetch: async (url, init) => {
+    calls.push({ url, init });
+    if (url === URL_OK) return new Response('<meta property="og:image" content="/images/c.png"><meta property="og:image:alt" content="A lantern">', { headers: { "content-type": "text/html" } });
+    return new Response(png, { headers: { "content-type": "image/png" } });
+  } });
+  t.accounts.push({ id: BLUESKY, site_id: SITE, provider: "bluesky", kind: "account", display_name: "@ada", status: "connected" });
+  const body = { accountId: BLUESKY, work: WORK, canonicalUrl: URL_OK };
+  const result = await t.call(post(body, "announcements/media-preview"));
+  assert.equal(result.status, 200);
+  assert.equal(result.body.media.snapshot.description, "A lantern");
+  assert.match(result.body.media.approvalDigest, /^[a-f0-9]{64}$/);
+  assert.equal(calls.length, 2);
+  assert.equal((await t.call(post({ ...body, accountId: LINKEDIN }, "announcements/media-preview"))).body.code, "invalid-media");
+  assert.equal((await t.call(post({ ...body, work: "/posts/elsewhere/" }, "announcements/media-preview"))).status, 422);
+  assert.equal(calls.length, 2);
 });
 
 test("destination ownership: another site's, unknown, disconnected, stale and unsupported accounts are refused", async () => {

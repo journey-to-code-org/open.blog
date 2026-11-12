@@ -12,11 +12,13 @@
 //! pair, one seam. Until they are set every route here answers 404 and reads no social state; the
 //! hosted function itself stays off unless `OPENBLOG_SOCIAL_ENABLED=true` there.
 
+use base64::Engine;
 use openblog_core::social_schedule::{
     announceable, check_canonical_url, check_caption, check_caption_for_any, check_idempotency_key,
     check_time_zone, parse_schedule, parse_schedule_with, utc_instant, Provider, ScheduleError,
 };
 use openblog_core::LoadOptions;
+use sha2::{Digest, Sha256};
 
 use super::social;
 use super::*;
@@ -26,7 +28,7 @@ pub(super) const MAX_REQUEST_BYTES: usize = 32 * 1024;
 /// The most posts the composer's picker lists.
 const MAX_POSTS: usize = 100;
 /// The largest answer read from the hosted function.
-const MAX_ANSWER_BYTES: usize = 1024 * 1024;
+const MAX_ANSWER_BYTES: usize = 2 * 1024 * 1024;
 
 /// Where the hosted function is and the key that proves this Admin may call it.
 pub(super) struct Hosted {
@@ -149,6 +151,7 @@ pub(super) fn owns(name: &str) -> bool {
             | "preview"
             | "destinations"
             | "announcements"
+            | "announcements/media-preview"
             | "announcements/reschedule"
             | "announcements/cancel"
             | "announcements/retry"
@@ -209,6 +212,7 @@ pub(super) fn route(
         ("GET", "destinations") => relay(transport, user, "GET", "destinations", Vec::new(), None),
         ("GET", "announcements") => list(transport, user, req),
         ("POST", "announcements") => create(state, transport, user, req),
+        ("POST", "announcements/media-preview") => media_preview(state, transport, user, req),
         ("PATCH", "announcements") => edit(transport, user, req),
         ("POST", "announcements/reschedule") => reschedule(transport, user, req),
         ("POST", "announcements/cancel") => cancel(transport, user, req),
@@ -430,6 +434,57 @@ struct CreateBody {
     scheduled_for: String,
     time_zone: Option<String>,
     idempotency_key: String,
+    media: Option<MediaApproval>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MediaApproval {
+    snapshot: MediaSnapshot,
+    approval_digest: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MediaSnapshot {
+    version: u64,
+    url: String,
+    description: String,
+    mime_type: String,
+    size: u64,
+    sha256: String,
+    fallback: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MediaPreviewBody {
+    account_id: String,
+    work: String,
+}
+
+fn media_preview(
+    state: &AppState,
+    transport: &dyn Transport,
+    user: &str,
+    req: &Request,
+) -> Response {
+    let body: MediaPreviewBody = match body_of(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let url = match canonical_for(state, &body.work, clock::now()) {
+        Ok(url) => url,
+        Err(error) => return problem(error),
+    };
+    relay(
+        transport,
+        user,
+        "POST",
+        "announcements/media-preview",
+        Vec::new(),
+        Some(json!({ "accountId": body.account_id, "work": body.work, "canonicalUrl": url })),
+    )
 }
 
 fn create(state: &AppState, transport: &dyn Transport, user: &str, req: &Request) -> Response {
@@ -465,6 +520,9 @@ fn create(state: &AppState, transport: &dyn Transport, user: &str, req: &Request
     });
     if let Some(zone) = body.time_zone {
         payload["timeZone"] = Json::String(zone);
+    }
+    if let Some(media) = body.media {
+        payload["media"] = json!(media);
     }
     relay(
         transport,
@@ -732,6 +790,37 @@ fn relay(
         Err(message) => return Response::error(502, message),
     };
     if (200..300).contains(&status) {
+        if route == "announcements/media-preview" {
+            let checked = (|| {
+                let media: MediaApproval =
+                    serde_json::from_value(value.get("media")?.clone()).ok()?;
+                let data = value.get("imageDataUrl")?.as_str()?;
+                if !matches!(
+                    media.snapshot.mime_type.as_str(),
+                    "image/jpeg" | "image/png" | "image/webp"
+                ) {
+                    return None;
+                }
+                let prefix = format!("data:{};base64,", media.snapshot.mime_type);
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data.strip_prefix(&prefix)?)
+                    .ok()?;
+                if bytes.len() > 1_000_000
+                    || u64::try_from(bytes.len()).ok()? != media.snapshot.size
+                    || format!("{:x}", Sha256::digest(&bytes)) != media.snapshot.sha256
+                {
+                    return None;
+                }
+                Some(json!({ "media": media, "imageDataUrl": data }))
+            })();
+            return match checked {
+                Some(preview) => Response::json(status, &preview),
+                None => Response::error(
+                    502,
+                    "The hosted social function sent an unexpected image preview.",
+                ),
+            };
+        }
         let mut kept = Map::new();
         for name in [
             "announcement",

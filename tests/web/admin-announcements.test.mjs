@@ -130,6 +130,13 @@ const found = [
   { work: "/posts/hello/", title: "Hello", eligible: true, canonicalUrl: "https://blog.example.org/posts/hello/", reason: null },
   { work: "/posts/draft/", title: "Secret draft", eligible: false, canonicalUrl: null, reason: { code: "post-not-published", message: "Only a published post can be announced." } },
 ];
+const mediaPreview = {
+  media: {
+    snapshot: { version: 1, url: "https://blog.example.org/cover.png", description: "A lantern", mimeType: "image/png", size: 9, sha256: "2a040b0881c18593d21859f4107cee1c9c5f40521161b2acdf3b392b8158e05a", fallback: "text" },
+    approvalDigest: "1".repeat(64),
+  },
+  imageDataUrl: "data:image/png;base64,iVBORw0KGgoq",
+};
 const row = (over = {}) => ({
   id: "a-1",
   accountId: "d-1",
@@ -161,6 +168,7 @@ function fakeAdmin({ queue = [row()], fail = {}, history = {}, health } = {}) {
       if (route === "GET social/destinations") return { destinations: dest };
       if (route === "GET social/posts") return { posts: found, now: "2026-11-01T12:00:00Z" };
       if (route === "GET social/announcements") return { announcements: current };
+      if (route === "POST social/announcements/media-preview") return mediaPreview;
       if (route === "POST social/preview") return { ok: true, caption: options.json.caption.trim(), link: "https://blog.example.org/posts/hello/", cover: { image: true, description: "A lantern at dusk" }, scheduledFor: options.json.scheduledFor || null, problems: [] };
       if (route === "POST social/announcements") {
         const made = row({ id: "a-2", caption: options.json.caption, scheduledFor: options.json.scheduledFor });
@@ -234,6 +242,41 @@ test("the screen loads destinations and posts into labelled fields and explains 
   const options = all(root, "option").filter((node) => node.parentNode.tagName === "OPTGROUP" || node.disabled);
   assert.match(text(options[0]), /Secret draft - Only a published post can be announced\./);
   assert.equal(options[0].disabled, true, "an unavailable post cannot be chosen");
+}));
+
+test("a Bluesky image is sent only after the author previews and selects it", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root);
+  const destination = fill(root, "destination", "d-3");
+  await destination.dispatch("change");
+  await button(root, "social-media-preview").dispatch("click");
+  await flush();
+  const preview = byData(root, "data-social-media-result")[0];
+  assert.equal(all(preview, "img")[0].getAttribute("src"), mediaPreview.imageDataUrl);
+  assert.equal(all(preview, "img")[0].getAttribute("alt"), "A lantern");
+  assert.match(text(preview), /without it/);
+  const accept = byData(root, "data-social-media-accept")[0];
+  assert.equal(accept.disabled, false);
+  accept.checked = true;
+  await submit(root);
+  await flush();
+  assert.deepEqual(api.calls.find((call) => call.method === "POST" && call.path === "social/announcements").json.media, mediaPreview.media);
+}));
+
+test("changing the selected post or destination clears the image approval", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root);
+  await fill(root, "destination", "d-3").dispatch("change");
+  await button(root, "social-media-preview").dispatch("click");
+  await flush();
+  const accept = byData(root, "data-social-media-accept")[0];
+  accept.checked = true;
+  await fill(root, "post", "/posts/hello/").dispatch("change");
+  assert.equal(accept.checked, false);
+  assert.equal(accept.disabled, true);
+  await submit(root);
+  await flush();
+  assert.equal(api.calls.find((call) => call.method === "POST" && call.path === "social/announcements").json.media, undefined);
 }));
 
 test("with nothing connected the screen says so and offers no destination", withDom(async () => {

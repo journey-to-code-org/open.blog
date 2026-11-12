@@ -1,6 +1,7 @@
 // The exact public cover selected for an announcement. No network or storage: callers obtain
 // the bytes and keep the returned snapshot with the announcement.
-import { MAX_COVER_BYTES } from "./social-mastodon.mjs";
+import { coverOf, MAX_COVER_BYTES } from "./social-mastodon.mjs";
+import { checkCanonicalUrl, ScheduleError } from "./social-schedule.mjs";
 
 const TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
@@ -86,19 +87,7 @@ export async function verifyMediaApproval(snapshot, canonicalUrl, approvedDigest
   return snapshot;
 }
 
-// Fetch only the URL the author approved, without credentials or redirects, and enforce the
-// byte limit while reading rather than trusting Content-Length.
-export async function fetchApprovedMedia(fetchImpl, snapshot, canonicalUrl, signal) {
-  validate(snapshot, canonicalUrl);
-  let response;
-  try {
-    response = await fetchImpl(snapshot.url, { method: "GET", headers: { accept: snapshot.mimeType }, redirect: "manual", signal });
-  } catch {
-    throw new MediaError("unavailable");
-  }
-  if (response.status !== 200 || response.redirected || !response.body) throw new MediaError("unavailable");
-  const mimeType = (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
-  if (mimeType !== snapshot.mimeType) throw new MediaError("changed");
+async function readBytes(response, limit, tooLargeCode = "changed") {
   const reader = response.body.getReader();
   const parts = [];
   let total = 0;
@@ -107,9 +96,9 @@ export async function fetchApprovedMedia(fetchImpl, snapshot, canonicalUrl, sign
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > snapshot.size || total > MAX_COVER_BYTES) {
+      if (total > limit) {
         await reader.cancel();
-        throw new MediaError("changed");
+        throw new MediaError(tooLargeCode);
       }
       parts.push(value);
     }
@@ -125,6 +114,56 @@ export async function fetchApprovedMedia(fetchImpl, snapshot, canonicalUrl, sign
     bytes.set(part, offset);
     offset += part.byteLength;
   }
+  return bytes;
+}
+
+async function getPublic(fetchImpl, url, accept, signal) {
+  let response;
+  try {
+    response = await fetchImpl(url, { method: "GET", headers: { accept }, redirect: "manual", signal });
+  } catch {
+    throw new MediaError("unavailable");
+  }
+  if (response.status !== 200 || response.redirected || !response.body) throw new MediaError("unavailable");
+  return response;
+}
+
+const responseType = (response) => (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+
+export async function previewMedia(fetchImpl, canonicalUrl, work, signal) {
+  try {
+    checkCanonicalUrl(canonicalUrl, work);
+  } catch (error) {
+    if (error instanceof ScheduleError) throw new MediaError("invalid");
+    throw error;
+  }
+  const page = await getPublic(fetchImpl, canonicalUrl, "text/html", signal);
+  if (responseType(page) !== "text/html") throw new MediaError("unavailable");
+  const html = new TextDecoder().decode(await readBytes(page, 512 * 1024));
+  const cover = coverOf(html, canonicalUrl);
+  if (!cover) throw new MediaError("unavailable");
+  validate({ version: 1, ...cover, mimeType: "image/png", size: 1, sha256: "0".repeat(64), fallback: "text" }, canonicalUrl);
+  const response = await getPublic(fetchImpl, cover.url, "image/jpeg,image/png,image/webp", signal);
+  const mimeType = responseType(response);
+  if (!TYPES.has(mimeType)) throw new MediaError("unavailable");
+  const bytes = await readBytes(response, 1_000_000, "too-large");
+  const snapshot = await captureMedia({ ...cover, mimeType, bytes, fallback: "text" }, canonicalUrl);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return {
+    media: { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, canonicalUrl) },
+    imageDataUrl: `data:${mimeType};base64,${btoa(binary)}`,
+  };
+}
+
+// Fetch only the URL the author approved, without credentials or redirects, and enforce the
+// byte limit while reading rather than trusting Content-Length.
+export async function fetchApprovedMedia(fetchImpl, snapshot, canonicalUrl, signal) {
+  validate(snapshot, canonicalUrl);
+  const response = await getPublic(fetchImpl, snapshot.url, snapshot.mimeType, signal);
+  const mimeType = responseType(response);
+  if (mimeType !== snapshot.mimeType) throw new MediaError("changed");
+  const bytes = await readBytes(response, snapshot.size);
   await verifyMedia(snapshot, canonicalUrl, bytes, mimeType);
   return bytes;
 }

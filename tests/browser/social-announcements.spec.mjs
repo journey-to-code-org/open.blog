@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import axe from "axe-core";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -91,7 +92,12 @@ test.beforeAll(async () => {
     OPENBLOG_SOCIAL_WORKER_KEY: WORKER_KEY,
     OPENBLOG_SOCIAL_TOKEN_KEYS: `k1:${Buffer.alloc(32, 9).toString("base64")}`,
   });
-  const handle = createAnnouncements({ settings, fetchImpl: storage.fetchImpl });
+  const fetchImpl = (url, init) => {
+    if (url === "https://blog.example.org/posts/hello/") return Promise.resolve(new Response('<meta property="og:image" content="/cover.png"><meta property="og:image:alt" content="A lantern">', { headers: { "content-type": "text/html" } }));
+    if (url === "https://blog.example.org/cover.png") return Promise.resolve(new Response(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aN8AAAAASUVORK5CYII=", "base64"), { headers: { "content-type": "image/png" } }));
+    return storage.fetchImpl(url, init);
+  };
+  const handle = createAnnouncements({ settings, fetchImpl });
   hosted = createHttpServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -216,6 +222,31 @@ test("an announcement is composed, previewed in the author's zone, scheduled, ed
   await expect(page.locator("[data-announcement]").first().locator("[data-status-badge]")).toContainText("Canceled");
   await expect(page.locator("[data-announcement]").first().getByRole("button", { name: /Edit the announcement/ })).toHaveCount(0);
   expect(storage.posts[0].status).toBe("canceled");
+});
+
+test("a cover is previewed and explicitly approved before scheduling on a narrow screen", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openSocial(page);
+  await compose(page);
+  await page.getByLabel("Destination", { exact: true }).selectOption("77777777-7777-4777-8777-777777777777");
+  await page.getByRole("button", { name: "Preview cover image" }).click();
+  const image = page.getByRole("img", { name: "A lantern" });
+  await expect(image).toBeVisible();
+  await expect(image).toHaveJSProperty("naturalWidth", 1);
+  const approve = page.getByLabel("Include this previewed image");
+  await expect(approve).not.toBeChecked();
+  await approve.focus();
+  await page.keyboard.press("Space");
+  await expect(approve).toBeChecked();
+  await page.evaluate(axe.source);
+  const accessibility = await page.evaluate(async () => window.axe.run(document.querySelector("[data-social-composer]"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }));
+  expect(accessibility.violations).toEqual([]);
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+  expect(storage.posts).toHaveLength(1);
+  expect(storage.posts[0].media.snapshot.description).toBe("A lantern");
+  expect(storage.posts[0].media.approvalDigest).toMatch(/^[a-f0-9]{64}$/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("composing for Bluesky shows the post's own card, and for Mastodon a link already in the caption is not added again", async ({ page }) => {
