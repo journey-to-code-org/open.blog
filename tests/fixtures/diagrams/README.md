@@ -25,7 +25,16 @@ When `openblog export` writes Markdown with diagrams, it also creates a new
 sibling directory containing the referenced SVG files. Other content surfaces
 are not integrated. This is not yet a complete production feature.
 The feature is disabled by default and requires Rust 1.95 or newer. It updates
-the shared `pulldown-cmark` lockfile entry from 0.13.5 to 0.13.6. Test it with:
+the shared `pulldown-cmark` lockfile entry from 0.13.5 to 0.13.6.
+
+The feature also enables `serde_json`'s `preserve_order` through merman. Cargo
+unifies that feature across the CLI, changing the key order of unrelated JSON
+and JSON-LD outputs even when a site has no diagrams. A direct comparison of
+default and feature-enabled builds of a newly initialized site showed changes
+in seven output files. This violates the epic's byte-for-byte no-diagram
+requirement and must be resolved before the feature can be enabled by default.
+
+Test it with:
 
 ```sh
 cargo test --locked -p openblog-core --features diagram-rendering --lib diagram_svg::tests
