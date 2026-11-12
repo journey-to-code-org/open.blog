@@ -34,6 +34,7 @@ const SLOW_ROUTES = [
   "#/capture",
   "#/landing",
   "#/seasons",
+  "#/design",
   "#/announcements",
   `#/share/${POST_PATH}`,
   "#/paths",
