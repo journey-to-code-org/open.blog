@@ -1012,6 +1012,31 @@ files every time by `GET /admin/api/trade-checklist`, which only reads, so it ti
 unticks if that goes away. Each open step links to where it is done. **Hide** stores `tradeChecklistDismissed` in
 your workspace preferences; nothing else is stored. See [A site for a trade business](trades.md#the-checklist-on-admins-home).
 
+### Design a theme
+
+Open **Design a theme** (`#/design`) to describe the look you want in your own words ("warm like my kitchen at
+Christmas, deep red and pine green, big easy-to-read writing"), or start from one of the ideas. The Assistant
+drafts a theme, and the screen shows its name, a sentence on what it chose, its colours as swatches, and your
+own home page in it at Phone, Tablet and Desktop sizes, in light or dark. **Change it** asks for a change in
+words ("a little warmer"); **Save this theme** makes it a new theme with the name you give it.
+
+- **Start from** chooses which of your themes the new one builds on. It keeps that theme's layout and decorations
+  (its garland, its snow, its components) and changes the colours and the writing.
+- **What the Assistant can choose** is deliberately small: six colours for light and six for dark, a font for the
+  writing and one for headings from a fixed list, a corner style and a text size. It is never CSS, a script, an
+  image or a font file. The server checks every answer, refuses any other field, and makes every colour that
+  carries writing easy to read (body text at 7:1, the rest at 4.5:1), saying in a sentence what it changed.
+- **Nothing changes until you choose.** Drafting and previewing write nothing. Saving only creates
+  `themes/<new name>/theme.json`; it never replaces a theme and never puts the new one on. Choose it on
+  **Seasons**, for the whole site or as a season of its own.
+
+It needs the Assistant set up (see [Optional question generation](#optional-question-generation)). Your
+description is sent to the provider you configured, as data it is told never to follow as instructions, and
+nothing else from your site is sent but its title and the name of the theme you start from. The routes are
+`GET theme-draft` (the themes to start from), `POST theme-draft`, `POST theme-draft/preview` and
+`POST theme-draft/save`, behind the session and the CSRF check
+([ADR 0410](adr/0410-an-owner-describes-a-theme-in-words-and-the-assistant-may-propose-only-colours-fonts-and-sizes-the-engine-makes-readable.md)).
+
 ### Seasons
 
 Open **Seasons** (`#/seasons`) to choose the theme your whole site wears, and, if you like, let the calendar change

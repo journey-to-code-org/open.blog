@@ -329,7 +329,10 @@ export function createSeasons({ api }) {
   }
 
   root.append(
-    el("section", { class: "oba-contributor-intro" }, el("p", {}, "Decorate your site for the time of year, the way you decorate a house. Pick the look for each holiday once, and your site puts it up and takes it down on the days you choose. A collection or post with its own look keeps it whatever the season.")),
+    el("section", { class: "oba-contributor-intro" },
+      el("p", {}, "Decorate your site for the time of year, the way you decorate a house. Pick the look for each holiday once, and your site puts it up and takes it down on the days you choose. A collection or post with its own look keeps it whatever the season."),
+      el("p", {}, "Want a new look? ", el("a", { href: "#/design" }, "Design a theme"), " by describing it in your own words."),
+    ),
     today,
     status,
     conflict,

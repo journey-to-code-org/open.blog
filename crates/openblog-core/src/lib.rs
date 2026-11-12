@@ -173,6 +173,7 @@ pub mod source_review;
 pub mod subscription;
 pub mod synthesis;
 pub mod theme;
+pub mod theme_draft;
 pub mod third_perspective;
 pub mod video;
 pub mod video_release;

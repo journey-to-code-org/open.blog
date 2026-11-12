@@ -97,6 +97,7 @@ mod reading_paths;
 mod seasonal;
 mod seasons;
 mod social;
+mod theme_draft;
 mod trade_checklist;
 mod voice;
 mod voice_guide;
@@ -521,6 +522,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
         }
+        if name.starts_with("theme-draft") {
+            return Ok(theme_draft::MAX_REQUEST_BYTES);
+        }
         if name == "seasons" {
             return Ok(seasons::MAX_REQUEST_BYTES);
         }
@@ -594,6 +598,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/look.js" => "look.js",
         "/admin/business.js" => "business.js",
         "/admin/seasons.js" => "seasons.js",
+        "/admin/theme-designer.js" => "theme-designer.js",
         "/admin/seasonal.js" => "seasonal.js",
         "/admin/trade-checklist.js" => "trade-checklist.js",
         "/admin/distribution.js" => "distribution.js",
@@ -761,6 +766,10 @@ fn authenticated_api(
         ("GET", "meta") => meta(state),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
+        ("GET", "theme-draft") => theme_draft::options(state),
+        ("POST", "theme-draft") => theme_draft::draft(state, req),
+        ("POST", "theme-draft/preview") => theme_draft::preview(state, req),
+        ("POST", "theme-draft/save") => theme_draft::save(state, req),
         ("GET", "seasons") => seasons::get_seasons(state),
         ("PUT", "seasons") => seasons::save_seasons(state, req),
         ("GET", "business") => business::get_business(state),
@@ -11457,7 +11466,8 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(
             AssistantResult::Completion(_)
             | AssistantResult::VoiceGuide(_)
-            | AssistantResult::JobDraft(_),
+            | AssistantResult::JobDraft(_)
+            | AssistantResult::ThemeDraft(_),
         ) => return Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => return review_error(error),
     };
@@ -11574,6 +11584,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
             | AssistantResult::CodeInteraction(_)
             | AssistantResult::VoiceGuide(_)
             | AssistantResult::JobDraft(_)
+            | AssistantResult::ThemeDraft(_)
             | AssistantResult::Review(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -11828,7 +11839,8 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
             AssistantResult::Review(_)
             | AssistantResult::CodeInteraction(_)
             | AssistantResult::VoiceGuide(_)
-            | AssistantResult::JobDraft(_),
+            | AssistantResult::JobDraft(_)
+            | AssistantResult::ThemeDraft(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
@@ -11916,6 +11928,7 @@ fn code_interaction_response(
             | AssistantResult::Review(_)
             | AssistantResult::VoiceGuide(_)
             | AssistantResult::JobDraft(_)
+            | AssistantResult::ThemeDraft(_)
             | AssistantResult::Completion(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -18830,6 +18843,7 @@ mod tests {
     mod seasonal_routes;
     mod service_routes;
     mod social_routes;
+    mod theme_draft_routes;
     mod trade_checklist_routes;
     mod voice_assistant_routes;
     mod voice_journey;

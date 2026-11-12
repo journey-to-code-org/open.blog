@@ -195,6 +195,16 @@ Admin's **Seasons** screen (`#/seasons`) chooses the site theme, turns the calen
 the windows with months by name. It is the only Admin screen that changes `theme`
 ([ADR 0407](adr/0407-seasons-change-the-site-theme-by-the-calendar-and-the-stored-theme-is-the-look-between-them.md)).
 
+## Describing a theme in words
+
+Admin's **Design a theme** screen drafts a theme from a description, through the Assistant, and saves it as an
+ordinary `theme.json` that extends one of your themes ([The admin editor](admin.md#design-a-theme),
+[ADR 0410](adr/0410-an-owner-describes-a-theme-in-words-and-the-assistant-may-propose-only-colours-fonts-and-sizes-the-engine-makes-readable.md)).
+The Assistant proposes only `page`, `surface`, `text`, `muted`, `border` and `accent` for each scheme, a font
+style, a corner style and a text size; the engine derives the rest of the colour tokens (`outer`,
+`surfaceRaised`, `link`, `accentBorder`, `accentContrast`, `glow`, ...) and moves any colour that carries text
+until it is easy to read. The result is a theme like any other: edit it by hand afterwards if you like.
+
 ## Reproducing the look of a site you already have
 
 A theme is the place to carry an existing design over. Copy the colours from the site's
