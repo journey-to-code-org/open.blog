@@ -920,6 +920,12 @@ const DEMO_KINDS: &[DemoKind] = &[
         label: "Multiplayer server simulator",
         summary: "An in-memory multiplayer server model: compare a sequential connection loop with worker threads, a mutex with one world owner, blocked threads with async tasks, and the ready sources handled by `select!`.",
     },
+    DemoKind {
+        id: "cloud-lab",
+        element: "ob-cloud-lab",
+        label: "Cloud practice lab",
+        summary: "A guided practice lab with a pretend laptop and a pretend cloud server: you type real commands such as curl, ssh and systemctl, work through a short list of goals, and watch each request pass or fail at the name, door, process, padlock and app layers.",
+    },
 ];
 
 const MAX_DEMO_FALLBACK_BYTES: usize = 20_000;
@@ -3510,6 +3516,21 @@ mod tests {
     }
 
     #[test]
+    fn a_cloud_lab_demo_names_its_lesson_and_keeps_its_fallback() {
+        let r = render(
+            "```demo cloud-lab lesson=\"systemd\" title=\"Make it survive\"\nRun `sudo systemctl enable --now shop`, then reboot.\n```\n",
+            RenderOptions::default(),
+        );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(
+            r.html.contains("<figure class=\"ob-demo\" data-demo=\"cloud-lab\"><figcaption class=\"ob-code-title\">Make it survive</figcaption><ob-cloud-lab data-lesson=\"systemd\"><p>Run <code>sudo systemctl enable --now shop</code>, then reboot.</p>"),
+            "{}",
+            r.html
+        );
+        assert_eq!(r.capabilities[0].native_renderer, Some("ob-cloud-lab"));
+    }
+
+    #[test]
     fn an_empty_demo_fence_uses_the_kinds_own_description() {
         for (kind, element, words) in [
             ("git-sandbox", "ob-git-sandbox", "in-memory Git"),
@@ -3524,6 +3545,7 @@ mod tests {
             ("audio-lab", "ob-audio-lab", "Web Audio synth"),
             ("native-lab", "ob-native-lab", "popover attribute"),
             ("server-lab", "ob-server-lab", "multiplayer server model"),
+            ("cloud-lab", "ob-cloud-lab", "pretend cloud server"),
         ] {
             let r = render(&format!("```demo {kind}\n```\n"), RenderOptions::default());
             assert!(r.errors.is_empty(), "{kind}: {:?}", r.errors);
