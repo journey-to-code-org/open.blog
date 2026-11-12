@@ -76,6 +76,53 @@ a `#` heading, which is then used. Everything else is optional:
 
 Unknown fields are kept and ignored, so you can store your own notes in the front matter.
 
+### Audio episodes
+
+Put each audio file in the site's static folder and describe it in the post:
+
+```yaml
+audio:
+  version: 1
+  durationSeconds: 120
+  episodeNumber: 1
+  seasonNumber: 1
+  sources:
+    - url: /audio/episode.mp3
+      type: audio/mpeg
+      sizeBytes: 12345
+  chapters:
+    - timeSeconds: 0
+      title: Introduction
+    - timeSeconds: 60
+      title: Discussion
+      link: /notes/
+```
+
+Provide a nonempty `## Transcript` section in the post, or set `audio.transcript`
+to a static `.txt` or `.vtt` file, for example `transcript: /audio/episode.txt`
+inside the `audio` block. WebVTT files need a timed cue with text. `check`, builds,
+and Publish refuse a published episode if its transcript or media cannot be verified;
+drafts warn. Media must be at most 512 MiB each, with
+matching declared sizes and recognizable MPEG, Ogg (Opus, Vorbis or FLAC), WAV,
+FLAC, WebM (Opus or Vorbis) or M4A/M4B/M4P headers. Header checks do not decode the whole file.
+HTTPS audio on author-owned storage is also supported: publication checks a
+bounded byte-range response, declared length and media signature using public
+network addresses. Redirects, private addresses and servers without byte-range
+support are refused; an unavailable host blocks publication. The player never
+autoplays; chapter buttons work when JavaScript is available, and `?t=60`
+seeks after the listener starts playback.
+`episodeNumber` and `seasonNumber` are optional positive integers used in the
+optional podcast feed.
+
+In Admin's post editor, open **Audio episode**, choose an audio file (up to
+64 MiB) or find a saved voice note, and explicitly copy it to the site. Copied
+audio lives in public static files even while the post is a draft. Enter the
+duration and chapter lines, apply the details, and save. You can type the
+transcript or request transcription; Admin shows what is sent and waits for
+confirmation. Review the transcript and add it to the draft before publishing.
+Transcription accepts recordings up to 8 MiB. To edit an existing transcript,
+use the writing editor.
+
 ### Content profiles
 
 Content profiles add field-specific authoring and rendering behavior to a post without

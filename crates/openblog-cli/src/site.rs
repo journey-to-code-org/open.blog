@@ -384,6 +384,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/job-capture.js"),
     ),
     (
+        "episode-editor.js",
+        include_str!("../../../web/admin/episode-editor.js"),
+    ),
+    (
         "capture-queue.js",
         include_str!("../../../web/admin/capture-queue.js"),
     ),
@@ -541,6 +545,98 @@ pub fn not_content(rel: &str) -> bool {
     (readme && !lower.starts_with("docs/")) || rel.split('/').any(|part| part.starts_with('_'))
 }
 
+fn remote_audio(url: &str, limit: u64) -> Result<openblog_core::audio::FileEvidence, String> {
+    let parsed = url::Url::parse(url).map_err(|_| "invalid remote audio URL")?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("remote audio must use HTTPS without credentials or a fragment".into());
+    }
+    let config = ureq::config::Config::builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .proxy(None)
+        .build();
+    let agent = crate::safe_http::public_agent(config, crate::safe_http::PublicResolver::default());
+    fetch_remote_audio(&agent, url, limit)
+}
+
+fn fetch_remote_audio(
+    agent: &ureq::Agent,
+    url: &str,
+    limit: u64,
+) -> Result<openblog_core::audio::FileEvidence, String> {
+    use std::io::Read;
+    if limit == 0 || limit > openblog_core::audio::AUDIO_HEADER_BYTES {
+        return Err("invalid remote audio read limit".into());
+    }
+    let mut response = agent
+        .get(url)
+        .header("Range", &format!("bytes=0-{}", limit - 1))
+        .header("Accept-Encoding", "identity")
+        .call()
+        .map_err(|_| "remote audio could not be reached securely".to_string())?;
+    if response.status().as_u16() != 206 {
+        return Err(format!(
+            "remote audio must support byte ranges (HTTP {})",
+            response.status()
+        ));
+    }
+    if response
+        .headers()
+        .get("content-encoding")
+        .is_some_and(|value| value != "identity")
+    {
+        return Err("remote audio must not encode byte-range responses".into());
+    }
+    let range = response
+        .headers()
+        .get("content-range")
+        .and_then(|value| value.to_str().ok())
+        .ok_or("remote audio has no valid Content-Range")?;
+    let (interval, total) = range
+        .strip_prefix("bytes ")
+        .and_then(|value| value.split_once('/'))
+        .ok_or("remote audio has no valid Content-Range")?;
+    let (start, end) = interval
+        .split_once('-')
+        .ok_or("remote audio has no valid Content-Range")?;
+    let start = start
+        .parse::<u64>()
+        .map_err(|_| "remote audio has no valid Content-Range")?;
+    let end = end
+        .parse::<u64>()
+        .map_err(|_| "remote audio has no valid Content-Range")?;
+    let size = total
+        .parse::<u64>()
+        .map_err(|_| "remote audio has no valid Content-Range")?;
+    if start != 0
+        || size == 0
+        || size > openblog_core::audio::MAX_SOURCE_BYTES
+        || end != size.min(limit) - 1
+    {
+        return Err("remote audio returned an inconsistent byte range".into());
+    }
+    let mut bytes = Vec::new();
+    response
+        .body_mut()
+        .as_reader()
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "remote audio range could not be read".to_string())?;
+    if bytes.len() as u64 != end + 1 {
+        return Err("remote audio returned an incomplete byte range".into());
+    }
+    Ok(openblog_core::audio::FileEvidence {
+        size_bytes: size,
+        bytes,
+    })
+}
+
 /// Read content while optionally replacing one source in memory. Admin uses
 /// this to validate a repair for a malformed credit sidecar without first
 /// having to parse the broken file from disk.
@@ -551,6 +647,50 @@ pub fn read_sources_excluding(
 ) -> Result<Sources, String> {
     let content_dir = root.join(&config.paths.content);
     let mut sources = Sources::default();
+    let static_dir = root.join(&config.paths.static_dir);
+    let private = fsutil::PrivateState::of(root).withhold(&comparison_files(root, config));
+    sources.audio_files = Some(openblog_core::audio::FileReader::new(move |url, limit| {
+        use std::io::Read;
+        if url.starts_with("https://") {
+            return remote_audio(url, limit);
+        }
+        let relative = url
+            .strip_prefix('/')
+            .ok_or("audio file path must be site-relative")?;
+        if relative.is_empty()
+            || relative.contains(['\\', ':', '%', '?', '#'])
+            || relative
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            return Err("invalid static file path".into());
+        }
+        let directory = fs::canonicalize(&static_dir)
+            .map_err(|error| format!("cannot read static directory: {error}"))?;
+        let path = static_dir.join(relative);
+        let resolved =
+            fs::canonicalize(&path).map_err(|error| format!("cannot read {url}: {error}"))?;
+        if !resolved.starts_with(&directory) || private.contains(&resolved) {
+            return Err(format!("{url} is outside public static files"));
+        }
+        let mut file =
+            fs::File::open(&resolved).map_err(|error| format!("cannot open {url}: {error}"))?;
+        let metadata = file
+            .metadata()
+            .map_err(|error| format!("cannot inspect {url}: {error}"))?;
+        if !metadata.is_file() {
+            return Err(format!("{url} is not a regular file"));
+        }
+        let mut bytes = Vec::new();
+        file.by_ref()
+            .take(limit)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("cannot read {url}: {error}"))?;
+        Ok(openblog_core::audio::FileEvidence {
+            size_bytes: metadata.len(),
+            bytes,
+        })
+    }));
     for path in content_files(&content_dir)? {
         let rel = fsutil::relative(&content_dir, &path);
         if excluded.is_some_and(|excluded| excluded == rel) {
@@ -920,6 +1060,16 @@ pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
         if rel.starts_with("admin/") {
             continue;
         }
+        let bundled_episode =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/components/ob-episode.js");
+        if rel == "components/ob-episode.js"
+            && fs::canonicalize(&file)
+                .ok()
+                .zip(fs::canonicalize(&bundled_episode).ok())
+                .is_some_and(|(file, bundled)| file == bundled)
+        {
+            continue;
+        }
         let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");
         let is_wasm = rel.starts_with("wasm/") && (rel.ends_with(".js") || rel.ends_with(".wasm"));
         if is_asset || is_wasm {
@@ -933,6 +1083,13 @@ pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> 
     let on_disk = root.join(&config.paths.web).join(rel);
     if let Ok(bytes) = fs::read(&on_disk) {
         return Some(bytes);
+    }
+    if rel == "components/ob-episode.js" {
+        return Some(
+            include_str!("../../../web/components/ob-episode.js")
+                .as_bytes()
+                .to_vec(),
+        );
     }
     if let Some((_, c)) = EMBEDDED_WEB.iter().find(|(p, _)| *p == rel) {
         return Some(c.as_bytes().to_vec());
@@ -1314,7 +1471,13 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // 4. Generated pages, feeds, and tokens.
     let count = files.len();
     for f in files {
-        put(f.path, f.contents.as_bytes())?;
+        if f.path == "assets/components/ob-episode.js" {
+            let bytes = web_file(root, config, "components/ob-episode.js")
+                .ok_or("episode component is unavailable")?;
+            put(f.path, &bytes)?;
+        } else {
+            put(f.path, f.contents.as_bytes())?;
+        }
     }
 
     fsutil::remove_stale(&out_dir, &written);
@@ -1360,6 +1523,54 @@ pub(crate) fn comparison_files(root: &Path, config: &SiteConfig) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_audio_requires_consistent_bounded_byte_ranges() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        fn request(response: &'static str) -> Result<openblog_core::audio::FileEvidence, String> {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                let size = stream.read(&mut request).unwrap();
+                assert!(String::from_utf8_lossy(&request[..size])
+                    .to_ascii_lowercase()
+                    .contains("range: bytes=0-4095"));
+                stream.write_all(response.as_bytes()).unwrap();
+            });
+            let config = ureq::config::Config::builder()
+                .timeout_global(Some(std::time::Duration::from_secs(5)))
+                .http_status_as_error(false)
+                .max_redirects(0)
+                .proxy(None)
+                .build();
+            let agent = crate::safe_http::public_agent(
+                config,
+                crate::safe_http::PublicResolver::mapped_for_local_test("audio.test", address),
+            );
+            let result = fetch_remote_audio(
+                &agent,
+                &format!("http://audio.test:{}/episode.mp3", address.port()),
+                4096,
+            );
+            server.join().unwrap();
+            result
+        }
+        let valid = request("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-11/12\r\nContent-Length: 12\r\nConnection: close\r\n\r\nID3abcdefghi").unwrap();
+        assert_eq!(valid.size_bytes, 12);
+        assert_eq!(valid.bytes, b"ID3abcdefghi");
+        assert!(
+            request("HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nID3")
+                .is_err()
+        );
+        assert!(request("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 1-3/4\r\nContent-Length: 3\r\nConnection: close\r\n\r\nID3").is_err());
+        assert!(request("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").is_err());
+        assert!(remote_audio("http://127.0.0.1/test", 4096).is_err());
+        assert!(remote_audio("https://127.0.0.1/test", 4096).is_err());
+    }
 
     fn temp_root(tag: &str) -> PathBuf {
         let unique = std::time::SystemTime::now()

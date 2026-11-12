@@ -17,7 +17,7 @@
 export const MANIFEST_VERSION = 1;
 export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
-const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community", "product-hunt": "community", bluesky: "social", mastodon: "social", pinterest: "social", youtube: "video", "google-business-profile": "social", nextdoor: "community" });
+const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community", "product-hunt": "community", bluesky: "social", mastodon: "social", pinterest: "social", youtube: "video", "google-business-profile": "social", nextdoor: "community", "apple-podcasts": "podcast", spotify: "podcast", "podcast-index": "podcast" });
 const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2", "app-password"]);
 const CANONICAL = Object.freeze(["sent", "linked", "manual", "not-supported"]);
 const PUBLISHING = Object.freeze(["explicit-approval", "draft-only", "manual"]);
@@ -153,6 +153,7 @@ export function parseManifest(value) {
     (manifest.publishing === "manual" && anyAdapter) ||
     (manifest.publishing === "draft-only" && capabilities.draft !== "adapter") ||
     ((manifest.family === "social" || manifest.family === "video") && manifest.canonical !== "linked") ||
+    (manifest.family === "podcast" && (anyAdapter || manifest.login.method !== "none" || manifest.publishing !== "manual")) ||
     // A community destination is submitted to by the author, by hand, never by open.blog (ADR 0337).
     (manifest.family === "community" &&
       (anyAdapter || method !== "none" || manifest.publishing !== "manual" || manifest.canonical !== "linked" || capabilities.link !== "manual")) ||

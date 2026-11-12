@@ -71,6 +71,7 @@ Then read these in order; each one stands alone otherwise.
    and the visits your own counter saw from there, from `openblog outcomes` or Admin's **Where it went**.
 27. [Documentation sites](docs-sites.md): a folder of Markdown published as a tree of pages at `/docs/`, with
     a sidebar, previous and next links, and links between the files that work on GitHub and on the site.
+28. [Audio episodes](audio.md): author-owned audio, transcripts, chapters, and an opt-in podcast feed.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

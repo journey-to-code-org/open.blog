@@ -31,6 +31,7 @@ pub const MANIFEST_VERSION: u32 = 1;
 
 /// The day the built-in manifests were checked against the providers' own documentation.
 pub const BUILTIN_POLICY_VERSION: &str = "2026-10-29";
+pub const PODCAST_POLICY_VERSION: &str = "2026-11-12";
 
 /// The largest manifest text read, in bytes.
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -62,10 +63,13 @@ pub enum ProviderId {
     /// Nextdoor: a guided kit the owner posts by hand, because its Publish API is for approved
     /// partners only (ADR 0394).
     Nextdoor,
+    ApplePodcasts,
+    Spotify,
+    PodcastIndex,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 16] = [
+    pub const ALL: [ProviderId; 19] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -82,6 +86,9 @@ impl ProviderId {
         Self::Youtube,
         Self::GoogleBusinessProfile,
         Self::Nextdoor,
+        Self::ApplePodcasts,
+        Self::Spotify,
+        Self::PodcastIndex,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -109,6 +116,9 @@ impl ProviderId {
             Self::Youtube => "youtube",
             Self::GoogleBusinessProfile => "google-business-profile",
             Self::Nextdoor => "nextdoor",
+            Self::ApplePodcasts => "apple-podcasts",
+            Self::Spotify => "spotify",
+            Self::PodcastIndex => "podcast-index",
         }
     }
 
@@ -124,6 +134,7 @@ impl ProviderId {
                 Family::Community
             }
             Self::Youtube => Family::Video,
+            Self::ApplePodcasts | Self::Spotify | Self::PodcastIndex => Family::Podcast,
             _ => Family::Syndication,
         }
     }
@@ -164,6 +175,7 @@ pub enum Family {
     Social,
     Community,
     Video,
+    Podcast,
 }
 
 /// What a distribution can ask of a destination. The list is closed: a name that is not here is
@@ -611,6 +623,7 @@ impl ProviderManifest {
             "social" => Family::Social,
             "community" => Family::Community,
             "video" => Family::Video,
+            "podcast" => Family::Podcast,
             _ => return Err(ManifestError::FamilyMismatch),
         };
         if family != provider.family() {
@@ -686,7 +699,12 @@ impl ProviderManifest {
                 && self.publishing == Publishing::Manual
                 && self.canonical == CanonicalLink::Linked
                 && self.support(Capability::Link) == Support::Manual);
+        let podcast_by_hand = self.family != Family::Podcast
+            || (!any_adapter
+                && self.login.method == LoginMethod::None
+                && self.publishing == Publishing::Manual);
         let incoherent = !community_by_hand
+            || !podcast_by_hand
             || (any_adapter
                 && (self.login.method == LoginMethod::None
                     || self.publishing == Publishing::Manual))
@@ -1119,6 +1137,38 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 constraints,
                 canonical: CanonicalLink::Linked,
                 publishing: Publishing::ExplicitApproval,
+                sources: sources(docs),
+            }
+        }
+        Family::Podcast => {
+            let (label, docs): (_, &[&str]) = match provider {
+                ProviderId::ApplePodcasts => ("Apple Podcasts", &["https://podcasters.apple.com/support/897-submit-a-show", "https://podcasters.apple.com/support/823-podcast-requirements"]),
+                ProviderId::Spotify => ("Spotify", &["https://support.spotify.com/us/creators/article/adding-a-new-show-to-your-spotify-for-creators-account/", "https://support.spotify.com/us/creators/article/claiming-your-podcast-on-spotify-for-creators/"]),
+                ProviderId::PodcastIndex => ("Podcast Index", &["https://podcastindex.org/add"]),
+                _ => unreachable!("only podcast destinations have this family"),
+            };
+            ProviderManifest {
+                manifest_version: MANIFEST_VERSION,
+                provider,
+                family: Family::Podcast,
+                label: label.to_string(),
+                policy_version: PODCAST_POLICY_VERSION.to_string(),
+                capabilities: support([
+                    (Link, Manual),
+                    (Text, Unsupported),
+                    (Article, Unsupported),
+                    (Image, Manual),
+                    (Video, Unsupported),
+                    (Draft, Unsupported),
+                    (Schedule, Unsupported),
+                ]),
+                login: Login {
+                    method: LoginMethod::None,
+                    scopes: Vec::new(),
+                },
+                constraints: Constraints::default(),
+                canonical: CanonicalLink::Manual,
+                publishing: Publishing::Manual,
                 sources: sources(docs),
             }
         }

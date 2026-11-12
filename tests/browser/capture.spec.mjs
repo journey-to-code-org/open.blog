@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
+import axe from "axe-core";
 
 // The real Capture view at 400px (ADRs 0296 to 0298): photos, remembered picks and notes become one
 // unpublished job draft; a dropped connection keeps the capture and sends it once; a voice note is bounded.
@@ -64,6 +65,49 @@ async function openCapture(page) {
   await page.goto(`${origin}/admin/#/capture`);
   await expect(page.locator("[data-job-capture]")).toBeVisible();
 }
+
+test("an episode is authored and transcribed with consent at 400px", async ({ page }) => {
+  await openCapture(page);
+  let transcriptions = 0;
+  await page.route("**/admin/api/assistant/transcribe", (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { available: true, engine: "local", leavesServer: false, sends: ["Your voice note."], keeps: "The transcript stays on this server." } });
+    transcriptions += 1;
+    return route.fulfill({ json: { transcript: "Spoken words.", truncated: false } });
+  });
+  await page.goto(`${origin}/admin/#/new/posts`);
+  await page.getByRole("textbox", { name: "Title", exact: true }).fill("An audio episode");
+  const editor = page.locator("[data-episode-editor]");
+  await editor.locator("summary").click();
+  await editor.getByLabel("Audio file (maximum 64 MB)").setInputFiles({ name: "episode.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("ID3abcdefghi") });
+  await editor.getByRole("button", { name: "Copy audio to the site" }).click();
+  await expect(editor).toContainText("Audio copied");
+  await editor.getByLabel("Duration in seconds").fill("30");
+  await editor.getByLabel("Chapters: seconds | title | optional link, one per line").fill("5 | Part one");
+  await editor.getByRole("button", { name: "Apply episode details" }).click();
+  await editor.getByRole("button", { name: "Transcribe with AI" }).click();
+  await expect(editor).toContainText("Before anything is sent");
+  expect(transcriptions).toBe(0);
+  await editor.getByRole("button", { name: "Send the recording" }).click();
+  await expect(editor.getByLabel("Transcript text")).toHaveValue("Spoken words.");
+  expect(transcriptions).toBe(1);
+  await editor.getByRole("button", { name: "Add transcript to draft" }).click();
+  await page.evaluate(axe.source);
+  const accessibility = await page.evaluate(async () => window.axe.run(document.querySelector("[data-episode-editor]"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }));
+  expect(accessibility.violations).toEqual([]);
+  await expectNoOverflow(page, "[data-episode-editor]");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => readdirSync(join(root, "content", "posts")).filter((name) => name.includes("an-audio-episode")).length).toBe(1);
+  const files = readdirSync(join(root, "content", "posts")).filter((name) => name.includes("an-audio-episode"));
+  expect(files).toHaveLength(1);
+  const content = readFileSync(join(root, "content", "posts", files[0]), "utf8");
+  expect(content).toContain("durationSeconds: 30");
+  expect(content).toContain("Part one");
+  expect(content).toContain("Spoken words.");
+  await page.keyboard.press("Alt+7");
+  await page.getByRole("radio", { name: "Published", exact: true }).check();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => readFileSync(join(root, "content", "posts", files[0]), "utf8")).not.toMatch(/^draft:\s*["']?true/m);
+});
 
 // No control or region is wider than the viewport (a small tolerance, never tuned to one platform's fonts).
 async function expectNoOverflow(page, selector) {
@@ -213,7 +257,7 @@ const fakeMicrophone = ({ denied, supported }) => {
     constructor(stream, options) { this.mimeType = options?.mimeType || ""; this.state = "inactive"; this.slices = 0; }
     start() { this.state = "recording"; this.emit(); }
     emit() {
-      const bytes = this.slices++ === 0 ? [0x1a, 0x45, 0xdf, 0xa3, ...new Array(300).fill(7)] : new Array(300).fill(7);
+      const bytes = this.slices++ === 0 ? [0x1a, 0x45, 0xdf, 0xa3, ...[..."A_OPUS"].map((char) => char.charCodeAt(0)), ...new Array(300).fill(7)] : new Array(300).fill(7);
       this.ondataavailable?.({ data: new Blob([new Uint8Array(bytes)], { type: "audio/webm" }) });
     }
     stop() { this.state = "inactive"; this.emit(); setTimeout(() => this.onstop?.(), 0); }
@@ -226,6 +270,56 @@ const voiceFiles = () => {
   const dir = join(root, ".openblog", "captures");
   return existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith(".audio.webm")) : [];
 };
+
+test("a saved voice note becomes an episode with an edited, consented transcript", async ({ page }) => {
+  await page.addInitScript(fakeMicrophone, { denied: "", supported: true });
+  await openCapture(page);
+  const view = page.locator("[data-job-capture]");
+  const before = new Set(voiceFiles());
+  await view.getByRole("button", { name: "Record a voice note" }).click();
+  await view.getByRole("button", { name: "Stop recording" }).click();
+  await view.getByLabel("Town", { exact: true }).fill("Episodeville");
+  await view.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => voiceFiles().filter((name) => !before.has(name)).length).toBe(1);
+  const filename = voiceFiles().find((name) => !before.has(name));
+  const id = filename.slice(0, -".audio.webm".length);
+  const original = readFileSync(join(root, ".openblog", "captures", filename));
+  let transcription;
+  await page.route("**/admin/api/assistant/transcribe", (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { available: true, engine: "local", leavesServer: false, sends: ["Your voice note."] } });
+    transcription = route.request().postDataJSON();
+    return route.fulfill({ json: { transcript: "Original words.", truncated: false } });
+  });
+  await page.goto(`${origin}/admin/#/new/posts`);
+  await page.getByRole("textbox", { name: "Title", exact: true }).fill("Episode from a voice note");
+  const editor = page.locator("[data-episode-editor]");
+  await editor.locator("summary").click();
+  await editor.getByRole("button", { name: "Find saved voice notes" }).click();
+  await expect(editor.getByLabel("Saved voice note").locator(`option[value="${id}"]`)).toHaveCount(1);
+  await editor.getByLabel("Saved voice note").selectOption(id);
+  const copied = page.waitForResponse((response) => response.url().includes(`/admin/api/episode-audio?capture=${id}`));
+  await editor.getByRole("button", { name: "Copy audio to the site" }).click();
+  const response = await copied;
+  expect(response.status()).toBe(201);
+  const source = await response.json();
+  expect(readFileSync(join(root, "static", source.url.slice(1)))).toEqual(original);
+  await editor.getByLabel("Duration in seconds").fill("30");
+  await editor.getByRole("button", { name: "Apply episode details" }).click();
+  await editor.getByRole("button", { name: "Transcribe with AI" }).click();
+  await expect(editor).toContainText("Before anything is sent");
+  expect(transcription).toBeUndefined();
+  await editor.getByRole("button", { name: "Send the recording" }).click();
+  await expect(editor.getByLabel("Transcript text")).toHaveValue("Original words.");
+  expect(transcription).toEqual({ captureId: id, confirmed: true });
+  await editor.getByLabel("Transcript text").fill("Edited words.");
+  await editor.getByRole("button", { name: "Add transcript to draft" }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => readdirSync(join(root, "content", "posts")).filter((name) => name.includes("episode-from-a-voice-note")).length).toBe(1);
+  const post = readdirSync(join(root, "content", "posts")).find((name) => name.includes("episode-from-a-voice-note"));
+  const content = readFileSync(join(root, "content", "posts", post), "utf8");
+  expect(content).toContain(source.url);
+  expect(content).toContain("Edited words.");
+});
 
 test("a voice note is recorded only after a tap, kept privately with the draft and never published", async ({ page }) => {
   await page.addInitScript(fakeMicrophone, { denied: "", supported: true });
