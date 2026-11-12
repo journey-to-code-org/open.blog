@@ -22,6 +22,22 @@ stored groups.
 
 ## Decision
 
+- **Unanimous rule changes (amendment).** A site owner or coordinator now proposes a rule rather
+  than changing it directly. Every active writer independently agrees to that exact proposal;
+  agreement to the rule is separate from approval of the piece. The proposer does not implicitly
+  consent. Until the last agreement is recorded, the existing rule and piece approvals remain in
+  force. On unanimity, the server revalidates the rule and clears all piece approvals in the same
+  compare-and-swap write. Participants may withdraw their own agreement while the proposal is
+  pending. A proposal records a monotonically increasing ID, the base policy revision, both
+  membership and authorization revisions, and the active participant IDs. A membership or access
+  change stales it, even if a former member is later restored; replacing a proposal requires the
+  previously observed proposal ID. Existing authority and rule-meetability checks still apply.
+  Published reflections cannot change their rule. Older releases cannot read an approval set
+  containing a proposal or proposal sequence; rolling back requires handling these private files.
+  Active writers are the participants with the draft grant; coordinators and readers without
+  that grant are not yet voters, so consent from every participant remains open in epic #592.
+  The policy can still choose own-section scope and has no numeric threshold: whole-revision
+  enforcement and quorum also remain open.
 - **Approval rules.** `ApprovalRequirement` gains `namedAuthors` (participant ids) and
   `authorsWithRoles` (publication roles), next to `allAuthors` (all participants, the default) and
   `contributingAuthors`. Under every rule, each author who owns a section and each author named on
@@ -44,7 +60,7 @@ stored groups.
   approval stale and also clears them. Changing back cannot revive them, because the revision
   moved on. Existing sets load unchanged and their approvals stay valid: the old variants' binding
   input is identical.
-- **Changing a rule.** A new action, `SetApprovalPolicy`, targets the publication and is held by
+- **Changing a rule (superseded by the unanimous-change amendment above).** A new action, `SetApprovalPolicy`, targets the publication and is held by
   site owners and coordinators (a coordinator only within the limit below). `GET/PUT
   /admin/api/collaboration/approval-policy` go through `SharedPublication::authorize`, and every
   refusal to someone without the grant is the same 404. A change needs the policy
@@ -67,7 +83,7 @@ stored groups.
   a person never lowers the bar), is refused with 403 and the names of the people it would drop,
   and only a site owner may make it. The read response says whether the requester may drop
   approvers (`mayDropApprovers`), so Admin can say so before they try.
-- **Shown with the piece.** The combined preview carries the rule (policy, revision, a plain
+- **Shown with the piece (amended by the unanimous-change amendment above).** The combined preview carries the rule (policy, revision, a plain
   sentence, and anything that cannot be met), in its summary and in the document, like everything
   else that binds. The Admin "Approval rule" block, inside the sharing section, is shown only to
   people who may change the rule. It uses labelled radio and checkbox controls and a confirmation

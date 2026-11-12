@@ -6,6 +6,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import axe from "axe-core";
 import { removeTree } from "./teardown.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -121,6 +122,45 @@ test("a named release reaches its recipient through the real Admin API", async (
     await page.reload();
     await page.locator("summary", { hasText: "Your draft" }).click();
     await expect(page.getByLabel("Text from Grace")).toContainText("NAMED-RELEASE-PRIVATE");
+  } finally {
+    await graceContext.close();
+  }
+});
+
+test("authors unanimously change the approval rule through the real Admin API", async ({ browser, page }) => {
+  const graceContext = await browser.newContext();
+  const grace = await graceContext.newPage();
+  try {
+    await page.setViewportSize({ width: 400, height: 800 });
+    await grace.setViewportSize({ width: 400, height: 800 });
+    await openDraft(page, "mikey", "correct horse battery");
+    await openDraft(grace, "grace", "another correct horse");
+    await page.getByRole("radio", { name: "Everyone who wrote" }).check();
+    await page.getByLabel(/changing the rule clears every approval/).check();
+    await page.getByRole("button", { name: "Propose approval rule" }).click();
+    await expect(page.getByText("The proposed rule is waiting", { exact: false })).toBeVisible();
+    await expect(page.getByText("Every author must approve.", { exact: false }).first()).toBeVisible();
+    await page.evaluate(axe.source);
+    const audit = await page.evaluate(() => window.axe.run(document.querySelector(".oba-approval-rule"), {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+    }));
+    expect(audit.violations).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.getByLabel(/I agree to this exact approval rule/).check();
+    await page.getByRole("button", { name: "Agree to this rule" }).click();
+    await expect(page.getByRole("button", { name: "Withdraw my agreement" })).toBeVisible();
+    await page.getByRole("button", { name: "Withdraw my agreement" }).click();
+    await expect(page.getByText("Your agreement to the proposed rule was withdrawn.")).toBeVisible();
+    await page.getByLabel(/I agree to this exact approval rule/).check();
+    await page.getByRole("button", { name: "Agree to this rule" }).click();
+    await grace.reload();
+    await grace.locator("summary", { hasText: "Your draft" }).click();
+    await expect(grace.getByRole("heading", { name: "Proposed approval rule" })).toBeVisible();
+    await grace.getByLabel(/I agree to this exact approval rule/).check();
+    await grace.getByRole("button", { name: "Agree to this rule" }).click();
+    await expect(grace.getByText("Everyone agreed. The rule changed", { exact: false })).toBeVisible();
+    await expect(grace.getByRole("heading", { name: "Proposed approval rule" })).toHaveCount(0);
+    await expect(grace.getByText("Everyone who wrote a section", { exact: false }).first()).toBeVisible();
   } finally {
     await graceContext.close();
   }

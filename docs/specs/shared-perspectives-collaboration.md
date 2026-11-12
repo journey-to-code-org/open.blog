@@ -467,6 +467,13 @@ binding includes the participants' display names and contributor-profile binding
 record, but not mutable contributor-registry profile details. Approvals made before that
 attribution binding was added must be reviewed again.
 
+The approval rule may be proposed by a site owner or coordinator, but changes only after every
+active writer explicitly agrees to the same proposal. Consent can be withdrawn before the rule
+changes. Membership or access changes stale the proposal. Rule consent does not approve the
+piece; applying the rule clears piece approvals. Coordinators and readers without the draft grant
+are not yet voters. Consent from every participant, numeric quorum and mandatory whole-piece
+scope remain open in epic #592.
+
 ## Named-recipient sharing
 
 Alongside the mutual-reveal default, a coordinator may select named-recipient sharing. Each
