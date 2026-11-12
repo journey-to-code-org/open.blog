@@ -34,6 +34,42 @@ pub struct Asset {
     pub svg: String,
 }
 
+/// An editable, accessible example for a common technical diagram.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Template {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub source: &'static str,
+}
+
+pub const TEMPLATES: [Template; 5] = [
+    Template {
+        id: "system-design",
+        label: "System design",
+        source: "flowchart LR\n  accTitle: Example system design\n  accDescr: A client connects to an API that reads a database.\n  Client --> API\n  API --> Database\n",
+    },
+    Template {
+        id: "request-flow",
+        label: "Request flow",
+        source: "sequenceDiagram\n  accTitle: Example request flow\n  accDescr: A client asks a server for a response.\n  Client->>Server: Request\n  Server-->>Client: Response\n",
+    },
+    Template {
+        id: "git-path",
+        label: "Git path",
+        source: "gitGraph\n  accTitle: Example change history\n  accDescr: A feature branch is merged into the main branch.\n  commit\n  branch feature\n  commit\n  checkout main\n  merge feature\n",
+    },
+    Template {
+        id: "data-model",
+        label: "Data model",
+        source: "erDiagram\n  accTitle: Example data model\n  accDescr: An author writes many posts.\n  AUTHOR ||--o{ POST : writes\n",
+    },
+    Template {
+        id: "state-machine",
+        label: "State machine",
+        source: "stateDiagram-v2\n  accTitle: Example publication states\n  accDescr: A draft moves to a published state.\n  [*] --> Draft\n  Draft --> Published\n",
+    },
+];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
     pub line: usize,
@@ -109,6 +145,25 @@ fn validate(line: usize, column: usize, info: &str, source: String) -> Result<Di
         title,
         description,
     })
+}
+
+/// Validate a single editor block before sending it to the renderer.
+pub fn validate_source(info: &str, source: &str) -> Result<Diagram, Finding> {
+    if info.split_whitespace().next() != Some("mermaid") {
+        return Err(Finding {
+            line: 1,
+            column: 1,
+            message: "expected a mermaid fence".into(),
+        });
+    }
+    if source.len() > MAX_SOURCE_BYTES {
+        return Err(Finding {
+            line: 1,
+            column: 1,
+            message: format!("diagram source exceeds {MAX_SOURCE_BYTES} bytes"),
+        });
+    }
+    validate(1, 1, info, source.to_string())
 }
 
 fn parse_options(info: &str) -> Result<Options, String> {
@@ -279,6 +334,18 @@ mod tests {
             alternative("accTitleExtra: not a title", "accTitle"),
             Ok(None)
         );
+    }
+
+    #[test]
+    fn editor_input_uses_the_same_validation_and_size_limit() {
+        let source = "flowchart LR\nA --> B\n";
+        assert!(validate_source("mermaidx title=A description=B", source).is_err());
+        assert!(validate_source("mermaid title=A description=B", source).is_ok());
+        let too_long = "x".repeat(MAX_SOURCE_BYTES + 1);
+        assert!(validate_source("mermaid title=A description=B", &too_long)
+            .unwrap_err()
+            .message
+            .contains("exceeds"));
     }
 
     #[test]

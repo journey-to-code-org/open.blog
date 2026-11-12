@@ -263,3 +263,23 @@ fn feeds_and_portable_copies_use_real_digest_named_images_with_alternatives() {
     assert!(markdown.contains("Diagram source:"));
     assert!(!markdown.contains("```mermaid"));
 }
+
+#[test]
+fn each_technical_template_builds_with_its_accessible_example() {
+    let mut ids = std::collections::BTreeSet::new();
+    for template in openblog_core::diagram::TEMPLATES {
+        assert!(ids.insert(template.id));
+        let body = format!("```mermaid\n{}```\n", template.source);
+        let site = load(
+            Sources {
+                posts: vec![post(&body, "")],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap_or_else(|errors| panic!("{}: {errors:?}", template.id));
+        assert!(site.posts[0].html.contains("<figure class=\"ob-diagram\">"));
+        generate(&site, &ThemeSet::new())
+            .unwrap_or_else(|error| panic!("{}: {error}", template.id));
+    }
+}
