@@ -4,13 +4,14 @@
 //! Reads the post, its release fields and the files they name, and prints or writes what the
 //! author would enter in YouTube Studio. The preview sends nothing, reads no credential and writes
 //! only into a new preview folder the author names. A file is read only at a clean path inside the
-//! project with no symlink on the way, and only its size and first bytes are read, except that an
-//! approval or an upload reads the whole master file to fingerprint and send it.
+//! project with no symlink on the way. Caption files are read in full to bind their bytes to the
+//! preview; approval and upload also read the master file in full.
 
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use blake2::{Blake2b512, Digest};
 use openblog_core::distribution::Status;
 use openblog_core::video_release::{
     self, AssetFacts, AssetRef, PreviewSource, PublicFolders, VideoPreview, VideoRelease,
@@ -124,7 +125,7 @@ pub(crate) fn prepare(root: &Path, slug: &str) -> Result<Prepared, String> {
     let article_public = public_address(&canonical_url) && live(root, slug)?;
     let paths = &loaded.config.paths;
     let probe = |asset: &AssetRef<'_>| probe(root, &paths.static_dir, asset);
-    let preview = video_release::youtube_preview(
+    let mut preview = video_release::youtube_preview(
         &release,
         PreviewSource {
             slug,
@@ -138,6 +139,9 @@ pub(crate) fn prepare(root: &Path, slug: &str) -> Result<Prepared, String> {
         },
         &probe,
     );
+    if preview.status != Status::Blocked {
+        bind_caption_files(root, &paths.static_dir, &mut preview)?;
+    }
     let thumbnail = release
         .thumbnail
         .as_deref()
@@ -159,6 +163,63 @@ pub(crate) fn prepare(root: &Path, slug: &str) -> Result<Prepared, String> {
         video,
         thumbnail,
     })
+}
+
+/// Bind the preview to the actual caption bytes, not just their paths.
+fn bind_caption_files(
+    root: &Path,
+    static_dir: &str,
+    preview: &mut VideoPreview,
+) -> Result<(), String> {
+    if preview.captions.is_empty() {
+        return Ok(());
+    }
+    let mut combined = Blake2b512::new();
+    combined.update(b"openblog-video-caption-preview-v1\0");
+    combined.update(preview.digest.as_bytes());
+    for caption in &preview.captions {
+        let path = video_release::project_path(&caption.path)
+            .and_then(|path| resolve(root, static_dir, &AssetRef::Project(path)))
+            .ok_or_else(|| {
+                format!(
+                    "[caption-unreadable] Cannot read caption file `{}`; preview again. Nothing was sent.",
+                    caption.path
+                )
+            })?;
+        let unreadable = || {
+            format!(
+                "[caption-unreadable] Cannot read caption file `{}`; preview again. Nothing was sent.",
+                caption.path
+            )
+        };
+        let mut file = fs::File::open(path).map_err(|_| unreadable())?;
+        let mut hash = Blake2b512::new();
+        let mut bytes = 0u64;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let count = file.read(&mut buffer).map_err(|_| unreadable())?;
+            if count == 0 {
+                break;
+            }
+            bytes += count as u64;
+            if bytes > video_release::YOUTUBE_CAPTION_MAX_BYTES {
+                return Err(format!(
+                    "[caption-too-large] Caption file `{}` exceeds YouTube's limit. Nothing was sent.",
+                    caption.path
+                ));
+            }
+            hash.update(&buffer[..count]);
+        }
+        combined.update(bytes.to_be_bytes());
+        combined.update(hash.finalize());
+    }
+    preview.digest = combined
+        .finalize()
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    Ok(())
 }
 
 /// Whether the canonical address is one a viewer can reach: public and `https`, and not the

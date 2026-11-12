@@ -135,8 +135,9 @@ Before anything can go to YouTube, the preview also checks the files and answers
   50 MB. A thumbnail that is not 16:9, an `https` thumbnail open.blog cannot check, or no thumbnail
   at all is noted rather than blocked.
 
-open.blog reads only each file's size and first bytes, never follows a symbolic link, and never
-reads outside your project.
+open.blog reads each file's size and first bytes to validate it. For a release without blocking
+problems, it also reads each caption file in full to bind its contents to the preview. It never
+follows a symbolic link or reads outside your project.
 
 ## Upload an approved release
 
@@ -170,8 +171,10 @@ openblog video zhalendor-episode-1 --upload
 ```
 
 - `--approve <digest>` approves exactly the release you previewed and the video file as it is now.
-  It sends nothing. If you later change the release, the post's address or the file, the upload is
-  refused until you preview and approve again.
+  The preview digest also covers the full contents of each caption file. It sends nothing. If you
+  later change the release, a caption file, the post's address or the video file, the upload is
+  refused until you preview and approve again. Older approvals for releases with captions must be
+  reviewed and approved again.
 - `--publish-at` is optional. With it, YouTube makes the video public at that time, which must name
   its zone, be in the future, and be no earlier than the article's date. Without it, the video
   stays private until you publish it in YouTube Studio. The upload itself is always private.

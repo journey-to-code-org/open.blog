@@ -198,6 +198,64 @@ fn code(error: &str) -> &str {
 }
 
 #[test]
+fn caption_bytes_are_bound_to_the_preview_and_a_change_refuses_the_approved_upload() {
+    let (root, original) = ready("caption-preview", 64);
+    let path = root.join("media/episode.en.vtt");
+    let original_bytes = fs::read(&path).unwrap();
+    assert_eq!(
+        video_release::prepare(&root, "episode")
+            .unwrap()
+            .preview
+            .digest,
+        original.preview.digest
+    );
+    let mut changed = original_bytes.clone();
+    *changed.last_mut().unwrap() = b'!';
+    fs::write(&path, &changed).unwrap();
+    let next = video_release::prepare(&root, "episode").unwrap();
+    assert_ne!(next.preview.digest, original.preview.digest);
+    let script = Script::new(vec![]);
+    let error = upload_with(&root, &next, &env(&script, &real_now)).unwrap_err();
+    assert_eq!(code(&error), "preview-changed");
+    assert!(script.sent.borrow().is_empty());
+    fs::write(&path, original_bytes).unwrap();
+    assert_eq!(
+        video_release::prepare(&root, "episode")
+            .unwrap()
+            .preview
+            .digest,
+        original.preview.digest
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn caption_changes_beyond_the_validation_prefix_also_change_the_preview() {
+    let root = project("caption-tail", 64);
+    let path = root.join("media/episode.en.vtt");
+    let mut caption = b"WEBVTT\n\n00:00.000 --> 00:02.000\n".to_vec();
+    caption.resize(openblog_core::video_release::HEAD_BYTES + 32, b'a');
+    fs::write(&path, &caption).unwrap();
+    let original = video_release::prepare(&root, "episode").unwrap();
+    *caption.last_mut().unwrap() = b'b';
+    fs::write(&path, &caption).unwrap();
+    let changed = video_release::prepare(&root, "episode").unwrap();
+    assert_ne!(original.preview.digest, changed.preview.digest);
+    fs::remove_file(&path).unwrap();
+    let missing = video_release::prepare(&root, "episode").unwrap();
+    assert_eq!(
+        missing.preview.status,
+        openblog_core::distribution::Status::Blocked
+    );
+    assert!(missing
+        .preview
+        .problems
+        .iter()
+        .any(|problem| problem.code == "caption-not-found"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn an_approved_release_uploads_private_with_the_previewed_metadata_then_sets_the_thumbnail() {
     let (root, prepared) = ready("happy", 64);
     let script = Script::new(vec![token(), session(), created(), reply(200, "{}")]);
