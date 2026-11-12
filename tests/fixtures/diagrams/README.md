@@ -118,9 +118,37 @@ With the workspace's size-oriented release profile, the standalone harness
 compiled to 9,925,797 bytes with merman, 10,321,284 with ferrigura, and
 2,128,572 with mermaid-rs-renderer. These are uncompressed binaries including
 the harness, not measurements of the final Admin payload. The current checked-in
-Admin WASM module is 437,270 bytes; the actual incremental browser size and
-lazy-loading design still need measurement. A `wasm-bindgen`-generated merman
-binding alone measured 9,925,169 bytes, before compression.
+Admin WASM module is 437,270 bytes. A `wasm-bindgen`-generated merman binding
+alone measured 9,925,169 bytes, before compression.
+
+The experimental Admin editor loads a separate module in a Worker only when
+needed. To reproduce the currently measured non-LTO build on Windows, with
+Rust 1.95 or newer, the `wasm32-unknown-unknown` target and `wasm-bindgen` CLI
+installed, run from the repository root:
+
+```powershell
+$env:CARGO_PROFILE_RELEASE_LTO = "false"
+$env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "16"
+cargo build --locked -p openblog-wasm --features diagram-rendering --target wasm32-unknown-unknown --release -j 2
+wasm-bindgen --target web --out-dir web\admin\diagram-wasm target\wasm32-unknown-unknown\release\openblog_wasm.wasm
+cargo about generate --manifest-path crates\openblog-wasm\Cargo.toml --features diagram-rendering --target wasm32-unknown-unknown --config scripts\diagram-spike\about.toml --locked --fail --output-file web\admin\diagram-wasm\NOTICES.txt scripts\diagram-spike\notices.hbs
+node -e "const fs=require('fs');const p='web/admin/diagram-wasm/NOTICES.txt';fs.writeFileSync(p,fs.readFileSync(p,'utf8').replace(/[ \t]+$/gm,''))"
+node --test tests\web\diagram-preview.test.mjs
+```
+
+The checked-in binding was generated with `wasm-bindgen-cli` 0.2.128 and the
+notice file with `cargo-about` 0.9.3 (`--features cli`); retain network access
+for the notice generation so missing license texts can be obtained from the
+upstream packages. Review notices and source availability whenever the locked
+dependency tree changes. The Admin dialog links to the notice file, including
+versioned crate source downloads for its MPL-covered components.
+
+The generated module measured 10,912,151 bytes raw and 3,565,413 bytes with
+gzip level 9. The test enforces budgets of 12 MiB raw and 4 MiB gzip. The
+built-in Admin server does not currently compress this response, so the raw
+size is the relevant transfer budget there. These are experimental budgets,
+not an approval to distribute the binary; the dependency license and source
+distribution review below remains necessary.
 
 The published merman and ferrigura crates are MIT/Apache-2.0 and MIT
 respectively, but their default transitive layout engines include EPL-2.0.

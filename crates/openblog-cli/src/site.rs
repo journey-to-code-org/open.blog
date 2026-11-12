@@ -388,6 +388,14 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/episode-editor.js"),
     ),
     (
+        "diagram-preview.js",
+        include_str!("../../../web/admin/diagram-preview.js"),
+    ),
+    (
+        "diagram-worker.js",
+        include_str!("../../../web/admin/diagram-worker.js"),
+    ),
+    (
         "capture-queue.js",
         include_str!("../../../web/admin/capture-queue.js"),
     ),
@@ -1047,6 +1055,32 @@ pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>
         .iter()
         .find(|(p, _)| *p == rel)
         .map(|(_, c)| c.as_bytes().to_vec())
+}
+
+#[cfg(feature = "diagram-rendering")]
+pub fn diagram_wasm_file(
+    root: &Path,
+    config: &SiteConfig,
+    name: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    let embedded: &[u8] = match name {
+        "openblog_wasm.js" => include_bytes!("../../../web/admin/diagram-wasm/openblog_wasm.js"),
+        "openblog_wasm_bg.wasm" => {
+            include_bytes!("../../../web/admin/diagram-wasm/openblog_wasm_bg.wasm")
+        }
+        "NOTICES.txt" => include_bytes!("../../../web/admin/diagram-wasm/NOTICES.txt"),
+        _ => return Ok(None),
+    };
+    let path = root
+        .join(&config.paths.web)
+        .join("admin")
+        .join("diagram-wasm")
+        .join(name);
+    match fs::read(&path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Some(embedded.to_vec())),
+        Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+    }
 }
 
 /// The front-end assets the site's own `paths.web` folder adds to (or

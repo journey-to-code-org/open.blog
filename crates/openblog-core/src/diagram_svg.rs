@@ -1,4 +1,4 @@
-//! Opt-in static diagram rendering. Not yet connected to Markdown or publication.
+//! Opt-in static diagram rendering for Markdown publication and editor previews.
 
 use crate::{diagram::Diagram, escape};
 
@@ -9,9 +9,37 @@ const MAX_SOURCE_BYTES: usize = 16 * 1024;
 const MAX_ALT_BYTES: usize = 1024;
 const MAX_SVG_BYTES: usize = 1_000_000;
 
+/// A renderer diagnostic, with a source position when the parser provides one.
+#[derive(Debug)]
+pub struct RenderFailure {
+    pub message: String,
+    pub position: Option<(usize, usize)>,
+}
+
+impl From<String> for RenderFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            position: None,
+        }
+    }
+}
+
+impl From<&str> for RenderFailure {
+    fn from(message: &str) -> Self {
+        message.to_string().into()
+    }
+}
+
 /// Render on native hosts with a cooperative deadline.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn render(diagram: &Diagram, ordinal: usize) -> Result<String, String> {
+    render_diagnostic(diagram, ordinal).map_err(|error| error.message)
+}
+
+/// Render on native hosts, retaining structured parser positions when available.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn render_diagnostic(diagram: &Diagram, ordinal: usize) -> Result<String, RenderFailure> {
     let control = merman::OperationControl::new().with_deadline(std::time::Duration::from_secs(2));
     render_with_control(diagram, ordinal, control)
 }
@@ -19,6 +47,15 @@ pub fn render(diagram: &Diagram, ordinal: usize) -> Result<String, String> {
 /// Render inside a host-controlled Web Worker. The host must terminate it on timeout.
 #[cfg(target_arch = "wasm32")]
 pub fn render_in_worker(diagram: &Diagram, ordinal: usize) -> Result<String, String> {
+    render_diagnostic_in_worker(diagram, ordinal).map_err(|error| error.message)
+}
+
+/// Render inside a host-controlled Worker, retaining structured parser positions.
+#[cfg(target_arch = "wasm32")]
+pub fn render_diagnostic_in_worker(
+    diagram: &Diagram,
+    ordinal: usize,
+) -> Result<String, RenderFailure> {
     render_with_control(diagram, ordinal, merman::OperationControl::new())
 }
 
@@ -26,9 +63,9 @@ fn render_with_control(
     diagram: &Diagram,
     ordinal: usize,
     control: merman::OperationControl,
-) -> Result<String, String> {
+) -> Result<String, RenderFailure> {
     if diagram.source.len() > MAX_SOURCE_BYTES {
-        return Err(format!("diagram source exceeds {MAX_SOURCE_BYTES} bytes"));
+        return Err(format!("diagram source exceeds {MAX_SOURCE_BYTES} bytes").into());
     }
     for (name, value) in [
         ("title", diagram.title.as_str()),
@@ -41,9 +78,9 @@ fn render_with_control(
                     && (character < '\u{20}' || character == '\u{fffe}' || character == '\u{ffff}')
             })
         {
-            return Err(format!(
-                "diagram {name} is empty, too long or contains invalid XML"
-            ));
+            return Err(
+                format!("diagram {name} is empty, too long or contains invalid XML").into(),
+            );
         }
     }
     if diagram.source.trim_start().starts_with("---")
@@ -82,11 +119,30 @@ fn render_with_control(
             control,
             request,
         ))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let position = match &error {
+                merman::RenderError::Parse(diagnostic) => diagnostic
+                    .terminal_diagnostic_details()
+                    .span
+                    .and_then(|span| source_position(&diagram.source, span.start)),
+                _ => None,
+            };
+            RenderFailure {
+                message: error.to_string(),
+                position,
+            }
+        })?;
     let merman::RenderOutput::Svg(Some(svg)) = output else {
         return Err("diagram renderer produced no SVG".into());
     };
-    accessible_svg(svg.svg(), diagram, &prefix)
+    accessible_svg(svg.svg(), diagram, &prefix).map_err(Into::into)
+}
+
+fn source_position(source: &str, offset: usize) -> Option<(usize, usize)> {
+    let prefix = source.get(..offset)?;
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix.rsplit('\n').next()?.chars().count() + 1;
+    Some((line, column))
 }
 
 /// The renderer's static-inline pipeline validates the XML, SVG/CSS allowlists and local
@@ -184,6 +240,24 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parser_positions_count_unicode_characters_and_reject_invalid_offsets() {
+        let source = "first\néx\nlast";
+        assert_eq!(source_position(source, 8), Some((2, 2)));
+        assert_eq!(source_position(source, 7), None);
+        assert_eq!(source_position(source, source.len() + 1), None);
+    }
+
+    #[test]
+    fn parser_error_preserves_structured_source_position() {
+        let input = diagram("flowchart LR\nA[Unclosed label --> B\n");
+        let error = render_diagnostic(&input, 1).unwrap_err();
+        assert!(
+            error.position.is_some_and(|(line, _)| line >= 2),
+            "{error:?}"
+        );
+    }
 
     fn diagram(source: &str) -> Diagram {
         crate::diagram::discover(&format!(

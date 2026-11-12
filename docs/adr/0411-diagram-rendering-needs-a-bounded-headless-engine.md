@@ -34,6 +34,7 @@ therefore break the documented compiler support. The renderer choice remains
 provisional until a compatible implementation or an explicitly approved
 compiler-support change is established. Ferrigura 0.7.0 also declares 1.95;
 the comparison's remaining candidate did not meet the malformed-input and
+accessibility-text checks.
 
 The current lockfile already includes dependencies declaring newer compilers,
 including the CLI's image 0.25.10 at Rust 1.88. That discrepancy does not
