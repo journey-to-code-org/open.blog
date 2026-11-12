@@ -16,6 +16,96 @@
     "schedule"
   ],
   "manifests": {
+    "apple-podcasts": {
+      "canonical": "manual",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "manual",
+        "link": "manual",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "podcast",
+      "label": "Apple Podcasts",
+      "login": { "method": "none", "scopes": [] },
+      "manifestVersion": 1,
+      "policyVersion": "2026-11-12",
+      "provider": "apple-podcasts",
+      "publishing": "manual",
+      "sources": [
+        "https://podcasters.apple.com/support/897-submit-a-show",
+        "https://podcasters.apple.com/support/823-podcast-requirements"
+      ]
+    },
+    "spotify": {
+      "canonical": "manual",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "manual",
+        "link": "manual",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "podcast",
+      "label": "Spotify",
+      "login": { "method": "none", "scopes": [] },
+      "manifestVersion": 1,
+      "policyVersion": "2026-11-12",
+      "provider": "spotify",
+      "publishing": "manual",
+      "sources": [
+        "https://support.spotify.com/us/creators/article/adding-a-new-show-to-your-spotify-for-creators-account/",
+        "https://support.spotify.com/us/creators/article/claiming-your-podcast-on-spotify-for-creators/"
+      ]
+    },
+    "podcast-index": {
+      "canonical": "manual",
+      "capabilities": {
+        "article": "unsupported",
+        "draft": "unsupported",
+        "image": "manual",
+        "link": "manual",
+        "schedule": "unsupported",
+        "text": "unsupported",
+        "video": "unsupported"
+      },
+      "constraints": {
+        "maxRequestBodyBytes": null,
+        "maxTagNameChars": null,
+        "maxTags": null,
+        "maxTextChars": null,
+        "scheduleMaxHorizonSeconds": null,
+        "scheduleMinLeadSeconds": null
+      },
+      "family": "podcast",
+      "label": "Podcast Index",
+      "login": { "method": "none", "scopes": [] },
+      "manifestVersion": 1,
+      "policyVersion": "2026-11-12",
+      "provider": "podcast-index",
+      "publishing": "manual",
+      "sources": ["https://podcastindex.org/add"]
+    },
     "bluesky": {
       "canonical": "linked",
       "capabilities": {
@@ -600,6 +690,17 @@
     }
   },
   "refused": [
+    {
+      "name": "a podcast directory cannot publish automatically",
+      "base": "apple-podcasts",
+      "changes": [
+        {
+          "set": ["publishing"],
+          "value": "explicit-approval"
+        }
+      ],
+      "code": "manifest-inconsistent"
+    },
     {
       "name": "an unknown capability",
       "base": "linkedin",

@@ -210,10 +210,33 @@ fn the_builtin_policy_version_is_a_valid_one() {
             ProviderId::GoogleBusinessProfile | ProviderId::Nextdoor => {
                 JOB_DESTINATIONS_POLICY_VERSION
             }
+            ProviderId::ApplePodcasts | ProviderId::Spotify | ProviderId::PodcastIndex => {
+                PODCAST_POLICY_VERSION
+            }
             _ => BUILTIN_POLICY_VERSION,
         };
         assert_eq!(manifest.policy_version, expected);
         assert!(manifest.sources.iter().all(|s| s.starts_with("https://")));
+    }
+}
+
+#[test]
+fn podcast_directories_are_manual_only() {
+    for provider in [
+        ProviderId::ApplePodcasts,
+        ProviderId::Spotify,
+        ProviderId::PodcastIndex,
+    ] {
+        let manifest = builtin_manifest(provider);
+        assert_eq!(manifest.family, Family::Podcast);
+        assert_eq!(manifest.publishing, Publishing::Manual);
+        assert_eq!(manifest.support(Capability::Link), Support::Manual);
+        let mut invalid = manifest.to_json_value();
+        invalid["publishing"] = serde_json::json!("explicit-approval");
+        assert_eq!(
+            ProviderManifest::from_value(invalid),
+            Err(ManifestError::Inconsistent)
+        );
     }
 }
 
