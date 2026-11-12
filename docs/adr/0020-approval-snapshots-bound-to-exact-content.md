@@ -22,7 +22,11 @@ set, the participants the maintainer added.
   digests. The binding covers the consent wording version, the approval policy and its revision,
   the participant, the sorted author set, the public metadata (title, guiding question, original
   source title, link and type; private source fields are excluded), the order and ownership of
-  sections, and the prose revisions the scope covers.
+  sections, and the prose revisions the scope covers. It also covers each active participant's
+  display name, profile URL and contributor-profile binding, which can affect public attribution.
+  This attribution frame applies to legacy records too: approvals stored before it was added
+  become stale and must be reviewed again. It does not yet bind mutable contributor-registry
+  profile details or record an individual credit choice.
 - Validity is recomputed, never flagged. An approval counts only while the binding recomputed from
   the content as it is now equals the stored one, so a change no one thought to hook still fails
   closed. `ApprovalSet::reconcile` also drops stale approvals durably; routes call it in the same

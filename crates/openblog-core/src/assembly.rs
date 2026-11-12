@@ -126,7 +126,8 @@ pub fn post_path(record: &SharedPublication) -> String {
 /// the one place the subject is built from the record, arrangement, drafts, synthesis and media
 /// moments, so the approval binding a preview hands out, the one the gate checks and the one a
 /// route stores cannot drift apart. The metadata it binds is the public record fields, then the
-/// reflection `structure`'s prose-free binding frame when there is one (layout, turn order, round
+/// public participant attribution, then the reflection `structure`'s prose-free
+/// binding frame when there is one (layout, turn order, round
 /// prompts and labels; ADR 0030), then the synthesis's prose-free binding frame (items, order,
 /// attribution), then the `moments`' prose-free binding frame (one digest per moment proposed for
 /// the piece, covering the source it shows; ADR 0063). A change to any of them makes standing
@@ -169,6 +170,29 @@ pub fn with_subject<R>(
         })
         .collect();
     let mut metadata = public_metadata(record);
+    metadata.push("participant-attribution-v1".to_string());
+    for author in &authors {
+        let participant = record
+            .collaboration
+            .participants
+            .iter()
+            .find(|participant| participant.id == *author)
+            .expect("authors come from participants");
+        metadata.push(participant.id.clone());
+        metadata.push(participant.display_name.clone());
+        metadata.push(participant.profile_url.clone().unwrap_or_default());
+        if let Some(binding) = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.participant_id == *author)
+        {
+            metadata.push("profile".to_string());
+            metadata.push(binding.contributor_id.clone());
+        } else {
+            metadata.push("no-profile".to_string());
+        }
+    }
     if let Some(structure) = structure {
         metadata.push(format!("reflection-frame:{}", structure.binding_frame()));
     }

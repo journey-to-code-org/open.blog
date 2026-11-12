@@ -11,6 +11,8 @@ All notable changes to open.blog are recorded here. Releases follow
   section invalidates every author's approval. Existing approval policies are unchanged.
 - Authors can approve a complete combined preview in Admin, explicitly confirming the current
   public contributor-profile credit. Additional credit choices are not yet available.
+- Shared-piece approvals now cover participant attribution in the reflection record. Existing
+  approvals must be reviewed again, including for older reflections.
 - The sharing panel names the revision an author offered, and warns when it is older than their
   latest saved draft.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard

@@ -462,7 +462,10 @@ approval of that exact preview. The confirmation states that the current publica
 credits authors using their contributor profiles. An author may withdraw their approval, and
 an out-of-date preview must be reloaded before it can be approved. The current workflow does
 not yet offer display-name-only or uncredited choices, and the approval API does not record an
-independent credit preference; the remaining consent work is tracked in epic #592.
+independent credit preference; the remaining consent work is tracked in epic #592. The approval
+binding includes the participants' display names and contributor-profile bindings from the shared
+record, but not mutable contributor-registry profile details. Approvals made before that
+attribution binding was added must be reviewed again.
 
 ## Public source attribution
 

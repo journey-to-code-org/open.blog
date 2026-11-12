@@ -3,8 +3,8 @@
 //! policy versions. Every rule needs each writer's own approval; none fabricates one.
 
 use openblog_core::approval::{
-    ApprovalPolicy, ApprovalRequirement, ApprovalScope, ApprovalSet, PolicyChange, PolicyError,
-    Readiness, RuleAuthority, RuleGaps,
+    public_metadata, ApprovalPolicy, ApprovalRequirement, ApprovalScope, ApprovalSet,
+    ApprovalSubject, PolicyChange, PolicyError, Readiness, RuleAuthority, RuleGaps,
 };
 use openblog_core::assembly::{assemble, with_subject, AssemblyError};
 use openblog_core::collaboration::{
@@ -149,6 +149,85 @@ fn change(
             )
         },
     )
+}
+
+#[test]
+fn new_record_approvals_bind_participant_attribution() {
+    let mut record = record();
+    let set = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    for who in active {
+        approve(&record, &set, &mut approvals, &active, who);
+    }
+    assert_eq!(gate(&record, &set, &approvals, &active), Ok(()));
+
+    record.collaboration.participants[1].display_name = "Different name".into();
+    assert!(matches!(
+        gate(&record, &set, &approvals, &active),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    record.collaboration.participants[1].display_name = "Bo".into();
+    record.authorization.bindings[1].contributor_id = "different-profile".into();
+    assert!(matches!(
+        gate(&record, &set, &approvals, &active),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
+fn legacy_record_approvals_also_bind_participant_attribution() {
+    let mut record = record();
+    record.initial_approval_scope = None;
+    let set = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let mut approvals = ApprovalSet::new();
+    for who in active {
+        approve(&record, &set, &mut approvals, &active, who);
+    }
+    record.collaboration.participants[1].display_name = "Different name".into();
+    record.authorization.bindings[1].contributor_id = "different-profile".into();
+    assert!(matches!(
+        gate(&record, &set, &approvals, &active),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
+fn approvals_from_before_attribution_binding_need_review_again() {
+    let mut record = record();
+    record.initial_approval_scope = None;
+    let set = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let mut approvals = ApprovalSet::new();
+    let old_metadata = public_metadata(&record);
+    let old_metadata: Vec<_> = old_metadata.iter().map(String::as_str).collect();
+    with_subject(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &active,
+        |subject| {
+            let old = ApprovalSubject {
+                metadata: &old_metadata,
+                ..*subject
+            };
+            for who in active {
+                let seen = approvals.binding_for(&old, who).unwrap();
+                approvals.approve(who, who, &old, &seen, true, T).unwrap();
+            }
+        },
+    );
+    assert!(matches!(
+        gate(&record, &set, &approvals, &active),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    for who in active {
+        approve(&record, &set, &mut approvals, &active, who);
+    }
+    assert_eq!(gate(&record, &set, &approvals, &active), Ok(()));
 }
 
 #[test]
