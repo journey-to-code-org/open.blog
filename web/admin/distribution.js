@@ -149,7 +149,7 @@ export function mergeReport(report, social, visits) {
 
 function visitsText(visits) {
   if (visits?.kind === "estimated") return `About ${visits.value} ${visits.value === 1 ? "visit" : "visits"} in ${visits.days} days (estimated)`;
-  return "Unavailable: the built-in counter is off";
+  return "Unavailable: the built-in counter is off and no counter elsewhere was pulled";
 }
 
 let uid = 0;
@@ -216,7 +216,7 @@ export function createDistributionReport({ api, socialEnabled = false }) {
       if (family.state === "unreadable") notes.push(`The ${family.label} record could not be read, so it is not here.`);
     }
     if (socialState === "unreadable") notes.push("Social announcements could not be read just now, so they are not here.");
-    if (report.visitsAvailable === false) notes.push("Visits are unavailable because the built-in counter is off (analytics.builtin).");
+    if (report.visitsAvailable === false) notes.push("Visits are unavailable because the built-in counter is off (analytics.builtin) and no counter elsewhere was pulled (openblog analytics pull).");
     body.replaceChildren(
       el(
         "section",

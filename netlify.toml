@@ -91,6 +91,11 @@
   force = true
 
 [[redirects]]
+  from = "/api/export"
+  to = "/.netlify/functions/engagement/export"
+  status = 200
+
+[[redirects]]
   from = "/api/hit"
   to = "/.netlify/functions/engagement/hit"
   status = 200

@@ -336,7 +336,8 @@ fn kind(status: Status, evidence: Evidence) -> &'static str {
 }
 
 /// The report as JSON: the families read, totals, and one entry per post with its rows. `visits`
-/// is `None` when the built-in counter is off, so every visit figure says "unavailable".
+/// is `None` when the built-in counter is off and no counter elsewhere was pulled, so every visit
+/// figure says "unavailable".
 pub(crate) fn report(
     root: &Path,
     config: &SiteConfig,
@@ -443,15 +444,24 @@ pub(crate) fn site_posts(site: &openblog_core::Site) -> Vec<(String, String, Str
         .collect()
 }
 
+/// Visits by destination and page over `days` days: from the built-in counter and from every
+/// counter elsewhere that was pulled into the store (ADR 0407). `None` when there is neither.
+pub(crate) fn visits_from(
+    config: &SiteConfig,
+    store: &crate::analytics::Store,
+    days: u32,
+) -> Option<BTreeMap<String, BTreeMap<String, u64>>> {
+    (config.analytics.builtin || store.has_sources())
+        .then(|| store.arrivals(crate::clock::now(), days))
+}
+
 /// `openblog outcomes [--json] [--days N]`.
 pub(crate) fn run(root: &Path, json_out: bool, days: u32) -> Result<(), String> {
     let (site, _) = crate::site::load_site(root, false, None)?;
     let config = &site.config;
     let store_path = root.join(".openblog/analytics.json");
-    let visits = config.analytics.builtin.then(|| {
-        crate::analytics::Store::load(&store_path, config.analytics.retention_days)
-            .arrivals(crate::clock::now(), days)
-    });
+    let store = crate::analytics::Store::load(&store_path, config.analytics.retention_days);
+    let visits = visits_from(config, &store, days);
     let report = report(root, config, &site_posts(&site), visits.as_ref(), days);
     if json_out {
         println!(
@@ -486,13 +496,11 @@ pub(crate) fn admin_get(
         Ok(loaded) => loaded,
         Err(error) => return crate::http::Response::error(500, &error),
     };
-    let visits = site.config.analytics.builtin.then(|| {
-        state
-            .analytics
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .arrivals(crate::clock::now(), days)
-    });
+    let visits = visits_from(
+        &site.config,
+        &state.analytics.lock().unwrap_or_else(|e| e.into_inner()),
+        days,
+    );
     crate::http::Response::json(
         200,
         &report(
@@ -566,7 +574,7 @@ pub(crate) fn plain(report: &Json) -> String {
     }
     if report["visitsAvailable"] == false {
         out.push_str(
-            "\nVisits are unavailable: the built-in counter is off (analytics.builtin).\n",
+            "\nVisits are unavailable: the built-in counter is off (analytics.builtin) and no counter elsewhere was pulled (openblog analytics pull).\n",
         );
     }
     out
@@ -783,5 +791,25 @@ mod tests {
             row(&report, "/a/", "google-business-profile")["permalink"],
             "https://local.google.com/p"
         );
+    }
+
+    #[test]
+    fn visits_from_a_pulled_counter_are_shown_even_with_the_built_in_counter_off() {
+        let off = SiteConfig::from_json(r#"{"analytics":{"builtin":false}}"#).unwrap();
+        let mut store = crate::analytics::Store::load(Path::new("/nonexistent/a.json"), 400);
+        assert!(visits_from(&off, &store, 30).is_none());
+        let today = crate::clock::now().ymd();
+        let data: crate::analytics::SourceData = serde_json::from_value(json!({
+            "version": 1,
+            "days": { today: { "views": { "/a/": 2 }, "arrivals": { "mastodon": { "/a/": 2 } } } },
+            "totals": { "/a/": 2 }
+        }))
+        .unwrap();
+        store.import_source("hosted", data);
+        let visits = visits_from(&off, &store, 30).unwrap();
+        assert_eq!(visits["mastodon"]["/a/"], 2);
+        let report = report(&dir("pulled"), &off, &posts(), Some(&visits), 30);
+        assert_eq!(report["visitsAvailable"], true);
+        assert_eq!(report["arrivals"]["mastodon"]["/a/"], 2);
     }
 }
