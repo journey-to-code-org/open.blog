@@ -1,0 +1,763 @@
+// The Admin "Social" screen (epic #353, story #356, ADR 0310): the time in the author's own zone as
+// a UTC instant (with the days the clocks change), the caption count, the words for statuses and
+// errors, and the panel's behavior against a fake Admin: labelled fields, problems beside them,
+// idempotent retries, versioned edits, a confirmed cancel, and a refreshed queue after a lost race.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import { holdsLink } from "../../netlify/lib/social-mastodon.mjs";
+
+import {
+  CAPTION_LIMIT,
+  CAPTION_LIMITS,
+  blueskyCardTitle,
+  blueskyNotes,
+  mastodonNotes,
+  captionHoldsLink,
+  DELIVERY_BADGES,
+  STATUS_BADGES,
+  captionCount,
+  createAnnouncementsPanel,
+  deliveryOf,
+  destinationLabel,
+  errorText,
+  eventText,
+  fieldForCode,
+  formatWhen,
+  healthLines,
+  instantToLocalInput,
+  localToInstant,
+  lockedReason,
+  newKey,
+  nextStepText,
+  problemWords,
+  REFRESH_CODES,
+} from "../../web/admin/announcements.js";
+import { ApiError, withDom } from "./dom-shim.mjs";
+// Importing the Voice harness makes the shared DOM refuse what a real browser would turn into text
+// (null, false and arrays passed to append/replaceChildren), which a forgiving shim hid once before.
+import "./voice-harness.mjs";
+
+const NY = "America/New_York";
+
+test("a time in the author's zone is the UTC instant it names", () => {
+  assert.deepEqual(localToInstant("2026-11-02T09:30", NY), { ok: true, iso: "2026-11-02T14:30:00Z", ambiguous: false }, "standard time");
+  assert.deepEqual(localToInstant("2026-07-01T09:30", NY), { ok: true, iso: "2026-07-01T13:30:00Z", ambiguous: false }, "daylight time");
+  assert.equal(localToInstant("2026-11-02T09:30", "Asia/Kolkata").iso, "2026-11-02T04:00:00Z");
+  assert.equal(localToInstant("2026-11-02T09:30", "UTC").iso, "2026-11-02T09:30:00Z");
+  assert.equal(localToInstant("2026-10-26T01:30", "Europe/London").iso, "2026-10-26T01:30:00Z", "after the clocks went back in London");
+});
+
+test("the days the clocks change: a skipped time does not exist, a repeated time uses the earlier", () => {
+  assert.deepEqual(localToInstant("2026-03-08T02:30", NY), { ok: false, code: "nonexistent" });
+  assert.equal(localToInstant("2026-03-08T03:30", NY).iso, "2026-03-08T07:30:00Z");
+  const repeated = localToInstant("2026-11-01T01:30", NY);
+  assert.deepEqual(repeated, { ok: true, iso: "2026-11-01T05:30:00Z", ambiguous: true });
+  assert.equal(localToInstant("2026-11-01T02:30", NY).ambiguous, false);
+});
+
+test("input that is not a time is refused with a reason", () => {
+  assert.deepEqual(localToInstant("", NY), { ok: false, code: "missing" });
+  for (const bad of ["garbage", "2026-02-30T10:00", "2026-13-01T10:00", "2026-11-02T25:00", "2026-11-02", "2026-11-02T09:30:00"]) {
+    assert.deepEqual(localToInstant(bad, NY), { ok: false, code: "invalid" }, bad);
+  }
+  assert.equal(localToInstant("2026-11-02T09:30", "Not/AZone").code, "zone");
+});
+
+test("an instant round-trips into a datetime-local value and reads in plain words", () => {
+  assert.equal(instantToLocalInput("2026-11-02T14:30:00Z", NY), "2026-11-02T09:30");
+  assert.equal(localToInstant(instantToLocalInput("2026-07-01T13:30:00Z", NY), NY).iso, "2026-07-01T13:30:00Z");
+  assert.equal(instantToLocalInput("nope", NY), "");
+  const words = formatWhen("2026-11-02T14:30:00Z", NY);
+  assert.match(words, /Mon/);
+  assert.match(words, /09:30/);
+  assert.equal(formatWhen("not a time", NY), "not a time");
+});
+
+test("the caption count follows the server: code points of the trimmed text", () => {
+  assert.deepEqual(captionCount("  hello  "), { count: 5, limit: CAPTION_LIMIT, over: false, text: "5 of 3000 characters" });
+  assert.equal(captionCount("😀😀").count, 2);
+  assert.equal(captionCount("a\r\nb").count, 3);
+  const over = captionCount("a".repeat(CAPTION_LIMIT + 2));
+  assert.equal(over.over, true);
+  assert.match(over.text, /^2 characters too many/);
+});
+
+test("an idempotency key has the shape the server accepts, and is fresh each time", () => {
+  const a = newKey();
+  assert.match(a, /^[A-Za-z0-9_-]{16,128}$/);
+  assert.notEqual(a, newKey());
+  assert.match(newKey({ getRandomValues: (bytes) => bytes.fill(7) }), /^ob-0707/);
+});
+
+test("statuses and errors have words, and a locked announcement says why", () => {
+  for (const status of ["scheduled", "claimed", "published", "failed", "canceled", "unknown"]) {
+    assert.ok(STATUS_BADGES[status].text && STATUS_BADGES[status].symbol, status);
+  }
+  assert.match(lockedReason("claimed"), /no longer be changed/);
+  assert.equal(lockedReason("scheduled"), "");
+  assert.equal(fieldForCode("caption-too-long"), "caption");
+  assert.equal(fieldForCode("time-too-soon"), "time");
+  assert.equal(fieldForCode("post-not-published"), "post");
+  assert.equal(fieldForCode("canonical-elsewhere"), "post");
+  assert.equal(fieldForCode("destination-not-connected"), "destination");
+  assert.equal(fieldForCode("unsupported-provider"), "destination");
+  assert.equal(fieldForCode("hosted-failed"), "general");
+  assert.equal(errorText(new ApiError("x", 422, { error: "Write a caption.", code: "caption-empty" })), "Write a caption.");
+  assert.match(errorText(new ApiError("x", 409, { error: "Changed.", code: "stale" })), /refreshed/);
+  assert.match(errorText(new ApiError("x", 409, { error: "Only a scheduled one.", code: "not-editable" })), /refreshed/);
+  assert.match(errorText(new TypeError("Failed to fetch")), /could not be reached/);
+  assert.equal(destinationLabel({ displayName: "Lantern", provider: "facebook", kind: "page" }), "Lantern (Facebook Page)");
+});
+
+// ------------------------------------------------------------------ the panel
+
+const flush = async () => {
+  for (let index = 0; index < 8; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+const all = (root, selector) => root.querySelectorAll(selector);
+const byData = (root, name, value) => all(root, `[${name}]`).filter((node) => (value === undefined ? true : node.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] === value));
+const button = (root, action) => byData(root, "data-action", action)[0];
+const text = (node) => node.textContent;
+
+const dest = [
+  { id: "d-1", provider: "linkedin", kind: "member", displayName: "Mikey Nichols", status: "connected" },
+  { id: "d-2", provider: "facebook", kind: "page", displayName: "Lantern Page", status: "connected" },
+  { id: "d-3", provider: "bluesky", kind: "account", displayName: "@ada.bsky.social", status: "connected" },
+  { id: "d-4", provider: "mastodon", kind: "account", displayName: "@ada@social.example.org", status: "connected" },
+];
+const found = [
+  { work: "/posts/hello/", title: "Hello", eligible: true, canonicalUrl: "https://blog.example.org/posts/hello/", reason: null },
+  { work: "/posts/draft/", title: "Secret draft", eligible: false, canonicalUrl: null, reason: { code: "post-not-published", message: "Only a published post can be announced." } },
+];
+const row = (over = {}) => ({
+  id: "a-1",
+  accountId: "d-1",
+  destination: dest[0],
+  work: "/posts/hello/",
+  canonicalUrl: "https://blog.example.org/posts/hello/",
+  caption: "A new post is live.",
+  scheduledFor: "2099-01-01T15:00:00Z",
+  status: "scheduled",
+  version: 1,
+  lastErrorCode: null,
+  editable: true,
+  ...over,
+});
+
+function fakeAdmin({ queue = [row()], fail = {}, history = {}, health } = {}) {
+  const calls = [];
+  let current = queue;
+  const api = {
+    calls,
+    async call(method, path, options = {}) {
+      calls.push({ method, path, json: options.json });
+      const route = `${method} ${path.split("?")[0]}`;
+      if (fail[route]) {
+        const failure = fail[route];
+        if (failure.once) delete fail[route];
+        throw failure.error;
+      }
+      if (route === "GET social/destinations") return { destinations: dest };
+      if (route === "GET social/posts") return { posts: found, now: "2026-11-01T12:00:00Z" };
+      if (route === "GET social/announcements") return { announcements: current };
+      if (route === "POST social/preview") return { ok: true, caption: options.json.caption.trim(), link: "https://blog.example.org/posts/hello/", cover: { image: true, description: "A lantern at dusk" }, scheduledFor: options.json.scheduledFor || null, problems: [] };
+      if (route === "POST social/announcements") {
+        const made = row({ id: "a-2", caption: options.json.caption, scheduledFor: options.json.scheduledFor });
+        current = [made, ...current];
+        return { announcement: made, replayed: false };
+      }
+      if (route === "PATCH social/announcements" || route === "POST social/announcements/reschedule") {
+        const made = row({ ...current[0], version: 2, caption: options.json.caption ?? current[0].caption, scheduledFor: options.json.scheduledFor ?? current[0].scheduledFor });
+        current = [made];
+        return { announcement: made };
+      }
+      if (route === "POST social/announcements/cancel") {
+        const made = row({ ...current[0], status: "canceled", editable: false, version: 2 });
+        current = [made];
+        return { announcement: made };
+      }
+      if (route === "POST social/announcements/retry") {
+        const made = row({ ...current[0], status: "scheduled", editable: true, retryable: false, version: current[0].version + 1 });
+        current = [made];
+        return { announcement: made };
+      }
+      if (route === "POST social/announcements/resolve") {
+        const published = options.json.outcome === "published";
+        const made = row({ ...current[0], status: published ? "published" : "failed", editable: false, resolvable: false, retryable: !published, version: current[0].version + 1 });
+        current = [made];
+        return { announcement: made };
+      }
+      if (route === "GET social/announcements/health" && health) {
+        if (health instanceof Error) throw health;
+        return { health };
+      }
+      if (route === "GET social/announcements/attempts") {
+        return { ...history, attempts: [{ attemptNo: 1, startedAt: "2026-11-01T12:00:00Z", finishedAt: "2026-11-01T12:00:02Z", outcome: "failed", httpStatus: 503, errorCode: "provider-unavailable", errorDetail: "x", providerPostId: null }, { attemptNo: 2, startedAt: "2026-11-01T12:05:00Z", finishedAt: null, outcome: null, httpStatus: null, errorCode: null, errorDetail: null, providerPostId: null }] };
+      }
+      throw new Error(`unexpected ${route}`);
+    },
+  };
+  return api;
+}
+
+const timers = () => ({ setTimeout: (run) => { timers.last = run; return 1; }, clearTimeout: () => {} });
+
+async function open(options) {
+  const api = fakeAdmin(options);
+  const panel = createAnnouncementsPanel({ api, zone: NY, timers: timers(), random: (() => { let n = 0; return () => `key-${String(++n).padStart(14, "0")}`; })() });
+  await panel.load();
+  return { api, panel, root: panel.element };
+}
+
+const fill = (root, id, value) => {
+  const node = all(root, "select, textarea, input").find((item) => item.id.endsWith(`-${id}`));
+  node.value = value;
+  return node;
+};
+
+async function compose(root, { caption = "A new post is live.", when = "2026-11-02T09:30" } = {}) {
+  fill(root, "destination", "d-1");
+  fill(root, "post", "/posts/hello/");
+  fill(root, "caption", caption);
+  fill(root, "when", when);
+}
+const submit = (root) => byData(root, "data-social-composer")[0].dispatch("submit");
+
+test("the screen loads destinations and posts into labelled fields and explains posts it cannot offer", withDom(async () => {
+  const { root } = await open();
+  const labels = all(root, "label").map(text);
+  assert.deepEqual(labels.slice(0, 4), ["Destination", "Post to announce", "Caption", "Date and time (America/New_York)"]);
+  for (const control of all(root, "select, textarea, input")) assert.ok(control.id, "every control has an id its label points at");
+  const destination = all(root, "select")[0];
+  assert.deepEqual(destination.children.map(text), ["Choose where to post", "Mikey Nichols (LinkedIn profile)", "Lantern Page (Facebook Page)", "@ada.bsky.social (Bluesky account)", "@ada@social.example.org (Mastodon account)"]);
+  const options = all(root, "option").filter((node) => node.parentNode.tagName === "OPTGROUP" || node.disabled);
+  assert.match(text(options[0]), /Secret draft - Only a published post can be announced\./);
+  assert.equal(options[0].disabled, true, "an unavailable post cannot be chosen");
+}));
+
+test("with nothing connected the screen says so and offers no destination", withDom(async () => {
+  const api = fakeAdmin();
+  api.call = ((original) => async (method, path, options) => (path === "social/destinations" ? { destinations: [] } : original(method, path, options)))(api.call);
+  const panel = createAnnouncementsPanel({ api, zone: NY, timers: timers() });
+  await panel.load();
+  assert.match(text(byData(panel.element, "data-social-status")[0]), /No account is connected yet/);
+  assert.equal(all(panel.element, "select")[0].disabled, true);
+}));
+
+test("a load that fails says so with a way to try again", withDom(async () => {
+  const api = fakeAdmin({ fail: { "GET social/posts": { error: new ApiError("Social publishing is not configured", 404, { error: "Social publishing is not configured" }), once: true } } });
+  const panel = createAnnouncementsPanel({ api, zone: NY, timers: timers() });
+  await panel.load();
+  const error = byData(panel.element, "data-social-load-error")[0];
+  assert.equal(error.hidden, false);
+  assert.match(text(error), /not configured/);
+  await button(error, "social-retry").dispatch("click");
+  await flush();
+  assert.equal(error.hidden, true);
+  assert.equal(all(panel.element, "select")[0].children.length, 5);
+}));
+
+test("typing a caption shows the count, and too long is said in words beside the field", withDom(async () => {
+  const { root } = await open();
+  const caption = fill(root, "caption", "hello");
+  await caption.dispatch("input");
+  assert.equal(text(byData(root, "data-social-count")[0]), "5 of 3000 characters");
+  fill(root, "caption", "a".repeat(3005));
+  await caption.dispatch("input");
+  assert.match(text(byData(root, "data-social-count")[0]), /5 characters too many/);
+  assert.equal(caption.getAttribute("aria-invalid"), "true");
+  assert.match(text(byData(root, "data-error-for", "caption")[0]), /5 characters too long/);
+}));
+
+test("the preview shows the caption, the link and the time in the author's zone", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root);
+  await fill(root, "caption", "A new post is live.").dispatch("input");
+  await timers.last();
+  await flush();
+  const preview = byData(root, "data-social-preview")[0];
+  assert.match(text(byData(preview, "data-preview-to")[0]), /To Mikey Nichols \(LinkedIn profile\)/);
+  assert.equal(text(byData(preview, "data-preview-caption")[0]), "A new post is live.");
+  assert.equal(text(byData(preview, "data-preview-link")[0]), "https://blog.example.org/posts/hello/");
+  assert.match(text(byData(preview, "data-preview-when")[0]), /09:30.*2026-11-02 14:30 UTC/);
+  const sent = api.calls.find((call) => call.path === "social/preview").json;
+  assert.deepEqual(sent, { provider: "linkedin", caption: "A new post is live.", work: "/posts/hello/", scheduledFor: "2026-11-02T14:30:00Z", timeZone: NY });
+}));
+
+test("a clock-change time is explained in the preview before anything is sent", withDom(async () => {
+  const { root } = await open();
+  await compose(root, { when: "2026-11-01T01:30" });
+  await fill(root, "when", "2026-11-01T01:30").dispatch("input");
+  await timers.last();
+  await flush();
+  assert.match(text(byData(root, "data-preview-notes")[0]), /happens twice/);
+}));
+
+test("submitting an incomplete form lists what to fix, beside the fields, and sends nothing", withDom(async () => {
+  const { root, api } = await open();
+  await submit(root);
+  const box = byData(root, "data-social-problems")[0];
+  assert.equal(box.hidden, false);
+  assert.match(text(box), /There are 4 things to fix/);
+  for (const name of ["destination", "post", "caption", "time"]) {
+    assert.equal(byData(root, "data-error-for", name)[0].hidden, false, name);
+    assert.equal(all(root, "select, textarea, input").find((item) => item.id.endsWith(name === "time" ? "-when" : `-${name}`)).getAttribute("aria-invalid"), "true");
+  }
+  assert.equal(api.calls.some((call) => call.method === "POST" && call.path === "social/announcements"), false);
+  assert.equal(root.ownerDocument?.activeElement ?? globalThis.document.activeElement, box, "focus moves to the list of problems");
+}));
+
+test("a skipped clock time is refused with its own explanation", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root, { when: "2026-03-08T02:30" });
+  await submit(root);
+  assert.match(text(byData(root, "data-error-for", "time")[0]), /does not exist in your time zone/);
+  assert.equal(api.calls.some((call) => call.path === "social/announcements" && call.method === "POST"), false);
+}));
+
+test("a valid submit sends UTC, the zone and a key; then says what happened and clears the form", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root);
+  await submit(root);
+  await flush();
+  const create = api.calls.find((call) => call.method === "POST" && call.path === "social/announcements");
+  assert.deepEqual(create.json, { accountId: "d-1", work: "/posts/hello/", caption: "A new post is live.", scheduledFor: "2026-11-02T14:30:00Z", timeZone: NY, idempotencyKey: "key-00000000000001" });
+  assert.match(text(byData(root, "data-social-status")[0]), /^Scheduled for .*Mikey Nichols \(LinkedIn profile\)\.$/);
+  assert.equal(all(root, "textarea")[0].value, "", "the form is cleared");
+  assert.equal(byData(root, "data-social-problems")[0].hidden, true);
+  assert.equal(all(root, "li").filter((node) => node.dataset.announcement).length, 2, "the queue was refreshed");
+}));
+
+test("a retry of the same announcement keeps its key, and a changed one gets a new key", withDom(async () => {
+  const lost = new TypeError("Failed to fetch");
+  const { root, api } = await open({ fail: { "POST social/announcements": { error: lost, once: true } } });
+  await compose(root);
+  await submit(root);
+  await flush();
+  assert.match(text(byData(root, "data-social-problems")[0]), /could not be reached/);
+  await submit(root);
+  await flush();
+  const keys = api.calls.filter((call) => call.path === "social/announcements" && call.method === "POST").map((call) => call.json.idempotencyKey);
+  assert.deepEqual(keys, ["key-00000000000001", "key-00000000000001"], "the same composed announcement is the same request");
+
+  const second = await open({ fail: { "POST social/announcements": { error: lost, once: true } } });
+  await compose(second.root);
+  await submit(second.root);
+  await flush();
+  await compose(second.root, { caption: "Different words." });
+  await submit(second.root);
+  await flush();
+  const different = second.api.calls.filter((call) => call.path === "social/announcements" && call.method === "POST").map((call) => call.json.idempotencyKey);
+  assert.notEqual(different[0], different[1]);
+}));
+
+test("a create whose outcome is unknown reloads the queue and warns the announcement may exist", withDom(async () => {
+  const lost = new TypeError("Failed to fetch");
+  const { root, api } = await open({ fail: { "POST social/announcements": { error: lost, once: true } } });
+  await compose(root);
+  await submit(root);
+  await flush();
+  const after = api.calls.slice(api.calls.findIndex((call) => call.method === "POST" && call.path === "social/announcements") + 1);
+  assert.ok(after.some((call) => call.method === "GET" && call.path.startsWith("social/announcements")), "the queue is reloaded");
+  assert.match(text(root), /may already be scheduled/);
+}));
+
+test("a refusal from the server appears beside the field it is about", withDom(async () => {
+  const refusal = new ApiError("x", 422, { error: "The caption is longer than this destination allows.", code: "caption-too-long" });
+  const { root } = await open({ fail: { "POST social/announcements": { error: refusal } } });
+  await compose(root);
+  await submit(root);
+  await flush();
+  assert.match(text(byData(root, "data-error-for", "caption")[0]), /longer than this destination allows/);
+}));
+
+test("the queue lists each announcement with its status in words, and says why a locked one cannot change", withDom(async () => {
+  const { root } = await open({ queue: [row(), row({ id: "a-9", status: "claimed", editable: false }), row({ id: "a-8", status: "failed", editable: false, lastErrorCode: "provider-rejected" })] });
+  const rows = all(root, "li").filter((node) => node.dataset.announcement);
+  assert.equal(rows.length, 3);
+  assert.match(text(byData(rows[0], "data-status-badge")[0]), /Scheduled/);
+  assert.ok(button(rows[0], "social-edit") && button(rows[0], "social-cancel"));
+  assert.equal(button(rows[1], "social-edit"), undefined, "a claimed announcement has no edit");
+  assert.match(text(byData(rows[1], "data-row-locked")[0]), /no longer be changed/);
+  assert.match(text(byData(rows[2], "data-row-error")[0]), /provider-rejected/);
+  assert.match(button(rows[0], "social-cancel").getAttribute("aria-label"), /Cancel the announcement of \/posts\/hello\//);
+}));
+
+test("cancel asks first, keeps by default, and names the version it cancels", withDom(async () => {
+  const { root, api } = await open();
+  const list = () => all(root, "li").filter((node) => node.dataset.announcement)[0];
+  await button(list(), "social-cancel").dispatch("click");
+  assert.equal(button(list(), "social-cancel").getAttribute("aria-expanded"), "true");
+  await button(list(), "social-keep").dispatch("click");
+  assert.equal(api.calls.some((call) => call.path.startsWith("social/announcements/cancel")), false);
+  await button(list(), "social-cancel").dispatch("click");
+  await button(list(), "social-confirm-cancel").dispatch("click");
+  await flush();
+  const cancel = api.calls.find((call) => call.path.startsWith("social/announcements/cancel"));
+  assert.equal(cancel.path, "social/announcements/cancel?id=a-1");
+  assert.deepEqual(cancel.json, { version: 1 });
+  assert.equal(text(byData(root, "data-social-status")[0]), "Canceled. It will not be posted.");
+  assert.equal(list().dataset.status, "canceled");
+}));
+
+test("an edit sends the caption with its version, a time-only change reschedules, and no change is said so", withDom(async () => {
+  const { root, api } = await open();
+  const rowOf = () => all(root, "li").filter((node) => node.dataset.announcement)[0];
+  await button(rowOf(), "social-edit").dispatch("click");
+  const panel = () => all(rowOf(), "div").find((node) => node.dataset.mode === "edit");
+  await button(panel(), "social-save").dispatch("click");
+  assert.match(text(all(panel(), "p").find((node) => node.getAttribute("role") === "alert")), /Nothing has changed/);
+  assert.equal(api.calls.some((call) => call.method !== "GET"), false);
+
+  const when = all(panel(), "input")[0];
+  when.value = "2099-02-03T10:15";
+  await button(panel(), "social-save").dispatch("click");
+  await flush();
+  const move = api.calls.find((call) => call.path.startsWith("social/announcements/reschedule"));
+  assert.deepEqual(move.json, { version: 1, scheduledFor: "2099-02-03T15:15:00Z", timeZone: NY });
+
+  await button(rowOf(), "social-edit").dispatch("click");
+  const words = all(panel(), "textarea")[0];
+  words.value = "Better words.";
+  await button(panel(), "social-save").dispatch("click");
+  await flush();
+  const edit = api.calls.find((call) => call.method === "PATCH");
+  assert.equal(edit.path, "social/announcements?id=a-1");
+  assert.deepEqual(edit.json, { version: 2, caption: "Better words." });
+}));
+
+test("a lost race refreshes the queue and says the announcement changed", withDom(async () => {
+  const stale = new ApiError("x", 409, { error: "This announcement changed or was claimed just now.", code: "conflict" });
+  const { root, api } = await open({ fail: { "POST social/announcements/cancel": { error: stale, once: true } } });
+  const rowOf = () => all(root, "li").filter((node) => node.dataset.announcement)[0];
+  await button(rowOf(), "social-cancel").dispatch("click");
+  const before = api.calls.filter((call) => call.method === "GET" && call.path.startsWith("social/announcements")).length;
+  await button(rowOf(), "social-confirm-cancel").dispatch("click");
+  await flush();
+  assert.match(text(byData(root, "data-social-status")[0]), /changed or was claimed just now.*refreshed/);
+  assert.equal(api.calls.filter((call) => call.method === "GET" && call.path.startsWith("social/announcements")).length, before + 1);
+}));
+
+test("the status filter asks for just that status", withDom(async () => {
+  const { root, api } = await open();
+  const filter = all(root, "select").find((node) => node.id.endsWith("-filter"));
+  filter.value = "published";
+  await filter.dispatch("change");
+  await flush();
+  assert.ok(api.calls.some((call) => call.path === "social/announcements?status=published"));
+}));
+
+test("unsaved words count as unsaved work, and a scheduled form does not", withDom(async () => {
+  const { root, panel } = await open();
+  assert.equal(panel.isDirty(), false);
+  fill(root, "caption", "half written");
+  assert.equal(panel.isDirty(), true);
+}));
+
+// ------------------------------------------------------------------ recovery (ADR 0318)
+
+const failedRow = (over = {}) => row({ id: "a-5", status: "failed", editable: false, retryable: true, version: 4, attemptCount: 3, lastErrorCode: "attempts-exhausted", ...over });
+const unknownRow = (over = {}) => row({ id: "a-6", status: "unknown", editable: false, resolvable: true, version: 3, attemptCount: 1, lastErrorCode: "timeout", ...over });
+const rowOf = (root) => all(root, "li").filter((node) => node.dataset.announcement)[0];
+const listReads = (api) => api.calls.filter((call) => call.method === "GET" && (call.path === "social/announcements" || call.path.startsWith("social/announcements?"))).length;
+
+test("a short code reads as a sentence, and a queue that moved on refreshes", () => {
+  assert.match(problemWords("rate-limited"), /slow down/);
+  assert.match(problemWords("timeout"), /may or may not have been posted/);
+  assert.equal(problemWords("nothing-like-this"), "");
+  for (const code of ["stale", "conflict", "not-editable", "not-retryable", "not-resolvable", "needs-resolution"]) assert.ok(REFRESH_CODES.includes(code), code);
+  assert.match(errorText(new ApiError("x", 409, { error: "Check first.", code: "needs-resolution" })), /refreshed/);
+});
+
+test("a failed announcement says why in words and offers to try again, after asking", withDom(async () => {
+  const { root, api } = await open({ queue: [failedRow()] });
+  assert.match(text(byData(root, "data-row-error")[0]), /allowed number of times.*attempts-exhausted/);
+  const retry = button(root, "social-retry");
+  assert.match(retry.getAttribute("aria-label"), /Try again: the announcement of \/posts\/hello\//);
+  assert.equal(retry.getAttribute("aria-expanded"), "false");
+  await retry.dispatch("click");
+  assert.equal(retry.getAttribute("aria-expanded"), "true");
+  assert.equal(api.calls.some((call) => call.method === "POST"), false, "asking sends nothing");
+  await button(root, "social-keep").dispatch("click");
+  assert.equal(api.calls.some((call) => call.method === "POST"), false);
+  await button(root, "social-retry").dispatch("click");
+  await button(root, "social-confirm-retry").dispatch("click");
+  await flush();
+  const sent = api.calls.find((call) => call.path.startsWith("social/announcements/retry"));
+  assert.equal(sent.path, "social/announcements/retry?id=a-5");
+  assert.deepEqual(sent.json, { version: 4 });
+  assert.match(text(byData(root, "data-social-status")[0]), /Back in the queue/);
+  assert.equal(rowOf(root).dataset.status, "scheduled");
+}));
+
+test("an unknown result asks the author to look first, and records what they found", withDom(async () => {
+  const { root, api } = await open({ queue: [unknownRow()] });
+  assert.match(text(byData(root, "data-row-error")[0]), /may or may not have been posted/);
+  assert.equal(button(root, "social-retry"), undefined, "an unknown outcome cannot simply be retried");
+  await button(root, "social-resolve").dispatch("click");
+  const panel = () => all(rowOf(root), "div").find((node) => node.dataset.mode === "resolve");
+  assert.match(text(panel()), /It will not be sent again until you do/);
+  assert.deepEqual(all(panel(), "label").map(text), ["It was posted", "It was not posted", "Post id (only if it was posted)"]);
+  for (const control of all(panel(), "input")) assert.ok(control.id);
+  const alertText = () => text(all(panel(), "p").find((node) => node.getAttribute("role") === "alert"));
+
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  assert.match(alertText(), /Choose what you found/);
+  const [posted, , postId] = all(panel(), "input");
+  posted.checked = true;
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  assert.match(alertText(), /Enter the post id/);
+  postId.value = "has a space";
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  assert.match(alertText(), /no spaces/);
+  assert.equal(api.calls.some((call) => call.method === "POST"), false, "nothing invalid was sent");
+
+  postId.value = "urn:li:share:7000";
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  await flush();
+  const sent = api.calls.find((call) => call.path.startsWith("social/announcements/resolve"));
+  assert.equal(sent.path, "social/announcements/resolve?id=a-6");
+  assert.deepEqual(sent.json, { version: 3, outcome: "published", providerPostId: "urn:li:share:7000" });
+  assert.equal(text(byData(root, "data-social-status")[0]), "Recorded as posted.");
+  assert.equal(rowOf(root).dataset.status, "published");
+}));
+
+test("recording that it was not posted sends no id and offers a retry afterwards", withDom(async () => {
+  const { root, api } = await open({ queue: [unknownRow()] });
+  await button(root, "social-resolve").dispatch("click");
+  const panel = () => all(rowOf(root), "div").find((node) => node.dataset.mode === "resolve");
+  const [, missing, postId] = all(panel(), "input");
+  postId.value = "ignored-when-not-posted";
+  missing.checked = true;
+  await button(panel(), "social-confirm-resolve").dispatch("click");
+  await flush();
+  const sent = api.calls.find((call) => call.path.startsWith("social/announcements/resolve"));
+  assert.deepEqual(sent.json, { version: 3, outcome: "not-posted" });
+  assert.match(text(byData(root, "data-social-status")[0]), /not posted.*try it again/);
+  assert.ok(button(root, "social-retry"), "a failed announcement can now be retried");
+}));
+
+test("a refusal that the queue moved on refreshes the list and says so", withDom(async () => {
+  const moved = new ApiError("x", 409, { error: "This may already be posted. Check the account, then say whether it was posted.", code: "needs-resolution" });
+  const { root, api } = await open({ queue: [failedRow()], fail: { "POST social/announcements/retry": { error: moved, once: true } } });
+  await button(root, "social-retry").dispatch("click");
+  const before = listReads(api);
+  await button(root, "social-confirm-retry").dispatch("click");
+  await flush();
+  assert.match(text(byData(root, "data-social-status")[0]), /refreshed/);
+  assert.equal(listReads(api), before + 1);
+}));
+
+test("the history of tries loads when asked and reads in words", withDom(async () => {
+  const { root, api } = await open({ queue: [failedRow()] });
+  const details = byData(root, "data-history")[0];
+  assert.match(text(all(details, "summary")[0]), /History \(3 tries\)/);
+  assert.equal(api.calls.some((call) => call.path.startsWith("social/announcements/attempts")), false, "not loaded until opened");
+  details.open = true;
+  await details.dispatch("toggle");
+  await flush();
+  const items = all(details, "li");
+  assert.equal(items.length, 2);
+  assert.match(text(items[0]), /Try 1,.*not posted \(HTTP 503\)\. The provider could not take it just now\./);
+  assert.match(text(items[1]), /Try 2,.*in progress/);
+  assert.equal(byData(details, "data-timeline").length, 0, "no timeline from an older server, and nothing invented");
+  assert.equal(api.calls.filter((call) => call.path.startsWith("social/announcements/attempts")).length, 1);
+  assert.equal(api.calls.find((call) => call.path.startsWith("social/announcements/attempts")).path, "social/announcements/attempts?id=a-5");
+}));
+
+test("the status history reads in words, in the author's zone, and says when it was rebuilt", withDom(async () => {
+  const timeline = [
+    { at: "2026-11-01T12:00:00Z", change: "created", state: "pending", attemptNo: 0, code: null, scheduledFor: null },
+    { at: "2026-11-01T12:01:00Z", change: "rescheduled", state: "pending", attemptNo: 0, code: null, scheduledFor: "2026-11-02T09:00:00Z" },
+    { at: "2026-11-02T09:00:05Z", change: "status", state: "processing", attemptNo: 1, code: null, scheduledFor: null },
+    { at: "2026-11-02T09:00:09Z", change: "status", state: "retrying", attemptNo: 1, code: "rate-limited", scheduledFor: null },
+    { at: "2026-11-02T09:10:00Z", change: "status", state: "failed", attemptNo: 2, code: "<img src=x onerror=alert(1)>", scheduledFor: null },
+  ];
+  for (const exact of [true, false]) {
+    const { root } = await open({ queue: [failedRow()], history: { timeline, timelineExact: exact } });
+    const details = byData(root, "data-history")[0];
+    details.open = true;
+    await details.dispatch("toggle");
+    await flush();
+    const events = all(byData(details, "data-timeline")[0], "li");
+    assert.equal(events.length, 5);
+    assert.match(text(events[0]), /Scheduled$/);
+    assert.match(text(events[1]), /time changed, now /);
+    assert.match(text(events[2]), /Sending, try 1/);
+    assert.match(text(events[3]), /Retrying, try 1\. The provider asked us to slow down\./);
+    assert.match(text(events[4]), /Failed, try 2\. <img src=x onerror=alert\(1\)>/, "a code is only ever text");
+    assert.equal(all(details, "img").length, 0);
+    assert.equal(byData(details, "data-timeline-rebuilt").length, exact ? 0 : 1);
+  }
+}));
+
+test("each delivery state has a word and a shape, and the waiting ones say what happens next", () => {
+  for (const state of ["pending", "processing", "retrying", "published", "failed", "unknown", "canceled"]) {
+    assert.ok(DELIVERY_BADGES[state].text && DELIVERY_BADGES[state].symbol, state);
+  }
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: null }), "pending");
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: "deferred" }), "pending");
+  assert.equal(deliveryOf({ status: "scheduled", lastErrorCode: "rate-limited" }), "retrying");
+  assert.equal(deliveryOf({ status: "claimed" }), "processing");
+  assert.equal(deliveryOf({ status: "scheduled", delivery: "retrying" }), "retrying", "the server's word wins");
+  assert.equal(deliveryOf({ status: "scheduled", delivery: "__proto__" }), "pending", "an unknown word is not trusted");
+  assert.equal(deliveryOf({ status: "bogus" }), "unknown");
+  assert.match(nextStepText("retrying"), /tried again by itself/);
+  assert.match(nextStepText("processing"), /being sent now/);
+  assert.equal(nextStepText("pending"), "");
+  assert.match(eventText({ at: "2026-11-01T12:00:00Z", change: "baseline", state: "unknown" }, NY), /Needs checking, history starts here/);
+});
+
+test("a scheduled announcement waiting to try again says when", withDom(async () => {
+  const { root } = await open({ queue: [row({ attemptCount: 1, nextAttemptAt: "2099-01-01T15:05:00Z", lastErrorCode: "provider-unavailable" })] });
+  assert.match(text(byData(root, "data-row-next")[0]), /Will try again/);
+  assert.match(text(byData(root, "data-row-error")[0]), /could not take it just now/);
+  assert.equal(byData(root, "data-delivery")[0].getAttribute("data-delivery"), "retrying");
+  assert.match(text(byData(root, "data-status-badge")[0]), /Retrying/);
+  assert.match(text(byData(root, "data-row-next-step")[0]), /tried again by itself/);
+}));
+
+test("delivery health reads as sentences, most urgent first, and ignores codes it does not know", () => {
+  const lines = healthLines({ installed: true, overdueMinutes: 15, overdue: 2, needsReview: 1, accountsNeedReconnect: 1, alerts: ["backlog-overdue", "accounts-need-reconnect", "needs-review", "made-up"] });
+  assert.deepEqual(lines.map((line) => line.code), ["backlog-overdue", "accounts-need-reconnect", "needs-review"]);
+  assert.match(lines[0].text, /^2 announcements are more than 15 minutes late\. The delivery worker may not be running/);
+  assert.match(lines[1].text, /^1 account needs to be connected again before it can post/);
+  assert.match(lines[2].text, /^1 announcement needs you to check whether it was posted/);
+  const unset = healthLines({ installed: true, waitingOnProvider: 2, alerts: ["provider-not-configured"] });
+  assert.match(unset[0].text, /^2 announcements wait for a provider this site has not set up for posting\. Add its settings and redeploy, or cancel them\./);
+  assert.deepEqual(healthLines({ installed: false, alerts: ["backlog-overdue"] }), []);
+  assert.deepEqual(healthLines(null), []);
+});
+
+test("the Social screen shows delivery health beside the queue, and stays out of the way when it cannot", withDom(async () => {
+  const healthy = await open({ health: { installed: true, overdueMinutes: 15, alerts: [] } });
+  await flush();
+  const box = byData(healthy.root, "data-social-health")[0];
+  assert.equal(box.hidden, false);
+  assert.match(text(box), /Delivery health.*Nothing is late, stuck or waiting for you\./);
+
+  const late = await open({ health: { installed: true, overdueMinutes: 30, overdue: 3, alerts: ["backlog-overdue", "<script>"] } });
+  await flush();
+  const alerts = byData(late.root, "data-health-alert");
+  assert.equal(alerts.length, 1);
+  assert.match(text(alerts[0]), /3 announcements are more than 30 minutes late/);
+
+  const off = await open({ health: { installed: false, alerts: [] } });
+  await flush();
+  assert.match(text(byData(off.root, "data-health-off")[0]), /supabase\/social-ops\.sql/);
+
+  const broken = await open({ health: new ApiError("x", 502, { error: "down", code: "hosted-failed" }) });
+  await flush();
+  assert.equal(byData(broken.root, "data-social-health")[0].hidden, true, "a health failure never blocks the screen");
+  assert.ok(byData(broken.root, "data-announcement").length > 0);
+}));
+
+test("captions, paths and codes from the queue are only ever text (no markup is built from data)", withDom(async () => {
+  const hostile = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+  const { root } = await open({ queue: [row({ caption: hostile, work: '/posts/"><svg onload=alert(3)>/', lastErrorCode: "<b>x</b>", status: "failed", editable: false, retryable: true, attemptCount: 1 })] });
+  assert.equal(all(root, "img").length + all(root, "script").length + all(root, "svg").length + all(root, "b").length, 0);
+  assert.ok(text(byData(root, "data-row-caption")[0]).includes(hostile));
+}));
+
+// ---- Bluesky (story #391, task DIST2.1.3): its own caption limit and what the post will look like.
+
+test("Bluesky's caption limit is 300, the others' 3000, the same as the server's", () => {
+  assert.deepEqual(CAPTION_LIMITS, { linkedin: 3000, facebook: 3000, bluesky: 300, mastodon: 475 });
+  assert.equal(CAPTION_LIMIT, 3000);
+  assert.equal(destinationLabel(dest[2]), "@ada.bsky.social (Bluesky account)");
+  assert.equal(blueskyCardTitle("First line\nsecond"), "First line");
+  assert.deepEqual(blueskyNotes("Plain words", "https://blog.example.org/posts/hello/"), ['On Bluesky the link is a card titled "Plain words" that shows blog.example.org, with no picture.']);
+  // With the post's public title and description, the card shows those, not the caption (ADR 0386).
+  assert.deepEqual(blueskyNotes("Soup is up, see https://blog.example.org/posts/hello/", "https://blog.example.org/posts/hello/", { title: "Hello lanterns", description: "How we light the quay." })[0], 'On Bluesky the link is a card with the post\'s title, "Hello lanterns", and its description, "How we light the quay.", that shows blog.example.org, with no picture.');
+  assert.deepEqual(blueskyNotes("Soup", "https://blog.example.org/posts/hello/", { title: "Hello", description: "" })[0], 'On Bluesky the link is a card with the post\'s title, "Hello", that shows blog.example.org, with no picture.');
+  assert.equal(blueskyNotes("See https://x.org #tag and @ada.bsky.social", "https://blog.example.org/").length, 3);
+});
+
+test("choosing Bluesky counts the caption against 300 and refuses a longer one before sending", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root, { caption: "a".repeat(301) });
+  fill(root, "destination", "d-3");
+  const caption = all(root, "textarea").find((node) => node.id.endsWith("-caption"));
+  await caption.dispatch("input");
+  assert.match(text(byData(root, "data-social-count")[0]), /1 characters too many \(301 of 300\)/);
+  await submit(root);
+  assert.ok(!api.calls.some((call) => call.method === "POST" && call.path === "social/announcements"), "nothing is sent");
+  assert.match(text(byData(root, "data-error-for", "caption")[0]), /1 characters too long/);
+}));
+
+test("the Bluesky preview says the link becomes a card, which words become links, and that mentions stay plain", withDom(async () => {
+  const { root } = await open();
+  await compose(root, { caption: "New post #lanterns, thanks @ada.bsky.social" });
+  fill(root, "destination", "d-3");
+  await all(root, "textarea").find((node) => node.id.endsWith("-caption")).dispatch("input");
+  await timers.last();
+  await flush();
+  const preview = byData(root, "data-social-preview")[0];
+  assert.match(text(byData(preview, "data-preview-to")[0]), /To @ada\.bsky\.social \(Bluesky account\)/);
+  const notes = text(byData(preview, "data-preview-notes")[0]);
+  assert.match(notes, /a card titled "New post #lanterns, thanks @ada\.bsky\.social" that shows blog\.example\.org/);
+  assert.match(notes, /#hashtags in the caption become clickable/);
+  assert.match(notes, /@mentions stay plain text/);
+}));
+
+// ---- Mastodon (story #392, task DIST2.2.2): its own caption limit and what the status will look like.
+
+test("Mastodon's caption limit is 475, and the notes say where the link goes, what notifies and how the cover is described", () => {
+  assert.equal(destinationLabel(dest[3]), "@ada@social.example.org (Mastodon account)");
+  const link = "https://blog.example.org/posts/hello/";
+  assert.deepEqual(mastodonNotes("Plain words", link), ["On Mastodon the link goes after the caption, on its own line; it counts as 23 characters, and Mastodon shows its own preview of it."]);
+  assert.deepEqual(mastodonNotes(`Read ${link} now`, link), [],"a caption that holds the link is not given it twice");
+  // The same rule as the server's (ADR 0386): brackets and a full stop around the link are not part of it.
+  for (const caption of [`Soup (${link})`, `New soup: ${link}.`, `Is it ${link}?`]) {
+    assert.deepEqual(mastodonNotes(caption, link), [], caption);
+    assert.equal(captionHoldsLink(caption, link), holdsLink(caption, link));
+  }
+  for (const caption of [`See ${link}x`, "Read (https://en.wikipedia.org/wiki/Bread_(food))", `Soup (${link}).`]) assert.equal(captionHoldsLink(caption, link), holdsLink(caption, link), caption);
+  const notes = mastodonNotes("New #rust post, thanks @ada@social.example.org", link, { image: true, description: "A lantern at dusk" });
+  assert.equal(notes.length, 4);
+  assert.match(notes[1], /#hashtags/);
+  assert.match(notes[2], /notifies that person/);
+  assert.match(notes[3], /described as: "A lantern at dusk"/);
+  assert.match(mastodonNotes("x", link, { image: true, description: null }).at(-1), /no description \(coverAlt\), so it is never attached/);
+});
+
+test("choosing Mastodon counts against 475, and its preview says where the link goes and how the cover is described", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root, { caption: "a".repeat(476) });
+  fill(root, "destination", "d-4");
+  const caption = all(root, "textarea").find((node) => node.id.endsWith("-caption"));
+  await caption.dispatch("input");
+  assert.match(text(byData(root, "data-social-count")[0]), /1 characters too many \(476 of 475\)/);
+  await submit(root);
+  assert.ok(!api.calls.some((call) => call.method === "POST" && call.path === "social/announcements"), "nothing is sent");
+  caption.value = "New post #lanterns";
+  await caption.dispatch("input");
+  await timers.last();
+  await flush();
+  const preview = byData(root, "data-social-preview")[0];
+  assert.match(text(byData(preview, "data-preview-to")[0]), /To @ada@social\.example\.org \(Mastodon account\)/);
+  const notes = text(byData(preview, "data-preview-notes")[0]);
+  assert.match(notes, /the link goes after the caption, on its own line/);
+  assert.match(notes, /#hashtags in the caption become clickable on Mastodon/);
+  assert.match(notes, /described as: "A lantern at dusk"/);
+}));
+
+// Words outside the screens themselves: the page header, the command palette and the guide must not
+// name only LinkedIn and Facebook now that Bluesky and Mastodon can be connected too.
+test("the Social accounts and Announcements headers, palette and guide do not leave out Bluesky and Mastodon", () => {
+  const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+  const admin = read("web/admin/admin.js");
+  for (const title of ["Social accounts", "Announcements"]) {
+    const detail = admin.match(new RegExp(`title: "${title}", detail: "([^"]*)"`));
+    assert.ok(detail, `${title} has a page header`);
+    assert.doesNotMatch(detail[1], /LinkedIn|Facebook/, `${title} header names no single provider`);
+    const keywords = admin.match(new RegExp(`label: "${title}", category: "[^"]+", keywords: "([^"]*)"`));
+    assert.ok(keywords, `${title} is in the command palette`);
+    for (const provider of ["linkedin", "facebook", "bluesky", "mastodon"]) assert.match(keywords[1], new RegExp(provider), `${title} is found by "${provider}"`);
+  }
+  const guide = read("docs/admin.md").replace(/\s+/g, " ");
+  const destination = guide.match(/Choose a \*\*Destination\*\* \(([^)]*)\)/);
+  assert.ok(destination, "the guide says what a Destination is");
+  for (const provider of ["LinkedIn", "Facebook", "Bluesky", "Mastodon"]) assert.match(destination[1], new RegExp(provider));
+});

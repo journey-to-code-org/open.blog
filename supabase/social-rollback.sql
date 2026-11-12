@@ -1,0 +1,56 @@
+-- Roll back optional scheduled social publishing (ADRs 0293 to 0295). Run in
+-- the Supabase SQL editor.
+--
+-- First remove OPENBLOG_SOCIAL_ENABLED from the Netlify environment and
+-- redeploy, and stop the scheduled worker, so nothing writes while you undo.
+-- If you want to keep the schedule or the delivery history, export them first:
+--
+--   select * from public.openblog_social_posts order by scheduled_for;
+--   select * from public.openblog_social_attempts order by started_at;
+--
+-- This drops only what social.sql, social-queue.sql, social-history.sql, social-ops.sql and social-cron.sql
+-- added (the cron job, its ping function, the history trigger and its event table too): the connection, credential, attempt,
+-- queue and account tables (their rows go with them) and the schema version
+-- table. It touches no comment, feedback, subscription or workspace table, and
+-- no post. Nothing already published to LinkedIn or Facebook is removed there.
+-- Revoke the app's access in each provider's own settings as well: stored
+-- tokens are deleted here but stay valid at the provider until revoked.
+-- Delete OPENBLOG_SOCIAL_TOKEN_KEYS afterwards.
+--
+-- It leaves the pgcrypto extension, which other files in this folder use.
+
+begin;
+
+-- The schedule (social-cron.sql) first, so nothing calls the worker with its key while the tables go
+-- (ADR 0332). Only where pg_cron is installed; the Vault secrets stay (see social-cron-rollback.sql).
+do $rollback$
+begin
+  if to_regclass('cron.job') is not null then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'openblog-social-worker';
+  end if;
+end
+$rollback$;
+drop function if exists public.openblog_social_worker_ping();
+
+-- Operations (social-ops.sql) and the history (social-history.sql) first, then the delivery queue
+-- functions (social-queue.sql), which return the queue table's row type, then the tables.
+drop function if exists public.openblog_social_prune(text, integer, integer);
+drop function if exists public.openblog_social_sweep(text, integer);
+drop function if exists public.openblog_social_health(text, integer, text[]);
+drop trigger if exists openblog_social_posts_history on public.openblog_social_posts;
+drop function if exists public.openblog_social_record_event();
+drop table if exists public.openblog_social_post_events;
+drop function if exists public.openblog_social_delivery_state(text, text);
+drop function if exists public.openblog_social_settle(text, uuid, integer, text, text, integer, text, text, text, timestamptz);
+drop function if exists public.openblog_social_mark_sending(text, uuid, integer);
+drop function if exists public.openblog_social_claim_due(text, text, integer, integer, integer, integer, text[]);
+drop function if exists public.openblog_social_reap_leases(text, integer, integer);
+
+drop table if exists public.openblog_social_connections;
+drop table if exists public.openblog_social_credentials;
+drop table if exists public.openblog_social_attempts;
+drop table if exists public.openblog_social_posts;
+drop table if exists public.openblog_social_accounts;
+drop table if exists public.openblog_social_schema;
+
+commit;

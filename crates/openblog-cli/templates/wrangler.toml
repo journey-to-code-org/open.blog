@@ -1,0 +1,23 @@
+# Cloudflare Worker settings for the open.blog view counter.
+# Written by `openblog analytics worker`. See worker.js for the setup steps.
+
+name = "openblog-counter"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+# Your blog's address, so visits from your own pages are not counted as referrers,
+# and the only origin allowed to post hits (comma-separate several, or "*").
+SITE_ORIGIN = "SITE_URL"
+# Visit attribution (ADRs 0404 and 0407), written from openblog.json by `openblog analytics worker`;
+# `openblog analytics attribution` prints the current values after you change your settings.
+# "true" counts a page address's utm_source when it names a destination (analytics.campaigns).
+CAMPAIGNS = "CAMPAIGNS_SETTING"
+# Your own hosts as host=destination pairs: cross-posting targets, analytics.fediverseHosts and the
+# social Mastodon instance. Visits referred by them are attributed to that destination.
+OWN_HOSTS = "OWN_HOSTS_SETTING"
+
+[[kv_namespaces]]
+binding = "VIEWS"
+# Run `wrangler kv namespace create VIEWS` and paste the id it prints here.
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
