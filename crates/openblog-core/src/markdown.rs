@@ -2204,6 +2204,36 @@ fn without_nul(markdown: &str, supplements: bool) -> std::borrow::Cow<'_, str> {
 }
 
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
+    render_with_diagram_work(markdown, options, None)
+}
+
+/// Experimental native rendering, with source-scoped diagnostics for the caller to gate.
+/// This is not yet a publication or portable-rendering entry point.
+#[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+pub fn render_diagrams(
+    markdown: &str,
+    options: RenderOptions<'_>,
+) -> (Rendered, Vec<crate::diagram::Finding>) {
+    let mut work = DiagramWork {
+        fences: crate::diagram::discover(markdown),
+        findings: Vec::new(),
+    };
+    let rendered = render_with_diagram_work(markdown, options, Some(&mut work));
+    (rendered, work.findings)
+}
+
+struct DiagramWork {
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    fences: Vec<Result<crate::diagram::Diagram, crate::diagram::Finding>>,
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    findings: Vec<crate::diagram::Finding>,
+}
+
+fn render_with_diagram_work(
+    markdown: &str,
+    options: RenderOptions<'_>,
+    diagram_work: Option<&mut DiagramWork>,
+) -> Rendered {
     let source = without_nul(markdown, options.supplements);
     let mut parsed_events =
         Parser::new_ext(&source, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
@@ -2221,7 +2251,14 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
         options.supplements,
     );
     let refusals = marked.refused;
-    let mut rendered = render_events(parsed_events, markdown.len(), options, None, findings);
+    let mut rendered = render_events(
+        parsed_events,
+        markdown.len(),
+        options,
+        None,
+        findings,
+        diagram_work,
+    );
     rendered.concept_refusals = refusals;
     rendered
 }
@@ -2577,6 +2614,7 @@ pub fn render_portable(
         options,
         Some(projection.markdown_context()),
         findings,
+        None,
     );
     // Recipe sections are added after raw HTML is balanced inside its own
     // containers, so the finished body is balanced once more as a whole.
@@ -2893,6 +2931,7 @@ fn render_events<'a>(
     options: RenderOptions<'_>,
     portable: Option<PortableContext<'_>>,
     id_findings: Vec<crate::reading_depth::Finding>,
+    diagram_work: Option<&mut DiagramWork>,
 ) -> Rendered {
     let (parsed_events, inside_supplement, reading_depth) = if options.supplements {
         let transformed = crate::reading_depth::transform(parsed_events, true);
@@ -3108,6 +3147,14 @@ fn render_events<'a>(
     } else {
         events
     };
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    let events = if let Some(work) = diagram_work {
+        render_diagram_events(events, work)
+    } else {
+        events
+    };
+    #[cfg(not(all(feature = "diagram-rendering", not(target_arch = "wasm32"))))]
+    let _ = diagram_work;
     let (events, blocks) = transform_blocks(
         events,
         options.recipe,
@@ -3204,6 +3251,101 @@ fn render_events<'a>(
         reading_depth,
         concept_refusals: Vec::new(),
     }
+}
+
+#[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+fn render_diagram_events<'a>(events: Vec<Event<'a>>, work: &mut DiagramWork) -> Vec<Event<'a>> {
+    let mut ids = written_ids(&events);
+    let mut fences = std::mem::take(&mut work.fences).into_iter();
+    let mut result = Vec::with_capacity(events.len());
+    let mut events = events.into_iter();
+    let mut ordinal = 0usize;
+    while let Some(event) = events.next() {
+        if !matches!(&event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) if info.split_whitespace().next() == Some("mermaid"))
+        {
+            result.push(event);
+            continue;
+        }
+        let mut source = String::new();
+        for event in events.by_ref() {
+            match event {
+                Event::Text(text) => source.push_str(&text),
+                Event::End(TagEnd::CodeBlock) => break,
+                _ => {}
+            }
+        }
+        let found = fences.next().unwrap_or_else(|| {
+            Err(crate::diagram::Finding {
+                line: 0,
+                column: 0,
+                message: "diagram source position could not be determined".into(),
+            })
+        });
+        let rendered = found.and_then(|diagram| {
+            for _ in 0..100 {
+                ordinal += 1;
+                let svg = crate::diagram_svg::render(&diagram, ordinal).map_err(|message| {
+                    crate::diagram::Finding {
+                        line: diagram.line,
+                        column: diagram.column,
+                        message,
+                    }
+                })?;
+                let document = roxmltree::Document::parse(&svg).map_err(|error| {
+                    crate::diagram::Finding {
+                        line: diagram.line,
+                        column: diagram.column,
+                        message: format!("invalid rendered diagram: {error}"),
+                    }
+                })?;
+                let diagram_ids: Vec<String> = document
+                    .descendants()
+                    .filter_map(|node| node.attribute("id").map(str::to_owned))
+                    .collect();
+                if diagram_ids.iter().any(|id| ids.contains(id)) {
+                    continue;
+                }
+                ids.extend(diagram_ids);
+                let caption = diagram.options.caption.as_ref().map_or_else(String::new, |caption| {
+                    format!("<figcaption>{}</figcaption>", escape::text(caption))
+                });
+                let attribution = diagram.options.source.as_ref().map_or_else(String::new, |url| {
+                    format!("<p><a href=\"{}\">Diagram source</a></p>", escape::attr(url))
+                });
+                return Ok(format!(
+                    "<figure class=\"ob-diagram\">{svg}{caption}{attribution}<details><summary>Show diagram source</summary><pre><code class=\"language-mermaid\">{}</code></pre></details></figure>\n",
+                    escape::text(&source)
+                ));
+            }
+            Err(crate::diagram::Finding {
+                line: diagram.line,
+                column: diagram.column,
+                message: "could not allocate unique diagram IDs".into(),
+            })
+        });
+        match rendered {
+            Ok(html) => result.push(Event::Html(CowStr::from(html))),
+            Err(finding) => {
+                work.findings.push(finding);
+                result.push(Event::Html(CowStr::from(format!(
+                    "<pre><code class=\"language-mermaid\">{}</code></pre>\n",
+                    escape::text(&source)
+                ))));
+            }
+        }
+    }
+    for fence in fences {
+        let (line, column) = match fence {
+            Ok(diagram) => (diagram.line, diagram.column),
+            Err(finding) => (finding.line, finding.column),
+        };
+        work.findings.push(crate::diagram::Finding {
+            line,
+            column,
+            message: "diagram was not found in rendered Markdown".into(),
+        });
+    }
+    result
 }
 
 fn heading_level(level: HeadingLevel) -> u8 {
@@ -3692,6 +3834,53 @@ mod tests {
         assert!(r.html.contains(
             "<pre><code class=\"language-future-capability\">unmodified source\n</code></pre>"
         ));
+    }
+
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    #[test]
+    fn experimental_diagram_figures_disclose_source_and_report_invalid_fences() {
+        let source = "# Example\n\n> ```mermaid title=\"A title\" description=\"A description\" caption=\"A & B\" source=/source.mmd\n> flowchart LR\n> A --> B\n> ```\n\n```mermaid\n<script>alert(1)</script>\n```\n";
+        let (rendered, findings) = render_diagrams(source, RenderOptions::default());
+        assert_eq!(findings.len(), 1);
+        assert_eq!((findings[0].line, findings[0].column), (8, 1));
+        assert!(findings[0].message.contains("accTitle"));
+        assert!(rendered.html.contains("<figure class=\"ob-diagram\">"));
+        assert!(rendered.html.contains("<figcaption>A &amp; B</figcaption>"));
+        assert!(rendered.html.contains("href=\"/source.mmd\""));
+        assert!(rendered
+            .html
+            .contains("<summary>Show diagram source</summary>"));
+        assert!(rendered.html.contains("A --&gt; B"));
+        assert!(rendered
+            .html
+            .contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!rendered.html.contains("<script>"));
+    }
+
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    #[test]
+    fn experimental_diagrams_keep_other_markdown_unchanged_and_avoid_written_ids() {
+        let plain = "# Heading\n\nA paragraph.\n\n```rust\nfn main() {}\n```\n";
+        let (experimental, findings) = render_diagrams(plain, RenderOptions::default());
+        assert!(findings.is_empty());
+        assert_eq!(experimental, render(plain, RenderOptions::default()));
+
+        let source = "# Existing {#ob-diagram-1-accessible-title}\n\n```mermaid title=A description=B\nflowchart LR\nA --> B\n```\n\n```mermaid title=C description=D\nflowchart LR\nC --> D\n```\n";
+        let (rendered, findings) = render_diagrams(source, RenderOptions::default());
+        assert!(findings.is_empty(), "{findings:?}");
+        assert!(rendered
+            .html
+            .contains("aria-labelledby=\"ob-diagram-2-accessible-title"));
+        assert!(rendered
+            .html
+            .contains("aria-labelledby=\"ob-diagram-3-accessible-title"));
+        assert_eq!(
+            rendered
+                .html
+                .matches("id=\"ob-diagram-1-accessible-title\"")
+                .count(),
+            1
+        );
     }
 
     #[test]
