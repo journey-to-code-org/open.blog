@@ -73,19 +73,44 @@ test("a built episode passes accessibility checks and keyboard seeking", async (
     });
     await page.setViewportSize({ width: 400, height: 800 });
     await page.goto("https://episode.test/posts/episode/");
-    const feedFacts = await page.evaluate((xml) => {
-      const doc = new DOMParser().parseFromString(xml, "application/xml");
-      const channel = doc.querySelector("rss > channel");
-      const item = channel?.querySelector("item");
-      return {
-        parseError: !!doc.querySelector("parsererror"),
-        title: channel?.querySelector("title")?.textContent,
-        enclosure: item?.querySelector("enclosure")?.getAttribute("type"),
-        transcript: item?.getElementsByTagNameNS("https://podcastindex.org/namespace/1.0", "transcript").length,
-        chapters: item?.getElementsByTagNameNS("https://podcastindex.org/namespace/1.0", "chapters").length,
-      };
+    const validation = await page.evaluate((xml) => {
+      function validate(source) {
+        const doc = new DOMParser().parseFromString(source, "application/xml");
+        const channel = doc.querySelector("rss[version='2.0'] > channel");
+        const issues = [];
+        if (doc.querySelector("parsererror") || !channel) return ["invalid RSS"];
+        for (const tag of ["title", "link", "description", "language"]) {
+          if (!channel.querySelector(`:scope > ${tag}`)?.textContent.trim()) issues.push(`channel ${tag}`);
+        }
+        const itunes = "http://www.itunes.com/dtds/podcast-1.0.dtd";
+        const podcast = "https://podcastindex.org/namespace/1.0";
+        for (const tag of ["author", "category", "explicit", "image"]) {
+          if (!channel.getElementsByTagNameNS(itunes, tag).length) issues.push(`itunes ${tag}`);
+        }
+        const urls = new Set();
+        const guids = new Set();
+        const items = channel.querySelectorAll(":scope > item");
+        if (!items.length) issues.push("no episodes");
+        for (const item of items) {
+          const enclosure = item.querySelector(":scope > enclosure");
+          const url = enclosure?.getAttribute("url") || "";
+          const guid = item.querySelector(":scope > guid")?.textContent.trim() || "";
+          if (!item.querySelector(":scope > title")?.textContent.trim()) issues.push("episode title");
+          if (!/^https:\/\//.test(url) || !/^[1-9]\d*$/.test(enclosure?.getAttribute("length") || "") || !/^audio\//.test(enclosure?.getAttribute("type") || "") || urls.has(url)) issues.push("enclosure");
+          if (!guid || guids.has(guid)) issues.push("guid");
+          if (!Number.isFinite(Date.parse(item.querySelector(":scope > pubDate")?.textContent || ""))) issues.push("date");
+          if (!item.getElementsByTagNameNS(itunes, "duration").length) issues.push("duration");
+          if (!item.getElementsByTagNameNS(podcast, "transcript").length) issues.push("transcript");
+          if (!item.getElementsByTagNameNS(podcast, "chapters").length) issues.push("chapters");
+          urls.add(url);
+          guids.add(guid);
+        }
+        return issues;
+      }
+      return { valid: validate(xml), broken: validate(xml.replace(/<enclosure[^>]*\/>/, "")) };
     }, feed);
-    expect(feedFacts).toEqual({ parseError: false, title: "The Show", enclosure: "audio/mpeg", transcript: 1, chapters: 1 });
+    expect(validation.valid).toEqual([]);
+    expect(validation.broken).toContain("enclosure");
     const button = page.getByRole("button", { name: "Part one" });
     await expect(button).toBeEnabled();
     await expect(page.getByRole("heading", { name: "Transcript" })).toBeVisible();

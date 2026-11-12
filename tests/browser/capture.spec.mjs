@@ -103,6 +103,10 @@ test("an episode is authored and transcribed with consent at 400px", async ({ pa
   expect(content).toContain("durationSeconds: 30");
   expect(content).toContain("Part one");
   expect(content).toContain("Spoken words.");
+  await page.keyboard.press("Alt+7");
+  await page.getByRole("radio", { name: "Published", exact: true }).check();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => readFileSync(join(root, "content", "posts", files[0]), "utf8")).not.toMatch(/^draft:\s*["']?true/m);
 });
 
 // No control or region is wider than the viewport (a small tolerance, never tuned to one platform's fonts).

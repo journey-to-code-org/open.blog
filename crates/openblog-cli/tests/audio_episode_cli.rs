@@ -195,3 +195,23 @@ fn custom_episode_component_is_preserved_with_and_without_audio() {
     assert!(second.status.success(), "{}", stderr(&second));
     assert_eq!(fs::read_to_string(output).unwrap(), "// author override\n");
 }
+
+#[test]
+fn podcast_rejects_duplicate_enclosure_urls() {
+    let project = Project::new();
+    audio(&project.0, b"ID3abcdefghi");
+    project.post(false, "## Transcript\n\nHello.");
+    fs::copy(
+        project.0.join("content/posts/episode.md"),
+        project.0.join("content/posts/second.md"),
+    )
+    .unwrap();
+    fs::write(project.0.join("openblog.json"), r#"{"title":"Audio","url":"https://example.test","podcast":{"version":1,"title":"Show","description":"Our show","author":"Host","category":"Technology","explicit":false,"image":"/cover.jpg"}}"#).unwrap();
+    let result = project.run("build");
+    assert!(!result.status.success());
+    assert!(
+        stderr(&result).contains("distinct enclosure URLs"),
+        "{}",
+        stderr(&result)
+    );
+}

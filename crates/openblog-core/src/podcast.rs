@@ -100,12 +100,19 @@ pub fn generate(site: &Site, config: &PodcastConfig) -> Result<(String, Vec<Outp
         out.push_str(&format!("<itunes:owner><itunes:name>{}</itunes:name><itunes:email>{}</itunes:email></itunes:owner>\n", x(&config.author), x(email)));
     }
     let mut files = Vec::new();
+    let mut enclosures = std::collections::BTreeSet::new();
     for post in site.posts.iter().filter(|post| site.is_published(post)) {
         let Some(audio) = &post.audio else { continue };
         let source = audio
             .sources
             .first()
             .ok_or("podcast episode has no audio source")?;
+        if !enclosures.insert(c.absolute(&source.url)) {
+            return Err(format!(
+                "{}: podcast episodes must have distinct enclosure URLs",
+                post.source
+            ));
+        }
         let link = c.absolute(&post.url);
         out.push_str(&format!("<item>\n<title>{}</title>\n<link>{}</link>\n<guid isPermaLink=\"true\">{}</guid>\n<pubDate>{}</pubDate>\n<description>{}</description>\n", x(&post.title), x(&link), x(&link), post.date.rfc2822(), x(&post.description)));
         out.push_str(&format!("<enclosure url=\"{}\" length=\"{}\" type=\"{}\"/>\n<itunes:duration>{}</itunes:duration>\n", x(&c.absolute(&source.url)), source.size_bytes, x(&source.media_type), audio.duration_seconds));
