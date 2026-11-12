@@ -30,6 +30,7 @@ const components = [
   "ob-list-pagination",
   "ob-series-previews",
   "ob-back-to-top",
+  "ob-docs-nav",
   "ob-search",
   "ob-share",
   "ob-views",

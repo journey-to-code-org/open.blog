@@ -5,6 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Documentation sites (ADR 0405): with `"docs": { "enabled": true }`, Markdown under `content/docs/` is published as a tree of pages at `/docs/`, each at the address its path gives (`guides/deploy.md` is `/docs/guides/deploy/`, a folder's `index.md` is the folder). Pages get a sidebar that opens the folder the reader is in (plain HTML in a `<details>`, folded on narrow screens by the new `<ob-docs-nav>`), and **Previous** and **Next** links in reading order; `order:` and `navTitle:` set the order and a shorter sidebar title. Links written between files (`install.md`, `../guides/`, `deploy.md#netlify`) become the pages' addresses, and a link to a missing file is a warning. `openblog init --starter docs` writes an example section and a Docs link. Off by default: until it is enabled, a `content/docs/` folder is still left out, and the build says so. See [Documentation sites](docs/docs-sites.md).
 - Web sandboxes (`web runnable`) show the live preview first, with the source behind a **Show code**
   button; a new `open` fence word shows the editors from the start for challenges. The preview takes the
   page's light or dark scheme and follows the reader's theme toggle without reloading, so lesson CSS

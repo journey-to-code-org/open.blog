@@ -38,6 +38,8 @@ pub struct Sources {
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
+    /// The `docs/` folder, published at `/docs/` while `docs.enabled` is on (ADR 0405).
+    pub docs: Vec<SourceFile>,
     /// The `services/` collection (ADR 0311).
     pub services: Vec<SourceFile>,
     /// The `proof/` collection of saved reviews (ADR 0389).
@@ -579,6 +581,8 @@ pub struct Page {
     pub nav: bool,
     pub aliases: Vec<String>,
     pub source: String,
+    /// Where the page sits in the documentation section, for a page from `docs/` (ADR 0405).
+    pub doc: Option<crate::docs_section::DocPlace>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     /// Semantic capabilities detected in the authored Markdown.
     pub capabilities: Vec<CapabilityDescriptor>,
@@ -1012,6 +1016,16 @@ impl Site {
                 Err(e) => errors.push(format!("{}: {e}", file.path)),
             }
         }
+        load_docs(
+            &sources.docs,
+            &config,
+            options.include_drafts,
+            concept_options(render_options),
+            &mut pages,
+            &mut accessibility,
+            &mut warnings,
+            &mut errors,
+        );
         pages.sort_by(|a, b| a.title.cmp(&b.title));
         let mut services: Vec<Service> = Vec::new();
         for file in &sources.services {
@@ -2788,9 +2802,108 @@ fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, Stri
         nav: fm.get_bool("nav").unwrap_or(false),
         aliases: aliases(fm)?,
         source: file.path.clone(),
+        doc: None,
         accessibility,
         capabilities: rendered.capabilities,
     })
+}
+
+/// Load `content/docs/` as documentation pages (ADR 0405): each file's address comes from its
+/// path, and its links to other files under `docs/` are rewritten to their addresses once
+/// every page is known. With `docs.enabled` off the folder is left out, as it always was, and
+/// a warning says so.
+#[allow(clippy::too_many_arguments)]
+fn load_docs(
+    files: &[SourceFile],
+    config: &SiteConfig,
+    include_drafts: bool,
+    options: RenderOptions<'_>,
+    pages: &mut Vec<Page>,
+    accessibility: &mut Vec<AccessibilityFinding>,
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) {
+    use crate::docs_section::{doc_path, rewrite_links, url_for, DocPlace, DOCS_SEGMENT};
+    if files.is_empty() {
+        return;
+    }
+    if !config.docs.enabled {
+        warnings.push(format!(
+            "content/docs/ holds {} Markdown file(s) that are not published; set \"docs\": {{ \"enabled\": true }} in openblog.json to publish them at /docs/",
+            files.len()
+        ));
+        return;
+    }
+    if let Some(page) = pages.iter().find(|page| page.slug == DOCS_SEGMENT) {
+        errors.push(format!(
+            "{}: the page slug `{DOCS_SEGMENT}` would collide with the documentation at /{DOCS_SEGMENT}/; rename the page or turn docs.enabled off",
+            page.source
+        ));
+        return;
+    }
+    let mut docs: Vec<Page> = Vec::new();
+    for file in files {
+        let Some(path) = doc_path(&file.path) else {
+            continue;
+        };
+        let doc = match frontmatter::parse(&file.contents) {
+            Ok(document) => {
+                if is_draft(&document.front_matter) && !include_drafts {
+                    continue;
+                }
+                DocPlace {
+                    path: path.clone(),
+                    order: document.front_matter.get_u32("order"),
+                    nav_title: optional_string(first(&document.front_matter, &["navTitle"])),
+                }
+            }
+            Err(e) => {
+                errors.push(format!("{}: {e}", file.path));
+                continue;
+            }
+        };
+        match load_page(file, options) {
+            Ok(mut page) => {
+                if let Some(other) = docs
+                    .iter()
+                    .find(|other| other.doc.as_ref().is_some_and(|d| d.path == path))
+                {
+                    errors.push(format!(
+                        "{}: the address {} is also taken by {}",
+                        file.path,
+                        url_for(&path),
+                        other.source
+                    ));
+                    continue;
+                }
+                page.slug = if path.is_empty() {
+                    DOCS_SEGMENT.to_string()
+                } else {
+                    format!("{DOCS_SEGMENT}/{path}")
+                };
+                page.url = url_for(&path);
+                page.doc = Some(doc);
+                // A documentation page is never in the header navigation by itself; the site
+                // links /docs/ from `nav` like any other address.
+                page.nav = false;
+                docs.push(page);
+            }
+            Err(e) => errors.push(format!("{}: {e}", file.path)),
+        }
+    }
+    let known: std::collections::HashMap<String, String> = docs
+        .iter()
+        .filter_map(|page| {
+            page.doc
+                .as_ref()
+                .map(|doc| (doc.path.clone(), page.url.clone()))
+        })
+        .collect();
+    for page in &mut docs {
+        page.html = rewrite_links(&page.html, &page.source, &known, warnings);
+        accessibility.extend(page.accessibility.iter().cloned());
+    }
+    pages.extend(docs);
 }
 
 /// Normalise `aliases:` (or `redirectFrom:`) to `/path/` form and reject
@@ -2884,6 +2997,7 @@ mod tests {
             credits: Vec::new(),
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+docs: Vec::new(),
             services: Vec::new(),
             proof: Vec::new(),
             source_library: None,

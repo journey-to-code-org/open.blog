@@ -88,6 +88,7 @@ pub mod curated_context;
 pub mod curated_selection;
 pub mod date;
 pub mod distribution;
+pub mod docs_section;
 pub mod draft;
 pub mod embed;
 pub mod escape;
@@ -208,6 +209,8 @@ pub fn classify_source(relative_path: &str) -> Option<SourceKind> {
         "pages" => Some(SourceKind::Page),
         "services" => Some(SourceKind::Service),
         "proof" => Some(SourceKind::Proof),
+        // The documentation section (ADR 0405); built only while `docs.enabled` is on.
+        "docs" if normalized.contains('/') => Some(SourceKind::Doc),
         // Loose Markdown files at the content root are posts, so a folder of
         // exported articles works with no restructuring.
         _ if !normalized.contains('/') => Some(SourceKind::Post),
@@ -221,6 +224,7 @@ pub enum SourceKind {
     PostCredits,
     Series,
     Page,
+    Doc,
     Service,
     Proof,
 }
@@ -238,6 +242,7 @@ impl Sources {
             Some(SourceKind::PostCredits) => self.credits.push(file),
             Some(SourceKind::Series) => self.series.push(file),
             Some(SourceKind::Page) => self.pages.push(file),
+            Some(SourceKind::Doc) => self.docs.push(file),
             Some(SourceKind::Service) => self.services.push(file),
             Some(SourceKind::Proof) => self.proof.push(file),
             None => return false,

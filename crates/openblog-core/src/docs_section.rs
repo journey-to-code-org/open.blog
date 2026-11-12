@@ -1,0 +1,466 @@
+//! The documentation section (ADR 0405): Markdown files under `content/docs/` published as a
+//! tree of pages at `/docs/`, with a sidebar, previous and next links, and links between the
+//! files written as `.md` paths so the same files read correctly on GitHub.
+//!
+//! Off unless `docs.enabled` is true in `openblog.json`, so a site that keeps notes in a
+//! `content/docs/` folder builds exactly as before.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+use crate::escape::{attr, text};
+use crate::model::Page;
+
+/// The folder under the content folder that holds the documentation.
+pub const DOCS_DIR: &str = "docs";
+/// The first path segment of every documentation page's address.
+pub const DOCS_SEGMENT: &str = "docs";
+
+/// The `docs` member of `openblog.json`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DocsConfig {
+    /// Publish `content/docs/` at `/docs/`.
+    pub enabled: bool,
+    /// The sidebar's heading and the label of the header link to `/docs/`. Defaults to
+    /// "Documentation".
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub title: String,
+}
+
+impl DocsConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn title(&self) -> &str {
+        if self.title.trim().is_empty() {
+            "Documentation"
+        } else {
+            self.title.trim()
+        }
+    }
+}
+
+/// Where a page sits in the documentation tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DocPlace {
+    /// The page's path under `/docs/`, without slashes at either end: `""` for the section's
+    /// own index, `guides` for `guides/index.md`, `guides/install` for `guides/install.md`.
+    pub path: String,
+    /// `order:` from front matter; pages with one come first, lowest first.
+    pub order: Option<u32>,
+    /// `navTitle:` from front matter, a shorter title for the sidebar.
+    pub nav_title: Option<String>,
+}
+
+impl DocPlace {
+    /// The folder the page belongs to in the sidebar: an index page belongs to its parent
+    /// folder (it heads its own folder's group).
+    pub fn parent(&self) -> Option<&str> {
+        if self.path.is_empty() {
+            return None;
+        }
+        Some(
+            self.path
+                .rsplit_once('/')
+                .map(|(parent, _)| parent)
+                .unwrap_or(""),
+        )
+    }
+
+    pub fn depth(&self) -> usize {
+        if self.path.is_empty() {
+            0
+        } else {
+            self.path.matches('/').count() + 1
+        }
+    }
+}
+
+/// The documentation path of a source file (`docs/...` relative to the content folder), or
+/// `None` for a file outside `docs/`. `index.md` stands for its folder.
+pub fn doc_path(source: &str) -> Option<String> {
+    let source = source.replace('\\', "/");
+    let rest = source.strip_prefix(&format!("{DOCS_DIR}/"))?;
+    let stem = rest
+        .strip_suffix(".md")
+        .or_else(|| rest.strip_suffix(".markdown"))?;
+    let segments: Vec<String> = stem.split('/').map(crate::slug::slugify).collect();
+    let mut path = segments.join("/");
+    if path == "index" {
+        path.clear();
+    } else if let Some(folder) = path.strip_suffix("/index") {
+        path = folder.to_string();
+    }
+    Some(path)
+}
+
+/// The address of a documentation path.
+pub fn url_for(path: &str) -> String {
+    if path.is_empty() {
+        format!("/{DOCS_SEGMENT}/")
+    } else {
+        format!("/{DOCS_SEGMENT}/{path}/")
+    }
+}
+
+/// Resolve `target` (an `href` written in the source file `from`, both relative to the content
+/// folder) to a documentation path when it names a Markdown file or folder under `docs/`.
+fn resolve(from: &str, target: &str) -> Option<String> {
+    let mut parts: Vec<&str> = from.split('/').collect();
+    parts.pop();
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other),
+        }
+    }
+    let joined = parts.join("/");
+    if joined.ends_with(".md") || joined.ends_with(".markdown") {
+        return doc_path(&joined);
+    }
+    // A folder: its index.
+    doc_path(&format!("{joined}/index.md"))
+}
+
+/// Rewrite the links in a documentation page's HTML that point at other Markdown files under
+/// `docs/` (`install.md`, `../guides/`, `adr/0001-x.md#context`) to the pages' addresses.
+/// Links to a `.md` file that is not a documentation page are left as written and reported.
+pub fn rewrite_links(
+    html: &str,
+    source: &str,
+    known: &HashMap<String, String>,
+    warnings: &mut Vec<String>,
+) -> String {
+    let marker = "href=\"";
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(at) = rest.find(marker) {
+        let (before, after) = rest.split_at(at + marker.len());
+        out.push_str(before);
+        let end = after.find('"').unwrap_or(after.len());
+        let href = &after[..end];
+        out.push_str(&rewrite_href(href, source, known, warnings));
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn rewrite_href(
+    href: &str,
+    source: &str,
+    known: &HashMap<String, String>,
+    warnings: &mut Vec<String>,
+) -> String {
+    let is_external = href.starts_with('/')
+        || href.starts_with('#')
+        || href.is_empty()
+        || href
+            .split_once(':')
+            .is_some_and(|(scheme, _)| !scheme.contains('/'));
+    if is_external {
+        return href.to_string();
+    }
+    let (path, anchor) = match href.split_once('#') {
+        Some((path, anchor)) => (path, format!("#{anchor}")),
+        None => (href, String::new()),
+    };
+    let markdown = path.ends_with(".md") || path.ends_with(".markdown");
+    let folder = path.ends_with('/') || path == "." || path == "..";
+    if !markdown && !folder {
+        return href.to_string();
+    }
+    match resolve(source, path).and_then(|doc| known.get(&doc)) {
+        Some(url) => format!("{url}{anchor}"),
+        None => {
+            if markdown {
+                warnings.push(format!(
+                    "{source}: the link to `{path}` does not match a page under docs/"
+                ));
+            }
+            href.to_string()
+        }
+    }
+}
+
+/// The documentation pages in reading order: depth first, a folder's index before the pages
+/// in it, and within a folder by `order:` and then by title.
+pub fn reading_order(pages: &[Page]) -> Vec<usize> {
+    let docs: Vec<(usize, &DocPlace)> = pages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, page)| page.doc.as_ref().map(|doc| (index, doc)))
+        .collect();
+    let mut out = Vec::with_capacity(docs.len());
+    if let Some((root, _)) = docs.iter().find(|(_, doc)| doc.path.is_empty()) {
+        out.push(*root);
+    }
+    push_children(pages, &docs, "", &mut out);
+    out
+}
+
+/// The pages directly in `folder`: its files, and the index of each subfolder (which may be
+/// missing, in which case the folder's pages are still listed, under a heading made from the
+/// folder's name).
+fn children<'a>(pages: &'a [Page], docs: &[(usize, &'a DocPlace)], folder: &str) -> Vec<Child<'a>> {
+    let mut list: Vec<Child<'a>> = Vec::new();
+    for (index, doc) in docs {
+        if doc.parent() == Some(folder) {
+            list.push(Child::Page(*index, doc));
+        }
+    }
+    // Subfolders that hold pages but have no index of their own.
+    let prefix = if folder.is_empty() {
+        String::new()
+    } else {
+        format!("{folder}/")
+    };
+    let paths: std::collections::HashSet<&str> =
+        docs.iter().map(|(_, doc)| doc.path.as_str()).collect();
+    let mut bare: Vec<String> = Vec::new();
+    for (_, doc) in docs {
+        if let Some(rest) = doc.path.strip_prefix(&prefix) {
+            if let Some((sub, _)) = rest.split_once('/') {
+                let full = format!("{prefix}{sub}");
+                let has_index = paths.contains(full.as_str());
+                if !has_index && !bare.contains(&full) {
+                    bare.push(full);
+                }
+            }
+        }
+    }
+    for full in bare {
+        list.push(Child::Folder(full));
+    }
+    list.sort_by(|a, b| {
+        let key = |child: &Child<'a>| match child {
+            Child::Page(index, doc) => (
+                doc.order.unwrap_or(u32::MAX),
+                sidebar_title(&pages[*index]).to_lowercase(),
+            ),
+            Child::Folder(path) => (u32::MAX, folder_title(path).to_lowercase()),
+        };
+        key(a).cmp(&key(b))
+    });
+    list
+}
+
+enum Child<'a> {
+    Page(usize, &'a DocPlace),
+    Folder(String),
+}
+
+fn push_children(pages: &[Page], docs: &[(usize, &DocPlace)], folder: &str, out: &mut Vec<usize>) {
+    for child in children(pages, docs, folder) {
+        match child {
+            Child::Page(index, doc) => {
+                out.push(index);
+                if !doc.path.is_empty() && is_folder(docs, &doc.path) {
+                    push_children(pages, docs, &doc.path, out);
+                }
+            }
+            Child::Folder(path) => push_children(pages, docs, &path, out),
+        }
+    }
+}
+
+/// Whether any page sits inside `path`, which makes the page at `path` a folder's index.
+fn is_folder(docs: &[(usize, &DocPlace)], path: &str) -> bool {
+    let prefix = format!("{path}/");
+    docs.iter().any(|(_, doc)| doc.path.starts_with(&prefix))
+}
+
+fn sidebar_title(page: &Page) -> &str {
+    page.doc
+        .as_ref()
+        .and_then(|doc| doc.nav_title.as_deref())
+        .unwrap_or(&page.title)
+}
+
+fn folder_title(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    crate::model::humanize(name)
+}
+
+/// The sidebar for the page at `current` (an index into `pages`). Every top-level entry is
+/// listed; a folder's pages are listed only when the current page is in that folder or below
+/// it, so a large folder costs nothing on pages elsewhere. Plain links in a `<nav>`, inside a
+/// `<details>` that a narrow screen shows folded.
+pub fn sidebar(pages: &[Page], current: usize, heading: &str) -> String {
+    let docs: Vec<(usize, &DocPlace)> = pages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, page)| page.doc.as_ref().map(|doc| (index, doc)))
+        .collect();
+    let current_path = pages[current]
+        .doc
+        .as_ref()
+        .map(|doc| doc.path.clone())
+        .unwrap_or_default();
+    let mut out = format!(
+        "<ob-docs-nav>\n<details class=\"ob-docs-nav\" open>\n<summary>{}</summary>\n<nav aria-label=\"{}\">\n",
+        text(heading),
+        attr(heading)
+    );
+    out.push_str("<ul>\n");
+    if let Some((root, _)) = docs.iter().find(|(_, doc)| doc.path.is_empty()) {
+        out.push_str(&item(&pages[*root], *root == current, ""));
+        out.push_str("</li>\n");
+    }
+    items(pages, &docs, "", &current_path, current, &mut out);
+    out.push_str("</ul>\n</nav>\n</details>\n</ob-docs-nav>\n");
+    out
+}
+
+fn item(page: &Page, is_current: bool, class: &str) -> String {
+    let class_attr = if class.is_empty() {
+        String::new()
+    } else {
+        format!(" class=\"{class}\"")
+    };
+    let current = if is_current {
+        " aria-current=\"page\""
+    } else {
+        ""
+    };
+    format!(
+        "<li{class_attr}><a href=\"{}\"{current}>{}</a>",
+        attr(&page.url),
+        text(sidebar_title(page))
+    )
+}
+
+fn list(
+    pages: &[Page],
+    docs: &[(usize, &DocPlace)],
+    folder: &str,
+    current_path: &str,
+    current: usize,
+    out: &mut String,
+) {
+    if children(pages, docs, folder).is_empty() {
+        return;
+    }
+    out.push_str("<ul>\n");
+    items(pages, docs, folder, current_path, current, out);
+    out.push_str("</ul>\n");
+}
+
+/// The `<li>` of each entry directly in `folder`, with the folder the reader is in expanded.
+fn items(
+    pages: &[Page],
+    docs: &[(usize, &DocPlace)],
+    folder: &str,
+    current_path: &str,
+    current: usize,
+    out: &mut String,
+) {
+    for child in children(pages, docs, folder) {
+        let (path, opened) = match &child {
+            Child::Page(index, doc) => {
+                let is_folder = is_folder(docs, &doc.path);
+                out.push_str(&item(
+                    &pages[*index],
+                    *index == current,
+                    if is_folder { "ob-docs-folder" } else { "" },
+                ));
+                (doc.path.clone(), is_folder)
+            }
+            Child::Folder(path) => {
+                out.push_str(&format!(
+                    "<li class=\"ob-docs-folder\"><span>{}</span>",
+                    text(&folder_title(path))
+                ));
+                (path.clone(), true)
+            }
+        };
+        let inside = current_path == path || current_path.starts_with(&format!("{path}/"));
+        if opened && inside {
+            out.push('\n');
+            list(pages, docs, &path, current_path, current, out);
+        }
+        out.push_str("</li>\n");
+    }
+}
+
+/// The previous and next pages in reading order, as a `<nav>`; empty for a section of one page.
+pub fn pager(pages: &[Page], order: &[usize], current: usize) -> String {
+    let Some(position) = order.iter().position(|index| *index == current) else {
+        return String::new();
+    };
+    let previous = position.checked_sub(1).map(|p| &pages[order[p]]);
+    let next = order.get(position + 1).map(|index| &pages[*index]);
+    if previous.is_none() && next.is_none() {
+        return String::new();
+    }
+    let mut out = String::from("<nav class=\"ob-docs-pager\" aria-label=\"Previous and next\">\n");
+    if let Some(page) = previous {
+        out.push_str(&format!(
+            "<a class=\"ob-docs-previous\" href=\"{}\" rel=\"prev\"><span class=\"ob-meta\">Previous</span> {}</a>\n",
+            attr(&page.url),
+            text(&page.title)
+        ));
+    }
+    if let Some(page) = next {
+        out.push_str(&format!(
+            "<a class=\"ob-docs-next\" href=\"{}\" rel=\"next\"><span class=\"ob-meta\">Next</span> {}</a>\n",
+            attr(&page.url),
+            text(&page.title)
+        ));
+    }
+    out.push_str("</nav>\n");
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_come_from_the_file_and_index_stands_for_its_folder() {
+        assert_eq!(doc_path("docs/index.md").as_deref(), Some(""));
+        assert_eq!(doc_path("docs/install.md").as_deref(), Some("install"));
+        assert_eq!(doc_path("docs/guides/index.md").as_deref(), Some("guides"));
+        assert_eq!(
+            doc_path("docs/Guides/First Steps.md").as_deref(),
+            Some("guides/first-steps")
+        );
+        assert_eq!(doc_path("pages/about.md"), None);
+        assert_eq!(url_for(""), "/docs/");
+        assert_eq!(url_for("guides/install"), "/docs/guides/install/");
+    }
+
+    #[test]
+    fn links_to_markdown_files_become_page_addresses() {
+        let known: HashMap<String, String> = [
+            ("".to_string(), "/docs/".to_string()),
+            ("install".to_string(), "/docs/install/".to_string()),
+            ("guides".to_string(), "/docs/guides/".to_string()),
+            (
+                "guides/deploy".to_string(),
+                "/docs/guides/deploy/".to_string(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let mut warnings = Vec::new();
+        let html = r##"<a href="../install.md#steps">i</a> <a href="deploy.md">d</a> <a href="./">g</a> <a href="https://x.dev/a.md">x</a> <a href="/docs/">r</a> <a href="#top">t</a> <a href="missing.md">m</a> <a href="../../README.md">o</a> <a href="photo.png">p</a>"##;
+        let out = rewrite_links(html, "docs/guides/index.md", &known, &mut warnings);
+        assert!(out.contains(r#"href="/docs/install/#steps""#), "{out}");
+        assert!(out.contains(r#"href="/docs/guides/deploy/""#), "{out}");
+        assert!(out.contains(r#"<a href="/docs/guides/">g</a>"#), "{out}");
+        assert!(out.contains(r#"href="https://x.dev/a.md""#));
+        assert!(out.contains(r#"href="/docs/">r"#));
+        assert!(out.contains(r##"href="#top""##));
+        assert!(out.contains(r#"href="missing.md""#));
+        assert!(out.contains(r#"href="photo.png""#));
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(warnings[0].contains("missing.md"));
+        assert!(warnings[1].contains("../../README.md"));
+    }
+}

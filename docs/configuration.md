@@ -704,6 +704,12 @@ What the hosted service keeps, and how it goes, once you run the optional
   records of decisions after `auditDays`. Comments are included only if you set `retention`
   yourself.
 
+## Documentation section
+
+`docs` publishes `content/docs/` as a tree of pages at `/docs/` with a sidebar: `{ "enabled": true, "title":
+"Documentation" }`. Off and absent by default; while it is off, files in `content/docs/` are not published and the
+build says so. `title` is the sidebar's heading. See [Documentation sites](docs-sites.md).
+
 ## Themes
 
 Themes are not configured here beyond `theme`; each theme has its own `theme.json`. See
