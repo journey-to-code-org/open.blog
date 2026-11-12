@@ -129,8 +129,9 @@ Checked on 2026-10-29 against the providers' own documentation:
   [resumable upload protocol](https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol),
   start private, and may carry `publishAt` only while private; quota errors are read from
   [the API errors](https://developers.google.com/youtube/v3/docs/errors) and reset at midnight Pacific Time
-  ([quota costs](https://developers.google.com/youtube/v3/determine_quota_cost)). Captions need a scope that manages
-  the whole account, so they stay by hand in YouTube Studio. The login is
+  ([quota costs](https://developers.google.com/youtube/v3/determine_quota_cost)). Caption uploads need a scope that
+  manages the whole account; they remain manual unless the author explicitly connects with caption permission.
+  Each `captions.insert` costs 400 units, and acceptance is not proof of successful processing. The login is
   [OAuth for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app) with your own client
   (ADRs [0375](adr/0375-youtube-is-a-video-family-provider-declared-as-a-guided-workflow-until-an-adapter-uploads.md),
   [0376](adr/0376-a-youtube-preview-is-the-exact-metadata-with-the-canonical-article-link-checked-against-youtubes-rules.md),

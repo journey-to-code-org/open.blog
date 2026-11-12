@@ -166,6 +166,18 @@ fn connected(root: &Path) {
     .unwrap();
 }
 
+fn connected_with_captions(root: &Path) {
+    connected(root);
+    let mut grant = load_grant(root).unwrap().unwrap();
+    grant.scopes.push(video_upload::SCOPE_CAPTIONS.into());
+    write_protected(
+        &private_path(root, CREDENTIAL_FILE).unwrap(),
+        &serde_json::to_vec(&grant).unwrap(),
+        "credential",
+    )
+    .unwrap();
+}
+
 fn approved(root: &Path) -> Prepared {
     let prepared = video_release::prepare(root, "episode").unwrap();
     approve_at(
@@ -264,6 +276,168 @@ fn caption_changes_beyond_the_validation_prefix_also_change_the_preview() {
         .problems
         .iter()
         .any(|problem| problem.code == "caption-not-found"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn caption_upload_is_bound_to_the_approved_bytes_and_recorded_per_file() {
+    let root = project("caption-upload", 64);
+    connected_with_captions(&root);
+    let prepared = approved(&root);
+    let script = Script::new(vec![
+        token(),
+        session(),
+        created(),
+        reply(200, "{}"),
+        reply(200, r#"{"id":"caption-123"}"#),
+    ]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap();
+    let record = record(&root);
+    assert_eq!(record.state, UploadState::Uploaded);
+    assert_eq!(record.captions.len(), 1);
+    assert_eq!(record.captions[0].state, CaptionState::Uploaded);
+    assert_eq!(record.captions[0].remote_id.as_deref(), Some("caption-123"));
+    let sent = script.sent.borrow();
+    let caption = sent.last().unwrap();
+    assert_eq!(caption.url, CAPTIONS_URL);
+    let body = String::from_utf8_lossy(&caption.body);
+    assert!(body.contains(r#""language":"en""#));
+    assert!(body.contains(r#""videoId":"dQw4w9WgXcQ""#));
+    assert!(body.contains("The gate opens."));
+    drop(sent);
+    let repeat = Script::new(vec![]);
+    upload_with(&root, &prepared, &env(&repeat, &real_now)).unwrap();
+    assert!(repeat.sent.borrow().is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn lost_caption_reply_is_unknown_and_never_automatically_retried() {
+    let root = project("caption-unknown", 64);
+    connected_with_captions(&root);
+    let prepared = approved(&root);
+    let script = Script::new(vec![
+        token(),
+        session(),
+        created(),
+        reply(200, "{}"),
+        Err(NoReply),
+    ]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap();
+    let saved = record(&root);
+    assert_eq!(saved.state, UploadState::Uploaded);
+    assert_eq!(saved.captions[0].state, CaptionState::Unknown);
+    let repeat = Script::new(vec![]);
+    upload_with(&root, &prepared, &env(&repeat, &real_now)).unwrap();
+    assert!(repeat.sent.borrow().is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn rejected_caption_does_not_fail_the_video_and_can_be_retried_alone() {
+    let root = project("caption-retry", 64);
+    connected_with_captions(&root);
+    let prepared = approved(&root);
+    let script = Script::new(vec![
+        token(),
+        session(),
+        created(),
+        reply(200, "{}"),
+        google_error(403, "forbidden"),
+    ]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap();
+    assert_eq!(record(&root).state, UploadState::Uploaded);
+    assert_eq!(record(&root).captions[0].state, CaptionState::Failed);
+    let retry = Script::new(vec![token(), reply(200, r#"{"id":"caption-123"}"#)]);
+    upload_with(&root, &prepared, &env(&retry, &real_now)).unwrap();
+    assert_eq!(
+        retry.urls(),
+        [
+            "POST https://oauth2.googleapis.com/token",
+            "POST https://www.googleapis.com/upload/youtube/v3/captions"
+        ]
+    );
+    assert_eq!(record(&root).captions[0].state, CaptionState::Uploaded);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn caption_conflict_needs_manual_review_and_is_not_retried() {
+    let root = project("caption-conflict", 64);
+    connected_with_captions(&root);
+    let prepared = approved(&root);
+    let script = Script::new(vec![
+        token(),
+        session(),
+        created(),
+        reply(200, "{}"),
+        google_error(409, "captionExists"),
+    ]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap();
+    assert_eq!(record(&root).captions[0].state, CaptionState::Unknown);
+    let repeat = Script::new(vec![]);
+    upload_with(&root, &prepared, &env(&repeat, &real_now)).unwrap();
+    assert!(repeat.sent.borrow().is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_caption_not_yet_started_after_an_interruption_is_uploaded_on_resume() {
+    let root = project("caption-resume", 64);
+    fs::write(
+        root.join("media/episode.fr.vtt"),
+        "WEBVTT\n\n00:00.000 --> 00:02.000\nBonjour.\n",
+    )
+    .unwrap();
+    let post_path = root.join("content/posts/2026-10-01-episode.md");
+    let source = fs::read_to_string(&post_path).unwrap().replace(
+        "captions: media/episode.en.vtt",
+        "captions:\n  - media/episode.en.vtt\n  - media/episode.fr.vtt",
+    );
+    fs::write(post_path, source).unwrap();
+    connected_with_captions(&root);
+    let prepared = approved(&root);
+    assert_eq!(prepared.preview.captions.len(), 2);
+    let script = Script::new(vec![
+        token(),
+        session(),
+        created(),
+        reply(200, "{}"),
+        reply(200, r#"{"id":"caption-en"}"#),
+        reply(200, r#"{"id":"caption-fr"}"#),
+    ]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap();
+    let mut saved = record(&root);
+    saved.captions.pop();
+    save_record(&root, "episode", &saved).unwrap();
+    let retry = Script::new(vec![token(), reply(200, r#"{"id":"caption-fr"}"#)]);
+    upload_with(&root, &prepared, &env(&retry, &real_now)).unwrap();
+    assert_eq!(record(&root).captions.len(), 2);
+    assert_eq!(record(&root).captions[1].state, CaptionState::Uploaded);
+    assert_eq!(retry.sent.borrow().len(), 2);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn changed_caption_during_upload_is_not_sent() {
+    let root = project("caption-race", 64);
+    connected_with_captions(&root);
+    let prepared = approved(&root);
+    fs::write(root.join("media/episode.en.vtt"), "WEBVTT\n\nchanged").unwrap();
+    let script = Script::new(vec![token(), session(), created(), reply(200, "{}")]);
+    upload_with(&root, &prepared, &env(&script, &real_now)).unwrap();
+    let saved = record(&root);
+    assert_eq!(saved.state, UploadState::Uploaded);
+    assert_eq!(saved.captions[0].state, CaptionState::Failed);
+    assert_eq!(
+        saved.captions[0].failure.as_deref(),
+        Some("caption-changed")
+    );
+    assert!(!script
+        .sent
+        .borrow()
+        .iter()
+        .any(|request| request.url == CAPTIONS_URL));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -903,6 +1077,58 @@ fn connecting_stores_the_refresh_token_protected_only_when_every_scope_is_grante
     let error = upload_with(&root, &prepared, &other).unwrap_err();
     assert_eq!(code(&error), "client-changed");
     assert!(script.sent.borrow().is_empty());
+}
+
+#[test]
+fn caption_permission_is_explicit_and_partial_caption_grants_are_not_stored() {
+    let root = project("caption-scope", 16);
+    let mut scopes = video_upload::SCOPES.to_vec();
+    scopes.push(video_upload::SCOPE_CAPTIONS);
+    let script = Script::new(vec![reply(
+        200,
+        &json!({"refresh_token": "1//caption-secret", "scope": scopes.join(" ")}).to_string(),
+    )]);
+    let mut show = browser(|state| format!("state={state}&code=c"));
+    connect_with_scopes(
+        &root,
+        &env(&script, &real_now),
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+        Duration::from_secs(5),
+        true,
+        &mut show,
+    )
+    .unwrap();
+    assert!(load_grant(&root)
+        .unwrap()
+        .unwrap()
+        .scopes
+        .iter()
+        .any(|scope| scope == video_upload::SCOPE_CAPTIONS));
+    fs::remove_dir_all(&root).unwrap();
+
+    let root = project("caption-scope-partial", 16);
+    let script = Script::new(vec![
+        reply(
+            200,
+            &json!({"refresh_token": "1//caption-secret", "scope": video_upload::SCOPES.join(" ")})
+                .to_string(),
+        ),
+        reply(200, ""),
+    ]);
+    let mut show = browser(|state| format!("state={state}&code=c"));
+    let error = connect_with_scopes(
+        &root,
+        &env(&script, &real_now),
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+        Duration::from_secs(5),
+        true,
+        &mut show,
+    )
+    .unwrap_err();
+    assert_eq!(code(&error), "scope-missing");
+    assert!(error.contains("youtube.force-ssl"));
+    assert!(load_grant(&root).unwrap().is_none());
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

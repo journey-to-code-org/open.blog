@@ -662,10 +662,9 @@ pub fn youtube_preview(
         ));
     }
     if !release.captions.is_empty() {
-        // The adapter asks for no permission to manage captions (ADR 0378).
         notes.push(problem(
             "captions-by-hand",
-            "open.blog does not upload caption files; add them in YouTube Studio after the upload.",
+            "Caption files are uploaded after the video only when the channel has explicitly granted caption management permission; otherwise add them in YouTube Studio. Each upload costs 400 YouTube API quota units.",
         ));
     }
     notes.extend(asset_notes);

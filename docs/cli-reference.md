@@ -63,7 +63,7 @@ job-share <slug>           Preview a finished job for Google Business Profile, F
 video <slug>               Check a video post's YouTube release: title, description with the
                            article link, thumbnail, chapters, captions, transcript and consent;
                            uploads nothing unless approved and asked to (see video OPTIONS)
-youtube connect|disconnect|status
+youtube connect|connect-captions|disconnect|status
                            Connect a YouTube channel for approved uploads (off until
                            OPENBLOG_YOUTUBE_CLIENT_ID is set), revoke it, or show it
 analytics backup           Save view counts to the analytics branch (and push)

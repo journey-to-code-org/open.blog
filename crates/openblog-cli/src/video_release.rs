@@ -175,7 +175,7 @@ fn bind_caption_files(
         return Ok(());
     }
     let mut combined = Blake2b512::new();
-    combined.update(b"openblog-video-caption-preview-v1\0");
+    combined.update(b"openblog-video-caption-preview-v2\0");
     combined.update(preview.digest.as_bytes());
     for caption in &mut preview.captions {
         let path = video_release::project_path(&caption.path)
@@ -244,7 +244,7 @@ fn live(root: &Path, slug: &str) -> Result<bool, String> {
 
 /// The regular file an asset names, or `None` when anything on the way from the project root is
 /// a symlink, or the end is not a regular file. Core has already refused any path with `..`.
-fn resolve(root: &Path, static_dir: &str, asset: &AssetRef<'_>) -> Option<PathBuf> {
+pub(crate) fn resolve(root: &Path, static_dir: &str, asset: &AssetRef<'_>) -> Option<PathBuf> {
     let (base, path) = match asset {
         AssetRef::Project(path) => (String::new(), *path),
         AssetRef::Static(path) => (format!("{}/", static_dir.trim_matches('/')), *path),
