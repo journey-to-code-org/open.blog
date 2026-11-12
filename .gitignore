@@ -17,3 +17,6 @@ Thumbs.db
 
 # Local Netlify folder
 .netlify
+
+# Local scratch space and agent worktrees
+.scratch/
