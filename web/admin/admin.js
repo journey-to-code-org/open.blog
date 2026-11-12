@@ -9,6 +9,7 @@ import { buildChecksPanel } from "./checks-panel.js";
 import { applyJobDraft, bodyTakesScaffold, buildJobForm, JOB_PROFILE } from "./job-form.js";
 import { buildHistory } from "./landing-history.js";
 import { createJobCapture } from "./job-capture.js";
+import { createEpisodeEditor } from "./episode-editor.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { buildTradeChecklist, checklistVisible } from "./trade-checklist.js";
@@ -22506,6 +22507,31 @@ export class Editor {
     });
     ui.fieldImport = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.importGpx() }, "Analyze GPX locally");
 
+    const episodeEditor = kind === "posts" ? createEpisodeEditor({
+      api: this.app.api,
+      fields: this.f,
+      onApply: ({ source, duration, chapters }) => {
+        for (const key of Object.keys(this.f)) if (key === "audio.chapters" || key.startsWith("audio.chapters.")) delete this.f[key];
+        Object.assign(this.f, chapters, {
+          "audio.version": "1",
+          "audio.durationSeconds": duration,
+          "audio.sources.1.url": source.url,
+          "audio.sources.1.type": source.type,
+          "audio.sources.1.sizeBytes": String(source.sizeBytes),
+        });
+        this.app.dirty = true;
+        this.markDirty();
+        this.schedulePreview();
+      },
+      onTranscript: (text) => {
+        this.syncRichToMarkdown();
+        if (this.f["audio.transcript"] || /^ {0,3}#{1,6}\s+transcript\s*#*\s*$/im.test(ui.body.value)) {
+          return "This post already has a transcript. Edit it in the writing editor instead.";
+        }
+        this.replaceDraftMarkdown(`${ui.body.value.replace(/\s+$/, "")}\n\n## Transcript\n\n${text}\n`);
+        return "";
+      },
+    }) : null;
     this.root = h(
       "div",
       { class: "oba-editor", "data-editor-view": "write", "data-preview-width": savedPreviewWidth },
@@ -22524,6 +22550,7 @@ export class Editor {
             "section",
             { class: "oba-pane oba-markdown-pane", "data-pane": "write", "aria-label": "Writing editor" },
             paneHeader("Write", "Editor", h("div", { class: "oba-editor-mode" }, ui.editorModeSwitch)),
+            episodeEditor?.element,
             ui.formatToolbar,
             ui.citationBar,
             ui.checks?.element,

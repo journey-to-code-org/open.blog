@@ -541,6 +541,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "capture-audio" {
             return Ok(openblog_core::capture::MAX_AUDIO_BYTES);
         }
+        if name == "episode-audio" {
+            return Ok(MAX_EPISODE_UPLOAD_BYTES);
+        }
         if name.starts_with("voice/") {
             return Ok(voice::request_limit(req, name));
         }
@@ -601,6 +604,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/checks-panel.js" => "checks-panel.js",
         "/admin/job-form.js" => "job-form.js",
         "/admin/job-capture.js" => "job-capture.js",
+        "/admin/episode-editor.js" => "episode-editor.js",
         "/admin/capture-queue.js" => "capture-queue.js",
         "/admin/capture-recorder.js" => "capture-recorder.js",
         "/admin/capture-assistant.js" => "capture-assistant.js",
@@ -988,6 +992,8 @@ fn authenticated_api(
         ("POST", "upload") => upload(state, req),
         ("GET", "images") => list_images(state),
         ("POST", "capture-audio") => upload_capture_audio(state, req),
+        ("GET", "episode-voice-notes") => list_episode_voice_notes(state),
+        ("POST", "episode-audio") => upload_episode_audio(state, req),
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
@@ -18587,6 +18593,127 @@ fn stored_capture_audio(state: &AppState, id: &str) -> Option<String> {
         .find(|name| captures_dir(state).join(name).is_file())
 }
 
+const MAX_EPISODE_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+
+fn list_episode_voice_notes(state: &AppState) -> Response {
+    let entries = match fs::read_dir(captures_dir(state)) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::json(200, &json!({ "notes": [] }));
+        }
+        Err(error) => return Response::error(500, &format!("Cannot list voice notes: {error}")),
+    };
+    let mut notes = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                return Response::error(500, &format!("Cannot list voice notes: {error}"))
+            }
+        };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some((id, extension)) = name.split_once(".audio.") else {
+            continue;
+        };
+        if !openblog_core::capture::valid_id(id)
+            || !openblog_core::capture::AUDIO_EXTENSIONS.contains(&extension)
+        {
+            continue;
+        }
+        let metadata = match entry.metadata() {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => continue,
+            Err(error) => {
+                return Response::error(500, &format!("Cannot inspect voice note: {error}"))
+            }
+        };
+        notes.push(json!({ "id": id, "bytes": metadata.len(), "format": extension }));
+    }
+    notes.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    Response::json(200, &json!({ "notes": notes }))
+}
+
+fn upload_episode_audio(state: &AppState, req: &Request) -> Response {
+    let _guard = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let bytes = if let Some(id) = req.query.get("capture") {
+        if !openblog_core::capture::valid_id(id) || !req.body.is_empty() {
+            return Response::error(400, "Invalid voice note selection");
+        }
+        let Some(name) = stored_capture_audio(state, id) else {
+            return Response::error(404, "Voice note not found");
+        };
+        let file = match fs::File::open(captures_dir(state).join(name)) {
+            Ok(file) => file,
+            Err(error) => return Response::error(500, &format!("Cannot read voice note: {error}")),
+        };
+        let mut bytes = Vec::new();
+        if let Err(error) = std::io::Read::read_to_end(
+            &mut std::io::Read::take(file, MAX_EPISODE_UPLOAD_BYTES as u64 + 1),
+            &mut bytes,
+        ) {
+            return Response::error(500, &format!("Cannot read voice note: {error}"));
+        }
+        bytes
+    } else {
+        req.body.clone()
+    };
+    if bytes.is_empty() || bytes.len() > MAX_EPISODE_UPLOAD_BYTES {
+        return Response::error(413, "Choose an audio file between 1 byte and 64 MB");
+    }
+    let size = bytes.len() as u64;
+    let candidates = [
+        ("audio/mpeg", "mp3"),
+        ("audio/ogg", "ogg"),
+        ("audio/mp4", "m4a"),
+        ("audio/wav", "wav"),
+        ("audio/flac", "flac"),
+        ("audio/webm", "webm"),
+    ];
+    let header = &bytes[..bytes
+        .len()
+        .min(openblog_core::audio::AUDIO_HEADER_BYTES as usize)];
+    let Some((media_type, extension)) = candidates.into_iter().find(|(media_type, _)| {
+        openblog_core::audio::AudioSource {
+            url: "/audio/upload".into(),
+            media_type: (*media_type).into(),
+            size_bytes: size,
+        }
+        .validate_file(
+            Ok(openblog_core::audio::SourceFile {
+                size_bytes: size,
+                header,
+            }),
+            openblog_core::audio::MAX_SOURCE_BYTES,
+        )
+        .is_ok()
+    }) else {
+        return Response::error(415, "This recording is not a supported audio format");
+    };
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    let rel = format!("audio/uploads/{token}.{extension}");
+    if let Err(error) = fsutil::write_file(
+        &state.root.join(&config.paths.static_dir).join(&rel),
+        &bytes,
+    ) {
+        return Response::error(500, &error);
+    }
+    Response::json(
+        201,
+        &json!({ "url": format!("/{rel}"), "type": media_type, "sizeBytes": size }),
+    )
+}
+
 /// A capture's voice note (ADR 0298): checked by its bytes, bounded, and kept privately beside the capture's
 /// ledger entry. It is never written under the static folder, so no build or export can publish it. Sending
 /// the same capture's note again keeps the first and writes nothing.
@@ -34884,6 +35011,71 @@ href: /about/
         )
         .unwrap();
         assert_eq!(save(id).status, 409);
+    }
+
+    #[test]
+    fn episode_audio_uploads_are_bounded_verified_and_voice_notes_are_explicitly_copied() {
+        let f = fixture("episode-upload");
+        let session = login_ok(&f);
+        let send = |url: &str, bytes: &[u8]| {
+            let mut request = authed(req("POST", url), &session, true);
+            request.body = bytes.to_vec();
+            handle(&f.state, &request)
+        };
+        assert_eq!(send("/admin/api/episode-audio", b"not audio").status, 415);
+        let saved = send("/admin/api/episode-audio", b"ID3abcdefghi");
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let result = body_json(&saved);
+        assert_eq!(result["type"], "audio/mpeg");
+        assert_eq!(result["sizeBytes"], 12);
+        let path = result["url"].as_str().unwrap().trim_start_matches('/');
+        assert_eq!(
+            fs::read(f.dir.join("static").join(path)).unwrap(),
+            b"ID3abcdefghi"
+        );
+        let id = "fedcba9876543210fedcba9876543210";
+        assert_eq!(
+            send(
+                &format!("/admin/api/capture-audio?capture={id}"),
+                b"ID3abcdefghi"
+            )
+            .status,
+            201
+        );
+        let list = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/episode-voice-notes"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(body_json(&list)["notes"][0]["id"], id);
+        let copied = send(&format!("/admin/api/episode-audio?capture={id}"), b"");
+        assert_eq!(
+            copied.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&copied.body)
+        );
+        assert_eq!(body_json(&copied)["type"], "audio/mpeg");
+        assert_eq!(
+            send("/admin/api/episode-audio?capture=../bad", b"").status,
+            400
+        );
+        assert_eq!(
+            preflight(
+                &f.state,
+                &authed(req("POST", "/admin/api/episode-audio"), &session, true)
+            )
+            .unwrap(),
+            MAX_EPISODE_UPLOAD_BYTES
+        );
     }
 
     #[test]

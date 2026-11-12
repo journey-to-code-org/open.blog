@@ -104,12 +104,21 @@ inside the `audio` block. WebVTT files need a timed cue with text. `check`, buil
 and Publish refuse a published episode if its transcript or media cannot be verified;
 drafts warn. Media must currently be local static files, at most 512 MiB each, with
 matching declared sizes and recognizable MPEG, Ogg (Opus, Vorbis or FLAC), WAV,
-FLAC or M4A/M4B/M4P headers. Header checks do not decode the whole file.
+FLAC, WebM (Opus or Vorbis) or M4A/M4B/M4P headers. Header checks do not decode the whole file.
 External audio URLs are not yet verified or accepted for publication. The player
 never autoplays; chapter buttons work when JavaScript is available, and `?t=60`
 seeks after the listener starts playback.
 `episodeNumber` and `seasonNumber` are optional positive integers used in the
 optional podcast feed.
+
+In Admin's post editor, open **Audio episode**, choose an audio file (up to
+64 MiB) or find a saved voice note, and explicitly copy it to the site. Copied
+audio lives in public static files even while the post is a draft. Enter the
+duration and chapter lines, apply the details, and save. You can type the
+transcript or request transcription; Admin shows what is sent and waits for
+confirmation. Review the transcript and add it to the draft before publishing.
+Transcription accepts recordings up to 8 MiB. To edit an existing transcript,
+use the writing editor.
 
 ### Content profiles
 

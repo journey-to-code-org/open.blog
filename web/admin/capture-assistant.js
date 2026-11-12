@@ -59,7 +59,7 @@ export async function loadTranscribeAvailability(api) {
 
 /** Keep the note on the server (the same id keeps the first copy), then transcribe it. Returns `{ transcript, truncated }`. */
 export async function transcribeNote({ api, captureId, blob }) {
-  await api.call("POST", `capture-audio?capture=${captureId}`, { body: blob, headers: { "Content-Type": "application/octet-stream" } });
+  if (blob) await api.call("POST", `capture-audio?capture=${captureId}`, { body: blob, headers: { "Content-Type": "application/octet-stream" } });
   return api.call("POST", "assistant/transcribe", { json: { captureId, confirmed: true } });
 }
 

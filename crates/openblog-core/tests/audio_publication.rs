@@ -42,7 +42,7 @@ fn verified_episode_renders_player_chapters_and_script() {
     let post = "---\ntitle: Episode & more\ndate: 2026-01-01\naudio:\n  version: 1\n  durationSeconds: 30\n  sources:\n    - url: /a.mp3\n      type: audio/mpeg\n      sizeBytes: 123\n  chapters:\n    - timeSeconds: 3\n      title: Intro & more\n---\n## Transcript\n\nWords.\n";
     let reader = FileReader::new(|path, limit| {
         assert_eq!(path, "/a.mp3");
-        assert_eq!(limit, 64);
+        assert_eq!(limit, openblog_core::audio::AUDIO_HEADER_BYTES);
         Ok(FileEvidence {
             size_bytes: 123,
             bytes: b"ID3".to_vec(),

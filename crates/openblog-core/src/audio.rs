@@ -13,6 +13,7 @@ use crate::frontmatter::{FrontMatter, Value};
 pub const AUDIO_VERSION: u32 = 1;
 pub const MAX_SOURCE_BYTES: u64 = 512 * 1024 * 1024;
 pub const MAX_TRANSCRIPT_BYTES: u64 = 4 * 1024 * 1024;
+pub const AUDIO_HEADER_BYTES: u64 = 4096;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileEvidence {
@@ -253,7 +254,7 @@ pub fn prepare(
             }
             let evidence = reader
                 .ok_or_else(|| "audio file verification is unavailable".to_string())
-                .and_then(|reader| reader.read(&source.url, 64));
+                .and_then(|reader| reader.read(&source.url, AUDIO_HEADER_BYTES));
             let result = match &evidence {
                 Ok(file) => source.validate_file(
                     Ok(SourceFile {
@@ -357,6 +358,16 @@ impl AudioSource {
                 header.starts_with(b"RIFF") && header.get(8..12) == Some(b"WAVE")
             }
             "audio/flac" => header.starts_with(b"fLaC"),
+            "audio/webm" => {
+                header.starts_with(&[0x1a, 0x45, 0xdf, 0xa3])
+                    && [b"A_OPUS".as_slice(), b"A_VORBIS".as_slice()]
+                        .iter()
+                        .any(|signature| {
+                            header
+                                .windows(signature.len())
+                                .any(|part| part == *signature)
+                        })
+            }
             "audio/mp4" => {
                 header.get(4..8) == Some(b"ftyp")
                     && matches!(header.get(8..12), Some(b"M4A " | b"M4B " | b"M4P "))
@@ -886,6 +897,7 @@ mod tests {
             ("audio/wav", b"RIFF\0\0\0\0WAVE".as_slice()),
             ("audio/flac", b"fLaC\0\0\0\0\0\0\0\0".as_slice()),
             ("audio/mp4", b"\0\0\0\x18ftypM4A ".as_slice()),
+            ("audio/webm", b"\x1a\x45\xdf\xa3\0\0A_OPUS".as_slice()),
         ] {
             source.media_type = media_type.into();
             assert!(
@@ -897,6 +909,10 @@ mod tests {
                 "{media_type}"
             );
         }
+        source.media_type = "audio/webm".into();
+        assert!(source
+            .validate_file(file(4096, b"\x1a\x45\xdf\xa3V_VP9"), 4096)
+            .is_err());
         source.media_type = "audio/unknown".into();
         assert!(source
             .validate_file(file(4096, b"anything"), 4096)

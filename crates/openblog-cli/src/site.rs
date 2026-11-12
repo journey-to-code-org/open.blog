@@ -384,6 +384,10 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/job-capture.js"),
     ),
     (
+        "episode-editor.js",
+        include_str!("../../../web/admin/episode-editor.js"),
+    ),
+    (
         "capture-queue.js",
         include_str!("../../../web/admin/capture-queue.js"),
     ),
