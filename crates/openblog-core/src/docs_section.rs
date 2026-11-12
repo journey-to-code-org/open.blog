@@ -26,11 +26,37 @@ pub struct DocsConfig {
     /// "Documentation".
     #[serde(skip_serializing_if = "String::is_empty")]
     pub title: String,
+    /// Where the `docs/` folder can be read in a repository viewer, such as
+    /// `https://github.com/you/project/blob/main/docs/` (ADR 0406). With it, each page links to
+    /// its own source, and a link to a file outside `docs/` (or to one that is not a page)
+    /// points there instead of at an address the site does not have.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub source: String,
 }
 
 impl DocsConfig {
     pub fn is_default(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// [`Self::source`] with exactly one trailing `/`, or `None` when it is not set.
+    pub fn source_base(&self) -> Option<String> {
+        let source = self.source.trim();
+        if source.is_empty() {
+            None
+        } else {
+            Some(format!("{}/", source.trim_end_matches('/')))
+        }
+    }
+
+    /// The address of a page's own source file, for the "View source" link.
+    pub fn source_url(&self, page_source: &str) -> Option<String> {
+        let base = self.source_base()?;
+        let file = page_source
+            .replace('\\', "/")
+            .strip_prefix(&format!("{DOCS_DIR}/"))?
+            .to_string();
+        Some(format!("{base}{file}"))
     }
 
     pub fn title(&self) -> &str {
@@ -88,10 +114,13 @@ pub fn doc_path(source: &str) -> Option<String> {
         .or_else(|| rest.strip_suffix(".markdown"))?;
     let segments: Vec<String> = stem.split('/').map(crate::slug::slugify).collect();
     let mut path = segments.join("/");
-    if path == "index" {
-        path.clear();
-    } else if let Some(folder) = path.strip_suffix("/index") {
-        path = folder.to_string();
+    // `index.md`, or `README.md` as GitHub shows it (ADR 0406), stands for its folder.
+    for name in ["index", "readme"] {
+        if path == name {
+            path.clear();
+        } else if let Some(folder) = path.strip_suffix(&format!("/{name}")) {
+            path = folder.to_string();
+        }
     }
     Some(path)
 }
@@ -123,7 +152,7 @@ fn resolve(from: &str, target: &str) -> Option<String> {
     if joined.ends_with(".md") || joined.ends_with(".markdown") {
         return doc_path(&joined);
     }
-    // A folder: its index.
+    // A folder: its index (or README, which gives the same path).
     doc_path(&format!("{joined}/index.md"))
 }
 
@@ -134,6 +163,7 @@ pub fn rewrite_links(
     html: &str,
     source: &str,
     known: &HashMap<String, String>,
+    source_base: Option<&str>,
     warnings: &mut Vec<String>,
 ) -> String {
     let marker = "href=\"";
@@ -144,7 +174,7 @@ pub fn rewrite_links(
         out.push_str(before);
         let end = after.find('"').unwrap_or(after.len());
         let href = &after[..end];
-        out.push_str(&rewrite_href(href, source, known, warnings));
+        out.push_str(&rewrite_href(href, source, known, source_base, warnings));
         rest = &after[end..];
     }
     out.push_str(rest);
@@ -155,6 +185,7 @@ fn rewrite_href(
     href: &str,
     source: &str,
     known: &HashMap<String, String>,
+    source_base: Option<&str>,
     warnings: &mut Vec<String>,
 ) -> String {
     let is_external = href.starts_with('/')
@@ -172,19 +203,77 @@ fn rewrite_href(
     };
     let markdown = path.ends_with(".md") || path.ends_with(".markdown");
     let folder = path.ends_with('/') || path == "." || path == "..";
-    if !markdown && !folder {
-        return href.to_string();
-    }
-    match resolve(source, path).and_then(|doc| known.get(&doc)) {
-        Some(url) => format!("{url}{anchor}"),
-        None => {
-            if markdown {
-                warnings.push(format!(
-                    "{source}: the link to `{path}` does not match a page under docs/"
-                ));
-            }
-            href.to_string()
+    if markdown || folder {
+        if let Some(url) = resolve(source, path).and_then(|doc| known.get(&doc)) {
+            return format!("{url}{anchor}");
         }
+    }
+    // Not a page. Where the folder can be read in a repository viewer, a link to a file the
+    // site does not publish (outside docs/, or not Markdown) points at it there.
+    let from_docs_root = relative_to_docs(source, path);
+    if let (Some(base), Some(relative)) = (source_base, &from_docs_root) {
+        let inside = !relative.starts_with("../");
+        if !(markdown && inside) {
+            return format!("{}{anchor}", join_url(base, relative));
+        }
+    }
+    if markdown {
+        warnings.push(format!(
+            "{source}: the link to `{path}` does not match a page under docs/"
+        ));
+    }
+    href.to_string()
+}
+
+/// `target` (written in the file `from`, relative to the content folder) as a path relative to
+/// the `docs/` folder, keeping any `../` that leaves it: `docs/specs/a.md` + `../../crates/x.rs`
+/// is `../crates/x.rs`.
+fn relative_to_docs(from: &str, target: &str) -> Option<String> {
+    let from = from.replace('\\', "/");
+    let inside = from.strip_prefix(&format!("{DOCS_DIR}/"))?;
+    let mut parts: Vec<&str> = inside.split('/').collect();
+    parts.pop();
+    let mut above = 0usize;
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    above += 1;
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    let mut out = "../".repeat(above);
+    out.push_str(&parts.join("/"));
+    if target.ends_with('/') && !out.ends_with('/') {
+        out.push('/');
+    }
+    Some(out)
+}
+
+/// `relative` (which may start with `../`) joined onto a base address ending in `/`.
+fn join_url(base: &str, relative: &str) -> String {
+    let (origin, path) = match base.find("://") {
+        Some(at) => {
+            let after = &base[at + 3..];
+            let slash = after.find('/').map(|i| at + 3 + i).unwrap_or(base.len());
+            (&base[..slash], &base[slash..])
+        }
+        None => ("", base),
+    };
+    let mut parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    let mut rest = relative;
+    while let Some(stripped) = rest.strip_prefix("../") {
+        parts.pop();
+        rest = stripped;
+    }
+    let joined = parts.join("/");
+    if joined.is_empty() {
+        format!("{origin}/{rest}")
+    } else {
+        format!("{origin}/{joined}/{rest}")
     }
 }
 
@@ -450,7 +539,7 @@ mod tests {
         .collect();
         let mut warnings = Vec::new();
         let html = r##"<a href="../install.md#steps">i</a> <a href="deploy.md">d</a> <a href="./">g</a> <a href="https://x.dev/a.md">x</a> <a href="/docs/">r</a> <a href="#top">t</a> <a href="missing.md">m</a> <a href="../../README.md">o</a> <a href="photo.png">p</a>"##;
-        let out = rewrite_links(html, "docs/guides/index.md", &known, &mut warnings);
+        let out = rewrite_links(html, "docs/guides/index.md", &known, None, &mut warnings);
         assert!(out.contains(r#"href="/docs/install/#steps""#), "{out}");
         assert!(out.contains(r#"href="/docs/guides/deploy/""#), "{out}");
         assert!(out.contains(r#"<a href="/docs/guides/">g</a>"#), "{out}");
@@ -462,5 +551,45 @@ mod tests {
         assert_eq!(warnings.len(), 2, "{warnings:?}");
         assert!(warnings[0].contains("missing.md"));
         assert!(warnings[1].contains("../../README.md"));
+    }
+
+    #[test]
+    fn with_a_source_folder_links_to_unpublished_files_point_at_the_repository() {
+        let known: HashMap<String, String> =
+            [("specs/a".to_string(), "/docs/specs/a/".to_string())]
+                .into_iter()
+                .collect();
+        let base = "https://github.com/o/r/blob/main/docs/";
+        let mut warnings = Vec::new();
+        let html = r#"<a href="../../crates/x.rs">x</a> <a href="../../CHANGELOG.md#top">c</a> <a href="contracts.json">j</a> <a href="a.md">a</a> <a href="gone.md">g</a> <a href="../../tests/">t</a>"#;
+        let out = rewrite_links(html, "docs/specs/b.md", &known, Some(base), &mut warnings);
+        assert!(
+            out.contains(r#"href="https://github.com/o/r/blob/main/crates/x.rs""#),
+            "{out}"
+        );
+        assert!(out.contains(r#"href="https://github.com/o/r/blob/main/CHANGELOG.md#top""#));
+        assert!(
+            out.contains(r#"href="https://github.com/o/r/blob/main/docs/specs/contracts.json""#)
+        );
+        assert!(out.contains(r#"href="/docs/specs/a/""#));
+        assert!(
+            out.contains(r#"href="https://github.com/o/r/blob/main/tests/""#),
+            "{out}"
+        );
+        // A missing page inside docs/ is still a mistake to report, not a link to send away.
+        assert!(out.contains(r#"href="gone.md""#));
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+
+        let config = DocsConfig {
+            enabled: true,
+            title: String::new(),
+            source: "https://github.com/o/r/blob/main/docs".into(),
+        };
+        assert_eq!(
+            config.source_url("docs/specs/b.md").as_deref(),
+            Some("https://github.com/o/r/blob/main/docs/specs/b.md")
+        );
+        assert_eq!(doc_path("docs/README.md").as_deref(), Some(""));
+        assert_eq!(doc_path("docs/adr/README.md").as_deref(), Some("adr"));
     }
 }

@@ -131,9 +131,9 @@ dist/                 the generated site (do not edit; rebuilt every time)
 ## Documentation
 
 Read the docs at <https://journey-to-code-org.github.io/open.blog/>, with search and
-navigation. The site is built from this repository on every push to `main`: the hand-written
-pages in [`docs-site/`](docs-site/README.md) plus every guide in [`docs/`](docs/README.md).
-The main guides:
+navigation. The site is built with open.blog itself from [`docs/`](docs/README.md) on every
+push to `main` (see [`docs-site/`](docs-site/README.md)), so the same files read the same on
+GitHub. New here? Start with [Getting started](docs/getting-started.md). The main guides:
 
 - [Command reference](docs/cli-reference.md): every command and option, generated from
   `openblog help`

@@ -3746,6 +3746,12 @@ impl<'a> Renderer<'a> {
             self.code_attr(theme, None),
             page.html
         ));
+        if let Some(url) = self.site.config.docs.source_url(&page.source) {
+            body.push_str(&format!(
+                "<p class=\"ob-meta ob-docs-source\"><a href=\"{}\">View this page's source</a></p>\n",
+                attr(&url)
+            ));
+        }
         body.push_str(&crate::docs_section::pager(pages, &order, current));
         body.push_str("</article>\n</div>");
         self.simple(theme, &page.title, &page.description, &page.url, &body)

@@ -55,6 +55,7 @@ fn handbook() -> Vec<SourceFile> {
         file("docs/guides/backups.md", "---\ntitle: Backups\norder: 1\n---\nSee [nothing](gone.md).\n"),
         file("docs/reference/config.md", "---\ntitle: Config\n---\nKeys.\n"),
         file("docs/notes.md", "---\ntitle: Notes\ndraft: true\n---\nNot yet.\n"),
+        file("docs/reference/README.md", "# Reference\n\nEvery key.\n"),
     ]
 }
 
@@ -132,8 +133,11 @@ fn the_sidebar_lists_the_tree_and_opens_only_the_folder_the_reader_is_in() {
     let backups = deploy.find(">Backups<").unwrap();
     let deploying = deploy.find(">Deploying<").unwrap();
     assert!(installing < guides && guides < backups && backups < deploying);
-    // A folder without an index is listed by its name.
-    assert!(deploy.contains("<span>Reference</span>"));
+    // A folder's README is its page, as on GitHub.
+    assert!(
+        deploy.contains("<a href=\"/docs/reference/\">Reference</a>"),
+        "{deploy}"
+    );
     // Folders the reader is not in are not expanded.
     // (The backups page, whose pager does not lead into reference/.)
     assert!(!files["docs/guides/backups/index.html"].contains("/docs/reference/config/"));
@@ -150,6 +154,7 @@ fn previous_and_next_follow_reading_order() {
         "docs/guides/index.html",
         "docs/guides/backups/index.html",
         "docs/guides/deploy/index.html",
+        "docs/reference/index.html",
         "docs/reference/config/index.html",
     ];
     for pair in order.windows(2) {
@@ -199,6 +204,14 @@ fn a_page_or_post_cannot_take_the_docs_address() {
         panic!("reserved");
     };
     assert!(error.contains("docs"), "{error}");
+}
+
+#[test]
+fn a_page_titled_by_its_first_heading_has_one_h1() {
+    let (_, files) = build(config(true), handbook());
+    let reference = &files["docs/reference/index.html"];
+    assert_eq!(reference.matches("<h1").count(), 1, "{reference}");
+    assert!(reference.contains("Every key."));
 }
 
 #[test]

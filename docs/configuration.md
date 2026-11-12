@@ -707,8 +707,10 @@ What the hosted service keeps, and how it goes, once you run the optional
 ## Documentation section
 
 `docs` publishes `content/docs/` as a tree of pages at `/docs/` with a sidebar: `{ "enabled": true, "title":
-"Documentation" }`. Off and absent by default; while it is off, files in `content/docs/` are not published and the
-build says so. `title` is the sidebar's heading. See [Documentation sites](docs-sites.md).
+"Documentation", "source": "" }`. Off and absent by default; while it is off, files in `content/docs/` are not
+published and the build says so. `title` is the sidebar's heading. `source` is where the folder can be read in a
+repository viewer (such as `https://github.com/you/project/blob/main/docs/`): each page then links to its own
+source, and links to files outside the folder point there. See [Documentation sites](docs-sites.md).
 
 ## Themes
 

@@ -1,0 +1,28 @@
+{
+  "title": "open.blog documentation",
+  "description": "How to write, build, publish and extend a blog with open.blog, the Markdown blog engine in Rust and WebAssembly.",
+  "url": "https://journey-to-code-org.github.io/open.blog/",
+  "author": {
+    "name": "open.blog contributors",
+    "url": "https://github.com/journey-to-code-org/open.blog"
+  },
+  "nav": [
+    { "label": "Docs", "href": "/docs/" },
+    { "label": "Getting started", "href": "/docs/getting-started/" },
+    { "label": "Commands", "href": "/docs/cli-reference/" },
+    { "label": "Search", "href": "/search/" }
+  ],
+  "social": [
+    { "label": "GitHub", "href": "https://github.com/journey-to-code-org/open.blog" }
+  ],
+  "footer": "open.blog is open source. These pages are built with open.blog from the repository's docs/ folder.",
+  "feeds": { "rss": false, "json": false, "sitemap": true, "llms": true, "portfolioSnapshot": false },
+  "analytics": { "builtin": false, "showViews": false },
+  "share": { "enabled": false },
+  "docs": {
+    "enabled": true,
+    "title": "open.blog",
+    "source": "https://github.com/journey-to-code-org/open.blog/blob/main/docs/"
+  },
+  "paths": { "content": "content", "static": "static", "output": "dist", "themes": "../themes", "web": "../web" }
+}

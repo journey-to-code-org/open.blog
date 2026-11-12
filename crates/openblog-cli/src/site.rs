@@ -531,14 +531,14 @@ pub fn read_sources(root: &Path, config: &SiteConfig) -> Result<Sources, String>
 
 /// Whether a file under the content folder (its `/`-separated path relative
 /// to that folder) is left out of the build whatever its kind: a README
-/// anywhere, and any file or folder whose name starts with `_`. Everything
+/// anywhere except under `docs/`, where it is a folder's page as on GitHub
+/// (ADR 0406), and any file or folder whose name starts with `_`. Everything
 /// that must agree with the build about which posts exist uses this together
 /// with [`openblog_core::classify_source`].
 pub fn not_content(rel: &str) -> bool {
     let lower = rel.to_ascii_lowercase();
-    lower == "readme.md"
-        || lower.ends_with("/readme.md")
-        || rel.split('/').any(|part| part.starts_with('_'))
+    let readme = lower == "readme.md" || lower.ends_with("/readme.md");
+    (readme && !lower.starts_with("docs/")) || rel.split('/').any(|part| part.starts_with('_'))
 }
 
 /// Read content while optionally replacing one source in memory. Admin uses

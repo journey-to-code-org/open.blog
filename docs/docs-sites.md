@@ -2,7 +2,7 @@
 
 open.blog can publish a project's documentation beside the blog: a folder of Markdown files becomes a tree of pages
 at `/docs/`, with a sidebar, previous and next links, and links between the files that work both on GitHub and on
-the site. The design is [ADR 0405](adr/0405-a-documentation-section-is-a-tree-of-pages-under-content-docs-addressed-by-path-and-off-until-enabled.md).
+the site. The design is [ADR 0405](adr/0405-a-documentation-section-is-a-tree-of-pages-under-content-docs-addressed-by-path-and-off-until-enabled.md) and [ADR 0406](adr/0406-a-docs-folder-read-on-github-reads-the-same-on-the-site.md).
 
 ## Start one
 
@@ -34,8 +34,10 @@ Each Markdown file under `content/docs/` is a page at the address its path gives
 | `content/docs/guides/index.md` | `/docs/guides/` |
 | `content/docs/guides/deploy.md` | `/docs/guides/deploy/` |
 
-A folder's `index.md` is the folder's own page and heads its group in the sidebar. A folder without one is still
-listed, under its name. `README.md` files, and files and folders whose names start with `_`, are left out.
+A folder's `index.md`, or its `README.md` as GitHub shows it, is the folder's own page and heads its group in the
+sidebar (a folder with both is an error). A folder without one is still listed, under its name. Files and folders
+whose names start with `_` are left out. A file with no `title` in front matter is titled by its first heading,
+which is then not repeated on the page.
 
 ## Front matter
 
@@ -63,6 +65,19 @@ See [installing](install.md), [the Netlify section](guides/deploy.md#netlify) or
 
 The build rewrites each link to the page's address and keeps the `#anchor`. A link to a `.md` file that is not a
 page under `docs/` is left as written and reported as a warning by `openblog build` and `openblog check`.
+
+## A docs folder that lives in a repository
+
+If the same folder is read on GitHub (or another repository viewer), tell open.blog where:
+
+```json
+"docs": { "enabled": true, "source": "https://github.com/you/project/blob/main/docs/" }
+```
+
+Each page then ends with a **View this page's source** link, and a link to a file the site does not publish (outside
+`docs/`, like `../CHANGELOG.md` or `../src/main.rs`, or a file in `docs/` that is not Markdown) points at that file in
+the repository instead of at an address the site does not have. A link to a `.md` file in `docs/` that does not
+exist is still reported. open.blog's own documentation site is built this way: see `docs-site/` in the repository.
 
 ## The sidebar
 

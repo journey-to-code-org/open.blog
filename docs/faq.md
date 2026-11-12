@@ -1,8 +1,3 @@
----
-title: FAQ
-nav_order: 10
----
-
 # FAQ
 
 ## CLI and Setup
@@ -67,9 +62,9 @@ Yes. Admin writes the same Markdown content and metadata used by CLI build/publi
 
 Use the project guide:
 
-- [Markdown Style Guide](./content/markdown-style-guide)
-- [Front Matter Guide](./content/front-matter-guide)
-- [Content Quality Checklist](./content/quality-checklist)
+- [Markdown Style Guide](content.md)
+- [Front Matter Guide](content.md#posts)
+- [Content Quality Checklist](accessibility.md)
 
 ### Why is my post not showing on the site?
 
@@ -113,8 +108,8 @@ Check:
 
 ### Which page should I use for deeper issue resolution?
 
-Use [Troubleshooting](./troubleshooting) for operational diagnostics and recovery flow.
+Use [Troubleshooting](troubleshooting.md) for operational diagnostics and recovery flow.
 
 ### Where should I look for release-impact changes?
 
-Use [Versioning and Migrations](./versioning-and-migrations) for upgrade and breaking-change guidance.
+Use [Versioning and Migrations](versioning.md) for upgrade and breaking-change guidance.

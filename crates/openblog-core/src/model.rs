@@ -2846,11 +2846,13 @@ fn load_docs(
         let Some(path) = doc_path(&file.path) else {
             continue;
         };
+        let titled_by_heading;
         let doc = match frontmatter::parse(&file.contents) {
             Ok(document) => {
                 if is_draft(&document.front_matter) && !include_drafts {
                     continue;
                 }
+                titled_by_heading = first(&document.front_matter, &["title"]).is_none();
                 DocPlace {
                     path: path.clone(),
                     order: document.front_matter.get_u32("order"),
@@ -2883,6 +2885,14 @@ fn load_docs(
                 };
                 page.url = url_for(&path);
                 page.doc = Some(doc);
+                // A file with no front matter title, as most READMEs and guides are, is titled by
+                // its first heading; the page prints the title as its one <h1>, so that heading
+                // is not repeated when it opens the file.
+                if titled_by_heading && page.html.trim_start().starts_with("<h1") {
+                    if let Some(end) = page.html.find("</h1>") {
+                        page.html = page.html[end + "</h1>".len()..].trim_start().to_string();
+                    }
+                }
                 // A documentation page is never in the header navigation by itself; the site
                 // links /docs/ from `nav` like any other address.
                 page.nav = false;
@@ -2900,7 +2910,13 @@ fn load_docs(
         })
         .collect();
     for page in &mut docs {
-        page.html = rewrite_links(&page.html, &page.source, &known, warnings);
+        page.html = rewrite_links(
+            &page.html,
+            &page.source,
+            &known,
+            config.docs.source_base().as_deref(),
+            warnings,
+        );
         accessibility.extend(page.accessibility.iter().cloned());
     }
     pages.extend(docs);

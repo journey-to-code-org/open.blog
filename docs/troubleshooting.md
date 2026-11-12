@@ -1,8 +1,3 @@
----
-title: Troubleshooting
-nav_order: 7
----
-
 # Troubleshooting
 
 ## `openblog check` fails
@@ -25,9 +20,9 @@ nav_order: 7
 
 ## GitHub Pages not updating
 
-- Check `docs-pages` workflow run status.
-- Ensure Pages source is set to GitHub Actions.
-- Confirm docs changes are in `docs-site/` and pushed.
+- Check the deploy workflow's run in the repository's **Actions** tab.
+- Ensure the Pages source is set to **GitHub Actions**.
+- Confirm the change is on the branch the workflow deploys (usually `main`).
 
 ## Theme/rendering inconsistencies
 

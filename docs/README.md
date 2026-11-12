@@ -3,7 +3,11 @@
 These guides are also published, with search and navigation, at
 <https://journey-to-code-org.github.io/open.blog/>.
 
-If you are new, read these in order; each one stands alone otherwise.
+New to open.blog? [Getting started](getting-started.md) goes from installing to a published site in a few
+commands. The [FAQ](faq.md) and [Troubleshooting](troubleshooting.md) answer the common questions, and
+[Versioning](versioning.md) says how releases and upgrades are described.
+
+Then read these in order; each one stands alone otherwise.
 
 1. [Writing content](content.md): where files go, what a post looks like, series, pages,
    drafts, scheduling, images, code blocks, callouts, recipes, and every front matter field.

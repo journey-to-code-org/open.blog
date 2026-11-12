@@ -1,8 +1,3 @@
----
-title: Quick Start
-nav_order: 2
----
-
 # Quick Start
 
 This walkthrough gets you from zero to a working local blog with optional GitHub Pages publishing.
@@ -73,6 +68,6 @@ If your repository is configured for GitHub Pages, the deploy workflow will publ
 
 ## Next references
 
-- [CLI Overview](./cli/overview)
-- [Admin Panel Overview](./admin-panel/overview)
-- [Markdown Style Guide](./content/markdown-style-guide)
+- [CLI Overview](cli-reference.md)
+- [Admin Panel Overview](admin.md)
+- [Markdown Style Guide](content.md)
