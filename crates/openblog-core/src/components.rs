@@ -20,7 +20,8 @@
 //! ```
 //!
 //! A setting is `text` (one line, at most `maxLength` characters), `choice` (one of `choices`),
-//! `number` (between `min` and `max`) or `toggle` (on or off). The section that places a component
+//! `number` (between `min` and `max`), `toggle` (on or off) or `date` (a calendar day, written
+//! `YYYY-MM-DD`, which Admin offers as a date picker). The section that places a component
 //! holds only its name and the values of these settings, so nothing an owner types is ever markup:
 //! every value is checked against its declaration and written as an escaped attribute. The script
 //! is a file of the theme itself, never an address elsewhere.
@@ -225,10 +226,10 @@ impl Component {
                         }
                     }
                 }
-                "toggle" => {}
+                "toggle" | "date" => {}
                 other => {
                     return Err(format!(
-                    "the setting `{name}` has the type `{}`; use text, choice, number or toggle",
+                    "the setting `{name}` has the type `{}`; use text, choice, number, toggle or date",
                     printable(other)
                 ))
                 }
@@ -355,14 +356,35 @@ impl PropDecl {
                     Ok(Some(number.to_string()))
                 }
             }
+            ("date", Value::String(text)) => {
+                if is_calendar_day(text) {
+                    Ok(Some(text.clone()))
+                } else {
+                    Err("must be a day, written like 2026-12-25".into())
+                }
+            }
             ("toggle", Value::Bool(true)) => Ok(None),
             ("toggle", Value::Bool(false)) => Err("is off".into()),
             ("text" | "choice", _) => Err("must be text".into()),
+            ("date", _) => Err("must be a day, written like 2026-12-25".into()),
             ("number", _) => Err("must be a number".into()),
             ("toggle", _) => Err("must be on or off".into()),
             _ => Err("has a type this release does not know".into()),
         }
     }
+}
+
+/// `YYYY-MM-DD` naming a day that exists (2026-02-30 does not).
+fn is_calendar_day(text: &str) -> bool {
+    let b = text.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+        return false;
+    }
+    let digits = |range: std::ops::Range<usize>| b[range].iter().all(u8::is_ascii_digit);
+    if !(digits(0..4) && digits(5..7) && digits(8..10)) {
+        return false;
+    }
+    crate::date::DateTime::parse(text).is_some_and(|day| day.ymd() == text)
 }
 
 fn printable(value: &str) -> String {
@@ -466,6 +488,47 @@ mod tests {
         );
         assert!(problems.contains("must be on one line"), "{problems}");
         assert!(problems.contains("must be from 1 to 3"), "{problems}");
+    }
+
+    #[test]
+    fn a_date_setting_takes_a_real_day() {
+        let mut decl = countdown();
+        decl.props.push(
+            serde_json::from_value(
+                json!({ "name": "day", "type": "date", "label": "The day", "default": "2026-12-25" }),
+            )
+            .unwrap(),
+        );
+        let c = Component::check("holiday-countdown", &decl).unwrap();
+        assert!(c
+            .attributes(&Map::new())
+            .unwrap()
+            .contains(&("day".into(), Some("2026-12-25".into()))));
+        assert!(c
+            .attributes(&values(json!({ "day": "1986-06-14" })))
+            .unwrap()
+            .contains(&("day".into(), Some("1986-06-14".into()))));
+        for bad in [
+            "2026-02-30",
+            "12-25",
+            "2026-1-5",
+            "2026-12-25T00:00:00Z",
+            "soon",
+        ] {
+            let problems = c
+                .attributes(&values(json!({ "day": bad })))
+                .unwrap_err()
+                .join("\n");
+            assert!(
+                problems.contains("written like 2026-12-25"),
+                "{bad}: {problems}"
+            );
+        }
+        assert_eq!(c.to_json()["props"][4]["type"], "date");
+        decl.props[4].default = Some(json!("Christmas"));
+        assert!(Component::check("holiday-countdown", &decl)
+            .unwrap_err()
+            .contains("default of `day`"));
     }
 
     #[test]

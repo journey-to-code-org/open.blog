@@ -16,7 +16,7 @@ custom elements, makes components cheap to write; this is how they reach an owne
 
 - **A theme declares components in `theme.json`**, keyed by custom element name: a plain `label` and
   `description`, a `script` that must be a `.js` file inside the theme folder, an optional one-line
-  `fallback`, and up to 20 typed settings (`text`, `choice`, `number`, `toggle`) with labels, help and
+  `fallback`, and up to 20 typed settings (`text`, `choice`, `number`, `toggle`, and since #654 `date`) with labels, help and
   defaults. Declarations are checked when the theme resolves; a script elsewhere, an attribute name that is
   an event handler or one the page relies on, or a default the setting would refuse stops the build.
   Components are inherited through `extends`.

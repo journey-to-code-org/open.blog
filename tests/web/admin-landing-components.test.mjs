@@ -73,3 +73,17 @@ test("a component the theme no longer offers says so", () => {
   assert.match(sectionSummary(section), /Not in your theme/);
   assert.equal(componentEntries().length, 0);
 });
+
+test("a date setting is a date picker that takes only a real day", () => {
+  const withDay = { ...COUNTDOWN, props: [...COUNTDOWN.props, { name: "day", type: "date", label: "The day" }] };
+  setComponents([withDay]);
+  const field = componentFields(withDay).at(-1);
+  assert.deepEqual([field.name, field.kind, field.required], ["day", "date", false]);
+  const sign = (day) => ({ id: "sign", type: "component", tag: "holiday-countdown", props: { holiday: "christmas", day } });
+  assert.deepEqual(sectionProblems(sign("1986-06-14")), []);
+  assert.deepEqual(sectionProblems(sign("")), [], "an optional day can be left empty");
+  for (const bad of ["2026-02-30", "June 14", "2026-6-14"]) {
+    assert.match(sectionProblems(sign(bad))[0].message, /must be a day/, bad);
+  }
+  assert.equal(sectionSummary(sign("1986-06-14")), "Christmas, 1986-06-14");
+});

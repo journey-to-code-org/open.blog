@@ -270,7 +270,7 @@ export function setComponents(list) {
   themeComponents = new Map((Array.isArray(list) ? list : []).filter((c) => isObject(c) && typeof c.tag === "string").map((c) => [c.tag, c]));
 }
 
-/** A component's settings as field specs: text, a choice list, a number, or on and off. */
+/** A component's settings as field specs: text, a choice list, a number, on and off, or a day. */
 export function componentFields(component) {
   return (Array.isArray(component?.props) ? component.props : []).map((prop) => {
     const hint = typeof prop.help === "string" && prop.help ? prop.help : undefined;
@@ -281,6 +281,8 @@ export function componentFields(component) {
         return { kind: "number", name: prop.name, label: prop.label, required: prop.required === true, optional: prop.required !== true, min: prop.min, max: prop.max, hint };
       case "toggle":
         return { kind: "toggle", name: prop.name, label: prop.label, default: prop.default === true, hint };
+      case "date":
+        return { kind: "date", name: prop.name, label: prop.label, required: prop.required === true, hint };
       default:
         return text(prop.name, prop.label, { required: prop.required === true, max: prop.maxLength || LIMITS.line, hint });
     }
@@ -645,6 +647,15 @@ export function addressProblem(value, schemes = "links") {
   return "";
 }
 
+/** `YYYY-MM-DD` naming a day that exists. */
+function isCalendarDay(text) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) return false;
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 /** What is wrong with one field's value, in plain words, or "". */
 export function fieldProblem(spec, value) {
   const empty = value === undefined || value === null || (typeof value === "string" && !value.trim());
@@ -665,6 +676,7 @@ export function fieldProblem(spec, value) {
   if (/[\u0000-\u001f]/u.test(str) && spec.kind !== "textarea" && spec.kind !== "richtext") return `${spec.label} must be on one line. Remove the line breaks.`;
   if (spec.max && [...str].length > spec.max) return `${spec.label} is ${[...str].length} characters; the most is ${spec.max}. Shorten it by ${[...str].length - spec.max}.`;
   if (spec.kind === "url") return addressProblem(str, spec.schemes);
+  if (spec.kind === "date") return isCalendarDay(str) ? "" : `${spec.label} must be a day. Pick it from the calendar, or write it like 2026-12-25.`;
   if (spec.kind === "email") {
     const at = str.indexOf("@");
     const domain = str.slice(at + 1);
