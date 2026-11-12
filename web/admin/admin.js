@@ -19274,10 +19274,12 @@ export class ObAdmin extends AdminElement {
     const previewStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const previewList = h("ul", { class: "oba-member-list", "aria-label": "Authors in the combined piece", hidden: true });
     const previewHolder = h("div", {});
+    const approvalHolder = h("div", {});
     const previewButton = h("button", { class: "oba-btn", type: "button" }, "Review the combined piece");
     previewButton.addEventListener("click", async () => {
       previewButton.disabled = true;
       previewStatus.textContent = "Loading the preview…";
+      approvalHolder.replaceChildren();
       try {
         const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
         previewList.replaceChildren(
@@ -19289,6 +19291,45 @@ export class ObAdmin extends AdminElement {
         // No scripts, forms, popups or same-origin access: the sandbox has no allowances at all.
         previewHolder.replaceChildren(h("iframe", { class: "oba-preview oba-preview-combined", title: "Combined piece preview, not published", sandbox: "", src: preview.previewUrl }));
         previewStatus.textContent = `Preview, not published. ${previewStateText(preview)}`;
+        if (roles.includes("contributor")) {
+          const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my approval");
+          withdraw.addEventListener("click", async () => {
+            withdraw.disabled = true;
+            try {
+              const result = await this.api.call("POST", "collaboration/approve/withdraw", { json: { publicationId: id } });
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = result?.withdrawn ? "Your approval was withdrawn. Review the combined piece again to see the current state." : "You had no approval to withdraw.";
+              previewButton.focus();
+            } catch (error) {
+              previewStatus.textContent = error?.data?.error || "Your approval could not be withdrawn. Nothing was changed.";
+              withdraw.disabled = false;
+              withdraw.focus();
+            }
+          });
+          approvalHolder.append(withdraw);
+        }
+        if (roles.includes("contributor") && preview.complete && typeof preview.seen === "string") {
+          const confirm = h("input", { type: "checkbox", id: `${prefix}-approve-confirm` });
+          const approve = h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: true }, "Approve this piece");
+          confirm.addEventListener("change", () => { approve.disabled = !confirm.checked; });
+          approve.addEventListener("click", async () => {
+            approve.disabled = true;
+            try {
+              await this.api.call("POST", "collaboration/approve", { json: { publicationId: id, seen: preview.seen, affirmed: confirm.checked } });
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = "Your approval was recorded. Review the combined piece again to see the current state.";
+              previewButton.focus();
+            } catch (error) {
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = error?.data?.error || "Your approval could not be recorded. Review the combined piece again; nothing was changed.";
+              previewButton.focus();
+            }
+          });
+          approvalHolder.append(
+            h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-approve-confirm` }, "I approve publishing exactly the piece I reviewed and being publicly credited as an author under my contributor profile.")),
+            approve,
+          );
+        }
       } catch {
         previewList.hidden = true;
         previewHolder.replaceChildren();
@@ -19306,6 +19347,7 @@ export class ObAdmin extends AdminElement {
       previewStatus,
       previewList,
       previewHolder,
+      approvalHolder,
     );
 
     // ---- layout and arrangement (ADR 0031)

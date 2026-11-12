@@ -455,6 +455,15 @@ approval quorum, authentication, provider identity verification, or persistence 
 a shared publication record. Later decisions and implementations cover parts of that work;
 the remaining requirements are tracked in epic #592.
 
+## Reviewing and approving in Admin
+
+An author can open the combined preview and, when every current section is visible, affirm
+approval of that exact preview. The confirmation states that the current publication path
+credits authors using their contributor profiles. An author may withdraw their approval, and
+an out-of-date preview must be reloaded before it can be approved. The current workflow does
+not yet offer display-name-only or uncredited choices, and the approval API does not record an
+independent credit preference; the remaining consent work is tracked in epic #592.
+
 ## Public source attribution
 
 [ADR 0008](../adr/0008-public-source-attribution.md) records how a shared reflection's source

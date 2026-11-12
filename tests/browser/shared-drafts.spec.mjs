@@ -317,6 +317,65 @@ test("the combined preview loads in an empty sandbox, runs and fetches nothing, 
   await expect(page.getByRole("status").filter({ hasText: "Preview, not published." })).toContainText("Incomplete");
   await expect(page.getByRole("list", { name: "Authors in the combined piece" })).toContainText("Bo: not shared with you at its current revision");
   await expect(page.getByRole("list", { name: "Authors in the combined piece" })).not.toContainText("private words");
+  await expect(page.getByRole("button", { name: "Approve this piece" })).toHaveCount(0);
+});
+
+test("approval requires a complete preview and explicit credit consent; stale reviews are refused", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "My draft." };
+  let token = "reviewed-revision";
+  let requests = [];
+  let stale = true;
+  await context.route("**/admin/api/collaboration/preview?**", (route) => json(route, 200, {
+    preview: {
+      complete: true, ready: false, seen: token, previewUrl: "/admin/api/preview/" + "a".repeat(64),
+      sections: [{ participantId: "p-me", displayName: "Writer", shown: true, revision: 1, approval: "awaiting", required: true, errors: [] }],
+    },
+  }));
+  await context.route("**/admin/api/preview/**", (route) => route.fulfill({
+    status: 200, contentType: "text/html", body: previewDocument,
+    headers: { "Content-Security-Policy": previewPolicy },
+  }));
+  await context.route("**/admin/api/collaboration/approve", (route) => {
+    requests.push(route.request().postDataJSON());
+    if (stale) return json(route, 409, { error: "The piece changed after you read it. Reload the combined preview." });
+    return json(route, 200, { approved: true });
+  });
+  let withdrawals = 0;
+  await context.route("**/admin/api/collaboration/approve/withdraw", (route) => {
+    withdrawals += 1;
+    expect(route.request().postDataJSON()).toEqual({ publicationId: PUBLICATION });
+    return json(route, 200, { withdrawn: true });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByRole("button", { name: "Review the combined piece" }).click();
+  const consent = page.getByRole("checkbox", { name: /I approve publishing exactly the piece I reviewed/ });
+  const approve = page.getByRole("button", { name: "Approve this piece" });
+  await expect(approve).toBeDisabled();
+  await consent.check();
+  await expect(approve).toBeEnabled();
+  await page.evaluate(axe.source);
+  const audit = await page.evaluate(async () => window.axe.run(document.querySelector(".oba-preview-review"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(audit.violations).toEqual([]);
+  await approve.click();
+  expect(requests[0]).toEqual({ publicationId: PUBLICATION, seen: token, affirmed: true });
+  await expect(page.getByText("The piece changed after you read it. Reload the combined preview.")).toBeVisible();
+  await expect(approve).toHaveCount(0);
+  token = "new-reviewed-revision";
+  stale = false;
+  await page.getByRole("button", { name: "Review the combined piece" }).click();
+  await consent.check();
+  await approve.click();
+  expect(requests[1]).toEqual({ publicationId: PUBLICATION, seen: token, affirmed: true });
+  await expect(page.getByText("Your approval was recorded.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review the combined piece" })).toBeFocused();
+  await page.getByRole("button", { name: "Review the combined piece" }).click();
+  await page.getByRole("button", { name: "Withdraw my approval" }).click();
+  expect(withdrawals).toBe(1);
+  await expect(page.getByText("Your approval was withdrawn.", { exact: false })).toBeVisible();
 });
 
 test("the continuing conversation works with the keyboard alone at phone width, and focus is never lost", async ({ page, context }) => {
