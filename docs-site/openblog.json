@@ -7,22 +7,55 @@
     "url": "https://github.com/journey-to-code-org/open.blog"
   },
   "nav": [
-    { "label": "Docs", "href": "/docs/" },
-    { "label": "Getting started", "href": "/docs/getting-started/" },
-    { "label": "Commands", "href": "/docs/cli-reference/" },
-    { "label": "Search", "href": "/search/" }
+    {
+      "label": "Getting started",
+      "href": "/docs/getting-started/"
+    },
+    {
+      "label": "Configuration",
+      "href": "/docs/configuration/"
+    },
+    {
+      "label": "Commands",
+      "href": "/docs/cli-reference/"
+    },
+    {
+      "label": "Search",
+      "href": "/search/"
+    }
   ],
   "social": [
-    { "label": "GitHub", "href": "https://github.com/journey-to-code-org/open.blog" }
+    {
+      "label": "GitHub",
+      "href": "https://github.com/journey-to-code-org/open.blog"
+    }
   ],
   "footer": "open.blog is open source. These pages are built with open.blog from the repository's docs/ folder.",
-  "feeds": { "rss": false, "json": false, "sitemap": true, "llms": true, "portfolioSnapshot": false },
-  "analytics": { "builtin": false, "showViews": false },
-  "share": { "enabled": false },
+  "feeds": {
+    "rss": false,
+    "json": false,
+    "sitemap": true,
+    "llms": true,
+    "portfolioSnapshot": false
+  },
+  "analytics": {
+    "builtin": false,
+    "showViews": false
+  },
+  "share": {
+    "enabled": false
+  },
   "docs": {
     "enabled": true,
     "title": "open.blog",
-    "source": "https://github.com/journey-to-code-org/open.blog/blob/main/docs/"
+    "source": "https://github.com/journey-to-code-org/open.blog/blob/main/docs/",
+    "home": true
   },
-  "paths": { "content": "content", "static": "static", "output": "dist", "themes": "../themes", "web": "../web" }
+  "paths": {
+    "content": "content",
+    "static": "static",
+    "output": "dist",
+    "themes": "../themes",
+    "web": "../web"
+  }
 }

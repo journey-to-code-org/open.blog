@@ -679,7 +679,14 @@ pub fn generate_with_trail_budget(
         c.posts_per_page
     };
     let page_count = site.posts.len().div_ceil(per_page).max(1);
-    for page_number in 1..=page_count {
+    // With docs.home the documentation's index is the home page (ADR 0407), written with the
+    // other pages; there is no post list at `/` or `/page/N/`.
+    let home_pages = if c.docs.enabled && c.docs.home {
+        0
+    } else {
+        page_count
+    };
+    for page_number in 1..=home_pages {
         let path = if page_number == 1 {
             "index.html".to_string()
         } else {
@@ -1135,6 +1142,16 @@ pub fn generate_home(site: &Site, themes: &ThemeSet) -> Result<OutputFile, Strin
         c.posts_per_page
     };
     let page_count = site.posts.len().div_ceil(per_page).max(1);
+    if let Some(page) = site
+        .pages
+        .iter()
+        .find(|page| page.doc.is_some() && page.url == "/")
+    {
+        return Ok(OutputFile {
+            path: "index.html".to_string(),
+            contents: renderer.page(page),
+        });
+    }
     Ok(OutputFile {
         path: "index.html".to_string(),
         contents: renderer.home(&resolved[&c.theme], 1, page_count, per_page),
@@ -3700,6 +3717,13 @@ impl<'a> Renderer<'a> {
         body.push_str(
             "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\"><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
         );
+        if self.site.config.docs.enabled {
+            // A site with documentation searches it too (ADR 0407).
+            body = body.replace(
+                "<label for=\"q\">Search posts</label>",
+                "<label for=\"q\">Search the site</label>",
+            );
+        }
         body.push_str("</section>\n</div>");
         let mut meta = self.meta_simple(theme, "Search", "Search every post.", "/search/");
         meta.noindex = true;
