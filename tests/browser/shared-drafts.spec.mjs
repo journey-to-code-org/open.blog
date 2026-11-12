@@ -60,7 +60,7 @@ test.afterAll(async () => {
 const stamp = (number) => ({ number, contributionId: "participant-1", digest: "d" });
 const json = (route, status, body) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-async function install(context) {
+async function install(context, { coordinator = false } = {}) {
   store = { number: 0, markdown: "" };
   synthesis = { revision: 0, items: [], authors: [{ id: "p-me", displayName: "Writer" }], you: "p-me" };
   offline = false;
@@ -95,7 +95,22 @@ async function install(context) {
       synthesis = { ...synthesis, revision: synthesis.revision + 1, items };
       return json(route, 200, synthesis);
     }
-    if (path === "reveal") return json(route, 200, { policy: "voluntary", ready: false, canSetPolicy: false, slots: [] });
+    if (coordinator && path === "reflection") return json(route, 200, {
+      structure: null, canArrange: true,
+      participants: [{ id: "p-me", displayName: "Writer" }, { id: "p-other", displayName: "Another writer" }],
+    });
+    if (coordinator && path === "approval-policy") return json(route, 200, {
+      policy: { requirement: "allAuthors", scope: "wholePiece" }, revision: 0,
+      summary: "Every author must approve the whole piece.", required: ["Writer", "Another writer"],
+      missing: ["Writer", "Another writer"], mayDropApprovers: true,
+      approvers: [{ participantId: "p-me", displayName: "Writer" }, { participantId: "p-other", displayName: "Another writer" }],
+    });
+    if (path === "reveal") return json(route, 200, coordinator
+      ? { policy: "allReady", ready: false, canSetPolicy: true, slots: [
+          { participantId: "p-me", displayName: "Writer", kind: "own", markdown: store.markdown },
+          { participantId: "p-other", displayName: "Another writer", kind: "private", ready: false },
+        ] }
+      : { policy: "voluntary", ready: false, canSetPolicy: false, slots: [] });
     return json(route, 404, { error: "not found" });
   });
 }
@@ -168,6 +183,23 @@ test("restoring after a conflict keeps edits made while deciding", async ({ page
   await expect(editor(page)).toHaveValue("Newer saved text.");
   await page.getByRole("button", { name: "Restore my earlier text" }).click();
   await expect(editor(page)).toHaveValue("Edited while deciding.");
+});
+
+test("sharing, arrangement and approval controls are accessible at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "My draft." };
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await expect(page.getByRole("heading", { name: "Layout and arrangement" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Approval rule" })).toBeVisible();
+  await page.getByRole("button", { name: "Offer revision 1 to the group" }).click();
+  await expect(page.getByRole("group", { name: "Share revision 1?" })).toBeFocused();
+  await page.evaluate(axe.source);
+  const result = await page.evaluate(async () => window.axe.run(document.querySelector(".oba-draft"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(result.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 test("going offline keeps the text and says so, and saving works again afterwards", async ({ page, context }) => {
