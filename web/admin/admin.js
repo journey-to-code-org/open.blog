@@ -23,6 +23,7 @@ import { createServices } from "./services.js";
 import { createReviews } from "./proof.js";
 import { createSocialAccounts } from "./social.js";
 import { createQuoteRequests } from "./quotes.js";
+import { createGreetingCards } from "./greetings.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
@@ -11875,6 +11876,8 @@ export class ObAdmin extends AdminElement {
         this.meta?.social || active === "social" ? h("div", { class: "oba-progressive-tools", "data-social-nav": "true" }, toolGroup("Social", h("a", { class: "oba-tab", "aria-current": active === "social" ? "page" : null, href: "#/social" }, "Social accounts"))) : null,
         // Optional quote requests (ADR 0384): no navigation entry unless the server has quote settings.
         this.meta?.quote || active === "quotes" ? h("div", { class: "oba-progressive-tools", "data-quote-nav": "true" }, toolGroup("Customers", h("a", { class: "oba-tab", "aria-current": active === "quotes" ? "page" : null, href: "#/quotes" }, "Quote requests"))) : null,
+        // Optional greeting cards (ADR 0411): no navigation entry unless the server has greetings settings.
+        this.meta?.greetings || active === "greetings" ? h("div", { class: "oba-progressive-tools", "data-greetings-nav": "true" }, toolGroup("Family", h("a", { class: "oba-tab", "aria-current": active === "greetings" ? "page" : null, href: "#/greetings" }, "Greeting cards"))) : null,
       ),
       h(
         "section",
@@ -12345,6 +12348,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "voice") await this.showVoice(tail, params);
       else if (head === "social") await this.showSocial();
       else if (head === "quotes") await this.showQuotes();
+      else if (head === "greetings") await this.showGreetings();
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "announcements") await this.showAnnouncements();
@@ -14635,6 +14639,19 @@ export class ObAdmin extends AdminElement {
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
+  }
+
+  /**
+   * `#/greetings`: greeting cards (ADR 0411). Optional: with no greetings settings the page says so.
+   * A card being written is a draft, so leaving with one open asks first.
+   */
+  async showGreetings() {
+    const view = createGreetingCards({ api: this.api });
+    this.mount(this.shell("greetings", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
   }
 
   /**
