@@ -203,6 +203,14 @@ fn caption_bytes_are_bound_to_the_preview_and_a_change_refuses_the_approved_uplo
     let path = root.join("media/episode.en.vtt");
     let original_bytes = fs::read(&path).unwrap();
     assert_eq!(
+        original.preview.captions[0].content_bytes,
+        Some(original_bytes.len() as u64)
+    );
+    assert_eq!(
+        original.preview.captions[0].content_digest.as_deref(),
+        Some(hex(&Blake2b512::digest(&original_bytes)).as_str())
+    );
+    assert_eq!(
         video_release::prepare(&root, "episode")
             .unwrap()
             .preview
@@ -214,6 +222,10 @@ fn caption_bytes_are_bound_to_the_preview_and_a_change_refuses_the_approved_uplo
     fs::write(&path, &changed).unwrap();
     let next = video_release::prepare(&root, "episode").unwrap();
     assert_ne!(next.preview.digest, original.preview.digest);
+    assert_ne!(
+        next.preview.captions[0].content_digest,
+        original.preview.captions[0].content_digest
+    );
     let script = Script::new(vec![]);
     let error = upload_with(&root, &next, &env(&script, &real_now)).unwrap_err();
     assert_eq!(code(&error), "preview-changed");

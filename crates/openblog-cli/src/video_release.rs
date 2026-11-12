@@ -177,7 +177,7 @@ fn bind_caption_files(
     let mut combined = Blake2b512::new();
     combined.update(b"openblog-video-caption-preview-v1\0");
     combined.update(preview.digest.as_bytes());
-    for caption in &preview.captions {
+    for caption in &mut preview.captions {
         let path = video_release::project_path(&caption.path)
             .and_then(|path| resolve(root, static_dir, &AssetRef::Project(path)))
             .ok_or_else(|| {
@@ -210,8 +210,11 @@ fn bind_caption_files(
             }
             hash.update(&buffer[..count]);
         }
+        let digest = hash.finalize();
         combined.update(bytes.to_be_bytes());
-        combined.update(hash.finalize());
+        combined.update(digest);
+        caption.content_digest = Some(digest.iter().map(|byte| format!("{byte:02x}")).collect());
+        caption.content_bytes = Some(bytes);
     }
     preview.digest = combined
         .finalize()

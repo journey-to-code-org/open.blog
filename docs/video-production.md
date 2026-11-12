@@ -137,7 +137,8 @@ Before anything can go to YouTube, the preview also checks the files and answers
 
 open.blog reads each file's size and first bytes to validate it. For a release without blocking
 problems, it also reads each caption file in full to bind its contents to the preview. It never
-follows a symbolic link or reads outside your project.
+follows a symbolic link or reads outside your project. A JSON preview includes each caption's
+byte count and BLAKE2b-512 digest, so the file can be identified without including its text.
 
 ## Upload an approved release
 

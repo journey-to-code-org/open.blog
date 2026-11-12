@@ -384,6 +384,11 @@ pub struct CaptionPreview {
     pub language: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<CaptionFormat>,
+    /// Full-file digest, when the caller has read the caption bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_bytes: Option<u64>,
 }
 
 /// The YouTube-ready preview of one video release: exactly the metadata the author would enter in
@@ -678,6 +683,8 @@ pub fn youtube_preview(
             path: t.path.clone(),
             language: t.language.clone(),
             format: t.format,
+            content_digest: None,
+            content_bytes: None,
         })
         .collect();
     let title = release.title.trim().to_string();
