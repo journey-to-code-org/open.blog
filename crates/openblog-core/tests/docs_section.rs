@@ -129,6 +129,8 @@ fn the_sidebar_lists_the_tree_and_opens_only_the_folder_the_reader_is_in() {
     let (_, files) = build(config(true), handbook());
     let deploy = &files["docs/guides/deploy/index.html"];
     assert!(deploy.contains("<nav aria-label=\"Handbook\">"), "{deploy}");
+    // A search box heads the sidebar and searches the whole site, documentation included.
+    assert!(deploy.contains("<form class=\"ob-docs-search\" role=\"search\" action=\"/search/\""));
     assert!(deploy.contains("<a href=\"/docs/guides/deploy/\" aria-current=\"page\">Deploying</a>"));
     // Order: Installing (1) before Guides (2); in Guides, Backups (1) before Deploying (2).
     let installing = deploy.find(">Installing<").unwrap();
@@ -285,7 +287,14 @@ fn with_docs_home_the_documentation_is_the_home_page_and_search_finds_it() {
         search.contains("\"url\":\"/docs/guides/deploy/\""),
         "{search}"
     );
-    assert!(search.contains("\"series\":\"Documentation\""));
+    // Each section is its own result, labelled with the folder the page is in.
+    assert!(
+        search.contains("\"title\":\"Deploying your site › Netlify\""),
+        "{search}"
+    );
+    assert!(search.contains("\"url\":\"/docs/guides/deploy/#netlify\""));
+    assert!(search.contains("\"series\":\"Guides\""));
+    assert!(files["search/index.html"].contains("Search the documentation and every post."));
     assert!(
         !search.contains("/about/"),
         "other pages are not indexed, as before"

@@ -2,7 +2,7 @@
 
 open.blog can publish a project's documentation beside the blog: a folder of Markdown files becomes a tree of pages
 at `/docs/`, with a sidebar, previous and next links, and links between the files that work both on GitHub and on
-the site. The design is [ADR 0405](adr/0405-a-documentation-section-is-a-tree-of-pages-under-content-docs-addressed-by-path-and-off-until-enabled.md), [ADR 0406](adr/0406-a-docs-folder-read-on-github-reads-the-same-on-the-site.md) and [ADR 0407](adr/0407-documentation-can-be-the-home-page-is-searchable-and-is-linked-to-by-file.md).
+the site. Search is [ADR 0412](adr/0412-documentation-is-searched-by-section-from-the-sidebar.md). The design is [ADR 0405](adr/0405-a-documentation-section-is-a-tree-of-pages-under-content-docs-addressed-by-path-and-off-until-enabled.md), [ADR 0406](adr/0406-a-docs-folder-read-on-github-reads-the-same-on-the-site.md) and [ADR 0411](adr/0411-documentation-can-be-the-home-page-is-searchable-and-is-linked-to-by-file.md).
 
 ## Start one
 
@@ -93,7 +93,9 @@ shown, and the build says so. Without an index file, `home` is an error.
 
 ## Search
 
-The site's search finds documentation pages along with posts, each labelled with the section's `title`.
+The sidebar starts with a search box. Search covers the documentation section by section: each `##` heading is its
+own result, titled "Page › Section", and opens at that heading, so a long reference page is searchable to the end.
+Results are labelled with the folder the page is in. Posts, if the site has any, are found by the same search.
 
 ## Linking to the documentation from posts and pages
 
