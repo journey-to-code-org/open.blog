@@ -7694,6 +7694,7 @@ export const REVEAL_POLICIES = Object.freeze([
   { value: "independent", label: "Independent", help: "Nobody sees anyone else's draft." },
   { value: "voluntary", label: "Voluntary", help: "Any two or more writers who offer a revision share those revisions with each other." },
   { value: "allReady", label: "Everyone ready", help: "Nothing is shared until every writer has offered a revision. If a writer cannot or will not offer, a coordinator can switch to Voluntary or change that person's role." },
+  { value: "namedRecipients", label: "Named recipients", help: "Each writer chooses exactly who can read a released revision, without waiting for the others." },
 ]);
 
 /** One comparison slot as words: whose it is, and what the reader may know about it. */
@@ -19262,7 +19263,7 @@ export class ObAdmin extends AdminElement {
         await loadSharing();
         // An offer seals the writer's proposed moments and a reveal may share others' moments, so
         // the moments panel reads them again, keeping anything typed there.
-        if (path === "collaboration/reveal/ready") await moments?.load(false);
+        if (path === "collaboration/reveal/ready" || path === "collaboration/reveal/named") await moments?.load(false);
         // The control that was pressed is gone; keep keyboard and screen-reader users in place.
         sharing.querySelector(`#${prefix}-sharing-heading`)?.focus();
         return true;
@@ -19698,6 +19699,47 @@ export class ObAdmin extends AdminElement {
               ? `You have offered revision ${offeredRevision} to share.`
               : `You have offered revision ${offeredRevision}, not your latest revision ${saved.number}. Take back the offer before offering your latest revision.`;
           parts.push(h("p", { class: "oba-small" }, offerText), takeBack);
+        } else if (policy.value === "namedRecipients") {
+          const eligible = reveal.slots.filter((slot) => slot.mayReceive);
+          const choices = eligible.map((slot, index) => {
+            const box = h("input", { type: "checkbox", id: `${prefix}-recipient-${index}`, value: slot.participantId });
+            return { box, element: h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-recipient-${index}` }, slot.displayName)) };
+          });
+          const release = h("button", { class: "oba-btn", type: "button" }, `Choose who receives revision ${saved.number}`);
+          const holder = h("div", {});
+          release.addEventListener("click", () => {
+            const revision = saved.number;
+            const recipients = choices.filter(({ box }) => box.checked).map(({ box }) => box.value);
+            if (!recipients.length) {
+              problem.textContent = "Choose at least one recipient.";
+              problem.hidden = false;
+              problem.focus();
+              return;
+            }
+            const names = eligible.filter((slot) => recipients.includes(slot.participantId)).map((slot) => slot.displayName);
+            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, `Share revision ${revision}`);
+            const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+            const box = h(
+              "div",
+              { class: "oba-confirm", role: "group", "aria-labelledby": `${prefix}-named-title`, tabindex: "-1" },
+              h("p", { id: `${prefix}-named-title`, class: "oba-confirm-title" }, `Share revision ${revision}?`),
+              h("p", { class: "oba-small" }, `Only these people can read this release: ${names.join(", ")}. Moments you proposed for the piece can also be shared with this revision. A copy already read cannot be taken back. Later edits stay private.`),
+              h("div", { class: "oba-toolbar" }, yes, no),
+            );
+            holder.replaceChildren(box);
+            box.focus();
+            const close = () => { holder.replaceChildren(); release.focus(); };
+            no.addEventListener("click", close);
+            box.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
+            yes.addEventListener("click", () =>
+              runSharing("POST", "collaboration/reveal/named", { publicationId: id, revision, recipients }, (result) => `Revision ${revision} was shared with the selected people.${offeredMomentsText(result)}`),
+            );
+          });
+          parts.push(
+            h("fieldset", { class: "oba-fieldset" }, h("legend", {}, "Who may read this revision?"), choices.length ? choices.map(({ element }) => element) : h("p", { class: "oba-small" }, "No other active writers are available.")),
+            release,
+            holder,
+          );
         } else if (policy.value !== "independent") {
           const offer = h("button", { class: "oba-btn", type: "button" }, `Offer revision ${saved.number} to the group`);
           const holder = h("div", {});

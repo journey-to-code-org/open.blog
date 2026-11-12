@@ -15,6 +15,8 @@ All notable changes to open.blog are recorded here. Releases follow
   approvals must be reviewed again, including for older reflections.
 - The sharing panel names the revision an author offered, and warns when it is older than their
   latest saved draft.
+- Coordinators can choose named-recipient sharing. Authors confirm exactly which active writers
+  receive their current revision; later edits stay private.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
   chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
   Directory submission is manual. See [Audio episodes](docs/audio.md) for limits and hosting requirements.

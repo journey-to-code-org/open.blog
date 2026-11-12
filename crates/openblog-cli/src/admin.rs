@@ -945,6 +945,7 @@ fn authenticated_api(
         ("GET", "collaboration/reflection") => read_arrangement(state, req, session),
         ("PUT", "collaboration/reflection") => save_arrangement(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
+        ("POST", "collaboration/reveal/named") => release_named_draft(state, req, session),
         ("GET", "collaboration/preview") => read_combined_preview(state, req, session),
         ("GET", "collaboration/series") => read_series(state, req, session),
         ("PUT", "collaboration/series") => set_series(state, req, session),
@@ -14857,6 +14858,14 @@ struct RevealReadyRequest {
     revision: Option<u64>,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct NamedRevealRequest {
+    publication_id: String,
+    revision: u64,
+    recipients: Vec<String>,
+}
+
 /// Participants who currently hold the draft grant, decided by the single entry point for each
 /// binding. A removed or downgraded member is absent, so they neither block nor join a reveal.
 fn active_drafters(
@@ -14982,6 +14991,7 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
             slots.push(json!({
                 "participantId": participant.id,
                 "displayName": participant.display_name,
+                "mayReceive": participant.id != *own && active.contains(&participant.id.as_str()),
                 "kind": kind,
                 "ready": offered,
                 "stamp": view.map(|v| &v.stamp),
@@ -14993,6 +15003,62 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
         200,
         &json!({ "policy": set.policy(), "ready": ready, "readyRevision": ready_revision, "slots": slots, "canSetPolicy": coordinator }),
     )
+}
+
+fn release_named_draft(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<NamedRevealRequest>(&req.body) else {
+        return shared_problem("", "This sharing request is not valid. Nothing was shared.");
+    };
+    let (transaction, own) = match draft_request_target(state, &body.publication_id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let Ok(mut set) = draft_set_for(stored.set.as_ref(), record) else {
+        return Response::error(500, "Sharing could not be changed. Nothing was changed.");
+    };
+    let active = active_drafters(&transaction, record);
+    let active: Vec<_> = active.iter().map(String::as_str).collect();
+    let recipients: Vec<_> = body.recipients.iter().map(String::as_str).collect();
+    let now = clock::now().unix();
+    match set.release_named(&own, &own, body.revision, &recipients, &active, now) {
+        Ok(()) => {
+            let response = store_drafts(state, &body.publication_id, &stored, &set, Json::Null);
+            if response.status != 200 {
+                return response;
+            }
+            let mut result = json!({ "released": true, "revision": body.revision, "releasedAt": now });
+            if let Some(sealed) = seal_offered_moments(state, &transaction, record, &own, body.revision) {
+                let object = result.as_object_mut().expect("release response is an object");
+                match sealed {
+                    OfferedMoments::Shared => object.insert("momentsShared".into(), json!(true)),
+                    OfferedMoments::Changed => object.insert("momentsShared".into(), json!(false)),
+                    OfferedMoments::Failed => {
+                        object.insert("momentsShared".into(), Json::Null);
+                        object.insert("momentsNote".into(), json!(MOMENTS_NOT_SHARED))
+                    }
+                };
+            }
+            Response::json(200, &result)
+        }
+        Err(DraftError::Stale) => Response::error(
+            409,
+            "Your draft changed since you chose a revision. Reload it before sharing; nothing was shared.",
+        ),
+        Err(DraftError::Invalid) => shared_problem(
+            "recipients",
+            "Choose at least one current recipient and use named-recipient sharing. Nothing was shared.",
+        ),
+        Err(DraftError::LimitReached) => draft_limit_problem(),
+        Err(DraftError::Denied) => draft_not_found(),
+    }
 }
 
 /// The combined review preview for an active author: every author's section at its exact current
@@ -15739,7 +15805,7 @@ fn set_reveal_ready(state: &AppState, req: &Request, session: &auth::Session) ->
         Err(DraftError::Invalid) => {
             return shared_problem(
                 "revision",
-                "Sharing is off for this reflection. Ask a coordinator to turn it on first.",
+                "The current sharing rule does not accept group offers. Reload sharing to choose the right action.",
             )
         }
         Err(DraftError::LimitReached) => return draft_limit_problem(),
@@ -38115,6 +38181,114 @@ series: letters
     /// A confirmed change of the sharing rule from the one the requester read.
     fn policy_body(id: &str, read: &str, policy: &str) -> Json {
         json!({ "publicationId": id, "policy": policy, "expectedPolicy": read, "confirmed": true })
+    }
+
+    #[test]
+    fn named_releases_are_authorized_and_show_only_the_selected_revision() {
+        let (f, mikey, id) = invitation_fixture("named-release");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["contributor"]),
+        );
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "FIRST-SECRET").status, 200);
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "NAMED-MOMENT", "publication"),
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "allReady", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        let listed = body_json(&members_of(&f, &mikey, &id));
+        let grace_id = listed["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|member| member["adminUser"] == "grace")
+            .unwrap()["participantId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let release = |revision, recipients: Json| {
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({ "publicationId": id, "revision": revision, "recipients": recipients }),
+            )
+        };
+        assert_eq!(release(1, json!([])).status, 422);
+        assert_eq!(release(1, json!([grace_id, grace_id])).status, 422);
+        assert_eq!(release(1, json!(["unknown"])).status, 422);
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "reveal/named",
+                json!({ "publicationId": id, "revision": 1, "recipients": [grace_id] }),
+            )
+            .status,
+            404
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "reveal/named",
+                json!({ "publicationId": id, "revision": 1, "recipients": [grace_id], "author": "mikey" }),
+            )
+            .status,
+            422
+        );
+        let result = body_json(&release(1, json!([grace_id])));
+        assert_eq!(result["released"], true);
+        assert_eq!(result["momentsShared"], true);
+        assert!(result["releasedAt"].as_i64().unwrap() > 0);
+        assert!(body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("FIRST-SECRET"));
+        assert!(!body_json(&reveal_state(&f, &linus, &id))
+            .to_string()
+            .contains("FIRST-SECRET"));
+        assert!(body_json(&moments_read(&f, &grace, &id))
+            .to_string()
+            .contains("NAMED-MOMENT"));
+        assert!(!body_json(&moments_read(&f, &linus, &id))
+            .to_string()
+            .contains("NAMED-MOMENT"));
+        assert_eq!(draft_call(&f, &mikey, &id, 1, "SECOND-SECRET").status, 200);
+        assert_eq!(release(1, json!([grace_id])).status, 409);
+        let view = body_json(&reveal_state(&f, &grace, &id)).to_string();
+        assert!(view.contains("FIRST-SECRET"));
+        assert!(!view.contains("SECOND-SECRET"));
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2))).status,
+            422
+        );
     }
 
     #[test]

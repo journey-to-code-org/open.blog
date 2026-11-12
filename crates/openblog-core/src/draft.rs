@@ -5,11 +5,12 @@
 //! binding, timestamp, and a digest of its exact content; that identity ([`RevisionStamp`])
 //! carries no prose. Saving is optimistic: the caller names the revision it last saw.
 //!
-//! Drafts become visible to others only through a mutual reveal: an exchange among two or more
+//! A mutual reveal is an exchange among two or more
 //! participants in which every member commits one exact revision of their own draft. Nothing is
 //! visible until the last member commits, then every member can read every committed revision in
-//! the same mutation, so a reveal that is interrupted or cancelled exposes nothing. A reveal
-//! never approves, publishes, or credits anything and never touches the collaboration contract.
+//! the same mutation, so a reveal that is interrupted or cancelled exposes nothing. A named
+//! release instead gives one exact revision to explicitly selected recipients. Neither approves,
+//! publishes, or credits anything or touches the collaboration contract.
 //!
 //! Every refusal about another participant's draft is the same [`DraftError::Denied`], so a
 //! caller cannot read or probe the content, revisions, or state of a draft or exchange.
@@ -158,6 +159,17 @@ pub enum RevealPolicy {
     Voluntary,
     /// Nothing is revealed until every active participant has marked a revision ready.
     AllReady,
+    /// Each author explicitly releases an exact revision to named recipients.
+    NamedRecipients,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct NamedRelease {
+    contribution_id: String,
+    revision: u64,
+    recipients: Vec<String>,
+    released_at: i64,
 }
 
 /// One participant's standing offer to reveal one exact revision of their own draft. It is
@@ -203,6 +215,8 @@ pub struct DraftSet {
     policy: RevealPolicy,
     #[serde(default)]
     ready: Vec<Readiness>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    named_releases: Vec<NamedRelease>,
 }
 
 fn digest(owner: &str, contribution_id: &str, number: u64, markdown: &str) -> String {
@@ -235,6 +249,7 @@ impl DraftSet {
             exchanges: Vec::new(),
             policy: RevealPolicy::Independent,
             ready: Vec::new(),
+            named_releases: Vec::new(),
         };
         if set.is_valid() {
             Ok(set)
@@ -448,6 +463,20 @@ impl DraftSet {
                 .max();
             exchanged
                 .max(self.offered_revision(requester, contribution_id, active))
+                .max(
+                    self.named_releases
+                        .iter()
+                        .filter(|release| {
+                            active.contains(&requester)
+                                && active.contains(&draft.owner.as_str())
+                                && release
+                                    .contribution_id
+                                    .eq_ignore_ascii_case(contribution_id)
+                                && release.recipients.iter().any(|id| id == requester)
+                        })
+                        .map(|release| release.revision)
+                        .max(),
+                )
                 .ok_or(DraftError::Denied)?
         };
         let revision = draft
@@ -629,6 +658,53 @@ impl DraftSet {
         self.policy
     }
 
+    /// Release the current revision of one's own draft to precisely the selected active members.
+    pub fn release_named(
+        &mut self,
+        requester: &str,
+        contribution_id: &str,
+        revision: u64,
+        recipients: &[&str],
+        active: &[&str],
+        now: i64,
+    ) -> Result<(), DraftError> {
+        if self.policy != RevealPolicy::NamedRecipients {
+            return Err(DraftError::Invalid);
+        }
+        let draft = self.draft(contribution_id).ok_or(DraftError::Denied)?;
+        if draft.owner != requester || draft.withdrawn || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        if revision != draft.revisions.len() as u64 {
+            return Err(DraftError::Stale);
+        }
+        let unique: HashSet<_> = recipients.iter().copied().collect();
+        if now < 0
+            || recipients.is_empty()
+            || unique.len() != recipients.len()
+            || recipients
+                .iter()
+                .any(|id| *id == requester || !self.is_member(id) || !active.contains(id))
+        {
+            return Err(DraftError::Invalid);
+        }
+        if self.named_releases.len() >= MAX_EXCHANGES {
+            return Err(DraftError::LimitReached);
+        }
+        let mut next = self.clone();
+        next.named_releases.push(NamedRelease {
+            contribution_id: draft.id.clone(),
+            revision,
+            recipients: recipients.iter().map(|id| (*id).to_string()).collect(),
+            released_at: now,
+        });
+        if next.to_json().len() > MAX_DRAFT_SET_BYTES {
+            return Err(DraftError::LimitReached);
+        }
+        *self = next;
+        Ok(())
+    }
+
     /// Change how drafts may be revealed. Existing offers are cleared, never carried into the new
     /// policy, so changing it cannot reveal prose nobody offered under it, and it never reveals
     /// anything itself. Authorization is the caller's job.
@@ -667,7 +743,10 @@ impl DraftSet {
         if !self.is_member(requester) || !active.contains(&requester) {
             return Err(DraftError::Denied);
         }
-        if self.policy == RevealPolicy::Independent {
+        if !matches!(
+            self.policy,
+            RevealPolicy::Voluntary | RevealPolicy::AllReady
+        ) {
             return Err(DraftError::Invalid);
         }
         let contribution_id = self
@@ -802,6 +881,7 @@ impl DraftSet {
             || self.participants.len() > MAX_PARTICIPANTS
             || self.drafts.len() > MAX_CONTRIBUTIONS
             || self.exchanges.len() > MAX_EXCHANGES
+            || self.named_releases.len() > MAX_EXCHANGES
         {
             return false;
         }
@@ -843,8 +923,28 @@ impl DraftSet {
                     && offer.revision <= d.revisions.len() as u64
             });
             if !owned
-                || self.policy == RevealPolicy::Independent
+                || !matches!(
+                    self.policy,
+                    RevealPolicy::Voluntary | RevealPolicy::AllReady
+                )
                 || !offered.insert(offer.participant_id.as_str())
+            {
+                return false;
+            }
+        }
+        for release in &self.named_releases {
+            let recipients: HashSet<_> = release.recipients.iter().collect();
+            let Some(draft) = self.draft(&release.contribution_id) else {
+                return false;
+            };
+            if release.revision == 0
+                || release.revision > draft.revisions.len() as u64
+                || release.released_at < 0
+                || recipients.is_empty()
+                || recipients.len() != release.recipients.len()
+                || recipients
+                    .iter()
+                    .any(|id| **id == draft.owner || !self.is_member(id))
             {
                 return false;
             }
@@ -896,6 +996,70 @@ mod tests {
 
     fn set(ids: &[&str]) -> DraftSet {
         DraftSet::new(ids).unwrap()
+    }
+
+    #[test]
+    fn named_release_exposes_only_the_selected_exact_revision() {
+        let active = ["ada", "bo", "cy"];
+        let mut drafts = set(&active);
+        drafts.set_policy(RevealPolicy::NamedRecipients);
+        drafts.save("ada", "draft-ada", 0, "first", T).unwrap();
+        assert_eq!(
+            drafts.release_named("ada", "draft-ada", 1, &["bo"], &active, T),
+            Ok(())
+        );
+        drafts.save("ada", "draft-ada", 1, "second", T + 1).unwrap();
+        assert_eq!(
+            drafts.view("bo", "draft-ada", &active).unwrap().markdown,
+            "first"
+        );
+        assert_eq!(
+            drafts.view("cy", "draft-ada", &active),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            drafts.release_named("ada", "draft-ada", 1, &["cy"], &active, T + 2),
+            Err(DraftError::Stale)
+        );
+        assert_eq!(
+            drafts.release_named("bo", "draft-ada", 2, &["cy"], &active, T + 2),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            drafts.release_named("ada", "draft-ada", 2, &["cy", "cy"], &active, T + 2),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.release_named("ada", "draft-ada", 2, &["cy"], &active, T + 2),
+            Ok(())
+        );
+        let reloaded = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(
+            reloaded.view("bo", "draft-ada", &active).unwrap().markdown,
+            "first"
+        );
+        assert_eq!(
+            reloaded.view("cy", "draft-ada", &active).unwrap().markdown,
+            "second"
+        );
+        assert_eq!(
+            reloaded.view("cy", "draft-ada", &["ada", "bo"]),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            reloaded.view("bo", "draft-ada", &["bo", "cy"]),
+            Err(DraftError::Denied)
+        );
+        let stored = reloaded.to_json();
+        for bad in [
+            stored.replace("\"releasedAt\":1800000000", "\"releasedAt\":-1"),
+            stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[]"),
+            stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"bo\",\"bo\"]"),
+            stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"unknown\"]"),
+            stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"ada\"]"),
+        ] {
+            assert_eq!(DraftSet::from_json(&bad), Err(DraftError::Invalid));
+        }
     }
 
     #[test]

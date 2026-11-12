@@ -248,6 +248,42 @@ test("members and invitations are accessible by keyboard at 400px", async ({ pag
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
+test("a named release confirms the selected recipients and revision at 400px", async ({ page, context }) => {
+  await install(context);
+  store = { number: 1, markdown: "Private words." };
+  let released;
+  await context.route("**/admin/api/collaboration/reveal?**", (route) => json(route, 200, {
+    policy: "namedRecipients", ready: false, canSetPolicy: false, slots: [
+      { participantId: "p-me", displayName: "Writer", kind: "own", mayReceive: false, markdown: store.markdown },
+      { participantId: "p-other", displayName: "Another writer", kind: "private", mayReceive: true },
+      { participantId: "p-absent", displayName: "Former writer", kind: "private", mayReceive: false },
+    ],
+  }));
+  await context.route("**/admin/api/collaboration/reveal/named", (route) => {
+    released = route.request().postDataJSON();
+    return json(route, 200, { released: true });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByRole("button", { name: "Choose who receives revision 1" }).click();
+  await expect(page.getByRole("alert").first()).toContainText("Choose at least one recipient.");
+  await page.getByRole("checkbox", { name: "Another writer" }).check();
+  await page.getByRole("button", { name: "Choose who receives revision 1" }).click();
+  const confirmation = page.getByRole("group", { name: "Share revision 1?" });
+  await expect(confirmation).toBeFocused();
+  await expect(confirmation).toContainText("Another writer");
+  await expect(confirmation).not.toContainText("Former writer");
+  await page.evaluate(axe.source);
+  const result = await page.evaluate(() => window.axe.run(document.querySelector(".oba-draft"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(result.violations).toEqual([]);
+  await confirmation.getByRole("button", { name: "Share revision 1" }).click();
+  await expect.poll(() => released).toEqual({ publicationId: PUBLICATION, revision: 1, recipients: ["p-other"] });
+  await expect(page.getByText("Revision 1 was shared with the selected people.")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 test("going offline keeps the text and says so, and saving works again afterwards", async ({ page, context }) => {
   await install(context);
   await openPanel(page);

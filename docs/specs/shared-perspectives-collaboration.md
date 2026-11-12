@@ -467,6 +467,14 @@ binding includes the participants' display names and contributor-profile binding
 record, but not mutable contributor-registry profile details. Approvals made before that
 attribution binding was added must be reviewed again.
 
+## Named-recipient sharing
+
+Alongside the mutual-reveal default, a coordinator may select named-recipient sharing. Each
+author chooses the current revision and recipients and confirms the release. Only the named
+active recipients can read that revision; later edits and other recipients remain private.
+Proposed source moments may accompany the revision. See
+[ADR 0018](../adr/0018-reveal-policy-readiness-and-comparison.md) for access and compatibility.
+
 ## Public source attribution
 
 [ADR 0008](../adr/0008-public-source-attribution.md) records how a shared reflection's source
