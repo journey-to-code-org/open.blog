@@ -25,14 +25,14 @@ there. You do not edit it; it is part of the code, and it decides what open.blog
 
 Anything open.blog does not recognise (a capability, a provider, a manifest format) is refused, never guessed at.
 
-## The destinations (policy version 2026-10-29; YouTube 2026-10-29.2)
+## The destinations (policy version 2026-10-29; Facebook 2026-11-12; YouTube 2026-10-29.2)
 
 | Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | Bluesky | Mastodon | YouTube |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Link to your post | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter (link card) | adapter (in the text) | adapter (in the description) |
 | Short text (caption) | unsupported | unsupported | unsupported | unsupported | unsupported | adapter | adapter | adapter | adapter | adapter (title and description) |
 | Whole article | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported | unsupported |
-| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | manual | manual | manual (the deployer may attach the cover, with its description) | adapter (thumbnail) |
+| Images | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | adapter (hosted URLs) | manual | manual | adapter (approved Page photo) | manual | manual (the deployer may attach the cover, with its description) | adapter (thumbnail) |
 | Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual | manual | adapter (uploaded private) |
 | Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported | adapter (a private upload) |
 | Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (`publishAt`, kept by YouTube) |
@@ -83,8 +83,10 @@ Checked on 2026-10-29 against the providers' own documentation:
   open.blog's own queue schedules. Requests need `Linkedin-Version` (dated `YYYYMM`) and
   `X-Restli-Protocol-Version: 2.0.0`; LinkedIn retires each version about a year after release, so keep
   `OPENBLOG_SOCIAL_LINKEDIN_API_VERSION` current.
-- Facebook: [Pages API posts](https://developers.facebook.com/docs/pages-api/posts). A post is a `message` and a
-  `link` on the Page feed; photos and videos use other endpoints and permissions; an unpublished post must be
+- Facebook: [Pages API posts](https://developers.facebook.com/docs/pages-api/posts) and
+  [Page photos](https://developers.facebook.com/docs/graph-api/reference/page/photos/) (checked 2026-11-12).
+  A link post uses the Page feed; an approved photo post includes its caption, link and alt text. Videos remain manual.
+  An unpublished post must be
   scheduled between 10 minutes and 30 days ahead, so open.blog keeps scheduling in its own queue.
 - Bluesky: the [post record](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json)
   takes at most 300 graphemes (and 3,000 bytes) of text, links and hashtags as facets in UTF-8 byte offsets, and one

@@ -68,9 +68,12 @@ async function stop(server) {
 test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "openblog-social-"));
   mkdirSync(join(root, "content", "posts"), { recursive: true });
+  mkdirSync(join(root, "static", "images"), { recursive: true });
   writeFileSync(join(root, "openblog.json"), JSON.stringify({ title: "Lantern", url: "https://blog.example.org", author: { name: "Site Author" } }));
   writeFileSync(join(root, "content", "posts", "2026-01-02-hello.md"), "---\ntitle: Hello lanterns\ndate: 2026-01-02\n---\nA post.\n");
   writeFileSync(join(root, "content", "posts", "2026-01-03-secret.md"), "---\ntitle: Secret unfinished idea\ndate: 2026-01-03\ndraft: true\n---\nHidden.\n");
+  writeFileSync(join(root, "content", "posts", "floor.md"), "---\ntitle: Finished floor\ndate: 2026-01-02\ndescription: A new floor\nprofile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Maple Falls\n    region: WA\n  started: 2025-12-01\n  finished: 2025-12-02\n  media:\n    after:\n      - /images/floor.png\n---\nDone.\n");
+  writeFileSync(join(root, "static", "images", "floor.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aN8AAAAASUVORK5CYII=", "base64"));
   execFileSync(binary, ["user", "add", "writer", "--root", root], { env: { ...process.env, OPENBLOG_PASSWORD: password }, stdio: "pipe" });
 
   // The hosted routes, exactly as deployed, over a fake Supabase, on a loopback port.
@@ -279,6 +282,30 @@ test("Facebook cover approval carries its description and stop choice", async ({
   await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
   expect(storage.posts[0].media.snapshot.fallback).toBe("stop");
   expect(storage.posts[0].media.snapshot.description).toBe("A lantern");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("a Facebook job photo is previewed, described and explicitly approved", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await signIn(page, on.origin);
+  await page.goto(`${on.origin}/admin/#/share/${encodeURIComponent("posts/floor.md")}`);
+  const facebook = page.locator('[data-destination="facebook"]');
+  await expect(facebook).toBeVisible();
+  const post = facebook.getByRole("button", { name: "Post to Lantern Page" });
+  await expect(post).toBeDisabled();
+  await facebook.getByLabel("Photo description for Facebook").fill("A refinished floor");
+  await facebook.getByRole("button", { name: "Preview photo for Facebook" }).click();
+  await expect(facebook.getByRole("img", { name: "A refinished floor" })).toBeVisible();
+  await expect(post).toBeDisabled();
+  await facebook.getByLabel("Approve this photo and description").check();
+  await page.evaluate(axe.source);
+  const accessibility = await page.evaluate(async () => window.axe.run(document.querySelector('[data-destination="facebook"]'), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }));
+  expect(accessibility.violations).toEqual([]);
+  await post.click();
+  await expect(page.locator("[data-job-share-status]")).toContainText("Scheduled");
+  expect(storage.posts).toHaveLength(1);
+  expect(storage.posts[0].media.snapshot.description).toBe("A refinished floor");
+  expect(storage.posts[0].media.snapshot.fallback).toBe("stop");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 

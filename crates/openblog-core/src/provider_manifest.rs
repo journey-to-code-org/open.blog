@@ -1053,7 +1053,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 schedule_max_horizon_seconds: Some(MAX_HORIZON_SECONDS as u32),
                 ..Constraints::default()
             };
-            let social = support([
+            let mut social = support([
                 (Link, Adapter),
                 (Text, Adapter),
                 (Article, Unsupported),
@@ -1062,6 +1062,9 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 (Draft, Unsupported),
                 (Schedule, Adapter),
             ]);
+            if provider == ProviderId::Facebook {
+                social.insert(Image, Adapter);
+            }
             let (label, method, scopes, constraints, docs): (_, _, &[&str], _, &[&str]) =
                 match provider {
                     ProviderId::Linkedin => (
@@ -1120,6 +1123,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                         &[
                             "https://developers.facebook.com/docs/pages-api/posts",
                             "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+                            "https://developers.facebook.com/docs/graph-api/reference/page/photos/",
                         ],
                     ),
                 };
@@ -1128,7 +1132,12 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 provider,
                 family: Family::Social,
                 label: label.to_string(),
-                policy_version: BUILTIN_POLICY_VERSION.to_string(),
+                policy_version: if provider == ProviderId::Facebook {
+                    "2026-11-12"
+                } else {
+                    BUILTIN_POLICY_VERSION
+                }
+                .to_string(),
                 capabilities: social,
                 login: Login {
                     method,

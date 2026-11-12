@@ -15,11 +15,10 @@ Failed and so on, as on the Announcements screen).
 
 - **Copy the words**, **Save the photo** and **Open Nextdoor** (or Facebook, or your Business Profile) let you post
   it yourself. Then press **I posted it** so the screen remembers. If the job changes afterwards, the screen says so.
-- **Post to** your Page appears for Facebook when social publishing is set up, your Facebook Page is connected under
-  Connected accounts, and the job has no after photo. It schedules the job's words and link on your Page five
-  minutes ahead, through the same queue as your other announcements. open.blog posts to a Page without a photo, so
-  a job with an after photo goes to Facebook by hand. Once the job is scheduled or posted there, the button is not
-  offered again; it comes back only if that announcement failed or was canceled.
+- **Post to** your Page appears for Facebook when social publishing is set up and your Facebook Page is connected.
+  For a photo, enter its description, preview the exact inspected image and explicitly approve both before posting.
+  The description travels as alt text. The job is scheduled five minutes ahead through the announcement queue.
+  Once scheduled or posted, the button is not offered again; it returns only if the announcement failed or was canceled.
 - Google is not sent from Admin. Until Google approves open.blog for your profile, post it by hand from here.
 
 The record of what happened is `.openblog/job-shares.json`, which is never published. On Render with the workspace
@@ -45,11 +44,13 @@ Before anything goes, open.blog checks the first after photo:
 - It must not hold where it was taken. A phone photo often does, and on a job that can be your customer's home.
   Save a copy without the location and use that. Until then the photo is left out everywhere, the kit included.
 - For Google it must be a JPEG or PNG of 10 KB to 5 MB, at least 250 by 250 pixels, uploaded to this site.
+- For Facebook it must be a JPEG or PNG of at most 1,000,000 bytes. The public file must still match the approved
+  local bytes when the worker sends it. If it differs or cannot be uploaded, nothing is posted.
 
 A job with no after photo goes without one.
 The preview digest also binds the local photo's complete bytes, so replacing the file invalidates an earlier
 confirmation even when its size and dimensions are unchanged. Existing photo-bearing previews must be checked again
-after this update; photo-less previews are unchanged.
+after this update. Facebook previews also need refreshing when the Page's policy version changes.
 
 ## Post it by hand (works today, no account needed)
 
@@ -99,9 +100,9 @@ on it has Google's approval yet ([ADR 0393](adr/0393-a-job-reaches-google-busine
 ## Facebook and Nextdoor
 
 Nextdoor is always posted by hand: it lets only approved partners post through its API
-([ADR 0394](adr/0394-nextdoor-is-a-by-hand-kit-because-its-publish-api-is-for-approved-partners.md)). A job with no
-after photo can go to your Facebook Page from Admin's **Share this job**, through your connected Page; a job with a
-photo, or a site without social publishing, posts to Facebook by hand. The command does not post to Facebook
+([ADR 0394](adr/0394-nextdoor-is-a-by-hand-kit-because-its-publish-api-is-for-approved-partners.md)). A job with or
+without an after photo can go to your Facebook Page from Admin's **Share this job**, through your connected Page;
+without social publishing, post to Facebook by hand. The command does not post to Facebook
 ([ADR 0396](adr/0396-a-job-is-shared-from-admin-reaches-a-facebook-page-through-the-announcements-and-never-carries-a-located-photo.md)).
 
 ## What happened where

@@ -177,6 +177,7 @@ test("the authorized preview returns a bound public image for supported connecte
   const scheduled = await t.call(post(draft({ accountId: FACEBOOK, media: facebook.body.media })));
   assert.equal(scheduled.status, 201);
   assert.deepEqual(t.posts[0].media, facebook.body.media);
+  assert.equal((await t.call(post(draft({ accountId: LINKEDIN, expectedProvider: "facebook", media: facebook.body.media })))).body.code, "invalid-destination");
   assert.equal((await t.call(post({ ...body, fallback: "stop" }, "announcements/media-preview"))).body.code, "invalid-media");
   assert.equal((await t.call(post({ ...body, work: "/posts/elsewhere/" }, "announcements/media-preview"))).status, 422);
   assert.equal(calls.length, 6);

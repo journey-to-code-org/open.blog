@@ -41,7 +41,7 @@ const EVENTS = "openblog_social_post_events";
 const MAX_EVENTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const CREATE_FIELDS = ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "timeZone", "idempotencyKey", "media"];
+const CREATE_FIELDS = ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "timeZone", "idempotencyKey", "media", "expectedProvider"];
 const EDIT_FIELDS = ["version", "caption", "scheduledFor", "timeZone"];
 const RESCHEDULE_FIELDS = ["version", "scheduledFor", "timeZone"];
 const CANCEL_FIELDS = ["version"];
@@ -269,6 +269,9 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     // answered as it was, even if the destination needs to be connected again since.
     const account = await accountById(body.accountId);
     if (!account) throw new RouteError(404, "destination-not-found", "That destination is not connected to this site.");
+    if (body.expectedProvider !== undefined && (body.expectedProvider !== "facebook" || account.provider !== body.expectedProvider || account.kind !== "page")) {
+      throw new RouteError(422, "invalid-destination", "Choose a connected Facebook Page.");
+    }
     providerOf(account.provider);
     const caption = checkCaption(account.provider, body.caption);
     checkCanonicalUrl(body.canonicalUrl, body.work);

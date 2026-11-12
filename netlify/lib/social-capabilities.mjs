@@ -224,16 +224,16 @@ export const MANIFESTS = Object.freeze({
   }),
   facebook: parseManifest({
     canonical: "linked",
-    capabilities: SOCIAL_CAPABILITIES,
+    capabilities: { ...SOCIAL_CAPABILITIES, image: "adapter" },
     constraints: { ...none, ...SCHEDULE },
     family: "social",
     label: "Facebook",
     login: { method: "oauth2", scopes: ["pages_show_list", "pages_manage_posts"] },
     manifestVersion: 1,
-    policyVersion: "2026-10-29",
+    policyVersion: "2026-11-12",
     provider: "facebook",
     publishing: "explicit-approval",
-    sources: ["https://developers.facebook.com/docs/pages-api/posts", "https://developers.facebook.com/docs/graph-api/reference/page/feed"],
+    sources: ["https://developers.facebook.com/docs/pages-api/posts", "https://developers.facebook.com/docs/graph-api/reference/page/feed", "https://developers.facebook.com/docs/graph-api/reference/page/photos/"],
   }),
   // app.bsky.feed.post takes at most 300 graphemes; the link is an app.bsky.embed.external card (ADRs 0357, 0358).
   bluesky: parseManifest({

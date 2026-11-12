@@ -5,9 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
-- Social announcements can opt into an approved Bluesky card or LinkedIn cover image after installing the optional
+- Social announcements can opt into an approved Bluesky card, LinkedIn cover or Facebook Page photo after installing the optional
   media schema. Admin previews the exact public cover and verifies it again at delivery; oversized
-  covers are not resized yet and an unavailable image leaves a text-only card.
+  covers are not resized yet. Authors choose whether LinkedIn or Facebook can fall back to a text-only post.
+- Share this job can send a location-checked after photo to a connected Facebook Page after its exact bytes and
+  description are previewed and approved. A changed or unavailable photo stops delivery instead of posting without it.
 - YouTube release preview digests now cover the full contents of caption files. Existing approvals
   for releases with captions need to be reviewed again if the video has not already been uploaded.
 - A YouTube channel can opt in to caption-management permission. Approved caption files are then

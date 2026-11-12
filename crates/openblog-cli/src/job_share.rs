@@ -166,7 +166,7 @@ pub(crate) struct Job {
     pub source_path: String,
     pub projections: Vec<JobProjection>,
     /// The first after-photo's file, when it is one of the site's.
-    photo_file: Option<PathBuf>,
+    pub(crate) photo_file: Option<PathBuf>,
     language: String,
 }
 
@@ -1282,7 +1282,7 @@ mod tests {
         );
         assert!(result.unwrap_err().contains("from Admin"));
         assert!(transport.calls.borrow().is_empty());
-        // With a photo, which the Page adapter cannot carry, Facebook is by hand.
+        // With a photo, Admin can also use the Page adapter after approval.
         let with_photo = site(OFF);
         let (result, out) = run(
             with_photo.path(),
@@ -1296,7 +1296,7 @@ mod tests {
         );
         result.unwrap();
         let value: Json = serde_json::from_str(&out).unwrap();
-        assert_eq!(value["destinations"][0]["route"], "by-hand");
+        assert_eq!(value["destinations"][0]["route"], "adapter");
     }
 
     #[test]

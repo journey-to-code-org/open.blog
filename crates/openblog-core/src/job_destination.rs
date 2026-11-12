@@ -316,7 +316,10 @@ fn photo(
             None
         }
         Photo::Elsewhere(_) => {
-            let sent = destination == JobDestination::GoogleBusinessProfile;
+            let sent = matches!(
+                destination,
+                JobDestination::GoogleBusinessProfile | JobDestination::Facebook
+            );
             problem(
                 problems,
                 "photo-elsewhere",
@@ -382,6 +385,19 @@ fn photo(
                         format!("{label} takes a photo of 10 KB to 5 MB; the first after photo is {} bytes.", facts.bytes),
                         true,
                     );
+                }
+                if destination == JobDestination::Facebook {
+                    if !matches!(facts.media_type, MediaType::Jpeg | MediaType::Png) {
+                        problem(
+                            problems,
+                            "photo-format",
+                            "Facebook photo delivery needs a JPEG or PNG.".into(),
+                            true,
+                        );
+                    }
+                    if facts.bytes > 1_000_000 {
+                        problem(problems, "photo-size", "Facebook photo delivery currently needs an image of at most 1,000,000 bytes.".into(), true);
+                    }
                 }
                 if facts.width < GBP_PHOTO_MIN_SIDE || facts.height < GBP_PHOTO_MIN_SIDE {
                     problem(
@@ -475,10 +491,7 @@ pub fn project(source: &JobSource<'_>, destination: JobDestination) -> JobProjec
     }
     let mut request = DistributionRequest::new(capabilities);
     request.text_chars = Some(text.chars().count());
-    // Google Business Profile has the job adapter of ADR 0393. A Facebook Page is reached through
-    // the Page adapter of the hosted announcements (ADRs 0320, 0396), which sends the words and the
-    // link but no photo, so the manifest sends a job with a photo to Facebook by hand. Nextdoor is
-    // always by hand (ADR 0394).
+    // Google and Facebook use their respective adapters. Nextdoor remains by hand (ADR 0394).
     let mut route = match destination {
         JobDestination::GoogleBusinessProfile | JobDestination::Facebook => Route::Adapter,
         JobDestination::Nextdoor => Route::ByHand,
@@ -757,8 +770,8 @@ mod tests {
         let facebook = project(&source("", photo), JobDestination::Facebook);
         assert_eq!(
             facebook.route,
-            Route::ByHand,
-            "a job goes to Facebook by hand"
+            Route::Adapter,
+            "a Facebook job can use the Page adapter"
         );
         assert!(facebook.ready);
         // Words and a link are what the Facebook Page adapter of the announcements sends (SP5).

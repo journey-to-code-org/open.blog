@@ -181,7 +181,7 @@
       "capabilities": {
         "article": "unsupported",
         "draft": "unsupported",
-        "image": "manual",
+        "image": "adapter",
         "link": "adapter",
         "schedule": "adapter",
         "text": "adapter",
@@ -205,12 +205,13 @@
         ]
       },
       "manifestVersion": 1,
-      "policyVersion": "2026-10-29",
+      "policyVersion": "2026-11-12",
       "provider": "facebook",
       "publishing": "explicit-approval",
       "sources": [
         "https://developers.facebook.com/docs/pages-api/posts",
-        "https://developers.facebook.com/docs/graph-api/reference/page/feed"
+        "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+        "https://developers.facebook.com/docs/graph-api/reference/page/photos/"
       ]
     },
     "ghost": {
