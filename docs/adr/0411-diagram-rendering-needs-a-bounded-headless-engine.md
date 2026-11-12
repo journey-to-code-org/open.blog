@@ -28,6 +28,14 @@ and source-distribution obligations for the exact shipped feature set.
 
 ## Consequences
 
+Merman 0.10.0 declares Rust 1.95 as its minimum, while the project's README
+currently promises Rust 1.85 or newer. Adding it to the shared workspace would
+therefore break the documented compiler support. The renderer choice remains
+provisional until a compatible implementation or an explicitly approved
+compiler-support change is established. Ferrigura 0.7.0 also declares 1.95;
+the comparison's remaining candidate did not meet the malformed-input and
+accessibility-text checks.
+
 The initial generated WASM binding is about 9.9 MB uncompressed, substantially
 larger than the existing Admin module. It must be loaded separately on demand
 and measured against a documented budget; the spike is not a production
