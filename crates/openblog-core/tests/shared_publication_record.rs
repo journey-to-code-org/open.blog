@@ -1,3 +1,4 @@
+use openblog_core::approval::ApprovalScope;
 use openblog_core::collaboration::{
     AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
     NewParticipant, NewSharedPublication, NewSourceReference, SharedPublication,
@@ -70,6 +71,32 @@ fn new_reflections_default_to_mutual_reveal_without_changing_legacy_records() {
     assert_eq!(
         reloaded_legacy.initial_reveal_policy,
         RevealPolicy::Independent
+    );
+}
+
+#[test]
+fn new_reflections_initially_approve_the_whole_piece_and_legacy_records_keep_their_scope() {
+    let record = create(vec![video()]).unwrap();
+    assert_eq!(
+        record.initial_approval_scope,
+        Some(ApprovalScope::WholePiece)
+    );
+    let mut stored = record_json(&record);
+    assert_eq!(stored["initialApprovalScope"], "wholePiece");
+    let reloaded = SharedPublication::from_json(&stored.to_string()).unwrap();
+    assert_eq!(
+        reloaded.initial_approval_scope,
+        Some(ApprovalScope::WholePiece)
+    );
+    stored
+        .as_object_mut()
+        .unwrap()
+        .remove("initialApprovalScope");
+    let legacy = SharedPublication::from_json(&stored.to_string()).unwrap();
+    assert_eq!(legacy.initial_approval_scope, None);
+    assert_eq!(
+        legacy.initial_approval_scope.unwrap_or_default(),
+        ApprovalScope::OwnSections
     );
 }
 

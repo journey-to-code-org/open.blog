@@ -13455,8 +13455,12 @@ fn gate_inputs(
     let moments = crate::shared_publications::load_moments(&state.root, id)
         .map_err(|error| publish_failed(&error))?
         .set;
-    let approvals = crate::shared_publications::load_approvals_for_update(&state.root, id)
-        .map_err(|error| publish_failed(&error))?;
+    let approvals = crate::shared_publications::load_approvals_for_update(
+        &state.root,
+        id,
+        record.initial_approval_scope.unwrap_or_default(),
+    )
+    .map_err(|error| publish_failed(&error))?;
     let structure = crate::shared_publications::load_structure(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
     let outcome = crate::shared_publications::load_outcome(&state.root, id)
@@ -14777,7 +14781,11 @@ fn reconcile_approvals(
 ) {
     let id = &record.publication_id;
     let result = (|| -> Result<(), String> {
-        let stored = crate::shared_publications::load_approvals_for_update(&state.root, id)?;
+        let stored = crate::shared_publications::load_approvals_for_update(
+            &state.root,
+            id,
+            record.initial_approval_scope.unwrap_or_default(),
+        )?;
         let drafts = load_reveal_drafts(state, id).map_err(|_| "drafts are not usable")?;
         let drafts =
             draft_set_for(drafts.set.as_ref(), record).map_err(|_| "drafts are not usable")?;
@@ -15005,8 +15013,12 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     let Ok(set) = draft_set_for(stored.set.as_ref(), record) else {
         return Response::error(500, "The preview could not be built. Nothing was changed.");
     };
-    let approvals = match crate::shared_publications::load_approvals(&state.root, publication_id) {
-        Ok(approvals) => approvals,
+    let approvals = match crate::shared_publications::load_approvals_for_update(
+        &state.root,
+        publication_id,
+        record.initial_approval_scope.unwrap_or_default(),
+    ) {
+        Ok(approvals) => approvals.set,
         Err(error) => {
             eprintln!("admin: approvals not readable for {publication_id}: {error}");
             return Response::error(500, "The preview could not be built. Nothing was changed.");
@@ -38767,6 +38779,29 @@ series: letters
     }
 
     #[test]
+    fn new_reflections_default_to_whole_piece_approval_and_clear_both_authors_on_edit() {
+        let (f, mikey, grace, ada, id) = approval_fixture("whole-piece-default");
+        let rule = body_json(&approval_policy_read(&f, &ada, &id));
+        assert_eq!(rule["policy"]["scope"], "wholePiece");
+        assert_eq!(rule["revision"], 0);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(
+            draft_call(&f, &grace, &id, 1, "GRACE-SECRET v2").status,
+            200
+        );
+        let approval = body_json(&preview_call(&f, &mikey, &id));
+        let states = approval["preview"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|section| section["approval"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(states, ["awaiting", "awaiting"]);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+    }
+
+    #[test]
     fn approving_needs_the_authors_own_affirmation_and_the_exact_piece_they_read() {
         let (f, mikey, grace, ada, id) = approval_fixture("approve-gate");
         let before = state_trees(&f);
@@ -39001,19 +39036,19 @@ series: letters
         for who in [&mikey, &grace] {
             assert_eq!(approve_as(&f, who, &id).status, 200);
         }
-        // Mikey edits after both approved: his approval no longer matches and is dropped.
+        // Mikey edits after both approved: both approvals are dropped.
         assert_eq!(draft_call(&f, &mikey, &id, 1, "MIKEY-NEWER").status, 200);
         let approvals = f.dir.join(format!(
             ".openblog/private/collaboration/approvals/{id}.json"
         ));
         let stored: Json = serde_json::from_str(&fs::read_to_string(&approvals).unwrap()).unwrap();
-        assert_eq!(stored["approvals"].as_array().unwrap().len(), 1);
+        assert_eq!(stored["approvals"].as_array().unwrap().len(), 0);
         let before = state_trees(&f);
         for who in [&ada, &mikey] {
             let refused = publish_as(&f, who, &id);
             assert_eq!(refused.status, 409);
             assert_no_prose(&refused);
-            assert_eq!(body_json(&refused)["missing"], json!(["Mikey"]));
+            assert_eq!(body_json(&refused)["missing"], json!(["Mikey", "Grace"]));
         }
         assert_eq!(state_trees(&f), before);
         assert!(published_post(&f, &id).is_none());
@@ -39022,9 +39057,14 @@ series: letters
         assert_eq!(draft_call(&f, &mikey, &id, 2, "MIKEY-SECRET").status, 200);
         assert_eq!(publish_as(&f, &ada, &id).status, 409);
 
-        // He reads the piece again and approves exactly what is there now.
+        // Both read the piece again and approve exactly what is there now.
         assert_eq!(draft_call(&f, &mikey, &id, 3, "MIKEY-NEWER").status, 200);
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(4))).status,
+            200
+        );
         assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
         let post = published_post(&f, &id).unwrap();
         assert!(post.contains("MIKEY-NEWER") && post.contains("GRACE-SECRET"));
@@ -39469,7 +39509,12 @@ series: letters
         let same = approval_policy_write(
             &f,
             &ada,
-            rule_body(&id, 0, json!({ "requirement": "allAuthors" }), false),
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "allAuthors", "scope": "wholePiece" }),
+                false,
+            ),
             true,
         );
         assert_eq!(same.status, 200);
@@ -39757,7 +39802,12 @@ series: letters
             .contains("scheduled"));
 
         // Approved again, the next tick publishes it, dated at its scheduled time.
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2))).status,
+            200
+        );
         assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
         f.state.tick_scheduler();
         let post = published_post(&f, &id).expect("published when due and approved");
         assert!(post.contains("MIKEY-NEWER") && post.contains("GRACE-SECRET"));
@@ -41516,7 +41566,7 @@ series: letters
         }
 
         // A writer edits after approving: a save from the old revision is refused with only
-        // their own copy, and only their approval needs giving again.
+        // their own copy, and everyone must approve the edited piece again.
         let editor = &writers[e - 1];
         let stale = draft_call(&f, editor, &id, 0, "LOST-UPDATE");
         assert_eq!(stale.status, 409);
@@ -41532,11 +41582,13 @@ series: letters
         );
         let refused = publish_as(&f, &mikey, &id);
         assert_eq!(refused.status, 409);
-        assert_eq!(
-            body_json(&refused)["missing"],
-            json!([format!("Writer {e:02}")])
-        );
-        assert_eq!(approve_as(&f, editor, &id).status, 200);
+        let expected = std::iter::once("Mikey".to_string())
+            .chain((1..=others).map(|k| format!("Writer {k:02}")))
+            .collect::<Vec<_>>();
+        assert_eq!(body_json(&refused)["missing"], json!(expected));
+        for who in everyone() {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
 
         // A writer is removed mid-flow: nobody's approval covers the new author set, and the
         // removed account can no longer approve, read or publish.
@@ -41726,6 +41778,11 @@ series: letters
     }
 
     #[test]
+    fn a_roundtable_of_six_is_written_arranged_approved_published_and_exported() {
+        roundtable_end_to_end("roundtable-six", 5);
+    }
+
+    #[test]
     fn a_roundtable_of_ten_survives_edits_removal_and_restore_end_to_end() {
         roundtable_end_to_end("roundtable-ten", 9);
     }
@@ -41763,7 +41820,7 @@ series: letters
         let refused = publish_as(&f, &ada, &id);
         assert_eq!(refused.status, 409);
         assert_no_prose(&refused);
-        assert_eq!(body_json(&refused)["missing"], json!(["Mikey"]));
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey", "Grace"]));
         assert_eq!(state_trees(&f), before);
         // Arranging the piece again resolves it.
         let single = json!({

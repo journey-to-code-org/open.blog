@@ -499,9 +499,17 @@ impl ApprovalSubject<'_> {
 
 impl ApprovalSet {
     pub fn new() -> Self {
+        Self::with_scope(ApprovalScope::default())
+    }
+
+    /// Start an empty approval set with the publication's chosen initial scope.
+    pub fn with_scope(scope: ApprovalScope) -> Self {
         Self {
             version: APPROVAL_SET_VERSION,
-            policy: ApprovalPolicy::default(),
+            policy: ApprovalPolicy {
+                scope,
+                ..ApprovalPolicy::default()
+            },
             policy_revision: 0,
             approvals: Vec::new(),
         }
@@ -898,11 +906,8 @@ mod tests {
 
     #[test]
     fn whole_piece_scope_invalidates_everyone_on_any_prose_edit() {
-        let mut set = ApprovalSet::new();
-        set.set_policy(ApprovalPolicy {
-            scope: ApprovalScope::WholePiece,
-            ..Default::default()
-        });
+        let mut set = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+        assert_eq!(set.policy_revision(), 0);
         let mut piece = Piece::new();
         approve(&mut set, &piece, "ann");
         approve(&mut set, &piece, "bo");

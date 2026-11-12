@@ -7,6 +7,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 - New shared reflections default to mutual reveal: each active author must offer a revision
   before the group can read it. Existing reflections and saved sharing policies are unchanged.
+- New shared reflections initially require approval of the whole piece, so an edit to any
+  section invalidates every author's approval. Existing approval policies are unchanged.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
   chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
   Directory submission is manual. See [Audio episodes](docs/audio.md) for limits and hosting requirements.

@@ -758,6 +758,9 @@ pub struct SharedPublication {
     /// Policy used only when a draft set is first created. Absent on legacy records.
     #[serde(default, skip_serializing_if = "is_independent_reveal_policy")]
     pub initial_reveal_policy: crate::draft::RevealPolicy,
+    /// Scope of a newly initialized approval set, absent in legacy records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_approval_scope: Option<crate::approval::ApprovalScope>,
     /// Publication-scoped invitations. They live in the record so accepting one adds the
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1031,6 +1034,7 @@ impl SharedPublication {
             },
             invitations: Vec::new(),
             initial_reveal_policy: crate::draft::RevealPolicy::AllReady,
+            initial_approval_scope: Some(crate::approval::ApprovalScope::WholePiece),
             audit: Vec::new(),
             series: None,
             series_revision: 0,

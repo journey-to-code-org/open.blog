@@ -62,3 +62,13 @@ set, the participants the maintainer added.
   assembled draft revisions, calls `reconcile` in each write, and runs `evaluate` in the publish
   transaction. Until then `authorize_publish` keeps its ADR 0014 check.
 - Unapproved prose reaches no public page, feed, export or log: the set carries none.
+
+## Initial scope for new shared reflections
+
+New reflection records specify `wholePiece` as their initial approval scope. The first approval
+set starts at policy revision zero, and every author's consent is bound to the entire piece.
+An edit to any section consequently invalidates every approval under this default. Legacy
+records without the initial scope still start with `ownSections`, and any already stored
+approval set keeps its own policy. The existing policy controls can still change this scope;
+unanimous consent for policy changes is tracked separately in epic #592. Older releases that
+reject unknown record fields cannot read newly created records.

@@ -310,23 +310,6 @@ pub fn load_drafts(root: &Path, publication_id: &str) -> Result<StoredDrafts, St
     Ok(StoredDrafts { set, text })
 }
 
-/// The approval set for a publication; an empty set when nothing was stored. A file that exists
-/// but is malformed is an error, never an empty set, so a bad file cannot make a piece look
-/// unapproved or approved. Read-only.
-pub fn load_approvals(root: &Path, publication_id: &str) -> Result<ApprovalSet, String> {
-    let directory =
-        crate::assistant_storage::contained_target(root, Path::new(APPROVALS_DIRECTORY))
-            .map_err(|_| "approval storage resolves outside the project".to_string())?;
-    let target = directory.join(format!("{publication_id}.json"));
-    match read_drafts_file(&target) {
-        Ok(None) => Ok(ApprovalSet::new()),
-        Ok(Some(text)) => {
-            ApprovalSet::from_json(&text).map_err(|_| "the approval file is not usable".to_string())
-        }
-        Err(_) => Err("the approval file is not usable".to_string()),
-    }
-}
-
 /// Atomically store `next` when the file still holds exactly what `previous` was read from. The
 /// caller holds the Admin content transaction lock; the comparison also catches outside changes.
 /// A crash leaves either the old complete file or the new one, never a partial draft.
@@ -395,17 +378,19 @@ fn approvals_directory(root: &Path) -> Result<PathBuf, String> {
         .map_err(|_| "approval storage resolves outside the project".to_string())
 }
 
-/// Like [`load_approvals`], keeping the text so [`replace_approvals`] can detect a concurrent change.
+/// Read the approval set and retain the original text for compare-and-swap writes.
+/// A missing set starts with the record's initial scope; a malformed file is an error.
 pub fn load_approvals_for_update(
     root: &Path,
     publication_id: &str,
+    initial_scope: openblog_core::approval::ApprovalScope,
 ) -> Result<StoredApprovals, String> {
     let target = approvals_directory(root)?.join(format!("{publication_id}.json"));
     let text = read_drafts_file(&target).map_err(|_| "the approval file is not usable")?;
     let set = match &text {
         Some(text) => ApprovalSet::from_json(text)
             .map_err(|_| "the approval file is not usable".to_string())?,
-        None => ApprovalSet::new(),
+        None => ApprovalSet::with_scope(initial_scope),
     };
     Ok(StoredApprovals { set, text })
 }
@@ -769,6 +754,21 @@ mod tests {
         let text = fs::read_to_string(&loaded[0].0).unwrap();
         assert!(!text.contains("Listening together\n") && text.ends_with("}\n"));
         assert!(!root.0.join("content").exists());
+    }
+
+    #[test]
+    fn initial_approval_scope_applies_only_when_no_set_exists() {
+        use openblog_core::approval::ApprovalScope;
+
+        let root = root("initial-approval-scope");
+        let id = "shared-scope";
+        let fresh = load_approvals_for_update(&root.0, id, ApprovalScope::WholePiece).unwrap();
+        assert_eq!(fresh.set.policy().scope, ApprovalScope::WholePiece);
+        assert_eq!(fresh.set.policy_revision(), 0);
+        let legacy = load_approvals_for_update(&root.0, id, ApprovalScope::OwnSections).unwrap();
+        replace_approvals(&root.0, id, &legacy, &legacy.set).unwrap();
+        let existing = load_approvals_for_update(&root.0, id, ApprovalScope::WholePiece).unwrap();
+        assert_eq!(existing.set.policy().scope, ApprovalScope::OwnSections);
     }
 
     #[test]
