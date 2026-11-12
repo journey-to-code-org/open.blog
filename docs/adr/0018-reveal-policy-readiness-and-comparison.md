@@ -18,6 +18,8 @@ each draft would allow.
 - The draft set holds a reveal policy, defaulting to `independent`: nothing is ever revealed.
   `voluntary` reveals among any two or more participants who mark a revision ready, and only those.
   `allReady` reveals only when every participant who currently holds the draft grant is ready.
+  New shared reflection records now select `allReady` when their first draft set is created;
+  legacy records and existing draft sets keep their previous behavior (see ADR 0016).
 - A new action `SetRevealPolicy` targets the publication and is held by Site owners and
   Coordinators. It reads no draft. A coordinator who is not a drafter can set the policy and sees
   the policy only.
