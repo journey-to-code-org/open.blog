@@ -28,6 +28,8 @@ import {
   LIMITS as LANDING_LIMITS,
   PREVIEW_SIZES,
   SECTION_CATALOG,
+  componentEntries,
+  setComponents,
   addSection,
   addressProblem,
   compareSections,
@@ -10037,7 +10039,14 @@ function landingField(spec, data, ctx, prefix) {
   const optional = spec.required ? "" : " (optional)";
   const label = h("label", { for: id }, `${spec.label}${optional}`);
   let input;
-  if (spec.kind === "textarea") {
+  if (spec.kind === "toggle") {
+    input = h("input", { id, type: "checkbox", checked: data[spec.name] ?? spec.default ?? false });
+    input.addEventListener("change", () => { data[spec.name] = input.checked; });
+    const entry = { path, input, error, hint, shown: false };
+    ctx.fields.push(entry);
+    input.addEventListener("change", () => ctx.changed());
+    return h("div", { class: "oba-field oba-capture-check" }, input, h("label", { for: id }, spec.label), hint, error);
+  } else if (spec.kind === "textarea") {
     input = h("textarea", { id, rows: spec.rows || 4, value: data[spec.name] ?? "" });
     input.addEventListener("input", () => { data[spec.name] = input.value; });
   } else if (spec.kind === "select") {
@@ -10641,6 +10650,12 @@ function landingRichText(spec, data, ctx, path, id) {
 
 function landingGroup(spec, data, ctx, path) {
   const body = h("div", { class: "oba-landing-group-body" });
+  if (spec.fixed) {
+    // A group that is always there, such as a component's settings: no add or remove.
+    if (!landingIsObject(data[spec.name])) data[spec.name] = spec.blank();
+    body.append(...landingFields(spec.fields, data[spec.name], ctx, path));
+    return h("fieldset", { class: "oba-landing-group", "data-group": path }, h("legend", {}, spec.label), body);
+  }
   const box = h("fieldset", { class: "oba-landing-group", "data-group": path }, h("legend", {}, `${spec.label} (optional)`), body);
   const render = (focus) => {
     if (landingIsObject(data[spec.name])) {
@@ -13557,6 +13572,7 @@ export class ObAdmin extends AdminElement {
     let loaded;
     try {
       loaded = await whileHere(this.api.call("GET", "landing"));
+      setComponents(loaded?.components);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("landing", h("p", { class: "oba-error", role: "alert" }, landingErrorText(error))));
@@ -13658,7 +13674,7 @@ export class ObAdmin extends AdminElement {
     };
 
     const sectionForm = (section) => {
-      const info = sectionInfo(section.type);
+      const info = sectionInfo(section.type, section);
       const ctx = {
         idBase: `oba-landing-${section.id}`,
         posts,
@@ -13705,7 +13721,7 @@ export class ObAdmin extends AdminElement {
       const list = sections();
       cards.replaceChildren(
         ...list.map((section, index) => {
-          const info = sectionInfo(section.type);
+          const info = sectionInfo(section.type, section);
           const bad = (pageProblems(draft).get(section.id) || []).length;
           const attention = h("p", { class: "oba-landing-attention", hidden: !bad }, bad ? `${bad} ${bad === 1 ? "thing needs" : "things need"} attention` : "");
           const card = h(
@@ -13855,13 +13871,13 @@ export class ObAdmin extends AdminElement {
       h(
         "ul",
         { class: "oba-landing-types" },
-        SECTION_CATALOG.map((entry) =>
+        [...SECTION_CATALOG, ...componentEntries()].map((entry) =>
           h(
             "li",
             {},
             h(
               "button",
-              { class: "oba-landing-type", type: "button", "data-add-type": entry.type, onClick: () => addOfType(entry.type) },
+              { class: "oba-landing-type", type: "button", "data-add-type": entry.type, "data-add-component": entry.tag || null, onClick: () => addOfType(entry.type, entry.tag) },
               h("span", { class: "oba-landing-icon", "aria-hidden": "true" }, entry.icon),
               h("span", { class: "oba-landing-type-text" }, h("strong", {}, entry.label), h("span", {}, entry.description), h("span", { class: "oba-small oba-landing-sample" }, `For example: ${entry.sample}`)),
             ),
@@ -13876,8 +13892,8 @@ export class ObAdmin extends AdminElement {
         closePicker();
       }
     });
-    const addOfType = (type) => {
-      const result = addSection(sections(), type);
+    const addOfType = (type, tag) => {
+      const result = addSection(sections(), type, undefined, tag);
       if (result.full) {
         say(`A page holds at most ${LANDING_LIMITS.sections} sections.`, "error");
         return;

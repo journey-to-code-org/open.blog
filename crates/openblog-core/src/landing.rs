@@ -49,12 +49,16 @@ pub const LANDING_VERSION_BUSINESS: u64 = 2;
 /// The version a page that lists services, recent jobs or reviews is written as (ADR 0398). A
 /// page without one of those is written exactly as before.
 pub const LANDING_VERSION_TRADE: u64 = 3;
+/// The version a page that places a theme component is written as (ADR 0408). A page without one
+/// is written exactly as before.
+pub const LANDING_VERSION_COMPONENTS: u64 = 4;
 /// The newest version this release reads.
-pub const LANDING_VERSION_MAX: u64 = LANDING_VERSION_TRADE;
+pub const LANDING_VERSION_MAX: u64 = LANDING_VERSION_COMPONENTS;
 
 /// The landing version a section type needs: the oldest version that defines it.
 pub fn version_for_type(kind: &str) -> u64 {
     match kind {
+        "component" => LANDING_VERSION_COMPONENTS,
         "services" | "recent-jobs" | "reviews" => LANDING_VERSION_TRADE,
         "business-facts" | "quote-form" => LANDING_VERSION_BUSINESS,
         _ => LANDING_VERSION,
@@ -193,6 +197,9 @@ pub enum SectionKind {
     RecentJobs(RecentJobs),
     /// The newest saved reviews (ADR 0398). Needs landing version 3.
     Reviews(ReviewsSection),
+    /// A web component the site's theme offers, with its settings (ADR 0408). Needs landing
+    /// version 4.
+    Component(ComponentSection),
 }
 
 impl SectionKind {
@@ -218,12 +225,13 @@ impl SectionKind {
             Self::Services(_) => "services",
             Self::RecentJobs(_) => "recent-jobs",
             Self::Reviews(_) => "reviews",
+            Self::Component(_) => "component",
         }
     }
 }
 
 /// Every type name this release defines.
-pub const SECTION_TYPES: [&str; 19] = [
+pub const SECTION_TYPES: [&str; 20] = [
     "welcome",
     "rich-text",
     "latest-posts",
@@ -243,7 +251,20 @@ pub const SECTION_TYPES: [&str; 19] = [
     "services",
     "recent-jobs",
     "reviews",
+    "component",
 ];
+
+/// A theme component placed on the page (ADR 0408): which one, an optional heading, and the values
+/// of its settings. The settings are checked against the theme's declaration when the site loads,
+/// since the page alone does not know the theme.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ComponentSection {
+    pub tag: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub heading: String,
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub props: Map<String, Value>,
+}
 
 /// The business facts section: the facts live in `openblog.json`, so the section holds only the
 /// heading it is placed under.
@@ -541,6 +562,7 @@ fn known_keys(kind: &str) -> &'static [&'static str] {
         "opening-hours" => &["rows", "note"],
         "contact" => &["email", "phone", "address"],
         "callout" => &["tone", "title", "body"],
+        "component" => &["tag", "heading", "props"],
         _ => &[],
     }
 }
@@ -625,6 +647,7 @@ impl Section {
             "services" => SectionKind::Services(from_fields(fields).map_err(wrong)?),
             "recent-jobs" => SectionKind::RecentJobs(from_fields(fields).map_err(wrong)?),
             "reviews" => SectionKind::Reviews(from_fields(fields).map_err(wrong)?),
+            "component" => SectionKind::Component(from_fields(fields).map_err(wrong)?),
             _ => SectionKind::Callout(from_fields(fields).map_err(wrong)?),
         };
         Ok(Self {
@@ -656,6 +679,7 @@ impl Section {
             SectionKind::Services(v) => serde_json::to_value(v),
             SectionKind::RecentJobs(v) => serde_json::to_value(v),
             SectionKind::Reviews(v) => serde_json::to_value(v),
+            SectionKind::Component(v) => serde_json::to_value(v),
         };
         let mut object = Map::new();
         // Unknown fields first so a known field always wins a name clash.
@@ -1157,6 +1181,32 @@ pub(crate) fn validate_section(section: &Section, problems: &mut Vec<LandingProb
         SectionKind::Services(v) => {
             check_line(id, "heading", &v.heading, MAX_HEADING_CHARS, true, problems);
         }
+        SectionKind::Component(v) => {
+            if !crate::theme::valid_custom_element_name(&v.tag) {
+                problems.push(LandingProblem::in_section(
+                    id,
+                    "`tag` must name one of your theme's components",
+                ));
+            }
+            check_line(
+                id,
+                "heading",
+                &v.heading,
+                MAX_HEADING_CHARS,
+                false,
+                problems,
+            );
+            if v.props.len() > crate::components::MAX_PROPS
+                || v.props
+                    .values()
+                    .any(|value| value.is_array() || value.is_object())
+            {
+                problems.push(LandingProblem::in_section(
+                    id,
+                    "`props` holds at most 20 settings, each text, a number, or true or false",
+                ));
+            }
+        }
         SectionKind::RecentJobs(RecentJobs { heading, count })
         | SectionKind::Reviews(ReviewsSection { heading, count }) => {
             check_line(id, "heading", heading, MAX_HEADING_CHARS, true, problems);
@@ -1497,7 +1547,8 @@ mod tests {
             {"id": "quote", "type": "quote-form", "heading": "Ask for a quote"},
             {"id": "what-we-do", "type": "services", "heading": "What we do"},
             {"id": "jobs", "type": "recent-jobs", "heading": "Recent jobs", "count": 4},
-            {"id": "said", "type": "reviews", "heading": "What customers say"}
+            {"id": "said", "type": "reviews", "heading": "What customers say"},
+            {"id": "sign", "type": "component", "tag": "holiday-countdown", "heading": "Coming up", "props": {"holiday": "christmas", "sparkle": true}}
         ])
     }
 
@@ -1532,7 +1583,7 @@ mod tests {
 
     #[test]
     fn a_newer_version_is_refused_with_a_clear_message_and_a_wrong_one_too() {
-        let newer = json!({"format": LANDING_FORMAT, "version": 4, "sections": []}).to_string();
+        let newer = json!({"format": LANDING_FORMAT, "version": 5, "sections": []}).to_string();
         let text = message(LandingPage::parse(&newer));
         assert!(text.contains("newer open.blog"), "{text}");
         assert!(text.contains("will not be overwritten"), "{text}");
@@ -1540,7 +1591,7 @@ mod tests {
             let text =
                 json!({"format": LANDING_FORMAT, "version": bad, "sections": []}).to_string();
             assert!(message(LandingPage::parse(&text))
-                .contains("`version` must be a whole number from 1 to 3"));
+                .contains("`version` must be a whole number from 1 to 4"));
         }
         let no_version = json!({"format": LANDING_FORMAT, "sections": []}).to_string();
         assert!(LandingPage::parse(&no_version).is_err());

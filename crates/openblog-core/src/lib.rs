@@ -78,6 +78,7 @@ pub mod community_submission;
 pub mod compare;
 pub mod comparison_portable;
 pub mod comparison_publication;
+pub mod components;
 pub mod concept_links;
 pub mod config;
 pub mod context_links;

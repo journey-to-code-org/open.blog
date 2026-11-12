@@ -33,7 +33,8 @@ const page = (...ids) => ({ sections: ids.map((id) => ({ id, type: "series", hea
 const ids = (sections) => sections.map((section) => section.id);
 
 test("the picker offers every section type the server knows, each with a plain description and sample", () => {
-  assert.deepEqual(SECTION_CATALOG.map((entry) => entry.type).sort(), [...serverTypes].sort());
+  // `component` is listed once per component the theme offers (ADR 0408), not as a fixed entry.
+  assert.deepEqual([...SECTION_CATALOG.map((entry) => entry.type), "component"].sort(), [...serverTypes].sort());
   for (const entry of SECTION_CATALOG) {
     assert.ok(entry.label && entry.description && entry.sample && entry.icon, entry.type);
     assert.ok(entry.fields.length > 0, entry.type);

@@ -260,8 +260,62 @@ export const SECTION_CATALOG = Object.freeze([
 
 const BY_TYPE = new Map(SECTION_CATALOG.map((entry) => [entry.type, entry]));
 
-/** The catalog entry for a type, or a stand-in for a type this version does not know. */
-export function sectionInfo(type) {
+// ---------------------------------------------------------------- theme components (ADR 0408)
+
+/** The components the site's themes offer, by tag, as the server listed them. */
+let themeComponents = new Map();
+
+/** Remember the components the server offers, so the picker lists them and each gets its form. */
+export function setComponents(list) {
+  themeComponents = new Map((Array.isArray(list) ? list : []).filter((c) => isObject(c) && typeof c.tag === "string").map((c) => [c.tag, c]));
+}
+
+/** A component's settings as field specs: text, a choice list, a number, or on and off. */
+export function componentFields(component) {
+  return (Array.isArray(component?.props) ? component.props : []).map((prop) => {
+    const hint = typeof prop.help === "string" && prop.help ? prop.help : undefined;
+    switch (prop.type) {
+      case "choice":
+        return { kind: "select", name: prop.name, label: prop.label, required: true, options: (prop.choices || []).map((choice) => [choice.value, choice.label]), default: prop.default, hint };
+      case "number":
+        return { kind: "number", name: prop.name, label: prop.label, required: prop.required === true, optional: prop.required !== true, min: prop.min, max: prop.max, hint };
+      case "toggle":
+        return { kind: "toggle", name: prop.name, label: prop.label, default: prop.default === true, hint };
+      default:
+        return text(prop.name, prop.label, { required: prop.required === true, max: prop.maxLength || LIMITS.line, hint });
+    }
+  });
+}
+
+function componentInfo(tag) {
+  const component = themeComponents.get(tag);
+  if (!component) {
+    return { type: "component", tag, label: "Theme component", icon: "\u2728", description: "A component your theme no longer offers.", sample: "", fields: [], missing: true, blank: () => ({}) };
+  }
+  const settings = componentFields(component);
+  return {
+    type: "component",
+    tag,
+    label: component.label,
+    icon: "\u2728",
+    description: component.description || "A piece your theme offers.",
+    sample: component.description || component.label,
+    blank: () => ({ tag, props: Object.fromEntries((component.props || []).filter((p) => p.default !== undefined).map((p) => [p.name, p.default])) }),
+    fields: [
+      text("heading", "Heading", { max: LIMITS.heading, hint: "Leave it empty for no heading." }),
+      ...(settings.length ? [{ kind: "group", name: "props", label: "Settings", fixed: true, blank: () => ({}), fields: settings }] : []),
+    ],
+  };
+}
+
+/** Picker entries for the components on offer, after the built-in sections. */
+export function componentEntries() {
+  return [...themeComponents.keys()].map((tag) => componentInfo(tag));
+}
+
+/** The catalog entry for a type, or a stand-in for a type this version does not know. A component's entry depends on which one it is. */
+export function sectionInfo(type, section) {
+  if (type === "component") return componentInfo(section?.tag);
   return BY_TYPE.get(type) || { type, label: "Unknown section", icon: "❓", description: "A section this version does not know.", sample: "", fields: [], blank: () => ({}) };
 }
 
@@ -274,7 +328,7 @@ const shorten = (value, length = 80) => {
 
 /** The plain-language name a card shows: the type's own name. */
 export function sectionTitle(section) {
-  return sectionInfo(section?.type).label;
+  return sectionInfo(section?.type, section).label;
 }
 
 /** One line saying what the section holds right now, for its card. */
@@ -318,6 +372,17 @@ export function sectionSummary(section) {
       return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "job" : "jobs"})` : ""}`;
     case "reviews":
       return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "review" : "reviews"})` : ""}`;
+    case "component": {
+      const info = componentInfo(section.tag);
+      if (info.missing) return `Not in your theme: ${section.tag}`;
+      const settings = (themeComponents.get(section.tag)?.props || []).map((prop) => {
+        const value = isObject(section.props) ? section.props[prop.name] : undefined;
+        if (value === undefined || value === "" || value === false) return "";
+        if (prop.type === "choice") return (prop.choices || []).find((choice) => choice.value === value)?.label || String(value);
+        return prop.type === "toggle" ? prop.label : String(value);
+      }).filter(Boolean);
+      return shorten(first(section.heading)) || (settings.length ? shorten(settings.join(", ")) : info.label);
+    }
     default:
       return "";
   }
@@ -354,15 +419,15 @@ export function uniqueId(type, sections) {
 }
 
 /** A new section of a type, with a starting text that is safe to leave as it is where there is one. */
-export function newSection(type, sections) {
-  const info = sectionInfo(type);
-  return { id: uniqueId(type, sections), type, ...info.blank() };
+export function newSection(type, sections, tag) {
+  const info = sectionInfo(type, { tag });
+  return { id: uniqueId(type === "component" ? tag : type, sections), type, ...info.blank() };
 }
 
-/** `sections` with a new one added after position `index` (at the end when omitted). Returns the new list and the new section. */
-export function addSection(sections, type, index = sections.length) {
+/** `sections` with a new one added after position `index` (at the end when omitted). Returns the new list and the new section. A component names its `tag`. */
+export function addSection(sections, type, index = sections.length, tag) {
   if (sections.length >= LIMITS.sections) return { sections, added: null, full: true };
-  const added = newSection(type, sections);
+  const added = newSection(type, sections, tag);
   const at = Math.max(0, Math.min(sections.length, index));
   return { sections: [...sections.slice(0, at), added, ...sections.slice(at)], added, full: false };
 }
@@ -593,7 +658,7 @@ export function fieldProblem(spec, value) {
     if (spec.max !== undefined && n > spec.max) return `${spec.label} can be at most ${spec.max}. Enter ${spec.max} or less.`;
     return "";
   }
-  if (spec.kind === "select") return "";
+  if (spec.kind === "select" || spec.kind === "toggle") return "";
   if (spec.kind === "post") return empty ? "Choose a post." : "";
   if (empty) return spec.required ? `${spec.label} is needed. Fill it in before you save.` : "";
   const str = String(value);
@@ -653,7 +718,8 @@ function checkFields(specs, data, prefix, out) {
 export function sectionProblems(section) {
   const out = [];
   if (!isObject(section)) return [{ path: "", message: "This section cannot be read. Delete it and add it again." }];
-  const info = BY_TYPE.get(section.type);
+  const info = section.type === "component" ? componentInfo(section.tag) : BY_TYPE.get(section.type);
+  if (info?.missing) return [{ path: "", message: "Your theme does not offer this component any more, so the page would not build with it. Delete this section, or switch back to a theme that has it." }];
   if (!info) return [{ path: "", message: "This version of open.blog does not know this kind of section. It is kept, but it cannot be edited here. You can leave it, hide it or delete it." }];
   checkFields(info.fields, section, "", out);
   for (const extra of sectionRules(section)) if (!out.some((p) => p.path === extra.path)) out.push(extra);

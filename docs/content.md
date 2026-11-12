@@ -298,7 +298,7 @@ before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can 
 Each section has a unique `id` (lowercase letters, digits and single hyphens), a `type`, and an optional
 `hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`, `image`,
 `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq`, `callout`, `business-facts`, `quote-form`,
-`services`, `recent-jobs` and `reviews`;
+`services`, `recent-jobs`, `reviews` and `component`;
 the media, hours, contact, social, question and call-out types hold the same fields as the
 [pieces](#pieces-buttons-videos-maps-and-more) above. A `latest-posts` section takes `"show": "recipes"` to list
 only [recipes](#browsing-recipes), with a link to all of them, and renders nothing until the first is published;
@@ -311,8 +311,11 @@ published [services](services.md) as cards, each linking to its page. The `recen
 published [jobs](jobs.md) and the `reviews` section your newest saved [reviews](reviews.md), each with its link;
 both take an optional `count` from 1 to 12 (3 when left out). All three render nothing, not even their heading,
 until there is something to list ([ADR 0398](adr/0398-services-recent-jobs-and-reviews-are-landing-sections-in-version-3-that-render-nothing-until-there-is-something-to-list.md)).
-A page that holds a `business-facts` or `quote-form` section is stored as `"version": 2`, and one that holds a
-`services`, `recent-jobs` or `reviews` section as `"version": 3`, because they are newer types (every other page
+A `component` section places one of the theme's own components (`tag`, an optional `heading`, and `props` with
+the values of its settings); see [Components an owner can place](theme-components.md#components-an-owner-can-place).
+A page that holds a `business-facts` or `quote-form` section is stored as `"version": 2`, one that holds a
+`services`, `recent-jobs` or `reviews` section as `"version": 3`, and one that holds a `component` section as
+`"version": 4`, because they are newer types (every other page
 stays version 1, byte for byte, and an older version cannot hold a newer type; the build says so and builds the
 home page from the home settings instead). There are at most 40 sections and 256 KiB. The page is accepted whole or not at all, and a file from a
 newer release is never overwritten.

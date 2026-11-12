@@ -16,10 +16,10 @@
 
 use crate::escape::{attr, text};
 use crate::landing::{
-    render_inert_markdown, BusinessFacts, Callout, Contact, Faq, FeaturedPost, ImageSection,
-    LandingPage, LatestPosts, LatestShow, MapSection, OpeningHours, QuoteForm, RecentJobs,
-    ReviewsSection, RichText, Section, SectionKind, SeriesSection, ServicesSection, SocialLinks,
-    Video, Welcome, DEFAULT_TRADE_COUNT,
+    render_inert_markdown, BusinessFacts, Callout, ComponentSection, Contact, Faq, FeaturedPost,
+    ImageSection, LandingPage, LatestPosts, LatestShow, MapSection, OpeningHours, QuoteForm,
+    RecentJobs, ReviewsSection, RichText, Section, SectionKind, SeriesSection, ServicesSection,
+    SocialLinks, Video, Welcome, DEFAULT_TRADE_COUNT,
 };
 use crate::theme::Theme;
 
@@ -158,7 +158,53 @@ impl Renderer<'_> {
             SectionKind::Services(v) => self.landing_services(cx, section, v),
             SectionKind::RecentJobs(v) => self.landing_recent_jobs(cx, section, v),
             SectionKind::Reviews(v) => self.landing_reviews(cx, section, v),
+            SectionKind::Component(v) => self.landing_component(cx, section, v),
         }
+    }
+
+    /// A theme component (ADR 0408): the element with its checked settings as escaped attributes,
+    /// under its heading when it has one, and the module that defines it. The browser runs a module
+    /// once however often it is linked, so two placements of one component load it once. A
+    /// component the page's theme does not offer, or settings it refuses, render nothing: the site
+    /// load has already said so.
+    fn landing_component(
+        &self,
+        cx: &mut Context<'_>,
+        section: &Section,
+        v: &ComponentSection,
+    ) -> String {
+        let Some(component) = cx.theme.components.get(&v.tag) else {
+            return String::new();
+        };
+        let Ok(attributes) = component.attributes(&v.props) else {
+            return String::new();
+        };
+        let mut element = format!("<{}", v.tag);
+        for (name, value) in attributes {
+            match value {
+                Some(value) => element.push_str(&format!(" {name}=\"{}\"", attr(&value))),
+                None => element.push_str(&format!(" {name}")),
+            }
+        }
+        element.push_str(&format!("></{}>\n", v.tag));
+        let labelled = !v.heading.trim().is_empty();
+        let mut inner = if labelled {
+            self.landing_heading(cx, &section.id, &v.heading)
+        } else {
+            String::new()
+        };
+        inner.push_str(&element);
+        if !component.fallback.is_empty() {
+            inner.push_str(&format!(
+                "<noscript><p class=\"ob-home-note\">{}</p></noscript>\n",
+                text(&component.fallback)
+            ));
+        }
+        inner.push_str(&format!(
+            "<script type=\"module\" src=\"{}\"></script>\n",
+            attr(&component.script)
+        ));
+        self.landing_wrap(section, labelled, &inner, "")
     }
 
     /// The published services as cards, each linking to its page; nothing until the site has one

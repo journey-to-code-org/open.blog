@@ -892,6 +892,7 @@ pub fn load_site_from_sources_listing(
     options: LoadOptions,
 ) -> Result<(Site, ThemeSet), Vec<String>> {
     let mut config = with_asset_version(root, config);
+    let wearable = wearable_themes(&config);
     if let Some(now) = options.now {
         wear_the_season(&mut config, now);
     }
@@ -899,6 +900,15 @@ pub fn load_site_from_sources_listing(
     let themes = load_themes(root, &config).map_err(|error| vec![error])?;
     check_season_themes(&config, &themes)?;
     let mut site = Site::load(config, sources, options)?;
+    if let Some(landing) = &site.landing {
+        let problems = landing_component_problems(landing, &wearable, &themes);
+        if !problems.is_empty() {
+            return Err(problems
+                .into_iter()
+                .map(|(id, message)| format!("content/landing.json: section `{id}` {message}"))
+                .collect());
+        }
+    }
     site.view_counts = counts;
     Ok((site, themes))
 }
@@ -911,6 +921,80 @@ pub fn wear_the_season(config: &mut SiteConfig, now: DateTime) {
     if let Some(theme) = config.seasons.theme_on(day) {
         config.theme = theme.to_string();
     }
+}
+
+/// Every theme the site can wear as its site theme: its own `theme` and each season's (ADR 0407),
+/// once each. A landing page has to read the same in all of them.
+pub fn wearable_themes(config: &SiteConfig) -> Vec<String> {
+    let mut names = vec![config.theme.clone()];
+    for name in config.seasons.themes() {
+        if !names.iter().any(|known| known == name) {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
+/// The components every wearable theme offers (ADR 0408), with what Admin needs to list them.
+pub fn offered_components(
+    wearable: &[String],
+    themes: &ThemeSet,
+) -> Vec<openblog_core::components::Component> {
+    let resolved: Vec<_> = wearable
+        .iter()
+        .filter_map(|name| themes.resolve(name).ok())
+        .collect();
+    openblog_core::components::common(&resolved)
+        .into_values()
+        .cloned()
+        .collect()
+}
+
+/// Problems with the landing page's component sections (ADR 0408), by section id: a component no
+/// wearable theme offers, or settings its declaration refuses. Hidden sections are checked too, so
+/// showing one never breaks the build.
+pub fn landing_component_problems(
+    landing: &openblog_core::landing::LandingPage,
+    wearable: &[String],
+    themes: &ThemeSet,
+) -> Vec<(String, String)> {
+    let resolved: Vec<_> = wearable
+        .iter()
+        .filter_map(|name| themes.resolve(name).ok())
+        .collect();
+    let mut problems = Vec::new();
+    for section in &landing.sections {
+        let openblog_core::landing::SectionKind::Component(placed) = &section.kind else {
+            continue;
+        };
+        let mut lacking = Vec::new();
+        for theme in &resolved {
+            match theme.components.get(&placed.tag) {
+                None => lacking.push(theme.name.clone()),
+                Some(component) => {
+                    if let Err(errors) = component.attributes(&placed.props) {
+                        for error in errors {
+                            let entry = (section.id.clone(), error);
+                            if !problems.contains(&entry) {
+                                problems.push(entry);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !lacking.is_empty() {
+            problems.push((
+                section.id.clone(),
+                format!(
+                    "places the component `{}`, which the theme {} does not offer; add it to the theme's `components` or remove the section",
+                    placed.tag,
+                    lacking.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(" and ")
+                ),
+            ));
+        }
+    }
+    problems
 }
 
 /// Every theme a season names must exist, whether or not its window is open today, so a mistake
@@ -1903,6 +1987,66 @@ The cave educates.
                 .all(|path| !path.starts_with("interpretations/cave/")));
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_landing_component_must_be_offered_by_every_theme_the_site_can_wear() {
+        let root = reading_path_project(
+            "landing-components",
+            r#"{"theme":"house","seasons":{"enabled":true,"windows":[{"theme":"plain","start":"01-01","end":"01-02"}]}}"#,
+        );
+        for (name, json) in [
+            (
+                "house",
+                r#"{"extends":"base","components":{"holiday-countdown":{"label":"Countdown sign","script":"sign.js",
+                    "props":[{"name":"holiday","type":"choice","label":"Which holiday","default":"christmas",
+                    "choices":[{"value":"christmas","label":"Christmas"}]}]}}}"#,
+            ),
+            ("plain", r#"{"extends":"base"}"#),
+        ] {
+            fs::create_dir_all(root.join("themes").join(name)).unwrap();
+            fs::write(root.join("themes").join(name).join("theme.json"), json).unwrap();
+        }
+        fs::write(root.join("themes/house/sign.js"), "").unwrap();
+        fs::write(
+            root.join("content/landing.json"),
+            r#"{"format":"openblog-landing","version":4,"sections":[
+                {"id":"hi","type":"welcome","heading":"Hello"},
+                {"id":"sign","type":"component","tag":"holiday-countdown","props":{"holiday":"christmas"}}]}"#,
+        )
+        .unwrap();
+        let Err(error) = load_site(
+            &root,
+            false,
+            Some(DateTime::parse("2026-06-01T00:00:00Z").unwrap()),
+        ) else {
+            panic!("the plain season does not offer the sign")
+        };
+        assert!(error.contains("section `sign`"), "{error}");
+        assert!(error.contains("`plain`"), "{error}");
+
+        // Once every wearable theme offers it, the page builds, and a bad setting is named.
+        fs::write(
+            root.join("themes/plain/theme.json"),
+            r#"{"extends":"house"}"#,
+        )
+        .unwrap();
+        assert!(load_site(
+            &root,
+            false,
+            Some(DateTime::parse("2026-06-01T00:00:00Z").unwrap())
+        )
+        .is_ok());
+        fs::write(
+            root.join("content/landing.json"),
+            r#"{"format":"openblog-landing","version":4,"sections":[
+                {"id":"sign","type":"component","tag":"holiday-countdown","props":{"holiday":"easter"}}]}"#,
+        )
+        .unwrap();
+        let Err(error) = load_site(&root, false, None) else {
+            panic!("easter is not a choice")
+        };
+        assert!(error.contains("must be one of Christmas"), "{error}");
     }
 
     #[test]

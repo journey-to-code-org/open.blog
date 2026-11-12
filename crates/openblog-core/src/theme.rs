@@ -41,6 +41,11 @@ pub struct ThemeFile {
     /// The header logo on pages in this theme, instead of the site's `logo` (shown only when
     /// the site has a logo).
     pub logo: Option<String>,
+    /// Web components an owner may place on the landing page (ADR 0408), by custom element name.
+    /// Each says what it is in plain words, which script defines it, and the settings it takes, so
+    /// Admin can offer it with a form and nothing an owner types is ever markup. Inherited through
+    /// `extends`; a child theme may add components or replace one by name.
+    pub components: BTreeMap<String, crate::components::ComponentDecl>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -140,6 +145,8 @@ pub struct Theme {
     pub favicon: Option<String>,
     /// Absolute site URL of the theme's own header logo, if it has one.
     pub logo: Option<String>,
+    /// The components an owner may place (ADR 0408), checked, with scripts as absolute site URLs.
+    pub components: BTreeMap<String, crate::components::Component>,
 }
 
 /// A valid custom element name: lowercase ASCII, starts with a letter, and
@@ -329,6 +336,17 @@ impl ThemeSet {
             }
             if let Some(logo) = &file.logo {
                 theme.logo = Some(absolutize(&base_url, logo));
+            }
+            for (tag, decl) in &file.components {
+                let component = crate::components::Component::check(tag, decl)
+                    .map_err(|problem| format!("theme `{n}`: component `{tag}`: {problem}"))?;
+                theme.components.insert(
+                    tag.clone(),
+                    crate::components::Component {
+                        script: absolutize(&base_url, &component.script),
+                        ..component
+                    },
+                );
             }
         }
         if theme.label.is_empty() {

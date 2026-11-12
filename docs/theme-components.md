@@ -30,6 +30,53 @@ engine. The open-source engine ships no effects; `themes/demo/` is a worked exam
 Because the element wraps text that is already in the HTML, the page is complete before
 JavaScript runs, and search engines and feed readers see ordinary headings.
 
+## Components an owner can place
+
+A theme can also offer components for the owner to put on the landing page herself, with no code:
+Admin's **Landing page** lists them under **Add a section**, and each gets a form built from the settings
+the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-places-with-a-form-and-a-section-holds-only-a-name-and-checked-values.md)).
+
+```jsonc
+// themes/<name>/theme.json
+{
+  "components": {
+    "holiday-countdown": {                               // the custom element's name
+      "label": "Countdown sign",                         // what the owner sees in the list
+      "description": "A little sign that counts the days until the holiday.",
+      "script": "components/holiday-countdown.js",       // a file in this theme's folder
+      "fallback": "A countdown sign to the holiday hangs here.",
+      "props": [
+        { "name": "holiday", "type": "choice", "label": "Which holiday", "default": "thanksgiving",
+          "choices": [ { "value": "thanksgiving", "label": "Thanksgiving" },
+                       { "value": "christmas", "label": "Christmas" } ],
+          "help": "The sign counts down to this day." }
+      ]
+    }
+  }
+}
+```
+
+- **Settings** are `text` (one line; `maxLength`, default 200), `choice` (`choices`), `number` (`min`, `max`)
+  or `toggle` (written as an attribute with no value when on, left out when off). Each has a `name` (the
+  attribute), a `label`, and optionally `help`, `required` and `default`. A name is lowercase letters,
+  digits and hyphens and never an event handler (`on…`), `id`, `class`, `style`, `src` or `href`.
+- **The script** is a `.js` file inside the theme folder. An address elsewhere is refused, so a theme
+  never loads code from another site through a component.
+- **The section** the owner adds holds only the component's name, an optional heading and the values:
+  `{ "id": "sign", "type": "component", "tag": "holiday-countdown", "props": { "holiday": "christmas" } }`.
+  The build checks every value against the declaration and writes the element with escaped attributes,
+  followed by its module script (a browser runs a module once, however often it is linked).
+- **`fallback`** is one plain line shown where scripts do not run: Admin's preview, and readers without
+  JavaScript.
+- **Every theme the site can wear must offer it.** With [seasons](themes.md#seasons), that is the site
+  theme and every season's, so declare components on the theme the seasons extend. A page that places a
+  component no wearable theme offers, or a value its declaration refuses, stops the build and names the section.
+- Components are inherited through `extends`, and a child theme may add more or redeclare one by name.
+
+A component written in [Zubra](https://github.com/journey-to-code-org/zubra) compiles to a plain custom
+element with `zubra compile <file>.zb --emit element`, which needs nothing installed on the page; a
+hand-written element works the same way.
+
 ## Styling the landing page
 
 When a site has a landing page, each section is written as

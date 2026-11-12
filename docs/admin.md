@@ -933,6 +933,12 @@ Open **Landing page** (`#/landing`) to arrange the home page. A first visit offe
 replaced without a yes. A site that has never built a landing page starts from what visitors see today, and
 nothing is written until you save.
 
+When your theme offers components (a countdown sign, a photo gallery), **Add a section** lists them after the
+built-in sections, each with the plain name and description the theme gives it. Its form is made from the settings
+the theme declares: a list to choose from, a line of text, a number, or a switch. The preview runs no scripts, so
+it shows the component's one-line fallback instead
+([Components an owner can place](theme-components.md#components-an-owner-can-place)).
+
 The Recipes layout shows your newest recipes once you publish the first one. To do the same in any other layout,
 set **What to show** to **Only my recipes** on a Latest posts section.
 
