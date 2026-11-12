@@ -64,13 +64,18 @@ async function install(context, { coordinator = false } = {}) {
   store = { number: 0, markdown: "" };
   synthesis = { revision: 0, items: [], authors: [{ id: "p-me", displayName: "Writer" }], you: "p-me" };
   offline = false;
+  if (coordinator) await context.route("**/admin/api/contributors", (route) => json(route, 200, { contributors: { writer: { name: "Writer" } } }));
   await context.route("**/admin/api/collaboration/**", async (route) => {
     const method = route.request().method();
     if (offline && method !== "GET") return route.abort("internetdisconnected");
     const path = new URL(route.request().url()).pathname.replace("/admin/api/collaboration/", "");
     if (path === "publications") {
-      return json(route, 200, { publications: [{ publicationId: PUBLICATION, roles: ["contributor"], title: "A shared reflection", guidingQuestion: "What stayed with you?", sources: [] }] });
+      return json(route, 200, { publications: [{ publicationId: PUBLICATION, roles: coordinator ? ["coordinator", "contributor"] : ["contributor"], title: "A shared reflection", guidingQuestion: "What stayed with you?", sources: [] }] });
     }
+    if (coordinator && path === "members") return json(route, 200, {
+      revision: 0, members: [{ participantId: "p-other", displayName: "Another writer", adminUser: "other", contributorId: "other", roles: ["contributor"], canChangeRoles: true, canRemove: true }],
+    });
+    if (coordinator && path === "invitations") return json(route, 200, { invitations: [] });
     if (path === "draft" && method === "GET") return json(route, 200, { draft: store.number ? { stamp: stamp(store.number), markdown: store.markdown } : null });
     if (path === "draft" && method === "PUT") {
       const body = route.request().postDataJSON();
@@ -199,6 +204,47 @@ test("sharing, arrangement and approval controls are accessible at 400px", async
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect(result.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("members and invitations are accessible by keyboard at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  await context.route("**/admin/api/collaboration/invitations", (route) => json(route, 422, { error: "That account cannot be invited." }));
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  const summary = page.locator("summary", { hasText: "Members and invitations" });
+  await summary.focus();
+  await page.keyboard.press("Enter");
+  const panel = page.locator(".oba-invitations").filter({ has: summary });
+  await expect(panel.getByRole("button", { name: "Change roles for Another writer" })).toBeVisible();
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-invitations:not(.oba-draft):not(.oba-series)"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  await panel.getByRole("button", { name: "Create invitation link" }).press("Enter");
+  await expect(panel.getByRole("alert")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await panel.getByLabel("Their sign-in name").fill("other");
+  await panel.getByRole("button", { name: "Create invitation link" }).press("Enter");
+  await expect(panel.getByRole("alert")).toContainText("That account cannot be invited.");
+  await expect(panel.getByRole("alert")).toBeFocused();
+  const change = panel.getByRole("button", { name: "Change roles for Another writer" });
+  await change.press("Enter");
+  const roles = panel.getByRole("group", { name: "Roles for Another writer" });
+  await roles.locator("input:checked").uncheck();
+  await roles.getByRole("button", { name: "Review change" }).press("Enter");
+  await expect(panel.getByRole("alert")).toContainText("Choose at least one role");
+  await expect(panel.getByRole("alert")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await roles.getByRole("button", { name: "Cancel" }).press("Enter");
+  await expect(change).toBeFocused();
+  const remove = panel.getByRole("button", { name: "Remove access for Another writer" });
+  await remove.press("Enter");
+  await expect(panel.getByRole("group", { name: "Remove Another writer?" })).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(remove).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 

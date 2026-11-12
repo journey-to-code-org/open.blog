@@ -18527,7 +18527,10 @@ export class ObAdmin extends AdminElement {
       const { message, reload } = sharedManagementError(error);
       problem.textContent = message;
       problem.hidden = false;
-      if (!reload) return;
+      if (!reload) {
+        problem.focus();
+        return;
+      }
       try {
         await load();
       } catch {
@@ -18629,6 +18632,7 @@ export class ObAdmin extends AdminElement {
         if (!chosen.length) {
           problem.textContent = "Choose at least one role, or remove their access instead.";
           problem.hidden = false;
+          problem.focus();
           return;
         }
         if (!lines.length) {
@@ -18763,6 +18767,7 @@ export class ObAdmin extends AdminElement {
       if (invalid) {
         problem.textContent = invalid.message;
         problem.hidden = false;
+        problem.focus();
         return;
       }
       try {
