@@ -62,6 +62,16 @@ contain script, image or `foreignObject` elements, event attributes, or
 non-fragment `href`/`src` attributes. This narrow inspection is not a security
 audit: all renderer output still requires allowlist sanitization and limits.
 
+The standalone merman harness also exercises its constrained resource policy:
+all seven small fixtures render with a 16 KiB source cap, a 200-item model
+budget and a 1,000,000-byte SVG cap; oversized source and a 100-node graph with
+a 10-item model budget are rejected. An already-expired native deadline is
+reported as cancelled. Run these checks with
+`cargo test --manifest-path scripts/diagram-spike/Cargo.toml --release --features merman --lib`.
+The model-item budget is not a separately verified exact node-count limit, and
+the renderer's deadline is cooperative, not a hard wall-clock timeout. These
+checks do not cover browser-worker termination or make the raw SVG safe.
+
 All three candidates compiled to `wasm32-unknown-unknown`. The restricted
 merman binding ran in Node and Chromium and produced byte-identical SVGs to
 Windows native for all seven valid fixtures; both also rejected the malformed
