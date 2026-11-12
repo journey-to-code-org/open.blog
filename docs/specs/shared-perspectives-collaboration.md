@@ -468,11 +468,11 @@ record, but not mutable contributor-registry profile details. Approvals made bef
 attribution binding was added must be reviewed again.
 
 The approval rule may be proposed by a site owner or coordinator, but changes only after every
-active writer explicitly agrees to the same proposal. Consent can be withdrawn before the rule
-changes. Membership or access changes stale the proposal. Rule consent does not approve the
-piece; applying the rule clears piece approvals. Coordinators and readers without the draft grant
-are not yet voters. Consent from every participant, numeric quorum and mandatory whole-piece
-scope remain open in epic #592.
+active, bound participant explicitly agrees to the same proposal, including coordinators and
+readers. Reader-only participants can review and vote on the rule without seeing drafts or the
+piece's approval status. Consent can be withdrawn before the rule changes. Membership or access
+changes stale the proposal. Rule consent does not approve the piece; applying the rule clears
+piece approvals. Numeric quorum and mandatory whole-piece scope remain open in epic #592.
 
 ## Named-recipient sharing
 

@@ -15321,6 +15321,36 @@ fn active_approvers(
         .collect()
 }
 
+fn policy_participant(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    user: &str,
+) -> Option<String> {
+    transaction
+        .with_identities(|identities| {
+            record.authorize(
+                user,
+                identities,
+                AuthorizationAction::ViewPublication,
+                AuthorizationTarget::Publication,
+            )
+        })
+        .ok()
+        .map(|binding| binding.participant_id.clone())
+}
+
+fn policy_participants(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+) -> Vec<String> {
+    record
+        .authorization
+        .bindings
+        .iter()
+        .filter_map(|binding| policy_participant(transaction, record, &binding.admin_user))
+        .collect()
+}
+
 /// The rule and where the piece stands under it, for someone who holds the policy grant (who
 /// also holds the publish grant, so may already learn who has not approved, ADR 0022). Display
 /// names and roles only: no prose, revision or digest.
@@ -15399,8 +15429,8 @@ fn approval_policy_json(
     })
 }
 
-/// The approval rule, for a site owner or coordinator. Everyone else gets the same not-found as
-/// a missing publication; authors see the rule in the combined preview.
+/// The rule proposal is visible to active participants; detailed approval status requires
+/// draft or policy access.
 fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let Some(publication_id) = req.query.get("publicationId") else {
         return approval_policy_not_found();
@@ -15412,7 +15442,7 @@ fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session
         return approval_policy_not_found();
     };
     let authority = approval_rule_authority(&transaction, &record, session);
-    let own = draft_owner(&transaction, &record, session);
+    let own = policy_participant(&transaction, &record, &session.user);
     if authority.is_none() && own.is_none() {
         return approval_policy_not_found();
     }
@@ -15421,7 +15451,24 @@ fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session
         Err(response) => return response,
     };
     let approvers = active_approvers(&transaction, &record, &inputs.active);
-    let mut response = approval_policy_json(&record, &inputs, &inputs.approvals.set, &approvers);
+    let mut response = if authority.is_some()
+        || draft_owner(&transaction, &record, session).is_some()
+    {
+        approval_policy_json(&record, &inputs, &inputs.approvals.set, &approvers)
+    } else {
+        let names = match &inputs.approvals.set.policy().requirement {
+            openblog_core::approval::ApprovalRequirement::NamedAuthors(ids) => {
+                openblog_core::assembly::display_names(&record, ids.iter().map(String::as_str))
+            }
+            _ => Vec::new(),
+        };
+        json!({
+            "policy": inputs.approvals.set.policy(),
+            "revision": inputs.approvals.set.policy_revision(),
+            "summary": openblog_core::approval::describe_policy(inputs.approvals.set.policy(), &names),
+            "published": matches!(inputs.outcome.outcome, Some(openblog_core::assembly::Outcome::Published { .. })),
+        })
+    };
     if let Some(object) = response.as_object_mut() {
         object.insert(
             "mayDropApprovers".into(),
@@ -15432,7 +15479,7 @@ fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session
         if let Some(proposal) = inputs.approvals.set.proposal() {
             let valid = proposal.membership_revision == record.collaboration.revision
                 && proposal.authorization_revision == record.authorization.revision
-                && proposal.participants == inputs.active;
+                && proposal.participants == policy_participants(&transaction, &record);
             let named = match &proposal.policy.requirement {
                 openblog_core::approval::ApprovalRequirement::NamedAuthors(ids) => {
                     openblog_core::assembly::display_names(&record, ids.iter().map(String::as_str))
@@ -15491,6 +15538,8 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
     let approvers = active_approvers(&transaction, &record, &inputs.active);
     let approver_ids = approvers.iter().map(String::as_str).collect::<Vec<_>>();
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let voters = policy_participants(&transaction, &record);
+    let voters: Vec<_> = voters.iter().map(String::as_str).collect();
     if body.expected_proposal_id != inputs.approvals.set.proposal().map(|proposal| proposal.id) {
         return Response::error(409, "The rule proposal changed since you loaded it. Reload before proposing another rule; nothing was changed.");
     }
@@ -15587,7 +15636,7 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
             record.collaboration.revision,
             record.authorization.revision,
             authority,
-            &active,
+            &voters,
         ) {
             Ok(proposal) => proposal,
             Err(_) => {
@@ -15625,11 +15674,15 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
     let Ok(body) = serde_json::from_slice::<PolicyConsentRequest>(&req.body) else {
         return shared_problem("", "This policy consent is not valid. Nothing was changed.");
     };
-    let (transaction, own) = match draft_request_target(state, &body.publication_id, session) {
-        Ok(found) => found,
-        Err(response) => return response,
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return approval_policy_not_found();
     };
-    let record = transaction.record.as_ref().expect("authorized record");
+    let Some(record) = transaction.record.as_ref() else {
+        return approval_policy_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return approval_policy_not_found();
+    };
     let inputs = match gate_inputs(state, &transaction, record) {
         Ok(inputs) => inputs,
         Err(response) => return response,
@@ -15641,6 +15694,8 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
         return published_already();
     }
     let active: Vec<_> = inputs.active.iter().map(String::as_str).collect();
+    let voters = policy_participants(&transaction, record);
+    let voters: Vec<_> = voters.iter().map(String::as_str).collect();
     let approvers = active_approvers(&transaction, record, &inputs.active);
     let approver_ids: Vec<_> = approvers.iter().map(String::as_str).collect();
     let mut next = inputs.approvals.set.clone();
@@ -15649,7 +15704,7 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
         body.proposal_id,
         record.collaboration.revision,
         record.authorization.revision,
-        &active,
+        &voters,
         body.affirmed,
     ) {
         Ok(unanimous) => unanimous,
@@ -15679,7 +15734,7 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
                     body.proposal_id,
                     record.collaboration.revision,
                     record.authorization.revision,
-                    &active,
+                    &voters,
                     subject,
                     &approver_ids,
                 )
@@ -15714,11 +15769,15 @@ fn withdraw_policy_consent(state: &AppState, req: &Request, session: &auth::Sess
             "This policy consent request is not valid. Nothing was changed.",
         );
     };
-    let (transaction, own) = match draft_request_target(state, &body.publication_id, session) {
-        Ok(found) => found,
-        Err(response) => return response,
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return approval_policy_not_found();
     };
-    let record = transaction.record.as_ref().expect("authorized record");
+    let Some(record) = transaction.record.as_ref() else {
+        return approval_policy_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return approval_policy_not_found();
+    };
     let inputs = match gate_inputs(state, &transaction, record) {
         Ok(inputs) => inputs,
         Err(response) => return response,
@@ -39107,7 +39166,15 @@ series: letters
             std::env::var_os("OPENBLOG_APPROVAL_FIXTURE")
                 .expect("OPENBLOG_APPROVAL_FIXTURE is required"),
         );
-        let (f, _, _, _, _) = approval_fixture("browser-approval");
+        let (f, owner, _, _, id) = approval_fixture("browser-approval");
+        join_via_api(
+            &f,
+            &owner,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
         for (path, bytes) in tree_snapshot(&f.dir) {
             let file = destination.join(path);
             fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -39947,7 +40014,7 @@ series: letters
         assert_eq!(changed["proposed"], true);
         assert_eq!(changed["revision"], 0);
         let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
-        for who in [&mikey, &grace] {
+        for who in [&mikey, &grace, &ada] {
             assert_eq!(
                 body_json(&consent_rule(&f, who, &id, proposal))["changed"],
                 false
@@ -40110,8 +40177,61 @@ series: letters
         assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 409);
         assert_eq!(
             body_json(&consent_rule(&f, &mikey, &id, next))["changed"],
+            false
+        );
+        assert_eq!(
+            body_json(&consent_rule(&f, &ada, &id, next))["changed"],
             true
         );
+    }
+
+    #[test]
+    fn policy_consent_includes_readers_and_coordinators_without_revealing_drafts() {
+        let (f, mikey, grace, ada, id) = approval_fixture("policy-consent-reader");
+        let reader = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &ada,
+                rule_body(
+                    &id,
+                    0,
+                    json!({ "requirement": "contributingAuthors" }),
+                    true
+                ),
+                true
+            )
+            .status,
+            200
+        );
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        let read = body_json(&approval_policy_read(&f, &reader, &id));
+        assert_eq!(read["proposal"]["valid"], true);
+        for field in ["required", "missing", "approvers", "formerApprovers"] {
+            assert!(read.get(field).is_none(), "{field} must stay private");
+        }
+        assert!(!read.to_string().contains("MIKEY-SECRET"));
+        assert!(!read.to_string().contains("GRACE-SECRET"));
+        assert_eq!(draft_call(&f, &reader, &id, 0, "not permitted").status, 404);
+        for who in [&mikey, &grace, &ada] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(approvals_file(&f, &id)["policyRevision"], 0);
+        assert_eq!(
+            body_json(&consent_rule(&f, &reader, &id, proposal))["changed"],
+            true
+        );
+        assert_eq!(approvals_file(&f, &id)["policyRevision"], 1);
     }
 
     #[test]
@@ -40164,6 +40284,7 @@ series: letters
         let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
         assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 200);
         assert_eq!(consent_rule(&f, &grace, &id, proposal).status, 200);
+        assert_eq!(consent_rule(&f, &ada, &id, proposal).status, 200);
         let named = body_json(&approval_policy_read(&f, &ada, &id));
         assert!(named["summary"]
             .as_str()
@@ -40217,6 +40338,7 @@ series: letters
         assert_eq!(resolved.status, 200);
         let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
         assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 200);
+        assert_eq!(consent_rule(&f, &ada, &id, proposal).status, 200);
         assert_eq!(
             body_json(&approval_policy_read(&f, &mikey, &id))["unmetNamed"],
             json!([])

@@ -127,9 +127,13 @@ test("a named release reaches its recipient through the real Admin API", async (
   }
 });
 
-test("authors unanimously change the approval rule through the real Admin API", async ({ browser, page }) => {
+test("all participants unanimously change the approval rule through the real Admin API", async ({ browser, page }) => {
   const graceContext = await browser.newContext();
   const grace = await graceContext.newPage();
+  const coordinatorContext = await browser.newContext();
+  const coordinator = await coordinatorContext.newPage();
+  const readerContext = await browser.newContext({ viewport: { width: 400, height: 800 } });
+  const reader = await readerContext.newPage();
   try {
     await page.setViewportSize({ width: 400, height: 800 });
     await grace.setViewportSize({ width: 400, height: 800 });
@@ -158,10 +162,39 @@ test("authors unanimously change the approval rule through the real Admin API", 
     await expect(grace.getByRole("heading", { name: "Proposed approval rule" })).toBeVisible();
     await grace.getByLabel(/I agree to this exact approval rule/).check();
     await grace.getByRole("button", { name: "Agree to this rule" }).click();
-    await expect(grace.getByText("Everyone agreed. The rule changed", { exact: false })).toBeVisible();
-    await expect(grace.getByRole("heading", { name: "Proposed approval rule" })).toHaveCount(0);
-    await expect(grace.getByText("Everyone who wrote a section", { exact: false }).first()).toBeVisible();
+    await expect(grace.getByText("Your agreement was recorded.", { exact: false })).toBeVisible();
+    for (const [participant, username, password] of [
+      [coordinator, "ada", "a fourth correct horse"],
+      [reader, "linus", "yet another horse"],
+    ]) {
+      await participant.goto(`${origin}/admin/`);
+      await participant.getByLabel("Username", { exact: true }).fill(username);
+      await participant.getByLabel("Password", { exact: true }).fill(password);
+      await participant.getByRole("button", { name: "Sign in", exact: true }).click();
+      await participant.goto(`${origin}/admin/#/shared`);
+    }
+    await coordinator.locator("summary", { hasText: "Your draft" }).click();
+    await expect(coordinator.getByRole("heading", { name: "Proposed approval rule" })).toBeVisible();
+    await coordinator.getByLabel(/I agree to this exact approval rule/).check();
+    await coordinator.getByRole("button", { name: "Agree to this rule" }).click();
+    await expect(coordinator.getByText("Your agreement was recorded.", { exact: false })).toBeVisible();
+    await reader.locator("summary", { hasText: "Approval rule" }).click();
+    await expect(reader.getByRole("heading", { name: "Proposed approval rule" })).toBeVisible();
+    await expect(reader.locator("body")).not.toContainText("MIKEY-SECRET");
+    await expect(reader.locator("body")).not.toContainText("GRACE-UPDATED");
+    await reader.evaluate(axe.source);
+    const readerAudit = await reader.evaluate(() => window.axe.run(document.querySelector(".oba-invitations"), {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+    }));
+    expect(readerAudit.violations).toEqual([]);
+    expect(await reader.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await reader.getByLabel(/I agree to this exact approval rule/).check();
+    await reader.getByRole("button", { name: "Agree to this rule" }).click();
+    await expect(reader.getByText("Everyone agreed. The rule changed", { exact: false })).toBeVisible();
+    await expect(reader.getByRole("heading", { name: "Proposed approval rule" })).toHaveCount(0);
   } finally {
     await graceContext.close();
+    await coordinatorContext.close();
+    await readerContext.close();
   }
 });

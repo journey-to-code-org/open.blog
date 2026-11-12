@@ -17,8 +17,9 @@ All notable changes to open.blog are recorded here. Releases follow
   latest saved draft.
 - Coordinators can choose named-recipient sharing. Authors confirm exactly which active writers
   receive their current revision; later edits stay private.
-- Approval rule changes now require each active writer to agree to the exact proposed rule.
-  Existing approvals remain in force until the group agrees, then are cleared.
+- Approval rule changes now require each active, bound participant, including readers and
+  coordinators, to agree to the exact proposed rule. Existing approvals remain in force until
+  the group agrees, then are cleared.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
   chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
   Directory submission is manual. See [Audio episodes](docs/audio.md) for limits and hosting requirements.

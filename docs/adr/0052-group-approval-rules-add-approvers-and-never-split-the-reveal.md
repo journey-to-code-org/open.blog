@@ -23,7 +23,8 @@ stored groups.
 ## Decision
 
 - **Unanimous rule changes (amendment).** A site owner or coordinator now proposes a rule rather
-  than changing it directly. Every active writer independently agrees to that exact proposal;
+  than changing it directly. Every active, bound participant independently agrees to that exact
+  proposal, including coordinators and readers without draft access;
   agreement to the rule is separate from approval of the piece. The proposer does not implicitly
   consent. Until the last agreement is recorded, the existing rule and piece approvals remain in
   force. On unanimity, the server revalidates the rule and clears all piece approvals in the same
@@ -34,8 +35,10 @@ stored groups.
   previously observed proposal ID. Existing authority and rule-meetability checks still apply.
   Published reflections cannot change their rule. Older releases cannot read an approval set
   containing a proposal or proposal sequence; rolling back requires handling these private files.
-  Active writers are the participants with the draft grant; coordinators and readers without
-  that grant are not yet voters, so consent from every participant remains open in epic #592.
+  Active participants are those whose bound Admin account and contributor identity are current
+  and authorized to view the publication. Reader-only participants see the rule and proposal,
+  not draft text or the piece's approval status. Existing pending proposals with a different
+  voter set become stale and must be replaced.
   The policy can still choose own-section scope and has no numeric threshold: whole-revision
   enforcement and quorum also remain open.
 - **Approval rules.** `ApprovalRequirement` gains `namedAuthors` (participant ids) and

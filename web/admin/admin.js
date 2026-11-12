@@ -18266,6 +18266,7 @@ export class ObAdmin extends AdminElement {
           }),
         ),
         this.draftPanel(publication, index),
+        this.readerPolicyPanel(publication, index),
         this.seriesPanel(publication, index),
         this.invitationPanel(publication, index),
       );
@@ -18818,6 +18819,64 @@ export class ObAdmin extends AdminElement {
   }
 
   // ---- shared reflection series
+
+  readerPolicyPanel(publication, index) {
+    const roles = publication.roles || [];
+    if (!roles.includes("reader") || ["contributor", "editor", "coordinator", "siteOwner"].some((role) => roles.includes(role))) return null;
+    const id = publication.publicationId;
+    const prefix = `oba-reader-rule-${index}`;
+    const heading = h("h3", { tabindex: "-1" }, "Approval rule");
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const body = h("div", {});
+    const load = async () => {
+      try {
+        const rule = await this.api.call("GET", `collaboration/approval-policy?publicationId=${encodeURIComponent(id)}`);
+        const parts = [h("p", { class: "oba-small" }, `Current rule: ${rule.summary}`)];
+        const proposal = rule.proposal;
+        if (proposal) {
+          parts.push(h("h4", {}, "Proposed approval rule"), h("p", {}, proposal.summary),
+            h("p", { class: "oba-small" }, proposal.valid
+              ? `Agreed: ${(proposal.consenting || []).join(", ") || "no one yet"}. Waiting for: ${(proposal.awaiting || []).join(", ") || "no one"}.`
+              : "Membership or access changed. A coordinator must propose the rule again."));
+          if (proposal.consentedByYou) {
+            const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my agreement");
+            withdraw.addEventListener("click", () => change("withdraw", { publicationId: id, proposalId: proposal.id }));
+            parts.push(withdraw);
+          } else if (proposal.valid && !rule.published) {
+            const confirm = h("input", { type: "checkbox", id: `${prefix}-confirm` });
+            const agree = h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: true }, "Agree to this rule");
+            confirm.addEventListener("change", () => { agree.disabled = !confirm.checked; });
+            agree.addEventListener("click", () => change("consent", { publicationId: id, proposalId: proposal.id, affirmed: confirm.checked }));
+            parts.push(h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-confirm` }, "I agree to this exact approval rule and understand that applying it clears the piece approvals.")), agree);
+          }
+        } else parts.push(h("p", { class: "oba-small" }, "There is no proposed rule."));
+        body.replaceChildren(...parts);
+      } catch (error) {
+        problem.textContent = approvalRuleFailure(error).message;
+        problem.hidden = false;
+        problem.focus();
+      }
+    };
+    const change = async (action, json) => {
+      problem.hidden = true;
+      try {
+        const result = await this.api.call("POST", `collaboration/approval-policy/${action}`, { json });
+        status.textContent = action === "withdraw" ? "Your agreement to the proposed rule was withdrawn."
+          : result.changed ? "Everyone agreed. The rule changed and the piece approvals were cleared."
+            : "Your agreement was recorded. The current rule remains in effect until everyone agrees.";
+        await load();
+        heading.focus();
+      } catch (error) {
+        problem.textContent = approvalRuleFailure(error).message;
+        problem.hidden = false;
+        problem.focus();
+      }
+    };
+    const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Approval rule"), heading, status, problem, body);
+    details.addEventListener("toggle", () => { if (details.open) load(); });
+    return details;
+  }
 
   /**
    * Where this reflection sits in one of the site's ordinary series. Every participant sees the
@@ -19697,7 +19756,7 @@ export class ObAdmin extends AdminElement {
         try {
           const result = await this.api.call("PUT", "collaboration/approval-policy", { json: { publicationId: id, expectedRevision: rule.revision, expectedProposalId: rule.proposal?.id ?? null, policy: built.policy, confirmed: confirm.checked } });
           ruleStatus.textContent = result?.proposed
-            ? "The proposed rule is waiting for every active writer to agree. The current rule still applies."
+            ? "The proposed rule is waiting for every active participant to agree. The current rule still applies."
             : "That is already the rule. Nothing changed.";
           await loadRule();
           ruleBlock.querySelector(`#${prefix}-rule-heading`)?.focus();
