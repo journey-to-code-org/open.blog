@@ -5,6 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Example site: three new posts teach the newest features from the inside: **Publishing an audio episode** (a real, six-second episode with chapters, a transcript and `/podcast.xml`), **Where your readers came from** (the "Where it went" report and visit attribution) and **Documentation beside your blog** (the documentation section, with a small example handbook in `content/docs/` and a Docs link in the header). Getting started now points to the example site's posts.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
   chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
   Directory submission is manual. See [Audio episodes](docs/audio.md) for limits and hosting requirements.

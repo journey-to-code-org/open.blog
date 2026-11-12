@@ -71,3 +71,16 @@ If your repository is configured for GitHub Pages, the deploy workflow will publ
 - [CLI Overview](cli-reference.md)
 - [Admin Panel Overview](admin.md)
 - [Markdown Style Guide](content.md)
+
+## Learn from the example site
+
+The repository's own `content/` folder is a working example site, deployed at
+<https://open-blog-jtc.netlify.app>. Each post there shows one feature in use and explains how it
+was made, and its Markdown source sits beside it in `content/posts/`. Among the newest:
+
+- **Publishing an audio episode**: an episode with chapters, a transcript and the podcast feed
+  (`content/posts/2026-11-05-publishing-an-audio-episode.md`).
+- **Where your readers came from**: the "Where it went" report and visit attribution
+  (`content/posts/2026-11-09-where-your-readers-came-from.md`).
+- **Documentation beside your blog**: the documentation section, with a small handbook in
+  `content/docs/` (`content/posts/2026-11-12-documentation-beside-your-blog.md`).

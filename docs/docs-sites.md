@@ -23,6 +23,9 @@ four example pages under `content/docs/`. To add a documentation section to an e
 `title` is the sidebar's heading (default "Documentation"). Add `{ "label": "Docs", "href": "/docs/" }` to `nav` if
 you want it in the header. Until `enabled` is true, files in `content/docs/` are not published, and the build says so.
 
+open.blog's example site has a small handbook in `content/docs/`, and the post "Documentation
+beside your blog" explains it.
+
 ## Where pages go
 
 Each Markdown file under `content/docs/` is a page at the address its path gives:
