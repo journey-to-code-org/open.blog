@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="t">
+  <title id="t">Illustration: the same oak floor sanded and sealed, warm honey colour with an even matte sheen</title>
+  <defs>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d9a35f"/><stop offset="0.5" stop-color="#c98e48"/><stop offset="1" stop-color="#b8793a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#sheen)"/>
+  <g stroke="#9c6430" stroke-width="4">
+    <line x1="0" y1="100" x2="1200" y2="100"/><line x1="0" y1="200" x2="1200" y2="200"/>
+    <line x1="0" y1="300" x2="1200" y2="300"/><line x1="0" y1="400" x2="1200" y2="400"/>
+    <line x1="0" y1="500" x2="1200" y2="500"/><line x1="0" y1="600" x2="1200" y2="600"/>
+    <line x1="0" y1="700" x2="1200" y2="700"/>
+    <line x1="310" y1="0" x2="310" y2="100"/><line x1="820" y1="100" x2="820" y2="200"/>
+    <line x1="180" y1="200" x2="180" y2="300"/><line x1="640" y1="300" x2="640" y2="400"/>
+    <line x1="1010" y1="400" x2="1010" y2="500"/><line x1="420" y1="500" x2="420" y2="600"/>
+    <line x1="900" y1="600" x2="900" y2="700"/><line x1="250" y1="700" x2="250" y2="800"/>
+  </g>
+  <g stroke="#b47a3d" stroke-width="2" opacity="0.7" fill="none">
+    <path d="M40 140 C240 128 420 156 700 138 S1040 150 1180 140"/>
+    <path d="M30 350 C260 338 520 366 760 344 S1060 360 1190 352"/>
+    <path d="M20 560 C300 548 560 572 820 552 S1080 566 1190 556"/>
+  </g>
+  <rect x="0" y="0" width="1200" height="800" fill="#fff" opacity="0.06"/>
+  <text x="40" y="770" font-family="sans-serif" font-size="38" fill="#2b1a0c">AFTER</text>
+</svg>

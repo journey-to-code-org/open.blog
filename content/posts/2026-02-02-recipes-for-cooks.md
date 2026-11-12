@@ -1,6 +1,8 @@
 ---
 title: "Recipes, too: lemon garlic pasta"
 date: 2026-02-02
+series: from-the-kitchen
+seriesOrder: 1
 tags:
   - recipe
   - guide
@@ -24,8 +26,9 @@ ingredients in a list under an `## Ingredients` heading and the steps in a list 
 - Cook mode keeps the screen awake, and "Print recipe" prints just the recipe.
 - Search engines get schema.org recipe data; with a photo, the post can appear as a recipe result.
 
-Start a new one with `openblog new "Lemon garlic pasta" --recipe`. This post is a working
-example; try the buttons above.
+Start a new one with `openblog new "Lemon garlic pasta" --recipe`, or in the Admin set
+**Settings → Content profile** to **Recipe**. This post is a working example: try the buttons
+above, then tap "9 minutes" in the first step to start a timer.
 
 > [!TIP]
 > Save a cup of the pasta water before you drain it. Its starch makes the sauce glossy.
@@ -66,3 +69,6 @@ course: Dinner
 Times can be written as `15 min`, `1 hr 30 min`, or `1:30`; something like `overnight`
 is shown as written. Use `makes: 12 cookies` to say what a recipe makes, alongside
 `servings` if readers should be able to scale it.
+
+Next: [Brown butter chocolate chip cookies](/posts/brown-butter-chocolate-chip-cookies/), which
+shows a batch recipe, ingredient groups and metric-and-cup measures.

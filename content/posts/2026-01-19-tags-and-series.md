@@ -26,7 +26,7 @@ A series is a file in `content/series/`. This one is `content/series/getting-sta
 ```yaml
 ---
 name: Getting started
-description: Three short parts ...
+description: Four short parts ...
 theme: demo        # every post in the series renders with this theme
 order: 1           # position on the /series/ page
 ---
@@ -34,8 +34,8 @@ Optional Markdown shown at the top of the series page.
 ```
 
 A post joins a series with `series: getting-started`. Parts are ordered by `seriesOrder`,
-or by date when it is missing. The post page then shows "Part 2 of 3", previous and next
-links, and a list of all parts. If you reference a series that has no file, open.blog
+or by date when it is missing. The post page then shows "Part 2 of 4", previous and next
+links, and a list of all parts. Scroll to the bottom of this post to see them. If you reference a series that has no file, open.blog
 creates it from the slug and warns you.
 
 ## Themes per series
@@ -45,5 +45,8 @@ post can override with `theme:` of its own. The themes available are the folders
 `themes/`; run `openblog themes` to list them. See `docs/themes.md` for how a theme is
 built from design tokens, and `docs/theme-components.md` for the heading effect this
 series is using.
+
+This demo site has nine series. The [series page](/series/) shows them all, ordered by each
+series' `order`. Every series is a working example of a different part of open.blog.
 
 Next: [Publishing and scheduling](/posts/publishing-and-scheduling/).

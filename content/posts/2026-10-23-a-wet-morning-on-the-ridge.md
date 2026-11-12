@@ -1,6 +1,8 @@
 ---
 title: A wet morning on the ridge
 date: 2026-10-23
+series: field-notes
+seriesOrder: 1
 tags:
   - hiking
   - field-notes
@@ -73,3 +75,26 @@ informal reroute.
 
 Field journals work best when they record what was actually observed, distinguish estimates
 from measurements, and reveal no more location detail than the story needs.
+
+## How this post is put together
+
+The summary card at the top comes from front matter, not from the text:
+
+```yaml
+profile: field-journal
+activity: Hike
+location: Northern ridge watershed (generalized)
+locationPrivacy: approximate
+distanceKm: 8.4
+elevationGainM: 420
+duration: 2 hr 15 min
+conditions: Cool and overcast after rain; wet rock, soft ground, and light wind on the ridge
+```
+
+With `locationPrivacy: approximate`, the route outline and elevation profile are drawn from
+normalized points: a shape, not a place. In the Admin, open **Field Review** (`Alt+5`), choose a
+privacy mode, then pick a GPX file from your watch or phone. The analysis happens in your
+browser, and no map or tracking service is contacted.
+
+Next: [Counting terns at the river mouth](/posts/counting-terns-at-the-river-mouth/), where the
+location stays completely hidden.
