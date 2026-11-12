@@ -592,7 +592,7 @@ fn an_approval_binds_the_digest_a_public_canonical_address_and_a_time_after_the_
     let approval = &approvals.approvals["episode"];
     assert_eq!(approval.publish_at.as_deref(), Some("2026-11-02T08:00:00Z"));
     assert_eq!(approval.file.bytes, 32);
-    assert_eq!(approval.manifest["policyVersion"], "2026-10-29.2");
+    assert_eq!(approval.manifest["policyVersion"], "2026-11-12");
 
     // The video may not go public before the article it links.
     let late = Prepared {

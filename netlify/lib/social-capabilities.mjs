@@ -208,18 +208,19 @@ const none = { maxRequestBodyBytes: null, maxTagNameChars: null, maxTags: null, 
 export const MANIFESTS = Object.freeze({
   linkedin: parseManifest({
     canonical: "linked",
-    capabilities: SOCIAL_CAPABILITIES,
+    capabilities: { ...SOCIAL_CAPABILITIES, image: "adapter" },
     constraints: { ...none, maxTextChars: 3000, ...SCHEDULE },
     family: "social",
     label: "LinkedIn",
     login: { method: "oauth2", scopes: ["openid", "profile", "w_member_social"] },
     manifestVersion: 1,
-    policyVersion: "2026-10-29",
+    policyVersion: "2026-11-12",
     provider: "linkedin",
     publishing: "explicit-approval",
     sources: [
       "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api",
       "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema",
+      "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api",
     ],
   }),
   facebook: parseManifest({
@@ -238,13 +239,13 @@ export const MANIFESTS = Object.freeze({
   // app.bsky.feed.post takes at most 300 graphemes; the link is an app.bsky.embed.external card (ADRs 0357, 0358).
   bluesky: parseManifest({
     canonical: "linked",
-    capabilities: SOCIAL_CAPABILITIES,
+    capabilities: { ...SOCIAL_CAPABILITIES, image: "adapter" },
     constraints: { ...none, maxTextChars: 300, ...SCHEDULE },
     family: "social",
     label: "Bluesky",
     login: { method: "app-password", scopes: [] },
     manifestVersion: 1,
-    policyVersion: "2026-10-29",
+    policyVersion: "2026-11-12",
     provider: "bluesky",
     publishing: "explicit-approval",
     sources: [
@@ -252,6 +253,8 @@ export const MANIFESTS = Object.freeze({
       "https://docs.bsky.app/docs/advanced-guides/rate-limits",
       "https://atproto.com/specs/xrpc",
       "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+      "https://github.com/bluesky-social/atproto/blob/main/lexicons-overrides/app/bsky/embed/external.json",
+      "https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/uploadBlob.json",
     ],
   }),
   // A status of at most 500 characters on a default instance, the link written into it as 23

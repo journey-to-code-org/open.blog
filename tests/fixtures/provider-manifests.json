@@ -111,7 +111,7 @@
       "capabilities": {
         "article": "unsupported",
         "draft": "unsupported",
-        "image": "manual",
+        "image": "adapter",
         "link": "adapter",
         "schedule": "adapter",
         "text": "adapter",
@@ -132,14 +132,16 @@
         "scopes": []
       },
       "manifestVersion": 1,
-      "policyVersion": "2026-10-29",
+      "policyVersion": "2026-11-12",
       "provider": "bluesky",
       "publishing": "explicit-approval",
       "sources": [
         "https://docs.bsky.app/docs/advanced-guides/posts",
         "https://docs.bsky.app/docs/advanced-guides/rate-limits",
         "https://atproto.com/specs/xrpc",
-        "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json"
+        "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+        "https://github.com/bluesky-social/atproto/blob/main/lexicons-overrides/app/bsky/embed/external.json",
+        "https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/uploadBlob.json"
       ]
     },
     "dev": {
@@ -361,7 +363,7 @@
       "capabilities": {
         "article": "unsupported",
         "draft": "unsupported",
-        "image": "manual",
+        "image": "adapter",
         "link": "adapter",
         "schedule": "adapter",
         "text": "adapter",
@@ -386,12 +388,13 @@
         ]
       },
       "manifestVersion": 1,
-      "policyVersion": "2026-10-29",
+      "policyVersion": "2026-11-12",
       "provider": "linkedin",
       "publishing": "explicit-approval",
       "sources": [
         "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api",
-        "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema"
+        "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema",
+        "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api"
       ]
     },
     "mastodon": {
@@ -675,7 +678,7 @@
         ]
       },
       "manifestVersion": 1,
-      "policyVersion": "2026-10-29.2",
+      "policyVersion": "2026-11-12",
       "provider": "youtube",
       "publishing": "explicit-approval",
       "sources": [
@@ -1322,9 +1325,7 @@
           "image"
         ]
       },
-      "codes": [
-        "capability-manual"
-      ]
+      "codes": []
     },
     {
       "provider": "linkedin",
@@ -1566,9 +1567,7 @@
         ],
         "textChars": 300
       },
-      "codes": [
-        "capability-manual"
-      ]
+      "codes": []
     },
     {
       "provider": "mastodon",
@@ -1775,7 +1774,7 @@
     },
     {
       "name": "the adapter learned images",
-      "base": "linkedin",
+      "base": "mastodon",
       "changes": [
         {
           "set": [
@@ -1979,7 +1978,7 @@
     },
     {
       "name": "narrowed and widened at once",
-      "base": "linkedin",
+      "base": "mastodon",
       "changes": [
         {
           "set": [
@@ -2012,7 +2011,7 @@
     },
     {
       "name": "a change without a new policy version",
-      "base": "linkedin",
+      "base": "mastodon",
       "changes": [
         {
           "set": [
@@ -2028,7 +2027,7 @@
     },
     {
       "name": "a change under an older policy version",
-      "base": "linkedin",
+      "base": "mastodon",
       "changes": [
         {
           "set": [

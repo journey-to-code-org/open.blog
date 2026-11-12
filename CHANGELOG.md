@@ -14,6 +14,9 @@ All notable changes to open.blog are recorded here. Releases follow
   for releases with captions need to be reviewed again if the video has not already been uploaded.
 - A YouTube channel can opt in to caption-management permission. Approved caption files are then
   sent after the video and tracked individually; an uncertain result is not retried automatically.
+- LinkedIn, Facebook and Bluesky image capabilities now reflect their adapters in the provider manifests.
+  YouTube's policy version changes for optional caption upload, so previously approved releases need review
+  before upload; the machine-readable preview note `captions-by-hand` is now `captions-conditional`.
 - Example site: three new posts teach the newest features from the inside: **Publishing an audio episode** (a real, six-second episode with chapters, a transcript and `/podcast.xml`), **Where your readers came from** (the "Where it went" report and visit attribution) and **Documentation beside your blog** (the documentation section, with a small example handbook in `content/docs/` and a Docs link in the header). Getting started now points to the example site's posts.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
   chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.

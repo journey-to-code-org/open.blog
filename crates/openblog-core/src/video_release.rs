@@ -663,7 +663,7 @@ pub fn youtube_preview(
     }
     if !release.captions.is_empty() {
         notes.push(problem(
-            "captions-by-hand",
+            "captions-conditional",
             "Caption files are uploaded after the video only when the channel has explicitly granted caption management permission; otherwise add them in YouTube Studio. Each upload costs 400 YouTube API quota units.",
         ));
     }
@@ -1561,9 +1561,9 @@ mod tests {
             preview.manual.is_empty(),
             "link, text, image and video go through the adapter"
         );
-        assert_eq!(codes(&preview.notes), ["captions-by-hand"]);
+        assert_eq!(codes(&preview.notes), ["captions-conditional"]);
         assert_eq!(preview.privacy, "private");
-        assert_eq!(preview.policy_version, "2026-10-29.2");
+        assert_eq!(preview.policy_version, "2026-11-12");
         assert!(preview
             .description
             .contains("Read the article: https://blog.example.org/posts/episode-1/"));
@@ -1592,7 +1592,7 @@ mod tests {
         );
         assert_eq!(
             codes(&preview.notes),
-            ["article-not-public", "captions-by-hand"]
+            ["article-not-public", "captions-conditional"]
         );
         let brackets = youtube_preview(&release(), source(true), &good);
         assert_eq!(codes(&brackets.problems), ["title-angle-brackets"]);

@@ -179,8 +179,8 @@ openblog video zhalendor-episode-1 --upload
 - `--approve <digest>` approves exactly the release you previewed and the video file as it is now.
   The preview digest also covers the full contents of each caption file. It sends nothing. If you
   later change the release, a caption file, the post's address or the video file, the upload is
-  refused until you preview and approve again. Older approvals for releases with captions must be
-  reviewed and approved again.
+  refused until you preview and approve again. The updated YouTube policy also requires older
+  approvals to be reviewed and approved again before upload.
 - `--publish-at` is optional. With it, YouTube makes the video public at that time, which must name
   its zone, be in the future, and be no earlier than the article's date. Without it, the video
   stays private until you publish it in YouTube Studio. The upload itself is always private.
