@@ -2,7 +2,9 @@
 
 These are synthetic inputs for comparing the three renderer candidates in #568.
 The standalone harness in `scripts/diagram-spike` does not change the site
-renderer. It pins the candidate versions and uses its own lockfile.
+renderer. It pins the candidate versions and uses its own lockfile. The
+[proposed renderer decision](../../../docs/adr/0411-diagram-rendering-needs-a-bounded-headless-engine.md)
+records what must happen before integration.
 
 Run the comparison from the repository root:
 
