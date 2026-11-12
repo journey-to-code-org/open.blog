@@ -7,8 +7,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 - New shared reflections default to mutual reveal: each active author must offer a revision
   before the group can read it. Existing reflections and saved sharing policies are unchanged.
-- New shared reflections initially require approval of the whole piece, so an edit to any
-  section invalidates every author's approval. Existing approval policies are unchanged.
+- New shared reflections require approval of the whole piece under every policy, so an edit to
+  any section invalidates every author's approval. A section-only rule previously saved for a
+  new reflection must be replaced by unanimous agreement before approval or publication.
+  Legacy reflections retain their existing scope.
 - Authors can approve a complete combined preview in Admin, explicitly confirming the current
   public contributor-profile credit. Additional credit choices are not yet available.
 - Shared-piece approvals now cover participant attribution in the reflection record. Existing

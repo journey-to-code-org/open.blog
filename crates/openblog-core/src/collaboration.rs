@@ -934,6 +934,12 @@ impl std::error::Error for SharedPublicationError {}
 const CREATOR_PARTICIPANT_ID: &str = "participant-1";
 
 impl SharedPublication {
+    /// New reflections require an approval bound to the entire piece under every policy.
+    pub fn allows_approval_scope(&self, scope: crate::approval::ApprovalScope) -> bool {
+        self.initial_approval_scope != Some(crate::approval::ApprovalScope::WholePiece)
+            || scope == crate::approval::ApprovalScope::WholePiece
+    }
+
     /// Parse a stored record. Every failure is one non-identifying error.
     pub fn from_json(source: &str) -> Result<Self, SharedPublicationError> {
         if source.len() > MAX_SHARED_PUBLICATION_BYTES {

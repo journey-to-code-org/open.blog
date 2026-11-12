@@ -34,6 +34,8 @@ const SECTION_BREAK: &str = "\n\n---\n\n";
 /// Why a publication could not be assembled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssemblyError {
+    /// A new reflection has a legacy section-only approval rule and must change it first.
+    ApprovalScope,
     /// Required approvals are missing or no longer match the content. Holds display names, for a
     /// requester who already holds the publish grant.
     Blocked { missing: Vec<String> },
@@ -378,6 +380,9 @@ pub fn assemble(
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
+    if !record.allows_approval_scope(approvals.policy().scope) {
+        return Err(AssemblyError::ApprovalScope);
+    }
     // The approvals are evaluated before anything reads a draft. Checking the arrangement against
     // the drafts first would refuse differently depending on whether a draft has a given part, an
     // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a

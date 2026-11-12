@@ -18839,7 +18839,7 @@ export class ObAdmin extends AdminElement {
           parts.push(h("h4", {}, "Proposed approval rule"), h("p", {}, proposal.summary),
             h("p", { class: "oba-small" }, proposal.valid
               ? `Agreed: ${(proposal.consenting || []).join(", ") || "no one yet"}. Waiting for: ${(proposal.awaiting || []).join(", ") || "no one"}.`
-              : "Membership or access changed. A coordinator must propose the rule again."));
+              : "Membership, access or approval requirements changed. A coordinator must propose the rule again."));
           if (proposal.consentedByYou) {
             const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my agreement");
             withdraw.addEventListener("click", () => change("withdraw", { publicationId: id, proposalId: proposal.id }));
@@ -19268,7 +19268,9 @@ export class ObAdmin extends AdminElement {
         restore.hidden = true;
         saving = false;
         refreshState();
-        status.textContent = `Saved as revision ${saved.number}.`;
+        status.textContent = `Saved as revision ${saved.number}. ${result?.wholePieceRequired
+          ? "All required authors must approve the new piece again."
+          : "Approvals for earlier versions may need to be given again."}`;
         await loadSharing();
       } catch (error) {
         saving = false;
@@ -19625,7 +19627,7 @@ export class ObAdmin extends AdminElement {
           h("p", {}, proposal.summary),
           h("p", { class: "oba-small" }, proposal.valid
             ? `Agreed: ${(proposal.consenting || []).join(", ") || "no one yet"}. Waiting for: ${(proposal.awaiting || []).join(", ") || "no one"}.`
-            : "Membership or access changed. A coordinator must propose the rule again."),
+            : "Membership, access or approval requirements changed. A coordinator must propose the rule again."),
         );
         if (proposal.valid && rule.you && !proposal.consentedByYou) {
           const confirmProposal = h("input", { type: "checkbox", id: `${prefix}-proposal-confirm` });
@@ -19736,11 +19738,12 @@ export class ObAdmin extends AdminElement {
           { value: "ownSections", label: "The approver's own sections", help: "Another author's edit leaves your approval standing." },
           { value: "wholePiece", label: "The whole piece", help: "Any edit clears every approval." },
         ].map((item) => {
-          const radio = h("input", { type: "radio", name: `${prefix}-rule-scope`, id: `${prefix}-rule-scope-${item.value}`, value: item.value, checked: choice.scope === item.value });
+          const radio = h("input", { type: "radio", name: `${prefix}-rule-scope`, id: `${prefix}-rule-scope-${item.value}`, value: item.value, checked: choice.scope === item.value, disabled: rule.wholePieceRequired && item.value === "ownSections" });
           radio.addEventListener("change", () => {
             choice.scope = item.value;
           });
-          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-rule-scope-${item.value}` }, item.label), h("span", { class: "oba-small" }, ` ${item.help}`));
+          const help = rule.wholePieceRequired && item.value === "ownSections" ? " New reflections require whole-piece approval." : ` ${item.help}`;
+          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-rule-scope-${item.value}` }, item.label), h("span", { class: "oba-small" }, help));
         }),
       );
       const confirm = h("input", { type: "checkbox", id: `${prefix}-rule-confirm` });

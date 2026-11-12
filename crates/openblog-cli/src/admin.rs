@@ -13330,7 +13330,13 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
                         "admin: saved draft revision {} of shared publication {}",
                         stamp.number, body.publication_id
                     );
-                    Response::json(200, &json!({ "stamp": stamp }))
+                    Response::json(
+                        200,
+                        &json!({
+                            "stamp": stamp,
+                            "wholePieceRequired": !record.allows_approval_scope(openblog_core::approval::ApprovalScope::OwnSections),
+                        }),
+                    )
                 }
                 Err(crate::shared_publications::ReplaceError::Conflict) => Response::error(
                     409,
@@ -13549,6 +13555,9 @@ fn prepare_post(
     };
     let mut assembly = match build(&date.rfc3339()) {
         Ok(assembly) => assembly,
+        Err(AssemblyError::ApprovalScope) => {
+            return Err(Response::error(409, "This reflection needs a whole-piece approval rule before it can be published. Ask a coordinator to propose that rule and agree to it; nothing was changed."))
+        }
         Err(AssemblyError::Blocked { missing }) => {
             return Err(Response::json(
                 409,
@@ -13920,6 +13929,9 @@ fn change_approval(
         Some(openblog_core::assembly::Outcome::Published { .. })
     ) {
         return published_already();
+    }
+    if approving.is_some() && !record.allows_approval_scope(inputs.approvals.set.policy().scope) {
+        return Response::error(409, "This reflection needs a whole-piece approval rule before it can be approved. Ask a coordinator to propose that rule and agree to it; nothing was changed.");
     }
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
     let mut next = inputs.approvals.set.clone();
@@ -15414,6 +15426,7 @@ fn approval_policy_json(
     };
     json!({
         "policy": rule.policy,
+        "wholePieceRequired": !record.allows_approval_scope(openblog_core::approval::ApprovalScope::OwnSections),
         "revision": rule.revision,
         "summary": rule.summary,
         "unmetNamed": rule.unmet_named,
@@ -15479,7 +15492,8 @@ fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session
         if let Some(proposal) = inputs.approvals.set.proposal() {
             let valid = proposal.membership_revision == record.collaboration.revision
                 && proposal.authorization_revision == record.authorization.revision
-                && proposal.participants == policy_participants(&transaction, &record);
+                && proposal.participants == policy_participants(&transaction, &record)
+                && record.allows_approval_scope(proposal.policy.scope);
             let named = match &proposal.policy.requirement {
                 openblog_core::approval::ApprovalRequirement::NamedAuthors(ids) => {
                     openblog_core::assembly::display_names(&record, ids.iter().map(String::as_str))
@@ -15534,6 +15548,9 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
         Some(openblog_core::assembly::Outcome::Published { .. })
     ) {
         return published_already();
+    }
+    if !record.allows_approval_scope(body.policy.scope) {
+        return shared_problem("policy", "This reflection requires whole-piece approval. Any edit must clear every approval. Nothing was changed.");
     }
     let approvers = active_approvers(&transaction, &record, &inputs.active);
     let approver_ids = approvers.iter().map(String::as_str).collect::<Vec<_>>();
@@ -15699,6 +15716,12 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
     let approvers = active_approvers(&transaction, record, &inputs.active);
     let approver_ids: Vec<_> = approvers.iter().map(String::as_str).collect();
     let mut next = inputs.approvals.set.clone();
+    if next
+        .proposal()
+        .is_some_and(|proposal| !record.allows_approval_scope(proposal.policy.scope))
+    {
+        return Response::error(409, "This proposal does not require whole-piece approval. Ask a coordinator to propose a whole-piece rule; nothing was changed.");
+    }
     let unanimous = match next.consent_policy(
         &own,
         body.proposal_id,
@@ -39861,7 +39884,10 @@ series: letters
         )
     }
 
-    fn rule_body(id: &str, revision: u64, policy: Json, confirmed: bool) -> Json {
+    fn rule_body(id: &str, revision: u64, mut policy: Json, confirmed: bool) -> Json {
+        if let Some(fields) = policy.as_object_mut() {
+            fields.entry("scope").or_insert(json!("wholePiece"));
+        }
         json!({ "publicationId": id, "expectedRevision": revision, "policy": policy, "confirmed": confirmed })
     }
 
@@ -39882,6 +39908,110 @@ series: letters
             .unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn new_reflections_require_a_whole_piece_rule_even_after_a_section_only_policy_was_saved() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-whole-scope");
+        let refused = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "contributingAuthors", "scope": "ownSections" }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(refused.status, 422);
+        assert_eq!(body_json(&refused)["field"], "policy");
+        assert_eq!(
+            body_json(&approval_policy_read(&f, &mikey, &id))["wholePieceRequired"],
+            true
+        );
+
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        let path = f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        ));
+        let mut stored = approvals_file(&f, &id);
+        stored["policy"]["scope"] = json!("ownSections");
+        fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        let refused = approve_as(&f, &grace, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(
+            schedule_as(&f, &ada, &id, json!("2099-01-01T00:00:00Z")).status,
+            409
+        );
+
+        let replacement = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "allAuthors", "scope": "wholePiece" }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(replacement.status, 200);
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(
+            body_json(&consent_rule(&f, &ada, &id, proposal))["changed"],
+            true
+        );
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
+    #[test]
+    fn legacy_reflections_can_still_choose_section_only_approval() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-legacy-scope");
+        let mut record = stored_record(&f, &id);
+        record.initial_approval_scope = None;
+        let path = f
+            .dir
+            .join(crate::shared_publications::DIRECTORY)
+            .join(format!("{id}.json"));
+        fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert_eq!(
+            body_json(&approval_policy_read(&f, &mikey, &id))["wholePieceRequired"],
+            false
+        );
+        let proposed = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "contributingAuthors", "scope": "ownSections" }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(proposed.status, 200);
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(
+            body_json(&consent_rule(&f, &ada, &id, proposal))["changed"],
+            true
+        );
+        assert_eq!(approvals_file(&f, &id)["policy"]["scope"], "ownSections");
     }
 
     #[test]
@@ -40166,7 +40296,7 @@ series: letters
         );
         let replacement = json!({
             "publicationId": id, "expectedRevision": 0, "expectedProposalId": proposal,
-            "policy": { "requirement": "contributingAuthors" }, "confirmed": true,
+            "policy": { "requirement": "contributingAuthors", "scope": "wholePiece" }, "confirmed": true,
         });
         assert_eq!(
             approval_policy_write(&f, &mikey, replacement, true).status,

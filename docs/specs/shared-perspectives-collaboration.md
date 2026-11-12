@@ -472,7 +472,11 @@ active, bound participant explicitly agrees to the same proposal, including coor
 readers. Reader-only participants can review and vote on the rule without seeing drafts or the
 piece's approval status. Consent can be withdrawn before the rule changes. Membership or access
 changes stale the proposal. Rule consent does not approve the piece; applying the rule clears
-piece approvals. Numeric quorum and mandatory whole-piece scope remain open in epic #592.
+piece approvals. New reflections require whole-piece approval under every rule, so an edit
+invalidates all approvals. If an earlier version saved a section-only rule for a new reflection,
+participants must unanimously replace it with a whole-piece rule before approving, scheduling or
+publishing. Legacy reflections retain their existing scope. Numeric quorum remains open in epic
+#592.
 
 ## Named-recipient sharing
 

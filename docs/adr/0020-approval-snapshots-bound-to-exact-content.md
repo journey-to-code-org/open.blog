@@ -69,10 +69,10 @@ set, the participants the maintainer added.
 
 ## Initial scope for new shared reflections
 
-New reflection records specify `wholePiece` as their initial approval scope. The first approval
-set starts at policy revision zero, and every author's consent is bound to the entire piece.
-An edit to any section consequently invalidates every approval under this default. Legacy
-records without the initial scope still start with `ownSections`, and any already stored
-approval set keeps its own policy. The existing policy controls can still change this scope;
-unanimous consent for policy changes is tracked separately in epic #592. Older releases that
-reject unknown record fields cannot read newly created records.
+New reflection records specify `wholePiece` as their initial approval scope and require it under
+every subsequent rule. The first approval set starts at policy revision zero, and every author's
+consent is bound to the entire piece. An edit to any section consequently invalidates every
+approval. Legacy records without the initial scope retain `ownSections` and their stored policies.
+If an earlier version saved a section-only rule for a new reflection, approval and publication
+are blocked until all active participants agree to a whole-piece rule. Older releases that reject
+unknown record fields cannot read newly created records.

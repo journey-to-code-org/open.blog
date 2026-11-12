@@ -39,8 +39,11 @@ stored groups.
   and authorized to view the publication. Reader-only participants see the rule and proposal,
   not draft text or the piece's approval status. Existing pending proposals with a different
   voter set become stale and must be replaced.
-  The policy can still choose own-section scope and has no numeric threshold: whole-revision
-  enforcement and quorum also remain open.
+  New reflections require whole-piece scope under every policy. A previously saved section-only
+  rule on such a reflection blocks approval, scheduling and publication until the participants
+  unanimously replace it with a whole-piece rule; the replacement clears standing approvals.
+  Legacy reflections without this initial-scope marker retain their existing scope. The policy
+  has no numeric threshold; quorum remains open.
 - **Approval rules.** `ApprovalRequirement` gains `namedAuthors` (participant ids) and
   `authorsWithRoles` (publication roles), next to `allAuthors` (all participants, the default) and
   `contributingAuthors`. Under every rule, each author who owns a section and each author named on

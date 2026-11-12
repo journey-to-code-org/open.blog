@@ -2,7 +2,7 @@
 //! JSON Feed with every author's section in order, every author credited consistently, the shared
 //! source attributed, and nothing private (ADR 0023).
 
-use openblog_core::approval::ApprovalSet;
+use openblog_core::approval::{ApprovalScope, ApprovalSet};
 use openblog_core::assembly::{assemble, with_subject, Assembly};
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
@@ -121,7 +121,7 @@ fn approved_titled(title: &str, texts: &[(&str, &str)]) -> Assembly {
             set.save(who, who, 0, text, T + 1).unwrap();
         }
     }
-    let mut approvals = ApprovalSet::new();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
     for who in ALL {
         let seen = with_subject(
             &record,
@@ -484,7 +484,7 @@ fn an_arranged_reflection_reaches_every_representation_in_reading_order_without_
             {"id":"r2","turns":[{"draft":"bo","part":0},{"draft":"ann","part":1}]}]}"#,
     )
     .unwrap();
-    let mut approvals = ApprovalSet::new();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
     for who in ALL {
         let seen = with_subject(
             &record,

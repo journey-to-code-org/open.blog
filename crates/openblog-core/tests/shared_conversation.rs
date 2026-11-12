@@ -60,6 +60,7 @@ fn record_titled(title: &str) -> SharedPublication {
         },
     })
     .unwrap();
+    record.initial_approval_scope = None;
     record.collaboration.participants[0].id = "ann".into();
     record.authorization.bindings[0].participant_id = "ann".into();
     for (id, name) in [("bo", NAMES[1]), ("cy", NAMES[2])] {

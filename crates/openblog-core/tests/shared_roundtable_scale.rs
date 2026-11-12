@@ -203,6 +203,7 @@ impl Group {
             },
         })
         .unwrap();
+        record.initial_approval_scope = None;
         record.collaboration.participants[0].id = id(0);
         record.authorization.bindings[0].participant_id = id(0);
         for n in 1..n {

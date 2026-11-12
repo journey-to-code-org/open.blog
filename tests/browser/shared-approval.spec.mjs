@@ -74,6 +74,7 @@ test("authors review, refuse a stale approval, approve and withdraw against the 
     await grace.getByLabel("Your reflection (Markdown)").fill("GRACE-UPDATED");
     await grace.getByRole("button", { name: "Save draft" }).click();
     await expect(grace.getByText("Saved as revision 2.", { exact: false }).first()).toBeVisible();
+    await expect(grace.getByText("All required authors must approve the new piece again.", { exact: false })).toBeVisible();
     await expect(grace.getByText("You have offered revision 1, not your latest revision 2.", { exact: false })).toBeVisible();
     await grace.getByRole("button", { name: "Take back my offer" }).click();
     await grace.getByRole("button", { name: "Offer revision 2 to the group" }).click();
@@ -139,6 +140,7 @@ test("all participants unanimously change the approval rule through the real Adm
     await grace.setViewportSize({ width: 400, height: 800 });
     await openDraft(page, "mikey", "correct horse battery");
     await openDraft(grace, "grace", "another correct horse");
+    await expect(page.getByRole("radio", { name: "The approver's own sections" })).toBeDisabled();
     await page.getByRole("radio", { name: "Everyone who wrote" }).check();
     await page.getByLabel(/changing the rule clears every approval/).check();
     await page.getByRole("button", { name: "Propose approval rule" }).click();

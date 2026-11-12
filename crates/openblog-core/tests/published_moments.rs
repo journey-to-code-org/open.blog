@@ -73,6 +73,7 @@ fn record() -> SharedPublication {
         },
     })
     .unwrap();
+    record.initial_approval_scope = None;
     record.collaboration.participants[0].id = ALL[0].into();
     record.authorization.bindings[0].participant_id = ALL[0].into();
     record.collaboration.participants.push(Participant {

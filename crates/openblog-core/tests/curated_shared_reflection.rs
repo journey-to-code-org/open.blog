@@ -3,7 +3,7 @@
 //! 0202): the arrangement keeps its reading order, the approved words are exactly what the
 //! authors approved, and nothing private or unselected comes with the context.
 
-use openblog_core::approval::ApprovalSet;
+use openblog_core::approval::{ApprovalScope, ApprovalSet};
 use openblog_core::assembly::{assemble, with_subject, Assembly};
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
@@ -119,7 +119,7 @@ fn publish(
     for (who, text) in drafts {
         set.save(who, who, 0, text, T).unwrap();
     }
-    let mut approvals = ApprovalSet::new();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
     for who in ALL {
         let seen = with_subject(
             record,

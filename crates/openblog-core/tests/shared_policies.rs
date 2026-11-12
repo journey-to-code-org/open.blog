@@ -38,6 +38,7 @@ fn record() -> SharedPublication {
         },
     })
     .unwrap();
+    record.initial_approval_scope = None;
     record.collaboration.participants[0].id = "ann".into();
     record.authorization.bindings[0].participant_id = "ann".into();
     for (id, name, roles) in [
@@ -121,6 +122,37 @@ fn policy(requirement: ApprovalRequirement) -> ApprovalPolicy {
         requirement,
         scope: ApprovalScope::OwnSections,
     }
+}
+
+#[test]
+fn new_reflections_cannot_publish_section_only_approvals() {
+    let mut record = record();
+    record.initial_approval_scope = Some(ApprovalScope::WholePiece);
+    let mut set = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve(&record, &set, &mut approvals, &ALL, who);
+    }
+    assert_eq!(
+        gate(&record, &set, &approvals, &ALL),
+        Err(AssemblyError::ApprovalScope)
+    );
+    record.initial_approval_scope = None;
+    assert_eq!(gate(&record, &set, &approvals, &ALL), Ok(()));
+
+    record.initial_approval_scope = Some(ApprovalScope::WholePiece);
+    assert!(approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::AllAuthors,
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ALL {
+        approve(&record, &set, &mut approvals, &ALL, who);
+    }
+    assert_eq!(gate(&record, &set, &approvals, &ALL), Ok(()));
+    set.save("bo", "bo", 1, "changed", T + 1).unwrap();
+    assert!(
+        matches!(gate(&record, &set, &approvals, &ALL), Err(AssemblyError::Blocked { missing }) if missing == ["Ann", "Bo", "Cy", "Di"])
+    );
 }
 
 fn change(
