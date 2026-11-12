@@ -1390,6 +1390,75 @@ impl<'a> PortableProjection<'a> {
         Ok(output)
     }
 
+    /// Bundle generated diagram images alongside a portable Markdown export.
+    /// `directory` is a single ASCII path component chosen by the exporter.
+    pub fn portable_markdown_bundle(
+        &self,
+        directory: &str,
+    ) -> Result<(String, Vec<crate::diagram::Asset>), String> {
+        if directory.is_empty()
+            || !directory
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err("diagram bundle directory must be a single safe path component".into());
+        }
+        let markdown = self.portable_markdown()?;
+        if self.diagrams.is_empty() {
+            return Ok((markdown, Vec::new()));
+        }
+        let mut edits = Vec::new();
+        let mut assets = std::collections::BTreeMap::new();
+        for asset in self.diagrams {
+            let filename = asset
+                .path
+                .strip_prefix("assets/diagrams/")
+                .ok_or_else(|| format!("{}: invalid diagram asset path", self.source_path))?;
+            if filename.len() != 68
+                || !filename.ends_with(".svg")
+                || !filename.as_bytes()[..64].iter().all(u8::is_ascii_hexdigit)
+            {
+                return Err(format!("{}: invalid diagram asset name", self.source_path));
+            }
+            assets.insert(
+                format!("{}/{}", self.base_url.trim_end_matches('/'), asset.path),
+                (format!("{directory}/{filename}"), asset.clone()),
+            );
+        }
+        for (event, range) in
+            Parser::new_ext(&markdown, crate::markdown::parser_options(false)).into_offset_iter()
+        {
+            if let Event::Start(Tag::Image {
+                dest_url,
+                link_type: pulldown_cmark::LinkType::Inline,
+                ..
+            }) = event
+            {
+                let Some((local, _)) = assets.get(dest_url.as_ref()) else {
+                    continue;
+                };
+                let raw = &markdown[range.clone()];
+                let close = raw.rfind("](").ok_or_else(|| {
+                    format!(
+                        "{}: cannot locate diagram image destination",
+                        self.source_path
+                    )
+                })?;
+                let (start, end, _) = markdown_destination_range(raw, close + 1)
+                    .ok_or_else(|| format!("{}: invalid diagram image", self.source_path))?;
+                edits.push((range.start + start..range.start + end, local.clone()));
+            }
+        }
+        let mut output = markdown;
+        for (range, value) in edits.into_iter().rev() {
+            output.replace_range(range, &value);
+        }
+        Ok((
+            output,
+            assets.into_values().map(|(_, asset)| asset).collect(),
+        ))
+    }
+
     /// Compare a derived artifact with required public facts from canonical data.
     /// This reads output only to validate it, never to reconstruct authored meaning.
     pub fn analyze_portable_artifact(

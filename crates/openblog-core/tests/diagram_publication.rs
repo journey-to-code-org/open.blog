@@ -264,6 +264,10 @@ fn feeds_and_portable_copies_use_real_digest_named_images_with_alternatives() {
     let projection = PortableProjection::for_site(&site, &site.posts[0]).unwrap();
     let portable = projection.portable_html().unwrap();
     let markdown = projection.portable_markdown().unwrap();
+    let (bundled, bundled_assets) = projection
+        .portable_markdown_bundle("openblog-diagrams-test")
+        .unwrap();
+    assert_eq!(bundled_assets.len(), 2);
     let rss = feeds::rss(&site).unwrap();
     let json: serde_json::Value = serde_json::from_str(&feeds::json_feed(&site).unwrap()).unwrap();
     let json_html = json["items"][0]["content_html"].as_str().unwrap();
@@ -271,6 +275,9 @@ fn feeds_and_portable_copies_use_real_digest_named_images_with_alternatives() {
         let url = format!("https://example.test/{}", image.path);
         assert!(portable.html.contains(&url), "{}", portable.html);
         assert!(markdown.contains(&url), "{markdown}");
+        let filename = image.path.rsplit('/').next().unwrap();
+        assert!(bundled.contains(&format!("openblog-diagrams-test/{filename}")));
+        assert!(!bundled.contains(&url));
         assert!(rss.contains(&url), "{rss}");
         assert!(json_html.contains(&url), "{json_html}");
     }
@@ -279,6 +286,8 @@ fn feeds_and_portable_copies_use_real_digest_named_images_with_alternatives() {
         assert!(html.contains("Nested: C calls D"), "{html}");
     }
     assert!(markdown.contains("Diagram source:"));
+    assert!(bundled.contains("Diagram source:"));
+    assert!(projection.portable_markdown_bundle("../unsafe").is_err());
     assert!(!markdown.contains("```mermaid"));
 }
 

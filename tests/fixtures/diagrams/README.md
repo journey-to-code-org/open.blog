@@ -21,8 +21,9 @@ remain escaped code. Native builds explicitly compiled with the feature use it
 for posts, pages and documentation, failing publication on findings and
 warning for drafts and previews. Builds emit digest-named SVG files and full
 feeds and portable Markdown/HTML link to those files with text alternatives.
-Standalone portable exports do not yet bundle the files, and other content
-surfaces are not integrated. This is not yet a complete production feature.
+When `openblog export` writes Markdown with diagrams, it also creates a new
+sibling directory containing the referenced SVG files. Other content surfaces
+are not integrated. This is not yet a complete production feature.
 The feature is disabled by default and requires Rust 1.95 or newer. It updates
 the shared `pulldown-cmark` lockfile entry from 0.13.5 to 0.13.6. Test it with:
 

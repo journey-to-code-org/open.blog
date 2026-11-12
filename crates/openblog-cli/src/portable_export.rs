@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use blake2::{Blake2s256, Digest};
 use openblog_core::curated_context::BibliographyContext;
 use openblog_core::model::Post;
 use openblog_core::portability::PortableProjection;
@@ -124,7 +125,15 @@ pub fn run_with_directories(
         return run_bibliography(post, &site, format, destination.as_deref(), write, json);
     }
     let projection = PortableProjection::for_site(&site, post)?;
-    let markdown = projection.portable_markdown()?;
+    let (markdown, diagrams, bundle_dir) = match destination.as_deref() {
+        Some(path) => {
+            let directory = diagram_bundle_name(path)?;
+            let (markdown, diagrams) = projection.portable_markdown_bundle(&directory)?;
+            let bundle_dir = (!diagrams.is_empty()).then(|| path.with_file_name(directory));
+            (markdown, diagrams, bundle_dir)
+        }
+        None => (projection.portable_markdown()?, Vec::new(), None),
+    };
     let portable = projection.portable_html()?;
     // The publication boundary (ADR 0125): no private research text leaves
     // in an export that nothing public holds.
@@ -138,15 +147,17 @@ pub fn run_with_directories(
         eprintln!("warning: {warning}");
     }
     if json {
+        let mut plan = export_plan(&projection, &markdown, &portable, destination.as_deref())?;
+        if let Some(directory) = &bundle_dir {
+            plan["diagramFiles"] = serde_json::json!(diagrams
+                .iter()
+                .map(|asset| directory.join(asset.path.rsplit('/').next().unwrap_or_default()))
+                .collect::<Vec<_>>());
+        }
         println!(
             "{}",
-            serde_json::to_string_pretty(&export_plan(
-                &projection,
-                &markdown,
-                &portable,
-                destination.as_deref(),
-            )?)
-            .map_err(|error| format!("cannot serialize export plan: {error}"))?
+            serde_json::to_string_pretty(&plan)
+                .map_err(|error| format!("cannot serialize export plan: {error}"))?
         );
         return Ok(());
     }
@@ -169,12 +180,24 @@ pub fn run_with_directories(
     if write {
         let destination =
             destination.ok_or("--write requires --out <path>; no files were changed")?;
-        refuse_existing(&destination)?;
-        fsutil::write_new_atomic(&destination, markdown.as_bytes())?;
+        write_markdown_export(&destination, &markdown, bundle_dir.as_deref(), &diagrams)?;
         println!("Portable Markdown written to {}", destination.display());
+        if let Some(directory) = bundle_dir {
+            println!("Diagram images written to {}", directory.display());
+        }
     } else {
         if let Some(destination) = destination {
             println!("Would write portable Markdown to {}", destination.display());
+            if let Some(directory) = bundle_dir {
+                for asset in &diagrams {
+                    println!(
+                        "Would write diagram image to {}",
+                        directory
+                            .join(asset.path.rsplit('/').next().unwrap_or_default())
+                            .display()
+                    );
+                }
+            }
         } else {
             println!(
                 "Portable Markdown preview for `{}` ({})",
@@ -183,6 +206,73 @@ pub fn run_with_directories(
             );
         }
         print!("{markdown}");
+    }
+    Ok(())
+}
+
+fn diagram_bundle_name(destination: &Path) -> Result<String, String> {
+    let filename = destination
+        .file_name()
+        .ok_or("export destination has no filename")?
+        .to_string_lossy();
+    let digest = Blake2s256::digest(filename.as_bytes());
+    let hash: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(format!("openblog-diagrams-{hash}"))
+}
+
+fn write_markdown_export(
+    destination: &Path,
+    markdown: &str,
+    directory: Option<&Path>,
+    diagrams: &[openblog_core::diagram::Asset],
+) -> Result<(), String> {
+    refuse_existing(destination)?;
+    let Some(directory) = directory else {
+        return fsutil::write_new_atomic(destination, markdown.as_bytes());
+    };
+    refuse_existing(directory)?;
+    let parent = directory
+        .parent()
+        .ok_or("diagram bundle has no parent directory")?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    std::fs::create_dir(directory).map_err(|error| {
+        format!(
+            "cannot create diagram bundle {}: {error}",
+            directory.display()
+        )
+    })?;
+    let mut created = Vec::new();
+    let result = (|| {
+        for asset in diagrams {
+            let name = asset
+                .path
+                .rsplit('/')
+                .next()
+                .ok_or("invalid diagram asset path")?;
+            let path = directory.join(name);
+            fsutil::write_new_atomic(&path, asset.svg.as_bytes())?;
+            created.push(path);
+        }
+        fsutil::write_new_atomic(destination, markdown.as_bytes())
+    })();
+    if let Err(error) = result {
+        let mut cleanup_errors = Vec::new();
+        for path in created {
+            if let Err(cleanup) = std::fs::remove_file(&path) {
+                cleanup_errors.push(format!("{}: {cleanup}", path.display()));
+            }
+        }
+        if let Err(cleanup) = std::fs::remove_dir(directory) {
+            cleanup_errors.push(format!("{}: {cleanup}", directory.display()));
+        }
+        if !cleanup_errors.is_empty() {
+            return Err(format!(
+                "{error}; could not clean up bundle: {}",
+                cleanup_errors.join("; ")
+            ));
+        }
+        return Err(error);
     }
     Ok(())
 }
@@ -517,6 +607,109 @@ pub(crate) fn output_path(root: &Path, output: &str) -> Result<PathBuf, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "diagram-rendering")]
+    #[test]
+    fn markdown_export_bundles_diagrams_and_refuses_existing_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-diagram-export-{}",
+            crate::auth::random_token().unwrap()
+        ));
+        let posts = root.join("content").join("posts");
+        std::fs::create_dir_all(&posts).unwrap();
+        std::fs::write(
+            root.join("openblog.json"),
+            r#"{"url":"https://example.test"}"#,
+        )
+        .unwrap();
+        let source = posts.join("lesson.md");
+        std::fs::write(
+            &source,
+            "---\ntitle: Lesson\nslug: lesson\ndate: 2020-01-01\n---\n```mermaid title=Flow description=Example\nflowchart LR\nA --> B\n```\n",
+        )
+        .unwrap();
+        let destination = root.join("lesson.md");
+        let bundle = root.join(diagram_bundle_name(&destination).unwrap());
+        run(
+            &root,
+            "lesson",
+            Format::Markdown,
+            destination.to_str(),
+            true,
+            false,
+        )
+        .unwrap();
+        let markdown = std::fs::read_to_string(&destination).unwrap();
+        let files = std::fs::read_dir(&bundle)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 1);
+        let name = files[0].file_name().unwrap().to_str().unwrap();
+        assert!(markdown.contains(&format!(
+            "{}/{name}",
+            bundle.file_name().unwrap().to_str().unwrap()
+        )));
+        assert!(std::fs::read_to_string(&files[0]).unwrap().contains("<svg"));
+        assert!(run(
+            &root,
+            "lesson",
+            Format::Markdown,
+            destination.to_str(),
+            true,
+            false
+        )
+        .is_err());
+        std::fs::remove_file(&destination).unwrap();
+        assert!(run(
+            &root,
+            "lesson",
+            Format::Markdown,
+            destination.to_str(),
+            true,
+            false
+        )
+        .is_err());
+        assert!(!destination.exists());
+        std::fs::remove_file(&files[0]).unwrap();
+        std::fs::remove_dir(bundle).unwrap();
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(posts).unwrap();
+        std::fs::remove_dir(root.join("content")).unwrap();
+        std::fs::remove_file(root.join("openblog.json")).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn failed_bundle_write_removes_only_created_files() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-diagram-export-failure-{}",
+            crate::auth::random_token().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let destination = root.join("lesson.md");
+        let directory = root.join("diagram-assets");
+        let diagram = openblog_core::diagram::validate_source(
+            "mermaid title=Example description=Example",
+            "flowchart LR\nA --> B",
+        )
+        .unwrap();
+        let asset = openblog_core::diagram::Asset {
+            diagram,
+            path: "assets/diagrams/same.svg".into(),
+            svg: "<svg/>".into(),
+        };
+        assert!(write_markdown_export(
+            &destination,
+            "article",
+            Some(&directory),
+            &[asset.clone(), asset]
+        )
+        .is_err());
+        assert!(!destination.exists());
+        assert!(!directory.exists());
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn json_manifest_is_deterministic_and_reports_exact_artifact_and_capability_levels() {
