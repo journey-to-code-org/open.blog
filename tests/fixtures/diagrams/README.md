@@ -12,6 +12,22 @@ render diagrams, check Mermaid syntax or sanitize output, and is not yet a
 publication gate. Until the rest of the feature is integrated, Mermaid fences
 continue to render as code.
 
+An experimental `openblog-core` feature, `diagram-rendering`, now wraps that
+pipeline with accessible title and description markup and stricter rejection
+of links, images and interaction/configuration directives. It is disabled by
+default and does not change Markdown, previews or publication. It requires Rust
+1.95 or newer and updates the shared `pulldown-cmark` lockfile entry from
+0.13.5 to 0.13.6. Test it with:
+
+```sh
+cargo test --locked -p openblog-core --features diagram-rendering --lib diagram_svg::tests
+```
+
+Its 200-item model budget is not an exact node-count limit, the native timeout
+is cooperative, and callers on the web must enforce a timeout by terminating
+their Worker. It is not yet a complete or independently security-audited
+publication boundary.
+
 Run the comparison from the repository root:
 
 ```sh

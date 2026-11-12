@@ -91,6 +91,8 @@ pub mod curated_selection;
 pub mod date;
 pub mod decision;
 pub mod diagram;
+#[cfg(feature = "diagram-rendering")]
+pub mod diagram_svg;
 pub mod distribution;
 pub mod docs_section;
 pub mod draft;
