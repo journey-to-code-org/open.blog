@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import axe from "axe-core";
 import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio page and sign-in, with the series API replaced by a small in-memory
@@ -142,6 +143,23 @@ async function openPanel(page) {
 const choice = (page) => page.getByLabel("Series", { exact: true });
 const position = (page) => page.getByLabel("Position in the series (optional)");
 const save = (page) => page.getByRole("button", { name: "Save placement" });
+
+test("the series form and reading-order preview pass axe at 400px", async ({ page, context }) => {
+  await install(context);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-series"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  await choice(page).selectOption("letters-across-time");
+  await page.getByRole("button", { name: "Preview order" }).click();
+  await expect(page.getByRole("list", { name: /Reading order/ })).toContainText("This shared reflection");
+  await page.locator(".oba-series-create > summary").click();
+  expect((await audit()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
 
 test("a site owner creates a series, assigns the reflection and reorders it with the keyboard alone", async ({ page, context }) => {
   await install(context);

@@ -409,3 +409,21 @@ test("the continuing conversation works with the keyboard alone at phone width, 
   });
   expect(wide).toEqual([]);
 });
+
+test("continuing conversation and item editing pass axe at 400px", async ({ page, context }) => {
+  await install(context);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-synthesis"), {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  await page.locator(".oba-synthesis-form textarea").fill("A shared thought.");
+  await page.getByRole("button", { name: "Add item" }).click();
+  await expect(page.getByText(/Item 1 of 1/)).toBeVisible();
+  await page.locator(".oba-synthesis-item").getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByLabel("Edit item text")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
