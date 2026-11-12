@@ -95,3 +95,33 @@ test("authors review, refuse a stale approval, approve and withdraw against the 
     await graceContext.close();
   }
 });
+
+test("a named release reaches its recipient through the real Admin API", async ({ browser, page }) => {
+  const graceContext = await browser.newContext();
+  const grace = await graceContext.newPage();
+  try {
+    await page.setViewportSize({ width: 400, height: 800 });
+    await openDraft(page, "mikey", "correct horse battery");
+    await page.getByLabel("Sharing rule (coordinators)").selectOption("namedRecipients");
+    await page.getByLabel(/changing the sharing rule clears every standing offer/).check();
+    await page.getByRole("button", { name: "Change sharing rule" }).click();
+    await expect(page.getByText("The sharing rule changed.", { exact: false })).toBeVisible();
+    await openDraft(grace, "grace", "another correct horse");
+    const choose = grace.getByRole("button", { name: /Choose who receives revision \d+/ });
+    const previousRevision = Number((await choose.textContent()).match(/\d+/)[0]);
+    await grace.getByLabel("Your reflection (Markdown)").fill("NAMED-RELEASE-PRIVATE");
+    await grace.getByRole("button", { name: "Save draft" }).click();
+    const revision = previousRevision + 1;
+    await expect(choose).toHaveText(`Choose who receives revision ${revision}`);
+    await expect(page.locator("body")).not.toContainText("NAMED-RELEASE-PRIVATE");
+    await grace.getByRole("checkbox", { name: "Mikey", exact: true }).check();
+    await choose.click();
+    await grace.getByRole("button", { name: `Share revision ${revision}` }).click();
+    await expect(grace.getByText(`Revision ${revision} was shared with the selected people.`, { exact: false })).toBeVisible();
+    await page.reload();
+    await page.locator("summary", { hasText: "Your draft" }).click();
+    await expect(page.getByLabel("Text from Grace")).toContainText("NAMED-RELEASE-PRIVATE");
+  } finally {
+    await graceContext.close();
+  }
+});
