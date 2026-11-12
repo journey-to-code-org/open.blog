@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Docs site from one source: the documentation site (<https://journey-to-code-org.github.io/open.blog/>) now publishes every guide in `docs/`, the specifications and the decision records, generated at build time by `scripts/build-docs-site.mjs` with their links rewritten for the site, and it redeploys whenever `docs/` changes. The hand-written command reference, which listed 12 of about 35 commands, is replaced by [`docs/cli-reference.md`](docs/cli-reference.md), generated from `openblog help`; a test fails when it is out of date or a command is missing from the help, and another fails when a top-level `openblog.json` key is missing from the configuration reference. The README links the site.
+
 ## [0.56.0] - 2026-11-11
 
 - Where your posts went (epic #388, story #403; ADRs 0402 and 0403): `openblog outcomes [--json] [--days N]` and Admin's **Where it went** read every destination's private record (cross-posting, Pinterest, community submissions, shared jobs, YouTube, and in Admin the social announcements queue) and show, per post, each place's status (Delivered, Posted by hand, Draft or private, Waiting, Unknown, Not delivered), what it rests on (the platform's answer, your word, or nothing yet), its link and its attempts. Several records for the same post and place are one row; an unknown never overrules a settled outcome and never counts as reached. Problems are shown only as short codes and links without their query, so no provider text or token can appear. The report asks no platform anything and writes nothing.

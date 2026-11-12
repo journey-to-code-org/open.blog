@@ -17,7 +17,7 @@ This documentation suite is organized as a product-style technical docs portal.
 ### 2) CLI Documentation
 
 - [CLI Overview](./cli/overview)
-- [Command Reference](./cli/commands)
+- [Command Reference](./guides/cli-reference.html) (generated from `openblog help`)
 - [CLI Workflows](./cli/workflows)
 
 ### 3) Admin Panel Documentation

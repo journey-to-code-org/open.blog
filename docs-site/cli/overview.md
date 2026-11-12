@@ -39,4 +39,4 @@ Typical day-to-day loop:
 - Draft and scheduled content inclusion is controlled with `--drafts` where supported.
 - `openblog help` gives command-level options.
 
-Continue with [Command Reference](./commands).
+Continue with the [Command Reference](../guides/cli-reference.html): every command and option, generated from `openblog help`.

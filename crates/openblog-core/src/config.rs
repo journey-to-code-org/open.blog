@@ -1808,4 +1808,48 @@ mod captcha_tests {
         .unwrap();
         assert!(!off.engagement.captcha.enabled());
     }
+    /// Every top-level `openblog.json` key has to be mentioned in `docs/configuration.md`, which
+    /// the documentation site publishes as the configuration reference. A key counts as
+    /// documented when the page shows it as `"key"` in the example or names it in backticks.
+    #[test]
+    fn every_top_level_key_is_in_the_configuration_reference() {
+        let source = include_str!("config.rs");
+        let doc = include_str!("../../../docs/configuration.md");
+        let start = source.find("pub struct SiteConfig {").expect("SiteConfig");
+        let end = start + source[start..].find("\n}\n").expect("end of SiteConfig");
+        let keys: Vec<String> = source[start..end]
+            .lines()
+            .filter_map(|line| line.trim_start().strip_prefix("pub "))
+            .filter_map(|rest| rest.split_once(':').map(|(field, _)| field.trim()))
+            .filter(|field| field.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
+            .map(|field| {
+                let mut key = String::new();
+                let mut upper = false;
+                for c in field.chars() {
+                    if c == '_' {
+                        upper = true;
+                    } else if upper {
+                        key.push(c.to_ascii_uppercase());
+                        upper = false;
+                    } else {
+                        key.push(c);
+                    }
+                }
+                key
+            })
+            .collect();
+        assert!(keys.len() > 40, "found too few keys: {keys:?}");
+        let missing: Vec<&String> = keys
+            .iter()
+            .filter(|key| {
+                !doc.contains(&format!("\"{key}\""))
+                    && !doc.contains(&format!("`{key}`"))
+                    && !doc.contains(&format!("`{key}."))
+            })
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "openblog.json keys missing from docs/configuration.md: {missing:?}"
+        );
+    }
 }
