@@ -38,6 +38,38 @@ fn audio_without_file_evidence_cannot_be_published() {
 }
 
 #[test]
+fn remote_audio_requires_host_verification() {
+    let post = "---\ntitle: Remote\ndate: 2026-01-01\naudio:\n  version: 1\n  durationSeconds: 30\n  sources:\n    - url: https://media.example.test/episode.mp3\n      type: audio/mpeg\n      sizeBytes: 12\n---\n## Transcript\n\nWords.\n";
+    let load = |reader| {
+        Site::load(
+            SiteConfig::default(),
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/remote.md".into(),
+                    contents: post.into(),
+                }],
+                audio_files: reader,
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+    };
+    assert!(load(None)
+        .unwrap_err()
+        .join("\n")
+        .contains("verification is unavailable"));
+    let reader = FileReader::new(|url, _| {
+        assert_eq!(url, "https://media.example.test/episode.mp3");
+        Ok(FileEvidence {
+            size_bytes: 12,
+            bytes: b"ID3abcdefghi".to_vec(),
+        })
+    });
+    let site = load(Some(reader)).unwrap();
+    assert!(site.posts[0].audio.is_some());
+}
+
+#[test]
 fn verified_episode_renders_player_chapters_and_script() {
     let post = "---\ntitle: Episode & more\ndate: 2026-01-01\naudio:\n  version: 1\n  durationSeconds: 30\n  sources:\n    - url: /a.mp3\n      type: audio/mpeg\n      sizeBytes: 123\n  chapters:\n    - timeSeconds: 3\n      title: Intro & more\n---\n## Transcript\n\nWords.\n";
     let reader = FileReader::new(|path, limit| {

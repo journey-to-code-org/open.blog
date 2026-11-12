@@ -102,11 +102,14 @@ Provide a nonempty `## Transcript` section in the post, or set `audio.transcript
 to a static `.txt` or `.vtt` file, for example `transcript: /audio/episode.txt`
 inside the `audio` block. WebVTT files need a timed cue with text. `check`, builds,
 and Publish refuse a published episode if its transcript or media cannot be verified;
-drafts warn. Media must currently be local static files, at most 512 MiB each, with
+drafts warn. Media must be at most 512 MiB each, with
 matching declared sizes and recognizable MPEG, Ogg (Opus, Vorbis or FLAC), WAV,
 FLAC, WebM (Opus or Vorbis) or M4A/M4B/M4P headers. Header checks do not decode the whole file.
-External audio URLs are not yet verified or accepted for publication. The player
-never autoplays; chapter buttons work when JavaScript is available, and `?t=60`
+HTTPS audio on author-owned storage is also supported: publication checks a
+bounded byte-range response, declared length and media signature using public
+network addresses. Redirects, private addresses and servers without byte-range
+support are refused; an unavailable host blocks publication. The player never
+autoplays; chapter buttons work when JavaScript is available, and `?t=60`
 seeks after the listener starts playback.
 `episodeNumber` and `seasonNumber` are optional positive integers used in the
 optional podcast feed.

@@ -245,13 +245,6 @@ pub fn prepare(
     let mut errors = episode.validate(MAX_SOURCE_BYTES).err().unwrap_or_default();
     if errors.is_empty() {
         for source in &episode.sources {
-            if !source.url.starts_with('/') {
-                errors.push(format!(
-                    "audio source {}: remote files cannot be verified; use a local static file",
-                    source.url
-                ));
-                continue;
-            }
             let evidence = reader
                 .ok_or_else(|| "audio file verification is unavailable".to_string())
                 .and_then(|reader| reader.read(&source.url, AUDIO_HEADER_BYTES));
