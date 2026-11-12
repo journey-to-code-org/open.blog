@@ -16,6 +16,7 @@ mod community;
 mod comparison_store;
 mod config_text;
 mod contributor_migration;
+mod diagram_git;
 mod fsutil;
 mod git;
 mod hashnode;
@@ -106,6 +107,8 @@ COMMANDS
                                approve, reject, remove, block, unblock, prune (see mentions OPTIONS)
     card <slug>                Build and check a published post's visual cards for Pinterest
                                and link previews from its own images; sends nothing
+    diagram git [--repo <path>] --from <ref> --to <ref>
+                               Print a reviewable Mermaid draft of local Git history; publishes nothing
     outcomes [--json] [--days N]
                                Where each post went: every destination's status from your own
                                records, and visits the built-in counter attributed to it (N days,
@@ -621,6 +624,23 @@ fn run(raw: &[String]) -> Result<(), String> {
                     preview: args.options.get("preview").cloned(),
                 },
             )
+        }
+        "diagram" => {
+            if args.positional.as_slice() != ["git"] || !args.switches.is_empty() {
+                return Err(diagram_git::USAGE.into());
+            }
+            if args
+                .options
+                .keys()
+                .any(|key| !["repo", "from", "to"].contains(&key.as_str()))
+            {
+                return Err(diagram_git::USAGE.into());
+            }
+            let repo = args.options.get("repo").map(PathBuf::from).unwrap_or(root);
+            let from = args.options.get("from").ok_or(diagram_git::USAGE)?;
+            let to = args.options.get("to").ok_or(diagram_git::USAGE)?;
+            print!("{}", diagram_git::draft(&repo, from, to)?);
+            Ok(())
         }
         "job-share" => {
             let slug = args.positional.first().ok_or(job_share::USAGE)?;

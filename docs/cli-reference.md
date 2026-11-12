@@ -51,6 +51,8 @@ mentions [action]          Receive and moderate Webmentions from other sites: li
                            approve, reject, remove, block, unblock, prune (see mentions OPTIONS)
 card <slug>                Build and check a published post's visual cards for Pinterest
                            and link previews from its own images; sends nothing
+diagram git [--repo <path>] --from <ref> --to <ref>
+                           Print a reviewable Mermaid draft of local Git history; publishes nothing
 outcomes [--json] [--days N]
                            Where each post went: every destination's status from your own
                            records, and visits the built-in counter attributed to it (N days,
@@ -172,6 +174,25 @@ prune [--write]            Delete closed and stale mentions older than
 --preview <new folder>     Write cards.json, an SVG layout preview per card and an
                            accessible index.html; reads only the site's own image files
 ```
+
+## `diagram git` options
+
+`openblog diagram git --from <ref> --to <ref>` reads local Git history in the current
+directory, or in `--repo <path>`, and prints a draft Mermaid `gitGraph` to standard
+output. The range excludes `--from` and includes commits reachable from `--to` that are
+not reachable from `--from`. It does not write or publish anything.
+
+The draft omits author metadata and commit hashes, and makes a best-effort attempt to
+redact email addresses and full hashes in labels. Commit subjects and local ref names
+can still contain sensitive information: review the entire draft before sharing it.
+Replace the placeholder title and description with meaningful alternatives. The output
+shows at most 30 commits and reports omitted history, out-of-range parents and
+additional merge parents; branch names are listed as review notes rather than used as
+graph identifiers. A commit with multiple tags displays one in the diagram; its refs
+are listed in the notes.
+
+Mermaid diagram rendering in published pages is not yet available. The generated source
+is a draft, not a publication-ready diagram.
 
 ## `job-share` options
 
