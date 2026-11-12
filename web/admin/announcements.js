@@ -352,12 +352,18 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
   const previewBox = el("section", { class: "oba-announce-preview", "aria-labelledby": `${ids}-preview-title`, "data-social-preview": "true" });
   const mediaPreview = el("button", { class: "oba-btn", type: "button", "data-action": "social-media-preview" }, "Preview cover image");
   const mediaAccept = el("input", { id: `${ids}-media-accept`, type: "checkbox", disabled: true, "data-social-media-accept": "true" });
+  const mediaFallback = el("select", { id: `${ids}-media-fallback`, "data-social-media-fallback": "true" },
+    el("option", { value: "text" }, "Post the link without the image"),
+    el("option", { value: "stop" }, "Do not post"));
+  const fallbackField = el("div", { class: "oba-field", hidden: true },
+    el("label", { for: mediaFallback.id }, "If the image cannot be uploaded"),
+    mediaFallback);
   const mediaResult = el("div", { class: "oba-announce-media-result", "data-social-media-result": "true" });
   const mediaMessage = el("p", { class: "oba-small", role: "status", "aria-live": "polite" });
   const mediaPanel = el("fieldset", { class: "oba-field oba-fieldset oba-announce-media", hidden: true },
-    el("legend", {}, "Bluesky cover image (optional)"),
+    el("legend", {}, "Cover image (optional)"),
     el("p", { class: "oba-small" }, "Preview the public cover before choosing to include it."),
-    mediaPreview, mediaMessage, mediaResult,
+    fallbackField, mediaPreview, mediaMessage, mediaResult,
     el("div", { class: "oba-announce-choice" }, mediaAccept, el("label", { for: mediaAccept.id }, "Include this previewed image")));
   const form = el("form", { class: "oba-announce-composer", novalidate: true, "aria-labelledby": `${ids}-compose-title`, "data-social-composer": "true" });
 
@@ -407,28 +413,32 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     mediaPreview.disabled = false;
     mediaResult.replaceChildren();
     mediaMessage.textContent = "";
-    mediaPanel.hidden = selectedDestination()?.provider !== "bluesky";
+    const provider = selectedDestination()?.provider;
+    mediaPanel.hidden = !["bluesky", "linkedin"].includes(provider);
+    fallbackField.hidden = provider !== "linkedin";
   }
 
   mediaPreview.addEventListener("click", async () => {
     clearMedia();
     const chosen = selectedDestination();
     const picked = selectedPost();
-    if (!chosen || chosen.provider !== "bluesky" || !picked) {
-      mediaMessage.textContent = "Choose a Bluesky account and a published post first.";
+    if (!chosen || !["bluesky", "linkedin"].includes(chosen.provider) || !picked) {
+      mediaMessage.textContent = "Choose a supported destination and a published post first.";
       return;
     }
     const ticket = mediaTicket;
     mediaPreview.disabled = true;
     mediaMessage.textContent = "Reading the public cover...";
     try {
-      const answer = await api.call("POST", "social/announcements/media-preview", { json: { accountId: chosen.id, work: picked.work } });
+      const answer = await api.call("POST", "social/announcements/media-preview", { json: { accountId: chosen.id, work: picked.work, ...(chosen.provider === "linkedin" ? { fallback: mediaFallback.value } : {}) } });
       if (ticket !== mediaTicket) return;
       mediaApproval = answer.media;
       mediaResult.replaceChildren(
         el("img", { src: answer.imageDataUrl, alt: answer.media.snapshot.description }),
         el("p", { class: "oba-small" }, `Image description: ${answer.media.snapshot.description}`),
-        el("p", { class: "oba-small" }, "If the image changes or cannot be uploaded, the card will be posted without it. Bluesky link cards do not carry a separate image description."),
+        el("p", { class: "oba-small" }, chosen.provider === "bluesky"
+          ? "If the image changes or cannot be uploaded, the card will be posted without it. Bluesky link cards do not carry a separate image description."
+          : `The description will be sent as image alt text. If the image changes or cannot be uploaded, ${mediaFallback.value === "stop" ? "the announcement will not be posted" : "the link will be posted without it"}.`),
       );
       mediaAccept.disabled = false;
       mediaMessage.textContent = "Review the image, then choose whether to include it.";
@@ -589,6 +599,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     caption.value = "";
     when.value = "";
     post.value = "";
+    mediaFallback.value = "text";
     clearMedia();
     clearErrors();
     updateCount();
@@ -608,6 +619,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     control.addEventListener("input", clearMedia);
     control.addEventListener("change", clearMedia);
   }
+  mediaFallback.addEventListener("change", clearMedia);
 
   form.append(
     el("h2", { id: `${ids}-compose-title` }, "Announce a post"),

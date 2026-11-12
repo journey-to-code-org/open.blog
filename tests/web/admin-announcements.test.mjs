@@ -168,7 +168,9 @@ function fakeAdmin({ queue = [row()], fail = {}, history = {}, health } = {}) {
       if (route === "GET social/destinations") return { destinations: dest };
       if (route === "GET social/posts") return { posts: found, now: "2026-11-01T12:00:00Z" };
       if (route === "GET social/announcements") return { announcements: current };
-      if (route === "POST social/announcements/media-preview") return mediaPreview;
+      if (route === "POST social/announcements/media-preview") return options.json.fallback
+        ? { ...mediaPreview, media: { ...mediaPreview.media, snapshot: { ...mediaPreview.media.snapshot, fallback: options.json.fallback } } }
+        : mediaPreview;
       if (route === "POST social/preview") return { ok: true, caption: options.json.caption.trim(), link: "https://blog.example.org/posts/hello/", cover: { image: true, description: "A lantern at dusk" }, scheduledFor: options.json.scheduledFor || null, problems: [] };
       if (route === "POST social/announcements") {
         const made = row({ id: "a-2", caption: options.json.caption, scheduledFor: options.json.scheduledFor });
@@ -277,6 +279,23 @@ test("changing the selected post or destination clears the image approval", with
   await submit(root);
   await flush();
   assert.equal(api.calls.find((call) => call.method === "POST" && call.path === "social/announcements").json.media, undefined);
+}));
+
+test("LinkedIn preview includes the author's selected failure behavior", withDom(async () => {
+  const { root, api } = await open();
+  await compose(root);
+  await fill(root, "destination", "d-1").dispatch("change");
+  const fallback = byData(root, "data-social-media-fallback")[0];
+  fallback.value = "stop";
+  await fallback.dispatch("change");
+  await button(root, "social-media-preview").dispatch("click");
+  await flush();
+  assert.equal(api.calls.find((call) => call.path === "social/announcements/media-preview").json.fallback, "stop");
+  assert.match(text(byData(root, "data-social-media-result")[0]), /will not be posted/);
+  byData(root, "data-social-media-accept")[0].checked = true;
+  await submit(root);
+  await flush();
+  assert.equal(api.calls.find((call) => call.method === "POST" && call.path === "social/announcements").json.media.snapshot.fallback, "stop");
 }));
 
 test("with nothing connected the screen says so and offers no destination", withDom(async () => {

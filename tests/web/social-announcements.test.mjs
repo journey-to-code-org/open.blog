@@ -145,11 +145,11 @@ test("an approved Bluesky image is stored and participates in idempotent schedul
   const changedMedia = { snapshot: changed, approvalDigest: await mediaApprovalDigest(changed, URL_OK) };
   assert.equal((await t.call(post({ ...body, media: changedMedia }))).status, 409);
   assert.equal((await t.call(post({ ...body, media: { ...media, snapshot: changed } }))).body.code, "invalid-media");
-  assert.equal((await t.call(post(draft({ media })))).body.code, "invalid-media");
+  assert.equal((await t.call(post(draft({ accountId: FACEBOOK, media })))).body.code, "invalid-media");
   assert.equal(t.posts.length, 1);
 });
 
-test("the authorized preview returns a bound public image only for a connected Bluesky account", async () => {
+test("the authorized preview returns a bound public image for supported connected accounts", async () => {
   const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
   const calls = [];
   const t = setup({ siteFetch: async (url, init) => {
@@ -164,9 +164,13 @@ test("the authorized preview returns a bound public image only for a connected B
   assert.equal(result.body.media.snapshot.description, "A lantern");
   assert.match(result.body.media.approvalDigest, /^[a-f0-9]{64}$/);
   assert.equal(calls.length, 2);
-  assert.equal((await t.call(post({ ...body, accountId: LINKEDIN }, "announcements/media-preview"))).body.code, "invalid-media");
+  assert.equal((await t.call(post({ ...body, accountId: FACEBOOK }, "announcements/media-preview"))).body.code, "invalid-media");
+  const linkedin = await t.call(post({ ...body, accountId: LINKEDIN, fallback: "stop" }, "announcements/media-preview"));
+  assert.equal(linkedin.status, 200);
+  assert.equal(linkedin.body.media.snapshot.fallback, "stop");
+  assert.equal((await t.call(post({ ...body, fallback: "stop" }, "announcements/media-preview"))).body.code, "invalid-media");
   assert.equal((await t.call(post({ ...body, work: "/posts/elsewhere/" }, "announcements/media-preview"))).status, 422);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 4);
 });
 
 test("destination ownership: another site's, unknown, disconnected, stale and unsupported accounts are refused", async () => {

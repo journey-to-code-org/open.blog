@@ -340,6 +340,14 @@ Posts as the connected member or organization through the versioned REST Posts A
 post link as an article whose title is the caption's first line. The caption is sent as typed: LinkedIn formatting characters (`( ) [ ] { } < > @ | ~ _ * #`
 and the backslash) are escaped, so a caption cannot mention people or format text.
 
+After installing `supabase/social-media.sql`, an author can preview and select the public JPEG or PNG cover, with its
+description as alt text. The image post includes the canonical link in the commentary. If the approved image changes
+or cannot be uploaded, the author chooses whether to post the link without the image or stop. Preview currently
+accepts covers up to 1,000,000 bytes. Upload uses LinkedIn's [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api)
+and [Posts API media schema](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema)
+(checked 2026-11-12). An upload that succeeded but whose post result is unknown still requires a person to check;
+the post is never retried automatically.
+
 Verify at setup, because LinkedIn changes them: the API version (`OPENBLOG_SOCIAL_LINKEDIN_API_VERSION`, a dated
 `YYYYMM` value that LinkedIn retires after about a year; the default is only a starting point), that your app has the
 product that grants `w_member_social`, and for organizations the Community Management API and `w_organization_social`.
@@ -440,7 +448,7 @@ It is additive and re-runnable: five columns, one index and four functions, no e
 
 Without this file announcements wait in the queue exactly as before.
 
-The optional `supabase/social-media.sql` adds storage for approved Bluesky media snapshots after the queue is installed.
+The optional `supabase/social-media.sql` adds storage for approved Bluesky and LinkedIn media snapshots after the queue is installed.
 Run it before scheduling an announcement with a cover. Existing announcements remain unchanged.
 `supabase/social-media-rollback.sql` refuses to remove the column while any media-bearing announcement remains.
 

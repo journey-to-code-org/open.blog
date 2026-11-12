@@ -461,6 +461,7 @@ struct MediaSnapshot {
 struct MediaPreviewBody {
     account_id: String,
     work: String,
+    fallback: Option<String>,
 }
 
 fn media_preview(
@@ -477,13 +478,18 @@ fn media_preview(
         Ok(url) => url,
         Err(error) => return problem(error),
     };
+    let mut payload =
+        json!({ "accountId": body.account_id, "work": body.work, "canonicalUrl": url });
+    if let Some(fallback) = body.fallback {
+        payload["fallback"] = Json::String(fallback);
+    }
     relay(
         transport,
         user,
         "POST",
         "announcements/media-preview",
         Vec::new(),
-        Some(json!({ "accountId": body.account_id, "work": body.work, "canonicalUrl": url })),
+        Some(payload),
     )
 }
 

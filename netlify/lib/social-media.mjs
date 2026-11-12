@@ -130,7 +130,7 @@ async function getPublic(fetchImpl, url, accept, signal) {
 
 const responseType = (response) => (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
 
-export async function previewMedia(fetchImpl, canonicalUrl, work, signal) {
+export async function previewMedia(fetchImpl, canonicalUrl, work, signal, fallback = "text") {
   try {
     checkCanonicalUrl(canonicalUrl, work);
   } catch (error) {
@@ -142,12 +142,12 @@ export async function previewMedia(fetchImpl, canonicalUrl, work, signal) {
   const html = new TextDecoder().decode(await readBytes(page, 512 * 1024));
   const cover = coverOf(html, canonicalUrl);
   if (!cover) throw new MediaError("unavailable");
-  validate({ version: 1, ...cover, mimeType: "image/png", size: 1, sha256: "0".repeat(64), fallback: "text" }, canonicalUrl);
+  validate({ version: 1, ...cover, mimeType: "image/png", size: 1, sha256: "0".repeat(64), fallback }, canonicalUrl);
   const response = await getPublic(fetchImpl, cover.url, "image/jpeg,image/png,image/webp", signal);
   const mimeType = responseType(response);
   if (!TYPES.has(mimeType)) throw new MediaError("unavailable");
   const bytes = await readBytes(response, 1_000_000, "too-large");
-  const snapshot = await captureMedia({ ...cover, mimeType, bytes, fallback: "text" }, canonicalUrl);
+  const snapshot = await captureMedia({ ...cover, mimeType, bytes, fallback }, canonicalUrl);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return {

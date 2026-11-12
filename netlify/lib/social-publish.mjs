@@ -122,6 +122,34 @@ function statusError(status, response, now) {
   return new DeliveryError(kind, { status });
 }
 
+async function approvedMedia(post, url) {
+  if (post.media === undefined || post.media === null) return null;
+  if (typeof post.media !== "object" || Array.isArray(post.media) ||
+      Object.keys(post.media).some((key) => !["snapshot", "approvalDigest"].includes(key))) throw new DeliveryError("rejected");
+  try {
+    return await verifyMediaApproval(post.media.snapshot, url, post.media.approvalDigest);
+  } catch (error) {
+    if (error instanceof MediaError) throw new DeliveryError("rejected");
+    throw error;
+  }
+}
+
+// LinkedIn's documented upload host and path (checked 2026-11-12); never send a token to an
+// arbitrary URL in a reply. See https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api
+function linkedinUploadUrl(value, image, expiresAt, nowMs) {
+  const id = /^urn:li:image:([A-Za-z0-9_-]{1,200})$/.exec(image)?.[1];
+  if (!id || typeof value !== "string" || value.length > 4096 ||
+      !Number.isSafeInteger(expiresAt) || expiresAt <= nowMs) return null;
+  try {
+    const url = new URL(value);
+    if (url.origin !== "https://www.linkedin.com" || url.username || url.password || url.hash ||
+        !url.pathname.startsWith(`/dms-uploads/${id}/`)) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
 export function linkedinAdapter(settings, { fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
   return Object.freeze({
     provider: "linkedin",
@@ -131,6 +159,7 @@ export function linkedinAdapter(settings, { fetchImpl = globalThis.fetch, now = 
       const kind = author.startsWith("urn:li:person:") ? "member" : "organization";
       if (account.kind && account.kind !== kind) throw new DeliveryError("rejected");
       const { caption, url } = prepare("linkedin", { post, accessToken });
+      const media = await approvedMedia(post, url);
       const body = {
         author,
         commentary: escapeLinkedInCommentary(caption),
@@ -140,6 +169,37 @@ export function linkedinAdapter(settings, { fetchImpl = globalThis.fetch, now = 
         lifecycleState: "PUBLISHED",
         isReshareDisabledByAuthor: false,
       };
+      if (media) {
+        try {
+          if (!["image/jpeg", "image/png"].includes(media.mimeType)) throw new MediaError("unavailable");
+          const text = statusText(caption, url);
+          try {
+            checkCaption("linkedin", text);
+          } catch (error) {
+            if (error instanceof ScheduleError) throw new MediaError("unavailable");
+            throw error;
+          }
+          const bytes = await fetchApprovedMedia(fetchImpl, media, url, signal);
+          const initialized = await send(fetchImpl, `${settings.apiBase}/rest/images?action=initializeUpload`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${accessToken}`, accept: "application/json", "content-type": "application/json", "linkedin-version": settings.version, "x-restli-protocol-version": "2.0.0" },
+            body: JSON.stringify({ initializeUploadRequest: { owner: author } }),
+          }, signal);
+          if (Number(initialized?.status) !== 200) throw new MediaError("unavailable");
+          const value = (await readJson(initialized))?.value;
+          const uploadUrl = linkedinUploadUrl(value?.uploadUrl, value?.image, value?.uploadUrlExpiresAt, now());
+          if (!uploadUrl) throw new MediaError("unavailable");
+          const uploaded = await send(fetchImpl, uploadUrl, {
+            method: "PUT", headers: { authorization: `Bearer ${accessToken}`, "content-type": media.mimeType }, body: bytes,
+          }, signal);
+          if (![200, 201].includes(Number(uploaded?.status))) throw new MediaError("unavailable");
+          body.commentary = escapeLinkedInCommentary(text);
+          body.content = { media: { id: value.image, altText: media.description } };
+        } catch (error) {
+          if (!(error instanceof MediaError) && !(error instanceof DeliveryError)) throw error;
+          if (media.fallback !== "text") throw new DeliveryError("rejected");
+        }
+      }
       const response = await send(
         fetchImpl,
         `${settings.apiBase}/rest/posts`,
@@ -359,17 +419,7 @@ export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = (
     if (!withinPostLimits(caption)) throw new DeliveryError("rejected");
     const rkey = await announcementKey(post ?? {});
     if (!rkey) throw new DeliveryError("rejected");
-    let media = null;
-    if (post.media !== undefined && post.media !== null) {
-      if (typeof post.media !== "object" || Array.isArray(post.media) ||
-          Object.keys(post.media).some((key) => !["snapshot", "approvalDigest"].includes(key))) throw new DeliveryError("rejected");
-      try {
-        media = await verifyMediaApproval(post.media.snapshot, url, post.media.approvalDigest);
-      } catch (error) {
-        if (error instanceof MediaError) throw new DeliveryError("rejected");
-        throw error;
-      }
-    }
+    const media = await approvedMedia(post, url);
     return { repo, caption, url, rkey, uri: `at://${repo}/${POST_COLLECTION}/${rkey}`, media };
   };
   const headers = (accessToken, extra = {}) => ({ authorization: `Bearer ${accessToken}`, accept: "application/json", ...extra });

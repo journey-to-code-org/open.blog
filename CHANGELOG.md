@@ -5,7 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
-- Social announcements can opt into an approved Bluesky card image after installing the optional
+- Social announcements can opt into an approved Bluesky card or LinkedIn cover image after installing the optional
   media schema. Admin previews the exact public cover and verifies it again at delivery; oversized
   covers are not resized yet and an unavailable image leaves a text-only card.
 - YouTube release preview digests now cover the full contents of caption files. Existing approvals
