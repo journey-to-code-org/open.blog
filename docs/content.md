@@ -395,8 +395,8 @@ For the whole blog, see `code` in [Configuration](configuration.md#code-blocks).
 
 #### HTML, CSS, and JavaScript sandboxes
 
-Use a `web runnable` fence with explicit section markers. Readers get three editable tabs, Run and
-Reset controls, and a live preview:
+Use a `web runnable` fence with explicit section markers. Readers see a live preview first; **Show
+code** reveals three editable tabs with Run and Reset controls:
 
 ````markdown
 ```web runnable title="Try the card"
@@ -422,11 +422,18 @@ Inside that boundary, ordinary lesson code works:
   and `alert`, `confirm`, and `prompt` work.
 - `localStorage` and `sessionStorage` work in memory for the life of the preview.
 - `eval`, WebAssembly, blob workers, and `AudioWorklet` modules the lesson creates itself all run.
+- The preview's root takes the page's light or dark scheme, so lesson CSS written with
+  `:root { color-scheme: light dark; }` and `light-dark()` colors matches the page, and
+  `matchMedia("(prefers-color-scheme: dark)")` in lesson JavaScript agrees. When the reader switches
+  theme, the preview is restyled in place; a lesson whose source mentions `prefers-color-scheme` is
+  rerun instead, so code that asked once at load asks again. CSS `@media (prefers-color-scheme)` blocks
+  follow the reader's system setting rather than the site's theme toggle, so prefer `light-dark()`.
 
 Add options after `web runnable` when a lesson needs more:
 
 | Option | Effect |
 | --- | --- |
+| `open` | Shows the editors from the start, for a challenge that asks the reader to change the code. Without it the source sits behind **Show code**. |
 | `module` | Runs the JavaScript as an ES module, for `import`/`export` syntax or top-level `await`. There is nothing to import from, so keep the lesson in one file. |
 | `network` | Lets the lesson `fetch` HTTPS APIs. Readers see that the preview may contact external services. |
 | `images` | Lets the lesson show HTTPS images. Readers see that the preview may load external images. |

@@ -64,7 +64,8 @@ class ObQuiz extends HTMLElement {
     }
     result.textContent = correct ? "Correct." : `Not quite. The correct answer is ${correctText}.`;
     this.feedback.hidden = false;
-    this.retry.hidden = false;
+    // A right answer has nothing to retry.
+    this.retry.hidden = correct;
     if (persist) this.save(selected.value);
   }
 

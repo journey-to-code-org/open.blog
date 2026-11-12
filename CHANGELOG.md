@@ -5,6 +5,16 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Web sandboxes (`web runnable`) show the live preview first, with the source behind a **Show code**
+  button; a new `open` fence word shows the editors from the start for challenges. The preview takes the
+  page's light or dark scheme and follows the reader's theme toggle without reloading, so lesson CSS
+  written with `light-dark()` matches the page. The preview frame no longer forces a white background,
+  and the sandbox notes line up with its buttons.
+- Quiz choices are shuffled at build time with a seed from the quiz's own key, so the right answer is
+  no longer usually second and the order is stable across builds; portable copies keep the authored
+  order. The question sits inside its card, and **Retry** appears only after a wrong answer.
+- The component lab colours its light DOM, shadow DOM and page CSS panels with the shared highlighter
+  and the theme's code tokens.
 - Docs site from one source: the documentation site (<https://journey-to-code-org.github.io/open.blog/>) now publishes every guide in `docs/`, the specifications and the decision records, generated at build time by `scripts/build-docs-site.mjs` with their links rewritten for the site, and it redeploys whenever `docs/` changes. The hand-written command reference, which listed 12 of about 35 commands, is replaced by [`docs/cli-reference.md`](docs/cli-reference.md), generated from `openblog help`; a test fails when it is out of date or a command is missing from the help, and another fails when a top-level `openblog.json` key is missing from the configuration reference. The README links the site.
 
 ## [0.56.0] - 2026-11-11

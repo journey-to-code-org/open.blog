@@ -1712,13 +1712,13 @@ export const LESSONS = {
           }
         ],
         "ex": "git ls-files",
-        "out": "This.component.test.jsx\nheader.jsx\nthis.component.test.jsx",
-        "why": "Git tracks two names here, This.component.test.jsx and this.component.test.jsx. On a Windows or macOS disk they are the same file name, so only one of them can exist in your folder.",
+        "out": "LearnPage.test.jsx\nheader.jsx\nlearnPage.test.jsx",
+        "why": "Git tracks two names here, LearnPage.test.jsx and learnPage.test.jsx. On a Windows or macOS disk they are the same file name, so only one of them can exist in your folder.",
         "hint": "git ls-files, with nothing after it.",
         "side": [
           {
             "re": "^git status$",
-            "out": "On branch main\nYour branch is up to date with 'origin/main'.\n\nChanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n  (use \"git restore <file>...\" to discard changes in working directory)\n\tmodified:   This.component.test.jsx\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")",
+            "out": "On branch main\nYour branch is up to date with 'origin/main'.\n\nChanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n  (use \"git restore <file>...\" to discard changes in working directory)\n\tmodified:   LearnPage.test.jsx\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")",
             "after": "You never edited that file. That is the symptom. To see why, list the names Git is tracking."
           }
         ],
@@ -1753,27 +1753,27 @@ export const LESSONS = {
         ]
       },
       {
-        "goal": "The team keeps the lowercase name. Stop tracking This.component.test.jsx, but leave the files in your folder alone.",
+        "goal": "The team keeps the lowercase name. Stop tracking LearnPage.test.jsx, but leave the files in your folder alone.",
         "ok": [
           {
-            "re": "^git rm (?:--cached|-r --cached|--cached -r) (?:-- )?This\\.component\\.test\\.jsx$"
+            "re": "^git rm (?:--cached|-r --cached|--cached -r) (?:-- )?LearnPage\\.test\\.jsx$"
           },
           {
-            "re": "^git update-index --force-remove (?:-- )?This\\.component\\.test\\.jsx$",
+            "re": "^git update-index --force-remove (?:-- )?LearnPage\\.test\\.jsx$",
             "out": "",
             "why": "`update-index --force-remove` takes the name out of the index without touching your folder. It is the plumbing command behind `git rm --cached`."
           }
         ],
-        "ex": "git rm --cached This.component.test.jsx",
-        "out": "rm 'This.component.test.jsx'",
+        "ex": "git rm --cached LearnPage.test.jsx",
+        "out": "rm 'LearnPage.test.jsx'",
         "why": "`--cached` changes only what Git tracks. Plain `git rm` would also delete the file in your folder, and here that one file answers to both names.",
         "hint": "git rm --cached and the capital-T name.",
         "near": "^git rm",
         "nearMsg": "Close. Plain git rm refuses here, and with -f it would delete the one file in your folder, which is also the other name. Add --cached to change only what Git tracks.",
         "alts": [
-          "git rm --cached -- This.component.test.jsx",
-          "git rm -r --cached This.component.test.jsx",
-          "git update-index --force-remove This.component.test.jsx"
+          "git rm --cached -- LearnPage.test.jsx",
+          "git rm -r --cached LearnPage.test.jsx",
+          "git update-index --force-remove LearnPage.test.jsx"
         ]
       },
       {
@@ -1825,7 +1825,7 @@ export const LESSONS = {
           }
         ],
         "ex": "git commit -m \"Keep one name, PascalCase the header\"",
-        "out": "[main 44d9f80] {m}\n 2 files changed, 1 deletion(-)\n rename header.jsx => Header.jsx (100%)\n delete mode 100644 This.component.test.jsx",
+        "out": "[main 44d9f80] {m}\n 2 files changed, 1 deletion(-)\n rename header.jsx => Header.jsx (100%)\n delete mode 100644 LearnPage.test.jsx",
         "why": "One commit holds both fixes: the twin name is gone and the rename is recorded.",
         "hint": "git commit -m followed by your message in quotes.",
         "near": "^git commit",
