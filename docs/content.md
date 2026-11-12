@@ -76,6 +76,41 @@ a `#` heading, which is then used. Everything else is optional:
 
 Unknown fields are kept and ignored, so you can store your own notes in the front matter.
 
+### Audio episodes
+
+Put each audio file in the site's static folder and describe it in the post:
+
+```yaml
+audio:
+  version: 1
+  durationSeconds: 120
+  episodeNumber: 1
+  seasonNumber: 1
+  sources:
+    - url: /audio/episode.mp3
+      type: audio/mpeg
+      sizeBytes: 12345
+  chapters:
+    - timeSeconds: 0
+      title: Introduction
+    - timeSeconds: 60
+      title: Discussion
+      link: /notes/
+```
+
+Provide a nonempty `## Transcript` section in the post, or set `audio.transcript`
+to a static `.txt` or `.vtt` file, for example `transcript: /audio/episode.txt`
+inside the `audio` block. WebVTT files need a timed cue with text. `check`, builds,
+and Publish refuse a published episode if its transcript or media cannot be verified;
+drafts warn. Media must currently be local static files, at most 512 MiB each, with
+matching declared sizes and recognizable MPEG, Ogg (Opus, Vorbis or FLAC), WAV,
+FLAC or M4A/M4B/M4P headers. Header checks do not decode the whole file.
+External audio URLs are not yet verified or accepted for publication. The player
+never autoplays; chapter buttons work when JavaScript is available, and `?t=60`
+seeks after the listener starts playback.
+`episodeNumber` and `seasonNumber` are optional positive integers used in the
+optional podcast feed.
+
 ### Content profiles
 
 Content profiles add field-specific authoring and rendering behavior to a post without
