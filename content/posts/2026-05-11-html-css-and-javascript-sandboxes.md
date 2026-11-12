@@ -13,15 +13,16 @@ description: Teach front-end code with web runnable blocks, which have HTML, CSS
 ---
 
 Web lessons are best when the reader can change a colour and see it change. A `web runnable`
-block gives them three editable tabs (HTML, CSS and JavaScript), **Run preview** and **Reset** buttons,
-and a live preview. Nothing is uploaded. The preview runs in a locked-down frame in the reader's
-own browser.
+block shows a live preview first. **Show code** reveals three editable tabs (HTML, CSS and
+JavaScript) with **Run preview** and **Reset** buttons. Nothing is uploaded. The preview runs in a
+locked-down frame in the reader's own browser.
 
 ## A first sandbox
 
-Change the colour in the CSS tab, or the message in the JS tab, and press **Run preview**.
+This block asks readers to edit it, so it adds `open` and shows the code from the start. Change
+the colour in the CSS tab, or the message in the JS tab, and press **Run preview**.
 
-```web runnable title="A button that counts"
+```web runnable open title="A button that counts"
 ---html
 <button id="count">Clicked 0 times</button>
 ---css
@@ -43,7 +44,7 @@ document.querySelector("#count").addEventListener("click", (event) => {
 ```
 
 ````markdown
-```web runnable title="A button that counts"
+```web runnable open title="A button that counts"
 ---html
 <button id="count">Clicked 0 times</button>
 ---css
@@ -54,10 +55,12 @@ document.querySelector("#count").addEventListener("click", ...);
 ````
 
 The `---html`, `---css` and `---js` lines split the block into tabs. Each section is optional.
+Leave out `open` when the preview is the point and the code is for the curious: readers see the
+result, and **Show code** is one click away.
 
 ## The console, forms and storage
 
-Click the button above and look under the preview. `console.log`, warnings, errors and uncaught
+The next block has no `open`, so it starts as a preview. Add a task, then choose **Show code**. `console.log`, warnings, errors and uncaught
 exceptions appear in a **Console** panel, so lessons can teach debugging too. Forms fire their
 `submit` event, and `localStorage` works for the life of the preview:
 
@@ -94,6 +97,27 @@ render();
 ```
 
 `alert`, `confirm` and `prompt` work too. Real form submission and page navigation stay blocked.
+
+## Matching light and dark
+
+The preview follows the page's light or dark scheme, and restyles itself when the reader flips
+the theme toggle. Write lesson colours with `light-dark()` so they match:
+
+```web runnable title="A card that follows the theme"
+---html
+<div class="card">Toggle the site's theme and watch me change.</div>
+---css
+:root { color-scheme: light dark; }
+.card {
+  padding: 1rem;
+  border-radius: 12px;
+  background: light-dark(#f3ecdd, #30281f);
+  color: light-dark(#2b2118, #f2e9da);
+}
+```
+
+Prefer `light-dark()` over `@media (prefers-color-scheme)`, which follows the reader's system
+setting rather than the site's toggle.
 
 ## Modules and top-level `await`
 

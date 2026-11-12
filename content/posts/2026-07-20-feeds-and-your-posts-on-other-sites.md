@@ -58,9 +58,9 @@ to show your latest posts there:
 }
 ```
 
-Fetch it from the other site and render the list. Here is a working version: press **Run preview**. It
-loads `blog.json` from the live demo site, so the first run can take a few seconds while the demo
-server wakes up.
+Fetch it from the other site and render the list. The preview below is a working version: it
+loads `blog.json` from the live demo site, so it can take a few seconds while the demo server
+wakes up. Choose **Show code** to see how it works.
 
 ```web runnable network module title="Latest posts from this blog"
 ---html
