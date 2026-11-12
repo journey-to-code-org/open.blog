@@ -47,6 +47,9 @@ Before anything goes, open.blog checks the first after photo:
 - For Google it must be a JPEG or PNG of 10 KB to 5 MB, at least 250 by 250 pixels, uploaded to this site.
 
 A job with no after photo goes without one.
+The preview digest also binds the local photo's complete bytes, so replacing the file invalidates an earlier
+confirmation even when its size and dimensions are unchanged. Existing photo-bearing previews must be checked again
+after this update; photo-less previews are unchanged.
 
 ## Post it by hand (works today, no account needed)
 
