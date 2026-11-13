@@ -8,7 +8,6 @@ import { use } from "../zubra.js";
 export const TOOLS = [
   { group: "Your site", items: [
     ["Customize look", "Colours, writing and spacing", "#/look"],
-    ["Front page", "Sections and things on your front page", "#/landing"],
     ["Comments", "Approve or remove notes from readers", "#/moderation"],
     ["Visitors", "How many people read what", "#/analytics"],
     ["Greeting cards", "Cards sent by email on the day", "#/greetings"],

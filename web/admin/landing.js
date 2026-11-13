@@ -343,7 +343,7 @@ export function sectionSummary(section) {
     case "welcome":
       return shorten(first(section.heading, section.subheading)) || "No heading yet";
     case "rich-text":
-      return shorten(first(section.markdown)) || "No text yet";
+      return shorten(plainText(first(section.markdown))) || "No text yet";
     case "latest-posts":
       return `${shorten(first(section.heading)) || "No heading yet"}${Number.isInteger(section.count) ? ` (${section.count} ${section.count === 1 ? "post" : "posts"})` : ""}${section.show === "recipes" ? " (only recipes)" : ""}`;
     case "series":
@@ -383,6 +383,9 @@ export function sectionSummary(section) {
         const value = isObject(section.props) ? section.props[prop.name] : undefined;
         if (value === undefined || value === "" || value === false) return "";
         if (prop.type === "choice") return (prop.choices || []).find((choice) => choice.value === value)?.label || String(value);
+        // A post is named by its web address, which says nothing to a reader of this line.
+        if (prop.type === "post") return "";
+        if (prop.type === "date") return sayDay(value);
         return prop.type === "toggle" ? prop.label : String(value);
       }).filter(Boolean);
       return shorten(first(section.heading)) || (settings.length ? shorten(settings.join(", ")) : info.label);
@@ -390,6 +393,24 @@ export function sectionSummary(section) {
     default:
       return "";
   }
+}
+
+/** Markdown as the words it says: no heading marks, emphasis, quote marks or link addresses. */
+function plainText(markdown) {
+  return String(markdown || "")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+])\s+/gm, "")
+    .replace(/[*_\u0060]+/g, "");
+}
+
+/** A calendar day as people say it: "October 4", or "October 4, 1999" for a year that isn't this one. */
+function sayDay(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+  if (!match) return String(value);
+  const [, year, month, day] = match.map(Number);
+  const name = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][month - 1];
+  return name ? `${name} ${day}${year === new Date().getFullYear() ? "" : `, ${year}`}` : String(value);
 }
 
 function summaryList(items, name, noun, empty) {

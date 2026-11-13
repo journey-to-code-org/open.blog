@@ -10,6 +10,7 @@ import { createGifts } from "./gifts.js";
 import { createDocuments } from "./documents.js";
 import { createPageEdit } from "./page-edit.js";
 import { createTools } from "./tools.js";
+import { createLanding } from "./landing.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 
@@ -20,6 +21,7 @@ export const SCREENS = [
   { name: "page", area: "pages", create: (context, route) => createPageEdit(context, KINDS.pages, route.arg) },
   { name: "collections", nav: "Collections", area: "collections", create: (context) => createDocuments(context, KINDS.series) },
   { name: "collection", area: "collections", create: (context, route) => createPageEdit(context, KINDS.series, route.arg) },
+  { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },
   // Only when gifts are set up where Admin runs (OPENBLOG_GIFTS_*).
