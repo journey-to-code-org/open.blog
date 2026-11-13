@@ -100,7 +100,6 @@ test("Q1 switch PUT keeps captcha and the file as written", async ({ page }) => 
   console.log("PUT BODY", JSON.stringify(putBody));
   console.log("FILE ENGAGEMENT AFTER", JSON.stringify(JSON.parse(after).engagement));
   console.log("TEXT SAME EXCEPT comments?", after === written.replace('"comments": true', '"comments": false'));
-  writeFileSync("/tmp/qa/q1-before.json", written); writeFileSync("/tmp/qa/q1-after.json", after);
   expect(JSON.parse(after).engagement.captcha).toEqual({ provider: "turnstile", siteKey: "0x4AAAAAAA-public_key", scope: "every-comment" });
   await toggle.click();
   await expect(statusLine(page).filter({ hasText: /^Comments are on\./ })).toBeVisible();
