@@ -29,7 +29,7 @@ export const env = (overrides = {}) => ({
 
 export const settingsFor = (overrides) => socialSettings(env(overrides));
 
-const TABLES = ["openblog_social_accounts", "openblog_social_connections", "openblog_social_credentials", "openblog_social_posts"];
+const TABLES = ["openblog_social_accounts", "openblog_social_connections", "openblog_social_credentials", "openblog_social_posts", "openblog_social_schema"];
 
 function cellMatches(row, name, expression) {
   const dot = expression.indexOf(".");
@@ -47,10 +47,12 @@ function cellMatches(row, name, expression) {
   }
 }
 
-// In-memory PostgREST for the tables the social code touches. Every call is recorded.
-export function fakeSupabase({ accounts = [] } = {}) {
+// In-memory PostgREST for the tables the social code touches. Every call is recorded. `schema`: the
+// versions in openblog_social_schema (5 is social-return.sql, the return_to column).
+export function fakeSupabase({ accounts = [], schema = [1, 5] } = {}) {
   const tables = Object.fromEntries(TABLES.map((name) => [name, []]));
   tables.openblog_social_accounts.push(...accounts);
+  tables.openblog_social_schema.push(...schema.map((version) => ({ version })));
   const calls = [];
   const matches = (row, params) => {
     for (const [name, expression] of params) {
@@ -95,8 +97,8 @@ export function fakeSupabase({ accounts = [] } = {}) {
 
 // A scripted provider plus the database behind one `fetch`. Provider handlers receive the parsed
 // request and return { status, body }. Every provider request is recorded.
-export function fakeWorld({ accounts = [], linkedin = {}, facebook = {}, fallback } = {}) {
-  const db = fakeSupabase({ accounts });
+export function fakeWorld({ accounts = [], linkedin = {}, facebook = {}, fallback, schema } = {}) {
+  const db = fakeSupabase({ accounts, schema });
   const provider = [];
   const handlers = { ...linkedin, ...facebook };
   const fetchImpl = async (url, init = {}) => {

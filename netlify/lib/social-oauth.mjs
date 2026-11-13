@@ -324,6 +324,18 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
       return { connection: connectionOf(done || row) };
     },
 
+    // Whether the store has social-return.sql (schema version 5, the return_to column), so a start
+    // may keep a return address (G6). Anything that stops it being read answers no: then Admin names
+    // none and Studio offers its new-tab way, which works on any store.
+    async returns() {
+      try {
+        const rows = await rest("GET", "openblog_social_schema", "select=version&version=eq.5");
+        return rows.some((row) => Number(row.version) === 5);
+      } catch {
+        return false;
+      }
+    },
+
     // Begins a handshake. Returns what Admin may show and the URL to send the author's browser to.
     async start({ provider: name, actor, reauthAccountId = null, returnTo = undefined }) {
       const provider = providerOf(name);

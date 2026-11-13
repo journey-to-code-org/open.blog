@@ -13,8 +13,9 @@ const NOW = Date.parse("2026-10-29T12:00:00Z");
 const STUDIO = "https://blog.example.com/admin/studio/";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const make = () => {
+const make = ({ schema } = {}) => {
   const w = fakeWorld({
+    schema,
     linkedin: {
       "POST www.linkedin.com/oauth/v2/accessToken": { status: 200, body: { access_token: "AQX-a", refresh_token: "AQX-r", expires_in: 5184000, refresh_token_expires_in: 31536000, scope: "openid,profile,w_member_social" } },
       "POST www.linkedin.com/oauth/v2/revoke": { status: 200, body: {} },
@@ -51,11 +52,22 @@ test("validReturnTo: only https, or http to this computer, ending exactly in /ad
   ]) assert.equal(validReturnTo(bad), null, String(bad));
 });
 
-test("the status says the function can send the browser back (returns: true)", async () => {
+test("the status says the function can send the browser back (returns: true) only once social-return.sql ran", async () => {
   const { handler } = make();
   const status = await call(handler, "GET", "/status");
   assert.equal(status.status, 200);
   assert.equal(status.body.returns, true);
+  // Before social-return.sql (no schema version 5, so no return_to column): Admin must name no address.
+  const before = await call(make({ schema: [1, 2, 3, 4] }).handler, "GET", "/status");
+  assert.equal(before.status, 200);
+  assert.equal(before.body.returns, false);
+  // The version can't be read (the store refuses or can't be reached): no, and the status still answers.
+  const { w, handler: refusing } = make();
+  delete w.db.tables.openblog_social_schema;
+  const unread = await call(refusing, "GET", "/status");
+  assert.equal(unread.status, 200);
+  assert.equal(unread.body.returns, false);
+  assert.ok(unread.body.providers.length > 0);
 });
 
 test("start keeps a valid return address on the row, refuses any other, and writes none when none is given", async () => {

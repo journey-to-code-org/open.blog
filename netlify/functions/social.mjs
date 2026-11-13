@@ -132,8 +132,9 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       const [head, id, action] = segments;
 
       if (method === "GET" && head === "status" && segments.length === 1) {
-        // `returns`: this function can send the browser back to Studio after a sign-in (G6), so Admin may name where.
-        return json(200, { enabled: true, returns: true, providers: Object.values(providers).map(describeProvider), problems: [...providers.problems] });
+        // `returns`: this function can send the browser back to Studio after a sign-in (G6), so Admin
+        // may name where; true only once the store has the return_to column (social-return.sql).
+        return json(200, { enabled: true, returns: await connector.returns(), providers: Object.values(providers).map(describeProvider), problems: [...providers.problems] });
       }
       if (head === "connections") {
         if (method === "GET" && segments.length === 1) return json(200, { connections: await connector.list() });
