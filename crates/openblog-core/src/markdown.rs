@@ -3085,7 +3085,7 @@ fn render_events<'a>(
                     if !lang.is_empty()
                         && info.trim() != "quiz"
                         && info.trim() != crate::compare::FENCE
-                        && !crate::text_compare::is_fence(&info)
+                        && !crate::text_compare::is_fence(info)
                         && !code_languages.contains(&lang)
                     {
                         code_languages.push(lang);
