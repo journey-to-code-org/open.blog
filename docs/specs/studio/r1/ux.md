@@ -174,8 +174,8 @@ Change this share (side-sheet)           Check it (side-sheet)
 | What would you like to do?           |
 | [2 new quote requests            >]  |  .studio-waiting lines (as built)
 | ! About your recipe list             |  alert-banner info (recipe notes)
-|   Your page “My recipes” uses the    |
-|   address your recipe list wants...  |
+|   Your recipe list has moved to a    |
+|   new spot on your blog, because ... |
 |   [Open “My recipes”]                |
 | Get your site ready      [More v]    |  h3 + dropdown-menu (Hide this list)
 | 3 of 5 done                          |  p ink-soft
@@ -192,7 +192,7 @@ Change this share (side-sheet)           Check it (side-sheet)
 
 - **Checklist** (`meta.siteUses.trade`, `GET trade-checklist`, shown while `checklistVisible`): Studio's step words: business "Add your phone number or email" / "So customers can reach you." **Open Business facts**; service "Publish your first service" / "Change an example service to your own, then Publish it." **Open Services**; job "Publish your first job" / "Photos from the site and a few words about the work." **Start a job**; review "Save your first review" / "Copy a real customer's review, or type it in." **Open Reviews**; destination "Share a job where customers look" / "Google, Facebook or Nextdoor." **Share your newest job**. `href` goes through `legacyRoute`; `#/edit/<job>` for destination becomes `#/sharing/job/<job>`; a step whose route is still not built (Capture until R4) shows its hint and no button.
 - **Hide this list** → G13 → "Hidden. Find “Get your site ready” to see it again." with **Undo**. Palette "Get your site ready" shows it again. All done: gone, toast once "Your site is ready."
-- **Recipe notes** (`GET recipe-notes`, any site, only when notes): one banner, one line per note in Studio words (G14): taken address "Your page “My recipes” uses the address your recipe list wants, so the list is at /recipe-index/ instead." **Open “My recipes”** (`#/page/<path>`; by alias: "Ask the person who set up your site to free the address.") / no address "There's no list of all your recipes, because two pages use its addresses." / wordless "Readers can't browse by the course “???” because it has no letters. Add a word, like Dessert."
+- **Recipe notes** (`GET recipe-notes`, any site, only when notes): one banner, one line per note in Studio words (G14), never a path or address (those, and raw values, go in the banner's details): taken address "Your recipe list has moved to a new spot on your blog, because your page “My recipes” uses its usual one. Links to it still work." **Open “My recipes”** (`#/page/<path>`; by alias: "Ask the person who set up your site to free that spot.") / no address "There's no list of all your recipes, because two pages are using its spot on your blog." / wordless "Readers can't browse by a course with no name. Give it a word, like Dessert." (a name that is empty, unknown or has no letters is never quoted).
 
 ## Rules each part uses (runtime-moved, static imports)
 

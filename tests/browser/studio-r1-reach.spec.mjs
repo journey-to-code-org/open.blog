@@ -141,10 +141,17 @@ test("Home: Get your site ready ticks from the files, opens Studio screens, hide
   await expect(ready.getByRole("link", { name: "Share your newest job: Share a job where customers look" })).toHaveAttribute("href", `#/sharing/job/${JOB}`);
   // Recipe notes: her words, a link to her page, and her page's title only as text.
   const notes = page.locator(".studio-recipe-notes");
-  await expect(notes.getByText("Your page “My recipes” uses the address your recipe list wants, so the list is at /recipes/all/ instead.")).toBeVisible();
-  await expect(notes.getByText("Readers can't browse by the course “???” because it has no letters. Add a word, like Dessert.")).toBeVisible();
+  await expect(notes.getByText("Your recipe list has moved to a new spot on your blog, because your page “My recipes” uses its usual one. Links to it still work.")).toBeVisible();
+  await expect(notes.getByText("Readers can't browse by a course with no name. Give it a word, like Dessert.")).toBeVisible();
   await expect(notes.getByRole("link", { name: "Open “My recipes”" })).toHaveAttribute("href", "#/page/pages%2Frecipes.md");
-  await expect(notes).not.toContainText(/Settings|Slug/);
+  // No path, address or broken-looking name on her layer; they wait in details for Mikey.
+  const notesDetails = notes.locator("details");
+  await expect(notesDetails).not.toHaveAttribute("open", "");
+  const herLayer = await notes.evaluate((el) => [...el.querySelectorAll(".studio-recipe-note")].map((n) => n.textContent).join(" "));
+  expect(herLayer).not.toMatch(/Settings|Slug|address|\/recipes\/all\/|\?\?\?/);
+  await notesDetails.locator("summary").click();
+  await expect(notesDetails).toContainText("now at /recipes/all/");
+  await expect(notesDetails).toContainText('course "???"');
   // Hide, then Undo.
   await ready.getByRole("button", { name: /More/ }).click();
   await page.getByRole("menuitem", { name: "Hide this list" }).click();

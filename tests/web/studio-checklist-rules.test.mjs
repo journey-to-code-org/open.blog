@@ -56,21 +56,33 @@ test("each step opens its Studio screen; sharing a job opens Share this job; Cap
   for (const text of Object.values(STEP_TEXT)) assert.doesNotMatch(JSON.stringify(text), /Capture|draft|Settings|Slug/, "her words, never the system's");
 });
 
-test("G14: recipe notes in her words, linking the page that holds the address", () => {
+test("G14: recipe notes in her words, linking the page that holds the spot, paths only in details", () => {
   const taken = recipeNoteWords({ code: "address-taken", address: "/recipes/", fallback: "/recipe-index/", page: { path: "pages/recipes.md", kind: "page", title: "My recipes" }, byAlias: false });
   assert.deepEqual(taken, {
-    text: "Your page “My recipes” uses the address your recipe list wants, so the list is at /recipe-index/ instead.",
+    text: "Your recipe list has moved to a new spot on your blog, because your page “My recipes” uses its usual one. Links to it still work.",
     open: { href: "#/page/pages%2Frecipes.md", label: "Open “My recipes”" },
     help: "",
+    details: ["code address-taken", "wanted /recipes/", "now at /recipe-index/", "page pages/recipes.md"],
   });
   const alias = recipeNoteWords({ code: "address-taken", fallback: "/recipes/all/", page: { path: "posts/old.md", kind: "post", title: "Old" }, byAlias: true });
   assert.equal(alias.open, null);
-  assert.equal(alias.help, "Ask the person who set up your site to free the address.");
-  assert.equal(recipeNoteWords({ code: "no-address", page: { path: "pages/r.md", kind: "page", title: "R" } }).text, "There's no list of all your recipes, because two pages use its addresses.");
-  assert.equal(recipeNoteWords({ code: "wordless", facet: "course", value: "???" }).text, "Readers can't browse by the course “???” because it has no letters. Add a word, like Dessert.");
-  assert.equal(recipeNoteWords({ code: "wordless", facet: "cuisine", value: "🍰" }).text, "Readers can't browse by the cuisine “🍰” because it has no letters. Add a word, like Italian.");
-  assert.equal(recipeNoteWords({ code: "filter-taken", facet: "course", value: "Pie", page: { path: "series/pie.md", kind: "series", title: "Pie" } }).open.href, "#/collection/series%2Fpie.md");
+  assert.equal(alias.help, "Ask the person who set up your site to free that spot.");
+  assert.equal(recipeNoteWords({ code: "no-address", page: { path: "pages/r.md", kind: "page", title: "R" } }).text, "There's no list of all your recipes, because two pages are using its spot on your blog.");
+  // A course whose name is missing, empty or has no letters is never quoted: it would look broken.
+  for (const value of ["???", "", "   ", "\u0007", null, undefined, 5, "\u200b"]) {
+    const note = recipeNoteWords({ code: "wordless", facet: "course", value });
+    assert.equal(note.text, "Readers can't browse by a course with no name. Give it a word, like Dessert.", JSON.stringify(value));
+  }
+  assert.equal(recipeNoteWords({ code: "wordless", facet: "cuisine", value: "🍰" }).text, "Readers can't browse by a cuisine with no name. Give it a word, like Italian.");
+  assert.deepEqual(recipeNoteWords({ code: "wordless", facet: "course", value: "???" }).details, ["code wordless", "course \"???\""]);
+  const pie = recipeNoteWords({ code: "filter-taken", facet: "course", value: "Pie", page: { path: "series/pie.md", kind: "series", title: "Pie" } });
+  assert.equal(pie.open.href, "#/collection/series%2Fpie.md");
+  assert.equal(pie.text, "Your collection “Pie” is using the spot for Pie recipes, so readers can't browse by Pie.");
+  assert.equal(recipeNoteWords({ code: "filter-taken", facet: "course", value: "!!", page: { path: "series/x.md", kind: "series", title: "X" } }).text, "Your collection “X” is using the spot for one of your courses, so readers can't browse by it.");
   assert.equal(recipeNoteWords({ code: "what" }), null);
   assert.equal(recipeNoteWords(null), null);
-  for (const note of [taken, alias]) assert.doesNotMatch(note.text, /Settings|Slug|Admin/);
+  const every = [taken, alias, recipeNoteWords({ code: "no-address" }), recipeNoteWords({ code: "wordless", value: "???" }), pie];
+  for (const note of every) {
+    assert.doesNotMatch(`${note.text} ${note.help}`, /Settings|Slug|Admin|address|\/|\?\?\?/, note.text);
+  }
 });

@@ -24,7 +24,9 @@ export async function recipeNotesBanner(api) {
     ...notes.map((note) => h("div", { class: "studio-recipe-note" },
       h("p", { text: note.text }),
       note.open ? h("action-button", { variant: "secondary", size: "sm", href: note.open.href }, note.open.label) : null,
-      note.help ? h("p", { class: "studio-help", text: note.help }) : null)));
+      note.help ? h("p", { class: "studio-help", text: note.help }) : null)),
+    h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+      h("ul", { class: "studio-mono" }, ...notes.flatMap((note) => note.details || []).map((line) => h("li", { text: line })))));
 }
 
 /**

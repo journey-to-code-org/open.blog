@@ -59,9 +59,18 @@ export const progressWords = (steps) => `${steps.filter((step) => step.done).len
 const NOUNS = { post: "post", page: "page", series: "collection" };
 const SCREENS = { post: "write", page: "page", series: "collection" };
 
+/** A course or cuisine name worth quoting to her: a string with a letter or digit, nothing hidden. */
+function shownName(value) {
+  if (typeof value !== "string") return "";
+  const name = value.trim();
+  return name.length <= 80 && /[\p{L}\p{N}]/u.test(name) && !/[\p{Cc}\p{Cf}]/u.test(name) ? name : "";
+}
+
 /**
  * One recipe note from `GET recipe-notes` items in her words: { text, open?: { href, label },
- * help? }. Never "Settings" or "Slug". Null for a note this version doesn't know.
+ * help, details }. Never "Settings", "Slug", an address or a path: those, and the raw value, go in
+ * `details` for the person who set up the site. A name that would look broken is not quoted. Null
+ * for a note this version doesn't know.
  */
 export function recipeNoteWords(note) {
   if (!isObject(note)) return null;
@@ -71,20 +80,31 @@ export function recipeNoteWords(note) {
   const open = page && page.path && !note.byAlias && SCREENS[page.kind]
     ? { href: `#/${SCREENS[page.kind]}/${encodeURIComponent(page.path)}`, label: `Open “${title}”` }
     : null;
-  const help = page && note.byAlias ? "Ask the person who set up your site to free the address." : "";
-  const value = String(note.value || "");
+  const help = page && note.byAlias ? "Ask the person who set up your site to free that spot." : "";
+  const facet = note.facet === "cuisine" ? "cuisine" : "course";
+  const name = shownName(note.value);
+  const details = [
+    `code ${String(note.code)}`,
+    typeof note.address === "string" ? `wanted ${note.address}` : null,
+    typeof note.fallback === "string" ? `now at ${note.fallback}` : null,
+    "value" in note ? `${facet} ${JSON.stringify(note.value ?? null)}` : null,
+    page?.path ? `page ${page.path}` : null,
+  ].filter(Boolean);
+  const said = (text, link = open, extra = help) => ({ text, open: link, help: extra, details });
   if (note.code === "address-taken") {
-    return { text: `Your ${noun} “${title}” uses the address your recipe list wants, so the list is at ${note.fallback} instead.`, open, help };
+    return said(`Your recipe list has moved to a new spot on your blog, because your ${noun} “${title}” uses its usual one. Links to it still work.`);
   }
   if (note.code === "no-address") {
-    return { text: "There's no list of all your recipes, because two pages use its addresses.", open, help };
+    return said("There's no list of all your recipes, because two pages are using its spot on your blog.");
   }
   if (note.code === "filter-taken") {
-    return { text: `Your ${noun} “${title}” uses the address for ${value} recipes, so readers can't browse by ${value}.`, open, help };
+    return said(name
+      ? `Your ${noun} “${title}” is using the spot for ${name} recipes, so readers can't browse by ${name}.`
+      : `Your ${noun} “${title}” is using the spot for one of your ${facet === "cuisine" ? "cuisines" : "courses"}, so readers can't browse by it.`);
   }
   if (note.code === "wordless") {
-    const example = note.facet === "cuisine" ? "Italian" : "Dessert";
-    return { text: `Readers can't browse by the ${note.facet === "cuisine" ? "cuisine" : "course"} “${value}” because it has no letters. Add a word, like ${example}.`, open: null, help: "" };
+    const example = facet === "cuisine" ? "Italian" : "Dessert";
+    return said(`Readers can't browse by a ${facet} with no name. Give it a word, like ${example}.`, null, "");
   }
   return null;
 }
