@@ -195,6 +195,31 @@ Admin's **Seasons** screen (`#/seasons`) chooses the site theme, turns the calen
 the windows with months by name. It is the only Admin screen that changes `theme`
 ([ADR 0407](adr/0407-seasons-change-the-site-theme-by-the-calendar-and-the-stored-theme-is-the-look-between-them.md)).
 
+## Decoration pieces
+
+A seasonal theme hangs several things at once: a garland, a banner, a wreath, snow. Declare each as a
+piece in `theme.json` so the owner can take one down, or swap it for another version, without
+touching the rest:
+
+```json
+"decorations": {
+  "garland": {
+    "label": "Garland",
+    "tokens": ["decorGarland", "decorGarlandHeight"],
+    "off": { "decorGarland": "none", "decorGarlandHeight": "0px" },
+    "variants": {
+      "toyshelf": { "label": "From the toy shelf", "tokens": { "decorGarland": "url(data:...)" } }
+    }
+  }
+}
+```
+
+`tokens` lists the tokens the piece owns; `off` and every variant may set only those, and the build
+says so if one reaches further. Pieces are inherited through `extends`, and a child theme replaces a
+piece by name. The owner's choices live in `openblog.json` [`decorations`](configuration.md#decorations)
+and are laid over the theme's tokens before its `tokens.css` is written; the stylesheet's address
+changes with them. A theme with no choices is written exactly as before.
+
 ## Describing a theme in words
 
 Admin's **Design a theme** screen drafts a theme from a description, through the Assistant, and saves it as an

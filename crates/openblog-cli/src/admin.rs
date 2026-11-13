@@ -89,6 +89,8 @@ mod announcements;
 mod business;
 mod capture_assistant;
 mod comparisons;
+mod decorations;
+mod gifts;
 mod greetings;
 mod job_sharing;
 mod landing;
@@ -530,6 +532,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "seasons" || name == "seasons/preview" {
             return Ok(seasons::MAX_REQUEST_BYTES);
         }
+        if name == "decorations" || name == "decorations/preview" {
+            return Ok(decorations::MAX_REQUEST_BYTES);
+        }
         if name == "business" {
             return Ok(business::MAX_REQUEST_BYTES);
         }
@@ -559,6 +564,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         }
         if name.starts_with("greetings/") {
             return Ok(greetings::MAX_GREETINGS_REQUEST_BYTES);
+        }
+        if name.starts_with("gifts/") {
+            return Ok(gifts::MAX_GIFTS_REQUEST_BYTES);
         }
         if name.starts_with("push/") {
             return Ok(push::MAX_PUSH_REQUEST_BYTES);
@@ -741,6 +749,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         && !name.starts_with("social/")
         && !name.starts_with("quote/")
         && !name.starts_with("greetings/")
+        && !name.starts_with("gifts/")
         && !name.starts_with("push/");
     let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
@@ -800,6 +809,9 @@ fn authenticated_api(
     if let Some(rest) = name.strip_prefix("quote/") {
         return quote::route(req, &session.user, rest);
     }
+    if let Some(rest) = name.strip_prefix("gifts/") {
+        return gifts::route(req, rest);
+    }
     if let Some(rest) = name.strip_prefix("push/") {
         return push::route(req, &session.user, rest);
     }
@@ -841,6 +853,9 @@ fn authenticated_api(
         ("GET", "seasons") => seasons::get_seasons(state),
         ("PUT", "seasons") => seasons::save_seasons(state, req),
         ("POST", "seasons/preview") => seasons::preview_look(state, req),
+        ("GET", "decorations") => decorations::get_decorations(state),
+        ("PUT", "decorations") => decorations::save_decorations(state, req),
+        ("POST", "decorations/preview") => decorations::preview_decorations(state, req),
         ("GET", "business") => business::get_business(state),
         ("PUT", "business") => business::save_business(state, req),
         ("GET", "seasonal") => seasonal::get_seasonal(state),
@@ -4253,6 +4268,7 @@ fn meta(state: &AppState) -> Response {
             "social": social::is_configured(),
             "quote": quote::is_configured(),
             "greetings": greetings::is_configured(),
+            "gifts": gifts::is_configured(),
             "push": push::is_configured(),
             "now": clock::now().rfc3339(),
         }),
@@ -19111,6 +19127,7 @@ mod tests {
     mod business_routes;
     mod capture_transcribe_routes;
     mod comparison_routes;
+    mod decorations_routes;
     mod distribution_routes;
     mod document_keep_routes;
     mod greeting_routes;

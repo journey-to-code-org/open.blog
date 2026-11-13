@@ -469,6 +469,34 @@ The Dockerfile assumes the blog lives in a clone of the engine repository (the l
 fork has). For a blog made with `openblog init`, replace the build stage with
 `cargo install --git https://github.com/journey-to-code-org/open.blog openblog-cli`.
 
+## Railway: the editor and the hosted functions
+
+On Railway (or any host that runs containers and keeps a disk), the editor and the hosted
+functions can live together in one project, while GitHub Pages (or Netlify) still builds the public
+site from the repository:
+
+- **Postgres**, Railway's own.
+- **The hosted functions** ([`service/`](../service/)): one container that runs the very same code
+  as the Netlify functions (notes, views and moderation; greeting cards and their hourly sender;
+  [gifts under the tree](gifts.md)) over that Postgres through PostgREST, the pair Supabase is made of. It
+  needs `DATABASE_URL` and `PGRST_JWT_SECRET` (32 or more random characters, never shared: the
+  service key is minted from it inside the container), plus each function's own settings
+  (`OPENBLOG_SITE_ID`, `OPENBLOG_SITE_ORIGIN`, `OPENBLOG_ADMIN_API_KEY`, `OPENBLOG_GREETINGS_*`,
+  `OPENBLOG_GIFTS_*` and so on, as on Netlify). On start, `service/migrate.sh` adds the roles
+  Supabase would have and applies each SQL file the service uses once per change
+  (`OPENBLOG_SERVICE_SQL`, default `openblog moderation greetings gifts`). The visitor's address
+  comes from Railway's `X-Real-IP`; set `OPENBLOG_TRUST_X_REAL_IP=false` behind any other proxy.
+- **The editor**: `openblog serve --admin` with the site cloned onto a Railway volume, publishing back
+  to GitHub with a token scoped to that one repository, and `OPENBLOG_BEHIND_PROXY=1`. Point
+  `OPENBLOG_GREETINGS_ENDPOINT`, `OPENBLOG_GIFTS_ENDPOINT` and the engagement endpoint at the
+  functions' public `https://` address.
+
+Build the functions' image from the repository root with `docker build -f service/Dockerfile .`.
+A site repository can pin both to one engine commit and build them itself, as
+[Grammi's House](https://github.com/mnichols08/grammis-house/tree/main/railway) does with its
+`railway/` folder and `scripts/setup-railway.sh`. Limit each service's rebuilds to its own files
+(Railway's watch paths), or every save in the editor redeploys the editor.
+
 ## A theme that is not in the repository
 
 Builds in CI only see committed files. If a theme is kept out of the repository

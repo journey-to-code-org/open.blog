@@ -269,3 +269,31 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
   .studio-season-row { grid-template-columns: minmax(0, 1fr); }
   .studio-season-row .studio-row-menu { grid-column: 1; grid-row: auto; justify-self: start; }
 }
+
+/* What's hanging (slice 3b): one row per decoration, the switch then its versions. */
+.studio-deco-pieces { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-deco-piece { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1.2fr); gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-deco-piece:has(> :only-child) { grid-template-columns: 1fr; }
+.studio-deco-status { display: grid; gap: var(--space-2); justify-items: start; }
+@media (max-width: 40rem) { .studio-deco-piece { grid-template-columns: 1fr; } }
+
+/* Gifts (slice 3b): one row per gift, a little wrapped box beside who it's from. */
+.studio-gift-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.studio-gift { display: grid; grid-template-columns: 3.5rem 1fr; gap: var(--space-3); align-items: start; padding: var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-gift-body { display: grid; gap: var(--space-2); justify-items: start; min-width: 0; }
+.studio-gift-from { margin: 0; font-size: var(--text-lg); }
+.studio-gift-box { width: 3.5rem; aspect-ratio: 1; border-radius: 6px; background: var(--studio-gift-paper, #c8243c); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15); position: relative; }
+.studio-gift-box::before, .studio-gift-box::after { content: ""; position: absolute; background: #f2c14e; }
+.studio-gift-box::before { left: 44%; width: 12%; top: 0; bottom: 0; }
+.studio-gift-box::after { top: 44%; height: 12%; left: 0; right: 0; }
+.studio-gift-box.studio-gift-open { opacity: 0.55; }
+.studio-wrap-red { --studio-gift-paper: #c8243c; }
+.studio-wrap-green { --studio-gift-paper: #2f6b3f; }
+.studio-wrap-gold { --studio-gift-paper: #c99624; }
+.studio-wrap-blue { --studio-gift-paper: #2f5fa8; }
+.studio-wrap-plaid { --studio-gift-paper: repeating-linear-gradient(0deg, transparent 0 8px, rgb(0 0 0 / 0.2) 8px 12px), repeating-linear-gradient(90deg, #a31f33 0 8px, #2f6b3f 8px 12px); }
+.studio-wrap-stripes { --studio-gift-paper: repeating-linear-gradient(45deg, #c8243c 0 8px, #fff 8px 14px); }
+.studio-gift-note { margin: 0; padding: var(--space-3) var(--space-4); border-left: 4px solid var(--studio-linen); white-space: pre-wrap; font-size: var(--text-lg); max-width: 40rem; }
+.studio-gift-card { width: 100%; max-width: 36rem; height: auto; }
+@media (max-width: 40rem) { .studio-gift { grid-template-columns: 2.5rem 1fr; padding: var(--space-3); } .studio-gift-box { width: 2.5rem; } }
+.studio-deco-fixed { margin: 0; display: grid; gap: 0.15rem; }

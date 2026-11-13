@@ -10,6 +10,8 @@ import { showPreview } from "../parts/preview.js";
 import { sendOut, servedHere, wentOutWords } from "../parts/publish.js";
 import { editSeason } from "../parts/season-sheet.js";
 import { askPutUpNow } from "../parts/put-up-now.js";
+import { createDecorPieces } from "../parts/decor-pieces.js";
+import { seasonDetails } from "../parts/season-details.js";
 import { dayAfter, sayLongDate, todaySentence } from "../parts/season-words.js";
 import { MAX_WINDOWS, nextChange, problems, sayRange, switchTimeWords, toStored, upNowUntil, wearingOn, windowHolds as windowHoldsDay } from "../parts/season-windows.js";
 
@@ -33,12 +35,13 @@ export async function createDecorations({ api, meta }) {
   const saveButton = h("action-button", { onClick: () => save() }, "Save");
   const bar = h("div", { class: "studio-write-bar studio-deco-bar", hidden: true }, barWords, saveButton);
   const details = h("side-sheet", { label: "For the person who set up your site", side: "right" });
+  const pieces = await createDecorPieces({ api, meta });
   const element = h("section", { class: "studio-page studio-decorations", "aria-labelledby": "studio-deco-h" },
-    banner, card,
+    banner, card, pieces.element,
     h("section", { class: "studio-section", "aria-labelledby": "studio-cal-h" },
       h("h3", { id: "studio-cal-h", text: "Your calendar" }),
       toggle,
-      h("p", { id: "studio-season-help", class: "studio-help", text: "If two seasons share a day, the one higher up wins." }),
+      h("p", { id: "studio-season-help", class: "studio-help", text: "If two seasons share a day, the one higher up wins. Changes here wait until you press Save." }),
       rows, live, add, between),
     bar, details);
 
@@ -248,7 +251,7 @@ export async function createDecorations({ api, meta }) {
   async function announce(reply, lead, { toast: say = true } = {}) {
     lastBuildError = reply.buildError || "";
     if (reply.changed === false) { toast("Nothing's changed. Your site already has this."); return null; }
-    if (reply.buildError) { toast("Saved, but your site couldn't be put together yet. The person who set up your site can see why in Details.", { variant: "warning", duration: 0 }); return null; }
+    if (reply.buildError) { toast("Saved, but your site couldn't be updated yet. Nothing is lost. Let the person who set up your site know.", { variant: "warning", duration: 0 }); return null; }
     const result = await sendOut(api, "Change the decorations");
     lastPublish = result;
     if (!say) return result;
@@ -345,32 +348,13 @@ export async function createDecorations({ api, meta }) {
   }
 
   // ---- details, for the person who set up the site
-  function showDetails() {
-    const row = (name, value) => [h("dt", { text: name }), h("dd", { class: "studio-mono", text: value })];
-    details.replaceChildren(
-      h("span", { slot: "heading", text: "For the person who set up your site" }),
-      h("dl", { class: "studio-details" },
-        ...row("File", "openblog.json (members theme and seasons)"),
-        ...row("Between seasons", saved.theme),
-        ...row("Up early", saved.seasons?.upNow ? JSON.stringify(saved.seasons.upNow) : "none"),
-        ...row("Today (UTC)", `${saved.today}, wearing ${saved.wearing}`),
-        ...row("Next change", saved.next ? `${saved.next.day} ${saved.next.theme} (first build after ${saved.next.day}T00:00Z)` : "none"),
-        ...row("How it's written", "Only members that changed are written. A changed seasons block is written in its documented key order (version, enabled, windows, upNow), so one written in another order is reordered on its first change."),
-        ...row("Last build", lastBuildError || "Fine"),
-        ...row("Last send-out", lastPublish ? [lastPublish.message, lastPublish.commit ? `commit ${String(lastPublish.commit).slice(0, 12)}` : ""].filter(Boolean).join(" · ") : "Not in this visit")),
-      h("table", { class: "studio-season-table" },
-        h("thead", {}, h("tr", {}, ...["#", "Look", "Theme", "Start", "End"].map((text) => h("th", { text })))),
-        h("tbody", {}, ...(saved.seasons?.windows || []).map((w, i) => h("tr", {}, ...[String(i + 1), label(w.theme), w.theme, w.start, w.end].map((text) => h("td", { text })))))),
-      h("action-button", { variant: "secondary", onClick: async () => {
-        try { await navigator.clipboard.writeText(JSON.stringify(toStored(saved.seasons), null, 2)); toast("Copied the stored seasons."); } catch { toast("Couldn't copy here.", { variant: "warning" }); }
-      } }, "Copy the stored seasons"));
-    details.open = true;
-  }
+  const showDetails = () => seasonDetails(details, { saved, label, lastBuildError, lastPublish });
 
   async function load() {
     card.replaceChildren(h("skeleton-block", { lines: 3 }));
     try {
       adopt(await api.get("seasons"));
+      pieces.load({ wearing: saved.wearing });
       // From Find anywhere: "Put a look up now" lands here and asks straight away.
       if (new URLSearchParams(location.hash.split("?")[1] || "").get("do") === "putup") {
         history.replaceState(null, "", "#/decorations");
@@ -404,6 +388,7 @@ export async function createDecorations({ api, meta }) {
         { id: "details", label: "Show decorations details", group: "Decorations" },
         ...looks.map((look) => ({ id: `up:${look.value}`, label: `Put up ${look.label}`, group: "Put up now" })),
         ...looks.map((look) => ({ id: `see:${look.value}`, label: `See how it looks in ${look.label}`, group: "See how it looks" })),
+        ...pieces.palette(),
       ];
     },
     keys: ["save", "publish"], // Ctrl/⌘ S and Ctrl/⌘ Enter both save here
@@ -413,6 +398,7 @@ export async function createDecorations({ api, meta }) {
       if (id === "details") showDetails();
       if (id.startsWith("up:")) putUp(id.slice(3));
       if (id.startsWith("see:")) preview(id.slice(4));
+      if (id.startsWith("piece:")) pieces.command(id);
     },
     reload: load,
   };
