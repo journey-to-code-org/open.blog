@@ -357,6 +357,44 @@ fn feeds_and_portable_copies_use_real_digest_named_images_with_alternatives() {
 }
 
 #[test]
+fn diagram_alternatives_are_escaped_in_valid_full_content_feeds() {
+    let body =
+        "```mermaid title=\"A & B\" description=\"Calls <the API>\"\nflowchart LR\nA --> B\n```\n";
+    let mut site = load(
+        Sources {
+            posts: vec![post(body, "")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    site.config.feeds.full_content = true;
+    let rss = feeds::rss(&site).unwrap();
+    let xml = roxmltree::Document::parse(&rss).unwrap();
+    let content = xml
+        .descendants()
+        .find(|node| {
+            node.tag_name().name() == "encoded"
+                && node.tag_name().namespace() == Some("http://purl.org/rss/1.0/modules/content/")
+        })
+        .unwrap()
+        .text()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&feeds::json_feed(&site).unwrap()).unwrap();
+    for html in [content, json["items"][0]["content_html"].as_str().unwrap()] {
+        assert!(
+            html.contains("alt=\"A &amp; B: Calls &lt;the API&gt;\""),
+            "{html}"
+        );
+        assert!(
+            html.contains("https://example.test/assets/diagrams/"),
+            "{html}"
+        );
+        assert!(!html.contains("<svg"), "{html}");
+    }
+}
+
+#[test]
 fn each_technical_template_builds_with_its_accessible_example() {
     let mut ids = std::collections::BTreeSet::new();
     for template in openblog_core::diagram::TEMPLATES {
