@@ -90,6 +90,8 @@ fn drafts_merge_and_tag_without_mutating_the_repository() {
     assert!(!draft.contains("me@example.test"));
     assert!(!draft.contains("0123456789012345678901234567890123456789"));
     assert!(!draft.contains(&head));
+    #[cfg(feature = "diagram-rendering")]
+    assert_renderable(&draft);
     assert_eq!(repo.git(&["show-ref"]), refs);
     assert_eq!(repo.git(&["status", "--porcelain"]), before);
 }
@@ -139,4 +141,15 @@ fn caps_large_ranges_and_reports_omitted_history() {
     assert_eq!(draft.matches("  branch change").count(), 30);
     assert!(!draft.contains("step 0"));
     assert!(draft.contains("step 34"));
+    #[cfg(feature = "diagram-rendering")]
+    assert_renderable(&draft);
+}
+
+#[cfg(feature = "diagram-rendering")]
+fn assert_renderable(draft: &str) {
+    let findings = openblog_core::diagram::discover(draft);
+    assert_eq!(findings.len(), 1);
+    let diagram = findings.into_iter().next().unwrap().unwrap();
+    openblog_core::diagram_svg::render(&diagram, 1)
+        .unwrap_or_else(|error| panic!("generated Git diagram failed to render: {error}\n{draft}"));
 }
