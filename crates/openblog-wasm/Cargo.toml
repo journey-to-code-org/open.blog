@@ -3,6 +3,7 @@ name = "openblog-wasm"
 description = "WebAssembly bindings for openblog-core: live Markdown rendering, search, and theme CSS in the browser."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

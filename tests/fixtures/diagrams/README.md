@@ -3,7 +3,7 @@
 These are synthetic inputs for comparing the three renderer candidates in #568.
 The standalone harness in `scripts/diagram-spike` does not change the site
 renderer. It pins the candidate versions and uses its own lockfile. The
-[proposed renderer decision](../../../docs/adr/0413-diagram-rendering-needs-a-bounded-headless-engine.md)
+[proposed renderer decision](../../../docs/adr/0416-diagrams-are-rendered-at-build-time-by-merman-on-by-default.md)
 records what must happen before integration.
 
 The renderer-independent `openblog-core::diagram::discover` function validates

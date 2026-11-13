@@ -1,7 +1,8 @@
-# ADR 0413: Diagram rendering needs a bounded headless engine
+# ADR 0416: Diagrams are rendered at build time by merman, on by default
 
-- Status: Proposed
-- Date: 2026-11-12
+- Status: Accepted
+- Date: 2026-11-12 (proposed), 2026-11-13 (accepted)
+- Epic: [#566](https://github.com/journey-to-code-org/open.blog/issues/566)
 
 ## Context
 
@@ -47,3 +48,16 @@ payload measurement. Expand the fixture corpus and repeat visual, safety,
 license, native/WASM and cross-platform checks whenever the pinned renderer,
 its features or its dependencies change. Revisit this decision if those checks
 fail or the payload cannot meet the budget.
+
+## Acceptance (2026-11-13)
+
+The compiler question above is settled by raising the project's minimum Rust to **1.95**, the version merman
+declares, and turning diagram rendering **on by default** in the `openblog` binary (`openblog-cli`'s default
+`diagram-rendering` feature). Stable Rust is 1.97 at the time of writing, and the lockfile already needed 1.88.
+`cargo build --no-default-features -p openblog-cli` still builds a binary without the renderer, in which a
+` ```mermaid ` fence stays a code block, as before diagrams existed. `openblog-core` and `openblog-wasm` keep the
+feature off by default so the search WebAssembly module never carries the renderer; the Admin diagram preview is
+its own module, built with the feature and loaded only by the diagram editor.
+
+A site with no ` ```mermaid ` fence builds byte for byte the same with and without the feature (checked for every
+starter, the portable example and the example site).

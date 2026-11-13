@@ -93,6 +93,8 @@ pub mod decision;
 pub mod diagram;
 #[cfg(feature = "diagram-rendering")]
 pub mod diagram_svg;
+#[cfg(feature = "diagram-rendering")]
+pub mod diagram_theme;
 pub mod distribution;
 pub mod docs_section;
 pub mod draft;

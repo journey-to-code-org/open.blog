@@ -182,6 +182,10 @@ fn render_with_control(
             );
         }
     }
+    let colours = crate::diagram_theme::authored_colour_findings(&diagram.source);
+    if !colours.is_empty() {
+        return Err(colours.join("; ").into());
+    }
     if diagram.source.trim_start().starts_with("---")
         || diagram.source.contains("%%{")
         || diagram.source.lines().any(|line| {
@@ -274,7 +278,8 @@ fn render_with_control(
     let merman::RenderOutput::Svg(Some(svg)) = output else {
         return Err("diagram renderer produced no SVG".into());
     };
-    accessible_svg(svg.svg(), diagram, &prefix).map_err(Into::into)
+    let themed = crate::diagram_theme::apply(svg.svg(), &diagram.source);
+    accessible_svg(&themed, diagram, &prefix).map_err(Into::into)
 }
 
 fn render_error(error: merman::RenderError, source: &str) -> RenderFailure {
@@ -726,7 +731,7 @@ mod tests {
             }
         }
         let safe = render(
-            &diagram("flowchart LR\nA --> B\nstyle A fill:#123456,stroke:#654321"),
+            &diagram("flowchart LR\nA --> B\nstyle A fill:#123456,stroke:#654321,color:#ffffff"),
             1,
         )
         .unwrap();
