@@ -161,7 +161,7 @@ upstream packages. Review notices and source availability whenever the locked
 dependency tree changes. The Admin dialog links to the notice file, including
 versioned crate source downloads for its MPL-covered components.
 
-The generated module measured 10,912,151 bytes raw and 3,565,413 bytes with
+The generated module measured approximately 10.9 MB raw and 3.6 MB with
 gzip level 9. The test enforces budgets of 12 MiB raw and 4 MiB gzip. The
 built-in Admin server does not currently compress this response, so the raw
 size is the relevant transfer budget there. These are experimental budgets,

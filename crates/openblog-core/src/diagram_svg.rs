@@ -258,6 +258,7 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
     }
     let title_id = format!("{prefix}-accessible-title");
     let desc_id = format!("{prefix}-accessible-description");
+    let mut ids = std::collections::BTreeSet::new();
     for node in doc.descendants().filter(|node| node.is_element()) {
         let name = node.tag_name().name();
         if node.tag_name().namespace() != Some(SVG_NAMESPACE)
@@ -270,10 +271,13 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
         }
         for attr in node.attributes() {
             let name = attr.name();
-            if name.eq_ignore_ascii_case("id")
-                && (attr.value() == title_id || attr.value() == desc_id)
-            {
-                return Err("diagram SVG collides with its accessible text IDs".into());
+            if name.eq_ignore_ascii_case("id") {
+                if attr.value() == title_id || attr.value() == desc_id {
+                    return Err("diagram SVG collides with its accessible text IDs".into());
+                }
+                if !ids.insert(attr.value()) {
+                    return Err("diagram SVG contains duplicate IDs".into());
+                }
             }
             if name.to_ascii_lowercase().starts_with("on")
                 || name.eq_ignore_ascii_case("base")
@@ -466,6 +470,27 @@ mod tests {
             let svg = format!("<svg xmlns=\"{SVG_NAMESPACE}\">{element}</svg>");
             assert!(accessible_svg(&svg, &d, "test").is_err());
         }
+    }
+
+    #[test]
+    fn rejects_duplicate_ids_event_handlers_and_external_references() {
+        let d = diagram("flowchart LR\nA --> B");
+        for element in [
+            "<g id=\"duplicate\"/><path id=\"duplicate\"/>",
+            "<g id=\"test-accessible-title\"/>",
+            "<g OnLoAd=\"alert(1)\"/>",
+            "<use href=\"https://example.test/other.svg#shape\"/>",
+            "<use href=\"//example.test/other.svg#shape\"/>",
+            "<use href=\"javascript:alert(1)\"/>",
+            "<use href=\"data:image/svg+xml,x\"/>",
+            "<g xmlns=\"http://www.w3.org/1999/xhtml\"/>",
+        ] {
+            let svg = format!("<svg xmlns=\"{SVG_NAMESPACE}\">{element}</svg>");
+            assert!(accessible_svg(&svg, &d, "test").is_err(), "{element}");
+        }
+        let svg =
+            format!("<svg xmlns=\"{SVG_NAMESPACE}\"><g id=\"local\"/><use href=\"#local\"/></svg>");
+        assert!(accessible_svg(&svg, &d, "test").is_ok());
     }
 
     #[test]
