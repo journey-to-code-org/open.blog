@@ -18315,6 +18315,7 @@ export class ObAdmin extends AdminElement {
           }),
         ),
         this.draftPanel(publication, index),
+        this.creditChoicePanel(publication, index),
         this.sharedReadingPanel(publication, index),
         this.sharedConversationReadingPanel(publication, index),
         this.readerPolicyPanel(publication, index),
@@ -19103,6 +19104,80 @@ export class ObAdmin extends AdminElement {
     };
     const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Approval rule"), heading, status, problem, body);
     details.addEventListener("toggle", () => { if (details.open) load(); });
+    return details;
+  }
+
+  creditChoicePanel(publication, index) {
+    const id = publication.publicationId;
+    const prefix = `oba-credit-${index}`;
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const choice = h("select", { id: `${prefix}-choice` },
+      h("option", { value: "" }, "Choose a credit"),
+      h("option", { value: "profile" }, "My contributor profile"),
+      h("option", { value: "displayName" }, "Display name only"),
+      h("option", { value: "uncredited" }, "Uncredited"),
+    );
+    const name = h("input", { id: `${prefix}-name`, type: "text", maxlength: "200", autocomplete: "off" });
+    const nameField = h("div", { class: "oba-field", hidden: true }, h("label", { for: name.id }, "Public display name"), name);
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", disabled: true }, "Save my credit");
+    const reload = h("button", { class: "oba-btn", type: "button", hidden: true }, "Reload my credit");
+    let revision = null;
+    const sync = () => { nameField.hidden = choice.value !== "displayName"; };
+    choice.addEventListener("change", sync);
+    const form = h("form", { class: "oba-shared-form" },
+      h("p", { class: "oba-small" }, "Choose how your work is credited. A profile includes a snapshot of your contributor details; a display name has no profile link; uncredited work is not listed as an author. Changing your choice requires everyone to review and approve again."),
+      h("div", { class: "oba-field" }, h("label", { for: choice.id }, "My public credit"), choice),
+      nameField, h("div", { class: "oba-toolbar" }, save, reload));
+    const load = async () => {
+      try {
+        const result = await this.api.call("GET", `collaboration/credit-choice?publicationId=${encodeURIComponent(id)}`);
+        revision = result.revision;
+        choice.value = result.choice?.kind || "";
+        name.value = result.choice?.name || "";
+        sync();
+        save.disabled = false;
+        reload.hidden = true;
+        problem.hidden = true;
+        status.textContent = result.choice ? "Your saved choice is shown." : "You have not chosen your public credit.";
+      } catch (error) {
+        revision = null;
+        save.disabled = true;
+        reload.hidden = false;
+        problem.textContent = error?.data?.error || "Your credit choice could not be loaded.";
+        problem.hidden = false;
+        problem.focus();
+      }
+    };
+    reload.addEventListener("click", load);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (revision === null || !choice.value || (choice.value === "displayName" && !name.value.trim())) {
+        problem.textContent = "Choose a credit and, for display-name-only credit, enter a name.";
+        problem.hidden = false;
+        problem.focus();
+        return;
+      }
+      const selected = choice.value === "displayName" ? { kind: choice.value, name: name.value } : { kind: choice.value };
+      save.disabled = true;
+      problem.hidden = true;
+      try {
+        const result = await this.api.call("PUT", "collaboration/credit-choice", { json: { publicationId: id, expectedRevision: revision, choice: selected } });
+        revision = result.revision;
+        status.textContent = "Your credit choice was saved. Review the combined piece again.";
+      } catch (error) {
+        revision = null;
+        reload.hidden = false;
+        problem.textContent = error?.data?.error || "Your credit choice could not be saved. Reload before trying again.";
+        problem.hidden = false;
+        problem.focus();
+      } finally {
+        save.disabled = revision === null;
+      }
+    });
+    const details = h("details", { class: "oba-invitations" }, h("summary", {}, "My public credit"), status, problem, form);
+    let loaded = false;
+    details.addEventListener("toggle", () => { if (details.open && !loaded) { loaded = true; load(); } });
     return details;
   }
 

@@ -900,24 +900,29 @@ For new reflections, approvals cover the whole piece, so changes invalidate earl
 A rule change takes effect only after every active, bound participant agrees to that proposal;
 agreeing to a rule does not approve the piece.
 The fixed-number rule requires that many active authors' whole-piece approvals, including every
-writer and attributed author. The threshold does not decrease if someone leaves. Only current
-contributors can approve a piece; reader and coordinator-only participants vote on rule changes
-but cannot yet approve the piece.
+writer and attributed author. The threshold does not decrease if someone leaves. Under a
+participant approval rule, readers and coordinators can approve after the whole piece has
+been shared with them.
 Whole-piece approvals become stale when membership or access changes and cannot revive if access
 is restored. Existing non-quorum whole-piece approvals created before this change need review again;
 legacy section-only approval bindings are unchanged.
 
-This workflow is still incomplete: the approval confirmation describes the current contributor
-profile credit, but separate display-name-only and uncredited choices are not available.
-All-participant piece approval, multiple contribution authoring, and a shared-reflection publish control in Admin are
-also not yet available. See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
+Open **My public credit** to choose your contributor profile, a display name without a profile
+link, or uncredited work. Profile details are frozen when you choose them. Changing a choice
+invalidates earlier approvals. Once anyone chooses, everyone whose work appears must choose
+before the group can review and publish the complete piece. A reflection with no saved choices
+still uses the legacy contributor-profile publication path.
+
+This workflow is still incomplete: explicit choices are not required for new reflections,
+multiple contribution authoring and a shared-reflection publish control in Admin are not yet
+available. See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
 and [epic #592](https://github.com/journey-to-code-org/open.blog/issues/592) before relying on
 the workflow for publication.
 
 ### Inviting other writers
 
 Site owners and coordinators see an **Invitations** section on each shared reflection. Enter the
-sign-in name of an existing Admin account, choose the contributor profile they will appear as, pick
+sign-in name of an existing Admin account, choose their contributor profile, pick
 their roles, and choose how long the link lasts (1 to 30 days, 7 by default). Admin Studio shows a
 private link once. Copy it and pass it on yourself: open.blog never sends email or contacts
 anyone. The link works once, only for the account you named, and only after that person signs in
@@ -931,7 +936,7 @@ with `openblog user add`. The design is recorded in
 ### Managing members
 
 The same **Members and invitations** section lists everyone who can sign in to the reflection,
-with their sign-in account, the contributor profile they are credited as, and their roles written
+with their sign-in account, their bound contributor profile, and their roles written
 out. These are separate: *sign-in access* decides who can open the reflection and what they can
 do, while *credit* names who is shown for what they wrote. **Change roles** previews what is added
 and removed before it applies. **Remove access** asks first, and ends only sign-in access: the

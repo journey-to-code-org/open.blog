@@ -471,8 +471,8 @@ preview, approval and publication, so changing and reverting a choice does not r
 The preview shows the exact frozen credits only after the requester can read the entire piece.
 
 Reflections without any saved choices still use the legacy contributor-profile publication
-path. Admin does not yet provide choice controls or require explicit choices for new
-reflections; the remaining consent work is tracked in epic #592.
+path. Admin provides individual choice controls but does not yet require explicit choices for
+new reflections; the remaining consent work is tracked in epic #592.
 
 When an approver submits an approval, the server checks again that the current combined preview is
 complete for them. If sharing changed after the preview was opened, the earlier review token

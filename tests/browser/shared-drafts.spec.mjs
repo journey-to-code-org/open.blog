@@ -573,6 +573,43 @@ test("approval requires a complete preview and explicit credit consent; stale re
   await expect(page.getByText("Your approval was withdrawn.", { exact: false })).toBeVisible();
 });
 
+test("participants choose public credit and recover from a stale choice at phone width", async ({ page, context }) => {
+  await install(context);
+  let credit = null;
+  let revision = 0;
+  await context.route("**/admin/api/collaboration/credit-choice?**", (route) =>
+    json(route, 200, { revision, choice: credit }));
+  await context.route("**/admin/api/collaboration/credit-choice", (route) => {
+    const body = route.request().postDataJSON();
+    if (body.expectedRevision !== revision) return json(route, 409, { error: "Credit choices changed. Reload before saving; nothing was changed." });
+    credit = body.choice;
+    revision += 1;
+    return json(route, 200, { revision, choice: credit });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.locator("summary", { hasText: "My public credit" }).click();
+  await expect(page.getByText("You have not chosen your public credit.")).toBeVisible();
+  await page.getByLabel("My public credit").selectOption("displayName");
+  await page.getByLabel("Public display name").fill("A pen name");
+  await page.evaluate(axe.source);
+  const audit = await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(audit.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "Save my credit" }).click();
+  await expect(page.getByText("Your credit choice was saved. Review the combined piece again.")).toBeVisible();
+  expect(credit).toEqual({ kind: "displayName", name: "A pen name" });
+  revision += 1;
+  await page.getByLabel("My public credit").selectOption("uncredited");
+  await page.getByRole("button", { name: "Save my credit" }).click();
+  await expect(page.getByText("Credit choices changed. Reload before saving; nothing was changed.")).toBeFocused();
+  await page.getByRole("button", { name: "Reload my credit" }).click();
+  await expect(page.getByLabel("My public credit")).toHaveValue("displayName");
+  await expect(page.getByLabel("Public display name")).toHaveValue("A pen name");
+});
+
 test("preview loading preserves deliberate focus changes and restores focus after an error", async ({ page, context }) => {
   await install(context, { coordinator: true });
   store = { number: 1, markdown: "My draft." };
