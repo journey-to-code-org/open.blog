@@ -5,10 +5,8 @@ import { h } from "./dom.js";
 import { use } from "../zubra.js";
 import { sayWhen, splitInstant } from "./dates.js";
 import { localToInstant, eventText, REFRESH_CODES } from "./announcements-rules.js";
-import { accountLabel, captionWords, providerName, shareTrouble, historyLines, triedWords } from "./share-words.js";
+import { accountLabel, captionWords, checkQuestion, shareTrouble, historyLines, triedWords } from "./share-words.js";
 import { createSharePreview } from "./share-preview.js";
-
-const pageWord = (destination) => (destination?.kind === "page" || destination?.kind === "organization" ? "Page" : "account");
 
 /** What a refused change says, and whether the list must be read again. */
 function refusal(error) {
@@ -117,7 +115,6 @@ export async function openChange({ sheet, api, item, title, zone, opener, onDone
 /** Check it: she looks at the account and says whether it's there (G7: no post id needed). */
 export async function openCheck({ sheet, api, item, title, opener, onDone, onRefresh }) {
   await use("action-button", "segmented-control", "text-field");
-  const name = providerName(item.destination?.provider) || "The site";
   let outcome = "";
   let postId = "";
   const status = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
@@ -152,7 +149,7 @@ export async function openCheck({ sheet, api, item, title, opener, onDone, onRef
     heading: title,
     opener,
     children: [
-      h("p", { text: `${name} didn't say whether it posted. Look at your ${name} ${pageWord(item.destination)}, ${item.destination?.displayName || ""}. Is it there?` }),
+      h("p", { text: checkQuestion(item.destination) }),
       choice, status,
       h("div", { class: "studio-sheet-actions" }, save, h("action-button", { variant: "secondary", onClick: () => sheet.cancel() }, "Cancel")),
       h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up the site" }), id),

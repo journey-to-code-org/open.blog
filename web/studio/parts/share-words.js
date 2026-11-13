@@ -10,6 +10,16 @@ const KINDS = { member: "profile", page: "Page", account: "account", organizatio
 export const providerName = (provider) => PROVIDERS[provider] || String(provider || "");
 
 /** "Facebook, Ridgeline Roofing". */
+const placeWord = (d) => (d?.kind === "page" || d?.kind === "organization" ? "Page" : "account");
+
+/** Check it's question: where to look, naming the account only when it has a name. */
+export function checkQuestion(d) {
+  const name = providerName(d?.provider);
+  if (!name) return "Studio couldn't tell whether it posted. Look at the account it was going to. Is it there?";
+  const shown = typeof d?.displayName === "string" ? d.displayName.trim() : "";
+  return `${name} didn't say whether it posted. Look at your ${name} ${placeWord(d)}${shown ? `, ${shown}` : ""}. Is it there?`;
+}
+
 export const accountLabel = (d) => (d ? `${providerName(d.provider)}, ${d.displayName}` : "An account");
 
 /** The delivery state, the server's or worked out the old Admin's way. */
