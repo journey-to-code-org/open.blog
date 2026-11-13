@@ -888,6 +888,8 @@ latest draft. A coordinator can instead select named-recipient sharing, where an
 confirms which active participants receive a particular revision. Participants without draft
 access can open **Revisions shared with you** to read only the revisions named for them, together
 with source moments sealed to a current revision. Later edits remain private.
+If a writer becomes a reader, the author must explicitly share the revision with them again.
+Changes to access while choosing recipients require reloading before sharing.
 
 Authors can review the combined preview and explicitly approve it or withdraw an approval.
 For new reflections, approvals cover the whole piece, so changes invalidate earlier approvals.

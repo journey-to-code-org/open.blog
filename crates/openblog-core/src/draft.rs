@@ -169,6 +169,8 @@ struct NamedRelease {
     contribution_id: String,
     revision: u64,
     recipients: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    non_draft_recipients: Vec<String>,
     released_at: i64,
 }
 
@@ -490,8 +492,8 @@ impl DraftSet {
         })
     }
 
-    /// Read only a revision explicitly released to this recipient. The caller must supply
-    /// currently authorized recipients and active draft owners in `active`.
+    /// Read only a revision explicitly released to this recipient without draft access. The
+    /// caller must supply currently authorized recipients and active draft owners in `active`.
     pub fn view_named(
         &self,
         requester: &str,
@@ -512,7 +514,10 @@ impl DraftSet {
                 release
                     .contribution_id
                     .eq_ignore_ascii_case(contribution_id)
-                    && release.recipients.iter().any(|id| id == requester)
+                    && release
+                        .non_draft_recipients
+                        .iter()
+                        .any(|id| id == requester)
             })
             .map(|release| release.revision)
             .max()
@@ -706,6 +711,30 @@ impl DraftSet {
         active: &[&str],
         now: i64,
     ) -> Result<(), DraftError> {
+        self.release_named_with_readers(
+            requester,
+            contribution_id,
+            revision,
+            recipients,
+            active,
+            &[],
+            now,
+        )
+    }
+
+    /// Release to active participants, explicitly identifying those allowed to read without
+    /// draft access. The caller must authorize and classify each recipient.
+    #[allow(clippy::too_many_arguments)]
+    pub fn release_named_with_readers(
+        &mut self,
+        requester: &str,
+        contribution_id: &str,
+        revision: u64,
+        recipients: &[&str],
+        active: &[&str],
+        readers: &[&str],
+        now: i64,
+    ) -> Result<(), DraftError> {
         if self.policy != RevealPolicy::NamedRecipients {
             return Err(DraftError::Invalid);
         }
@@ -717,9 +746,12 @@ impl DraftSet {
             return Err(DraftError::Stale);
         }
         let unique: HashSet<_> = recipients.iter().copied().collect();
+        let unique_readers: HashSet<_> = readers.iter().copied().collect();
         if now < 0
             || recipients.is_empty()
             || unique.len() != recipients.len()
+            || unique_readers.len() != readers.len()
+            || readers.iter().any(|id| !unique.contains(id))
             || recipients
                 .iter()
                 .any(|id| *id == requester || !self.is_member(id) || !active.contains(id))
@@ -734,6 +766,7 @@ impl DraftSet {
             contribution_id: draft.id.clone(),
             revision,
             recipients: recipients.iter().map(|id| (*id).to_string()).collect(),
+            non_draft_recipients: readers.iter().map(|id| (*id).to_string()).collect(),
             released_at: now,
         });
         if next.to_json().len() > MAX_DRAFT_SET_BYTES {
@@ -972,6 +1005,7 @@ impl DraftSet {
         }
         for release in &self.named_releases {
             let recipients: HashSet<_> = release.recipients.iter().collect();
+            let readers: HashSet<_> = release.non_draft_recipients.iter().collect();
             let Some(draft) = self.draft(&release.contribution_id) else {
                 return false;
             };
@@ -980,6 +1014,8 @@ impl DraftSet {
                 || release.released_at < 0
                 || recipients.is_empty()
                 || recipients.len() != release.recipients.len()
+                || readers.len() != release.non_draft_recipients.len()
+                || !readers.is_subset(&recipients)
                 || recipients
                     .iter()
                     .any(|id| **id == draft.owner || !self.is_member(id))
@@ -1095,6 +1131,52 @@ mod tests {
             stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"bo\",\"bo\"]"),
             stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"unknown\"]"),
             stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"ada\"]"),
+        ] {
+            assert_eq!(DraftSet::from_json(&bad), Err(DraftError::Invalid));
+        }
+    }
+
+    #[test]
+    fn reader_access_requires_an_explicit_recipient_grant_after_legacy_release() {
+        let active = ["ada", "bo"];
+        let mut drafts = set(&active);
+        drafts.set_policy(RevealPolicy::NamedRecipients);
+        drafts.save("ada", "draft-ada", 0, "private", T).unwrap();
+        drafts
+            .release_named("ada", "draft-ada", 1, &["bo"], &active, T)
+            .unwrap();
+        let legacy = drafts.to_json();
+        assert!(!legacy.contains("nonDraftRecipients"));
+        let mut drafts = DraftSet::from_json(&legacy).unwrap();
+        assert_eq!(
+            drafts.view_named("bo", "draft-ada", &active),
+            Err(DraftError::Denied)
+        );
+        drafts
+            .release_named_with_readers("ada", "draft-ada", 1, &["bo"], &active, &["bo"], T + 1)
+            .unwrap();
+        let reloaded = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(
+            reloaded
+                .view_named("bo", "draft-ada", &active)
+                .unwrap()
+                .markdown,
+            "private"
+        );
+        assert_eq!(
+            reloaded.view_named("bo", "draft-ada", &["bo"]),
+            Err(DraftError::Denied)
+        );
+        let stored = reloaded.to_json();
+        for bad in [
+            stored.replace(
+                "\"nonDraftRecipients\":[\"bo\"]",
+                "\"nonDraftRecipients\":[\"ada\"]",
+            ),
+            stored.replace(
+                "\"nonDraftRecipients\":[\"bo\"]",
+                "\"nonDraftRecipients\":[\"bo\",\"bo\"]",
+            ),
         ] {
             assert_eq!(DraftSet::from_json(&bad), Err(DraftError::Invalid));
         }

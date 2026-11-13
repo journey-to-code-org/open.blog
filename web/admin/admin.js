@@ -19915,7 +19915,7 @@ export class ObAdmin extends AdminElement {
           const eligible = reveal.slots.filter((slot) => slot.mayReceive);
           const choices = eligible.map((slot, index) => {
             const box = h("input", { type: "checkbox", id: `${prefix}-recipient-${index}`, value: slot.participantId });
-            return { box, element: h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-recipient-${index}` }, slot.displayName)) };
+            return { box, element: h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-recipient-${index}` }, `${slot.displayName}${slot.nonDrafter ? " (can read without draft access)" : ""}`)) };
           });
           const release = h("button", { class: "oba-btn", type: "button" }, `Choose who receives revision ${saved.number}`);
           const holder = h("div", {});
@@ -19928,7 +19928,7 @@ export class ObAdmin extends AdminElement {
               problem.focus();
               return;
             }
-            const names = eligible.filter((slot) => recipients.includes(slot.participantId)).map((slot) => slot.displayName);
+            const names = eligible.filter((slot) => recipients.includes(slot.participantId)).map((slot) => `${slot.displayName}${slot.nonDrafter ? " (can read without draft access)" : ""}`);
             const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, `Share revision ${revision}`);
             const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
             const box = h(
@@ -19944,7 +19944,7 @@ export class ObAdmin extends AdminElement {
             no.addEventListener("click", close);
             box.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
             yes.addEventListener("click", () =>
-              runSharing("POST", "collaboration/reveal/named", { publicationId: id, revision, recipients }, (result) => `Revision ${revision} was shared with the selected people.${offeredMomentsText(result)}`),
+              runSharing("POST", "collaboration/reveal/named", { publicationId: id, revision, recipients, expectedAuthorizationRevision: reveal.authorizationRevision }, (result) => `Revision ${revision} was shared with the selected people.${offeredMomentsText(result)}`),
             );
           });
           parts.push(

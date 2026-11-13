@@ -24,6 +24,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Coordinators can choose named-recipient sharing. Authors confirm exactly which active participants
   receive their current revision; later edits stay private. Non-drafters can read explicitly shared
   draft revisions and associated sealed source moments, but cannot yet approve the combined piece.
+  A release to a writer does not grant reader access after a role change; the author must share
+  again. Older releases cannot read stored releases that grant non-draft access.
 - Approval rule changes now require each active, bound participant, including readers and
   coordinators, to agree to the exact proposed rule. Existing approvals remain in force until
   the group agrees, then are cleared.

@@ -27,7 +27,12 @@ each draft would allow.
   The author must retain draft access and the recipient must retain publication access to read a
   named release. Non-drafters see only explicitly named releases, never private offer state or
   mutual releases. They may also read publication moments sealed to a current revision they can
-  read; private, changed, or unsealed moments remain hidden. As with other
+  read; private, changed, or unsealed moments remain hidden. Releases identify the recipients
+  explicitly allowed to read without draft access. Earlier releases, and releases to someone
+  who held draft access at the time, do not gain that permission if they become a reader: the
+  author must release again after the role change. The release checks the authorization revision
+  read when choosing recipients. Older releases cannot read stored releases with the new
+  non-draft-recipient field. As with other
   committed reveals, a copy already read cannot be recalled, and restoring the same participant's
   access makes their previously named releases readable again. Proposed source moments may be
   sealed and shown with the released revision under ADR 0063. Changing policy does not undo a

@@ -307,9 +307,10 @@ test("a named release confirms the selected recipients and revision at 400px", a
   store = { number: 1, markdown: "Private words." };
   let released;
   await context.route("**/admin/api/collaboration/reveal?**", (route) => json(route, 200, {
-    policy: "namedRecipients", ready: false, canSetPolicy: false, slots: [
+    policy: "namedRecipients", ready: false, canSetPolicy: false, authorizationRevision: 7, slots: [
       { participantId: "p-me", displayName: "Writer", kind: "own", mayReceive: false, markdown: store.markdown },
       { participantId: "p-other", displayName: "Another writer", kind: "private", mayReceive: true },
+      { participantId: "p-reader", displayName: "Reader", kind: "private", mayReceive: true, nonDrafter: true },
       { participantId: "p-absent", displayName: "Former writer", kind: "private", mayReceive: false },
     ],
   }));
@@ -322,10 +323,12 @@ test("a named release confirms the selected recipients and revision at 400px", a
   await page.getByRole("button", { name: "Choose who receives revision 1" }).click();
   await expect(page.getByRole("alert").first()).toContainText("Choose at least one recipient.");
   await page.getByRole("checkbox", { name: "Another writer" }).check();
+  await page.getByRole("checkbox", { name: "Reader (can read without draft access)" }).check();
   await page.getByRole("button", { name: "Choose who receives revision 1" }).click();
   const confirmation = page.getByRole("group", { name: "Share revision 1?" });
   await expect(confirmation).toBeFocused();
   await expect(confirmation).toContainText("Another writer");
+  await expect(confirmation).toContainText("Reader (can read without draft access)");
   await expect(confirmation).not.toContainText("Former writer");
   await page.evaluate(axe.source);
   const result = await page.evaluate(() => window.axe.run(document, {
@@ -333,7 +336,7 @@ test("a named release confirms the selected recipients and revision at 400px", a
   }));
   expect(result.violations).toEqual([]);
   await confirmation.getByRole("button", { name: "Share revision 1" }).click();
-  await expect.poll(() => released).toEqual({ publicationId: PUBLICATION, revision: 1, recipients: ["p-other"] });
+  await expect.poll(() => released).toEqual({ publicationId: PUBLICATION, revision: 1, recipients: ["p-other", "p-reader"], expectedAuthorizationRevision: 7 });
   await expect(page.getByText("Revision 1 was shared with the selected people.")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });

@@ -14589,17 +14589,21 @@ fn read_moments(state: &AppState, req: &Request, session: &auth::Session) -> Res
     if own.is_none() {
         let recipient = recipient.expect("authorized recipient");
         let mut active = active_drafters(&transaction, record);
+        let is_drafter = active.contains(&recipient);
         active.push(recipient.clone());
         let active = active.iter().map(String::as_str).collect::<Vec<_>>();
         let mut shared = Vec::new();
         for owner in &authors {
-            let readable = drafts
-                .view_named(&recipient, owner, &active)
-                .ok()
-                .and_then(|view| {
-                    let latest = drafts.current_stamp(owner)?;
-                    (view.stamp.number == latest.number).then_some(latest.number)
-                });
+            let readable = (if is_drafter {
+                drafts.view(&recipient, owner, &active)
+            } else {
+                drafts.view_named(&recipient, owner, &active)
+            })
+            .ok()
+            .and_then(|view| {
+                let latest = drafts.current_stamp(owner)?;
+                (view.stamp.number == latest.number).then_some(latest.number)
+            });
             let moments = match stored.set.revealed_to_recipient(
                 &recipient,
                 &[recipient.as_str()],
@@ -14968,6 +14972,8 @@ struct NamedRevealRequest {
     publication_id: String,
     revision: u64,
     recipients: Vec<String>,
+    #[serde(default)]
+    expected_authorization_revision: Option<u64>,
 }
 
 /// Participants who currently hold the draft grant, decided by the single entry point for each
@@ -15098,6 +15104,7 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
                 "participantId": participant.id,
                 "displayName": participant.display_name,
                 "mayReceive": participant.id != *own && recipients.contains(&participant.id),
+                "nonDrafter": !active.contains(&participant.id.as_str()),
                 "kind": kind,
                 "ready": offered,
                 "stamp": view.map(|v| &v.stamp),
@@ -15122,7 +15129,7 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
     }
     Response::json(
         200,
-        &json!({ "policy": set.policy(), "ready": ready, "readyRevision": ready_revision, "slots": slots, "canSetPolicy": coordinator, "canDraft": own.is_some() }),
+        &json!({ "policy": set.policy(), "ready": ready, "readyRevision": ready_revision, "slots": slots, "canSetPolicy": coordinator, "canDraft": own.is_some(), "authorizationRevision": record.authorization.revision }),
     )
 }
 
@@ -15148,8 +15155,19 @@ fn release_named_draft(state: &AppState, req: &Request, session: &auth::Session)
     let active = policy_participants(&transaction, record);
     let active: Vec<_> = active.iter().map(String::as_str).collect();
     let recipients: Vec<_> = body.recipients.iter().map(String::as_str).collect();
+    let drafters = active_drafters(&transaction, record);
+    let readers = recipients
+        .iter()
+        .copied()
+        .filter(|id| active.contains(id) && !drafters.iter().any(|drafter| drafter == id))
+        .collect::<Vec<_>>();
+    if (!readers.is_empty() || body.expected_authorization_revision.is_some())
+        && body.expected_authorization_revision != Some(record.authorization.revision)
+    {
+        return Response::error(409, "Access changed since you chose recipients. Reload sharing and choose again; nothing was shared.");
+    }
     let now = clock::now().unix();
-    match set.release_named(&own, &own, body.revision, &recipients, &active, now) {
+    match set.release_named_with_readers(&own, &own, body.revision, &recipients, &active, &readers, now) {
         Ok(()) => {
             let response = store_drafts(state, &body.publication_id, &stored, &set, Json::Null);
             if response.status != 200 {
@@ -38779,6 +38797,19 @@ series: letters
                 })
             )
             .status,
+            409
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [reader],
+                    "expectedAuthorizationRevision": record.authorization.revision,
+                })
+            )
+            .status,
             200
         );
         let shared = body_json(&reveal_state(&f, &linus, &id)).to_string();
@@ -38821,6 +38852,7 @@ series: letters
                 "reveal/named",
                 json!({
                     "publicationId": id, "revision": 1, "recipients": [reader],
+                    "expectedAuthorizationRevision": record.authorization.revision,
                 })
             )
             .status,
@@ -38894,6 +38926,28 @@ series: letters
             .find(|binding| binding.admin_user == "grace")
             .unwrap()
             .participant_id;
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "allReady", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [grace_id],
+                })
+            )
+            .status,
+            200
+        );
         let revision = body_json(&members_of(&f, &mikey, &id))["revision"]
             .as_u64()
             .unwrap();
@@ -38905,6 +38959,35 @@ series: letters
         assert_eq!(reader["ready"], false);
         assert!(!reader.to_string().contains("MUTUAL-SECRET"));
         assert!(!reader.to_string().contains("GRACE-DRAFT"));
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [grace_id],
+                    "expectedAuthorizationRevision": revision,
+                })
+            )
+            .status,
+            409
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [grace_id],
+                    "expectedAuthorizationRevision": revision + 1,
+                })
+            )
+            .status,
+            200
+        );
+        assert!(body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("MUTUAL-SECRET"));
     }
 
     #[test]
