@@ -37,8 +37,12 @@ export async function createBusiness(context) {
   const barWords = h("span", { class: "studio-help" });
   const save = h("action-button", { onClick: () => saveNow() }, "Save");
   const details = h("details", { class: "studio-help" });
+  // A site that isn't a business yet (a recipe blog) is told what naming a trade does before it does it.
+  const notTrade = meta.siteUses?.trade !== true;
+  const forBusiness = notTrade ? h("alert-banner", { variant: "info", heading: "This is for a business site" },
+    "Your site isn't one yet. Naming a trade here adds Services, Reviews and Reminders to your menu. A blog doesn't need any of this.") : null;
   const element = h("section", { class: "studio-page studio-business", "aria-labelledby": "studio-business-h" },
-    heading, lede, banner, status,
+    heading, lede, forBusiness, banner, status,
     h("div", { class: "studio-comment-columns" },
       h("div", { class: "studio-comment-main" }, body),
       h("div", { class: "studio-comment-side" }, h("section", { class: "studio-section", "aria-labelledby": "studio-business-looks" },
@@ -177,6 +181,14 @@ export async function createBusiness(context) {
     const problems = M.validateForm(form);
     if (problems.length) { showProblems(problems); return false; }
     if (!dirty() && !force) { toast("Nothing's changed. Your site already has this."); return true; }
+    if (notTrade && form.trade && !reply.business?.trade && !force) {
+      const choice = await ask({
+        heading: "Make this a business site?",
+        text: "Naming a trade adds Services, Reviews and Reminders to your menu. You can take the trade off later.",
+        choices: [{ label: "Not now", value: "no" }, { label: "Make it a business site", value: "yes", variant: "secondary" }],
+      });
+      if (choice !== "yes") return false;
+    }
     busy = true;
     save.loading = true;
     const sent = JSON.stringify(form);

@@ -67,6 +67,18 @@ export async function createComments({ api, meta, go }, route) {
   }
 
   async function load() {
+    if (meta.engagement !== true) {
+      // Set up, but Admin has no working key for the comments service.
+      list.removeAttribute("aria-busy");
+      list.replaceChildren();
+      switchSection.hidden = true;
+      banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Comments aren't ready yet" },
+        "Your site is set up for comments, but Studio can't reach them. Tell the person who set up your site."));
+      details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+        h("p", { class: "studio-mono", text: "engagement.enabled is on with an endpoint, but no usable key is bound to it: set OPENBLOG_ENGAGEMENT_API_KEY and OPENBLOG_ENGAGEMENT_API_ORIGIN where Admin runs, or save a key in the old Admin." }),
+        h("p", {}, h("a", { href: "/admin/#/analytics", target: "_blank", rel: "noopener" }, "Comments setup in the old Admin")));
+      return;
+    }
     list.setAttribute("aria-busy", "true");
     loadSettings();
     try {
@@ -211,7 +223,8 @@ export async function createComments({ api, meta, go }, route) {
   }
 
   function button(item, b, headingId, line) {
-    const attrs = { variant: b.primary ? "primary" : "secondary", "aria-describedby": headingId, "data-action": b.action };
+    // The visible words first, then whose: "Show it: Aunt Sue's comment on Pecan pie".
+    const attrs = { variant: b.primary ? "primary" : "secondary", label: `${b.label}: ${cardLabel(item)}`, "data-action": b.action };
     if (!b.asks) return h("action-button", { ...attrs, onClick: (e) => startDecision(item, b, line, e.currentTarget) }, b.label);
     // Saying no asks why: one tap on a reason decides.
     const reasons = b.offer.reasons.map((r) => ({ value: r.id, label: reasonWords(r, { report: item.source === "report" }) }));

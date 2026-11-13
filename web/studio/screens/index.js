@@ -35,7 +35,7 @@ export const SCREENS = [
   { name: "collection", area: "collections", create: (context, route) => createPageEdit(context, KINDS.series, route.arg) },
   { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
   // Only when comments are on and the hosted key is in place where Admin runs.
-  { name: "comments", nav: "Comments", area: "comments", when: (meta) => meta.engagement === true, create: (context, route) => createComments(context, route) },
+  { name: "comments", nav: "Comments", area: "comments", when: (meta) => meta.engagement === true || meta.engagementSetUp === true, create: (context, route) => createComments(context, route) },
   // Only when greeting cards are set up where Admin runs (OPENBLOG_GREETINGS_*). #/cards/new and
   // #/cards/<id> are the editor.
   { name: "cards", nav: "Cards", area: "cards", when: (meta) => meta.greetings === true, create: (context, route) => (route.arg ? createCardEdit(context, route) : createCards(context)) },

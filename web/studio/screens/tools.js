@@ -13,6 +13,7 @@ export const TOOLS = [
   ] },
   { group: "Business", items: [
     ["Business facts", "Name, phone, hours and license, for a trade site", "#/business", "studio"],
+    ["Jobs", "Post a finished job with its photos", "#/capture"],
     ["Quote requests", "Requests from your quote form", "#/quotes", "studio"],
     ["Reminders", "What to write about, by season", "#/reminders", "studio"],
     ["Sharing", "Share a post to your accounts, and the accounts", "#/sharing", "studio"],
@@ -25,6 +26,7 @@ export const TOOLS = [
     ["Contributors", "Who wrote what", "#/contributors"],
     ["Voice", "Writing by talking", "#/voice"],
     ["Design a theme", "Make a new look by describing it", "#/design"],
+    ["The full post editor", "Its advanced panes: writing assistant, evidence, accessibility, release", "#/posts"],
   ] },
 ];
 
@@ -33,7 +35,7 @@ export async function createTools() {
   const heading = h("h2", { id: "studio-tools-h", class: "studio-question", tabindex: "-1", text: "More tools" });
   const element = h("section", { class: "studio-page", "aria-labelledby": "studio-tools-h" },
     heading,
-    h("p", { class: "studio-lede", text: "These are in the old Admin for now. Each opens in a new tab; you stay signed in." }),
+    h("p", { class: "studio-lede", text: "Most of these are in the old Admin and open in a new tab, where you stay signed in. The ones that are in Studio open here." }),
     ...TOOLS.map(({ group, items }) => h("section", { class: "studio-section", "aria-label": group },
       h("h3", { text: group }),
       h("ul", { class: "studio-tool-list" }, items.map(([name, what, hash, where]) => h("li", {},

@@ -69,7 +69,7 @@ export async function createQuotes({ api }) {
     const services = reply.services || [];
     pickers.replaceChildren(
       h("select-field", { label: "Which requests", options: LISTS.map((l) => ({ value: l.id, label: listLabel(l, all) })), value: list, onValuechange: (e) => { list = e.detail; draw(); } }),
-      services.length > 1 ? h("select-field", { label: "Service", options: [{ value: "", label: "All services" }, ...services.map((s) => ({ value: s, label: s }))], value: service, onValuechange: (e) => { service = e.detail; draw(); } }) : null);
+      ...(services.length > 1 ? [h("select-field", { label: "Service", options: [{ value: "", label: "All services" }, ...services.map((s) => ({ value: s, label: s }))], value: service, onValuechange: (e) => { service = e.detail; draw(); } })] : []));
     const shown = all.filter((r) => r.status === list && (!service || r.service === service))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     drawDetails();
@@ -118,8 +118,8 @@ export async function createQuotes({ api }) {
       r.status === "archived" && r.eraseAfter ? h("p", { class: "studio-help", text: eraseLine(r.eraseAfter) }) : null,
       h("div", { class: "studio-comment-actions" },
         call ? h("action-button", { href: call, variant: isNew ? "primary" : "secondary", label: `Call ${r.name} at ${r.phone}` }, `Call ${r.phone}`) : null,
-        r.email ? h("action-button", { variant: "secondary", href: `mailto:${r.email}` }, "Email") : null,
-        isNew ? h("action-button", { variant: "secondary", "aria-describedby": headingId, onClick: () => setStatus(r, "handled") }, "Mark handled") : null));
+        r.email ? h("action-button", { variant: "secondary", href: `mailto:${encodeURIComponent(r.email)}`, label: `Email ${r.name}` }, "Email") : null,
+        isNew ? h("action-button", { variant: "secondary", label: `Mark handled: ${r.name}'s request`, onClick: () => setStatus(r, "handled") }, "Mark handled") : null));
   }
 
   async function copy(text, said) {
@@ -131,6 +131,7 @@ export async function createQuotes({ api }) {
     }
   }
 
+  /** Returns whether it saved. */
   async function setStatus(r, to, { quiet = false } = {}) {
     const was = r.status;
     const index = requests().filter((x) => x.status === list).findIndex((x) => x.id === r.id);
@@ -140,11 +141,21 @@ export async function createQuotes({ api }) {
       draw();
       const words = statusWords(r, to, reply.retentionDays);
       status.textContent = words;
-      if (quiet) return;
+      if (quiet) return true;
       toast(words);
       const left = cards.querySelectorAll(".studio-comment-who");
-      (left[Math.min(index, left.length - 1)] || pickers.querySelector("select"))?.focus?.();
-      const button = h("action-button", { size: "sm", onClick: async () => { undoSlot.replaceChildren(); await setStatus(r, was, { quiet: true }); status.textContent = `Undone. ${r.name}'s request is back.`; } }, "Undo");
+      (left[Math.min(index, left.length - 1)] || heading).focus();
+      const button = h("action-button", { size: "sm", onClick: async () => {
+        if (button.loading) return;
+        button.loading = true;
+        if (await setStatus(r, was, { quiet: true })) {
+          undoSlot.replaceChildren();
+          status.textContent = `Undone. ${r.name}'s request is back.`;
+          requestAnimationFrame(() => (cards.querySelector(`[data-id="${r.id}"] .studio-comment-who`) || heading).focus());
+        } else {
+          button.loading = false;
+        }
+      } }, "Undo");
       const alert = h("alert-banner", { variant: "info", dismissible: true, heading: words }, button);
       undoSlot.replaceChildren(alert);
       undo = r.id;
@@ -152,10 +163,12 @@ export async function createQuotes({ api }) {
       if (error.status === 401) throw error;
       status.textContent = "That didn't save. Try again.";
       drawDetails(null, error);
+      return false;
     }
+    return true;
   }
 
-  async function erase(r) {
+  async function erase(r, again = false) {
     let preview;
     try {
       preview = await api.post("quote/erase/preview", { ids: [r.id] });
@@ -181,6 +194,7 @@ export async function createQuotes({ api }) {
       heading.focus();
     } catch (error) {
       if (error.status === 401) throw error;
+      if (error.status === 409 && error.data?.code === "preview-required" && !again) return erase(r, true);
       if (error.status === 409) { await load(); status.textContent = "Something changed while you looked. Here's the list now; nothing was erased."; return; }
       status.textContent = quoteTrouble(error);
     }

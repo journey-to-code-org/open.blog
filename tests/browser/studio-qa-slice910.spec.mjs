@@ -144,10 +144,7 @@ test("Escape on 'Pick up where you left off?' keeps the draft on the device", as
   await page.goto(`${grammi.origin}/admin/studio/#/cards/new`);
   await expect(page.getByRole("button", { name: "Pick up" })).toBeVisible();
   await page.keyboard.press("Escape"); // she closes the question without answering
-  await page.goto(`${grammi.origin}/admin/studio/#/`);
-  await page.goto(`${grammi.origin}/admin/studio/#/cards/new`);
-  await expect(page.getByRole("button", { name: "Pick up" })).toBeVisible({ timeout: 5000 });
-  await page.getByRole("button", { name: "Pick up" }).click();
+  // Closing it keeps the words: they're picked up, not thrown away.
   await expect(page.getByRole("textbox", { name: "Your message" })).toHaveValue("Words I must not lose");
 });
 
@@ -262,8 +259,11 @@ test("a failed Business save is said where she pressed Save, not only in a banne
 test("Saving business facts that name a trade on a fresh site shows Services and Reviews at once", async ({ page }) => {
   await signIn(page, grammi.origin, "#/business");
   await expect(page.getByRole("heading", { name: "What should customers know about you?" })).toBeVisible();
+  await expect(page.getByText("This is for a business site")).toBeVisible();
   await page.getByRole("combobox", { name: "Your trade" }).selectOption({ index: 1 });
   await page.locator(".studio-write-bar").getByRole("button", { name: "Save" }).click();
+  // A recipe blog is asked before it becomes a business site.
+  await page.getByRole("button", { name: "Make it a business site" }).click();
   await expect(page.getByText("Everything's saved.")).toBeVisible();
   // Spec: "Mikey starts a trade site by naming the trade in Business facts ..., and the three appear at once."
   await expect(page.getByRole("link", { name: "Services", exact: true }).first()).toBeVisible({ timeout: 5000 });

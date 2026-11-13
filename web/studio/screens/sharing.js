@@ -85,13 +85,13 @@ export async function createSharing({ api, go }) {
     const buttons = [];
     if (state === "failed") {
       buttons.push(needsReconnect(item.lastErrorCode)
-        ? h("action-button", { href: "/admin/#/social", target: "_blank", "aria-describedby": headingId }, "Reconnect")
-        : h("action-button", { "aria-describedby": headingId, onClick: (e) => retry(item, e.currentTarget) }, "Try again"));
+        ? h("action-button", { href: "/admin/#/social", target: "_blank", label: `Reconnect: ${title}` }, "Reconnect")
+        : h("action-button", { label: `Try again: ${title}`, onClick: (e) => retry(item, e.currentTarget) }, "Try again"));
     }
-    if (state === "unknown") buttons.push(h("action-button", { href: "/admin/#/announcements", target: "_blank", "aria-describedby": headingId }, "Check it"));
+    if (state === "unknown") buttons.push(h("action-button", { href: "/admin/#/announcements", target: "_blank", label: `Check it: ${title}` }, "Check it"));
     if (state === "pending" || state === "retrying") {
-      buttons.push(h("action-button", { variant: "secondary", href: "/admin/#/announcements", target: "_blank", "aria-describedby": headingId }, "Change"));
-      buttons.push(h("action-button", { variant: "secondary", "aria-describedby": headingId, onClick: () => cancel(item, title) }, "Don't share it"));
+      buttons.push(h("action-button", { variant: "secondary", href: "/admin/#/announcements", target: "_blank", label: `Change: ${title}` }, "Change"));
+      buttons.push(h("action-button", { variant: "secondary", label: `Don't share it: ${title}`, onClick: () => cancel(item, title) }, "Don't share it"));
     }
     return h("li", { class: "studio-comment", "data-id": item.id },
       h("div", { class: "studio-comment-head" },

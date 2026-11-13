@@ -114,13 +114,13 @@ export async function createCards({ api, go }) {
       card.subject ? h("p", { class: "studio-help", text: `“${card.subject}”` }) : null);
     const buttons = [];
     if (card.status === "failed") {
-      buttons.push(h("action-button", { href: `#/cards/${card.id}`, "aria-describedby": headingId }, "Open and try again"));
-      buttons.push(h("action-button", { variant: "secondary", "aria-describedby": headingId, onClick: () => stop(card) }, "Don't send it"));
+      buttons.push(h("action-button", { href: `#/cards/${card.id}`, label: `Open and try again: ${title}` }, "Open and try again"));
+      buttons.push(h("action-button", { variant: "secondary", label: `Don't send it: ${title}`, onClick: () => stop(card) }, "Don't send it"));
     } else if (card.status === "scheduled") {
-      buttons.push(h("action-button", { variant: "secondary", href: `#/cards/${card.id}`, "aria-describedby": headingId }, "Change"));
-      buttons.push(h("action-button", { variant: "secondary", "aria-describedby": headingId, onClick: () => stop(card) }, card.yearly ? "Stop sending it" : "Don't send it"));
+      buttons.push(h("action-button", { variant: "secondary", href: `#/cards/${card.id}`, label: `Change: ${title}` }, "Change"));
+      buttons.push(h("action-button", { variant: "secondary", label: `${card.yearly ? "Stop sending it" : "Don't send it"}: ${title}`, onClick: () => stop(card) }, card.yearly ? "Stop sending it" : "Don't send it"));
     } else if (card.status === "sent") {
-      buttons.push(h("action-button", { variant: "ghost", "aria-describedby": headingId, onClick: () => sendAgain(card) }, "Send it again"));
+      buttons.push(h("action-button", { variant: "ghost", label: `Send it again: ${title}`, onClick: () => sendAgain(card) }, "Send it again"));
     }
     if (buttons.length) row.append(h("div", { class: "studio-comment-actions" }, ...buttons));
     row.append(h("details", { class: "studio-help studio-comment-details" }, h("summary", { text: "For the person who set up your site" }),

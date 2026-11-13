@@ -21,6 +21,8 @@ export async function createShareNew({ api, go }, route) {
   let keys = {}; // account id → idempotency key, made once
   let shared = new Set(); // accounts already taken this time
   let touched = false;
+  let sendAt = null; // the time fixed at the first press, so a retry sends the same request
+  const maybe = new Set(); // accounts that may have it (no clear answer): never sent again
 
   const heading = h("h2", { id: "studio-share-new-h", class: "studio-question", tabindex: "-1", text: "Share a post" });
   const status = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
@@ -32,7 +34,7 @@ export async function createShareNew({ api, go }, route) {
   let post, caption, count, whenPick, day, time, button;
   const toggles = new Map();
 
-  const chosen = () => destinations.filter((d) => toggles.get(d.id)?.checked && !shared.has(d.id));
+  const chosen = () => destinations.filter((d) => toggles.get(d.id)?.checked && !shared.has(d.id) && !maybe.has(d.id));
 
   function recount() {
     const words = captionWords(caption.value, chosen().map((d) => d.provider));
@@ -76,14 +78,14 @@ export async function createShareNew({ api, go }, route) {
         requestAnimationFrame(() => { t.checked = !remembered || remembered.includes(d.id); recount(); });
         return t;
       }));
-    caption = h("text-field", { label: "What to say", rows: 4, value: wanted.title, onValuechange: () => { touched = true; recount(); } });
+    caption = h("text-field", { label: "What to say", rows: 4, value: wanted.title, onValuechange: () => { touched = true; caption.error = ""; recount(); } });
     count = h("p", { class: "studio-help", "aria-live": "polite" });
     caption.setAttribute("aria-describedby", "studio-share-count");
     count.id = "studio-share-count";
     whenPick = h("select-field", { label: "When", options: [{ value: "soon", label: "In a few minutes" }, { value: "pick", label: "Pick a day and time" }], value: "soon",
-      onValuechange: () => { picked.hidden = whenPick.value !== "pick"; } });
-    day = h("date-field", { label: "Day" });
-    time = h("text-field", { label: "Time", type: "time", value: "09:00" });
+      onValuechange: () => { picked.hidden = whenPick.value !== "pick"; sendAt = null; } });
+    day = h("date-field", { label: "Day", onValuechange: () => { sendAt = null; } });
+    time = h("text-field", { label: "Time", type: "time", value: "09:00", onValuechange: () => { sendAt = null; } });
     const picked = h("div", { class: "studio-business-times", hidden: true }, day, time);
     button = h("action-button", { size: "lg", onClick: () => send() }, "Share it");
     body.replaceChildren(post, accounts, caption, count, whenPick, picked,
@@ -98,7 +100,8 @@ export async function createShareNew({ api, go }, route) {
   }
 
   function when() {
-    if (whenPick.value !== "pick") return { ok: true, iso: `${new Date(Date.now() + SOON_MS).toISOString().slice(0, 16)}:00Z`, words: "in about 5 minutes" };
+    // At least 5 minutes from now, on the next whole minute.
+    if (whenPick.value !== "pick") return { ok: true, iso: `${new Date(Math.ceil((Date.now() + SOON_MS) / 60000) * 60000).toISOString().slice(0, 16)}:00Z`, words: "in about 5 minutes" };
     if (!day.value) return { ok: false, message: "Pick a day." };
     const converted = M.localToInstant(`${day.value}T${time.value || "09:00"}`, zone);
     if (!converted?.ok) return { ok: false, message: "Pick a day and time that's still to come." };
@@ -112,11 +115,14 @@ export async function createShareNew({ api, go }, route) {
     if (!caption.value.trim()) { caption.error = "Write something to go with the link."; return; }
     if (words.over) { caption.error = `${words.text}. Shorten it a little.`; caption.querySelector("textarea")?.focus(); return; }
     caption.error = "";
-    const at = when();
-    if (!at.ok) { status.textContent = at.message; return; }
+    const at = sendAt || when();
+    if (!at.ok) { status.textContent = at.message; day.querySelector("input")?.focus(); return; }
+    sendAt = at;
     button.loading = true;
     const done = [];
     const failed = [];
+    const unsure = [];
+    let field = null;
     for (const d of to) {
       keys[d.id] ||= M.newKey();
       try {
@@ -126,17 +132,31 @@ export async function createShareNew({ api, go }, route) {
       } catch (error) {
         if (error.status === 401) { button.loading = false; throw error; }
         const code = error.data?.code || "";
+        // No clear answer (it may have been stored), or the key already holds a share: never send again.
+        if (!error.status || error.status >= 502 || code === "idempotency-conflict") {
+          maybe.add(d.id);
+          unsure.push(providerName(d.provider));
+          continue;
+        }
+        if (/^caption-/.test(code)) field ||= "caption";
+        else if (/^time-/.test(code)) field ||= "time";
+        // Refused, so nothing was kept: the next press may change the words or time.
+        sendAt = null;
         failed.push(`${providerName(d.provider)} didn't take it${/^caption-/.test(code) ? ": the words don't fit there" : /^time-/.test(code) ? ": that time doesn't work" : ""}.`);
       }
     }
     button.loading = false;
-    if (!failed.length) {
+    if (!failed.length && !unsure.length) {
       touched = false;
       toast(sentWords(done, at.words));
       go("#/sharing");
       return;
     }
-    status.textContent = `${done.length ? `Shared to ${done.join(" and ")}. ` : ""}${failed.join(" ")} Change it and press Share it again; the ones that went won't go twice.`;
+    const may = unsure.length ? ` Studio didn't hear back from ${unsure.join(" and ")}; it may have it. Look under Sharing in a minute before sharing there again.` : "";
+    status.textContent = `${done.length ? `Shared to ${done.join(" and ")}. ` : ""}${failed.join(" ")}${failed.length ? " Change it and press Share it again; the ones that went won't go twice." : ""}${may}`;
+    if (field === "caption") { caption.error = "This doesn't fit on every account you chose. Shorten it a little."; caption.querySelector("textarea")?.focus(); }
+    else if (field === "time") { status.textContent += " Pick another time."; (day.querySelector("input") || whenPick).focus?.(); }
+    if (!failed.length) { touched = false; }
     recount();
   }
 

@@ -4262,6 +4262,8 @@ fn meta(state: &AppState) -> Response {
             "gifts": gifts::is_configured(),
             // Comments are moderated in Studio once they are on and the hosted key is in place.
             "engagement": engagement_ready,
+            // Set up, working or not: Studio shows Comments, and says when it isn't ready.
+            "engagementSetUp": config.engagement.enabled && !config.engagement.endpoint.is_empty(),
             // Where visitor numbers come from, as the old Admin's Analytics chooses: the hosted
             // counter, the built-in one, or none.
             "visitors": if engagement_ready && config.engagement.analytics {

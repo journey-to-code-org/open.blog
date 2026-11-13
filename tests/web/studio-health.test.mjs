@@ -17,3 +17,10 @@ test("a failed update, waiting changes and a forgetful server are each said once
   assert.doesNotMatch(found.map((n) => n.words).join(" "), /theme|json|commit|push|git/i);
   assert.equal(needs({}, { ...site, ahead: 2 })[0].words, "Some saved changes aren't on your public site yet.");
 });
+
+test("when nothing could be read, Home never says all is well", () => {
+  const found = needs(null, null);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].id, "unknown");
+  assert.match(found[0].words, /couldn't check/);
+});

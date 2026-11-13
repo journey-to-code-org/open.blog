@@ -93,6 +93,7 @@ export async function startShell(root, api, meta) {
     { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
     { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
     { id: "site", label: "View my site", group: "Do" },
+    { id: "rebuild-all", label: "Rebuild the site now", group: "Do" },
     { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin" },
     { id: "signout", label: "Sign out", group: "Do" },
   ];
@@ -134,6 +135,12 @@ export async function startShell(root, api, meta) {
     if (id === "site") account("site");
     else if (id === "signout") signOut();
     else if (id === "undo") context.undo?.restore();
+    else if (id === "rebuild-all") {
+      api.post("rebuild", {}).then(
+        () => toast("Your site is up to date."),
+        (error) => toast(`Your site couldn't be updated. Your work is saved. (${error.status || "no connection"}: ${error.message || ""})`, { variant: "warning", duration: 0 }),
+      );
+    }
     else router.current()?.command?.(id);
   }
 

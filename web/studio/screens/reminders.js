@@ -68,11 +68,11 @@ export async function createReminders({ api, go }) {
       body.replaceChildren(h("empty-state", { heading: "Nothing for now" }, "Nothing to write about for the next month. Studio will tell you when something comes up."));
       return;
     }
-    body.replaceChildren(
+    body.replaceChildren(...[
       due.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-due-h" }, h("h3", { id: "studio-due-h", text: "Time to write" }),
         h("ul", { class: "studio-comment-list" }, ...due.map((r, i) => card(r, i === 0)))) : null,
       later.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-later-h" }, h("h3", { id: "studio-later-h", text: "Coming up" }),
-        h("ul", { class: "studio-comment-list" }, ...later.map((r) => card(r, false)))) : null);
+        h("ul", { class: "studio-comment-list" }, ...later.map((r) => card(r, false)))) : null].filter(Boolean));
   }
 
   function when(r) {
@@ -95,8 +95,8 @@ export async function createReminders({ api, go }) {
     }, h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: ` for ${r.topic}` })));
     const actions = r.status === "opened"
       ? [r.document ? h("action-button", { href: postHref(r.document) }, "Open it") : null]
-      : [h("action-button", { variant: r.status === "due" ? "primary" : "secondary", "aria-describedby": headingId, onClick: (e) => start(r, e.currentTarget) }, r.status === "due" ? "Start a draft" : "Start early"),
-        r.status === "due" ? h("action-button", { variant: "secondary", "aria-describedby": headingId, onClick: () => snooze(r, 7) }, "Not now") : null];
+      : [h("action-button", { variant: r.status === "due" ? "primary" : "secondary", label: `${r.status === "due" ? "Start a draft" : "Start early"}: ${r.topic}`, onClick: (e) => start(r, e.currentTarget) }, r.status === "due" ? "Start a draft" : "Start early"),
+        r.status === "due" ? h("action-button", { variant: "secondary", label: `Not now: ${r.topic}`, onClick: () => snooze(r, 7) }, "Not now") : null];
     return h("li", { class: "studio-comment", "data-key": r.key },
       h("div", { class: "studio-comment-head" },
         h("h4", { id: headingId, class: "studio-comment-who", tabindex: "-1", text: r.topic }),

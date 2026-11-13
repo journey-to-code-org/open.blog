@@ -9,6 +9,8 @@ import { sayWhen } from "./dates.js";
 /** What needs attention, from `GET status` and `GET publish`, in her words. Pure; exported for tests. */
 export function needs(status, publish) {
   const out = [];
+  // Never an all-clear Studio couldn't check.
+  if (!status && !publish) return [{ id: "unknown", words: "Studio couldn't check whether everything's on your site. Your work is saved; try again in a minute.", action: "Check again" }];
   if (status?.lastError) out.push({ id: "build", words: "Your site couldn't be updated last time. Your work is saved.", action: "Try again" });
   const waiting = (publish?.changed || []).length;
   if (publish?.repo && publish.remote && !publish.auto && (waiting || publish.ahead > 0)) {
@@ -22,6 +24,7 @@ export function siteHealth({ api, meta }) {
   const element = h("section", { class: "studio-section studio-health", "aria-labelledby": "studio-health-h" });
   let status = null;
   let publish = null;
+  let lastProblem = ""; // the server's words from the last failed rebuild or send, for details
 
   function draw() {
     const list = needs(status, publish);
@@ -30,6 +33,8 @@ export function siteHealth({ api, meta }) {
       h("dl", { class: "studio-details" },
         ...row("Last updated", status?.lastBuilt ? `${sayWhen(status.lastBuilt)} (${status.lastBuilt})` : "Not since this server started"),
         ...(status?.lastError ? row("Last problem", status.lastError) : []),
+        ...(lastProblem ? row("Studio was told", lastProblem) : []),
+        ...(!status ? row("Status", "Couldn't be read") : []),
         ...row("Next scheduled post", status?.nextDue || "None"),
         ...(publish?.repo ? [
           ...row("Branch", `${publish.branch || "?"} → ${publish.remote || "no remote"}`),
@@ -54,13 +59,16 @@ export function siteHealth({ api, meta }) {
 
   async function act(id) {
     if (id === "build") return rebuild();
+    if (id === "unknown") return load();
     if (id === "send") {
       try {
         const reply = await api.post("publish", { summary: "Send out what's waiting" });
         const said = wentOutWords({ sent: reply.pushed ? "pushed" : "failed", message: reply.message || "" }, { meta, action: "saved" });
         toast(reply.pushed ? "Done. Your readers will see the changes in a few minutes." : said.words, { variant: reply.pushed ? "success" : "warning", duration: reply.pushed ? undefined : 0 });
-      } catch {
-        toast("They didn't go out. Your work is saved; try again in a minute.", { variant: "warning", duration: 0 });
+        lastProblem = reply.pushed ? "" : String(reply.message || "");
+      } catch (error) {
+        lastProblem = `${error.status || "no connection"}: ${error.message || ""}`;
+        toast("They didn't go out. Your work is saved; try again in a minute. The details are under Your site.", { variant: "warning", duration: 0 });
       }
       await load();
     }
@@ -69,9 +77,11 @@ export function siteHealth({ api, meta }) {
   async function rebuild() {
     try {
       await api.post("rebuild", {});
+      lastProblem = "";
       toast("Your site is up to date.");
-    } catch {
-      toast("Your site couldn't be updated. Your work is saved. Let the person who set up your site know.", { variant: "warning", duration: 0 });
+    } catch (error) {
+      lastProblem = `${error.status || "no connection"}: ${error.message || ""}`;
+      toast("Your site couldn't be updated. Your work is saved. Let the person who set up your site know; the details are under Your site.", { variant: "warning", duration: 0 });
     }
     await load();
   }
@@ -82,5 +92,5 @@ export function siteHealth({ api, meta }) {
     draw();
   }
 
-  return { element, load, needs: () => needs(status, publish) };
+  return { element, load, rebuild, needs: () => needs(status, publish) };
 }
