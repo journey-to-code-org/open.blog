@@ -4,6 +4,22 @@
 // list for More (her items first) and Find (all of them, with their keys).
 import { h } from "./dom.js";
 
+/** How the engine names a series from what a post says (`series: Thanksgiving` is `thanksgiving`). */
+export const seriesSlug = (value) => String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+/**
+ * The Collection choices for one post: None, every collection, and the post's own value kept as
+ * written (matched by its slug, or listed as one with no page of its own yet). Pure; for tests.
+ */
+export function collectionOptions(series, current) {
+  const options = [{ value: "", label: "None" }, ...series.map((s) => ({ value: s.slug, label: s.title || s.name || s.slug }))];
+  const raw = String(current || "").trim();
+  if (!raw) return { options, value: "" };
+  const match = options.find((o) => o.value && o.value === seriesSlug(raw));
+  if (match) { match.value = raw; return { options, value: raw }; }
+  return { options: [...options, { value: raw, label: `${raw} (no page of its own yet)` }], value: raw };
+}
+
 export const crumbs = (name) => [{ label: "Home", href: "#/" }, { label: "Posts", href: "#/posts" }, { label: name, href: "" }];
 
 export function writePage({ meta, body, on }) {
@@ -17,6 +33,8 @@ export function writePage({ meta, body, on }) {
     time: h("text-field", { label: "Time (your time)", type: "time" }),
     tags: h("tag-input", { label: "Tags", max: 20, suggestions: meta.tags || [] }),
     cover: h("div"),
+    // A post can belong to one collection (a series). Its choices come fresh when Write opens.
+    collection: h("select-field", { label: "Collection", description: "Put it with others, like all your Thanksgiving recipes.", options: [{ value: "", label: "None" }], value: "", hidden: true }),
     saveLabel: h("span", { text: "Save draft" }),
     primaryLabel: h("span", { text: "Publish" }),
     details: h("side-sheet", { label: "About this post", side: "right" }),
@@ -37,6 +55,7 @@ export function writePage({ meta, body, on }) {
           h("p", { class: "studio-help", text: "Leave it empty to use the day you publish." })),
         h("div", { class: "studio-tags" }, h("p", { class: "studio-label", "aria-hidden": "true", text: "Tags" }), parts.tags,
           h("p", { class: "studio-help", text: "Type a tag and press Enter." })),
+        parts.collection,
         parts.cover)),
     h("div", { class: "studio-write-bar" }, parts.look, parts.save, parts.primary),
     parts.details);

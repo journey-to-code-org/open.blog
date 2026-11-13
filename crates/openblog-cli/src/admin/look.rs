@@ -120,7 +120,7 @@ pub(super) fn save_look(state: &AppState, req: &Request) -> Response {
         Ok(bytes) => bytes,
         Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
     };
-    let mut config: Json = match serde_json::from_slice(&current) {
+    let config: Json = match serde_json::from_slice(&current) {
         Ok(Json::Object(object)) => Json::Object(object),
         _ => return Response::error(500, "openblog.json must contain a valid JSON object"),
     };
@@ -140,18 +140,24 @@ pub(super) fn save_look(state: &AppState, req: &Request) -> Response {
         }
     }
     let value = next.to_value();
-    match &value {
-        Json::Object(object) if object.is_empty() => {
-            if let Some(map) = config.as_object_mut() {
-                map.remove("appearance");
-            }
-        }
-        _ => config["appearance"] = value,
-    }
-    let candidate = match serde_json::to_string_pretty(&config) {
-        Ok(json) => format!("{json}\n"),
-        Err(error) => {
-            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
+    // Only the `appearance` member changes, in the file's own layout (config_text), and an
+    // unchanged look writes nothing.
+    let Ok(current_text) = String::from_utf8(current.clone()) else {
+        return Response::error(500, "openblog.json must be UTF-8 text");
+    };
+    let empty = matches!(&value, Json::Object(object) if object.is_empty());
+    let candidate = if config.get("appearance").cloned().unwrap_or(Json::Null) == value
+        || (empty && config.get("appearance").is_none())
+    {
+        current_text.clone()
+    } else {
+        match crate::config_text::set_member(
+            &current_text,
+            "appearance",
+            (!empty).then_some(&value),
+        ) {
+            Ok(text) => text,
+            Err(error) => return Response::error(500, &error),
         }
     };
     // The whole file must still load, and the accent must be usable on the site's theme.

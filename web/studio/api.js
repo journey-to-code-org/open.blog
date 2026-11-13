@@ -27,7 +27,7 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
     /** Set by the shell: resolves once the person has signed in again, or rejects if they gave up. */
     onSignedOut: null,
 
-    async call(method, path, { json, body, headers = {}, retry = true } = {}) {
+    async call(method, path, { json, body, headers = {}, retry = true, busyTries = 0 } = {}) {
       const init = { method, credentials: "same-origin", headers: { ...headers } };
       if (method !== "GET" && method !== "HEAD") init.headers["X-CSRF-Token"] = api.csrf;
       if (json !== undefined) {
@@ -44,6 +44,13 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
       }
       const data = await response.json().catch(() => null);
       if (response.ok) return data;
+      // A read that found the site busy (another request holds its lock for a moment), or any
+      // request refused as `busy` (the lock was taken before anything happened), changes nothing,
+      // so it's asked again shortly, a few times, before saying so.
+      if (response.status === 409 && (method === "GET" || data?.code === "busy") && (busyTries ?? 0) < 4) {
+        await new Promise((resolve) => setTimeout(resolve, 120 * ((busyTries ?? 0) + 1)));
+        return api.call(method, path, { json, body, headers, retry, busyTries: (busyTries ?? 0) + 1 });
+      }
       if (response.status === 401 && retry && path !== "login" && api.onSignedOut) {
         await api.onSignedOut(data?.error);
         return api.call(method, path, { json, body, headers, retry: false });
@@ -55,6 +62,7 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
     get: (path) => api.call("GET", path),
     post: (path, json) => api.call("POST", path, { json }),
     put: (path, json) => api.call("PUT", path, { json }),
+    patch: (path, json) => api.call("PATCH", path, { json }),
 
     async signIn(username, password) {
       const reply = await api.call("POST", "login", { json: { username, password }, retry: false });
