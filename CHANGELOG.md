@@ -25,6 +25,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Shared publication outcomes retain a private receipt for the approved section revisions and
   the exact published Post and credit sidecar, without storing draft prose in the receipt.
 - The Admin publishing setup status has stronger text contrast on the workspace bar.
+- Cloud practice lab: a `demo cloud-lab lesson="..."` fence embeds a guided practice lab with a pretend laptop and EC2 instance. Readers type real commands (`curl`, `ssh`, `systemctl`, `nslookup`) against a simulated world, work through goals that accept any command that does the job (hint after two misses, an example after four), and see each request pass or fail rung by rung (name, door, process, padlock, app). Four lessons ship: `localhost`, `ec2-first-run`, `systemd` and `ladder`. Nothing is executed, stored or sent; the authored fallback is what feeds and readers without JavaScript see.
+
 - Example site: three new posts teach the newest features from the inside: **Publishing an audio episode** (a real, six-second episode with chapters, a transcript and `/podcast.xml`), **Where your readers came from** (the "Where it went" report and visit attribution) and **Documentation beside your blog** (the documentation section, with a small example handbook in `content/docs/` and a Docs link in the header). Getting started now points to the example site's posts.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
   chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
