@@ -105,6 +105,8 @@ test("Mikey finds a post with the keyboard", async ({ page }) => {
   const search = page.getByPlaceholder("Find a post or something to do…");
   await expect(search).toBeFocused();
   await search.fill("Pumpkin");
+  // The palette lists posts once they've loaded; Enter picks the first match.
+  await expect(page.getByRole("option", { name: /Pumpkin bread/ }).first()).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/#\/write\/.*pumpkin-bread/);
   await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("Pumpkin bread");

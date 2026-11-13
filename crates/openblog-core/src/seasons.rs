@@ -42,11 +42,24 @@ impl Window {
     }
 }
 
+/// A look put up now, ahead of (or instead of) the calendar, through a last day (Studio's "Put it
+/// up now"). It wins over every window while the day is on or before `until`, then expires by
+/// itself, so the yearly windows never move. Stored as `upNow: { "theme": …, "until": "YYYY-MM-DD" }`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpNow {
+    pub theme: String,
+    /// The last day it's up, as written.
+    pub until: String,
+    /// That day as whole days since 1970-01-01 (UTC), counted like the calendar's days.
+    pub until_day: i64,
+}
+
 /// The site's seasons.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SeasonsConfig {
     pub enabled: bool,
     pub windows: Vec<Window>,
+    pub up_now: Option<UpNow>,
 }
 
 /// The month and day of a moment, in UTC (as scheduling reads dates).
@@ -81,7 +94,18 @@ fn valid_theme_name(name: &str) -> bool {
 impl SeasonsConfig {
     /// True when nothing is stated, so the key is left out of the written file.
     pub fn is_default(&self) -> bool {
-        !self.enabled && self.windows.is_empty()
+        !self.enabled && self.windows.is_empty() && self.up_now.is_none()
+    }
+
+    /// The theme the site wears at `now`: a look put up now while it lasts, else the calendar's.
+    /// `None` means the site's own `theme`.
+    pub fn theme_at(&self, now: DateTime) -> Option<&str> {
+        if let Some(up) = &self.up_now {
+            if now.unix().div_euclid(86_400) <= up.until_day {
+                return Some(up.theme.as_str());
+            }
+        }
+        self.theme_on(month_day(now))
     }
 
     /// The theme the site wears on `day`, or `None` when seasons are off or no window holds it
@@ -99,14 +123,18 @@ impl SeasonsConfig {
     /// The start (UTC midnight) of the next day whose theme differs from today's, so a long-running
     /// server knows when to rebuild. `None` when seasons are off or nothing changes within a year.
     pub fn next_change(&self, now: DateTime) -> Option<DateTime> {
-        if !self.enabled || self.windows.is_empty() {
+        let up = self
+            .up_now
+            .as_ref()
+            .is_some_and(|up| now.unix().div_euclid(86_400) <= up.until_day);
+        if !up && (!self.enabled || self.windows.is_empty()) {
             return None;
         }
         let today = now.unix().div_euclid(86_400);
-        let wearing = self.theme_on(month_day(now));
+        let wearing = self.theme_at(now);
         (1..=366).find_map(|ahead| {
             let midnight = DateTime::from_unix((today + ahead) * 86_400);
-            (self.theme_on(month_day(midnight)) != wearing).then_some(midnight)
+            (self.theme_at(midnight) != wearing).then_some(midnight)
         })
     }
 
@@ -116,6 +144,11 @@ impl SeasonsConfig {
         for window in &self.windows {
             if !names.contains(&window.theme.as_str()) {
                 names.push(&window.theme);
+            }
+        }
+        if let Some(up) = &self.up_now {
+            if !names.contains(&up.theme.as_str()) {
+                names.push(&up.theme);
             }
         }
         names
@@ -146,9 +179,9 @@ impl SeasonsConfig {
             Some(_) => errors.push(format!("seasons: version must be {SEASONS_VERSION}")),
         }
         for key in object.keys() {
-            if !matches!(key.as_str(), "version" | "enabled" | "windows") {
+            if !matches!(key.as_str(), "version" | "enabled" | "windows" | "upNow") {
                 errors.push(format!(
-                    "seasons: `{key}` is not a setting this release knows; use `enabled` and `windows`"
+                    "seasons: `{key}` is not a setting this release knows; use `enabled`, `windows` and `upNow`"
                 ));
             }
         }
@@ -182,11 +215,59 @@ impl SeasonsConfig {
                 kind(other)
             )),
         }
+        let up_now = match object.get("upNow") {
+            None | Some(Value::Null) => None,
+            Some(value) => match parse_up_now(value) {
+                Ok(up) => Some(up),
+                Err(mut problems) => {
+                    errors.append(&mut problems);
+                    None
+                }
+            },
+        };
         if errors.is_empty() {
-            Ok(SeasonsConfig { enabled, windows })
+            Ok(SeasonsConfig {
+                enabled,
+                windows,
+                up_now,
+            })
         } else {
             Err(errors)
         }
+    }
+
+    /// The stored form as pretty JSON, keys in their documented order (`version`, `enabled`,
+    /// `windows` with `theme`, `start`, `end`, then `upNow`), so a saved file reads the way it was
+    /// written instead of in a map's sorted order.
+    pub fn to_pretty(&self) -> String {
+        let quote = |text: &str| Value::String(text.to_string()).to_string();
+        let mut out = format!(
+            "{{\n  \"version\": {SEASONS_VERSION},\n  \"enabled\": {},\n  \"windows\": [",
+            self.enabled
+        );
+        for (index, w) in self.windows.iter().enumerate() {
+            out.push_str(if index == 0 { "\n" } else { ",\n" });
+            out.push_str(&format!(
+                "    {{\n      \"theme\": {},\n      \"start\": {},\n      \"end\": {}\n    }}",
+                quote(&w.theme),
+                quote(&w.start.text()),
+                quote(&w.end.text())
+            ));
+        }
+        out.push_str(if self.windows.is_empty() {
+            "]"
+        } else {
+            "\n  ]"
+        });
+        if let Some(up) = &self.up_now {
+            out.push_str(&format!(
+                ",\n  \"upNow\": {{\n    \"theme\": {},\n    \"until\": {}\n  }}",
+                quote(&up.theme),
+                quote(&up.until)
+            ));
+        }
+        out.push_str("\n}");
+        out
     }
 
     /// The stored form: only what is stated, in a fixed order.
@@ -203,7 +284,63 @@ impl SeasonsConfig {
                     .collect(),
             ),
         );
+        if let Some(up) = &self.up_now {
+            object.insert(
+                "upNow".into(),
+                json!({ "theme": up.theme, "until": up.until }),
+            );
+        }
         Value::Object(object)
+    }
+}
+
+fn parse_up_now(value: &Value) -> Result<UpNow, Vec<String>> {
+    let Value::Object(object) = value else {
+        return Err(vec![format!(
+            "seasons: upNow must be an object, not {}",
+            kind(value)
+        )]);
+    };
+    let mut errors = Vec::new();
+    for key in object.keys() {
+        if !matches!(key.as_str(), "theme" | "until") {
+            errors.push(format!(
+                "seasons upNow: `{key}` is not a field this release knows; use `theme` and `until`"
+            ));
+        }
+    }
+    let theme = match object.get("theme") {
+        Some(Value::String(name)) if valid_theme_name(name.trim()) => name.trim().to_string(),
+        _ => {
+            errors.push("seasons upNow: name the theme it puts up".to_string());
+            String::new()
+        }
+    };
+    let until = object
+        .get("until")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let until_day = (until.len() == 10)
+        .then(|| DateTime::parse(&format!("{until}T00:00:00Z")))
+        .flatten()
+        .filter(|at| at.civil().day == until[8..].parse::<u32>().unwrap_or(0))
+        .map(|at| at.unix().div_euclid(86_400));
+    let Some(until_day) = until_day else {
+        errors.push(format!(
+            "seasons upNow: until `{until}` is not a day; write it as YYYY-MM-DD, like 2027-01-06"
+        ));
+        return Err(errors);
+    };
+    if errors.is_empty() {
+        Ok(UpNow {
+            theme,
+            until,
+            until_day,
+        })
+    } else {
+        Err(errors)
     }
 }
 

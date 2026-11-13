@@ -526,7 +526,7 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name.starts_with("theme-draft") {
             return Ok(theme_draft::MAX_REQUEST_BYTES);
         }
-        if name == "seasons" {
+        if name == "seasons" || name == "seasons/preview" {
             return Ok(seasons::MAX_REQUEST_BYTES);
         }
         if name == "business" {
@@ -817,6 +817,7 @@ fn authenticated_api(
         ("POST", "theme-draft/save") => theme_draft::save(state, req),
         ("GET", "seasons") => seasons::get_seasons(state),
         ("PUT", "seasons") => seasons::save_seasons(state, req),
+        ("POST", "seasons/preview") => seasons::preview_look(state, req),
         ("GET", "business") => business::get_business(state),
         ("PUT", "business") => business::save_business(state, req),
         ("GET", "seasonal") => seasonal::get_seasonal(state),
@@ -19099,6 +19100,7 @@ mod tests {
     mod reading_path_routes;
     mod safety_audit;
     mod seasonal_routes;
+    mod seasons_routes;
     mod service_routes;
     mod social_routes;
     mod studio_routes;

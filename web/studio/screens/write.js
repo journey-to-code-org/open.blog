@@ -8,16 +8,13 @@ import { ask } from "../parts/dialogs.js";
 import { coverPicker } from "../parts/cover-picker.js";
 import { createKept } from "../parts/kept.js";
 import { joinInstant, splitInstant } from "../parts/dates.js";
-import { fieldsToSend, formFromDocument, onlyChanges, postState, primaryAction, statusLine } from "../parts/post-fields.js";
+import { formFromDocument, postState, primaryAction, statusLine } from "../parts/post-fields.js";
+import { afterSave, fieldsForSave, layoutOf, nothingToSave, sendPost } from "../parts/post-session.js";
 import { howItGoesOut, sendOut, siteLink, wentOutWords } from "../parts/publish.js";
 import { keptBanner, mineAside, postDetails } from "../parts/post-details.js";
-import { choosePicture } from "../parts/picture-picker.js";
-import { photoStrip, withoutPhoto } from "../parts/photo-strip.js";
-import { imageMarkdown, insertParagraph } from "../parts/image-markdown.js";
-import { parseRecipeBody } from "../parts/recipe-body.js";
 import { isRecipe } from "../parts/recipe-fields.js";
-import { recipeEditor } from "../parts/recipe-editor.js";
 import { recipeNumbers } from "../parts/recipe-numbers.js";
+import { createBodyHost } from "../parts/body-host.js";
 import { adviceFor } from "../parts/recipe-advice.js";
 import { showPreview } from "../parts/preview.js";
 import { takeOffQuestion } from "../parts/take-off.js";
@@ -46,9 +43,7 @@ export async function createWrite(context, arg) {
   let lastPublish = null;
   let lastLayout = null;
   let goesOut = null;
-  let recipe = null; // the recipe boxes, when this recipe's body fits them
   let numbers = null; // Serves and the times, for a recipe
-  let plainWhy = ""; // why a recipe is open as one box
 
   // ---- the page
   const crumbs = (name) => [{ label: "Home", href: "#/" }, { label: "Posts", href: "#/posts" }, { label: name, href: "" }];
@@ -56,10 +51,7 @@ export async function createWrite(context, arg) {
   const status = h("p", { class: "studio-status", role: "status" });
   const banner = h("div", { class: "studio-banner", "aria-live": "polite" });
   const title = h("text-field", { label: "Title", class: "studio-writing studio-writing-title", maxlength: 200 });
-  const words = h("text-field", { label: "Words", class: "studio-writing", rows: 18, description: "Leave an empty line between paragraphs. For a list, start each line with a dash (-)." });
-  const wordsStrip = photoStrip({ onRemove: (photo) => { words.value = withoutPhoto(String(words.value || ""), photo.line); changed(); } });
-  const wordsPhoto = h("action-button", { variant: "secondary", class: "studio-put-photo", onClick: (e) => putPhoto("words", e.currentTarget) }, "Put a photo in");
-  const bodyHost = h("div", { class: "studio-body" });
+  const body = await createBodyHost({ api, maxBytes: meta.capture?.maxPhotoBytes || 0, onChange: () => changed() });
   const numbersHost = h("div");
   const day = h("date-field", { label: "Date" });
   const time = h("text-field", { label: "Time (your time)", type: "time" });
@@ -77,7 +69,7 @@ export async function createWrite(context, arg) {
     h("h2", { id: "studio-write-h", class: "studio-visually-hidden", tabindex: "-1", text: "Write" }),
     status, banner,
     h("div", { class: "studio-write-grid" },
-      h("div", { class: "studio-write-main" }, title, numbersHost, bodyHost),
+      h("div", { class: "studio-write-main" }, title, numbersHost, body.element),
       h("div", { class: "studio-write-side" },
         h("fieldset", { class: "studio-when" }, h("legend", { text: "When it appears" }),
           h("cluster-layout", { gap: "0.75rem" }, day, time),
@@ -89,7 +81,7 @@ export async function createWrite(context, arg) {
     details);
 
   // ---- reading the form
-  const bodyText = () => (recipe ? recipe.body() : String(words.value || ""));
+  const bodyText = () => body.text();
   const read = () => ({
     ...form,
     title: String(title.value || ""),
@@ -104,18 +96,7 @@ export async function createWrite(context, arg) {
   const link = () => siteLink(meta, doc.url, { local: !goesOut || goesOut.kind === "none" });
   const isRecipePost = () => isRecipe(doc.fields);
 
-  /** What a save sends: the received fields, Studio's own keys, and the recipe's numbers. */
-  function fieldsFor(values, intent) {
-    const fields = fieldsToSend(doc.fields, { ...values, cover: form.cover, coverAlt: form.coverAlt }, intent, { now: now() });
-    for (const [key, value] of Object.entries(values.extra || {})) {
-      const had = doc.fields[key];
-      const shown = Array.isArray(had) ? had.join(", ") : had == null ? "" : String(had);
-      if (value === shown) continue; // unchanged: the file keeps its own form (a list stays a list)
-      if (value) fields[key] = value;
-      else if (key in doc.fields) fields[key] = null;
-    }
-    return fields;
-  }
+  const fieldsFor = (values, intent) => fieldsForSave(doc.fields, form, values, intent, { now: now() });
 
   function paint() {
     const current = read();
@@ -147,34 +128,13 @@ export async function createWrite(context, arg) {
       { id: "about", label: "More about this recipe", when: isRecipePost() },
       { id: "view", label: "See it on your site", when: Boolean(doc.url) && isPublished() },
       { id: "delete", label: doc.path ? "Delete this post" : "Throw this away" },
-      { id: "plain", label: "Write it all in one box", when: isRecipePost() && Boolean(recipe) },
-      { id: "boxes", label: "Use the recipe boxes", when: isRecipePost() && !recipe },
+      { id: "plain", label: "Write it all in one box", when: isRecipePost() && body.usesBoxes() },
+      { id: "boxes", label: "Use the recipe boxes", when: isRecipePost() && !body.usesBoxes() },
       { id: "details", label: "Show details" },
       { id: "old", label: "Open in the old Admin", when: Boolean(doc.path) },
     ].filter((command) => command.when !== false);
   }
   const menuItems = () => commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label }));
-
-  // ---- the body: recipe boxes when a recipe fits them, else one box
-  async function setBody(text, { boxes = isRecipePost() } = {}) {
-    recipe = null;
-    plainWhy = "";
-    if (boxes) {
-      const parsed = parseRecipeBody(text);
-      if (parsed.ok) {
-        recipe = await recipeEditor(parsed, { onChange: changed, onPutPhoto: putPhoto });
-        bodyHost.replaceChildren(recipe.element);
-        return;
-      }
-      plainWhy = parsed.line ? `${parsed.reason} (line ${parsed.line})` : parsed.reason;
-    }
-    words.value = text;
-    bodyHost.replaceChildren(
-      plainWhy ? h("alert-banner", { variant: "info", heading: "This recipe is open in one box" }, "So nothing in it gets moved around. ",
-        h("details", {}, h("summary", { text: "Why?" }), h("p", { text: plainWhy }))) : null,
-      words, wordsStrip.element, wordsPhoto);
-    wordsStrip.update(text);
-  }
 
   async function fill(values) {
     title.value = values.title;
@@ -183,7 +143,7 @@ export async function createWrite(context, arg) {
     time.value = parts.time;
     tags.value = [...values.tags];
     if (numbers && values.extra) numbers.set(values.extra);
-    await setBody(values.body);
+    await body.set(values.body, { boxes: isRecipePost() });
   }
 
   function settle() {
@@ -195,24 +155,6 @@ export async function createWrite(context, arg) {
   async function buildCover() {
     const picker = await coverPicker({ api, cover: form.cover, coverAlt: form.coverAlt, maxBytes: meta.capture?.maxPhotoBytes || 0, onChange: (v) => { form.cover = v.cover; form.coverAlt = v.coverAlt; changed(); } });
     cover.replaceChildren(picker.element);
-  }
-
-  // ---- photos in her words
-  async function putPhoto(target, opener) {
-    const box = target === "words" ? words : recipe?.box(target);
-    const area = box?.querySelector("textarea");
-    const cursor = area ? area.selectionEnd ?? area.value.length : 0;
-    const picked = await choosePicture(api, { maxBytes: meta.capture?.maxPhotoBytes || 0 });
-    if (!picked) { opener?.focus(); return; }
-    const current = target === "words" ? String(words.value || "") : recipe.get(target);
-    const placed = insertParagraph(current, cursor, imageMarkdown(picked.url, picked.description));
-    if (target === "words") { words.value = placed.text; changed(); } else recipe.set(target, placed.text);
-    toast(`Photo put in your ${target === "notes" ? "notes" : target === "story" ? "story" : "post"}.`);
-    requestAnimationFrame(() => {
-      const again = box.querySelector("textarea");
-      again?.focus();
-      again?.setSelectionRange(placed.cursor, placed.cursor);
-    });
   }
 
   // ---- See how it looks
@@ -235,14 +177,12 @@ export async function createWrite(context, arg) {
 
   function goTo(target) {
     if (target.field && ["servings", "prep", "cook", "course", "cuisine", "series"].includes(target.field)) numbers?.focus(target.field);
-    else if (recipe) recipe.focus(target);
-    else words.querySelector("textarea")?.focus();
+    else body.focus(target);
   }
 
   // ---- changes and saving
   // Dirty means different from what was last saved or opened, not "a field was touched".
   function changed() {
-    if (!recipe) wordsStrip.update(String(words.value || ""));
     dirty = snapshot() !== baseline;
     notSaved = "";
     clearTimeout(timer);
@@ -268,7 +208,7 @@ export async function createWrite(context, arg) {
     timer = 0;
     if (saving) await saving.catch(() => {});
     // Nothing changed: nothing to send. Publishing a draft, or unscheduling, is still a change.
-    if (!force && !dirty && doc.path && !(intent === "publish" && doc.state === "draft") && !(intent === "draft" && doc.state === "scheduled")) {
+    if (nothingToSave({ dirty, path: doc.path, state: doc.state, intent, force })) {
       pending = false;
       paint();
       if (!quiet) toast(doc.state === "published" ? "Nothing's changed. Your site already has this." : "Everything's already saved.");
@@ -288,22 +228,15 @@ export async function createWrite(context, arg) {
     const wasLive = doc.state === "published";
     if (!quiet) button.loading = true;
     saving = (async () => {
-      const reply = doc.path
-        ? await api.call("PUT", `document?path=${encodeURIComponent(doc.path)}`, { json: { fields: onlyChanges(doc.fields, fields), body: values.body, etag: doc.etag, frontMatter: "keep" } })
-        : await api.call("POST", "document", { json: { kind: "posts", fields, body: values.body } });
+      const reply = await sendPost(api, doc, fields, values.body);
       if (!doc.path) {
         context.replaceRoute(`#/write/${encodeURIComponent(reply.path)}`);
         kept.clear(keptKey);
       }
-      doc.path = reply.path;
-      doc.etag = reply.etag;
-      doc.fields = { ...fields };
-      for (const key of Object.keys(doc.fields)) if (doc.fields[key] === null) delete doc.fields[key];
-      doc.url = reply.url || doc.url;
-      doc.state = reply.status === "scheduled" ? "scheduled" : reply.status === "published" ? "published" : "draft";
+      Object.assign(doc, afterSave(doc, reply, fields));
       form = { ...values, cover: form.cover, coverAlt: form.coverAlt, date: fields.date || "" };
       savedAt = now();
-      lastLayout = reply.layout ? { kept: reply.layout === "kept", reason: reply.layoutReason || "" } : null;
+      lastLayout = layoutOf(reply);
       kept.clear(doc.path);
       context.posts?.stale();
       return reply;
@@ -436,13 +369,8 @@ export async function createWrite(context, arg) {
     if (value === "about") numbers?.openAbout();
     if (value === "takeoff" && doc.state === "published") takeOff();
     if (value === "delete") remove();
-    if (value === "plain" && recipe) { await setBody(recipe.body(), { boxes: false }); paint(); words.querySelector("textarea")?.focus(); }
-    if (value === "boxes") {
-      const parsed = parseRecipeBody(String(words.value || ""));
-      if (!parsed.ok) { toast(`This recipe can't use the boxes: ${parsed.reason}${parsed.line ? ` (line ${parsed.line})` : ""}.`, { variant: "warning" }); return; }
-      await setBody(String(words.value || ""), { boxes: true });
-      paint();
-    }
+    if (value === "plain") { await body.toPlain(); paint(); }
+    if (value === "boxes") { await body.toBoxes(); paint(); }
   }
 
   function showDetails() {
@@ -450,7 +378,7 @@ export async function createWrite(context, arg) {
     details.replaceChildren(
       h("span", { slot: "heading", text: "About this post" }),
       postDetails({ path: doc.path, link: doc.url ? link() : "", words: values.body.trim() ? values.body.trim().split(/\s+/).length : 0, savedAt, layout: lastLayout, publish: lastPublish, goesOut }),
-      ...(plainWhy ? [h("p", { class: "studio-help", text: `Recipe boxes: not used, because ${plainWhy}.` })] : []));
+      ...(body.plainWhy() ? [h("p", { class: "studio-help", text: `Recipe boxes: not used, because ${body.plainWhy()}.` })] : []));
     details.open = true;
   }
 
@@ -563,7 +491,7 @@ export async function createWrite(context, arg) {
         drop: () => { kept.clear(keptKey); banner.replaceChildren(); },
       }));
     }
-    for (const field of [title, words, time, day, tags]) field.addEventListener("valuechange", changed);
+    for (const field of [title, time, day, tags]) field.addEventListener("valuechange", changed);
     title.addEventListener("focusout", () => {
       titleLeft = true;
       if (doc.state === "new" && dirty && ready() && !timer) changed();

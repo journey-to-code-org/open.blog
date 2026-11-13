@@ -19,6 +19,18 @@ struct Member {
 /// Set (`Some`) or remove (`None`) the top-level `key` of a JSON object text. Everything else,
 /// including key order, spacing and line endings, is kept byte for byte.
 pub fn set_member(text: &str, key: &str, value: Option<&Value>) -> Result<String, String> {
+    let pretty = match value {
+        Some(value) => {
+            Some(serde_json::to_string_pretty(value).map_err(|error| error.to_string())?)
+        }
+        None => None,
+    };
+    set_member_pretty(text, key, pretty.as_deref())
+}
+
+/// `set_member` with the value already written as pretty JSON (two-space indent, `\n` lines),
+/// for a member whose keys must keep a documented order, which a `serde_json` map can't.
+pub fn set_member_pretty(text: &str, key: &str, value: Option<&str>) -> Result<String, String> {
     let bytes = text.as_bytes();
     let (members, open, close) = scan(bytes)?;
     let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
@@ -28,7 +40,7 @@ pub fn set_member(text: &str, key: &str, value: Option<&Value>) -> Result<String
         (Some(index), Some(value)) => {
             let member = &members[index];
             let indent = line_indent(text, member.start);
-            let rendered = render(value, &indent, newline)?;
+            let rendered = render(value, &indent, newline);
             Ok(format!(
                 "{}{}{}",
                 &text[..member.value_start],
@@ -56,7 +68,7 @@ pub fn set_member(text: &str, key: &str, value: Option<&Value>) -> Result<String
                 .last()
                 .map(|m| line_indent(text, m.start))
                 .unwrap_or_else(|| "  ".to_string());
-            let rendered = render(value, &indent, newline)?;
+            let rendered = render(value, &indent, newline);
             let quoted = serde_json::to_string(key).map_err(|error| error.to_string())?;
             let member = format!("{quoted}: {rendered}");
             match members.last() {
@@ -76,16 +88,22 @@ pub fn set_member(text: &str, key: &str, value: Option<&Value>) -> Result<String
 }
 
 /// The value as pretty JSON whose continuation lines sit under `indent`.
-fn render(value: &Value, indent: &str, newline: &str) -> Result<String, String> {
-    let pretty = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
+/// The value's continuation lines sit under `indent`, and each nesting level uses the file's own
+/// step (`indent` itself, for a top-level member: two spaces, four spaces or a tab), so a member
+/// written into a four-space file reads like the rest of it.
+fn render(pretty: &str, indent: &str, newline: &str) -> String {
+    let step = if indent.is_empty() { "  " } else { indent };
     let mut lines = pretty.lines();
     let mut out = lines.next().unwrap_or("").to_string();
     for line in lines {
+        let body = line.trim_start_matches(' ');
+        let depth = (line.len() - body.len()) / 2;
         out.push_str(newline);
         out.push_str(indent);
-        out.push_str(line);
+        out.push_str(&step.repeat(depth));
+        out.push_str(body);
     }
-    Ok(out)
+    out
 }
 
 /// The whitespace that starts the line holding `offset`, when only whitespace precedes it there.
