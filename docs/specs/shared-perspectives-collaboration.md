@@ -496,8 +496,8 @@ The coverage check reads private drafts and its result must not be exposed befor
 approval. These are core foundations only and are not yet used by Admin preview or publication.
 An opt-in complete review path refuses a token unless every current contribution is visible,
 the arrangement covers every part, and the public credit choices are complete. It uses the same
-credit-bound subject as multi-contribution assembly. It currently refuses review when moments
-are proposed, until exact multi-contribution moment sealing is defined.
+credit-bound subject as multi-contribution assembly. Both review and assembly currently refuse
+proposed moments until exact multi-contribution moment sealing is defined.
 The Admin route, reveal, preview and publication paths still support one draft per participant;
 the core ordering operation is not exposed until those paths can safely handle every contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.

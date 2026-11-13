@@ -851,7 +851,9 @@ fn assemble_inner(
             missing: display_names(record, awaited.iter().map(String::as_str)),
         });
     }
-    if !moments.unresolved(&record.sources).is_empty() {
+    if (all_contributions && !moments.publication_moments().is_empty())
+        || !moments.unresolved(&record.sources).is_empty()
+    {
         return Err(AssemblyError::UnresolvedMoment);
     }
     let projected = choices

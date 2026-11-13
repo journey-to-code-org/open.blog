@@ -467,6 +467,79 @@ fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
         ),
         Err(PreviewError::Incomplete)
     ));
+    let mut with_moment = MomentSet::new();
+    with_moment
+        .add(
+            "ann",
+            &active,
+            0,
+            &record.sources,
+            openblog_core::media_moment::MomentInput {
+                source: record.sources[0].id.clone(),
+                locators: vec![openblog_core::research_notes::Locator {
+                    kind: openblog_core::research_notes::LocatorKind::Timestamp,
+                    value: "30".into(),
+                    to: None,
+                    extra: Default::default(),
+                }],
+                quotation: None,
+                observation: Some("A proposed moment".into()),
+                intent: openblog_core::media_moment::MomentIntent::Publication,
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        build_all_contributions_with_credit_choices(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &with_moment,
+            &approvals,
+            "ann",
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        ),
+        Err(PreviewError::Incomplete)
+    ));
+    let mut moment_approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    for who in active {
+        with_credit_subject_for_all_contributions(
+            &record,
+            Some(&arrangement),
+            &set,
+            &synthesis,
+            &with_moment,
+            &active,
+            &active,
+            &choices,
+            |subject| {
+                let seen = moment_approvals.binding_for(subject, who).unwrap();
+                moment_approvals.approve(who, who, subject, &seen, true, T)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    }
+    assert!(matches!(
+        assemble_all_contributions_with_credits(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &with_moment,
+            &moment_approvals,
+            &active,
+            &active,
+            DATE,
+            &choices,
+        ),
+        Err(AssemblyError::UnresolvedMoment)
+    ));
     set.save("ann", "second", 1, "Changed", T + 1).unwrap();
     assert!(matches!(
         build_all_contributions_with_credit_choices(
