@@ -489,6 +489,8 @@ Older releases cannot read multi-contribution offers or exchanges; the Admin rou
 create them.
 An opt-in arrangement reader resolves distinct contribution IDs against authorized ownership
 metadata, checks stored ownership, and applies draft or named-reader visibility to each turn.
+Ownership metadata can be derived transiently from the private draft set, without copying private
+prose or persisting a second ownership source. Its caller must authorize disclosure of every ID.
 A separate opt-in coverage check rejects arrangements that omit a live part or reference a
 different owner, duplicate ownership metadata, or nonexistent parts. An opt-in assembly path
 checks those constraints after credit-bound approvals and publishes every arranged part in order.

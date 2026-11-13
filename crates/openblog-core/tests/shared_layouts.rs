@@ -143,6 +143,66 @@ fn in_order(haystack: &str, needles: &[&str]) -> bool {
 const READING: [&str; 4] = ["ANN-ONE", "BO-ONE", "ANN-TWO", "BO-TWO"];
 
 #[test]
+fn private_drafts_supply_transient_prose_free_ownership_metadata() {
+    use openblog_core::collaboration::Contribution;
+    use openblog_core::draft::DraftError;
+
+    let mut record = record();
+    let mut set = DraftSet::new(&ALL).unwrap();
+    set.save("ann", "first", 0, "private Ann text", T).unwrap();
+    set.save("ann", "second", 0, "private Ann again", T)
+        .unwrap();
+    set.save("bo", "third", 0, "private Bo text", T).unwrap();
+    let derived = set
+        .contract_for_contributions(&record.collaboration, &["ann", "bo"])
+        .unwrap();
+    assert!(record.collaboration.contributions.is_empty());
+    assert_eq!(
+        derived
+            .contributions
+            .iter()
+            .map(|contribution| (
+                contribution.id.as_str(),
+                contribution.participant_id.as_str(),
+                contribution.markdown.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("first", "ann", ""),
+            ("second", "ann", ""),
+            ("third", "bo", "")
+        ]
+    );
+    assert!(ReflectionStructure::from_all_contributions(&derived, &set, &["ann", "bo"]).is_ok());
+    assert_eq!(
+        set.contract_for_contributions(&record.collaboration, &["ann", "ann"]),
+        Err(DraftError::Invalid)
+    );
+    assert_eq!(
+        set.contract_for_contributions(&record.collaboration, &["nobody"]),
+        Err(DraftError::Invalid)
+    );
+    record.collaboration.contributions.push(Contribution {
+        id: "first".into(),
+        participant_id: "bo".into(),
+        markdown: String::new(),
+    });
+    assert_eq!(
+        set.contract_for_contributions(&record.collaboration, &["ann", "bo"]),
+        Err(DraftError::Invalid)
+    );
+    record.collaboration.contributions[0].participant_id = "ann".into();
+    record
+        .collaboration
+        .contributions
+        .push(record.collaboration.contributions[0].clone());
+    assert_eq!(
+        set.contract_for_contributions(&record.collaboration, &["ann", "bo"]),
+        Err(DraftError::Invalid)
+    );
+}
+
+#[test]
 fn multi_contribution_arrangement_shows_only_released_drafts() {
     use openblog_core::collaboration::Contribution;
     use openblog_core::draft::{DraftError, RevealPolicy};

@@ -24,7 +24,10 @@ use std::fmt;
 use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
 
-use crate::collaboration::{valid_id, MAX_CONTRIBUTIONS, MAX_MARKDOWN_BYTES, MAX_PARTICIPANTS};
+use crate::collaboration::{
+    valid_id, CollaborationContract, Contribution, MAX_CONTRIBUTIONS, MAX_MARKDOWN_BYTES,
+    MAX_PARTICIPANTS,
+};
 use crate::date::DateTime;
 
 pub const DRAFT_SET_VERSION: u8 = 1;
@@ -570,6 +573,54 @@ impl DraftSet {
                 }
             })
             .collect())
+    }
+
+    /// Derive transient, prose-free ownership metadata from this private set. Callers must
+    /// authorize access to every returned contribution ID and must not persist the derived
+    /// contract as a substitute for the private draft store.
+    pub fn contract_for_contributions(
+        &self,
+        contract: &CollaborationContract,
+        active: &[&str],
+    ) -> Result<CollaborationContract, DraftError> {
+        let mut active_ids = HashSet::new();
+        if active.iter().any(|id| {
+            !active_ids.insert(id.to_ascii_lowercase())
+                || !self.is_member(id)
+                || !contract
+                    .participants
+                    .iter()
+                    .any(|participant| participant.id == *id)
+        }) {
+            return Err(DraftError::Invalid);
+        }
+        let mut contributions = Vec::new();
+        for participant in &contract.participants {
+            if !active.contains(&participant.id.as_str()) {
+                continue;
+            }
+            for stamp in self.stamps_for_owner(&participant.id) {
+                let mut existing = contract
+                    .contributions
+                    .iter()
+                    .filter(|item| item.id.eq_ignore_ascii_case(&stamp.contribution_id));
+                if existing
+                    .next()
+                    .is_some_and(|item| item.participant_id != participant.id)
+                    || existing.next().is_some()
+                {
+                    return Err(DraftError::Invalid);
+                }
+                contributions.push(Contribution {
+                    id: stamp.contribution_id,
+                    participant_id: participant.id.clone(),
+                    markdown: String::new(),
+                });
+            }
+        }
+        let mut derived = contract.clone();
+        derived.contributions = contributions;
+        Ok(derived)
     }
 
     /// Monotonic ordering revision, retained even if a participant restores an earlier order.
