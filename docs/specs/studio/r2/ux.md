@@ -8,6 +8,17 @@ The job of the whole slice, in her words: **"Make my posts go to my Facebook Pag
 
 **Decided (2026-11-13):** G6(b) follows the recommendation: the `authorizeUrl` is not kept while pending; **Start again** covers a reload.
 
+**Changed after the Grammi walkthrough (2026-11-13)** — these override the words below where they differ:
+- No "(you can say no to this one)" on her layer. The permission list ends with "Leave every box ticked." Optional scopes are marked only in details.
+- Badge `expiring` reads "Sign in again by Nov 27" (short `sayDay`); without a date, "Sign in again soon".
+- "signing in as the same person" becomes "signing in to the Facebook account you used the first time". The Reconnect sheet says: "Facebook will ask you to sign in. Use the Facebook account you used the first time. If Facebook shows someone else's name, tell the person who set up your site." The log-out advice moves to details.
+- Attempt card headings: `authorized` "Almost done: choose your Page" (LinkedIn "…choose where posts go"; Bluesky "…choose your account"); `pending` without link "You didn't finish connecting Facebook". One clock everywhere: "You have until 3:35 PM to finish." `expired` words: "That took too long, so it stopped. Try again." (no minute counts).
+- **Stop** becomes **Don't connect**, a quiet link-styled button on its own line below the primary, never beside it.
+- `no-posting-role`: "Facebook doesn't let your account post on this Page." `not-administrator`: "LinkedIn doesn't let your account post on this page."
+- Bluesky help: "Bluesky lets you make a separate password just for your blog, so your own password stays private. In Bluesky: Settings, then Privacy and security, then App passwords. Paste that one here." The "Never type your real Bluesky password" line moves to the wrong-shape error only.
+- Facebook Pages are "your Facebook Page" in prose; avoid bare "Page" next to lower-case "page" in one sentence.
+- The details summary is "Details for the person who set up your site".
+
 | Job | Lands in | Route | Replaces |
 | --- | --- | --- | --- |
 | See her accounts and whether they work | **Your accounts**, a new screen under Sharing | `#/sharing/accounts` | `sharing.js:244` link; old `#/social` |
