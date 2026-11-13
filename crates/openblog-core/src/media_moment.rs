@@ -36,6 +36,7 @@ use crate::collaboration::{
     is_bidi_control, normalize_source_url, valid_id, valid_text, SourceKind, SourceReference,
     MAX_PARTICIPANTS,
 };
+use crate::draft::DraftSet;
 use crate::research_notes::{locator_ambiguity, Locator, LocatorKind};
 use crate::source_library::valid_language_tag;
 
@@ -397,6 +398,14 @@ struct MomentSeal {
     participant: String,
     revision: u64,
     digest: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ContributionMomentSeal {
+    participant: String,
+    contributions_digest: String,
+    moments_digest: String,
 }
 
 /// A link to the moment in its source: the source's own safe address, with the start time added
@@ -845,6 +854,8 @@ pub struct MomentSet {
     moments: Vec<Moment>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     seals: Vec<MomentSeal>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    contribution_seals: Vec<ContributionMomentSeal>,
 }
 
 impl Default for MomentSet {
@@ -862,6 +873,7 @@ impl MomentSet {
             next_id: 0,
             moments: Vec::new(),
             seals: Vec::new(),
+            contribution_seals: Vec::new(),
         }
     }
 
@@ -900,6 +912,19 @@ impl MomentSet {
                     && seal.digest.len() == 64
                     && seal.digest.bytes().all(|b| b.is_ascii_hexdigit())
             })
+            && self.contribution_seals.len() <= crate::draft::MAX_EXCHANGES
+            && {
+                let mut snapshots = HashSet::new();
+                self.contribution_seals.iter().all(|seal| {
+                    valid_id(&seal.participant)
+                        && Self::valid_seal_digest(&seal.contributions_digest)
+                        && Self::valid_seal_digest(&seal.moments_digest)
+                        && snapshots.insert((
+                            seal.participant.to_ascii_lowercase(),
+                            seal.contributions_digest.as_str(),
+                        ))
+                })
+            }
     }
 
     /// An id this set mints (`moment-N`) must not be ahead of the counter, or the next add could
@@ -1202,6 +1227,55 @@ impl MomentSet {
         Ok(true)
     }
 
+    /// Seal publication moments to the exact set of an author's live contribution revisions.
+    /// Call only after authorizing and offering all those revisions; older snapshots are immutable.
+    pub fn seal_contributions(
+        &mut self,
+        owner: &str,
+        authors: &[&str],
+        drafts: &DraftSet,
+    ) -> Result<bool, MomentError> {
+        if !authors.contains(&owner) || !valid_id(owner) {
+            return Err(MomentError::Denied);
+        }
+        let contributions_digest =
+            Self::contribution_snapshot(owner, drafts).ok_or(MomentError::Denied)?;
+        let moments_digest = self.owner_digest(owner);
+        if let Some(seal) = self.contribution_seals.iter().find(|seal| {
+            seal.participant == owner && seal.contributions_digest == contributions_digest
+        }) {
+            return Ok(seal.moments_digest == moments_digest);
+        }
+        if self.contribution_seals.len() >= crate::draft::MAX_EXCHANGES {
+            return Err(MomentError::Invalid(MomentField::Limit));
+        }
+        self.store(|set| {
+            set.contribution_seals.push(ContributionMomentSeal {
+                participant: owner.to_string(),
+                contributions_digest,
+                moments_digest,
+            });
+        })?;
+        Ok(true)
+    }
+
+    /// True only when the current moments were sealed to these exact live contributions. Callers
+    /// must separately check that the requester can read every current contribution.
+    pub fn are_contributions_sealed(&self, owner: &str, drafts: &DraftSet) -> bool {
+        if self.publication_of(owner).is_empty() {
+            return true;
+        }
+        let Some(snapshot) = Self::contribution_snapshot(owner, drafts) else {
+            return false;
+        };
+        let digest = self.owner_digest(owner);
+        self.contribution_seals.iter().any(|seal| {
+            seal.participant == owner
+                && seal.contributions_digest == snapshot
+                && seal.moments_digest == digest
+        })
+    }
+
     /// Moments proposed for the published piece, in order, for callers that have already
     /// authorized their audience (assembly, the publish gate). Never hand this to a request that
     /// has not.
@@ -1239,13 +1313,39 @@ impl MomentSet {
         let keep = |participant: &str| authors.contains(&participant);
         if self.moments.iter().all(|m| keep(&m.participant))
             && self.seals.iter().all(|s| keep(&s.participant))
+            && self.contribution_seals.iter().all(|s| keep(&s.participant))
         {
             return false;
         }
         self.moments.retain(|m| keep(&m.participant));
         self.seals.retain(|s| keep(&s.participant));
+        self.contribution_seals.retain(|s| keep(&s.participant));
         self.revision = self.revision.saturating_add(1);
         true
+    }
+
+    fn valid_seal_digest(digest: &str) -> bool {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    }
+
+    fn contribution_snapshot(owner: &str, drafts: &DraftSet) -> Option<String> {
+        let mut stamps = drafts.stamps_for_owner(owner);
+        if stamps.is_empty() {
+            return None;
+        }
+        stamps.sort_by(|left, right| left.contribution_id.cmp(&right.contribution_id));
+        let mut hasher = Blake2s256::new();
+        hasher.update(b"openblog-multi-contribution-moment-seal-v1\0");
+        for stamp in stamps {
+            hasher.update((stamp.contribution_id.len() as u64).to_be_bytes());
+            hasher.update(stamp.contribution_id.as_bytes());
+            hasher.update(stamp.number.to_be_bytes());
+            hasher.update(stamp.digest.as_bytes());
+        }
+        Some(hex(&hasher.finalize()))
     }
 
     /// Prose-free values to append to the approval subject's metadata: a count and one digest per

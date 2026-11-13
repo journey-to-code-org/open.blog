@@ -499,8 +499,10 @@ approval. These are core foundations only and are not yet used by Admin preview 
 An opt-in complete review path refuses a token unless every current contribution is visible,
 the arrangement covers every part, and the public credit choices are complete. It uses the same
 credit-bound subject as multi-contribution assembly. A matching opt-in receipt captures every
-included contribution revision. Both review and assembly currently refuse proposed moments until
-exact multi-contribution moment sealing is defined.
+included contribution revision. Proposed moments must be sealed to the owner's exact live
+contribution revisions before review or assembly. A seal for a given snapshot is write-once;
+editing a moment stays private until a different contribution revision is offered. These moment
+seals are not yet wired into Admin sharing, and older releases cannot read them.
 The Admin route, reveal, preview and publication paths still support one draft per participant;
 the core ordering operation is not exposed until those paths can safely handle every contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.

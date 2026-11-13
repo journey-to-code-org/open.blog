@@ -1001,6 +1001,62 @@ fn state(
 }
 
 #[test]
+fn multi_contribution_moment_seals_are_exact_write_once_and_private() {
+    let record = record();
+    let mut drafts = DraftSet::new(&ALL).unwrap();
+    drafts.save("ann", "first", 0, "one", T).unwrap();
+    drafts.save("ann", "second", 0, "two", T).unwrap();
+    let mut moments = MomentSet::new();
+    let id = add(
+        &mut moments,
+        "ann",
+        publish(observe(VIDEO, vec![at("1")], "shared moment")),
+    )
+    .unwrap();
+    assert!(!moments.are_contributions_sealed("ann", &drafts));
+    assert_eq!(
+        moments.seal_contributions("bo", &["ann"], &drafts),
+        Err(MomentError::Denied)
+    );
+    assert!(moments.seal_contributions("ann", &ALL, &drafts).unwrap());
+    assert!(moments.are_contributions_sealed("ann", &drafts));
+    let stored = moments.to_json();
+    assert!(!stored.contains("one") && !stored.contains("two"));
+    let loaded = MomentSet::from_json(&stored).unwrap();
+    assert!(loaded.are_contributions_sealed("ann", &drafts));
+    let mut invalid: serde_json::Value = serde_json::from_str(&stored).unwrap();
+    let seals = invalid["contributionSeals"].as_array_mut().unwrap();
+    seals.push(seals[0].clone());
+    assert!(MomentSet::from_json(&invalid.to_string()).is_err());
+    drafts
+        .reorder_owned("ann", 0, &["first", "second"], &["second", "first"])
+        .unwrap();
+    assert!(moments.are_contributions_sealed("ann", &drafts));
+    let revision = moments.revision();
+    moments
+        .edit(
+            "ann",
+            &ALL,
+            revision,
+            &record.sources,
+            &id,
+            publish(observe(VIDEO, vec![at("1")], "edited private moment")),
+        )
+        .unwrap();
+    assert!(!moments.are_contributions_sealed("ann", &drafts));
+    assert!(!moments.seal_contributions("ann", &ALL, &drafts).unwrap());
+    drafts
+        .save("ann", "second", 1, "two changed", T + 1)
+        .unwrap();
+    assert!(moments.seal_contributions("ann", &ALL, &drafts).unwrap());
+    assert!(moments.are_contributions_sealed("ann", &drafts));
+    drafts.save("ann", "second", 2, "two", T + 2).unwrap();
+    assert!(!moments.are_contributions_sealed("ann", &drafts));
+    assert!(moments.reconcile(&["bo", "cy"]));
+    assert!(!moments.to_json().contains("contributionSeals"));
+}
+
+#[test]
 fn publication_moments_join_the_approval_binding_and_private_ones_never_do() {
     let mut record = record();
     let drafts = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);

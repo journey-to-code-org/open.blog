@@ -609,6 +609,40 @@ fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
         ),
         Err(AssemblyError::UnresolvedMoment)
     ));
+    assert!(with_moment
+        .seal_contributions("ann", &active, &set)
+        .unwrap());
+    let moment_preview = build_all_contributions_with_credit_choices(
+        &record,
+        &arrangement,
+        &set,
+        &synthesis,
+        &with_moment,
+        &moment_approvals,
+        "bo",
+        &active,
+        &active,
+        false,
+        true,
+        Default::default(),
+        &choices,
+    )
+    .unwrap();
+    assert!(moment_preview.document.contains("A proposed moment"));
+    let with_moment_assembled = assemble_all_contributions_with_credits(
+        &record,
+        &arrangement,
+        &set,
+        &synthesis,
+        &with_moment,
+        &moment_approvals,
+        &active,
+        &active,
+        DATE,
+        &choices,
+    )
+    .unwrap();
+    assert!(with_moment_assembled.source.contains("A proposed moment"));
     set.save("ann", "second", 1, "Changed", T + 1).unwrap();
     assert!(matches!(
         build_all_contributions_with_credit_choices(

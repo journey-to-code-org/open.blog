@@ -60,9 +60,8 @@ impl std::fmt::Display for PreviewError {
 }
 
 /// Review an explicitly arranged multi-contribution piece only when every current revision is
-/// visible to the requester. Until multi-contribution moment sealing is supported, proposed
-/// moments also make this preview incomplete. The caller must authorize structure and ownership
-/// metadata before invoking this function.
+/// visible to the requester and every proposed moment is sealed to its owner's current
+/// contributions. The caller must authorize structure and ownership metadata before invoking.
 #[allow(clippy::too_many_arguments)]
 pub fn build_all_contributions_with_credit_choices(
     record: &SharedPublication,
@@ -87,7 +86,6 @@ pub fn build_all_contributions_with_credit_choices(
         return Err(PreviewError::Denied);
     }
     if !show_synthesis
-        || !moments.publication_moments().is_empty()
         || approvals.policy().scope != crate::approval::ApprovalScope::WholePiece
         || (recipient
             && !matches!(
@@ -126,9 +124,13 @@ pub fn build_all_contributions_with_credit_choices(
         || structure
             .validate_contribution_coverage(&record.collaboration, drafts, active)
             .is_err()
+        || moments.attributed_participants().iter().any(|owner| {
+            !active.contains(owner) || !moments.are_contributions_sealed(owner, drafts)
+        })
     {
         return Err(PreviewError::Incomplete);
     }
+    let shown_moments = moments.publication_moments();
     let (public_record, _) = crate::assembly::public_credit_projection_for_all_contributions(
         record, drafts, synthesis, moments, active, choices,
     )
@@ -248,7 +250,7 @@ pub fn build_all_contributions_with_credit_choices(
                 &sections,
                 &rendered,
                 arranged.as_ref(),
-                "",
+                &moments_html(&public_record, moments, &shown_moments, options),
                 &conversation_html(&public_record, &items, synthesis, options),
                 &credit_details,
                 true,
