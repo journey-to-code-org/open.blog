@@ -156,7 +156,7 @@ test("the moments form and its validation state pass axe at 400px", async ({ pag
   await page.setViewportSize({ width: 400, height: 800 });
   await openPanel(page);
   await page.evaluate(axe.source);
-  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-moments"), {
+  const audit = () => page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect((await audit()).violations).toEqual([]);
@@ -164,6 +164,11 @@ test("the moments form and its validation state pass axe at 400px", async ({ pag
   await panel(page).getByLabel("Location", { exact: true }).fill("1:60");
   await panel(page).getByRole("button", { name: "Add moment" }).click();
   await expect(panel(page).getByRole("alert")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await panel(page).getByLabel("Location", { exact: true }).fill("1:02");
+  await panel(page).getByLabel("Your observation (Markdown, optional)").fill("The pause before the answer.");
+  await panel(page).getByRole("button", { name: "Add moment" }).click();
+  await expect(panel(page).getByRole("group", { name: "Observation" })).toContainText("The pause before the answer.");
   expect((await audit()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });

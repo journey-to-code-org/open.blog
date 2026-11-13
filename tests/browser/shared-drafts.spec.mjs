@@ -218,7 +218,7 @@ test("the private draft and conflict recovery are accessible at 400px", async ({
   await page.setViewportSize({ width: 400, height: 800 });
   await openPanel(page);
   await page.evaluate(axe.source);
-  const audit = async () => page.evaluate(async () => window.axe.run(document.querySelector(".oba-draft"), {
+  const audit = async () => page.evaluate(async () => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect((await audit()).violations).toEqual([]);
@@ -254,7 +254,7 @@ test("sharing, arrangement and approval controls are accessible at 400px", async
   await page.getByRole("button", { name: "Offer revision 1 to the group" }).click();
   await expect(page.getByRole("group", { name: "Share revision 1?" })).toBeFocused();
   await page.evaluate(axe.source);
-  const result = await page.evaluate(async () => window.axe.run(document.querySelector(".oba-draft"), {
+  const result = await page.evaluate(async () => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect(result.violations).toEqual([]);
@@ -272,7 +272,7 @@ test("members and invitations are accessible by keyboard at 400px", async ({ pag
   const panel = page.locator(".oba-invitations").filter({ has: summary });
   await expect(panel.getByRole("button", { name: "Change roles for Another writer" })).toBeVisible();
   await page.evaluate(axe.source);
-  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-invitations:not(.oba-draft):not(.oba-series)"), {
+  const audit = () => page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect((await audit()).violations).toEqual([]);
@@ -328,7 +328,7 @@ test("a named release confirms the selected recipients and revision at 400px", a
   await expect(confirmation).toContainText("Another writer");
   await expect(confirmation).not.toContainText("Former writer");
   await page.evaluate(axe.source);
-  const result = await page.evaluate(() => window.axe.run(document.querySelector(".oba-draft"), {
+  const result = await page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect(result.violations).toEqual([]);
@@ -595,13 +595,15 @@ test("continuing conversation and item editing pass axe at 400px", async ({ page
   await page.setViewportSize({ width: 400, height: 800 });
   await openPanel(page);
   await page.evaluate(axe.source);
-  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-synthesis"), {
+  const audit = () => page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect((await audit()).violations).toEqual([]);
   await page.locator(".oba-synthesis-form textarea").fill("A shared thought.");
   await page.getByRole("button", { name: "Add item" }).click();
   await expect(page.getByText(/Item 1 of 1/)).toBeVisible();
+  await expect(page.getByRole("group", { name: "Agreement text" })).toContainText("A shared thought.");
+  expect((await audit()).violations).toEqual([]);
   await page.locator(".oba-synthesis-item").getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByLabel("Edit item text")).toBeFocused();
   expect((await audit()).violations).toEqual([]);

@@ -149,7 +149,7 @@ test("the series form and reading-order preview pass axe at 400px", async ({ pag
   await page.setViewportSize({ width: 400, height: 800 });
   await openPanel(page);
   await page.evaluate(axe.source);
-  const audit = () => page.evaluate(() => window.axe.run(document.querySelector(".oba-series"), {
+  const audit = () => page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect((await audit()).violations).toEqual([]);

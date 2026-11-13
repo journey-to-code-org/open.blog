@@ -19808,7 +19808,7 @@ export class ObAdmin extends AdminElement {
             "li",
             {},
             h("span", {}, revealSlotText(slot)),
-            slot.kind !== "private" ? h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || "") : null,
+            slot.kind !== "private" ? h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || "") : null,
           ),
         ),
       );
@@ -20045,7 +20045,7 @@ export class ObAdmin extends AdminElement {
     const itemView = (item, position, total) => {
       const textId = `${prefix}-item-${item.id}`;
       const actions = h("div", { class: "oba-toolbar" });
-      const body = h("div", { class: "oba-synthesis-body" }, h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": `${synthesisKindLabel(item.kind)} text` }, item.markdown));
+      const body = h("div", { class: "oba-synthesis-body" }, h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `${synthesisKindLabel(item.kind)} text` }, item.markdown));
       const ids = current.items.map((entry) => entry.id);
       const move = (label, delta) => {
         const button = h("button", { class: "oba-btn", type: "button", "aria-label": `${label}: ${synthesisKindLabel(item.kind)} item ${position + 1} of ${total}` }, label);
@@ -20343,7 +20343,7 @@ export class ObAdmin extends AdminElement {
             : null,
         );
       }
-      if (moment.observation) parts.push(h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": "Observation" }, moment.observation));
+      if (moment.observation) parts.push(h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": "Observation" }, moment.observation));
       const linkText = momentLinkText(moment);
       parts.push(
         linkText

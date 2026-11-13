@@ -148,7 +148,7 @@ test("all participants unanimously change the approval rule through the real Adm
     await expect(page.getByText("The proposed rule is waiting", { exact: false })).toBeVisible();
     await expect(page.getByText("Every author must approve.", { exact: false }).first()).toBeVisible();
     await page.evaluate(axe.source);
-    const audit = await page.evaluate(() => window.axe.run(document.querySelector(".oba-approval-rule"), {
+    const audit = await page.evaluate(() => window.axe.run(document, {
       runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
     }));
     expect(audit.violations).toEqual([]);
@@ -186,7 +186,7 @@ test("all participants unanimously change the approval rule through the real Adm
     await expect(reader.locator("body")).not.toContainText("MIKEY-SECRET");
     await expect(reader.locator("body")).not.toContainText("GRACE-UPDATED");
     await reader.evaluate(axe.source);
-    const readerAudit = await reader.evaluate(() => window.axe.run(document.querySelector(".oba-invitations"), {
+    const readerAudit = await reader.evaluate(() => window.axe.run(document, {
       runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
     }));
     expect(readerAudit.violations).toEqual([]);
