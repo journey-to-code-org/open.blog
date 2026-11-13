@@ -9,6 +9,7 @@ pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2", include_bytes!("../../../web/studio/fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2")),
     ("fonts/literata-latin-wght-normal.woff2", include_bytes!("../../../web/studio/fonts/literata-latin-wght-normal.woff2")),
     ("index.html", include_bytes!("../../../web/studio/index.html")),
+    ("parts/body-host.js", include_bytes!("../../../web/studio/parts/body-host.js")),
     ("parts/conflict.js", include_bytes!("../../../web/studio/parts/conflict.js")),
     ("parts/cover-picker.js", include_bytes!("../../../web/studio/parts/cover-picker.js")),
     ("parts/dates.js", include_bytes!("../../../web/studio/parts/dates.js")),
