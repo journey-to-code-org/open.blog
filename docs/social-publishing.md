@@ -136,7 +136,7 @@ and chooses where posts go. How that address is made, so nothing else can choose
 3. The callback finds the row by its single-use `state` and answers `303` to
    `<return_to>#/sharing/accounts?connection=<id>`, whatever the outcome (said yes, said no, ran out, failed). The id is
    in the fragment, so it never reaches a server log. A state it does not know, or a row without a return address,
-   gets the fixed page, which says what happened and to go back to Studio.
+   gets the fixed page, which says what happened and to go back to your blog.
 
 Studio on plain `http` to a public address, or a function from before this change, gets no return address: Studio then
 opens the provider in a new tab and checks again when the owner comes back to it.
@@ -669,7 +669,7 @@ announcements per account. If you schedule many announcements to one account, sp
 | What you see | Likely cause | What to do |
 | --- | --- | --- |
 | Studio's **Your accounts** says sharing isn't set up | `OPENBLOG_SOCIAL_ENDPOINT` or `OPENBLOG_SOCIAL_ADMIN_KEY` is not set where Admin runs. | Set both and restart Admin (gate 3). |
-| After Facebook says yes, the browser stays on a page that says to go back to Studio | Studio runs on plain `http` at a public address, `supabase/social-return.sql` was not run, or the function is from before the way back. | Serve Studio over `https`, run the file, redeploy the function; until then Studio's new-tab way still works. |
+| After Facebook says yes, the browser stays on a page that says to go back to your blog | Studio runs on plain `http` at a public address, `supabase/social-return.sql` was not run, or the function is from before the way back. | Serve Studio over `https`, run the file, redeploy the function; until then Studio's new-tab way still works. |
 | Admin says the function rejected its key | The admin key differs between Admin and the function. | Set the same value in both places. |
 | Admin says social publishing is not enabled there, or the routes answer 404 | `OPENBLOG_SOCIAL_ENABLED` is not exactly `true`, or a hosted setting is invalid. | Read the function log: it names each setting at fault, never its value. |
 | A provider is missing under **Connect** | Its client id or secret is missing or malformed, or `OPENBLOG_SOCIAL_CALLBACK_BASE` is missing. | Admin lists the setting at fault; fix it and redeploy. |

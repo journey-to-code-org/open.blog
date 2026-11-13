@@ -37,9 +37,12 @@ test("Studio's own code never writes markup or inline styles", () => {
   }
 });
 
-test("index.html loads only Studio's own files", () => {
+test("index.html loads only Studio's own files, and the installed app's manifest and icons", () => {
   const html = readFileSync(join(studio, "index.html"), "utf8");
-  for (const [, url] of html.matchAll(/(?:src|href)="([^"]+)"/g)) assert.match(url, /^\/admin\/studio\//, url);
+  // The manifest and icons stay at the addresses installed apps already know (Studio R3, G20/G21).
+  const APP = /^\/admin\/(manifest\.webmanifest|icons\/[a-z0-9-]+\.png)$/;
+  for (const [, url] of html.matchAll(/(?:src|href)="([^"]+)"/g)) assert.ok(/^\/admin\/studio\//.test(url) || APP.test(url), url);
+  assert.match(html, /<link rel="manifest" href="\/admin\/manifest\.webmanifest">/);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/, "no inline script");
   assert.doesNotMatch(html, /\sstyle=|<style/, "no inline style");
 });

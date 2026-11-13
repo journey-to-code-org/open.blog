@@ -7,7 +7,7 @@
 // Replies are rebuilt from known fields; a device's endpoint is never sent back. Errors are fixed codes.
 
 import { timingSafeEqual } from "node:crypto";
-import { KINDS, LIMITS, PushError, checkSubscription, createPushStore, deviceHash, notice, pushSettings, sendToOwner, subscriptionOf } from "../lib/push-store.mjs";
+import { KINDS, LIMITS, PushError, STUDIO_HOME, checkSubscription, createPushStore, deviceHash, notice, pushSettings, sendToOwner, subscriptionOf } from "../lib/push-store.mjs";
 import { webPushTransport } from "../lib/web-push.mjs";
 
 const SECURITY = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" };
@@ -39,9 +39,10 @@ const checkLabel = (value) => {
   if (!label || label.length > LIMITS.label) throw new PushError(400, "label-required", "label");
   return label;
 };
-// Where tapping a notice from another app goes: a page in Admin, or that app's own https page.
+// Where tapping a notice from another app goes: a page under /admin/ (Studio's own, or an old Admin
+// address the worker turns into Studio's), or that app's own https page.
 const checkUrl = (value) => {
-  const url = String(value ?? "/admin/");
+  const url = String(value ?? STUDIO_HOME);
   if (url.length <= 500 && /^\/admin\/[^\s\\]*$/.test(url)) return url;
   try {
     const parsed = new URL(url);
@@ -128,12 +129,15 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       if (method === "POST" && first === "test" && parts.length === 1) {
         const row = await store.device(known(input().id));
         if (!row) throw new PushError(404, "not-found");
-        const result = await send(subscriptionOf(row), notice({ title: "Notifications are on", body: `${row.label} will hear about what you picked.`, url: "/admin/#/notifications", tag: "test" }));
+        const result = await send(subscriptionOf(row), notice({ title: `Your blog can reach ${row.label}`, body: "You'll get one like this when something you picked comes in.", url: "/admin/studio/#/notifications", tag: "test" }));
         if (result.gone) {
           await store.remove(row.id);
           return json(410, { error: "gone" });
         }
-        return result.ok ? json(200, { sent: true }) : json(502, { error: "send-failed", code: result.code });
+        if (!result.ok) return json(502, { error: "send-failed", code: result.code });
+        // A test that went out counts as the last thing it was told (G23).
+        await store.sent([row.id]).catch(() => {});
+        return json(200, { sent: true });
       }
       return json(404, { error: "not-found" });
     } catch (error) {

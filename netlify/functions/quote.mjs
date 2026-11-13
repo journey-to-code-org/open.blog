@@ -241,7 +241,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       // it is bounded so the visitor's answer never waits on a slow provider (ADR 0386).
       if (notify) await notify({ id, values, photoCount: stored.length, store });
       // The same minimal facts as the email (ADR 0383): no phone, address or description.
-      await tellOwner({ env, fetchImpl, kind: "quote", notice: { title: "New quote request", body: [values.name, values.service, values.town].filter(Boolean).join(" · "), url: "/admin/#/quotes", tag: `quote-${id}` } });
+      await tellOwner({ env, fetchImpl, kind: "quote", notice: { title: "New quote request", body: [values.name, values.service, values.town].filter(Boolean).join(" · "), url: "/admin/studio/#/quotes", tag: `quote-${id}` } });
       return reply(201, "received", { status: "received" });
     } catch (error) {
       if (error instanceof QuoteError) {

@@ -95,7 +95,7 @@ function handleHosted(request, response, body) {
       return response.end();
     }
     response.writeHead(200, { "content-type": "text/html" });
-    return response.end("<h1>Facebook said yes</h1><p>You can close this tab and go back to Studio.</p>");
+    return response.end("<h1>Facebook said yes</h1><p>You can close this tab and go back to your blog.</p>");
   }
   const actor = request.headers["x-openblog-actor"];
   const input = body ? JSON.parse(body) : {};

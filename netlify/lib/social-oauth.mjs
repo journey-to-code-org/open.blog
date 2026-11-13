@@ -40,23 +40,24 @@ export class SocialOAuthError extends Error {
 }
 
 // What the callback page says for each way a handshake can end, and what a connection's `message`
-// carries (Studio shows it only in details; it says each outcome in its own words). Fixed text only.
+// carries (Studio shows it only in details; it says each outcome in its own words). Fixed text only,
+// in her words: the product is "your blog", never Studio or Admin.
 export const OUTCOMES = Object.freeze({
-  authorized: "Go back to Studio to choose where your posts go.",
+  authorized: "Go back to your blog to choose where your posts go.",
   denied: "You said no, so nothing was connected.",
-  "invalid-state": "That sign-in link isn't valid or was already used. Start again in Studio.",
-  expired: "That took too long, so it stopped. Start again in Studio.",
-  "invalid-request": "The reply that came back wasn't valid. Start again in Studio.",
-  "scopes-missing": "A permission Studio needs wasn't allowed. Start again in Studio and leave every box ticked.",
-  "code-rejected": "The sign-in wasn't accepted. Start again in Studio.",
-  "provider-error": "Something went wrong on the other side. Start again in Studio.",
-  "provider-unavailable": "It couldn't be reached. Try again in Studio in a few minutes.",
-  "identity-mismatch": "That's a different account from the one being reconnected. Sign in to the account you used the first time, then start again in Studio.",
-  "no-destination": "Nothing Studio can post to was found for that account.",
-  "storage-failed": "The connection couldn't be saved. Start again in Studio.",
-  canceled: "This connection was stopped in Studio.",
+  "invalid-state": "That sign-in link isn't valid or was already used. Start again on your blog.",
+  expired: "That took too long, so it stopped. Start again on your blog.",
+  "invalid-request": "The reply that came back wasn't valid. Start again on your blog.",
+  "scopes-missing": "A permission your blog needs wasn't allowed. Start again on your blog and leave every box ticked.",
+  "code-rejected": "The sign-in wasn't accepted. Start again on your blog.",
+  "provider-error": "Something went wrong on the other side. Start again on your blog.",
+  "provider-unavailable": "It couldn't be reached. Try again on your blog in a few minutes.",
+  "identity-mismatch": "That's a different account from the one being reconnected. Sign in to the account you used the first time, then start again on your blog.",
+  "no-destination": "Nothing your blog can post to was found for that account.",
+  "storage-failed": "The connection couldn't be saved. Start again on your blog.",
+  canceled: "This connection was stopped on your blog.",
   "credentials-rejected": "Bluesky didn't accept that name and app password. Check the name, or make a new app password in Bluesky.",
-  "provider-rate-limited": "It asked Studio to slow down. Wait a few minutes, then try again.",
+  "provider-rate-limited": "It asked your blog to slow down. Wait a few minutes, then try again.",
 });
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);

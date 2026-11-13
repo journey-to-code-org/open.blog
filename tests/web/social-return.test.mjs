@@ -1,4 +1,4 @@
-// The way back to Studio after a sign-in (Studio R2, G6) and the callback page in Studio's words
+// The way back to Studio after a sign-in (Studio R2, G6) and the callback page in her words
 // (G19): Admin names where to return, the function checks it and keeps it on the row, and the
 // callback redirects only to that stored value, with only the connection's id, in the fragment. No
 // request to the callback can choose where the browser goes.
@@ -161,9 +161,10 @@ test("reconnect keeps the return address for an OAuth sign-in and refuses one be
   assert.equal((await call(handler, "POST", `/accounts/${account.id}/reconnect`, { identifier: "ada.bsky.social", appPassword: "abcd-efgh-ijkl-mnop", returnTo: STUDIO })).status, 400);
 });
 
-test("G19: the callback page and every outcome speak of Studio, never of Admin", async () => {
+test("G19: the callback page and every outcome call it your blog, never Studio or Admin", async () => {
   for (const [code, words] of Object.entries(OUTCOMES)) {
     assert.doesNotMatch(words, /\bAdmin\b/, code);
+    assert.doesNotMatch(words, /\bStudio\b/, code);
     assert.doesNotMatch(words, /\bauthoriz/i, code);
   }
   const { handler } = make();
@@ -171,12 +172,13 @@ test("G19: the callback page and every outcome speak of Studio, never of Admin",
   const page = await callback(handler, "linkedin", `code=the-code&state=${authorization(started.body.authorizeUrl).state}`);
   assert.match(page.body, /<h1>LinkedIn said yes<\/h1>/);
   assert.match(page.body, /<title>LinkedIn said yes<\/title>/);
-  assert.match(page.body, /Go back to Studio to choose where your posts go\./);
-  assert.match(page.body, /You can close this tab and go back to Studio\./);
-  assert.doesNotMatch(page.body, /Admin/);
+  assert.match(page.body, /Go back to your blog to choose where your posts go\./);
+  assert.match(page.body, /You can close this tab and go back to your blog\./);
+  assert.doesNotMatch(page.body, /Admin|Studio/);
   const no = await callback(handler, "linkedin", "code=x");
   assert.match(no.body, /<h1>Not connected<\/h1>/);
-  assert.match(no.body, /Start again in Studio\./);
+  assert.match(no.body, /Start again on your blog\./);
+  assert.doesNotMatch(no.body, /Studio/);
 });
 
 test("social-return.sql adds one checked, nullable column, and its rollback takes exactly that away", () => {

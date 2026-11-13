@@ -207,7 +207,7 @@ test("scopes are verified from the grant: a missing required scope fails the att
   const { body } = await start(handler);
   const result = await callback(handler, "linkedin", `code=${CODE}&state=${authorization(body.authorizeUrl).state}`);
   assert.equal(result.statusCode, 400);
-  assert.match(result.body, /permission Studio needs/);
+  assert.match(result.body, /permission your blog needs/);
   const row = connections(w)[0];
   assert.equal(row.status, "failed");
   assert.equal(row.error_code, "scopes-missing");

@@ -44,7 +44,7 @@ const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&"
 // from settings, never from the request.
 function resultPage(ok, text, label = "") {
   const heading = ok ? `${label || "It"} said yes` : "Not connected";
-  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(heading)}</title><style>body{font:1.125rem/1.5 system-ui,sans-serif;margin:0;padding:2rem 1rem;background:#fff;color:#1a1a1a}main{max-width:32rem;margin:0 auto}h1{font-size:1.5rem}@media (prefers-color-scheme:dark){body{background:#111;color:#eee}}</style></head><body><main><h1>${escapeHtml(heading)}</h1><p>${escapeHtml(text)}</p><p>You can close this tab and go back to Studio.</p></main></body></html>`;
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(heading)}</title><style>body{font:1.125rem/1.5 system-ui,sans-serif;margin:0;padding:2rem 1rem;background:#fff;color:#1a1a1a}main{max-width:32rem;margin:0 auto}h1{font-size:1.5rem}@media (prefers-color-scheme:dark){body{background:#111;color:#eee}}</style></head><body><main><h1>${escapeHtml(heading)}</h1><p>${escapeHtml(text)}</p><p>You can close this tab and go back to your blog.</p></main></body></html>`;
   return {
     statusCode: ok ? 200 : 400,
     headers: { ...SECURITY, "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" },

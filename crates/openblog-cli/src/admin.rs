@@ -604,6 +604,16 @@ fn route(state: &AppState, req: &Request) -> Response {
     if path == "/admin/studio" || path.starts_with("/admin/studio/") {
         return studio_file(path);
     }
+    // The one service worker (ADR 0412, Studio R3 G21): Studio's file, at the address and scope
+    // existing installs and sign-ups already have, so a new file is an update of the same worker and
+    // every sign-up survives. Always asked again, so an update is seen at once; a site can't replace it.
+    if path == "/admin/sw.js" {
+        return match studio_bytes("sw.js") {
+            Some(bytes) => Response::new(200, "text/javascript; charset=utf-8", bytes.to_vec())
+                .with_header("Cache-Control", "no-cache"),
+            None => Response::error(404, "Not found"),
+        };
+    }
     if path == CODE_RUNNER_LANGUAGE_PATH {
         let config = site::load_config(&state.root).unwrap_or_default();
         return match site::web_file(&state.root, &config, CODE_RUNNER_LANGUAGE_ASSET) {
@@ -611,8 +621,8 @@ fn route(state: &AppState, req: &Request) -> Response {
             None => Response::error(404, "Not found"),
         };
     }
-    // The installed app (ADR 0412): its manifest from the site's own name, and its icons, which a
-    // site may replace with its own under `<paths.web>/admin/icons/`.
+    // The installed app (ADR 0412): its manifest from the site's own name, and its icons (Studio's,
+    // `web/studio/icons/`), which a site may replace with its own under `<paths.web>/admin/icons/`.
     if path == "/admin/manifest.webmanifest" {
         return push::manifest(&site::load_config(&state.root).unwrap_or_default());
     }
@@ -656,7 +666,6 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/quotes.js" => "quotes.js",
         "/admin/greetings.js" => "greetings.js",
         "/admin/notifications.js" => "notifications.js",
-        "/admin/sw.js" => "sw.js",
         "/admin/announcements.js" => "announcements.js",
         "/admin/job-share.js" => "job-share.js",
         "/admin/voice-library.js" => "voice-library.js",
@@ -699,10 +708,9 @@ fn studio_file(path: &str) -> Response {
         "" => "index.html",
         rel => rel,
     };
-    let Some((_, bytes)) = crate::studio_files::STUDIO_FILES
-        .iter()
-        .find(|(name, _)| *name == rel)
-    else {
+    // The worker lives at /admin/sw.js only: served from here too, it could be registered with a
+    // second, narrower scope.
+    let Some(bytes) = studio_bytes(rel).filter(|_| rel != "sw.js") else {
         return Response::error(404, "Not found");
     };
     let ctype = match rel.rsplit('.').next() {
@@ -712,9 +720,18 @@ fn studio_file(path: &str) -> Response {
         Some("json") => "application/json",
         Some("svg") => "image/svg+xml",
         Some("woff2") => "font/woff2",
+        Some("png") => "image/png",
         _ => "application/octet-stream",
     };
     Response::new(200, ctype, bytes.to_vec())
+}
+
+/// One of Studio's embedded files, by its path under `web/studio/`.
+pub(crate) fn studio_bytes(rel: &str) -> Option<&'static [u8]> {
+    crate::studio_files::STUDIO_FILES
+        .iter()
+        .find(|(name, _)| *name == rel)
+        .map(|(_, bytes)| *bytes)
 }
 
 fn secured(response: Response) -> Response {
