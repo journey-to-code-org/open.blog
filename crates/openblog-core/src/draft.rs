@@ -376,6 +376,20 @@ impl DraftSet {
         if current as usize >= MAX_REVISIONS_PER_DRAFT {
             return Err(DraftError::LimitReached);
         }
+        let next_order =
+            if current == 0 && (contribution_id != requester || self.order_revision != 0) {
+                Some(
+                    self.order_revision
+                        .checked_add(1)
+                        .ok_or(DraftError::LimitReached)?,
+                )
+            } else {
+                None
+            };
+        let previous_order = self.order_revision;
+        if let Some(revision) = next_order {
+            self.order_revision = revision;
+        }
         let number = current + 1;
         let revision = Revision {
             number,
@@ -409,6 +423,7 @@ impl DraftSet {
             if current == 0 {
                 self.drafts.pop();
             }
+            self.order_revision = previous_order;
             return Err(DraftError::LimitReached);
         }
         let draft = self
@@ -423,6 +438,24 @@ impl DraftSet {
     /// owner; copies already read cannot be recalled. A withdrawn draft accepts no new revision
     /// or commitment, and withdrawing never changes the contract or any approval.
     pub fn withdraw(&mut self, requester: &str, contribution_id: &str) -> Result<(), DraftError> {
+        let current = self
+            .drafts
+            .iter()
+            .find(|draft| {
+                draft.id.eq_ignore_ascii_case(contribution_id) && draft.owner == requester
+            })
+            .ok_or(DraftError::Denied)?;
+        let next_order =
+            if !current.withdrawn && (current.id != current.owner || self.order_revision != 0) {
+                Some(
+                    self.order_revision
+                        .checked_add(1)
+                        .ok_or(DraftError::LimitReached)?,
+                )
+            } else {
+                None
+            };
+        let previous = next_order.map(|_| self.clone());
         let draft = self
             .drafts
             .iter_mut()
@@ -439,6 +472,15 @@ impl DraftSet {
                 exchange
                     .commitments
                     .retain(|c| c.contribution_id != contribution_id);
+            }
+        }
+        if let Some(revision) = next_order {
+            self.order_revision = revision;
+        }
+        if self.to_json().len() >= MAX_DRAFT_SET_BYTES {
+            if let Some(previous) = previous {
+                *self = previous;
+                return Err(DraftError::LimitReached);
             }
         }
         Ok(())
@@ -626,6 +668,14 @@ impl DraftSet {
     /// Monotonic ordering revision, retained even if a participant restores an earlier order.
     pub fn order_revision(&self) -> u64 {
         self.order_revision
+    }
+
+    /// Whether active authors have live contributions outside the legacy one-draft-per-owner
+    /// shape. Callers must switch every review, approval and publication gate together.
+    pub fn requires_contribution_mode(&self, active: &[&str]) -> bool {
+        self.drafts.iter().any(|draft| {
+            !draft.withdrawn && active.contains(&draft.owner.as_str()) && draft.id != draft.owner
+        })
     }
 
     pub(crate) fn stamps_for_owner(&self, owner: &str) -> Vec<RevisionStamp> {
@@ -1315,12 +1365,13 @@ mod tests {
             Err(DraftError::Stale)
         );
         let before = drafts.to_json();
+        let revision = drafts.order_revision();
         assert_eq!(
-            drafts.reorder_owned("ada", 0, &["first", "second"], &["other", "first"]),
+            drafts.reorder_owned("ada", revision, &["first", "second"], &["other", "first"]),
             Err(DraftError::Invalid)
         );
         assert_eq!(
-            drafts.reorder_owned("ada", 0, &["first", "second"], &["first", "first"]),
+            drafts.reorder_owned("ada", revision, &["first", "second"], &["first", "first"]),
             Err(DraftError::Invalid)
         );
         assert_eq!(
@@ -1328,21 +1379,26 @@ mod tests {
             Err(DraftError::Denied)
         );
         assert_eq!(
-            drafts.reorder_owned("ada", 0, &["second", "first"], &["first", "second"]),
+            drafts.reorder_owned("ada", revision, &["second", "first"], &["first", "second"]),
             Err(DraftError::Stale)
         );
         assert_eq!(drafts.to_json(), before);
         assert_eq!(
-            drafts.reorder_owned("ada", 0, &["first", "second"], &["second", "first"]),
+            drafts.reorder_owned("ada", revision, &["first", "second"], &["second", "first"]),
             Ok(true)
         );
-        assert_eq!(drafts.order_revision(), 1);
+        assert_eq!(drafts.order_revision(), revision + 1);
         assert_eq!(
-            drafts.reorder_owned("ada", 1, &["second", "first"], &["second", "first"]),
+            drafts.reorder_owned(
+                "ada",
+                revision + 1,
+                &["second", "first"],
+                &["second", "first"]
+            ),
             Ok(false)
         );
         let drafts = DraftSet::from_json(&drafts.to_json()).unwrap();
-        assert_eq!(drafts.order_revision(), 1);
+        assert_eq!(drafts.order_revision(), revision + 1);
         let own = drafts.owned_views("ada").unwrap();
         assert_eq!(
             own.iter()

@@ -1029,7 +1029,12 @@ fn multi_contribution_moment_seals_are_exact_write_once_and_private() {
     seals.push(seals[0].clone());
     assert!(MomentSet::from_json(&invalid.to_string()).is_err());
     drafts
-        .reorder_owned("ann", 0, &["first", "second"], &["second", "first"])
+        .reorder_owned(
+            "ann",
+            drafts.order_revision(),
+            &["first", "second"],
+            &["second", "first"],
+        )
         .unwrap();
     assert!(moments.are_contributions_sealed("ann", &drafts));
     let revision = moments.revision();

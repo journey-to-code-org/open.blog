@@ -682,6 +682,7 @@ fn build_for(
         );
         let complete = (recipients.is_none() || participant_policy)
             && show_synthesis
+            && !drafts.requires_contribution_mode(active)
             && !subject_sections.is_empty()
             && !withheld
             && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())

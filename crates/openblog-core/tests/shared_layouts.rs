@@ -203,6 +203,80 @@ fn private_drafts_supply_transient_prose_free_ownership_metadata() {
 }
 
 #[test]
+fn legacy_review_and_publication_never_omit_an_extra_live_contribution() {
+    let record = record();
+    let mut set = drafts(&[("ann", "visible Ann"), ("bo", "visible Bo")]);
+    let approvals = approve_all(&record, None, &set);
+    let order_revision = set.order_revision();
+    set.save("ann", "extra", 0, "private extra", T).unwrap();
+    let preview = build(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &approvals,
+        "bo",
+        &ALL,
+        true,
+        Default::default(),
+    )
+    .unwrap();
+    assert!(!preview.complete);
+    assert!(preview.seen.is_none());
+    assert!(!preview.document.contains("private extra"));
+    assert!(matches!(
+        assemble(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &approvals,
+            &ALL,
+            DATE,
+        ),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    let legacy_approvals = approve_all(&record, None, &set);
+    assert!(matches!(
+        assemble(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &legacy_approvals,
+            &ALL,
+            DATE,
+        ),
+        Err(AssemblyError::Invalid)
+    ));
+    set.withdraw("ann", "extra").unwrap();
+    assert!(!set.requires_contribution_mode(&ALL));
+    assert_eq!(
+        set.reorder_owned("ann", order_revision, &["ann"], &["ann"]),
+        Err(openblog_core::draft::DraftError::Stale)
+    );
+    let withdrawn_revision = set.order_revision();
+    set.withdraw("ann", "extra").unwrap();
+    assert_eq!(set.order_revision(), withdrawn_revision);
+    assert!(matches!(
+        assemble(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &approvals,
+            &ALL,
+            DATE,
+        ),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
 fn multi_contribution_arrangement_shows_only_released_drafts() {
     use openblog_core::collaboration::Contribution;
     use openblog_core::draft::{DraftError, RevealPolicy};
@@ -311,8 +385,13 @@ fn multi_contribution_publication_requires_every_current_part_exactly_once() {
             .collect::<Vec<_>>(),
         [("first", 0), ("first", 1), ("second", 0), ("third", 0)]
     );
-    set.reorder_owned("ann", 0, &["first", "second"], &["second", "first"])
-        .unwrap();
+    set.reorder_owned(
+        "ann",
+        set.order_revision(),
+        &["first", "second"],
+        &["second", "first"],
+    )
+    .unwrap();
     let reordered =
         ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).unwrap();
     assert_eq!(reordered.rounds[0].turns[0].draft, "second");

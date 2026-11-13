@@ -844,6 +844,9 @@ fn assemble_inner(
         }
         Err(_) => return Err(AssemblyError::Invalid),
     }
+    if !all_contributions && drafts.requires_contribution_mode(active) {
+        return Err(AssemblyError::Invalid);
+    }
     // Shared prose publishes only with every named author's approval of that exact item.
     let awaited = unapproved_item_authors(synthesis);
     if !awaited.is_empty() {
