@@ -3,16 +3,19 @@
 import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { postList, postHref, sayListDate } from "../parts/post-list.js";
+import { siteHealth } from "../parts/site-health.js";
 
-export async function createHome({ posts }) {
+export async function createHome({ api, meta, posts }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   const body = h("div", { class: "studio-home", "aria-busy": "true" }, h("skeleton-block", { shape: "card" }), h("skeleton-block", { lines: 3 }));
+  const health = siteHealth({ api, meta });
   const write = () => h("action-button", { href: "#/write", size: "lg", class: "studio-primary" }, "Write something new");
   const element = h("section", { class: "studio-page", "aria-labelledby": "studio-home-q" },
     h("h2", { id: "studio-home-q", class: "studio-question", tabindex: "-1", text: "What would you like to do?" }),
     body);
 
   async function load() {
+    health.load();
     let items;
     try {
       items = await posts.list({ fresh: true });
@@ -28,11 +31,12 @@ export async function createHome({ posts }) {
     if (!items.length) {
       body.replaceChildren(h("empty-state", { heading: "Nothing written yet" },
         "Your first recipe or story starts here.",
-        h("action-button", { slot: "actions", href: "#/write", size: "lg" }, "Write something new")));
+        h("action-button", { slot: "actions", href: "#/write", size: "lg" }, "Write something new")), health.element);
       return;
     }
     fill(body,
       write(),
+      health.element,
       drafts.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-keep" },
         h("h3", { id: "studio-keep", text: "Keep going" }),
         h("auto-grid", { min: "15rem" }, drafts.map((p) => h("content-card", { heading: p.title || "Untitled", href: postHref(p.path) },
@@ -47,5 +51,16 @@ export async function createHome({ posts }) {
     );
   }
 
-  return { title: "Home", element, load, focus: () => element.querySelector("h2").focus() };
+  return {
+    title: "Home",
+    element,
+    load,
+    focus: () => element.querySelector("h2").focus(),
+    get palette() {
+      return [{ id: "rebuild", label: "Rebuild the site now", group: "Your site" }, { id: "send", label: "Send out what's waiting", group: "Your site" }];
+    },
+    command(id) {
+      if (id === "rebuild" || id === "send") health.element.querySelector(id === "rebuild" ? "details action-button" : ".studio-health-list action-button")?.click();
+    },
+  };
 }

@@ -297,3 +297,7 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-gift-card { width: 100%; max-width: 36rem; height: auto; }
 @media (max-width: 40rem) { .studio-gift { grid-template-columns: 2.5rem 1fr; padding: var(--space-3); } .studio-gift-box { width: 2.5rem; } }
 .studio-deco-fixed { margin: 0; display: grid; gap: 0.15rem; }
+
+/* Your site (slice 5): what needs her, one line each, with its one action. */
+.studio-health-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-health-list li { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
