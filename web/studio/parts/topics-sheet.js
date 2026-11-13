@@ -68,6 +68,8 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
     try {
       const reply = await api.put("seasonal", { etag: data().etag, seasonalPrompts: { enabled: data().enabled, topics: entries } });
       setData(reply);
+      // An Undo only ever reverts the latest save: any save puts away the one offered before.
+      undoSlot.replaceChildren();
       return reply;
     } catch (error) {
       if (error.status === 401) throw error;
@@ -91,21 +93,39 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
     status.textContent = words;
   }
 
-  function offerUndo(words, entries, after) {
+  /** Undo of the latest save; `focusAfter` puts focus back where her change was, once redrawn. */
+  function offerUndo(words, entries, after, focusAfter) {
     const button = h("action-button", { size: "sm", onClick: async () => {
-      undoSlot.replaceChildren();
-      if (await put(entries)) { draw(); say(after); }
+      if (button.loading) return;
+      button.loading = true;
+      try {
+        // A failed Undo keeps its banner (and her focus) so she can try again.
+        if (await put(entries)) { draw(); say(after); focusAfter(); }
+      } finally {
+        button.loading = false;
+      }
     } }, "Undo");
     undoSlot.replaceChildren(h("alert-banner", { variant: "info", dismissible: true, heading: words }, button));
   }
 
+  const cardOf = (id) => list.querySelector(`[data-topic="${CSS.escape(id)}"]`);
+  /** Focus a topic's switch, or its heading when the switch isn't shown, after a redraw. */
+  const focusTopic = (id, { heading = false } = {}) => requestAnimationFrame(() => {
+    const box = cardOf(id);
+    const target = (!heading && box?.querySelector("toggle-switch")?.querySelector("button, input")) || box?.querySelector("h3") || add;
+    target?.focus?.();
+  });
+
   async function toggle(topic, on) {
     const before = data().entries;
-    if (!(await put(M.withDisabled(before, topic.id, !on)))) { draw(); return; }
+    const saved = await put(M.withDisabled(before, topic.id, !on));
+    // The redraw replaces the switch she pressed: focus goes to the new one, never to the page.
     draw();
+    focusTopic(topic.id);
+    if (!saved) return;
     const words = on ? `“${topic.topic}” is back.` : `Studio won't suggest “${topic.topic}” any more.`;
     say(words);
-    if (!on) offerUndo(words, M.withDisabled(data().entries, topic.id, false), `“${topic.topic}” is back.`);
+    if (!on) offerUndo(words, M.withDisabled(data().entries, topic.id, false), `“${topic.topic}” is back.`, () => focusTopic(topic.id));
   }
 
   async function save() {
@@ -153,7 +173,7 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
     closeForm(topic.id);
     const words = `“${topic.topic}” is back to how it came.`;
     say(words);
-    offerUndo(words, before, `“${topic.topic}” is changed again.`);
+    offerUndo(words, before, `“${topic.topic}” is changed again.`, () => focusTopic(topic.id, { heading: true }));
   }
 
   async function remove(topic) {
@@ -171,7 +191,7 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
     add.focus();
     const words = `Removed “${topic.topic}”.`;
     say(words);
-    offerUndo(words, before, `“${topic.topic}” is back.`);
+    offerUndo(words, before, `“${topic.topic}” is back.`, () => focusTopic(topic.id, { heading: true }));
   }
 
   function dayPicker(which, legend) {

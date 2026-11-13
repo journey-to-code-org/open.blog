@@ -362,6 +362,38 @@ test("Requests: an older requests service is said in plain words, and nothing is
   expect(calls.filter((c) => c.path === "retention/run").map((c) => c.body)).toEqual([{ dryRun: true }]);
 });
 
+test("Reminders: Undo only takes back the latest save, and a switch keeps her focus by keyboard", async ({ page }) => {
+  const server = await mockSeasonal(page);
+  await signIn(page, "#/reminders");
+  await page.getByRole("button", { name: /More/ }).first().click();
+  await page.getByRole("menuitem", { name: "Change topics and dates…" }).click();
+  const sheet = page.locator("side-sheet");
+  await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
+  // Ice dams off, by keyboard: focus stays on its switch after the redraw.
+  const ice = sheet.locator("[data-topic='roofing-ice']");
+  await ice.getByRole("switch", { name: "Suggest this" }).focus();
+  await page.keyboard.press("Space");
+  await expect(sheet.locator("p[role=status]")).toHaveText("Studio won't suggest “Ice dams” any more.");
+  await expect(ice.getByRole("switch", { name: "Suggest this" })).toBeFocused();
+  await expect(ice.getByRole("switch", { name: "Suggest this" })).not.toBeChecked();
+  // Undo by keyboard: focus goes back to the switch, not the page.
+  await sheet.getByRole("button", { name: "Undo" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(sheet.locator("p[role=status]")).toHaveText("“Ice dams” is back.");
+  await expect(ice.getByRole("switch", { name: "Suggest this" })).toBeFocused();
+  await expect(sheet.getByRole("button", { name: "Undo" })).toHaveCount(0);
+  // QA's case: ice off, then a later save; the old Undo must not be there to wipe it.
+  await ice.getByRole("switch", { name: "Suggest this" }).click();
+  await expect(sheet.getByRole("button", { name: "Undo" })).toBeVisible();
+  const winter = sheet.locator("[data-topic='roofing-winter']");
+  await winter.getByRole("button", { name: /Change/ }).click();
+  await winter.getByRole("combobox", { name: "Starts, month" }).selectOption({ label: "August" });
+  await winter.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Saved. Studio suggests “Get the roof ready before winter” from August 1 to October 31.");
+  await expect(sheet.getByRole("button", { name: "Undo" })).toHaveCount(0);
+  expect(server.state.entries).toEqual(expect.arrayContaining([{ id: "roofing-ice", disabled: true }, expect.objectContaining({ id: "roofing-winter", start: "08-01" })]));
+});
+
 test("Escape on “Save this topic?” goes back to the sheet with her edits, and sheets keep opening", async ({ page }) => {
   await mockSeasonal(page);
   await signIn(page, "#/reminders");
