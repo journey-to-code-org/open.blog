@@ -64,6 +64,10 @@ test("diagram templates preview, validate and insert at 400px", async ({ page })
   await page.goto(`${origin}/admin/#/new/posts`);
   await page.getByRole("textbox", { name: "Title", exact: true }).fill("Diagram example");
   expect(wasmRequests).toHaveLength(0);
+  if (process.env.OPENBLOG_DIAGRAM_TEST_MODE === "disabled") {
+    await expect(page.getByRole("button", { name: "Add diagram" })).toHaveCount(0);
+    return;
+  }
   await page.getByRole("button", { name: "Add diagram" }).click();
   const dialog = page.getByRole("dialog", { name: "Add a diagram" });
   const noticeLink = dialog.getByRole("link", { name: "Diagram renderer licenses and source" });

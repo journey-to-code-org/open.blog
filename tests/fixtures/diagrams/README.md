@@ -56,6 +56,11 @@ cargo test --locked -p openblog-core --features diagram-rendering --lib experime
 cargo test --locked -p openblog-core --features diagram-rendering --test diagram_publication
 ```
 
+The browser suite uses the default-feature CLI and checks that the diagram
+button is absent with `OPENBLOG_DIAGRAM_TEST_MODE=disabled`. CI then builds the
+CLI with `diagram-rendering` and runs `diagram-editor.spec.mjs` separately to
+exercise the enabled editor and worker.
+
 Its 200-item model budget is not an exact node-count limit, the native timeout
 is cooperative, and callers on the web must enforce a timeout by terminating
 their Worker. It is not yet a complete or independently security-audited
