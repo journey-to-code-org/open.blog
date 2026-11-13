@@ -17,6 +17,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Revealed drafts, conversation items and observations use valid accessible labels in Admin.
 - Approval requests now recheck that the complete current piece remains visible to the author;
   changing sharing after a preview can no longer allow approval while sections are hidden.
+- Preview viewers without conversation access are never issued a complete-review token, even if
+  all draft sections are visible; this does not reveal whether a private conversation exists.
 - Shared-piece approvals now cover participant attribution in the reflection record. Existing
   approvals must be reviewed again, including for older reflections.
 - The sharing panel names the revision an author offered, and warns when it is older than their

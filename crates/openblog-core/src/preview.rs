@@ -188,7 +188,8 @@ fn approval_label(state: ApprovalState) -> &'static str {
 /// `moments` are the publication's media moments: those proposed for the piece join the approval
 /// binding and make their owners required approvers, exactly as at the publish gate (ADR 0063).
 /// `show_synthesis` is true only when the requester holds `EditSynthesis`; otherwise the items and
-/// the conversation section are left out (readiness still counts them).
+/// the conversation section are left out and the preview is never marked complete or given an
+/// approval token, even if there is no conversation, so its existence is not disclosed.
 /// `options` are the site's production Markdown options. Pure: it never writes drafts or
 /// approvals.
 #[allow(clippy::too_many_arguments)]
@@ -298,7 +299,8 @@ pub fn build(
                     record, structure, drafts, requester, active, &by_author, options,
                 )
             });
-            let complete = !subject_sections.is_empty()
+            let complete = show_synthesis
+                && !subject_sections.is_empty()
                 && !withheld
                 && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())
                 && sections
@@ -569,7 +571,7 @@ fn document(
         } else if complete {
             "Not ready to publish: approvals are missing or out of date."
         } else {
-            "Incomplete: some sections are not shared with you at their current revision."
+            "Incomplete: the whole piece is not available for your review."
         }
     ));
     html.push_str(&format!("<h1>{}</h1>\n", escape::text(title)));

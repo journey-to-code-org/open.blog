@@ -42263,6 +42263,15 @@ series: letters
             assert_eq!(draft_call(&f, who, &id, 0, "A section.").status, 200);
         }
         let grace_id = participant_of(&f, &id, "grace");
+        for who in [&mikey, &grace, &linus] {
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        let before = body_json(&preview_call(&f, &linus, &id));
+        assert_eq!(before["preview"]["complete"], false);
+        assert!(before["preview"]["seen"].is_null());
         let added = add_item(&f, &mikey, &id, "SYNTHESIS-LEAK-PROSE", &[&grace_id]);
         assert_eq!(added.status, 200);
 
@@ -42275,6 +42284,13 @@ series: letters
         assert_eq!(editor.status, 200);
         let body = body_json(&editor);
         assert!(body["preview"]["items"].as_array().unwrap().is_empty());
+        assert!(body["preview"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|section| section["shown"] == true));
+        assert_eq!(body["preview"]["complete"], false);
+        assert!(body["preview"]["seen"].is_null());
         let document = preview_document_text(&f, &linus, &body);
         let everything = format!("{body}{document}");
         assert!(!everything.contains("SYNTHESIS-LEAK-PROSE"));
