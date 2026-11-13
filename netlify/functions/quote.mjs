@@ -21,7 +21,7 @@ import { createStore } from "../lib/quote-store.mjs";
 import { tellOwner } from "../lib/push-store.mjs";
 import { createNotifier, MAX_ATTEMPTS, notifySettings, resendTransport, retryFailed } from "../lib/quote-notify.mjs";
 import { timingSafeEqual } from "node:crypto";
-import { erasePreview, eraseConfirmed, exportCsv, listRequests, retentionSetting, retentionSweep, setRetention, setStatus } from "../lib/quote-admin.mjs";
+import { erasePreview, eraseConfirmed, exportCsv, listRequests, retentionPreview, retentionSetting, retentionSweep, setRetention, setStatus } from "../lib/quote-admin.mjs";
 
 const HOUR = 60 * 60 * 1000;
 const SECURITY = {
@@ -92,7 +92,7 @@ const sameKey = (given, wanted) => {
 };
 
 // Routes under /api/quote/ for the owner. `segments` ends with one of:
-//   GET requests | POST requests/<id>/status | GET export | POST erase/preview | POST erase | POST retention/run
+//   GET requests | POST requests/<id>/status | GET export | POST erase/preview | POST erase | POST retention/run ({ dryRun })
 //   | POST retention ({ days }: the owner's retention choice, ADR 0387)
 async function manage({ settings, env, method, segments, query, body, store, now, notifyEnabled }) {
   const at = segments.indexOf("quote") + 1;
@@ -121,7 +121,12 @@ async function manage({ settings, env, method, segments, query, body, store, now
     const value = input();
     return json(200, await eraseConfirmed({ store, settings, ids: value.ids, token: value.token, now }));
   }
-  if (method === "POST" && parts.length === 2 && parts[0] === "retention" && parts[1] === "run") return json(200, await retentionSweep({ store, settings, days: (await retention()).days, now }));
+  if (method === "POST" && parts.length === 2 && parts[0] === "retention" && parts[1] === "run") {
+    const days = (await retention()).days;
+    // { dryRun: true } counts what would go and erases nothing (G12).
+    if (input().dryRun === true) return json(200, await retentionPreview({ store, settings, days, now }));
+    return json(200, await retentionSweep({ store, settings, days, now }));
+  }
   return json(404, { error: "not-found" });
 }
 

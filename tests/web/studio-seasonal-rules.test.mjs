@@ -88,3 +88,51 @@ test("errors are plain", () => {
   assert.match(seasonalErrorText({ data: { error: "start must be a month and day" } }), /month and day/);
 });
 
+
+// ---- G4 (R1): her own topics and changed words ----
+import { withWords, withTopic, withoutTopic, ownTopicId, topicProblems, tooManyTopics, changedFromBundled, MAX_TOPICS, TOO_MANY_TOPICS } from "../../web/studio/parts/seasonal-rules.js";
+
+test("G4: changed words are an entry beside the id, and other entries are untouched copies", () => {
+  const entries = [{ id: "roofing-winter", start: "09-01", end: "10-31" }, { id: "x", disabled: true }];
+  const next = withWords(entries, "roofing-winter", { topic: " Ice dams ", prompt: "What do you tell people?" });
+  assert.deepEqual(next[0], { id: "roofing-winter", start: "09-01", end: "10-31", topic: "Ice dams", prompt: "What do you tell people?" });
+  assert.notEqual(next[1], entries[1]);
+  assert.deepEqual(entries[0], { id: "roofing-winter", start: "09-01", end: "10-31" }, "the given list is not changed");
+  assert.deepEqual(withWords([], "a", { topic: "T", prompt: "P" }), [{ id: "a", topic: "T", prompt: "P" }]);
+  assert.equal(changedFromBundled(next, "roofing-winter"), true);
+  assert.equal(changedFromBundled([{ id: "x", disabled: true }], "x"), false);
+  assert.equal(changedFromBundled([], "x"), false);
+});
+
+test("G4: her own topic gets an own- id that never collides, at most 40 characters", () => {
+  assert.equal(ownTopicId("Gutter day"), "own-gutter-day");
+  assert.equal(ownTopicId("Crème brûlée!"), "own-creme-brulee");
+  assert.equal(ownTopicId("???"), "own-topic");
+  assert.equal(ownTopicId("Gutter day", [{ id: "own-gutter-day" }]), "own-gutter-day-2");
+  assert.equal(ownTopicId("Gutter day", [{ id: "own-gutter-day" }, { id: "own-gutter-day-2" }]), "own-gutter-day-3");
+  const long = ownTopicId("word ".repeat(30));
+  assert.ok(long.length <= 40 && /^[a-z0-9-]+$/.test(long) && !long.endsWith("-"), long);
+  const clash = ownTopicId("word ".repeat(30), [{ id: long }]);
+  assert.ok(clash.length <= 40 && clash.endsWith("-2"), clash);
+  const added = withTopic([{ id: "own-gutter-day", topic: "Gutter day", prompt: "p", start: "04-01", end: "04-30" }], { topic: "Gutter day", prompt: " Clean them. ", start: "05-01", end: "05-31" });
+  assert.deepEqual(added[1], { id: "own-gutter-day-2", topic: "Gutter day", prompt: "Clean them.", start: "05-01", end: "05-31" });
+});
+
+test("G4: removing an entry puts a bundled topic back as it came, or drops her own", () => {
+  const entries = [{ id: "a", topic: "x" }, { id: "own-b", topic: "b", prompt: "p", start: "01-01", end: "01-31" }];
+  assert.deepEqual(withoutTopic(entries, "a"), [entries[1]]);
+  assert.deepEqual(withoutTopic(entries, "own-b"), [entries[0]]);
+  assert.deepEqual(withoutTopic(entries, "none"), entries);
+});
+
+test("G4: a topic needs a name and something to write about; at most 60 entries", () => {
+  assert.deepEqual(topicProblems({ topic: "", prompt: " " }), { topic: "Give the topic a name.", prompt: "Say what to write about, in a sentence or two." });
+  assert.deepEqual(topicProblems({ topic: "Ice dams", prompt: "Why." }), {});
+  assert.match(topicProblems({ topic: "x".repeat(81), prompt: "p" }).topic, /80/);
+  assert.match(topicProblems({ topic: "t", prompt: "x".repeat(601) }).prompt, /600/);
+  const full = Array.from({ length: MAX_TOPICS }, (_, i) => ({ id: `t${i}`, disabled: true }));
+  assert.equal(tooManyTopics(full), true);
+  assert.equal(tooManyTopics(full, "t3"), false, "changing one already there is fine");
+  assert.equal(tooManyTopics(full.slice(1)), false);
+  assert.equal(TOO_MANY_TOPICS, "You have 60 topics changed or added, the most there can be. Remove one first.");
+});

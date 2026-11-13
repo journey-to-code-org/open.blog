@@ -398,3 +398,24 @@ test("the owner sets the retention days in Admin; a host setting wins and cannot
   assert.deepEqual(JSON.parse(refused.body), { error: "retention-set-by-host" });
   assert.equal(host.f.state.settings, JSON.stringify({ days: 10 }));
 });
+
+test("a retention dry run counts what would go and its photos, and erases nothing (G12)", async () => {
+  const rows = () => [
+    row(1, { status: "archived", archived_at: new Date(NOW - 40 * 86400_000).toISOString(), photos: [photo(1, 1), photo(1, 2)] }),
+    row(2, { status: "archived", archived_at: new Date(NOW - 35 * 86400_000).toISOString() }),
+    row(3, { status: "archived", archived_at: new Date(NOW - 5 * 86400_000).toISOString() }),
+  ];
+  const { handler, f } = make(rows(), {}, { OPENBLOG_QUOTE_RETENTION_DAYS: "30" });
+  const dry = await call(handler, "POST", "retention/run", { body: { dryRun: true } });
+  assert.equal(dry.statusCode, 200, dry.body);
+  assert.deepEqual(JSON.parse(dry.body), { enabled: true, wouldErase: 2, photos: 2 });
+  assert.equal(f.state.rows.length, 3, "nothing was erased");
+  assert.equal(f.state.objects.size, 2, "no photo was moved");
+  assert.ok(!f.state.calls.some((c) => c.startsWith("DELETE") || c.includes("/move")), f.state.calls.join("\n"));
+  // Without days set, nothing would go.
+  const off = make(rows());
+  assert.deepEqual(JSON.parse((await call(off.handler, "POST", "retention/run", { body: { dryRun: true } })).body), { enabled: false, wouldErase: 0, photos: 0 });
+  // The real run still erases.
+  assert.deepEqual(JSON.parse((await call(handler, "POST", "retention/run", { body: {} })).body), { enabled: true, erased: 2 });
+  assert.deepEqual(f.state.rows.map((r) => r.id), [id(3)]);
+});

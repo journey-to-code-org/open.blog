@@ -144,6 +144,205 @@ test("Reminders: Start a draft opens Write; Not now snoozes", async ({ page }) =
   await expect(page).toHaveURL(/#\/write\/posts%2Fportable-lesson\.md$/);
 });
 
+// The seasonal settings, as the server keeps them: bundled topics changed by entries, own topics added.
+function seasonalServer() {
+  const BUNDLED = [
+    { id: "roofing-winter", topic: "Get the roof ready before winter", prompt: "Gutters, flashing and loose shingles.", start: "09-01", end: "10-31" },
+    { id: "roofing-ice", topic: "Ice dams", prompt: "What do you tell people about ice dams?", start: "12-01", end: "02-28" },
+  ];
+  const state = { etag: 1, entries: [], puts: [] };
+  const describe = () => ({
+    enabled: true, etag: `e${state.etag}`, trade: "roofing", entries: state.entries, today: "2026-11-13", voiceReady: false,
+    topics: [
+      ...BUNDLED.map((t) => ({ ...t, ...(state.entries.find((e) => e.id === t.id) || {}), disabled: Boolean(state.entries.find((e) => e.id === t.id)?.disabled), custom: false })),
+      ...state.entries.filter((e) => !BUNDLED.some((t) => t.id === e.id)).map((e) => ({ ...e, disabled: Boolean(e.disabled), custom: true })),
+    ].map(({ id, topic, prompt, start, end, disabled, custom }) => ({ id, topic, prompt, start, end, disabled, custom })),
+    reminders: [{ key: "roofing-winter-2026", id: "roofing-winter", topic: "Get the roof ready before winter", prompt: "Gutters.", opens: "2026-09-01", closes: "2026-11-30", status: "due", snoozedUntil: null, document: null }],
+  });
+  return { state, describe };
+}
+
+async function mockSeasonal(page, server = seasonalServer()) {
+  await page.route("**/admin/api/seasonal**", async (route) => {
+    const path = new URL(route.request().url()).pathname.replace("/admin/api/", "");
+    if (path !== "seasonal") return json(route, 404, { error: "not found" });
+    if (route.request().method() === "GET") return json(route, 200, server.describe());
+    const body = route.request().postDataJSON();
+    server.state.puts.push(body);
+    if (server.state.conflictNext) { server.state.conflictNext = false; server.state.etag += 1; return json(route, 409, { ...server.describe(), error: "changed" }); }
+    if (body.etag !== `e${server.state.etag}`) return json(route, 409, { ...server.describe(), error: "changed" });
+    server.state.entries = body.seasonalPrompts.topics;
+    server.state.etag += 1;
+    return json(route, 200, server.describe());
+  });
+  return server;
+}
+
+test("Reminders: change a topic's words and dates, turn one off with Undo, add and remove her own; leaving asks", async ({ page }) => {
+  const server = await mockSeasonal(page);
+  await signIn(page, "#/reminders");
+  await expect(page.getByRole("heading", { name: "What's worth writing about now?" })).toBeVisible();
+  await expect(page.locator("a[href^='/admin/']")).toHaveCount(0);
+  // From the card: its form opens with the first field focused.
+  await page.locator(".studio-reminders .studio-comment").first().getByRole("button", { name: /More/ }).click();
+  await page.getByRole("menuitem", { name: "Change its dates…" }).click();
+  const sheet = page.locator("side-sheet");
+  await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
+  await expect(sheet.getByRole("textbox", { name: "Topic" })).toBeFocused();
+  const save = sheet.getByRole("button", { name: "Save", exact: true });
+  await expect(save).toBeDisabled();
+  await sheet.getByRole("combobox", { name: "Starts, month" }).selectOption({ label: "October" });
+  await sheet.getByRole("combobox", { name: "Ends, month" }).selectOption({ label: "February" });
+  await expect(sheet.getByText("Runs across the new year.")).toBeVisible();
+  await sheet.getByRole("textbox", { name: "What to write about" }).fill(`Ladders and gutters. ${HOSTILE}`);
+  await save.click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Saved. Studio suggests “Get the roof ready before winter” from October 1 to February 29.");
+  expect(server.state.puts.at(-1)).toEqual({ etag: "e1", seasonalPrompts: { enabled: true, topics: [{ id: "roofing-winter", topic: "Get the roof ready before winter", prompt: `Ladders and gutters. ${HOSTILE}`, start: "10-01", end: "02-29" }] } });
+  // Put back the original, with Undo.
+  const winter = sheet.locator("[data-topic='roofing-winter']");
+  await winter.getByRole("button", { name: /Change/ }).click();
+  await winter.getByRole("button", { name: /More/ }).click();
+  await page.getByRole("menuitem", { name: "Put back the original" }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("“Get the roof ready before winter” is back to how it came.");
+  expect(server.state.entries).toEqual([]);
+  await sheet.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(() => server.state.entries.length).toBe(1);
+  // Turn Ice dams off, then Undo.
+  const ice = sheet.locator("[data-topic='roofing-ice']");
+  await ice.getByRole("switch", { name: "Suggest this" }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Studio won't suggest “Ice dams” any more.");
+  expect(server.state.entries.find((e) => e.id === "roofing-ice")).toEqual({ id: "roofing-ice", disabled: true });
+  await sheet.getByRole("button", { name: "Undo" }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("“Ice dams” is back.");
+  // Add her own: a name is needed first.
+  await sheet.getByRole("button", { name: "Add your own topic" }).click();
+  await sheet.getByRole("button", { name: "Add it" }).click();
+  await expect(sheet.getByText("Give the topic a name.")).toBeVisible();
+  await expect(sheet.locator("[data-topic='new']").getByRole("textbox", { name: "Topic" })).toBeFocused();
+  await sheet.locator("[data-topic='new']").getByRole("textbox", { name: "Topic" }).fill("Gutter day");
+  await sheet.locator("[data-topic='new']").getByRole("textbox", { name: "What to write about" }).fill("Why clean gutters matter.");
+  await sheet.getByRole("button", { name: "Add it" }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Added. Studio suggests “Gutter day” from November 13 to December 13.");
+  await expect(sheet.locator("[data-topic='own-gutter-day'] h3")).toBeFocused();
+  expect(server.state.entries.at(-1)).toEqual({ id: "own-gutter-day", topic: "Gutter day", prompt: "Why clean gutters matter.", start: "11-13", end: "12-13" });
+  // Strangers' text stays text.
+  expect(await page.locator("img[src=x]").count()).toBe(0);
+  // Remove her own: asks once, then Undo puts it back.
+  const own = sheet.locator("[data-topic='own-gutter-day']");
+  await own.getByRole("button", { name: /Change/ }).click();
+  await own.getByRole("button", { name: /More/ }).click();
+  await page.getByRole("menuitem", { name: "Remove this topic…" }).click();
+  await expect(page.getByRole("heading", { name: "Remove “Gutter day”?" })).toBeVisible();
+  await page.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Removed “Gutter day”.");
+  expect(server.state.entries.some((e) => e.id === "own-gutter-day")).toBe(false);
+  await sheet.getByRole("button", { name: "Undo" }).click();
+  await expect(sheet.locator("[data-topic='own-gutter-day']")).toBeVisible();
+  // Another device changed them: her open form keeps what she typed.
+  await ice.getByRole("button", { name: /Change/ }).click();
+  await ice.getByRole("textbox", { name: "Topic" }).fill("Ice dams and icicles");
+  server.state.conflictNext = true;
+  await ice.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("These changed on another device. Here they are now; press Save again.");
+  await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveValue("Ice dams and icicles");
+  // Leaving with the changed form asks first, and staying keeps it.
+  await page.evaluate(() => { location.hash = "#/"; });
+  await expect(page.getByRole("heading", { name: "Save this topic?" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/#\/reminders$/);
+  await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveValue("Ice dams and icicles");
+  // Escape on the sheet asks too; Leave without saving closes it.
+  await ice.getByRole("textbox", { name: "Topic" }).focus();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Save this topic?" })).toBeVisible();
+  await page.getByRole("button", { name: "Leave without saving" }).click();
+  await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toHaveCount(0);
+});
+
+function mockQuoteSheets(page, { retentionDays = null, retentionSource = null, wouldErase = 3 } = {}) {
+  const calls = [];
+  return page.route("**/admin/api/quote/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/admin/api/quote/", "");
+    const body = route.request().postDataJSON?.() ?? null;
+    calls.push({ path, query: Object.fromEntries(url.searchParams), body });
+    if (path === "status") return json(route, 200, { enabled: true, state: "on" });
+    if (path === "requests") return json(route, 200, { requests: [{ id: UUID(1), status: "archived", name: "Pat Miller", phone: "304", town: "Elkins", service: "Roof", description: "x", photos: [], photoCount: 0, createdAt: new Date().toISOString(), notify: "sent", notifyAttempts: 1 }], unreadable: 0, services: [], retentionDays, retentionSource, notifyEnabled: true });
+    if (path === "export") return json(route, 200, url.searchParams.get("from") === "2026-01-01" ? { csv: "", filename: "q.csv", count: 0 } : { csv: "name\nPat\n", filename: "quote-requests.csv", count: 14 });
+    if (path === "retention") return json(route, 200, { retentionDays: body.days, retentionSource: body.days ? "admin" : null });
+    if (path === "retention/run") return json(route, 200, body.dryRun ? { enabled: true, wouldErase, photos: 2 } : { enabled: true, erased: wouldErase, photosPending: 1 });
+    return json(route, 404, { error: "not found" });
+  }).then(() => calls);
+}
+
+test("Requests: download chosen days; clean up archived requests, checked first and asked once", async ({ page }) => {
+  const calls = await mockQuoteSheets(page);
+  await signIn(page, "#/quotes");
+  await expect(page.getByRole("heading", { name: "Who's asking for a quote?" })).toBeVisible();
+  await expect(page.locator("a[href^='/admin/']")).toHaveCount(0);
+  await page.getByRole("button", { name: /More/ }).first().click();
+  await page.getByRole("menuitem", { name: "Download a spreadsheet…" }).click();
+  const sheet = page.locator("side-sheet");
+  await expect(sheet.getByRole("heading", { name: "Download a spreadsheet" })).toBeVisible();
+  await sheet.getByLabel("From").fill("2026-11-05");
+  await sheet.getByLabel("To").fill("2026-11-01");
+  await sheet.getByRole("button", { name: "Download" }).click();
+  await expect(sheet.getByText("Pick a day on or after November 5.")).toBeVisible();
+  await sheet.getByLabel("From").fill("2026-11-01");
+  await sheet.getByLabel("To").fill("2026-11-13");
+  const download = page.waitForEvent("download");
+  await sheet.getByRole("button", { name: "Download" }).click();
+  expect((await download).suggestedFilename()).toBe("quote-requests.csv");
+  await expect(sheet.locator("p[role=status]")).toHaveText("Downloaded 14 requests from November 1 to November 13.");
+  expect(calls.find((c) => c.path === "export").query).toEqual({ from: "2026-11-01", to: "2026-11-13" });
+  await sheet.getByLabel("From").fill("2026-01-01");
+  await sheet.getByLabel("To").fill("2026-01-02");
+  await sheet.getByRole("button", { name: "Download" }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("No requests in those days, so there's nothing to download.");
+  await sheet.getByRole("button", { name: "Done" }).click();
+  // Clean up: on, a bad number is said on the field, then saved.
+  await page.getByRole("button", { name: /More/ }).first().click();
+  await page.getByRole("menuitem", { name: "Clean up archived requests…" }).click();
+  await expect(sheet.getByRole("heading", { name: "Clean up archived requests" })).toBeVisible();
+  await sheet.getByRole("switch", { name: "Erase archived requests by themselves" }).click();
+  const days = sheet.getByRole("textbox", { name: "After how many days" });
+  await expect(days).toHaveValue("30");
+  await days.fill("0");
+  await sheet.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(sheet.getByText("Write a number of days from 1 to 3650.")).toBeVisible();
+  await days.fill("30");
+  await sheet.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Saved. Archived requests are erased 30 days after you archive them.");
+  expect(calls.find((c) => c.path === "retention").body).toEqual({ days: 30 });
+  // Erase the old ones now: a dry run first, then asked once.
+  await sheet.getByRole("button", { name: "Erase the old ones now" }).click();
+  await expect(page.getByRole("heading", { name: "Erase 3 old requests now?" })).toBeVisible();
+  await expect(page.getByText("They were archived more than 30 days ago. They and their 2 photos go for good; this can't be undone.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Keep them" })).toBeFocused();
+  await page.getByRole("button", { name: "Erase for good" }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Erased 3 old requests. 1 photo is still being removed; nothing points to it.");
+  expect(calls.filter((c) => c.path === "retention/run").map((c) => c.body)).toEqual([{ dryRun: true }, {}]);
+  // A changed setting asks before leaving.
+  await sheet.getByRole("switch", { name: "Erase archived requests by themselves" }).click();
+  await page.evaluate(() => { location.hash = "#/"; });
+  await expect(page.getByRole("heading", { name: "Save this?" })).toBeVisible();
+  await page.getByRole("button", { name: "Leave without saving" }).click();
+  await expect(page.getByRole("heading", { name: "What would you like to do?" })).toBeVisible();
+});
+
+test("Requests: a host-set period shows no fields, and nothing old enough says so", async ({ page }) => {
+  const calls = await mockQuoteSheets(page, { retentionDays: 30, retentionSource: "host", wouldErase: 0 });
+  await signIn(page, "#/quotes");
+  await page.getByRole("button", { name: /More/ }).first().click();
+  await page.getByRole("menuitem", { name: "Clean up archived requests…" }).click();
+  const sheet = page.locator("side-sheet");
+  await expect(sheet.getByText("Archived requests are erased 30 days after you archive them. The person who set up your site chose this.")).toBeVisible();
+  await expect(sheet.getByRole("switch")).toHaveCount(0);
+  await sheet.getByRole("button", { name: "Erase the old ones now" }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Nothing is old enough to erase yet.");
+  expect(calls.filter((c) => c.path === "retention/run").map((c) => c.body)).toEqual([{ dryRun: true }]);
+});
+
 async function mockSharing(page) {
   const sent = [];
   const items = [
@@ -204,4 +403,34 @@ test("Requests, Reminders, Sharing and the composer pass axe at 320 px without s
     expect(results, hash).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), hash).toBe(false);
   }
+});
+
+async function axeClean(page, selector, label) {
+  await page.waitForTimeout(400);
+  await page.evaluate(axeSource);
+  const results = await page.evaluate(async (sel) => (await window.axe.run(document.querySelector(sel), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`), selector);
+  expect(results, label).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), label).toBe(false);
+  expect(await page.evaluate((sel) => { const d = document.querySelector(sel); return d ? d.scrollWidth > d.clientWidth + 1 : false; }, `${selector} dialog`), `${label} sheet`).toBe(false);
+}
+
+test("R1 sheets on Reminders and Requests pass axe at 320 px without sideways scrolling", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mockSeasonal(page);
+  await mockQuoteSheets(page, { retentionDays: 30, retentionSource: "admin" });
+  await signIn(page, "#/reminders");
+  await page.getByRole("button", { name: /More/ }).first().click();
+  await page.getByRole("menuitem", { name: "Change topics and dates…" }).click();
+  await page.locator("side-sheet [data-topic='roofing-ice']").getByRole("button", { name: /Change/ }).click();
+  await axeClean(page, "side-sheet", "topics sheet");
+  await page.locator("side-sheet").getByRole("button", { name: "Cancel" }).click();
+  await page.keyboard.press("Escape");
+  await signIn(page, "#/quotes");
+  await page.getByRole("button", { name: /More/ }).first().click();
+  await page.getByRole("menuitem", { name: "Download a spreadsheet…" }).click();
+  await axeClean(page, "side-sheet", "download sheet");
+  await page.locator("side-sheet").getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: /More/ }).first().click();
+  await page.getByRole("menuitem", { name: "Clean up archived requests…" }).click();
+  await axeClean(page, "side-sheet", "clean-up sheet");
 });

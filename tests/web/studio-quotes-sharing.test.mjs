@@ -61,3 +61,36 @@ test("account trouble and send words are hers", () => {
   assert.equal(sentWords(["Facebook", "Bluesky"], "in about 5 minutes"), "On its way. Facebook and Bluesky get it in about 5 minutes.");
   assert.match(shareTrouble({ status: 502, data: { code: "hosted-key-rejected" } }), /isn't working right now/);
 });
+
+// ---- R1: the spreadsheet and clean-up sheets ----
+import { dayWords, exportDayProblem, exportWords, retentionWords, retentionDaysProblem, eraseOldQuestion, erasedOldWords } from "../../web/studio/parts/quote-words.js";
+
+test("a download says how many and which days, and nothing when none", () => {
+  assert.equal(dayWords("2026-11-01"), "November 1");
+  assert.equal(dayWords("nope"), "");
+  assert.equal(exportWords(14, "2026-11-01", "2026-11-13"), "Downloaded 14 requests from November 1 to November 13.");
+  assert.equal(exportWords(214, "", ""), "Downloaded all 214 requests.");
+  assert.equal(exportWords(1, "2026-11-01", ""), "Downloaded 1 request from November 1 on.");
+  assert.equal(exportWords(2, "", "2026-11-13"), "Downloaded 2 requests up to November 13.");
+  assert.equal(exportWords(0, "2026-11-01", "2026-11-02"), "No requests in those days, so there's nothing to download.");
+  assert.equal(exportDayProblem("2026-11-05", "2026-11-01"), "Pick a day on or after November 5.");
+  assert.equal(exportDayProblem("2026-11-05", "2026-11-05"), "");
+  assert.equal(exportDayProblem("", "2026-11-01"), "");
+});
+
+test("how long archived requests stay, and who chose it", () => {
+  assert.equal(retentionWords(30, "admin"), "Archived requests are erased 30 days after you archive them.");
+  assert.equal(retentionWords(1, "admin"), "Archived requests are erased 1 day after you archive them.");
+  assert.equal(retentionWords(30, "host"), "Archived requests are erased 30 days after you archive them. The person who set up your site chose this.");
+  assert.equal(retentionWords(null, null), "Archived requests stay until you erase them.");
+  for (const good of ["1", "30", " 3650 "]) assert.equal(retentionDaysProblem(good), "", good);
+  for (const bad of ["0", "3651", "1.5", "", "thirty", "-3"]) assert.equal(retentionDaysProblem(bad), "Write a number of days from 1 to 3650.", bad);
+});
+
+test("erasing old requests asks with the dry run's counts and says what went", () => {
+  assert.deepEqual(eraseOldQuestion({ wouldErase: 3, photos: 2 }, 30), { heading: "Erase 3 old requests now?", text: "They were archived more than 30 days ago. They and their 2 photos go for good; this can't be undone." });
+  assert.deepEqual(eraseOldQuestion({ wouldErase: 1, photos: 0 }, 1), { heading: "Erase 1 old request now?", text: "It was archived more than 1 day ago. It goes for good; this can't be undone." });
+  assert.equal(eraseOldQuestion({ wouldErase: 1, photos: 1 }, 30).text, "It was archived more than 30 days ago. It and its 1 photo go for good; this can't be undone.");
+  assert.equal(erasedOldWords({ erased: 3 }), "Erased 3 old requests.");
+  assert.equal(erasedOldWords({ erased: 3, photosPending: 1 }), "Erased 3 old requests. 1 photo is still being removed; nothing points to it.");
+});

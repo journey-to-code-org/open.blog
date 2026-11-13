@@ -398,16 +398,7 @@ pub(super) fn route_with(
         ("GET", ["export"]) => export(req, &config, user),
         ("POST", ["erase", "preview"]) => erase_preview(req, &config, user),
         ("POST", ["erase"]) => erase(req, &config, user),
-        ("POST", ["retention", "run"]) => {
-            object_body(req, &[]).and_then(|_| {
-                hosted(&config, "POST", "retention/run", &[], Some(&json!({})), user).map(|reply| {
-                    json!({
-                        "enabled": reply.get("enabled").and_then(Json::as_bool).unwrap_or(false),
-                        "erased": reply.get("erased").and_then(Json::as_u64).filter(|n| *n <= 100_000).unwrap_or(0),
-                    })
-                })
-            })
-        }
+        ("POST", ["retention", "run"]) => run_retention(req, &config, user),
         ("POST", ["retention"]) => set_retention(req, &config, user),
         ("POST", ["notifications", "retry"]) => retry_notifications(req, &config, user),
         _ => return Response::error(404, "Unknown API route"),
@@ -467,6 +458,50 @@ fn set_retention(req: &Request, config: &QuoteConfig, user: &str) -> Result<Json
         return Err(bad_reply());
     }
     Ok(json!({ "retentionDays": kept, "retentionSource": kept.map(|_| "admin") }))
+}
+
+/// Erases archived requests past the retention days now, or, with `{dryRun: true}`, only counts
+/// them and their photos so Studio can say what would go before asking (G12). Only counts return.
+fn run_retention(req: &Request, config: &QuoteConfig, user: &str) -> Result<Json, Response> {
+    let body = object_body(req, &["dryRun"])?;
+    let dry = match body.get("dryRun") {
+        None | Some(Json::Bool(false)) => false,
+        Some(Json::Bool(true)) => true,
+        Some(_) => return Err(Response::error(400, "dryRun is true or false")),
+    };
+    let sent = if dry {
+        json!({ "dryRun": true })
+    } else {
+        json!({})
+    };
+    let reply = hosted(config, "POST", "retention/run", &[], Some(&sent), user)?;
+    let count = |key: &str| {
+        reply
+            .get(key)
+            .and_then(Json::as_u64)
+            .filter(|n| *n <= 100_000)
+            .unwrap_or(0)
+    };
+    let enabled = reply
+        .get("enabled")
+        .and_then(Json::as_bool)
+        .unwrap_or(false);
+    if dry {
+        // An older function ignores dryRun and erases: its reply has `erased`, never `wouldErase`.
+        if reply.get("wouldErase").is_none() {
+            return Err(bad_reply());
+        }
+        return Ok(json!({
+            "enabled": enabled,
+            "wouldErase": count("wouldErase"),
+            "photos": count("photos"),
+        }));
+    }
+    let mut out = json!({ "enabled": enabled, "erased": count("erased") });
+    if count("photosPending") > 0 {
+        out["photosPending"] = json!(count("photosPending"));
+    }
+    Ok(out)
 }
 
 /// Sends again the owner's emails that failed (at most five tries each, ADR 0383). Only counts

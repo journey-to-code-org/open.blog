@@ -63,6 +63,68 @@ export function windowProblems(start, end) {
   return problems;
 }
 
+// ---- Studio's topics sheet (R1, G4): her own topics and changed words. The server checks again
+// (core seasonal.rs `parse_entry`, `incomplete`); these keep Studio from sending what it refuses.
+
+/** The most changed or added topics a site may keep (core `MAX_ENTRIES`). */
+export const MAX_TOPICS = 60;
+export const MAX_TOPIC_WORDS = 80;
+export const MAX_PROMPT_WORDS = 600;
+const MAX_ID = 40;
+
+/** The stored entries with one topic's words changed. */
+export function withWords(entries, id, { topic, prompt }) {
+  return upsert(entries, id, { topic: String(topic ?? "").trim(), prompt: String(prompt ?? "").trim() });
+}
+
+/** An id for her own topic: `own-<slug>` (never a bundled id of any trade), at most 40 characters,
+ *  with `-2`, `-3`... when the site already has it. */
+export function ownTopicId(topic, entries = []) {
+  const slug = String(topic ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const taken = new Set(entries.map((entry) => entry.id));
+  const base = `own-${slug || "topic"}`.slice(0, MAX_ID).replace(/-+$/, "");
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n += 1) {
+    const tail = `-${n}`;
+    const id = `${base.slice(0, MAX_ID - tail.length).replace(/-+$/, "")}${tail}`;
+    if (!taken.has(id)) return id;
+  }
+}
+
+/** The stored entries with her own topic added (every field stated, as the server requires). */
+export function withTopic(entries, { topic, prompt, start, end }) {
+  const id = ownTopicId(topic, entries);
+  return [...entries.map((entry) => ({ ...entry })), { id, topic: String(topic ?? "").trim(), prompt: String(prompt ?? "").trim(), start, end }];
+}
+
+/** The stored entries without one topic's entry: her own topic goes, a bundled one is as it came. */
+export function withoutTopic(entries, id) {
+  return entries.filter((entry) => entry.id !== id).map((entry) => ({ ...entry }));
+}
+
+/** Whether a topic's words or dates were changed from how they came (a bundled topic with an entry
+ *  holding more than its id and on/off). */
+export function changedFromBundled(entries, id) {
+  const entry = entries.find((e) => e.id === id);
+  return Boolean(entry && ["topic", "prompt", "start", "end"].some((key) => key in entry));
+}
+
+/** Problems with a topic's words, by field, in her words; an empty object is fine. */
+export function topicProblems({ topic, prompt }) {
+  const problems = {};
+  if (!String(topic ?? "").trim()) problems.topic = "Give the topic a name.";
+  else if (Array.from(String(topic).trim()).length > MAX_TOPIC_WORDS) problems.topic = `Keep the name to ${MAX_TOPIC_WORDS} characters.`;
+  if (!String(prompt ?? "").trim()) problems.prompt = "Say what to write about, in a sentence or two.";
+  else if (Array.from(String(prompt).trim()).length > MAX_PROMPT_WORDS) problems.prompt = `Keep it to ${MAX_PROMPT_WORDS} characters.`;
+  return problems;
+}
+
+/** Whether one more entry would pass the most a site may keep. */
+export const tooManyTopics = (entries, id = null) => !entries.some((entry) => entry.id === id) && entries.length >= MAX_TOPICS;
+
+export const TOO_MANY_TOPICS = `You have ${MAX_TOPICS} topics changed or added, the most there can be. Remove one first.`;
+
 const ERROR_TEXT = Object.freeze({
   401: "You were signed out. Sign in again, then try again.",
   404: "That reminder is no longer listed. Reload to see today's list.",

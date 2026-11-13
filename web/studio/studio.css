@@ -414,3 +414,8 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 
 /* Small buttons still meet the 44 px target (QA, slices 9 and 10a). */
 .studio-page action-button[size="sm"] .action-button { min-height: 2.75rem; }
+
+/* R1 sheets: room for a form beside the list on a computer, the whole width on a phone. */
+side-sheet.studio-wide-sheet dialog, side-sheet.studio-wide-sheet .sheet { width: min(32rem, 100vw); max-width: 100vw; }
+.studio-topic-form { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-topic-form select-field { display: block; }

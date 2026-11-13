@@ -257,6 +257,14 @@ export async function eraseConfirmed({ store, settings, ids, token, now }) {
   return eraseRows({ store, settings, rows: await rowsFor(store, list) });
 }
 
+// What the sweep would erase now, counted and changed nothing (G12): Admin asks before erasing.
+export async function retentionPreview({ store, settings, days, now }) {
+  if (!days) return { enabled: false, wouldErase: 0, photos: 0 };
+  const before = new Date(now() - days * DAY).toISOString();
+  const rows = await store.archivedBefore(before, MAX_ERASE * 20);
+  return { enabled: true, wouldErase: rows.length, photos: rows.reduce((n, row) => n + photoPaths(settings, row).length, 0) };
+}
+
 // Archived requests older than the retention period. One failed batch stops the sweep and reports.
 export async function retentionSweep({ store, settings, days, now }) {
   if (!days) return { enabled: false, erased: 0 };
