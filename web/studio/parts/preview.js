@@ -18,6 +18,8 @@ export async function showPreview(api, { kind = "posts", path = "", fields, body
     opener?.focus?.();
   });
   const stage = h("div", { class: "studio-preview-stage", "data-device": "computer" });
+  // Focus starts on Back to writing, never inside the frame, so Escape and Tab always work.
+  const back = h("action-button", { variant: "secondary", onClick: close }, "Back to writing");
   const notes = h("div", { "aria-live": "polite" });
   const device = h("segmented-control", { label: "Show it on", value: "computer", class: "studio-preview-device",
     options: [{ value: "computer", label: "Computer" }, { value: "phone", label: "Phone" }],
@@ -25,10 +27,11 @@ export async function showPreview(api, { kind = "posts", path = "", fields, body
   sheet.append(
     h("span", { slot: "heading", text: "How it looks" }),
     h("p", { class: "studio-help", text: "Only you can see this. Nothing is published." }),
-    h("div", { class: "studio-row studio-preview-tools" }, device, h("action-button", { variant: "secondary", onClick: close }, "Back to writing")),
+    h("div", { class: "studio-row studio-preview-tools" }, device, back),
     notes, stage);
   document.body.append(sheet);
   sheet.open = true;
+  requestAnimationFrame(() => back.querySelector("button")?.focus());
 
   async function build(retried = false) {
     const slow = setTimeout(() => stage.querySelector(".studio-preview-wait")?.replaceChildren(
@@ -41,7 +44,6 @@ export async function showPreview(api, { kind = "posts", path = "", fields, body
       const frame = h("iframe", { class: "studio-preview-frame", title: `How ${title || "this post"} will look` });
       frame.setAttribute("sandbox", "allow-scripts");
       frame.setAttribute("src", reply.previewUrl);
-      frame.addEventListener("load", () => frame.focus(), { once: true });
       stage.replaceChildren(frame);
     } catch (error) {
       if (error.status === 404 && !retried) return build(true);

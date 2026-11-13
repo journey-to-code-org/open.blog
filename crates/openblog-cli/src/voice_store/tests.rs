@@ -1226,7 +1226,8 @@ fn promoting_a_polished_draft_creates_a_valid_post_draft_and_leaves_the_samples_
         );
         let text = fs::read_to_string(project.0.join(&created)).unwrap();
         assert!(
-            text.contains("draft: \"true\"") && text.contains("So I deleted the folder."),
+            (text.contains("draft: \"true\"") || text.contains("draft: true"))
+                && text.contains("So I deleted the folder."),
             "{text}"
         );
         assert!(!text.contains("voice"), "{text}");

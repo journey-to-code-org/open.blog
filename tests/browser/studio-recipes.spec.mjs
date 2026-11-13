@@ -147,7 +147,28 @@ test("See how it looks shows the recipe in a sandboxed frame and publishes nothi
   await expect(inner.locator("li", { hasText: "1 can pumpkin" }).first()).toBeVisible({ timeout: 30000 });
   await expect(inner.getByText("Bake for 45 minutes").first()).toBeVisible();
   expect(pie()).toBe(PIE);
+  await expect(page.getByRole("button", { name: "Back to writing" })).toBeFocused();
+  expect(await axeViolations(page)).toEqual([]);
   await page.getByRole("button", { name: "Back to writing" }).click();
+});
+
+test("Save on a published post keeps the changes here instead of putting them live", async ({ page }) => {
+  writeFileSync(join(root, "content", PIE_REL), PIE.replace("draft: true\n", ""));
+  await openPie(page);
+  await page.getByRole("textbox", { name: "Your story" }).fill("Half-typed thou");
+  await page.keyboard.press("Control+s");
+  await expect(page.getByText("Kept on this device. Press Update")).toBeVisible();
+  expect(pie()).toBe(PIE.replace("draft: true\n", ""));
+  writeFileSync(join(root, "content", PIE_REL), PIE);
+});
+
+test("photos show under the story and come out without touching the code", async ({ page }) => {
+  writeFileSync(join(root, "content", PIE_REL), PIE.replace("Mama taught me this one.", "Mama taught me this one.\n\n![Pie on the sill](/images/uploads/2026/pie.png)"));
+  await openPie(page);
+  await expect(page.getByRole("list", { name: "Photos in this box" }).getByText("Pie on the sill", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^Take it out/ }).click();
+  await expect(page.getByRole("textbox", { name: "Your story" })).toHaveValue("Mama taught me this one.");
+  writeFileSync(join(root, "content", PIE_REL), PIE);
 });
 
 test("publish, take it off her site, and the draft line is all that changes", async ({ page }) => {

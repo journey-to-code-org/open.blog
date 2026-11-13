@@ -5,10 +5,11 @@
 import { h } from "./dom.js";
 import { use } from "../zubra.js";
 import { splitPasted, writeRecipeBody } from "./recipe-body.js";
+import { photoStrip, withoutPhoto } from "./photo-strip.js";
 
 const LISTS = {
   ingredients: { one: "Ingredient", add: "Add an ingredient", legend: "Ingredients", help: "Start with the amount: 2 cups flour. Press Return for the next one.", rows: 1 },
-  steps: { one: "Step", add: "Add a step", legend: "Steps", help: "Write times like “bake for 45 minutes” and readers get a timer.", rows: 2 },
+  steps: { one: "Step", add: "Add a step", legend: "Steps", help: "Write times like “bake for 45 minutes” and readers get a timer. Use Add a step for the next one.", rows: 2 },
 };
 
 /**
@@ -24,7 +25,21 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
     notes: parsed.notes ? parsed.notes.text : "",
   };
   const notesHeading = parsed.notes?.heading || "Grammi's notes";
-  const changed = () => onChange?.();
+  const strips = {
+    story: photoStrip({ onRemove: (photo) => takeOut("story", photo) }),
+    notes: photoStrip({ onRemove: (photo) => takeOut("notes", photo) }),
+  };
+  const changed = () => {
+    strips.story.update(state.story);
+    strips.notes.update(state.notes);
+    onChange?.();
+  };
+  const takeOut = (target, photo) => {
+    const text = withoutPhoto(state[target], photo.line);
+    (target === "notes" ? notes : story).value = text;
+    state[target] = text;
+    changed();
+  };
 
   const story = h("text-field", { label: "Your story", class: "studio-writing", rows: 8, value: state.story,
     description: "Who taught you this, the year it went wrong, who asks for seconds.",
@@ -37,15 +52,16 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
     ? h("p", { class: "studio-help studio-others", text: `Also in this post: ${parsed.others.map((o) => `“${o.heading}”`).join(", ")}. Studio keeps ${parsed.others.length === 1 ? "it" : "them"} just as ${parsed.others.length === 1 ? "it is" : "they are"}.` })
     : null;
   const element = h("div", { class: "studio-recipe" },
-    story, h("action-button", { variant: "secondary", class: "studio-put-photo", onClick: (e) => onPutPhoto?.("story", e.currentTarget) }, "Put a photo in"),
+    story, strips.story.element, h("action-button", { variant: "secondary", class: "studio-put-photo", onClick: (e) => onPutPhoto?.("story", e.currentTarget) }, "Put a photo in"),
     lists.ingredients.element, lists.steps.element,
-    notes, h("action-button", { variant: "secondary", class: "studio-put-photo", onClick: (e) => onPutPhoto?.("notes", e.currentTarget) }, "Put a photo in"),
+    notes, strips.notes.element, h("action-button", { variant: "secondary", class: "studio-put-photo", onClick: (e) => onPutPhoto?.("notes", e.currentTarget) }, "Put a photo in"),
     others);
 
   // One list (ingredients or steps): rows of a text field and a "Move or remove" menu.
   function listBox(kind) {
     const words = LISTS[kind];
-    const live = h("p", { class: "studio-visually-hidden", "aria-live": "polite" });
+    // Said aloud and shown: after a move she can see which row went where.
+    const live = h("p", { class: "studio-help studio-row-note", "aria-live": "polite" });
     const rows = h("ol", { class: "studio-rows", "aria-label": words.legend });
     const helpId = `studio-${kind}-help`;
     const box = h("fieldset", { class: "studio-list-box" },
@@ -61,6 +77,7 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
     function draw(focusIndex = -1, caret = null) {
       const items = state[kind];
       rows.replaceChildren(...items.map((text, index) => row(text, index, items.length)));
+      requestAnimationFrame(() => rows.querySelectorAll("input, textarea").forEach((input) => input.setAttribute("aria-describedby", helpId)));
       if (focusIndex >= 0) {
         requestAnimationFrame(() => {
           const input = field(focusIndex);
@@ -90,7 +107,6 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
       const li = h("li", { class: "studio-row-item" }, input, menu);
       input.addEventListener("keydown", (event) => onKey(event, index));
       input.addEventListener("paste", (event) => onPaste(event, index));
-      input.setAttribute("data-help", helpId);
       return li;
     }
 
@@ -157,6 +173,9 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
     draw();
     return { element: box, focusRow: (index) => field(index)?.focus() };
   }
+
+  strips.story.update(state.story);
+  strips.notes.update(state.notes);
 
   return {
     element,

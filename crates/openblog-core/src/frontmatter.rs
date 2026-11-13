@@ -508,7 +508,8 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
             Value::Scalar(s) => {
                 out.push_str(key);
                 out.push_str(": ");
-                out.push_str(&quote_scalar(s));
+                // `draft` is a plain YAML boolean, which every reader agrees on.
+                out.push_str(&scalar_for(key, s, None));
                 out.push('\n');
             }
             Value::List(items) => {

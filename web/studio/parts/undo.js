@@ -3,6 +3,7 @@
 // it goes when she closes it, deletes something else, signs out or closes Studio.
 import { h, toast } from "./dom.js";
 import { use } from "../zubra.js";
+import { howItGoesOut } from "./publish.js";
 
 const KEY = "studio:undo";
 
@@ -27,15 +28,16 @@ function remembered() {
 export async function createUndo({ api, posts, slot, onRestored }) {
   await use("alert-banner", "action-button");
   let last = remembered();
+  let wantsFocus = false; // the next screen to open gives focus to Undo, not its heading
 
   function draw() {
     if (!last) { slot.replaceChildren(); return; }
     const undo = h("action-button", { onClick: () => restore() }, "Undo");
     const detail = h("details", { class: "studio-undo-details" },
-      h("summary", { text: "What Studio did" }),
+      h("summary", { text: "For the person who set up your site" }),
       h("p", { class: "studio-mono", text: `Moved content/${last.path} to .openblog/trash/${last.trashedTo}` }));
     const banner = h("alert-banner", { variant: "info", dismissible: true, heading: `Deleted “${last.title}”.` },
-      last.wasLive ? "Readers stop seeing it in about a minute. " : "",
+      last.wasLive && last.sendsOut ? "Readers stop seeing it in about a minute. " : "",
       "You can bring it back. ", h("cluster-layout", { gap: "0.5rem" }, undo), detail);
     banner.addEventListener("close", () => { last = null; remember(null); draw(); });
     slot.replaceChildren(banner);
@@ -53,9 +55,10 @@ export async function createUndo({ api, posts, slot, onRestored }) {
       remember(null);
       draw();
       posts.stale();
-      const live = reply.status === "published";
+      const live = reply.status === "published" && what.sendsOut;
       toast(live ? `“${what.title}” is back. It's on your site again in about a minute.` : reply.status === "scheduled" ? `“${what.title}” is back, still scheduled.` : `“${what.title}” is back.`);
       onRestored?.(reply);
+      requestAnimationFrame(() => document.querySelector("#studio-main h2")?.focus());
     } catch (error) {
       const words = error.status === 404 ? `“${what.title}” can't come back from here. The person who set up your site may still find it.`
         : error.status === 409 ? "There's a new post with that name now. Ask the person who set up your site to help bring this one back."
@@ -97,13 +100,32 @@ export async function createUndo({ api, posts, slot, onRestored }) {
       toast(`Deleted “${title}”.`);
       return true;
     }
-    last = { path, title, wasLive, trashedTo: reply.trashedTo, trashedCreditsTo: reply.trashedCreditsTo, trashedContextTo: reply.trashedContextTo };
+    const goes = await howItGoesOut(api);
+    last = { path, title, wasLive, sendsOut: goes.kind !== "none", trashedTo: reply.trashedTo, trashedCreditsTo: reply.trashedCreditsTo, trashedContextTo: reply.trashedContextTo };
     remember(last);
-    const undo = draw();
-    requestAnimationFrame(() => undo?.querySelector(".action-button")?.focus());
+    draw();
+    wantsFocus = true;
+    requestAnimationFrame(() => focusUndo());
     return true;
   }
 
+  function focusUndo() {
+    const button = slot.querySelector("action-button .action-button");
+    button?.focus();
+    return Boolean(button);
+  }
+
   draw();
-  return { deletePost, restore, forget: () => { last = null; remember(null); draw(); } };
+  return {
+    deletePost,
+    restore,
+    has: () => Boolean(last),
+    /** Called by the shell when a screen opens: Undo keeps focus right after a delete. */
+    takeFocus() {
+      if (!wantsFocus) return false;
+      wantsFocus = false;
+      return focusUndo();
+    },
+    forget: () => { last = null; remember(null); draw(); },
+  };
 }

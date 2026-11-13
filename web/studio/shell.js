@@ -41,7 +41,7 @@ export async function startShell(root, api, meta) {
 
   const palette = h("command-palette", { label: "Find", placeholder: "Find a post or something to do…", onSelect: (event) => runCommand(event.detail) });
   palette.addEventListener("openchange", (event) => { if (event.detail) refreshPalette(); });
-  root.replaceChildren(shell, palette, h("toast-region", { position: "bottom-center", label: "Messages" }));
+  root.replaceChildren(shell, palette, h("toast-region", { position: globalThis.matchMedia?.("(max-width: 40rem)").matches ? "top-center" : "bottom-center", label: "Messages" }));
 
   // Signing in again: a dialog over the screen, so her words stay where they are.
   api.onSignedOut = () => new Promise((resolve, reject) => {
@@ -78,7 +78,8 @@ export async function startShell(root, api, meta) {
   let paletteScreen = [];
   const BASE = [
     ...NAV.map((item) => ({ id: `go-${item.id}`, label: item.label, group: "Go to", href: item.href })),
-    { id: "write", label: "Write something new", group: "Do", href: "#/write" },
+    { id: "write-recipe", label: "Write a new recipe", group: "Do", href: "#/write/new/recipe" },
+    { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
     { id: "site", label: "View my site", group: "Do" },
     { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin" },
     { id: "signout", label: "Sign out", group: "Do" },
@@ -91,7 +92,8 @@ export async function startShell(root, api, meta) {
       // The palette still offers everything else.
     }
     palette.items = [
-      ...paletteScreen,
+      ...(context.undo?.has() ? [{ id: "undo", label: "Undo the delete", group: "Do" }] : []),
+      ...(router.current()?.palette || paletteScreen),
       ...BASE,
       ...items.filter((p) => p.status !== "error").map((p) => ({
         id: `post:${p.path}`, label: p.title || p.path, group: "Posts", href: `#/write/${encodeURIComponent(p.path)}`,
@@ -119,6 +121,7 @@ export async function startShell(root, api, meta) {
   function runCommand(id) {
     if (id === "site") account("site");
     else if (id === "signout") signOut();
+    else if (id === "undo") context.undo?.restore();
     else router.current()?.command?.(id);
   }
 
@@ -133,6 +136,7 @@ export async function startShell(root, api, meta) {
       paletteScreen = screen.palette || [];
       palette.items = [...paletteScreen, ...BASE];
       await screen.load?.();
+      if (context.undo?.takeFocus()) return;
       if (screen.focus) screen.focus();
       else content.querySelector("h1, h2")?.focus?.();
     },

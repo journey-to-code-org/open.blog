@@ -57,3 +57,53 @@ Made by the stakeholder delegate on 2026-11-12, from the brief, the architecture
   - The Undo banner says "You can bring it back." next to Undo.
   - The name-taken case says "There's a new post with that name now. Ask the person who set up your site to help bring this one back."
 - **The status line always shows the save state on the phone**, now that Save draft lives in More.
+
+## Review round (QA, Grammi and Mikey using the running slice)
+
+All three found no data loss. QA passed finish-line checks 3–6. Grammi finished task 1 without help, and Mikey finished task 2 keyboard-only. Every save kept the file as written.
+
+Fixed:
+- **Saving and keys**
+  - Ctrl/⌘ S on a published post keeps the changes on the device, and Update puts them on the site. It never publishes half-typed words.
+  - Studio sends only the fields that changed (`onlyChanges`); keep mode leaves the rest alone.
+  - New posts are written with a bare `draft: true` (`compose` too, so the old Admin benefits).
+- **Focus**
+  - See how it looks focuses **Back to writing**, not the frame, so Escape and Tab work. It passes axe.
+  - The dialog and side-sheet headers no longer count as a second banner (a Studio workaround until Zubra UI changes).
+  - Undo keeps focus after a delete from Write. "Undo the delete" is in Find, and focus goes to the screen's heading after Undo.
+  - Opening a post scrolls only Studio's own scroller, to the top.
+- **Find, and More from the same list:** one command table feeds both. Find adds "Write a new recipe", "Write a new story" and the setup-person items.
+- **What she's told about where a post went**
+  - When this server is the public site: "Published. It's on your site."
+  - When the public site is elsewhere and nothing sends it out: "Published here. Your public site doesn't update from Studio yet, so ask the person who set it up."
+  - The word "server" is gone.
+  - The delete banner says when readers stop seeing a post only when a send-out is set up.
+- **Photos.** They show under the story, the notes and the Words box, each with **Take it out**, so the `![…]` line doesn't look broken.
+- **Recipe rows**
+  - Rows are full width, with Move or remove on the label line.
+  - Steps grow with their text.
+  - Moves are shown in words as well as read aloud, with no flash under reduced motion.
+  - Row boxes are tied to their list's help.
+- **Posts and Home**
+  - Posts: posts with no date say "No date yet", not 1970. Two posts with the same title show their file names. On a phone the title takes the whole line.
+  - Home: "Draft, goes up Friday, November 20".
+- **Smaller fixes**
+  - Toasts sit at the top on a phone, so they never cover the bar.
+  - The Undo details read "For the person who set up your site".
+  - A post that won't open hides the form and offers **Back to your posts**.
+  - The details sheet no longer shows the word "null".
+  - The publish setting is asked at most once a minute.
+- **Code**
+  - The conflict words moved to `parts/conflict.js`.
+  - The take-off copies became one.
+  - `write.js` is still about 590 lines.
+
+Deferred:
+- **`write.js` split** [senior dev, before slice 3]: a DOM-free post session (save, announce, problems), and the body host (one box or the boxes).
+- **Zubra UI upstream** [Zubra UI]:
+  - a `modal-dialog`/`side-sheet` header that isn't a banner;
+  - a `file-drop` prompt;
+  - destructive menu items.
+- **"What was written"** [senior UX]: the details say whether the file was kept, but not which keys changed.
+- **A conflict view that shows what differs** [senior UX], instead of the raw Markdown aside.
+- **Restoring the original position of `draft`** [architect]: taking a post off adds `draft` by key order, so publish-then-take-off isn't byte-identical to the original.

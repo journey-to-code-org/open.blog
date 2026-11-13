@@ -8,10 +8,11 @@ import { ask } from "../parts/dialogs.js";
 import { coverPicker } from "../parts/cover-picker.js";
 import { createKept } from "../parts/kept.js";
 import { joinInstant, splitInstant } from "../parts/dates.js";
-import { fieldsToSend, formFromDocument, postState, primaryAction, statusLine } from "../parts/post-fields.js";
-import { howItGoesOut, sendOut, siteLink } from "../parts/publish.js";
+import { fieldsToSend, formFromDocument, onlyChanges, postState, primaryAction, statusLine } from "../parts/post-fields.js";
+import { howItGoesOut, sendOut, siteLink, wentOutWords } from "../parts/publish.js";
 import { keptBanner, mineAside, postDetails } from "../parts/post-details.js";
 import { choosePicture } from "../parts/picture-picker.js";
+import { photoStrip, withoutPhoto } from "../parts/photo-strip.js";
 import { imageMarkdown, insertParagraph } from "../parts/image-markdown.js";
 import { parseRecipeBody } from "../parts/recipe-body.js";
 import { isRecipe } from "../parts/recipe-fields.js";
@@ -19,10 +20,10 @@ import { recipeEditor } from "../parts/recipe-editor.js";
 import { recipeNumbers } from "../parts/recipe-numbers.js";
 import { adviceFor } from "../parts/recipe-advice.js";
 import { showPreview } from "../parts/preview.js";
-import { takeOffQuestion, takenOffWords } from "../parts/take-off.js";
+import { takeOffQuestion } from "../parts/take-off.js";
+import { askWhichToKeep, busyBanner, chooseLaterBanner } from "../parts/conflict.js";
 
 const AUTOSAVE_MS = 3000;
-const STATE_WORDS = { draft: "a draft", scheduled: "scheduled", published: "published" };
 const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
 
 export async function createWrite(context, arg) {
@@ -56,6 +57,7 @@ export async function createWrite(context, arg) {
   const banner = h("div", { class: "studio-banner", "aria-live": "polite" });
   const title = h("text-field", { label: "Title", class: "studio-writing studio-writing-title", maxlength: 200 });
   const words = h("text-field", { label: "Words", class: "studio-writing", rows: 18, description: "Leave an empty line between paragraphs. For a list, start each line with a dash (-)." });
+  const wordsStrip = photoStrip({ onRemove: (photo) => { words.value = withoutPhoto(String(words.value || ""), photo.line); changed(); } });
   const wordsPhoto = h("action-button", { variant: "secondary", class: "studio-put-photo", onClick: (e) => putPhoto("words", e.currentTarget) }, "Put a photo in");
   const bodyHost = h("div", { class: "studio-body" });
   const numbersHost = h("div");
@@ -68,7 +70,7 @@ export async function createWrite(context, arg) {
   const primaryLabel = h("span", { text: "Publish" });
   const primary = h("action-button", { onClick: () => saveNow("publish") }, primaryLabel);
   const look = h("action-button", { variant: "secondary", onClick: (e) => preview(e.currentTarget) }, "See how it looks");
-  const more = h("dropdown-menu", { label: "More", items: [], onItemselect: (e) => moreChoice(e.detail) });
+  const more = h("dropdown-menu", { label: "More", items: [], onItemselect: (e) => run(e.detail) });
   const details = h("side-sheet", { label: "About this post", side: "right" });
   const element = h("section", { class: "studio-page studio-write", "aria-labelledby": "studio-write-h" },
     h("div", { class: "studio-write-top" }, trail, more),
@@ -132,19 +134,26 @@ export async function createWrite(context, arg) {
     more.items = menuItems();
   }
 
-  // Her items first; the ones for whoever set up the site last.
-  function menuItems() {
-    const items = [];
-    if (doc.state === "published") items.push({ value: "takeoff", label: "Take it off my site" });
-    if (narrow() && doc.state !== "published") items.push({ value: "save", label: saveLabel.textContent });
-    if (isRecipePost()) items.push({ value: "about", label: "More about this recipe" });
-    if (doc.url && isPublished()) items.push({ value: "view", label: "See it on your site" });
-    items.push({ value: "delete", label: doc.path ? "Delete this post" : "Throw this away" });
-    if (isRecipePost()) items.push(recipe ? { value: "plain", label: "Write it all in one box" } : { value: "boxes", label: "Use the recipe boxes" });
-    items.push({ value: "details", label: "Show details" });
-    if (doc.path) items.push({ value: "old", label: "Open in the old Admin" });
-    return items;
+  // One list of what she can do with this post: More shows her items first and the ones for
+  // whoever set up the site last; Find shows them all with their keys.
+  function commands() {
+    const mac = isMacLike();
+    return [
+      { id: "save", label: "Save", hint: mac ? "⌘S" : "Ctrl S", more: false },
+      { id: "publish", label: "Publish or update", hint: mac ? "⌘↵" : "Ctrl Enter", more: false },
+      { id: "preview", label: "See how it looks", more: false },
+      { id: "takeoff", label: "Take it off my site", when: doc.state === "published" },
+      { id: "draft", label: saveLabel.textContent, when: narrow() && doc.state !== "published", palette: false },
+      { id: "about", label: "More about this recipe", when: isRecipePost() },
+      { id: "view", label: "See it on your site", when: Boolean(doc.url) && isPublished() },
+      { id: "delete", label: doc.path ? "Delete this post" : "Throw this away" },
+      { id: "plain", label: "Write it all in one box", when: isRecipePost() && Boolean(recipe) },
+      { id: "boxes", label: "Use the recipe boxes", when: isRecipePost() && !recipe },
+      { id: "details", label: "Show details" },
+      { id: "old", label: "Open in the old Admin", when: Boolean(doc.path) },
+    ].filter((command) => command.when !== false);
   }
+  const menuItems = () => commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label }));
 
   // ---- the body: recipe boxes when a recipe fits them, else one box
   async function setBody(text, { boxes = isRecipePost() } = {}) {
@@ -163,7 +172,8 @@ export async function createWrite(context, arg) {
     bodyHost.replaceChildren(
       plainWhy ? h("alert-banner", { variant: "info", heading: "This recipe is open in one box" }, "So nothing in it gets moved around. ",
         h("details", {}, h("summary", { text: "Why?" }), h("p", { text: plainWhy }))) : null,
-      words, wordsPhoto);
+      words, wordsStrip.element, wordsPhoto);
+    wordsStrip.update(text);
   }
 
   async function fill(values) {
@@ -232,6 +242,7 @@ export async function createWrite(context, arg) {
   // ---- changes and saving
   // Dirty means different from what was last saved or opened, not "a field was touched".
   function changed() {
+    if (!recipe) wordsStrip.update(String(words.value || ""));
     dirty = snapshot() !== baseline;
     notSaved = "";
     clearTimeout(timer);
@@ -278,7 +289,7 @@ export async function createWrite(context, arg) {
     if (!quiet) button.loading = true;
     saving = (async () => {
       const reply = doc.path
-        ? await api.call("PUT", `document?path=${encodeURIComponent(doc.path)}`, { json: { fields, body: values.body, etag: doc.etag, frontMatter: "keep" } })
+        ? await api.call("PUT", `document?path=${encodeURIComponent(doc.path)}`, { json: { fields: onlyChanges(doc.fields, fields), body: values.body, etag: doc.etag, frontMatter: "keep" } })
         : await api.call("POST", "document", { json: { kind: "posts", fields, body: values.body } });
       if (!doc.path) {
         context.replaceRoute(`#/write/${encodeURIComponent(reply.path)}`);
@@ -326,9 +337,11 @@ export async function createWrite(context, arg) {
     lastPublish = result;
     const when = doc.state === "scheduled" ? statusLine({ state: "scheduled", date: form.date }, now()) : "";
     if (result.sent === "failed") notSentOut(result.message);
-    else if (result.sent === "none" && when) toast(`${when}. It goes up the next time your site is built after that.`);
-    else if (result.sent === "none") toast("Published on your site's server. Nothing is set up to send it to your readers yet.", { variant: "warning" });
-    else toast(when ? `${when}.` : wasLive ? "Updated. Your readers will see it in about a minute." : "Published. Your readers will see it in about a minute.");
+    else if (when) toast(`${when}.`);
+    else {
+      const said = wentOutWords(result, { meta, action: wasLive ? "updated" : "published" });
+      toast(said.words, { variant: said.variant });
+    }
     paint();
   }
 
@@ -369,15 +382,9 @@ export async function createWrite(context, arg) {
       return;
     }
     notSaved = "Not saved yet";
-    if (theirs.etag === doc.etag) {
-      banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Not saved yet" }, "Your site was busy. Your words are still here; press the button again in a moment."));
-      paint();
-      return;
-    }
     paint();
-    const later = () => banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Changed somewhere else" },
-      "This post was changed on another device or by someone else. Your words are still here.",
-      h("action-button", { variant: "secondary", onClick: () => resolveConflict(theirs, later) }, "Choose which to keep")));
+    if (theirs.etag === doc.etag) return banner.replaceChildren(busyBanner());
+    const later = () => banner.replaceChildren(chooseLaterBanner(() => resolveConflict(theirs, later)));
     // An autosave never springs a question on her: it says so, and she chooses when she's ready.
     if (quiet) return later();
     await resolveConflict(theirs, later);
@@ -385,47 +392,49 @@ export async function createWrite(context, arg) {
 
   async function resolveConflict(theirs, later) {
     const mine = read();
-    const name = mine.title.trim() || "This post";
     const theirState = postState(theirs, now());
-    const text = [`${name} was changed on another device or by someone else while you had it open.`];
-    if (theirState !== doc.state && STATE_WORDS[theirState]) text.push(`The other version is ${STATE_WORDS[theirState]}. Using your words keeps it ${STATE_WORDS[theirState]}.`);
-    text.push("Your words are still here. Which do you want to keep?");
-    const choice = await ask({ heading: "Changed somewhere else", text, choices: [{ label: "Use my words", value: "mine" }, { label: "Show the other version", value: "theirs", variant: "secondary" }] });
+    const choice = await askWhichToKeep({ name: mine.title.trim() || "This post", theirState, myState: doc.state });
     if (choice === null) return later();
+    doc.etag = theirs.etag;
+    doc.fields = { ...theirs.fields };
+    doc.state = theirState;
     if (choice === "mine") {
-      const sure = await ask({ heading: "Use your words?", text: `This replaces the other changes to ${name} with what you have here.`, choices: [{ label: "Yes, use my words", value: "yes" }, { label: "Go back", value: "no", variant: "secondary" }] });
-      if (sure !== "yes") return later();
-      doc.etag = theirs.etag;
-      doc.fields = { ...theirs.fields };
-      doc.state = theirState;
       dirty = true;
       await saveNow(theirState === "draft" ? "draft" : "publish", { force: true });
-    } else {
-      banner.replaceChildren(mineAside(mine, copy));
-      doc.etag = theirs.etag;
-      doc.fields = { ...theirs.fields };
-      doc.state = theirState;
-      doc.url = theirs.url || doc.url;
-      form = { ...formFromDocument(theirs), extra: theirs.fields || {} };
-      await fill(form);
-      notSaved = "";
-      settle();
-      paint();
+      return;
     }
+    banner.replaceChildren(mineAside(mine, copy));
+    doc.url = theirs.url || doc.url;
+    form = { ...formFromDocument(theirs), extra: theirs.fields || {} };
+    await fill(form);
+    notSaved = "";
+    settle();
+    paint();
   }
 
   async function copy(text) {
     try { await navigator.clipboard.writeText(text); toast("Copied. Paste it wherever you need it."); } catch { toast("Select the words and copy them yourself.", { variant: "warning" }); }
   }
 
-  // ---- More
-  async function moreChoice(value) {
+  // Ctrl/⌘ S. Saving a published post never puts half-done words on her site: they stay on this
+  // device until she presses Update.
+  function saveCommand() {
+    if (doc.state !== "published") return saveNow(doc.state === "scheduled" ? "publish" : "draft");
+    if (dirty) kept.keep(doc.path, doc.etag, read());
+    toast(dirty ? "Kept on this device. Press Update to put your changes on your site." : "Nothing's changed. Your site already has this.");
+  }
+
+  // ---- More and Find
+  async function run(value) {
+    if (value === "save") saveCommand();
+    if (value === "publish") saveNow("publish");
+    if (value === "preview") preview(look.querySelector("button"));
     if (value === "details") showDetails();
     if (value === "view" && doc.url) open(link(), "_blank", "noopener");
     if (value === "old" && doc.path) location.href = `/admin#/edit/${encodeURIComponent(doc.path)}`;
-    if (value === "save") saveNow("draft");
+    if (value === "draft") saveNow("draft");
     if (value === "about") numbers?.openAbout();
-    if (value === "takeoff") takeOff();
+    if (value === "takeoff" && doc.state === "published") takeOff();
     if (value === "delete") remove();
     if (value === "plain" && recipe) { await setBody(recipe.body(), { boxes: false }); paint(); words.querySelector("textarea")?.focus(); }
     if (value === "boxes") {
@@ -441,17 +450,18 @@ export async function createWrite(context, arg) {
     details.replaceChildren(
       h("span", { slot: "heading", text: "About this post" }),
       postDetails({ path: doc.path, link: doc.url ? link() : "", words: values.body.trim() ? values.body.trim().split(/\s+/).length : 0, savedAt, layout: lastLayout, publish: lastPublish, goesOut }),
-      plainWhy ? h("p", { class: "studio-help", text: `Recipe boxes: not used, because ${plainWhy}.` }) : null);
+      ...(plainWhy ? [h("p", { class: "studio-help", text: `Recipe boxes: not used, because ${plainWhy}.` })] : []));
     details.open = true;
   }
 
-  async function takeOff() {
-    if ((await ask(takeOffQuestion(read().title.trim() || "this post"))) !== "yes") return;
+  async function takeOff(asked = false) {
+    if (!asked && (await ask(takeOffQuestion(read().title.trim() || "this post"))) !== "yes") return;
     // Her latest changes come along: it's saved as a draft with what's on screen.
     if (!(await saveNow("draft", { force: true }))) return;
     const sent = await sendOut(api, `Take ${form.title} off the site`);
     lastPublish = sent;
-    toast(takenOffWords(sent), sent.sent === "failed" ? { variant: "warning" } : {});
+    const said = wentOutWords(sent, { meta, action: "takenOff" });
+    toast(said.words, { variant: said.variant });
     paint();
   }
 
@@ -470,12 +480,7 @@ export async function createWrite(context, arg) {
     const deleted = await context.undo.deletePost({
       path: doc.path, etag: doc.etag, title: name, state: doc.state, ask,
       fieldJournal: doc.fields.profile === "field-journal",
-      takeOff: async () => {
-        if (!(await saveNow("draft", { force: true }))) return;
-        const sent = await sendOut(api, `Take ${name} off the site`);
-        toast(takenOffWords(sent));
-        paint();
-      },
+      takeOff: () => takeOff(true),
     });
     if (deleted) {
       kept.clear(doc.path);
@@ -514,7 +519,10 @@ export async function createWrite(context, arg) {
       try {
         reply = await api.get(`document?path=${encodeURIComponent(path)}`);
       } catch (error) {
-        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "This post didn't open" }, error.message));
+        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "This post didn't open" }, error.message,
+          h("action-button", { variant: "secondary", href: "#/posts" }, "Back to your posts")));
+        element.querySelector(".studio-write-grid").hidden = true;
+        element.querySelector(".studio-write-bar").hidden = true;
         return;
       }
       if (reply.raw !== undefined && !reply.fields) {
@@ -570,23 +578,19 @@ export async function createWrite(context, arg) {
     load,
     leave,
     isDirty: () => dirty,
-    focus: () => (path ? element.querySelector("h2").focus() : title.querySelector("input")?.focus()),
-    palette: [
-      { id: "save", label: "Save", group: "This post", hint: isMacLike() ? "⌘S" : "Ctrl S" },
-      { id: "publish", label: "Publish or update", group: "This post", hint: isMacLike() ? "⌘↵" : "Ctrl Enter" },
-      { id: "preview", label: "See how it looks", group: "This post" },
-      { id: "takeoff", label: "Take it off my site", group: "This post" },
-      { id: "delete", label: "Delete this post", group: "This post" },
-      { id: "details", label: "Show details", group: "This post" },
-    ],
-    command(id) {
-      if (id === "save") saveNow(isPublished() ? "publish" : "draft");
-      if (id === "publish") saveNow("publish");
-      if (id === "preview") preview(look.querySelector("button"));
-      if (id === "takeoff" && doc.state === "published") takeOff();
-      if (id === "delete") remove();
-      if (id === "details") showDetails();
+    focus() {
+      // Open at the top of the post, whatever was scrolled before. Only the screen's own scroller
+      // moves; the page itself never does, so the top bar stays put.
+      for (let box = element.parentElement; box; box = box.parentElement) {
+        if (box.scrollHeight > box.clientHeight && getComputedStyle(box).overflowY !== "visible") { box.scrollTop = 0; break; }
+      }
+      if (path) element.querySelector("h2").focus({ preventScroll: true });
+      else title.querySelector("input")?.focus({ preventScroll: true });
     },
+    get palette() {
+      return commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post", hint: c.hint }));
+    },
+    command: run,
   };
 }
 

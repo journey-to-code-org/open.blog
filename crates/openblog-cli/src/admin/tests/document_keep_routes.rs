@@ -117,7 +117,10 @@ fn without_keep_the_file_is_written_the_usual_way() {
         json!({ "fields": fields, "body": doc["body"], "etag": doc["etag"] }),
     );
     assert_eq!(body_json(&response)["layout"], "rewritten");
-    assert!(on_disk(&f).contains("draft: \"true\""));
+    assert!(
+        on_disk(&f).contains("tags:\n  - thanksgiving"),
+        "the usual layout writes block lists"
+    );
 }
 
 fn delete(f: &Fixture, s: &(String, String)) -> Json {

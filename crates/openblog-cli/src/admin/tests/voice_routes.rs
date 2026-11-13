@@ -947,7 +947,8 @@ fn a_polished_draft_becomes_a_post_draft_and_a_rough_draft_or_a_taken_slug_is_re
     assert!(edit.starts_with("posts/") && path.ends_with(edit), "{made}");
     let text = fs::read_to_string(f.dir.join(path)).unwrap();
     assert!(
-        text.contains("draft: \"true\"") && text.contains("polished words"),
+        (text.contains("draft: \"true\"") || text.contains("draft: true"))
+            && text.contains("polished words"),
         "{text}"
     );
     // The samples were not touched, and promoting again hits the slug the first one took.

@@ -7,12 +7,13 @@ import { countByStatus, matchPosts, summary } from "../parts/search.js";
 import { parseRoute, routeHash } from "../router.js";
 import { ask } from "../parts/dialogs.js";
 import { postHref } from "../parts/post-list.js";
-import { takeOffQuestion, takeOffSite, takenOffWords } from "../parts/take-off.js";
+import { takeOffQuestion, takeOffSite } from "../parts/take-off.js";
+import { wentOutWords } from "../parts/publish.js";
 import { toast } from "../parts/dom.js";
 
 const STATUSES = ["all", "draft", "scheduled", "published"];
 
-export async function createPosts({ api, posts, replaceRoute, undo, go }) {
+export async function createPosts({ api, meta, posts, replaceRoute, undo, go }) {
   await use("dropdown-menu", "action-button", "text-field", "segmented-control", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   let items = [];
   // Search and filter live in the address, so Back and a reload come back to the same list.
@@ -75,7 +76,8 @@ export async function createPosts({ api, posts, replaceRoute, undo, go }) {
     try {
       const { sent } = await takeOffSite(api, post.path);
       posts.stale();
-      toast(takenOffWords(sent), sent.sent === "failed" ? { variant: "warning" } : {});
+      const said = wentOutWords(sent, { meta, action: "takenOff" });
+      toast(said.words, { variant: said.variant });
       load();
     } catch (error) {
       toast(error.message, { variant: "warning" });

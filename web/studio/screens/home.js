@@ -36,7 +36,7 @@ export async function createHome({ posts }) {
       drafts.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-keep" },
         h("h3", { id: "studio-keep", text: "Keep going" }),
         h("auto-grid", { min: "15rem" }, drafts.map((p) => h("content-card", { heading: p.title || "Untitled", href: postHref(p.path) },
-          h("p", { class: "studio-meta", text: p.date ? `Draft for ${sayListDate(p.date)}` : "A draft" }))))) : null,
+          h("p", { class: "studio-meta", text: sayListDate(p.date) ? `Draft, goes up ${sayListDate(p.date)}` : "A draft" }))))) : null,
       coming.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-coming" },
         h("h3", { id: "studio-coming", text: "Coming up" }),
         postList(coming, "Coming up")) : null,

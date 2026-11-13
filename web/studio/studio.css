@@ -211,3 +211,34 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-undo { margin-bottom: var(--space-5); }
 .studio-undo-details summary { cursor: pointer; min-height: 44px; display: inline-flex; align-items: center; }
 .studio-row-menu { flex: none; }
+/* Whatever has focus scrolls clear of Write's sticky bar. */
+.studio-shell * { scroll-padding-bottom: 6rem; }
+.studio-write :focus { scroll-margin-bottom: 6rem; }
+
+/* Review round 2 (QA, Grammi, Mikey on slice 2) */
+/* Rows: the box takes the whole width; Move or remove sits on the label's line. */
+.studio-row-item { display: block; position: relative; }
+.studio-row-item .studio-row-menu { position: absolute; top: -0.35rem; right: 0; }
+.studio-row-field textarea { field-sizing: content; min-height: 3lh; }
+.studio-row-note:empty { display: none; }
+.studio-row-note { color: var(--studio-damson); font-weight: 600; }
+.studio-row-moved .studio-row-field input, .studio-row-moved .studio-row-field textarea { outline: 3px solid var(--studio-sage); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .studio-row-moved { animation: none; } }
+/* Photos in her words, shown as photos. */
+.studio-photo-strip { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-photo-chip { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: var(--space-2); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-photo-chip img { width: 3.5rem; height: 3.5rem; object-fit: cover; border-radius: calc(var(--radius) - 4px); }
+.studio-photo-strip-wrap { display: grid; gap: var(--space-2); }
+/* Posts: on a phone the title takes the whole line; the badge and More go under it. */
+@media (max-width: 40rem) {
+  .studio-post-row { flex-wrap: wrap; }
+  .studio-post-link { flex: 1 1 100%; }
+}
+.studio-post-file { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--studio-ink-soft); overflow-wrap: anywhere; }
+/* Focused fields scroll clear of the top bar too. */
+.studio-shell * { scroll-padding-top: 5rem; }
+/* On a phone the page's own name is in the breadcrumb or heading, so the top bar's copy is only
+   read aloud (it was squeezed to "Gramm Pum…"). */
+@media (max-width: 40rem) {
+  .studio-shell header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
