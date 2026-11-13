@@ -100,6 +100,11 @@ jobs:
         run: |
           cargo build -p openblog-wasm --example diagram-parity --features diagram-rendering
           node scripts/diagram-spike/core-parity.cjs target/diagram-wasm-node target/debug/examples/diagram-parity
+      - name: Print the module for export
+        run: |
+          tar -C target/diagram-wasm-web -cJf /tmp/m.tar.xz openblog_wasm.js openblog_wasm_bg.wasm
+          sha256sum target/diagram-wasm-web/openblog_wasm.js target/diagram-wasm-web/openblog_wasm_bg.wasm
+          echo "BEGIN-WASM-EXPORT"; base64 -w 76 /tmp/m.tar.xz; echo "END-WASM-EXPORT"
       - uses: actions/upload-artifact@v4
         with:
           name: diagram-wasm
