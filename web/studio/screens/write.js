@@ -84,13 +84,16 @@ export async function createWrite(context, arg) {
     else if (doc.state === "new") status.textContent = `${isRecipePost() ? "New recipe" : "New story"}. Add a title and your draft will save itself.`;
     else status.textContent = statusLine({ state: doc.state, savedAt, dirtyPublished: isPublished() && dirty, date: form.date || current.date }, now());
     if (doc.url && doc.state === "published" && !dirty) status.append(" ", h("a", { href: link(), target: "_blank", rel: "noopener", text: "See it on your site" }));
+    if (doc.path && doc.state === "published" && !dirty && isJob()) status.append(" · ", h("a", { href: shareJobHref(), text: "Share this job" }));
     more.items = menuItems();
   }
 
   const commands = () => writeCommands({
     state: doc.state, path: doc.path, url: doc.url, recipe: isRecipePost(), boxes: body.usesBoxes(),
-    saveLabel: saveLabel.textContent, narrow: narrow(), mac: isMacLike(),
+    saveLabel: saveLabel.textContent, narrow: narrow(), mac: isMacLike(), job: isJob(),
   });
+  const isJob = () => doc.fields?.profile === "job";
+  const shareJobHref = () => `#/sharing/job/${encodeURIComponent(doc.path)}?from=write`;
   const menuItems = () => commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label }));
 
   async function fill(values) {
@@ -272,6 +275,7 @@ export async function createWrite(context, arg) {
     if (value === "preview") preview(look.querySelector("button"));
     if (value === "details") showDetails();
     if (value === "view" && doc.url) open(link(), "_blank", "noopener");
+    if (value === "share-job" && doc.path) context.go(shareJobHref());
     if (value === "draft") saveNow("draft");
     if (value === "about") numbers?.openAbout();
     if (value === "takeoff" && doc.state === "published") takeOff();

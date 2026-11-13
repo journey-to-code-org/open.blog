@@ -873,6 +873,7 @@ fn authenticated_api(
         ("POST", "seasonal/open") => seasonal::open(state, req),
         ("GET", "job-share") => job_sharing::get(state, req),
         ("GET", "trade-checklist") => trade_checklist::get(state),
+        ("PUT", "trade-checklist") => trade_checklist::put(state, req),
         ("GET", "distribution") => crate::outcomes::admin_get(state, req),
         ("POST", "job-share/by-hand") => job_sharing::by_hand(state, req),
         ("GET", "look") => look::get_look(state),
@@ -4273,6 +4274,8 @@ fn meta(state: &AppState) -> Response {
                 "reminders": !config.business.trade.is_empty() || config.seasonal_prompts.enabled,
                 // A trade site: Studio's Business, Services and Reviews show for it, and only for it.
                 "trade": trade_site,
+                // Something has gone somewhere (G16): Sharing shows "Where it went" for it.
+                "shared": crate::outcomes::any_shared(&state.root, &config),
             },
             "job": job_form,
             "capture": openblog_core::capture::limits_json(
@@ -12094,19 +12097,37 @@ fn status(state: &AppState) -> Response {
 /// Overview, and stays out of the content transaction: saves and builds don't
 /// wait for it. A write in progress can at worst make the notes stale or empty
 /// until the next look, and they are only advice.
+///
+/// `notes` are the finished sentences (the old Admin's); `items` are the same notes as facts beside
+/// each sentence, so Studio says them in its own words and links the page (R1, G14).
 fn recipe_notes(state: &AppState) -> Response {
-    Response::json(
-        200,
-        &json!({ "notes": published_recipe_notes(&state.root) }),
-    )
+    let plan = published_recipe_plan(&state.root);
+    let items: Vec<Json> = plan
+        .notes
+        .iter()
+        .zip(plan.facts.iter())
+        .map(|(text, fact)| {
+            json!({
+                "text": text,
+                "code": fact.code,
+                "address": fact.address,
+                "fallback": fact.fallback,
+                "page": fact.page.as_ref().map(|page| json!({ "path": page.path, "kind": page.kind, "title": page.title })),
+                "byAlias": fact.by_alias,
+                "facet": fact.facet,
+                "value": fact.value,
+            })
+        })
+        .collect();
+    Response::json(200, &json!({ "notes": plan.notes, "items": items }))
 }
 
-fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
+fn published_recipe_plan(root: &std::path::Path) -> openblog_core::recipe_listing::RecipePlan {
     let Ok(config) = site::load_config(root) else {
-        return Vec::new();
+        return Default::default();
     };
     let Ok(sources) = site::read_sources(root, &config) else {
-        return Vec::new();
+        return Default::default();
     };
     let options = LoadOptions {
         include_drafts: false,
@@ -12114,7 +12135,7 @@ fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
         preview_source: None,
     };
     Site::load(config, sources, options)
-        .map(|site| openblog_core::recipe_listing::plan(&site).notes)
+        .map(|site| openblog_core::recipe_listing::plan(&site))
         .unwrap_or_default()
 }
 
@@ -12184,7 +12205,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
                                 json!({
                                     "path": file.path, "title": p.title, "slug": p.slug, "date": p.date.rfc3339(),
                                     "status": status, "series": p.series, "tags": p.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
-                                    "url": p.url, "words": p.word_count,
+                                    "url": p.url, "words": p.word_count, "profile": p.profile,
                                     "creditMode": credit_mode,
                                 }),
                             )
@@ -26442,6 +26463,76 @@ What I read:
             assert!(notes[0].as_str().unwrap().contains("change its Slug"));
             assert!(notes[1].as_str().unwrap().contains('\u{1F370}'));
         });
+    }
+
+    #[test]
+    fn recipe_notes_come_with_facts_so_studio_can_word_them_and_link_the_page() {
+        // G14: beside each sentence, its code, the addresses, the page that holds the address and
+        // the course or cuisine, so Studio never shows "Settings" or "Slug".
+        let f = fixture("recipe-note-facts");
+        assert_eq!(body_json(&recipe_notes(&f.state))["items"], json!([]));
+        std::fs::write(
+            f.dir.join("content/posts/soup.md"),
+            "---\ntitle: Soup\ndate: 2026-10-01\nprofile: recipe\ncourse: \"\u{1F370}\"\n---\nBody.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(f.dir.join("content/pages")).unwrap();
+        std::fs::write(
+            f.dir.join("content/pages/recipes.md"),
+            "---\ntitle: My recipes\nslug: recipes\n---\nMine.\n",
+        )
+        .unwrap();
+        let body = body_json(&recipe_notes(&f.state));
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2, "{items:?}");
+        assert_eq!(
+            items[0]["text"], body["notes"][0],
+            "each fact sits beside its sentence"
+        );
+        assert_eq!(items[0]["code"], "address-taken");
+        assert_eq!(items[0]["address"], "/recipes/");
+        assert_eq!(items[0]["fallback"], "/recipes/all/");
+        assert_eq!(items[0]["page"]["kind"], "page");
+        assert_eq!(items[0]["page"]["title"], "My recipes");
+        assert_eq!(items[0]["page"]["path"], "pages/recipes.md");
+        assert_eq!(items[0]["byAlias"], false);
+        assert_eq!(items[1]["code"], "wordless");
+        assert_eq!(items[1]["facet"], "course");
+        assert_eq!(items[1]["value"], "\u{1F370}");
+        assert_eq!(items[1]["page"], Json::Null);
+    }
+
+    #[test]
+    fn listed_posts_say_their_profile_so_studio_can_tell_a_job() {
+        // G15: Posts offers "Share this job" on a job, so the list says each post's profile.
+        let f = fixture("documents-profile");
+        let session = login_ok(&f);
+        std::fs::write(
+            f.dir.join("content/posts/oak.md"),
+            "---\ntitle: New oak floor\ndate: 2026-10-01\nprofile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Maple Falls\n    region: WA\n  started: 2026-09-14\n  finished: 2026-09-16\n---\nSanded and sealed.\n",
+        )
+        .unwrap();
+        let listed = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/documents?kind=posts"),
+                &session,
+                false,
+            ),
+        ));
+        let items = listed["items"].as_array().unwrap();
+        let oak = items
+            .iter()
+            .find(|item| item["path"] == "posts/oak.md")
+            .unwrap();
+        assert_eq!(oak["profile"], "job", "{oak}");
+        assert!(
+            items
+                .iter()
+                .filter(|item| item["status"] != "error")
+                .all(|item| item["profile"].is_string()),
+            "every readable post names one: {items:?}"
+        );
     }
 
     #[test]

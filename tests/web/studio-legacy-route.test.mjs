@@ -35,3 +35,15 @@ test("renamed screens, new things and the old inbox's states", () => {
 test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
   for (const name of ["research", "voice", "capture", "notifications", "contributors"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
 });
+
+test("R1: Where it went is a view of Sharing, and Share this job lives under it", () => {
+  assert.equal(legacyRoute("#/distribution"), "#/sharing?view=posts");
+  assert.equal(legacyRoute("#/distribution?days=90"), "#/sharing?view=posts&days=90");
+  assert.notEqual(legacyRoute("#/distribution"), "#/not-yet/distribution");
+  assert.equal(legacyRoute("#/share/posts%2Foak-floor.md"), "#/sharing/job/posts%2Foak-floor.md");
+  assert.equal(legacyRoute("#/share/posts/oak-floor.md"), "#/sharing/job/posts/oak-floor.md");
+  assert.equal(parseRoute(legacyRoute("#/share/posts%2Foak floor.md")).arg, "job/posts/oak floor.md");
+  assert.equal(legacyRoute("#/share"), "#/sharing");
+  assert.deepEqual(parseRoute(legacyRoute("#/distribution")), { name: "sharing", arg: "", query: { view: "posts" } });
+  assert.equal(legacyRoute("#/sharing/job/posts%2Fx.md"), null, "Studio's own address is left alone");
+});

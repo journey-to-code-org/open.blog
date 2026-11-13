@@ -26,10 +26,10 @@ export function parseRoute(hash) {
 const OLD_RENAMED = {
   overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations",
   moderation: "comments", feedback: "comments", analytics: "visitors", social: "sharing",
-  announcements: "sharing", share: "sharing", greetings: "cards",
+  announcements: "sharing", greetings: "cards",
 };
 const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
-const NOT_YET = new Set(["capture", "comparisons", "contributors", "design", "distribution", "notifications", "paths", "research", "shared", "voice"]);
+const NOT_YET = new Set(["capture", "comparisons", "contributors", "design", "notifications", "paths", "research", "shared", "voice"]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
@@ -52,7 +52,10 @@ export function legacyRoute(hash) {
     const view = { pending: "", approved: "shown", rejected: "not-shown", removed: "taken-down" }[rest[0]] ?? "";
     return `#/comments${view ? `/${view}` : ""}${tail}`;
   }
-    if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
+  // R1: "Where it went" is a view of Sharing, and Share this job lives under it.
+  if (name === "distribution") return `#/sharing?view=posts${search ? `&${search}` : ""}`;
+  if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
+  if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
   if (NOT_YET.has(name)) return `#/not-yet/${name}`;
   return null;
 }

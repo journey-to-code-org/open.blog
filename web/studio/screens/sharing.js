@@ -3,7 +3,9 @@
 // at the bottom: what's connected, how it's doing, Disconnect. Each row changes, checks or shows the
 // history of its share in a sheet (parts/share-sheets.js), and one banner says when shares run late.
 // Connecting or reconnecting an account is in the old Admin until R2. Nothing is ever shared by
-// itself: publishing never shares. Studio slice 10c, R1; docs/specs/studio/slice-10bc/ux.md, r1/ux.md.
+// itself: publishing never shares. A second view, "Where each post went" (?view=posts), shows every
+// place each post ended up (parts/where-it-went.js); a site with no accounts that has shared
+// something gets only that view. Studio slice 10c, R1; docs/specs/studio/slice-10bc/ux.md, r1/ux.md.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
@@ -12,11 +14,17 @@ import { accountLabel, BADGES, deliveryOf, groups, healthWords, HEALTH_BADGES, l
 import { browserZone, healthLines } from "../parts/announcements-rules.js";
 import { createSheet, guardedLeave } from "../parts/sheet.js";
 import { openChange, openCheck, openHistory } from "../parts/share-sheets.js";
+import { createWhereItWent } from "../parts/where-it-went.js";
+import { DAY_CHOICES, daysFrom, daysWords } from "../parts/distribution-rules.js";
 
 const SENDING_RELOAD_MS = 60 * 1000;
 
-export async function createSharing({ api, go }) {
-  await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "skeleton-block", "status-badge");
+export async function createSharing({ api, go, meta = {}, posts: store = null }, route = { query: {} }) {
+  await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "segmented-control", "skeleton-block", "status-badge");
+  const social = meta.social === true;
+  const view = !social || route.query?.view === "posts" ? "posts" : "going";
+  const days = daysFrom(route.query?.days);
+  const checkId = route.query?.check || null;
   let destinations = [];
   let posts = [];
   let items = [];
@@ -27,21 +35,33 @@ export async function createSharing({ api, go }) {
   const sheet = await createSheet({ label: "Share" });
 
   const heading = h("h2", { id: "studio-sharing-h", class: "studio-question", tabindex: "-1", text: "Where have your posts been shared?" });
-  const share = h("action-button", { href: "#/sharing/new" }, "Share a post");
+  const share = h("action-button", { href: "#/sharing/new", hidden: !social }, "Share a post");
+  const switcher = social ? h("segmented-control", { label: "Show", value: view, class: "studio-sharing-view",
+    options: [{ value: "going", label: "Going out" }, { value: "posts", label: "Where each post went" }],
+    onValuechange: (e) => go(e.detail === "posts" ? "#/sharing?view=posts" : "#/sharing") }) : null;
+  const daysMenu = view === "posts" ? h("dropdown-menu", { class: "studio-row-menu",
+    items: DAY_CHOICES.filter((n) => n !== days).map((n) => ({ value: String(n), label: `Show the last ${n === 365 ? "year" : `${n} days`}` })),
+    onItemselect: (e) => go(`#/sharing?view=posts${e.detail === "30" ? "" : `&days=${e.detail}`}`) },
+  h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: " for where each post went" }))) : null;
+  const where = view === "posts" ? await createWhereItWent({ api, days, social, posts: store }) : null;
   const status = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
   const banner = h("div", { class: "studio-banner" });
   const body = h("div", { class: "studio-card-sections", "aria-busy": "true" }, h("skeleton-block", { shape: "card" }));
   const accountsBox = h("section", { class: "studio-section", "aria-labelledby": "studio-accounts-h" });
   const details = h("details", { class: "studio-help" });
   const element = h("section", { class: "studio-page studio-sharing", "aria-labelledby": "studio-sharing-h" },
-    h("div", { class: "studio-today" }, heading,
-      h("p", { class: "studio-lede", text: "Share a post to your Facebook Page or other accounts. Nothing is shared by itself; publishing a post never shares it." }), share),
+    h("div", { class: "studio-today" }, h("div", { class: "studio-comment-head" }, heading, daysMenu),
+      h("p", { class: "studio-lede", text: social
+        ? "Share a post to your Facebook Page or other accounts. Nothing is shared by itself; publishing a post never shares it."
+        : `Every place your posts went ${daysWords(days)}, from your own records.` }), switcher, share),
     banner, status,
-    h("div", { class: "studio-comment-columns" }, h("div", { class: "studio-comment-main" }, body), h("div", { class: "studio-comment-side" }, accountsBox, details)));
+    where ? where.element
+      : h("div", { class: "studio-comment-columns" }, h("div", { class: "studio-comment-main" }, body), h("div", { class: "studio-comment-side" }, accountsBox, details)));
 
   const titleOf = (work) => posts.find((p) => p.work === work)?.title || "A post";
 
   async function load() {
+    if (where) return where.load();
     body.setAttribute("aria-busy", "true");
     try {
       const dest = await api.get("social/destinations");
@@ -55,6 +75,7 @@ export async function createSharing({ api, go }) {
       health = (await api.get("social/announcements/health").catch((error) => { if (error.status === 401) throw error; return null; }))?.health || null;
       banner.replaceChildren();
       draw();
+      if (checkId) openFromLink(checkId);
     } catch (error) {
       if (error.status === 401) throw error;
       body.removeAttribute("aria-busy");
@@ -123,6 +144,20 @@ export async function createSharing({ api, go }) {
       (state === "failed" || state === "unknown" || state === "retrying") && item.lastErrorCode ? h("p", { class: "studio-help", text: problemLine(item.lastErrorCode) }) : null,
       state === "processing" ? h("p", { class: "studio-help", text: "It's going out now. This updates in a minute." }) : null,
       buttons.length ? h("div", { class: "studio-comment-actions" }, ...buttons) : null);
+  }
+
+  /** From "Check it" in Where each post went: that row, and its Check it sheet when it's unclear. */
+  let linked = false;
+  function openFromLink(id) {
+    if (linked) return;
+    linked = true;
+    const item = items.find((i) => i.id === id);
+    const rowHeading = body.querySelector(`[data-id="${CSS.escape(id)}"] .studio-comment-who`);
+    if (!item || !rowHeading) return;
+    requestAnimationFrame(() => {
+      rowHeading.focus();
+      if (deliveryOf(item) === "unknown") openCheck({ sheet, api, item, title: titleOf(item.work), opener: rowHeading, onDone: (words, done) => changed(words, done), onRefresh: moved });
+    });
   }
 
   /** After a change or a check: the list again, the words, and her place on that row. */
@@ -251,10 +286,15 @@ export async function createSharing({ api, go }) {
     isDirty: () => sheet.isDirty(),
     focus: () => heading.focus(),
     get palette() {
-      return [{ id: "new", label: "Share a post", group: "Sharing" }];
+      return [
+        ...(social ? [{ id: "new", label: "Share a post", group: "Sharing" }, { id: "going", label: "Going out", group: "Sharing" }] : []),
+        { id: "posts", label: "Where each post went", group: "Sharing" },
+      ];
     },
     command(id) {
       if (id === "new") go("#/sharing/new");
+      if (id === "posts") go("#/sharing?view=posts");
+      if (id === "going") go("#/sharing");
     },
   };
 }

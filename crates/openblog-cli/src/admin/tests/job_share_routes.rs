@@ -190,3 +190,71 @@ fn a_draft_or_a_post_that_is_not_a_job_is_not_shared() {
         400
     );
 }
+
+#[test]
+fn i_posted_it_can_be_taken_back_and_only_her_own_mark_goes() {
+    // G17: Undo after "I posted it" removes that mark and nothing else.
+    let f = job_site("job-share-undo");
+    let session = login_ok(&f);
+    let described = body_json(&get(&f, &session, "posts/floor.md"));
+    let digest = place(&described, "nextdoor")["digest"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        by_hand(
+            &f,
+            &session,
+            json!({"path": "posts/floor.md", "destination": "nextdoor"}),
+        )
+        .status,
+        400,
+        "marking needs the words that were shown"
+    );
+    let marked = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "digest": digest}),
+    );
+    assert_eq!(marked.status, 200);
+    let undone = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "undo": true}),
+    );
+    assert_eq!(
+        undone.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&undone.body)
+    );
+    assert_eq!(
+        body_json(&undone),
+        json!({"destination": "nextdoor", "record": null})
+    );
+    let again = body_json(&get(&f, &session, "posts/floor.md"));
+    assert_eq!(place(&again, "nextdoor")["record"], Json::Null);
+    // Nothing to take back is fine, and changes nothing.
+    let nothing = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "undo": true}),
+    );
+    assert_eq!(nothing.status, 200);
+    // A post open.blog made (or may have made) is never forgotten from here.
+    let record_path = f.dir.join(crate::job_share::STATE_FILE);
+    fs::write(
+        &record_path,
+        json!({"version": 1, "jobs": {"posts/floor.md": {"facebook": {"status": "posted", "at": "2026-10-22T10:00:00Z", "digest": "d"}}}}).to_string(),
+    )
+    .unwrap();
+    let refused = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "facebook", "undo": true}),
+    );
+    assert_eq!(refused.status, 409);
+    assert_eq!(body_json(&refused)["code"], "not-by-hand");
+    let kept = body_json(&get(&f, &session, "posts/floor.md"));
+    assert_eq!(place(&kept, "facebook")["record"]["status"], "posted");
+}

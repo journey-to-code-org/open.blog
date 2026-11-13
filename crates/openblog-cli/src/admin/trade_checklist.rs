@@ -4,7 +4,21 @@
 //! facts, a first service, a first job, a first review and a place to share jobs. Every step is
 //! worked out from the files each time the route is asked, never from what the owner clicked, so a
 //! step is ticked exactly when the site really has it and unticks if it is taken away. The route
-//! only reads; dismissing the card is a workspace preference (`tradeChecklistDismissed`).
+//! only reads. Hiding the card is the one thing remembered: `PUT /admin/api/trade-checklist
+//! {dismissed}` keeps it in `.openblog/trade-checklist.json` (Studio R1, G13; it was a workspace
+//! preference, which goes with the old Admin).
+
+/// Where hiding the card is remembered, under the site's private folder.
+pub(crate) const DISMISSED_FILE: &str = ".openblog/trade-checklist.json";
+
+/// Whether the owner hid the card. A missing or unreadable file means it shows.
+fn dismissed(state: &AppState) -> bool {
+    fs::read_to_string(state.root.join(DISMISSED_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Json>(&text).ok())
+        .and_then(|value| value.get("dismissed").and_then(Json::as_bool))
+        .unwrap_or(false)
+}
 
 use super::*;
 use crate::job_share::{self, State, Status};
@@ -156,6 +170,7 @@ pub(super) fn get(state: &AppState) -> Response {
         200,
         &json!({
             "applies": facts.trade_site,
+            "dismissed": dismissed(state),
             "done": done,
             "total": steps.len(),
             "steps": steps
@@ -164,6 +179,42 @@ pub(super) fn get(state: &AppState) -> Response {
                 .collect::<Vec<_>>(),
         }),
     )
+}
+
+/// Hide the card, or show it again: `{dismissed: true|false}`, nothing else.
+pub(super) fn put(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > 256 {
+        return Response::error(413, "The request is too large");
+    }
+    let dismissed = match serde_json::from_slice::<Json>(&req.body) {
+        Ok(Json::Object(body)) if body.len() == 1 => match body.get("dismissed") {
+            Some(Json::Bool(value)) => *value,
+            _ => return Response::error(400, "Say dismissed: true or false"),
+        },
+        _ => return Response::error(400, "Say dismissed: true or false"),
+    };
+    let path = state.root.join(DISMISSED_FILE);
+    let written = if dismissed {
+        if let Some(parent) = path.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                return Response::error(500, &format!("cannot create the private folder: {error}"));
+            }
+        }
+        write_atomic(&path, "{\n  \"dismissed\": true\n}\n")
+    } else {
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("cannot forget the hidden checklist: {error}")),
+        }
+    };
+    match written {
+        Ok(()) => Response::json(200, &json!({ "dismissed": dismissed })),
+        Err(error) => Response::error(500, &error),
+    }
 }
 
 #[cfg(test)]

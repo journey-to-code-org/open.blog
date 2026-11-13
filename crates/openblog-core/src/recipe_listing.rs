@@ -64,6 +64,37 @@ pub struct RecipePlan {
     /// One plain sentence, for the owner, for each page that gave way to her
     /// address and each value that could not have a page.
     pub notes: Vec<String>,
+    /// The same notes as facts, in the same order, so a screen can say them
+    /// in its own words and link the page that holds the address (Studio R1, G14).
+    pub facts: Vec<RecipeNote>,
+}
+
+/// One recipe note as facts. `code` is `address-taken` (the list moved to
+/// `fallback`), `no-address` (no list of all recipes), `filter-taken` (a
+/// course or cuisine page gave way) or `wordless` (a value with nothing to
+/// make an address from).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecipeNote {
+    pub code: &'static str,
+    pub address: Option<String>,
+    pub fallback: Option<String>,
+    /// The owner's document that holds the address, when one does.
+    pub page: Option<NotePage>,
+    /// The address is one of that document's old addresses, not its own.
+    pub by_alias: bool,
+    /// `course` or `cuisine`, for `filter-taken` and `wordless`.
+    pub facet: Option<&'static str>,
+    /// The course or cuisine as she wrote it.
+    pub value: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NotePage {
+    /// The source file (`pages/x.md`), or `None` for a series with no file.
+    pub path: Option<String>,
+    /// `post`, `page` or `series`.
+    pub kind: &'static str,
+    pub title: String,
 }
 
 impl RecipePlan {
@@ -124,7 +155,25 @@ pub fn plan(site: &Site) -> RecipePlan {
             .map(|claim| claim.how_to_free(url, goal))
             .unwrap_or_default()
     };
+    let fact =
+        |code: &'static str, address: &str, facet: Option<&'static str>, value: Option<&str>| {
+            let claim = claimed.get(&url_to_file(address));
+            RecipeNote {
+                code,
+                address: Some(address.to_string()),
+                fallback: None,
+                page: claim.map(|claim| NotePage {
+                    path: claim.path.map(str::to_string),
+                    kind: claim.noun,
+                    title: claim.title.to_string(),
+                }),
+                by_alias: claim.is_some_and(|claim| claim.by_alias),
+                facet,
+                value: value.map(str::to_string),
+            }
+        };
     let mut notes = Vec::new();
+    let mut facts = Vec::new();
     let all_url = if !is_claimed(RECIPES_URL) {
         Some(RECIPES_URL)
     } else if !is_claimed(RECIPES_FALLBACK_URL) {
@@ -132,12 +181,17 @@ pub fn plan(site: &Site) -> RecipePlan {
             "A page of yours already uses the address {RECIPES_URL}, so the automatic list of recipes is at {RECIPES_FALLBACK_URL}. {}",
             how_to_free(RECIPES_URL, "move the list back")
         ));
+        facts.push(RecipeNote {
+            fallback: Some(RECIPES_FALLBACK_URL.to_string()),
+            ..fact("address-taken", RECIPES_URL, None, None)
+        });
         Some(RECIPES_FALLBACK_URL)
     } else {
         notes.push(format!(
             "Pages of yours already use the addresses {RECIPES_URL} and {RECIPES_FALLBACK_URL}, so there is no automatic list of all your recipes. {}",
             how_to_free(RECIPES_URL, "bring the list back")
         ));
+        facts.push(fact("no-address", RECIPES_URL, None, None));
         None
     };
 
@@ -153,6 +207,7 @@ pub fn plan(site: &Site) -> RecipePlan {
         });
     }
     let mut wordless = Vec::new();
+    let mut wordless_facts = Vec::new();
     for (kind, word, example, filters) in [
         (RecipeArchiveKind::Course, "course", "Dessert", courses),
         (RecipeArchiveKind::Cuisine, "cuisine", "Italian", cuisines),
@@ -161,6 +216,15 @@ pub fn plan(site: &Site) -> RecipePlan {
             wordless.push(format!(
                 "The {word} \"{value}\" has no letters or numbers to make a web address from, so readers can't browse recipes by it. Add a word to it, such as {example}."
             ));
+            wordless_facts.push(RecipeNote {
+                code: "wordless",
+                address: None,
+                fallback: None,
+                page: None,
+                by_alias: false,
+                facet: Some(word),
+                value: Some(value.clone()),
+            });
         }
         for (slug, (name, posts)) in filters.by_slug {
             let Some(url) = filter_address(kind, &slug) else {
@@ -171,6 +235,7 @@ pub fn plan(site: &Site) -> RecipePlan {
                     "A page of yours already uses the address {url}, so recipes can't be filtered by {name}. {}",
                     how_to_free(&url, "bring the filter back")
                 ));
+                facts.push(fact("filter-taken", &url, Some(word), Some(&name)));
                 continue;
             }
             archives.push(RecipeArchive {
@@ -184,10 +249,12 @@ pub fn plan(site: &Site) -> RecipePlan {
         }
     }
     notes.append(&mut wordless);
+    facts.append(&mut wordless_facts);
     RecipePlan {
         archives,
         all_url: all_url.map(str::to_string),
         notes,
+        facts,
     }
 }
 
@@ -227,6 +294,7 @@ impl Filters {
 struct Claim<'a> {
     noun: &'static str,
     title: &'a str,
+    path: Option<&'a str>,
     by_alias: bool,
 }
 
@@ -250,35 +318,53 @@ impl Claim<'_> {
 
 /// The files the owner's own posts, pages and series, with their aliases, write.
 fn claimed_files(site: &Site) -> HashMap<String, Claim<'_>> {
-    let posts = site
-        .posts
-        .iter()
-        .map(|p| ("post", p.title.as_str(), &p.url, &p.aliases));
-    let pages = site
-        .pages
-        .iter()
-        .map(|p| ("page", p.title.as_str(), &p.url, &p.aliases));
-    let series = site
-        .series
-        .iter()
-        .filter(|s| !s.posts.is_empty())
-        .map(|s| ("series", s.name.as_str(), &s.url, &s.aliases));
-    let documents: Vec<_> = posts.chain(pages).chain(series).collect();
-    let aliases = documents.iter().flat_map(|(noun, title, _, aliases)| {
-        aliases.iter().map(move |url| {
-            let claim = Claim {
-                noun,
-                title,
-                by_alias: true,
-            };
-            (url_to_file(url), claim)
-        })
+    let posts = site.posts.iter().map(|p| {
+        (
+            "post",
+            p.title.as_str(),
+            Some(p.source.as_str()),
+            &p.url,
+            &p.aliases,
+        )
     });
+    let pages = site.pages.iter().map(|p| {
+        (
+            "page",
+            p.title.as_str(),
+            Some(p.source.as_str()),
+            &p.url,
+            &p.aliases,
+        )
+    });
+    let series = site.series.iter().filter(|s| !s.posts.is_empty()).map(|s| {
+        (
+            "series",
+            s.name.as_str(),
+            s.source.as_deref(),
+            &s.url,
+            &s.aliases,
+        )
+    });
+    let documents: Vec<_> = posts.chain(pages).chain(series).collect();
+    let aliases = documents
+        .iter()
+        .flat_map(|(noun, title, path, _, aliases)| {
+            aliases.iter().map(move |url| {
+                let claim = Claim {
+                    noun,
+                    title,
+                    path: *path,
+                    by_alias: true,
+                };
+                (url_to_file(url), claim)
+            })
+        });
     // A document's own address wins over another's alias.
-    let own = documents.iter().map(|(noun, title, url, _)| {
+    let own = documents.iter().map(|(noun, title, path, url, _)| {
         let claim = Claim {
             noun,
             title,
+            path: *path,
             by_alias: false,
         };
         (url_to_file(url), claim)

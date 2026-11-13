@@ -55,6 +55,8 @@ export async function createPosts({ api, meta, posts, replaceRoute, undo, go }) 
   // Each row ends with More: open it, take it off the site, or delete it (with Undo).
   function rowMenu(post) {
     const items = [{ value: "open", label: "Open it" }];
+    // A published job can be shared where customers look (R1; `profile` from G15).
+    if (post.status === "published" && post.profile === "job") items.push({ value: "share", label: "Share this job" });
     if (post.status === "published" || post.status === "scheduled") items.push({ value: "takeoff", label: "Take it off my site" });
     items.push({ value: "delete", label: "Delete" });
     return h("dropdown-menu", { class: "studio-row-menu", items, onItemselect: (e) => rowChoice(post, e.detail) },
@@ -64,6 +66,7 @@ export async function createPosts({ api, meta, posts, replaceRoute, undo, go }) 
   async function rowChoice(post, value) {
     const title = post.title || "this post";
     if (value === "open") go(postHref(post.path));
+    if (value === "share") go(`#/sharing/job/${encodeURIComponent(post.path)}`);
     if (value === "takeoff") await takeOff(post);
     if (value === "delete") {
       const deleted = await undo.deletePost({ path: post.path, title, state: post.status, ask, takeOff: () => takeOff(post, true) });

@@ -3,7 +3,8 @@
 //!
 //! The first shows, for Google Business Profile, a Facebook Page and Nextdoor, exactly what would
 //! go (the projection of `openblog_core::job_destination`) and what has happened there (the private
-//! record in `.openblog/job-shares.json`). The second lets the owner say she posted one by hand.
+//! record in `.openblog/job-shares.json`). The second lets the owner say she posted one by hand,
+//! and take that back (`undo: true`, Studio R1 G17), which removes only her own by-hand mark.
 //! Nothing here sends anything: Google is sent from the command (ADR 0393), and a Facebook Page is
 //! reached through the announcement routes, which the screen calls itself (ADR 0396).
 
@@ -70,7 +71,10 @@ pub(super) fn get(state: &AppState, req: &Request) -> Response {
 struct ByHandBody {
     path: String,
     destination: String,
-    digest: String,
+    #[serde(default)]
+    digest: Option<String>,
+    #[serde(default)]
+    undo: bool,
 }
 
 /// The owner says she posted the job by hand at one destination, exactly as shown (its digest).
@@ -95,6 +99,12 @@ pub(super) fn by_hand(state: &AppState, req: &Request) -> Response {
         Ok(job) => job,
         Err(error) => return unshareable(error),
     };
+    if body.undo {
+        return undo_by_hand(state, &job.source_path, destination);
+    }
+    let Some(digest) = body.digest.as_deref() else {
+        return Response::error(400, "Say which words were posted");
+    };
     let Some(projection) = job.projections.first() else {
         return Response::error(500, "No projection was built");
     };
@@ -104,7 +114,7 @@ pub(super) fn by_hand(state: &AppState, req: &Request) -> Response {
             &json!({ "error": "Fix the problems shown for this place first.", "code": "not-ready" }),
         );
     }
-    if projection.digest != body.digest.trim() {
+    if projection.digest != digest.trim() {
         return Response::json(
             409,
             &json!({ "error": "The job changed since this screen was opened. Look at it again, then say you posted it.", "code": "changed" }),
@@ -140,5 +150,41 @@ pub(super) fn by_hand(state: &AppState, req: &Request) -> Response {
     Response::json(
         200,
         &json!({ "destination": destination, "record": record }),
+    )
+}
+
+/// Takes back her own "I posted it" (G17). Only a by-hand mark goes: a post open.blog made, or may
+/// have made, is never forgotten from here.
+fn undo_by_hand(state: &AppState, source: &str, destination: JobDestination) -> Response {
+    let path = state_path(state);
+    let mut records = match State::load(&path) {
+        Ok(records) => records,
+        Err(error) => return Response::error(500, &error),
+    };
+    match records
+        .record(source, destination)
+        .map(|record| record.status)
+    {
+        Some(Status::PostedByHand) => {}
+        None => {
+            return Response::json(
+                200,
+                &json!({ "destination": destination, "record": Json::Null }),
+            )
+        }
+        Some(_) => {
+            return Response::json(
+                409,
+                &json!({ "error": "Only your own \"I posted it\" can be taken back here.", "code": "not-by-hand" }),
+            )
+        }
+    }
+    records.remove(source, destination);
+    if let Err(error) = records.save(&path) {
+        return Response::error(500, &error);
+    }
+    Response::json(
+        200,
+        &json!({ "destination": destination, "record": Json::Null }),
     )
 }

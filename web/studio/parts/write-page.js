@@ -65,7 +65,7 @@ export function writePage({ meta, body, on }) {
 export const isMacLike = () => /Mac|iPhone|iPad/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || "");
 
 /** What she can do with this post. Pure: given the post's state, the list. Exported for tests. */
-export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narrow, mac }) {
+export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narrow, mac, job = false }) {
   const published = state === "published" || state === "scheduled";
   return [
     { id: "save", label: "Save", hint: mac ? "⌘S" : "Ctrl S", more: false },
@@ -75,6 +75,8 @@ export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narr
     { id: "draft", label: saveLabel, when: narrow && state !== "published", palette: false },
     { id: "about", label: "More about this recipe", when: recipe },
     { id: "view", label: "See it on your site", when: Boolean(url) && published },
+    // A published job can be shared where customers look (R1).
+    { id: "share-job", label: "Share this job", when: job && state === "published" && Boolean(path) },
     { id: "delete", label: path ? "Delete this post" : "Throw this away" },
     { id: "plain", label: "Write it all in one box", when: recipe && boxes },
     { id: "boxes", label: "Use the recipe boxes", when: recipe && !boxes },

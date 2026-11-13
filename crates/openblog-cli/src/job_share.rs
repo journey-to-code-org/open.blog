@@ -145,6 +145,16 @@ impl State {
         self.jobs.get(source)?.get(destination.as_str())
     }
 
+    /// Forget one place's record; a job with no records left goes too.
+    pub(crate) fn remove(&mut self, source: &str, destination: JobDestination) -> Option<Record> {
+        let places = self.jobs.get_mut(source)?;
+        let removed = places.remove(destination.as_str());
+        if places.is_empty() {
+            self.jobs.remove(source);
+        }
+        removed
+    }
+
     pub(crate) fn set(&mut self, source: &str, destination: JobDestination, record: Record) {
         self.jobs
             .entry(source.to_string())

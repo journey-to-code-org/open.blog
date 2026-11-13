@@ -1,5 +1,6 @@
 // Home: "What would you like to do?" One big way to start writing, the drafts she's in the middle
-// of, and what went up lately.
+// of, and what went up lately; on a trade site, "Get your site ready" until it is, and notes about
+// her recipe list when there are any (parts/home-ready.js, R1).
 import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { postList, postHref, sayListDate } from "../parts/post-list.js";
@@ -7,11 +8,24 @@ import { siteHealth } from "../parts/site-health.js";
 import { waitingLine } from "../parts/comment-words.js";
 import { homeCardLine } from "../parts/card-words.js";
 import { homeQuoteLine } from "../parts/quote-words.js";
+import { createReadyList, recipeNotesBanner } from "../parts/home-ready.js";
 
 export async function createHome({ api, meta, posts }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   const body = h("div", { class: "studio-home", "aria-busy": "true" }, h("skeleton-block", { shape: "card" }), h("skeleton-block", { lines: 3 }));
   const health = siteHealth({ api, meta });
+  const ready = meta.siteUses?.trade === true ? await createReadyList({ api }) : null;
+  const notes = h("div", { class: "studio-banner" });
+  const extras = () => [notes, ready?.element];
+  async function loadExtras() {
+    ready?.load();
+    try {
+      const banner = await recipeNotesBanner(api);
+      notes.replaceChildren(...(banner ? [banner] : []));
+    } catch {
+      // Home never shows a failure here.
+    }
+  }
   // "3 comments are waiting for you", when there are: never a failure, never a nag.
   const waiting = h("div", { class: "studio-waiting" });
   // and "Ricky's birthday card goes out Sunday", when one does this week.
@@ -69,6 +83,7 @@ export async function createHome({ api, meta, posts }) {
       return;
     }
     loadWaiting();
+    loadExtras();
     const drafts = items.filter((p) => p.status === "draft").slice(0, 3);
     const published = items.filter((p) => p.status === "published").slice(0, 3);
     const coming = items.filter((p) => p.status === "scheduled").sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 3);
@@ -76,13 +91,14 @@ export async function createHome({ api, meta, posts }) {
     if (!items.length) {
       body.replaceChildren(h("empty-state", { heading: "Nothing written yet" },
         "Your first recipe or story starts here.",
-        h("action-button", { slot: "actions", href: "#/write", size: "lg" }, "Write something new")), health.element);
+        h("action-button", { slot: "actions", href: "#/write", size: "lg" }, "Write something new")), health.element, ...extras().filter(Boolean));
       return;
     }
     fill(body,
       write(),
       health.element,
       waiting,
+      ...extras(),
       drafts.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-keep" },
         h("h3", { id: "studio-keep", text: "Keep going" }),
         h("auto-grid", { min: "15rem" }, drafts.map((p) => h("content-card", { heading: p.title || "Untitled", href: postHref(p.path) },
@@ -103,9 +119,13 @@ export async function createHome({ api, meta, posts }) {
     load,
     focus: () => element.querySelector("h2").focus(),
     get palette() {
-      return [{ id: "rebuild", label: "Rebuild the site now", group: "Your site" }, { id: "send", label: "Send out what's waiting", group: "Your site" }];
+      return [
+        { id: "rebuild", label: "Rebuild the site now", group: "Your site" }, { id: "send", label: "Send out what's waiting", group: "Your site" },
+        ...(ready ? [{ id: "ready", label: "Get your site ready", group: "Your site" }] : []),
+      ];
     },
     command(id) {
+      if (id === "ready") { ready?.show(); return; }
       if (id === "rebuild" || id === "send") health.element.querySelector(id === "rebuild" ? "details action-button" : ".studio-health-list action-button")?.click();
     },
   };

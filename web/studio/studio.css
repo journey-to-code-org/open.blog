@@ -419,3 +419,16 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 side-sheet.studio-wide-sheet dialog, side-sheet.studio-wide-sheet .sheet { width: min(32rem, 100vw); max-width: 100vw; }
 .studio-topic-form { display: grid; gap: var(--space-3); min-width: 0; }
 .studio-topic-form select-field { display: block; }
+.studio-share-caption { white-space: pre-line; overflow-wrap: anywhere; margin: 0; }
+.studio-job-words { padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); font-family: var(--font-serif, "Literata", Georgia, serif); }
+.studio-job-words:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.studio-job-photo { width: 6rem; height: 6rem; object-fit: cover; border-radius: var(--radius); }
+.studio-job-fix { display: grid; gap: var(--space-2); }
+.studio-job-fix ul, .studio-where-places { margin: 0; padding-left: var(--space-4); display: grid; gap: var(--space-2); }
+.studio-where-places { list-style: none; padding: 0; }
+.studio-where-line { margin: 0; }
+.studio-checklist { display: grid; gap: var(--space-2); }
+.studio-checklist ol { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-checklist li { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); min-width: 0; }
+.studio-step-head { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.studio-step-head strong { flex: 1 1 12rem; }
