@@ -93,6 +93,7 @@ mod greetings;
 mod job_sharing;
 mod landing;
 mod look;
+mod push;
 mod quote;
 mod reading_paths;
 mod seasonal;
@@ -559,6 +560,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name.starts_with("greetings/") {
             return Ok(greetings::MAX_GREETINGS_REQUEST_BYTES);
         }
+        if name.starts_with("push/") {
+            return Ok(push::MAX_PUSH_REQUEST_BYTES);
+        }
         if let Some(rest) = name.strip_prefix("social/") {
             return Ok(if announcements::owns(rest) {
                 announcements::MAX_REQUEST_BYTES
@@ -596,6 +600,19 @@ fn route(state: &AppState, req: &Request) -> Response {
             None => Response::error(404, "Not found"),
         };
     }
+    // The installed app (ADR 0412): its manifest from the site's own name, and its icons, which a
+    // site may replace with its own under `<paths.web>/admin/icons/`.
+    if path == "/admin/manifest.webmanifest" {
+        return push::manifest(&site::load_config(&state.root).unwrap_or_default());
+    }
+    if let Some(icon) = path.strip_prefix("/admin/icons/") {
+        let config = site::load_config(&state.root).unwrap_or_default();
+        return match site::admin_icon(&state.root, &config, icon) {
+            Some(bytes) => Response::new(200, "image/png", bytes)
+                .with_header("Cache-Control", "public, max-age=86400"),
+            None => Response::error(404, "Not found"),
+        };
+    }
     let file = match path {
         "/admin" | "/admin/" => "index.html",
         "/admin/admin.js" => "admin.js",
@@ -627,6 +644,8 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/social.js" => "social.js",
         "/admin/quotes.js" => "quotes.js",
         "/admin/greetings.js" => "greetings.js",
+        "/admin/notifications.js" => "notifications.js",
+        "/admin/sw.js" => "sw.js",
         "/admin/announcements.js" => "announcements.js",
         "/admin/job-share.js" => "job-share.js",
         "/admin/voice-library.js" => "voice-library.js",
@@ -721,7 +740,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         && name != "logout"
         && !name.starts_with("social/")
         && !name.starts_with("quote/")
-        && !name.starts_with("greetings/");
+        && !name.starts_with("greetings/")
+        && !name.starts_with("push/");
     let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
             Ok(transaction) => Some(transaction),
@@ -779,6 +799,9 @@ fn authenticated_api(
     }
     if let Some(rest) = name.strip_prefix("quote/") {
         return quote::route(req, &session.user, rest);
+    }
+    if let Some(rest) = name.strip_prefix("push/") {
+        return push::route(req, &session.user, rest);
     }
     if let Some(rest) = name.strip_prefix("greetings/") {
         let response = greetings::route(req, &session.user, rest);
@@ -4230,6 +4253,7 @@ fn meta(state: &AppState) -> Response {
             "social": social::is_configured(),
             "quote": quote::is_configured(),
             "greetings": greetings::is_configured(),
+            "push": push::is_configured(),
             "now": clock::now().rfc3339(),
         }),
     )
@@ -19096,6 +19120,7 @@ mod tests {
     mod landing_routes;
     mod look_routes;
     mod proof_routes;
+    mod push_routes;
     mod quote_routes;
     mod reading_path_routes;
     mod safety_audit;
