@@ -316,6 +316,24 @@ impl ReflectionStructure {
         })
     }
 
+    /// The reading order visible to a non-drafting participant with explicit named releases.
+    pub fn reading_order_for_recipient<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        drafts: &DraftSet,
+        requester: &str,
+        active: &[&str],
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.order(contract, |draft_id, part| {
+            let Ok(view) = drafts.view_named(requester, draft_id, active) else {
+                return Ok(None);
+            };
+            let parts = split_parts(&view.markdown);
+            let text = parts.get(part).ok_or(ReflectionError::Invalid)?;
+            Ok(Some((*text).to_owned()))
+        })
+    }
+
     fn order<'a>(
         &'a self,
         contract: &'a CollaborationContract,

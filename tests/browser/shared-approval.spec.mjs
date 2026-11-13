@@ -165,12 +165,19 @@ test("a named reader receives only the explicitly released revision through the 
     await reading.click();
     await reading.click();
     await expect(reader.getByRole("group", { name: "Text from Mikey" })).toHaveText("READER-EXPLICIT-FIRST");
+    await reader.getByRole("button", { name: "View shared material together" }).click();
+    const sharedPreview = reader.frameLocator('iframe[title="Shared material preview, not published"]');
+    await expect(sharedPreview.getByText("READER-EXPLICIT-FIRST")).toBeVisible();
+    await expect(reader.getByText(/this preview cannot be used to approve publication/)).toBeVisible();
     await text.fill("READER-PRIVATE-LATER");
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText(`Saved as revision ${revision + 1}.`, { exact: false }).first()).toBeVisible();
     await reading.click();
     await reading.click();
     await expect(reader.getByRole("group", { name: "Text from Mikey" })).toHaveText("READER-EXPLICIT-FIRST");
+    await reader.getByRole("button", { name: "View shared material together" }).click();
+    await expect(sharedPreview.getByText("READER-EXPLICIT-FIRST")).toHaveCount(0);
+    await expect(sharedPreview.getByText("READER-PRIVATE-LATER")).toHaveCount(0);
     await expect(reader.locator("body")).not.toContainText("READER-PRIVATE-LATER");
     await reader.evaluate(axe.source);
     const audit = await reader.evaluate(() => window.axe.run(document, {

@@ -84,6 +84,9 @@ whole-piece approval for non-authors; that requires further work.
 Admin lets each author confirm or withdraw their own agreement for each eligible recipient and
 lets recipients read the delivered conversation. A recipient who is not entitled to read it sees
 the same unavailable message whether the conversation is empty or contains private items.
+Non-drafters can also open a read-only combined preview. It shows only the latest draft revisions
+explicitly released to them, their sealed moments, and the delivered conversation. It never issues
+an approval token; recipient piece approval still requires a separate policy and authorization change.
 
 Delivery is stored in the private synthesis file. Older versions that reject unknown synthesis
 fields cannot read files containing delivery consent or its content revision. Rollback requires

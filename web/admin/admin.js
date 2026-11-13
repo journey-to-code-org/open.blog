@@ -18901,13 +18901,39 @@ export class ObAdmin extends AdminElement {
     const heading = h("h3", { tabindex: "-1" }, "Revisions shared with you");
     const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const body = h("div", {});
+    const previewStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const previewHolder = h("div", {});
+    const previewButton = h("button", { class: "oba-btn", type: "button" }, "View shared material together");
+    previewButton.addEventListener("click", async () => {
+      const current = request;
+      previewButton.disabled = true;
+      previewStatus.textContent = "Loading the preview.";
+      previewHolder.replaceChildren();
+      try {
+        const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
+        if (current !== request || !details.open) return;
+        previewHolder.replaceChildren(h("iframe", {
+          class: "oba-preview oba-preview-combined", title: "Shared material preview, not published",
+          sandbox: "", src: preview.previewUrl,
+        }));
+        previewStatus.textContent = "Read-only preview. Unshared or changed material is withheld; this preview cannot be used to approve publication.";
+      } catch (error) {
+        if (current === request && details.open) previewStatus.textContent = error?.data?.error || "The preview could not be loaded. Try again.";
+      } finally {
+        previewButton.disabled = false;
+      }
+    });
     const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Revisions shared with you"), heading,
       h("p", { class: "oba-small" }, "Only revisions explicitly shared with you appear here, along with any source moments sealed to the current revision. Later edits stay private."),
-      problem, body);
+      problem, body, previewButton, previewStatus, previewHolder);
     let request = 0;
     details.addEventListener("toggle", async () => {
       const current = ++request;
-      if (!details.open) return;
+      if (!details.open) {
+        previewHolder.replaceChildren();
+        previewStatus.textContent = "";
+        return;
+      }
       problem.hidden = true;
       body.replaceChildren();
       try {

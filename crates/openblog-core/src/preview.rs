@@ -205,7 +205,70 @@ pub fn build(
     show_synthesis: bool,
     options: RenderOptions<'_>,
 ) -> Result<CombinedPreview, PreviewError> {
-    if !active.contains(&requester) {
+    build_for(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        requester,
+        active,
+        None,
+        show_synthesis,
+        options,
+    )
+}
+
+/// Preview explicitly released material for an authorized non-drafting participant.
+/// This read-only preview does not grant piece approval.
+#[allow(clippy::too_many_arguments)]
+pub fn build_for_recipient(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    requester: &str,
+    active: &[&str],
+    recipients: &[&str],
+    show_synthesis: bool,
+    options: RenderOptions<'_>,
+) -> Result<CombinedPreview, PreviewError> {
+    build_for(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        requester,
+        active,
+        Some(recipients),
+        show_synthesis,
+        options,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_for(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    requester: &str,
+    active: &[&str],
+    recipients: Option<&[&str]>,
+    show_synthesis: bool,
+    options: RenderOptions<'_>,
+) -> Result<CombinedPreview, PreviewError> {
+    if recipients.map_or_else(
+        || !active.contains(&requester),
+        |people| !people.contains(&requester) || active.contains(&requester),
+    ) {
         return Err(PreviewError::Denied);
     }
     let authors: Vec<&crate::collaboration::Participant> = record
@@ -251,7 +314,11 @@ pub fn build(
             let mut shown_moments: Vec<&Moment> = Vec::new();
             for (author, stamp) in authors.iter().zip(&stamps) {
                 let entitled = stamp.as_ref().and_then(|stamp| {
-                    let view = drafts.view(requester, &author.id, active).ok()?;
+                    let view = match recipients {
+                        Some(people) => drafts.view_named(requester, &author.id, people),
+                        None => drafts.view(requester, &author.id, active),
+                    }
+                    .ok()?;
                     (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest)
                         .then_some(view)
                 });
@@ -266,9 +333,12 @@ pub fn build(
                 if !moments_shown {
                     withheld = true;
                 } else if proposed {
-                    let visible = moments
-                        .revealed(requester, active, &author.id, readable)
-                        .unwrap_or_default();
+                    let visible = match recipients {
+                        Some(people) => moments
+                            .revealed_to_recipient(requester, people, active, &author.id, readable),
+                        None => moments.revealed(requester, active, &author.id, readable),
+                    }
+                    .unwrap_or_default();
                     shown_moments.extend(visible);
                 }
                 let entitled = entitled.filter(|_| moments_shown);
@@ -296,10 +366,11 @@ pub fn build(
                 .collect();
             let arranged = structure.map(|structure| {
                 arrange(
-                    record, structure, drafts, requester, active, &by_author, options,
+                    record, structure, drafts, requester, active, recipients, &by_author, options,
                 )
             });
-            let complete = show_synthesis
+            let complete = recipients.is_none()
+                && show_synthesis
                 && !subject_sections.is_empty()
                 && !withheld
                 && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())
@@ -472,18 +543,24 @@ fn conversation_html(
 /// one uniform placeholder, so the arrangement never shows more than the sections do. `Err` means
 /// the arrangement cannot be read against the drafts (a turn names a missing part or participant,
 /// or an unsupported layout), so nothing is arranged and the piece is not complete.
+#[allow(clippy::too_many_arguments)]
 fn arrange(
     record: &SharedPublication,
     structure: &ReflectionStructure,
     drafts: &DraftSet,
     requester: &str,
     active: &[&str],
+    recipients: Option<&[&str]>,
     sections: &[(&PreviewSection, bool)],
     options: RenderOptions<'_>,
 ) -> Result<String, ()> {
-    let order = structure
-        .reading_order_for(&record.collaboration, drafts, requester, active)
-        .map_err(|_| ())?;
+    let order = match recipients {
+        Some(people) => {
+            structure.reading_order_for_recipient(&record.collaboration, drafts, requester, people)
+        }
+        None => structure.reading_order_for(&record.collaboration, drafts, requester, active),
+    }
+    .map_err(|_| ())?;
     // Each active author's section and whether they have written anything.
     let section_of = |id: &str| sections.iter().find(|(s, _)| s.participant_id == id);
     let shown = |id: &str| section_of(id).map(|(s, _)| s.shown);

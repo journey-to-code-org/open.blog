@@ -15263,19 +15263,22 @@ fn release_named_draft(state: &AppState, req: &Request, session: &auth::Session)
     }
 }
 
-/// The combined review preview for an active author: every author's section at its exact current
-/// revision where the signed-in author is entitled to it, with each author's approval state.
+/// The combined review preview contains only revisions explicitly visible to the requester.
 /// Read-only: it writes no draft, approval or content, and every refusal is the same not-found as
 /// a missing publication, so it never says whether a publication or a draft exists.
 fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let Some(publication_id) = req.query.get("publicationId") else {
         return draft_not_found();
     };
-    let (transaction, own) = match draft_request_target(state, publication_id, session) {
-        Ok(found) => found,
-        Err(response) => return response,
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return draft_not_found();
     };
-    let record = transaction.record.as_ref().expect("authorized record");
+    let Some(record) = transaction.record.as_ref() else {
+        return draft_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return draft_not_found();
+    };
     let stored = match load_reveal_drafts(state, publication_id) {
         Ok(stored) => stored,
         Err(response) => return response,
@@ -15310,7 +15313,21 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
             return Response::error(500, "The preview could not be built. Nothing was changed.");
         }
     };
-    let show_synthesis = synthesis_owner(&transaction, record, session).is_some();
+    let recipients = policy_participants(&transaction, record);
+    let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+    let synthesis_authors = synthesis_authors(&transaction, record);
+    let synthesis_authors = synthesis_authors
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let context = openblog_core::synthesis::DeliveryContext {
+        authors: &synthesis_authors,
+        recipients: &recipients,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
+    };
+    let show_synthesis = synthesis_owner(&transaction, record, session).is_some()
+        || (!active.contains(&own.as_str()) && synthesis.view_delivered(&own, &context).is_ok());
     let config = match site::load_config(&state.root) {
         Ok(config) => config,
         Err(error) => {
@@ -15325,18 +15342,35 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
             return Response::error(500, "The preview could not be built. Nothing was changed.");
         }
     };
-    let Ok(preview) = openblog_core::preview::build(
-        record,
-        structure.structure.as_ref(),
-        &set,
-        &synthesis,
-        &moments,
-        &approvals,
-        &own,
-        &active,
-        show_synthesis,
-        config.render_options(),
-    ) else {
+    let preview = if active.contains(&own.as_str()) {
+        openblog_core::preview::build(
+            record,
+            structure.structure.as_ref(),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &own,
+            &active,
+            show_synthesis,
+            config.render_options(),
+        )
+    } else {
+        openblog_core::preview::build_for_recipient(
+            record,
+            structure.structure.as_ref(),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &own,
+            &active,
+            &recipients,
+            show_synthesis,
+            config.render_options(),
+        )
+    };
+    let Ok(preview) = preview else {
         return draft_not_found();
     };
     drop(transaction);
@@ -39497,14 +39531,16 @@ series: letters
         assert!(document.contains("MIKEY-SECRET") && !document.contains("GRACE-SECRET"));
         assert!(!text.contains("grace-admin") && !text.contains("invitation"));
 
-        // A reader or a coordinator who is not a drafter, a stranger and an anonymous caller get
-        // the same not-found as an unknown publication, and learn nothing.
+        // A reader or coordinator sees placeholders, never private content or an approval token.
         let unknown = preview_call(&f, &mikey, "shared-ffffffffffff");
         assert_eq!(unknown.status, 404);
         for who in [&reader, &ada] {
-            let denied = preview_call(&f, who, &id);
-            assert_eq!(denied.status, 404);
-            assert_eq!(denied.body, unknown.body);
+            let response = preview_call(&f, who, &id);
+            assert_eq!(response.status, 200);
+            let preview = body_json(&response);
+            assert!(preview["preview"]["seen"].is_null());
+            let text = preview_document_text(&f, who, &preview);
+            assert!(!text.contains("MIKEY-SECRET") && !text.contains("GRACE-SECRET"));
         }
         let anonymous = handle(
             &f.state,
@@ -42192,6 +42228,82 @@ series: letters
             200
         );
         assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
+    }
+
+    #[test]
+    fn recipient_preview_only_shows_current_explicitly_delivered_material() {
+        let (f, mikey, grace, ada, id) = approval_fixture("recipient-preview");
+        let ada_id = participant_of(&f, &id, "ada");
+        let grace_id = participant_of(&f, &id, "grace");
+        let mikey_id = participant_of(&f, &id, "mikey");
+        let order = [mikey_id.as_str(), grace_id.as_str()];
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 0, arrangement("sideBySide", 1, &order)).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "voluntary", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            add_item(&f, &mikey, &id, "CONVERSATION-SECRET", &[]).status,
+            200
+        );
+        let auth_revision = stored_record(&f, &id).authorization.revision;
+        let release = |author: &Session| {
+            post_api(
+                &f,
+                author,
+                "reveal/named",
+                json!({"publicationId": id, "revision": 1, "recipients": [ada_id],
+                "expectedAuthorizationRevision": auth_revision}),
+            )
+        };
+        assert_eq!(release(&mikey).status, 200);
+        let first = body_json(&preview_call(&f, &ada, &id));
+        let doc = preview_document_text(&f, &ada, &first);
+        assert!(doc.contains("MIKEY-SECRET"));
+        assert!(!doc.contains("GRACE-SECRET"));
+        assert!(!doc.contains("CONVERSATION-SECRET"));
+        assert_eq!(first["preview"]["seen"], Json::Null);
+        assert_eq!(first["preview"]["complete"], false);
+        assert_eq!(release(&grace).status, 200);
+        for author in [&mikey, &grace] {
+            let revision = synthesis_revision(&f, author, &id);
+            assert_eq!(
+                synthesis_change(
+                    &f,
+                    author,
+                    &id,
+                    revision,
+                    json!({
+                        "action": "delivery", "recipient": ada_id,
+                        "expectedAuthorizationRevision": auth_revision, "consent": true
+                    })
+                )
+                .status,
+                200
+            );
+        }
+        let shown = body_json(&preview_call(&f, &ada, &id));
+        let doc = preview_document_text(&f, &ada, &shown);
+        assert!(doc.contains("MIKEY-SECRET") && doc.contains("GRACE-SECRET"));
+        assert!(doc.contains("CONVERSATION-SECRET"));
+        assert_eq!(shown["preview"]["seen"], Json::Null);
+        assert_eq!(
+            draft_call(&f, &grace, &id, 1, "GRACE-LATER-PRIVATE").status,
+            200
+        );
+        let later = body_json(&preview_call(&f, &ada, &id));
+        let doc = preview_document_text(&f, &ada, &later);
+        assert!(!doc.contains("GRACE-SECRET") && !doc.contains("GRACE-LATER-PRIVATE"));
+        assert_eq!(later["preview"]["seen"], Json::Null);
     }
 
     #[test]
