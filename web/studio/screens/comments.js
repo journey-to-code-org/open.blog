@@ -226,7 +226,7 @@ export async function createComments({ api, meta, go }, route) {
   async function startDecision(item, b, line, control) {
     if (b.action === "erase") {
       const choice = await ask({
-        heading: `Erase ${cardLabel(item).replace(/ on .*$/, "")} for good?`,
+        heading: `Erase ${item.reader?.name || "Someone"}'s ${item.source === "report" ? "report" : "comment"} for good?`,
         text: "Its words and the name on it are deleted. Only a private note that you decided stays. This can't be undone.",
         choices: [{ label: "Keep it", value: "keep", variant: "secondary" }, { label: "Erase it", value: "erase", variant: "destructive" }],
       });
@@ -276,7 +276,7 @@ export async function createComments({ api, meta, go }, route) {
         await reloadKeeping(item.id);
         return;
       }
-      if (error.status === 422 && !reason) {
+      if (error.status === 422) {
         line.textContent = "Choose why first.";
       } else {
         line.textContent = troubleWords(error, "card");
@@ -330,9 +330,13 @@ export async function createComments({ api, meta, go }, route) {
     undoSlot.replaceChildren();
   }
 
+  let undoing = false;
   async function runUndo() {
-    if (!undo) return;
+    if (!undo || undoing) return;
+    undoing = true;
     const { item } = undo;
+    const button_ = undoSlot.querySelector("action-button");
+    if (button_) button_.loading = true;
     try {
       await api.patch("engagement/moderation", decisionRequest(item, "reopen", null));
       clearUndo();
@@ -345,6 +349,9 @@ export async function createComments({ api, meta, go }, route) {
       status.textContent = error.status === 409
         ? `It changed again since, so it wasn't undone. It's under ${where_}.`
         : troubleWords(error, "card");
+    } finally {
+      undoing = false;
+      if (button_) button_.loading = false;
     }
   }
 
@@ -389,7 +396,12 @@ export async function createComments({ api, meta, go }, route) {
 
   let saving = false;
   async function setComments(on) {
-    if (!settings || saving || on === (settings.comments !== false)) return;
+    if (saving) {
+      // One change at a time: the switch shows what's saved until it's done.
+      requestAnimationFrame(() => { switcher.checked = !on; });
+      return;
+    }
+    if (!settings || on === (settings.comments !== false)) return;
     if (!on) {
       const choice = await ask({
         heading: "Turn comments off?",
@@ -402,7 +414,7 @@ export async function createComments({ api, meta, go }, route) {
     try {
       const body = {
         enabled: settings.enabled, comments: on, analytics: settings.analytics, endpoint: settings.endpoint,
-        feedback: settings.feedback, etag: settings.etag, credentialAction: "keep",
+        etag: settings.etag, credentialAction: "keep",
       };
       const reply = await api.put("engagement/settings", body);
       settings = { ...settings, ...reply };

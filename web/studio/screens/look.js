@@ -27,7 +27,7 @@ export async function createLook({ api, meta }) {
   const controls = h("div", { class: "studio-look-controls" }, h("skeleton-block", { lines: 6 }));
   const saveButton = h("action-button", { onClick: () => save() }, "Save");
   const see = h("action-button", { variant: "secondary", onClick: (e) => preview(e.currentTarget) }, "See how it looks");
-  const reset = h("action-button", { variant: "ghost", onClick: () => { draft = {}; draw(); } }, "Use the theme's own for everything");
+  const reset = h("action-button", { variant: "ghost", onClick: () => { draft = {}; darkDraft = null; draw(); } }, "Use the theme's own for everything");
   const element = h("section", { class: "studio-page studio-look", "aria-labelledby": "studio-look-h" },
     heading, lede, banner, controls, reset, h("div", { class: "studio-write-bar" }, see, saveButton));
 
@@ -88,6 +88,9 @@ export async function createLook({ api, meta }) {
   }
 
   function draw() {
+    // Redrawing replaces the controls: keep her place.
+    const at = document.activeElement?.closest?.("[data-control]")?.dataset.control;
+    if (at) requestAnimationFrame(() => controls.querySelector(`[data-control="${at}"] select, [data-control="${at}"] input`)?.focus());
     const left = M.CONTROL_ORDER.filter((id) => !honored(id));
     controls.replaceChildren(
       ...M.CONTROL_ORDER.filter(honored).map((id) => h("div", { class: "studio-look-control", "data-control": id }, id === "accent" ? accentField() : choiceField(id))),
@@ -148,7 +151,10 @@ export async function createLook({ api, meta }) {
         if (choice === "mine" && fresh) return save();
         return false;
       }
-      banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" }, error.status === 422 ? error.message : error.status ? "Something went wrong on your site. Your choices are still here; try again in a moment." : "Check your connection and try again. Your choices are still here."));
+      banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" },
+        error.status === 422 ? "Your site's settings didn't accept these choices. Your choices are still here; try a different one, or tell the person who set up your site."
+          : error.status ? "Something went wrong on your site. Your choices are still here; try again in a moment." : "Check your connection and try again. Your choices are still here.",
+        error.status ? h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }), h("p", { class: "studio-mono", text: `${error.status}: ${error.message}` })) : null));
       return false;
     } finally {
       saveButton.loading = false;
