@@ -71,15 +71,15 @@ export async function createUndo({ api, posts, slot, onRestored }) {
    * Delete a post (asking first when it's on her site), then show Undo. `takeOff` is offered
    * instead for a published post. Resolves true when it was deleted.
    */
-  async function deletePost({ path, etag, title, state, fieldJournal = false, ask, takeOff }) {
+  async function deletePost({ path, etag, title, state, fieldJournal = false, ask, takeOff, list = "posts" }) {
     const wasLive = state === "published";
     if (wasLive || fieldJournal) {
       const choices = wasLive && takeOff
         ? [{ label: "Take it off my site instead", value: "takeoff" }, { label: "Delete it", value: "delete", variant: "destructive" }, { label: "Keep it", value: "keep", variant: "secondary" }]
         : [{ label: "Delete it", value: "delete", variant: "destructive" }, { label: "Keep it", value: "keep", variant: "secondary" }];
       const text = [wasLive
-        ? "It's on your site now. Deleting takes it off your site and out of your posts. If you only want it off your site for now, take it off and keep it as a draft."
-        : "Deleting it moves it out of your posts."];
+        ? `It's on your site now. Deleting takes it off your site and out of your ${list}.${takeOff ? " If you only want it off your site for now, take it off and keep it as a draft." : " Undo brings it back."}`
+        : `Deleting it moves it out of your ${list}.`];
       if (fieldJournal) text.push("This one has a map track, so it can't be brought back from Studio.");
       const choice = await ask({ heading: `Delete “${title}”?`, text, choices });
       if (choice === "takeoff") { await takeOff(); return false; }

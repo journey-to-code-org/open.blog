@@ -48,7 +48,7 @@ export async function createWrite(context, arg) {
 
   // ---- the page
   const body = await createBodyHost({ api, maxBytes: meta.capture?.maxPhotoBytes || 0, onChange: () => changed() });
-  const { trail, status, banner, title, numbersHost, day, time, tags, cover, saveLabel, save, primaryLabel, primary, look, more, details, element } = writePage({
+  const { trail, status, banner, title, numbersHost, day, time, tags, cover, collection, saveLabel, save, primaryLabel, primary, look, more, details, element } = writePage({
     meta, body, on: { save: () => saveNow("draft"), publish: () => saveNow("publish"), preview: (opener) => preview(opener), command: (id) => run(id) },
   });
 
@@ -60,7 +60,7 @@ export async function createWrite(context, arg) {
     body: bodyText(),
     date: safeJoin(day.value || "", time.value || ""),
     tags: [...(tags.value || [])],
-    extra: numbers ? numbers.values() : {},
+    extra: { ...(numbers ? numbers.values() : {}), ...(collection ? { series: String(collection.value || "") } : {}) },
   });
   const snapshot = () => JSON.stringify({ ...read(), draft: undefined });
   const now = () => new Date();
@@ -99,6 +99,7 @@ export async function createWrite(context, arg) {
     day.value = parts.date;
     time.value = parts.time;
     tags.value = [...values.tags];
+    if (collection) collection.value = String(doc.fields.series ?? "");
     if (numbers && values.extra) numbers.set(values.extra);
     await body.set(values.body, { boxes: isRecipePost() });
   }
@@ -370,7 +371,7 @@ export async function createWrite(context, arg) {
         drop: () => { kept.clear(keptKey); banner.replaceChildren(); },
       }));
     }
-    for (const field of [title, time, day, tags]) field.addEventListener("valuechange", changed);
+    for (const field of [title, time, day, tags, collection].filter(Boolean)) field.addEventListener("valuechange", changed);
     title.addEventListener("focusout", () => {
       titleLeft = true;
       if (doc.state === "new" && dirty && ready() && !timer) changed();

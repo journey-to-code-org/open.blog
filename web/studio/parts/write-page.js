@@ -17,6 +17,13 @@ export function writePage({ meta, body, on }) {
     time: h("text-field", { label: "Time (your time)", type: "time" }),
     tags: h("tag-input", { label: "Tags", max: 20, suggestions: meta.tags || [] }),
     cover: h("div"),
+    // A post can belong to one collection (a series), when the site has any.
+    collection: (meta.series || []).length ? h("select-field", {
+      label: "Collection",
+      description: "Put it with others, like all your Thanksgiving recipes.",
+      options: [{ value: "", label: "None" }, ...meta.series.map((s) => ({ value: s.slug, label: s.name || s.slug }))],
+      value: "",
+    }) : null,
     saveLabel: h("span", { text: "Save draft" }),
     primaryLabel: h("span", { text: "Publish" }),
     details: h("side-sheet", { label: "About this post", side: "right" }),
@@ -37,6 +44,7 @@ export function writePage({ meta, body, on }) {
           h("p", { class: "studio-help", text: "Leave it empty to use the day you publish." })),
         h("div", { class: "studio-tags" }, h("p", { class: "studio-label", "aria-hidden": "true", text: "Tags" }), parts.tags,
           h("p", { class: "studio-help", text: "Type a tag and press Enter." })),
+        parts.collection,
         parts.cover)),
     h("div", { class: "studio-write-bar" }, parts.look, parts.save, parts.primary),
     parts.details);

@@ -36,7 +36,7 @@ export async function startShell(root, api, meta) {
     nav: NAV,
     current: "home",
     user: api.user,
-    menu: [{ value: "site", label: "View my site" }, { value: "signout", label: "Sign out" }],
+    menu: [{ value: "site", label: "View my site" }, { value: "tools", label: "More tools" }, { value: "signout", label: "Sign out" }],
     onMenuselect: (event) => account(event.detail),
   }, h("div", { slot: "actions", class: "studio-actions-wrap" }, actions, find), content);
 
@@ -65,6 +65,7 @@ export async function startShell(root, api, meta) {
 
   function account(choice) {
     if (choice === "site") open(meta.siteUrl || "/", "_blank", "noopener");
+    if (choice === "tools") router.go("#/tools");
     if (choice === "signout") signOut();
   }
 

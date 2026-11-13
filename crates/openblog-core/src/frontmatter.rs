@@ -974,11 +974,23 @@ fn render_changed(key: &str, old_lines: &[String], value: &Value, eol: &str) -> 
 
 /// A bare scalar. `draft`, and any value that was a bare true/false before,
 /// stays a bare boolean, which every YAML reader agrees on.
+/// Front matter keys the engine reads as a switch (`get_bool`): written bare, `nav: true`, as people
+/// write them by hand, not as the text `"true"`.
+const SWITCH_KEYS: [&str; 7] = [
+    "draft",
+    "nav",
+    "recipe",
+    "highlight",
+    "lineNumbers",
+    "showLineNumbers",
+    "codeHighlighting",
+];
+
 fn scalar_for(key: &str, text: &str, old_bare: Option<&str>) -> String {
     let was_bool = old_bare
         .is_some_and(|old| matches!(old.trim().to_ascii_lowercase().as_str(), "true" | "false"));
     let is_bool = matches!(text, "true" | "false");
-    if is_bool && (key == "draft" || was_bool) {
+    if is_bool && (SWITCH_KEYS.contains(&key) || was_bool) {
         text.to_string()
     } else {
         quote_scalar(text)
@@ -1209,6 +1221,17 @@ mod tests {
             "{out}"
         );
         assert!(out.contains("\ndraft: true\n"), "{out}");
+        let page = "---\ntitle: About\n---\nHi\n";
+        let fields = with(page, |f| {
+            f.insert("nav".into(), Value::Scalar("true".into()));
+            f.insert("theme".into(), Value::Scalar("true".into()));
+        });
+        let out = splice(page, &fields, &body_of(page)).unwrap();
+        assert!(out.contains("\nnav: true\n"), "a switch is bare: {out}");
+        assert!(
+            out.contains("\ntheme: \"true\"\n"),
+            "a word that happens to be true stays text: {out}"
+        );
         let block = "---\ntitle: A\ntags:\n    - one\n---\nBody\n";
         let fields = with(block, |f| {
             f.insert("tags".into(), Value::List(vec!["one".into(), "two".into()]));
