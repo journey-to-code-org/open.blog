@@ -344,8 +344,13 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
           const named = options.json.policy?.requirement?.namedAuthors || [];
           if (named.some((who) => !(state.rule.approvers || []).some((person) => person.participantId === who))) throw new FakeApiError("unmeetable", 422, { error: "This rule could never be met: Grace cannot approve this piece. Nothing was changed.", field: "policy" });
           if (!options.json.confirmed) throw new FakeApiError("confirm", 422, { error: "Confirm that changing the rule clears every approval, so every required author approves again. Nothing was changed.", field: "confirmed" });
-          state.rule = { ...state.rule, policy: options.json.policy, revision: state.rule.revision + 1, summary: "Changed rule." };
-          return { ...state.rule, changed: true, cleared: 2 };
+          state.rule = { ...state.rule, proposal: { id: "proposal-1", valid: true, summary: "Proposed rule.", consenting: [], awaiting: ["Ann", "Bo"], consentedByYou: false } };
+          return { proposed: true };
+        }
+        case "POST collaboration/approval-policy/consent": {
+          if (options.json.proposalId !== state.rule.proposal?.id || !options.json.affirmed) throw new FakeApiError("changed", 409, { error: "The proposed rule changed." });
+          state.rule = { ...state.rule, proposal: { ...state.rule.proposal, consentedByYou: true, consenting: ["Ann"], awaiting: ["Bo"] } };
+          return { changed: false };
         }
         default:
           throw new FakeApiError(`unexpected ${key}`, 500, null);
@@ -428,7 +433,7 @@ test("the draft panel is for writers and coordinators and loads only when opened
   await panel.dispatch("toggle");
   await settle();
   assert.equal(textarea(panel).value, "mine");
-  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal", "GET collaboration/reflection", "GET collaboration/synthesis", "GET collaboration/moments"]);
+  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal", "GET collaboration/reflection", "GET collaboration/approval-policy", "GET collaboration/synthesis", "GET collaboration/moments"]);
 }));
 
 test("prompts can be added, edited, deleted, hidden, and are never required to save", withDom(async () => {
@@ -1219,11 +1224,11 @@ test("replacing a named approver who left saves without them", withDom(async () 
   ann.checked = true;
   await ann.dispatch("change");
   inputs.find((input) => input.attributes.id === "oba-draft-0-rule-confirm").checked = true;
-  await button(block, "Change approval rule").click();
+  await button(block, "Propose approval rule").click();
   await settle();
   const put = api.state.calls.filter((call) => call.key === "PUT collaboration/approval-policy").at(-1);
   assert.deepEqual(put.body.policy, { requirement: { namedAuthors: ["p2", "p1"] }, scope: "ownSections" });
-  assert.match(textOf(block), /The approval rule changed/);
+  assert.match(textOf(block), /proposed rule is waiting for every active participant/);
   assert.equal(alertOf(block).hidden, true);
 }));
 
@@ -1235,18 +1240,37 @@ test("a coordinator is told that only a site owner can take a departed approver 
   assert.match(textOf(block), /Grace \(can no longer approve\) Only a site owner can take them off the rule\./);
 }));
 
-test("only someone who may change the rule loads it, and a writer never asks", withDom(async () => {
+test("a writer can review a rule without proposing a change", withDom(async () => {
   const writer = fakeApi({ number: 1, markdown: "x", reveal: { slots: SLOTS.slice(0, 1) } });
-  writer.state.rule = RULE;
+  writer.state.rule = { ...RULE, mayPropose: false };
   const { panel } = await openDraft(writer);
-  assert.equal(writer.state.calls.some((call) => call.key === "GET collaboration/approval-policy"), false);
-  assert.doesNotMatch(textOf(panel), /Approval rule/);
+  assert.equal(writer.state.calls.some((call) => call.key === "GET collaboration/approval-policy"), true);
+  assert.match(textOf(panel), /Approval rule/);
+  assert.equal(button(panel, "Propose approval rule"), undefined);
   // A coordinator whose request is refused sees nothing either.
   const refused = await openDraft(fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } }), ["coordinator"]);
   assert.equal(refused.panel.querySelector(".oba-approval-rule").hidden, true);
 }));
 
-test("a coordinator changes the rule with labelled controls, the revision read and an explicit confirmation", withDom(async (dom) => {
+test("a writer explicitly agrees to the exact proposed rule without changing the current rule", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { slots: SLOTS.slice(0, 1) } });
+  api.state.rule = { ...RULE, you: "p1", mayPropose: false, proposal: { id: "proposal-1", valid: true, summary: "Proposed rule.", consenting: [], awaiting: ["Ann", "Bo"], consentedByYou: false } };
+  const { panel } = await openDraft(api);
+  const block = panel.querySelector(".oba-approval-rule");
+  const agree = button(block, "Agree to this rule");
+  assert.equal(agree.disabled, true);
+  const confirm = block.querySelectorAll("input").find((input) => input.attributes.id === "oba-draft-0-proposal-confirm");
+  confirm.checked = true;
+  await confirm.dispatch("change");
+  await agree.click();
+  await settle();
+  const call = api.state.calls.find((entry) => entry.key === "POST collaboration/approval-policy/consent");
+  assert.deepEqual(call.body, { publicationId: PUBLICATION, proposalId: "proposal-1", affirmed: true });
+  assert.match(textOf(block), /current rule remains in effect until everyone agrees/);
+  assert.match(textOf(block), /Current rule. Every author must approve/);
+}));
+
+test("a coordinator proposes a rule with labelled controls, the revision read and an explicit confirmation", withDom(async (dom) => {
   const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
   api.state.rule = RULE;
   const { panel } = await openDraft(api, ["coordinator"]);
@@ -1258,7 +1282,7 @@ test("a coordinator changes the rule with labelled controls, the revision read a
   for (const input of inputs) assert.ok(block.querySelectorAll("label").some((label) => label.attributes.for === input.attributes.id), `input ${input.attributes.id} has a label`);
   await inputs.find((input) => input.attributes.id === "oba-draft-0-rule-namedAuthors").dispatch("change");
   // Nobody chosen: refused before anything is sent.
-  await button(block, "Change approval rule").click();
+  await button(block, "Propose approval rule").click();
   await settle();
   assert.match(alertOf(block).textContent, /at least one person/);
   assert.equal(api.state.calls.some((call) => call.key === "PUT collaboration/approval-policy"), false);
@@ -1266,18 +1290,19 @@ test("a coordinator changes the rule with labelled controls, the revision read a
   bo.checked = true;
   await bo.dispatch("change");
   // Not confirmed: the server's words are shown and focus moves to them.
-  await button(block, "Change approval rule").click();
+  await button(block, "Propose approval rule").click();
   await settle();
   assert.match(alertOf(block).textContent, /Confirm that changing the rule clears every approval/);
   assert.equal(dom.document.activeElement, alertOf(block));
   const confirm = block.querySelectorAll("input").find((input) => input.attributes.id === "oba-draft-0-rule-confirm");
   confirm.checked = true;
-  await button(block, "Change approval rule").click();
+  await button(block, "Propose approval rule").click();
   await settle();
   const puts = api.state.calls.filter((call) => call.key === "PUT collaboration/approval-policy");
-  assert.deepEqual(puts.at(-1).body, { publicationId: PUBLICATION, expectedRevision: 3, policy: { requirement: { namedAuthors: ["p2"] }, scope: "ownSections" }, confirmed: true });
-  assert.match(textOf(block), /The approval rule changed. 2 approvals were cleared/);
-  assert.match(textOf(block), /Current rule. Changed rule./);
+  assert.deepEqual(puts.at(-1).body, { publicationId: PUBLICATION, expectedRevision: 3, expectedProposalId: null, policy: { requirement: { namedAuthors: ["p2"] }, scope: "ownSections" }, confirmed: true });
+  assert.match(textOf(block), /proposed rule is waiting for every active participant/);
+  assert.match(textOf(block), /Current rule. Every author must approve/);
+  assert.match(textOf(block), /Proposed rule/);
   assert.equal(dom.document.activeElement.attributes.id, "oba-draft-0-rule-heading");
 }));
 
@@ -1288,7 +1313,7 @@ test("a rule changed elsewhere is a conflict that reloads the current rule", wit
   const block = panel.querySelector(".oba-approval-rule");
   api.state.rule = { ...RULE, revision: 4, summary: "Someone else's rule." };
   block.querySelectorAll("input").find((input) => input.attributes.id === "oba-draft-0-rule-confirm").checked = true;
-  await button(block, "Change approval rule").click();
+  await button(block, "Propose approval rule").click();
   await settle();
   assert.match(alertOf(block).textContent, /approval rule changed since you loaded it/);
   assert.match(textOf(block), /Someone else's rule\./);
@@ -1299,7 +1324,7 @@ test("a published reflection shows its rule without a way to change it, and unme
   api.state.rule = { ...RULE, published: true, unmetNamed: ["Grace"] };
   const { panel } = await openDraft(api, ["coordinator"]);
   const block = panel.querySelector(".oba-approval-rule");
-  assert.equal(button(block, "Change approval rule"), undefined);
+  assert.equal(button(block, "Propose approval rule"), undefined);
   assert.match(textOf(block), /Grace can no longer approve/);
   assert.match(textOf(block), /published, so its rule no longer changes/);
 }));
