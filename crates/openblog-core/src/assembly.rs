@@ -224,6 +224,8 @@ pub fn with_subject<R>(
         .collect();
     ask(&ApprovalSubject {
         authors: &authors,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
         sections: &sections,
         metadata: &metadata,
         attributed: &attributed,

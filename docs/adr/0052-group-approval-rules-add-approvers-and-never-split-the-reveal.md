@@ -49,6 +49,8 @@ stored groups.
   by another person's approval. The threshold remains fixed when membership changes; proposals
   with fewer eligible authors than the threshold are refused, and coordinators cannot propose
   weakening a quorum. Every active bound participant must consent before a proposal applies.
+  Quorum approvals bind membership and authorization revisions, so restoring prior access cannot
+  resurrect them even if reconciliation failed.
   Reader- and coordinator-only participants can consent to the rule but cannot yet approve the
   piece; extending piece approval to all participants remains open. Numeric rules cannot be read
   by older releases.

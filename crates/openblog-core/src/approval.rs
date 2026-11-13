@@ -247,6 +247,9 @@ pub struct Section<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct ApprovalSubject<'a> {
     pub authors: &'a [&'a str],
+    /// Monotonic membership and authorization revisions protect quorum consent across churn.
+    pub membership_revision: u64,
+    pub authorization_revision: u64,
     pub sections: &'a [Section<'a>],
     pub metadata: &'a [&'a str],
     /// Authors named on a synthesis item (`SynthesisSet::attributed_authors`). Each is a required
@@ -519,6 +522,8 @@ impl ApprovalSubject<'_> {
         hasher.update(policy_revision.to_be_bytes());
         put(&mut hasher, participant.as_bytes());
         if matches!(policy.requirement, ApprovalRequirement::Quorum(_)) {
+            hasher.update(self.membership_revision.to_be_bytes());
+            hasher.update(self.authorization_revision.to_be_bytes());
             hasher.update([u8::from(
                 self.holds_role(participant, &[AuthorizationRole::Contributor]),
             )]);
@@ -1108,6 +1113,8 @@ mod tests {
                 .collect();
             run(&ApprovalSubject {
                 authors: &self.authors,
+                membership_revision: 0,
+                authorization_revision: 0,
                 sections: &sections,
                 metadata: &self.metadata,
                 attributed: &[],

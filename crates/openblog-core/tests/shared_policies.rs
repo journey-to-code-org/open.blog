@@ -272,6 +272,26 @@ fn losing_and_regaining_a_quorum_approval_grant_does_not_revive_consent() {
 }
 
 #[test]
+fn quorum_churn_cannot_revive_consent_even_without_reconciliation() {
+    let mut record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(3),
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ["ann", "bo", "cy"] {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+    record.authorization.revision += 2;
+    assert!(matches!(
+        gate(&record, &drafts, &approvals, &ALL),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
 fn new_reflections_cannot_publish_section_only_approvals() {
     let mut record = record();
     record.initial_approval_scope = Some(ApprovalScope::WholePiece);
