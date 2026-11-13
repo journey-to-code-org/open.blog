@@ -310,6 +310,10 @@ impl DraftSet {
             .find(|draft| draft.id.eq_ignore_ascii_case(id))
     }
 
+    pub(crate) fn draft_owner(&self, id: &str) -> Option<&str> {
+        self.draft(id).map(|draft| draft.owner.as_str())
+    }
+
     fn stamp(draft: &Draft, revision: &Revision) -> RevisionStamp {
         RevisionStamp {
             contribution_id: draft.id.clone(),

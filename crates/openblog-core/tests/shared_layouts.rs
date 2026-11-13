@@ -143,6 +143,78 @@ fn in_order(haystack: &str, needles: &[&str]) -> bool {
 const READING: [&str; 4] = ["ANN-ONE", "BO-ONE", "ANN-TWO", "BO-TWO"];
 
 #[test]
+fn multi_contribution_arrangement_shows_only_released_drafts() {
+    use openblog_core::collaboration::Contribution;
+    use openblog_core::draft::{DraftError, RevealPolicy};
+    let mut record = record();
+    record.collaboration.contributions = vec![
+        Contribution {
+            id: "first".into(),
+            participant_id: "ann".into(),
+            markdown: String::new(),
+        },
+        Contribution {
+            id: "second".into(),
+            participant_id: "ann".into(),
+            markdown: String::new(),
+        },
+        Contribution {
+            id: "third".into(),
+            participant_id: "bo".into(),
+            markdown: String::new(),
+        },
+    ];
+    let mut set = DraftSet::new(&ALL).unwrap();
+    set.set_policy(RevealPolicy::NamedRecipients);
+    set.save("ann", "first", 0, "FIRST PRIVATE", T).unwrap();
+    set.save("ann", "second", 0, "SECOND PRIVATE", T).unwrap();
+    set.save("bo", "third", 0, "THIRD PRIVATE", T).unwrap();
+    set.release_named("ann", "first", 1, &["bo"], &ALL, T)
+        .unwrap();
+    assert_eq!(set.view("bo", "second", &ALL), Err(DraftError::Denied));
+    let layout = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"second","part":0},{"draft":"first","part":0},{"draft":"third","part":0}]}]}"#,
+    );
+    let order = layout
+        .reading_order_for_contributions(&record.collaboration, &set, "bo", &ALL)
+        .unwrap();
+    assert_eq!(
+        order
+            .iter()
+            .map(|entry| entry.participant_id)
+            .collect::<Vec<_>>(),
+        ["ann", "ann", "bo"]
+    );
+    assert_eq!(
+        order.iter().map(|entry| entry.draft_id).collect::<Vec<_>>(),
+        ["second", "first", "third"]
+    );
+    assert_eq!(
+        order
+            .iter()
+            .map(|entry| entry.markdown.as_deref())
+            .collect::<Vec<_>>(),
+        [None, Some("FIRST PRIVATE"), Some("THIRD PRIVATE")]
+    );
+    set.release_named_with_readers("ann", "second", 1, &["cy"], &ALL, &["cy"], T)
+        .unwrap();
+    let reader = layout
+        .reading_order_for_recipient_contributions(&record.collaboration, &set, "cy", &ALL)
+        .unwrap();
+    assert_eq!(
+        reader
+            .iter()
+            .map(|entry| entry.markdown.as_deref())
+            .collect::<Vec<_>>(),
+        [Some("SECOND PRIVATE"), None, None]
+    );
+    record.collaboration.contributions[0].participant_id = "bo".into();
+    assert!(layout
+        .reading_order_for_contributions(&record.collaboration, &set, "bo", &ALL)
+        .is_err());
+}
+
+#[test]
 fn a_piece_without_a_structure_keeps_participant_order_and_never_shows_the_marker() {
     let record = record();
     let set = world();

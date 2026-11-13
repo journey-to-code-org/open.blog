@@ -485,6 +485,9 @@ reveal waits for each active author, and each committed revision remains distinc
 offers can be taken back, while named releases remain specific to a contribution and recipients.
 Older releases cannot read multi-contribution offers or exchanges; the Admin routes do not yet
 create them.
+An opt-in arrangement reader resolves distinct contribution IDs against authorized ownership
+metadata, checks stored ownership, and applies draft or named-reader visibility to each turn.
+It is a core foundation only and is not yet used by Admin preview or publication.
 The Admin route, reveal, preview and publication paths still support one draft per participant;
 the core ordering operation is not exposed until those paths can safely handle every contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.
