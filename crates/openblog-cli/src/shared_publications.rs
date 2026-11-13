@@ -19,6 +19,7 @@ use openblog_core::draft::{DraftSet, MAX_DRAFT_SET_BYTES};
 use openblog_core::invitation::InvitationState;
 use openblog_core::media_moment::{MomentSet, MAX_MOMENT_SET_BYTES};
 use openblog_core::reflection::ReflectionStructure;
+use openblog_core::shared_credit::{CreditChoices, MAX_CREDIT_CHOICES_BYTES};
 use openblog_core::synthesis::{SynthesisSet, MAX_SYNTHESIS_SET_BYTES};
 
 use crate::auth;
@@ -36,6 +37,7 @@ pub const OUTCOMES_DIRECTORY: &str = ".openblog/private/collaboration/outcomes";
 /// Private shared synthesis sets (ADR 0025), one file per publication, beside the drafts. Prose
 /// lives here, so the directory stays out of Git, generated output, feeds and exports.
 pub const SYNTHESIS_DIRECTORY: &str = ".openblog/private/collaboration/synthesis";
+pub const CREDIT_CHOICES_DIRECTORY: &str = ".openblog/private/collaboration/credit-choices";
 const MAX_ID_ATTEMPTS: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -438,6 +440,47 @@ pub fn replace_approvals(
     )
 }
 
+pub struct StoredCreditChoices {
+    pub choices: CreditChoices,
+    text: Option<String>,
+}
+
+fn credit_choices_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(CREDIT_CHOICES_DIRECTORY))
+        .map_err(|_| "credit choice storage resolves outside the project".to_string())
+}
+
+pub fn load_credit_choices(
+    root: &Path,
+    publication_id: &str,
+) -> Result<StoredCreditChoices, String> {
+    let target = credit_choices_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the credit choice file is not usable")?;
+    let choices = match &text {
+        Some(text) => CreditChoices::from_json(text)
+            .map_err(|_| "the credit choice file is not usable".to_string())?,
+        None => CreditChoices::default(),
+    };
+    Ok(StoredCreditChoices { choices, text })
+}
+
+pub fn replace_credit_choices(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredCreditChoices,
+    next: &CreditChoices,
+) -> Result<(), ReplaceError> {
+    let directory = credit_choices_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!("{}\n", next.to_json().map_err(|_| ReplaceError::TooLarge)?);
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        MAX_CREDIT_CHOICES_BYTES,
+    )
+}
+
 /// A shared reflection's private arrangement (ADR 0031), one small file per publication beside
 /// the drafts. Absent means nothing was arranged: the piece publishes in participant order.
 pub const STRUCTURES_DIRECTORY: &str = ".openblog/private/collaboration/structures";
@@ -819,6 +862,48 @@ mod tests {
         let existing =
             load_approvals_for_update(&root.0, other_id, ApprovalPolicy::default()).unwrap();
         assert_eq!(existing.set.policy(), &chosen);
+    }
+
+    #[test]
+    fn credit_choices_are_private_revision_checked_and_fail_closed() {
+        use openblog_core::shared_credit::CreditChoice;
+
+        let root = root("credit-choices");
+        let id = "shared-credit";
+        let first = load_credit_choices(&root.0, id).unwrap();
+        let stale = load_credit_choices(&root.0, id).unwrap();
+        assert_eq!(first.choices.revision(), 0);
+        assert!(first.choices.choice("ann").is_none());
+        let mut next = first.choices.clone();
+        next.select(
+            "ann",
+            "ann",
+            "ann",
+            0,
+            CreditChoice::DisplayName {
+                name: "Pen Name".into(),
+            },
+        )
+        .unwrap();
+        replace_credit_choices(&root.0, id, &first, &next).unwrap();
+        assert_eq!(
+            replace_credit_choices(&root.0, id, &stale, &stale.choices),
+            Err(ReplaceError::Conflict)
+        );
+        let current = load_credit_choices(&root.0, id).unwrap();
+        assert_eq!(current.choices, next);
+        assert!(!root.0.join("content").exists());
+        let path = root
+            .0
+            .join(CREDIT_CHOICES_DIRECTORY)
+            .join(format!("{id}.json"));
+        fs::write(&path, "not json").unwrap();
+        assert!(load_credit_choices(&root.0, id).is_err());
+        assert_eq!(
+            replace_credit_choices(&root.0, id, &current, &next),
+            Err(ReplaceError::Conflict)
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), "not json");
     }
 
     #[test]

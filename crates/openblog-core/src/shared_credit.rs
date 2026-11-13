@@ -94,6 +94,7 @@ impl CreditChoices {
         let mut ids = HashSet::new();
         if value.version != CREDIT_CHOICES_VERSION
             || value.selections.len() > MAX_PARTICIPANTS
+            || value.revision < value.selections.len() as u64
             || value.selections.iter().any(|selection| {
                 !valid_id(&selection.participant_id)
                     || !ids.insert(selection.participant_id.to_ascii_lowercase())
@@ -186,6 +187,15 @@ impl CreditChoices {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn choices_cannot_claim_to_precede_their_first_revision() {
+        let forged = r#"{"version":1,"revision":0,"selections":[{"participantId":"ann","choice":{"kind":"uncredited"}}]}"#;
+        assert_eq!(
+            CreditChoices::from_json(forged),
+            Err(CreditChoiceError::Invalid)
+        );
+    }
 
     #[test]
     fn choices_are_explicit_self_selected_and_revision_bound() {

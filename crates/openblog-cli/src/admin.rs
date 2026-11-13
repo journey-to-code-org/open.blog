@@ -938,6 +938,8 @@ fn authenticated_api(
         ("POST", "collaboration/members/remove") => remove_member(state, req, session),
         ("GET", "collaboration/draft") => read_own_draft(state, req, session),
         ("PUT", "collaboration/draft") => save_own_draft(state, req, session),
+        ("GET", "collaboration/credit-choice") => read_credit_choice(state, req, session),
+        ("PUT", "collaboration/credit-choice") => change_credit_choice(state, req, session),
         ("GET", "collaboration/reveal") => read_reveal_state(state, req, session),
         ("PUT", "collaboration/reveal/policy") => set_reveal_policy(state, req, session),
         ("GET", "collaboration/approval-policy") => read_approval_policy(state, req, session),
@@ -13474,6 +13476,18 @@ fn publish_store_problem(error: crate::shared_publications::ReplaceError) -> Res
     }
 }
 
+fn require_credit_publication_support(state: &AppState, id: &str) -> Result<(), Response> {
+    let choices = crate::shared_publications::load_credit_choices(&state.root, id)
+        .map_err(|error| publish_failed(&error))?;
+    if choices.choices.revision() != 0 {
+        return Err(Response::error(
+            409,
+            "Participant credit choices cannot yet be applied to review or publication. Nothing was changed.",
+        ));
+    }
+    Ok(())
+}
+
 /// Everything the gate reads, loaded in the request's transaction.
 struct GateInputs {
     drafts: DraftSet,
@@ -13574,6 +13588,7 @@ fn prepare_post(
     date: DateTime,
 ) -> Result<Prepared, Response> {
     use openblog_core::assembly::{assemble_for_participants, AssemblyError};
+    require_credit_publication_support(state, &record.publication_id)?;
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
     let participants = inputs
         .participants
@@ -13995,6 +14010,11 @@ fn change_approval(
         Some(openblog_core::assembly::Outcome::Published { .. })
     ) {
         return published_already();
+    }
+    if approving.is_some() {
+        if let Err(response) = require_credit_publication_support(state, publication_id) {
+            return response;
+        }
     }
     if approving.is_some() && !record.allows_approval_scope(inputs.approvals.set.policy().scope) {
         return Response::error(409, "This reflection needs a whole-piece approval rule before it can be approved. Ask a coordinator to propose that rule and agree to it; nothing was changed.");
@@ -15376,6 +15396,9 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     let Some(own) = policy_participant(&transaction, record, &session.user) else {
         return draft_not_found();
     };
+    if let Err(response) = require_credit_publication_support(state, publication_id) {
+        return response;
+    }
     let stored = match load_reveal_drafts(state, publication_id) {
         Ok(stored) => stored,
         Err(response) => return response,
@@ -15659,6 +15682,163 @@ fn policy_participant(
         })
         .ok()
         .map(|binding| binding.participant_id.clone())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct CreditChoiceRequest {
+    publication_id: String,
+    expected_revision: u64,
+    choice: RequestedCreditChoice,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+enum RequestedCreditChoice {
+    Profile {},
+    DisplayName { name: String },
+    Uncredited {},
+}
+
+fn credit_choice_json(choices: &openblog_core::shared_credit::CreditChoices, own: &str) -> Json {
+    json!({
+        "revision": choices.revision(),
+        "choice": choices.choice(own),
+        "publicationSupported": false,
+        "notice": "Credit choices are not yet available for publication."
+    })
+}
+
+fn credit_choice_failed(error: &str) -> Response {
+    eprintln!("admin: credit choice storage unavailable: {error}");
+    Response::error(
+        500,
+        "Credit choices could not be accessed. Nothing was changed.",
+    )
+}
+
+fn read_credit_choice(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(id) = req.query.get("publicationId") else {
+        return publish_not_found();
+    };
+    let Ok(transaction) = invitation_transaction(state, id) else {
+        return publish_not_found();
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return publish_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return publish_not_found();
+    };
+    match crate::shared_publications::load_credit_choices(&state.root, id) {
+        Ok(stored) => Response::json(200, &credit_choice_json(&stored.choices, &own)),
+        Err(error) => credit_choice_failed(&error),
+    }
+}
+
+fn change_credit_choice(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    use openblog_core::shared_credit::{CreditChoice, CreditChoiceError};
+
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<CreditChoiceRequest>(&req.body) else {
+        return publish_request_problem();
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return publish_not_found();
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return publish_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return publish_not_found();
+    };
+    let Some(binding) = record
+        .authorization
+        .bindings
+        .iter()
+        .find(|binding| binding.admin_user == session.user && binding.participant_id == own)
+    else {
+        return publish_not_found();
+    };
+    match crate::shared_publications::load_outcome(&state.root, &body.publication_id) {
+        Ok(outcome)
+            if matches!(
+                outcome.outcome,
+                Some(openblog_core::assembly::Outcome::Published { .. })
+            ) =>
+        {
+            return published_already()
+        }
+        Ok(_) => {}
+        Err(error) => return credit_choice_failed(&error),
+    }
+    let stored =
+        match crate::shared_publications::load_credit_choices(&state.root, &body.publication_id) {
+            Ok(stored) => stored,
+            Err(error) => return credit_choice_failed(&error),
+        };
+    let choice = match body.choice {
+        RequestedCreditChoice::Profile {} => {
+            let config = match site::load_config(&state.root) {
+                Ok(config) => config,
+                Err(error) => return credit_choice_failed(&error),
+            };
+            let Some(profile) = config.contributors.get(&binding.contributor_id) else {
+                return publish_not_found();
+            };
+            CreditChoice::Profile {
+                contributor_id: binding.contributor_id.clone(),
+                profile: profile.clone(),
+            }
+        }
+        RequestedCreditChoice::DisplayName { name } => CreditChoice::DisplayName { name },
+        RequestedCreditChoice::Uncredited {} => CreditChoice::Uncredited,
+    };
+    let mut next = stored.choices.clone();
+    match next.select(
+        &own,
+        &own,
+        &binding.contributor_id,
+        body.expected_revision,
+        choice,
+    ) {
+        Ok(changed) => {
+            if changed {
+                if let Err(error) = crate::shared_publications::replace_credit_choices(
+                    &state.root,
+                    &body.publication_id,
+                    &stored,
+                    &next,
+                ) {
+                    return match error {
+                        crate::shared_publications::ReplaceError::Conflict => Response::error(
+                            409,
+                            "Credit choices changed. Reload before saving; nothing was changed.",
+                        ),
+                        crate::shared_publications::ReplaceError::TooLarge => shared_problem(
+                            "choice",
+                            "Credit choices have reached their size limit. Nothing was changed.",
+                        ),
+                        crate::shared_publications::ReplaceError::Storage(error) => {
+                            credit_choice_failed(&error)
+                        }
+                    };
+                }
+            }
+            Response::json(200, &credit_choice_json(&next, &own))
+        }
+        Err(CreditChoiceError::Denied) => publish_not_found(),
+        Err(CreditChoiceError::Stale) => Response::error(
+            409,
+            "Credit choices changed. Reload before saving; nothing was changed.",
+        ),
+        Err(CreditChoiceError::Invalid) => shared_problem(
+            "choice",
+            "Choose a valid credit option and display name. Nothing was changed.",
+        ),
+    }
 }
 
 fn policy_participants(
@@ -37776,6 +37956,138 @@ series: letters
             .join(crate::shared_publications::DIRECTORY)
             .join(format!("{id}.json"));
         SharedPublication::from_json(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn credit_choices_are_self_only_private_and_block_unsupported_publication() {
+        let (f, mikey, id) = invitation_fixture("credit-choice");
+        let grace = login_as(&f, "grace", "another correct horse");
+        let url = format!("/admin/api/collaboration/credit-choice?publicationId={id}");
+        let get = |session: &(String, String)| {
+            handle(&f.state, &authed(req("GET", &url), session, false))
+        };
+        let put = |session: &(String, String), body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/collaboration/credit-choice", body),
+                    session,
+                    true,
+                ),
+            )
+        };
+        assert_eq!(handle(&f.state, &req("GET", &url)).status, 401);
+        assert_eq!(get(&grace).status, 404);
+        let initial = body_json(&get(&mikey));
+        assert_eq!(initial["revision"], 0);
+        assert!(initial["choice"].is_null());
+        assert_eq!(initial["publicationSupported"], false);
+        let profile = put(
+            &mikey,
+            json!({
+                "publicationId": id, "expectedRevision": 0, "choice": {"kind":"profile"}
+            }),
+        );
+        assert_eq!(profile.status, 200);
+        let profile = body_json(&profile);
+        assert_eq!(profile["choice"]["profile"]["name"], "Mikey");
+        assert_eq!(profile["choice"]["contributorId"], "mikey-writer");
+        let forged = put(
+            &mikey,
+            json!({
+                "publicationId": id, "expectedRevision": 1,
+                "choice": {"kind":"profile", "profile":{"name":"Forged"}}
+            }),
+        );
+        assert_eq!(forged.status, 422);
+        assert_eq!(
+            put(
+                &mikey,
+                json!({
+                    "publicationId": id, "expectedRevision": 0, "choice": {"kind":"uncredited"}
+                })
+            )
+            .status,
+            409
+        );
+
+        let issued = body_json(&post_api(
+            &f,
+            &mikey,
+            "invitations",
+            invite_body(&id, "grace", "grace", json!(["contributor"])),
+        ));
+        let accepted = post_api(
+            &f,
+            &grace,
+            "invitations/accept",
+            json!({"token": issued["token"], "contributorId":"grace"}),
+        );
+        assert_eq!(accepted.status, 200);
+        let other = body_json(&get(&grace));
+        assert_eq!(other["revision"], 1);
+        assert!(other["choice"].is_null());
+        assert!(!other.to_string().contains("Mikey"));
+        let own = put(
+            &grace,
+            json!({
+                "publicationId": id, "expectedRevision": 1,
+                "choice": {"kind":"displayName", "name":"Pen Name"}
+            }),
+        );
+        assert_eq!(own.status, 200);
+        assert_eq!(body_json(&get(&mikey))["choice"]["kind"], "profile");
+        assert!(!body_json(&get(&mikey)).to_string().contains("Pen Name"));
+        let preview = handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/preview?publicationId={id}"),
+                ),
+                &mikey,
+                false,
+            ),
+        );
+        assert_eq!(preview.status, 409);
+        let approval = post_api(
+            &f,
+            &mikey,
+            "approve",
+            json!({"publicationId": id, "seen": "old-token", "affirmed": true}),
+        );
+        assert_eq!(approval.status, 409);
+        assert!(body_json(&approval)["error"]
+            .as_str()
+            .unwrap()
+            .contains("cannot yet"));
+        let blocked = post_api(&f, &mikey, "publish", json!({"publicationId":id}));
+        assert_eq!(
+            blocked.status,
+            409,
+            "{}",
+            String::from_utf8_lossy(&blocked.body)
+        );
+        assert!(body_json(&blocked)["error"]
+            .as_str()
+            .unwrap()
+            .contains("cannot yet"));
+        let scheduled = post_api(
+            &f,
+            &mikey,
+            "schedule",
+            json!({"publicationId": id, "publishAt": "2099-01-01T00:00:00Z"}),
+        );
+        assert_eq!(scheduled.status, 409);
+        assert!(body_json(&scheduled)["error"]
+            .as_str()
+            .unwrap()
+            .contains("cannot yet"));
+        assert!(!f
+            .dir
+            .join("content/posts")
+            .join(format!("{id}.md"))
+            .exists());
     }
 
     #[test]

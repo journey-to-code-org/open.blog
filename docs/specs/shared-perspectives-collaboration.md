@@ -467,6 +467,12 @@ binding includes the participants' display names and contributor-profile binding
 record, but not mutable contributor-registry profile details. Approvals made before that
 attribution binding was added must be reviewed again.
 
+The private credit-choice API is a foundation, not a publication feature: participants can
+save only their own choice, and profile details are taken from the server's registry. Responses
+mark publication support as unavailable. Once any choice is saved, review, new approvals,
+publishing, and scheduling are refused until the choice-aware publication workflow is implemented;
+choices never silently fall back to profile credit. Existing approvals can still be withdrawn.
+
 When an approver submits an approval, the server checks again that the current combined preview is
 complete for them. If sharing changed after the preview was opened, the earlier review token
 cannot be used while any current material is hidden; they must reload after it is shared.
