@@ -9,7 +9,8 @@ export const KIND_WORDS = Object.freeze({
   comment: { switch: "Someone leaves a comment", summary: "comments" },
   feedback: { switch: "A reader sends you a note about a post", summary: "notes from readers" },
   quote: { switch: "Someone asks for a quote", summary: "quote requests" },
-  app: { switch: "Your other apps have news, like a gift or a game", summary: "news from your other apps" },
+  // The push function knows no app names (one notify key for all of them), so they're named by what they are.
+  app: { switch: "News from your family's other apps, like a card game", summary: "news from your other apps" },
 });
 const ORDER = Object.keys(KIND_WORDS);
 const byOrder = (list) => [...new Set(list)].sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
@@ -181,11 +182,12 @@ export function lastToldWords(iso, now = Date.now()) {
   return `Last told you ${Math.round(days / 30)} months ago.`;
 }
 
-/** The words on the card for a state other than on and off: [sentence] (denied adds its steps). */
+/** The words on the card for a state other than on and off (and "removed": off, taken off elsewhere); denied adds its steps. */
 export function stateWords(state, here) {
   const noun = deviceNoun(here);
   const app = here.android ? "Chrome" : "Safari";
   switch (state) {
+    case "removed": return `This ${noun} was removed from the phones your blog tells, so it's off.`;
     case "denied": return `You said no when your ${noun} asked, so it can't show notifications from your blog. To change that:`;
     case "home-screen-first": return `On an ${noun}, your blog can only send notifications once it's on your Home Screen. It takes four taps.`;
     case "update-first": return `This ${noun} needs a newer iOS before your blog can send it notifications. In the Settings app: General, then Software Update.`;
@@ -204,23 +206,26 @@ export function stateBadge(state) {
   return null;
 }
 
+/** Where the address shows, in her words (never "address bar"). */
+export const BAR = "the bar at the top where the address is";
+
 /** How to allow notifications again, for this phone only. */
 export function deniedSteps(here) {
   if (here.apple) {
     return ["Open the Settings app.", "Tap Notifications.", "Find your blog in the list (it has the name under its icon) and tap it.", "Turn on Allow Notifications."];
   }
   if (here.android && here.standalone) return ["Touch and hold your blog's icon.", "Tap App info (or the small \"i\").", "Tap Notifications and turn them on."];
-  if (here.android) return ["Tap the small icon at the left end of the address bar.", "Tap Permissions.", "Turn on Notifications."];
-  if (here.browser === "firefox") return ["Click the icon at the left end of the address bar.", "Click the × beside \"Blocked: Send notifications\".", "Reload the page."];
+  if (here.android) return [`Tap the small icon at the left end of ${BAR}.`, "Tap Permissions.", "Turn on Notifications."];
+  if (here.browser === "firefox") return [`Click the icon at the left end of ${BAR}.`, "Click the × beside \"Blocked: Send notifications\".", "Reload the page."];
   if (here.browser === "safari" && here.mac) return ["In the Safari menu, choose Settings.", "Click Websites, then Notifications.", "Find your blog and choose Allow."];
-  if (here.browser === "chrome" || here.browser === "edge") return ["Click the small icon at the left end of the address bar.", "Turn on Notifications (in Edge: Permissions for this site, then Notifications, Allow)."];
+  if (here.browser === "chrome" || here.browser === "edge") return [`Click the small icon at the left end of ${BAR}.`, "Turn on Notifications (in Edge: Permissions for this site, then Notifications, Allow)."];
   return ["Look in this browser's settings for this site's notifications and choose Allow."];
 }
 
 /** "Didn't see the test?": only this phone's lines. */
 export function didntSeeIt(here) {
-  const lines = ["Wait a minute. A phone saving battery can be slow.", "Check that Do Not Disturb or Focus is off."];
-  if (here.apple) lines.push("In the Settings app: Notifications, then your blog. Allow Notifications should be on, with Lock Screen and Banners ticked.");
+  const lines = ["Wait a minute. A phone saving battery can be slow.", "Check that Do Not Disturb is off."];
+  if (here.apple) lines.push("In the Settings app: Notifications, then your blog. Allow Notifications should be on, with Lock Screen and Banners turned on.");
   else if (here.android) lines.push("In Settings: Apps, then your blog (or Chrome), then Notifications.");
   else if (here.mac) lines.push("In System Settings: Notifications, then your browser. Allow notifications should be on.");
   else if (here.windows) lines.push("In Settings: System, Notifications, then your browser.");
@@ -249,7 +254,7 @@ export function pushTrouble(error = {}, { noun = "iPhone", name = "", limit = 20
   if (["hosted-key-rejected", "not-enabled", "not-set-up"].includes(code)) return "Notifications aren't working right now. Tell the person who set up your site.";
   if (during === "other-test" && (code === "gone" || status === 410)) return `${name} stopped taking notifications, so your blog forgot it.`;
   if (code === "gone" || status === 410) return `This ${noun} stopped taking notifications, so your blog forgot it. Turn them on again.`;
-  if (during === "test" && status === 404) return `This ${noun} was taken off your list on another phone or computer. Turn them on again.`;
+  if (during === "test" && status === 404) return `This ${noun} was removed from the phones your blog tells, on another phone or computer. Turn them on again.`;
   if (status === 404 && (during === "other-test" || during === "save" || during === "rename" || during === "remove")) return `${name || `This ${noun}`} isn't on your list any more.`;
   if (code === "send-failed" && during === "test") return `The test didn't reach this ${noun}. Try again in a minute. If it still doesn't come, turn notifications off, then on again.`;
   if (code === "send-failed") return `The test didn't reach ${name || `this ${noun}`}. Try again in a minute.`;

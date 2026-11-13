@@ -7,6 +7,7 @@ import { detailsBox } from "./account-details.js";
 import { kindSwitches, renameDialog } from "./notification-cards.js";
 import { PushStop, SCOPE } from "./push-here.js";
 import * as R from "./notification-rules.js";
+import { copiedWords } from "./install-rules.js";
 
 const ASKING_MS = 8000;
 const LOCK_SCREEN = "They show who wrote and their first few words, even on your lock screen.";
@@ -56,7 +57,7 @@ export function createHereCard(ctx) {
     });
     const asking = Notification.permission === "default";
     const hint = asking ? setTimeout(() => say(ctx.here().desktop
-      ? `Your ${noun()} is asking. Choose Allow. Don't see the question? Look for a bell at the right end of the address bar and click it.`
+      ? `Your ${noun()} is asking. Choose Allow. Don't see the question? Look for a bell at the right end of ${R.BAR} and click it.`
       : `Your ${noun()} is asking. Choose Allow.`), ASKING_MS) : null;
     let pending;
     try {
@@ -215,7 +216,7 @@ export function createHereCard(ctx) {
     const full = (label, onClick, variant = "primary") => h("action-button", { variant, class: "studio-wide-button", onClick: (event) => onClick(event.currentTarget) }, label);
 
     if (state === "off") {
-      if (found.subscription && !found.mine) parts.push(h("p", { text: `This ${noun()} was taken off your list, so it's off.` }));
+      if (found.subscription && !found.mine) parts.push(h("p", { text: R.stateWords("removed", here) }));
       const switches = kindSwitches({ offered: ctx.offered(), picked: ctx.picked(), onChange: (kinds) => ctx.setPicked(kinds) });
       parts.push(switches.element);
       primary = full("Turn on notifications", (button) => turnOn(button));
@@ -242,7 +243,7 @@ export function createHereCard(ctx) {
       parts.push(h("div", { class: "studio-own-line studio-turn-off" }, full(`Turn off on this ${noun()}`, (button) => turnOff(button), "secondary")));
     } else if (state === "denied") {
       parts.push(h("p", { text: R.stateWords(state, here) }), h("ol", { class: "studio-steps" }, ...R.deniedSteps(here).map((step) => h("li", { text: step }))), h("p", { text: "Then come back here." }));
-      primary = full("Check again", async () => {
+      primary = full("I changed it. Check again", async () => {
         await ctx.reload();
         const now = R.hereState(ctx.here(), ctx.found().mine, Boolean(ctx.found().subscription));
         say(now === "denied" ? "Still not allowed. Follow the steps above, then come back." : "Allowed now. Turn notifications on when you're ready.");
@@ -264,9 +265,9 @@ export function createHereCard(ctx) {
           range.selectNodeContents(code);
           getSelection()?.removeAllRanges();
           getSelection()?.addRange(range);
-          say("Select the address and copy it.");
+          say(copiedWords(here, false));
         };
-        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(address).then(() => say(`Copied. Paste it into ${here.android ? "Chrome" : "Safari"}'s address bar.`), select);
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(address).then(() => say(copiedWords(here, true)), select);
         else select();
       });
       parts.push(primary);

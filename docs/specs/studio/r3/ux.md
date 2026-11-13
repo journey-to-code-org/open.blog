@@ -37,7 +37,7 @@ Notifications (#/notifications)
   v                                   v                           v
 "Add your blog to your           [Turn on notifications]      steps for this phone's
  Home Screen" sheet                   |                       Settings; returns here by
-  | (she follows the steps in Safari) | phone asks: Allow?    itself (or "Check again")
+  | (she follows the steps in Safari) | phone asks: Allow?    itself (or "I changed it. Check again")
   v                                   v
 taps the new icon, signs in      "On. A test is on its way."  <- toast, test arrives
   v                                   |
@@ -62,7 +62,7 @@ worker: Studio window open? -> focus it, ask it to go to #/comments (leave-guard
 - **Primary**, the first that holds:
   1. iPhone/iPad not on the Home Screen: **Add your blog to your Home Screen**.
   2. Off and able: **Turn on notifications**.
-  3. Not allowed: **Check again**.
+  3. Not allowed: **I changed it. Check again**.
   4. On: **Send a test**.
   5. Can't here for another reason: none; the words say where it can work.
 - **Loads:** `GET push/status` (`enabled`, `state`, `publicKey`, `kinds`, `otherApps`, `devices`, `limits.devices` from G26). Meanwhile, without waiting: `herePhone()`, the worker registration at `/admin/` and its sign-up, then `endpointHash` to find "mine" among `devices`. `skeleton-block` stands in for "This iPhone" while loading.
@@ -79,8 +79,8 @@ worker: Studio window open? -> focus it, ask it to go to #/comments (leave-guard
 | | This iPhone                    [Off] | |  content-card; h3 + status-badge
 | | Tell me when                         | |  fieldset legend
 | | [o] Someone leaves a comment         | |  toggle-switch per offered kind
-| | [o] Your other apps have news,       | |
-| |     like a gift or a game            | |
+| | [o] News from your family's other    | |
+| |     apps, like a card game           | |
 | | [ Turn on notifications ]            | |  primary, full width < 30rem
 | | Your iPhone will ask first.          | |  help (only before it has asked)
 | | Tap Allow.                           | |
@@ -109,10 +109,10 @@ Card heading via `deviceNoun`: "This iPhone", "This iPad", "This phone" (Android
 | --- | --- | --- | --- |
 | `off`: can, not asked | Off, neutral | switches; help "Your iPhone will ask first. Tap Allow." and the lock-screen line | **Turn on notifications** |
 | `off`: can, allowed before | Off, neutral | switches; lock-screen line | **Turn on notifications** (no question) |
-| `off`, removed on another device | Off, neutral | "This iPhone was taken off your list, so it's off." + switches | **Turn on notifications** |
-| `asking`: no answer after 8 s | Off | "Your iPhone is asking. Choose Allow." Computer: "Don't see the question? Look for a bell at the right end of the address bar and click it." | button stays loading |
+| `off`, removed on another device | Off, neutral | "This iPhone was removed from the phones your blog tells, so it's off." + switches | **Turn on notifications** |
+| `asking`: no answer after 8 s | Off | "Your iPhone is asking. Choose Allow." Computer: "Don't see the question? Look for a bell at the right end of the bar at the top where the address is and click it." | button stays loading |
 | `on` | On, success | "This iPhone is called “iPhone”." **Rename** (link-styled). "Last told you 2 hours ago." / "Hasn't told you anything yet." Switches save at once. "Didn't see the test?" disclosure | **Send a test**; **Turn off on this iPhone** (secondary, own line, after "Didn't see the test?" and spaced well apart from Send a test) |
-| `denied` | Not allowed, warning | "You said no when your iPhone asked, so it can't show notifications from your blog. To change that:" + steps (below) + "Then come back here." | **Check again**; if still on the list, **Take this iPhone off the list** (secondary) |
+| `denied` | Not allowed, warning | "You said no when your iPhone asked, so it can't show notifications from your blog. To change that:" + steps (below) + "Then come back here." | **I changed it. Check again**; if still on the list, **Take this iPhone off the list** (secondary) |
 | `home-screen-first`: iOS 16.4+ in a tab | none | "On an iPhone, your blog can only send notifications once it's on your Home Screen. It takes four taps." | **Add your blog to your Home Screen** |
 | `update-first`: below iOS 16.4 | none | "This iPhone needs a newer iOS before your blog can send it notifications. In the Settings app: General, then Software Update." | none |
 | `in-app` (Facebook, Instagram…) | none | "This page is open inside another app, which can't show notifications. Open your blog in Safari: [address]" (Android: "…in Chrome") | **Copy the address** |
@@ -126,25 +126,27 @@ Card heading via `deviceNoun`: "This iPhone", "This iPad", "This phone" (Android
 | `comment` | Someone leaves a comment | comments | `meta.engagement` or `meta.engagementSetUp` |
 | `feedback` | A reader sends you a note about a post | notes from readers | same |
 | `quote` | Someone asks for a quote | quote requests | `meta.quote` |
-| `app` | Your other apps have news, like a gift or a game | news from your other apps | `status.otherApps` |
+| `app` | News from your family's other apps, like a card game | news from your other apps | `status.otherApps` |
+
+The push function holds one notify key for all her other apps and knows none of their names, so the `app` switch can't say "News from Card Room"; if `push/status` ever lists their names, the switch names them.
 
 A new phone starts with every offered kind on. A phone whose sign-up the server already has (found by `endpointHash`, say after its answer was reset) shows its saved choices instead (`startingPicks`). Kinds the server holds but this screen doesn't offer are **kept** on change (`keptKinds`); Studio never drops what it doesn't show.
 
 **Nothing offered:** `empty-state` "There's nothing for notifications to tell you about yet" / "They tell you about comments and quote requests, and neither is turned on for your blog."
 
-**Denied: steps for this phone** (`deniedSteps(here)`, an `ol`, only this phone's):
+**Denied: steps for this phone** (`deniedSteps(here)`, an `ol`, only this phone's; her layer never says "address bar", but "the bar at the top where the address is"):
 - **iPhone/iPad (from the icon):** 1. Open the Settings app. 2. Tap Notifications. 3. Find your blog in the list (it has the name under its icon) and tap it. 4. Turn on Allow Notifications.
 - **Android, from the icon:** 1. Touch and hold your blog's icon. 2. Tap App info (or the small "i"). 3. Tap Notifications and turn them on.
-- **Android, in Chrome:** 1. Tap the small icon at the left end of the address bar. 2. Tap Permissions. 3. Turn on Notifications.
-- **Chrome or Edge on a computer:** 1. Click the small icon at the left end of the address bar. 2. Turn on Notifications (in Edge: Permissions for this site, then Notifications, Allow).
+- **Android, in Chrome:** 1. Tap the small icon at the left end of the bar at the top where the address is. 2. Tap Permissions. 3. Turn on Notifications.
+- **Chrome or Edge on a computer:** 1. Click the small icon at the left end of the bar at the top where the address is. 2. Turn on Notifications (in Edge: Permissions for this site, then Notifications, Allow).
 - **Safari on a Mac:** 1. In the Safari menu, choose Settings. 2. Click Websites, then Notifications. 3. Find your blog and choose Allow.
-- **Firefox:** 1. Click the icon at the left end of the address bar. 2. Click the × beside "Blocked: Send notifications". 3. Reload the page.
+- **Firefox:** 1. Click the icon at the left end of the bar at the top where the address is. 2. Click the × beside "Blocked: Send notifications". 3. Reload the page.
 - **Anything else:** "Look in this browser's settings for this site's notifications and choose Allow."
 
 **"Didn't see the test?"** (her layer, only when on, only this phone's lines):
 - "Wait a minute. A phone saving battery can be slow."
-- "Check that Do Not Disturb or Focus is off."
-- iPhone: "In the Settings app: Notifications, then your blog. Allow Notifications should be on, with Lock Screen and Banners ticked."
+- "Check that Do Not Disturb is off."
+- iPhone: "In the Settings app: Notifications, then your blog. Allow Notifications should be on, with Lock Screen and Banners turned on."
 - Android: "In Settings: Apps, then your blog (or Chrome), then Notifications."
 - Mac: "In System Settings: Notifications, then your browser. Allow notifications should be on." Windows: "In Settings: System, Notifications, then your browser."
 - "Still nothing? Turn notifications off here, then on again."
@@ -175,7 +177,7 @@ One press (button loading; status "Turning on…"):
 ### When it's on
 
 - **A switch changes:** `POST push/devices/<id> {kinds: keptKinds(...)}` at once. "Saved. This iPhone will tell you about comments and news from your other apps." With nothing on: "Saved. Nothing is on, so this iPhone stays quiet. To stop them for good, turn notifications off." Disabled while saving; on failure it flips back with the trouble words.
-- **Send a test:** clears the status line first, then `POST push/test {id}` → "Sent. It should show up in a few seconds." 410 `gone`: "This iPhone stopped taking notifications, so your blog forgot it. Turn them on again." (redraw off). 404: "This iPhone was taken off your list on another phone or computer. Turn them on again." `send-failed`: "The test didn't reach this iPhone. Try again in a minute. If it still doesn't come, turn notifications off, then on again."
+- **Send a test:** clears the status line first, then `POST push/test {id}` → "Sent. It should show up in a few seconds." 410 `gone`: "This iPhone stopped taking notifications, so your blog forgot it. Turn them on again." (redraw off). 404: "This iPhone was removed from the phones your blog tells, on another phone or computer. Turn them on again." `send-failed`: "The test didn't reach this iPhone. Try again in a minute. If it still doesn't come, turn notifications off, then on again."
 - **Rename** (`modal-dialog` "Rename this iPhone"): field "Name" (required, so never marked optional), ≤ 60 chars, help "So you can tell them apart, like Kitchen iPad." → `POST push/devices/<id> {label}` → "Renamed to “Kitchen iPad”." Empty/`label-required`: "Give it a name, like Kitchen iPad." **Rename** / **Cancel**.
 - **Turn off on this iPhone** (secondary, own line after "Didn't see the test?", no confirm):
   1. `POST push/devices/<id>/remove`, then `unsubscribe()`. If removal fails, the sign-up stays and she sees the trouble words.
@@ -220,7 +222,8 @@ iPhone, Safari                              Android or computer, browser can ask
 | like your other apps.                    | | like your other apps.                    |
 | 1. Tap the Share button [^] at the       | | [ Add it ]                               |
 |    bottom of the screen. Don't see it?   | | Your browser asks first. Choose Install. |
-|    Tap the three dots first.             | | > Details for the person who set up ...  |
+|    Tap the three dots (•••) at the      |
+|    bottom right first.                   | | > Details for the person who set up ...  |
 | 2. Scroll down and tap Add to Home       | +------------------------------------------+
 |    Screen.                               |
 | 3. You can change the name. Tap Add.     |  ol; [^] inline drawing of Safari's Share
@@ -233,17 +236,18 @@ iPhone, Safari                              Android or computer, browser can ask
 | `installWay` | Steps |
 | --- | --- |
 | `prompt` | **Add it** → `prompt()`. Accepted: phone "Added. Open your blog from its icon from now on."; computer "Added. Your blog opens in its own window from now on." Dismissed: "Not added. You can add it any time from your name's menu." |
-| `ios-safari` | the four steps; iPad: "at the top right" for Share |
-| `ios-other` | the four steps plus "Don't see Add to Home Screen? Open your blog in Safari: [address] **Copy the address**" |
+| `ios-safari` | before step 1, as help: "You'll sign in once more from the new icon, so have your password handy. If you don't know it, ask the person who set up your site first." Then the four steps; step 1's help "Don't see it? Tap the three dots (•••) at the bottom right first."; iPad: "at the top right" for Share |
+| `ios-other` | the sign-in warning and the four steps plus "Don't see Add to Home Screen? Open your blog in Safari: [address] **Copy the address**" |
 | `in-app` | "This page is open inside another app. Open your blog in Safari (Android: in Chrome): [address] **Copy the address**" |
-| `android-menu` | "1. Open your browser's menu (the three dots). 2. Tap Add to Home screen, or Install. 3. Open your blog from its new icon." |
-| `desktop-chromium` | "Look for the Install button at the right end of the address bar. Or open the browser's menu and choose Install." |
+| `android-menu` | "1. Open the menu: the three dots at the top right. 2. Tap Add to Home screen, or Install. 3. Open your blog from its new icon." |
+| `desktop-chromium` | "Look for the Install button at the right end of the bar at the top where the address is. Or open the menu (the three dots at the top right) and choose Install." |
 | `mac-safari` | "In the menu bar, choose File, then Add to Dock." |
 | `firefox-desktop` | "Firefox can't add your blog as an app. It works the same in a tab: bookmark it instead." (menu item hidden) |
 | `installed` | "You're already using your blog from its icon." |
 
 - **After adding:** `appinstalled` → toast "Added."
-- **Copy the address:** `location.origin + "/admin/studio/"` → "Copied. Paste it into Safari's address bar." Refused: the address is selected, "Select the address and copy it."
+- **Copy the address** (`copiedWords`; the sheet and the `in-app` card alike): `location.origin + "/admin/studio/"` → "Copied. Touch and hold in the bar at the top of Safari, then tap Paste." (Android: "…of Chrome…"). Refused: the address is selected, "Select the address and copy it. Then touch and hold in the bar at the top of Safari, and tap Paste."
+- **Add it when the question has gone** (asked elsewhere meanwhile): the sheet redraws with this phone's own steps, as if the browser couldn't ask; no other words.
 - **Details** (Mikey): display mode, whether `beforeinstallprompt` fired, manifest `id`/`start_url`/`scope`, and: "An iPhone app keeps its own sign-in and its own notifications. Adding a second icon makes a second app that has to turn notifications on by itself. The old icon keeps working; there is no need to add it again."
 
 ## The installed app, the worker, and existing installs
@@ -303,7 +307,7 @@ iPhone, Safari                              Android or computer, browser can ask
 - **Keyboard order:** heading, lede, status, This iPhone (heading, Rename, switches, primary, "Didn't see the test?", secondary), other cards (heading, Remove, More), details. Sheets/dialogs focus their heading (Rename: its field); Escape closes; focus returns.
 - **Switches:** `fieldset` legend "Tell me when"; each named by its words; while saving `aria-disabled`, announces "Saving" once and "Saved" once.
 - **Browser question:** button `aria-busy`; the 8-second hint goes to the live region once.
-- **After actions:** on → "This iPhone"; off → **Turn on notifications**; Remove → next card or section heading; **Check again** → heading, outcome in status.
+- **After actions:** on → "This iPhone"; off → **Turn on notifications**; Remove → next card or section heading; **I changed it. Check again** → heading, outcome in status.
 - **Errors:** `role="alert"` on the card, linked from the button via `aria-describedby`.
 - Badges carry words; the Share drawing is `aria-hidden` beside the word "Share"; steps are `ol`.
 - Full names on repeated buttons: "Remove Kitchen iPad", "More for Kitchen iPad", "Send Kitchen iPad a test".

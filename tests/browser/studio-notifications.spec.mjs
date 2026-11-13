@@ -234,7 +234,7 @@ test("turn on, change a switch, send a test, turn off and Undo, then remove anot
   await expect(page.locator("li[data-device]")).toContainText("Hasn't told you anything yet.");
 
   // A switch before turning on decides what this one hears about.
-  await card.getByRole("switch", { name: "Your other apps have news, like a gift or a game" }).click();
+  await card.getByRole("switch", { name: "News from your family's other apps, like a card game" }).click();
   await card.getByRole("button", { name: "Turn on notifications" }).click();
   await expect(statusLine(page)).toHaveText("On. A test is on its way to this computer.");
   await expect(card.locator("status-badge")).toHaveText("On");
@@ -318,13 +318,17 @@ test("turning on again where the server still has this computer keeps its name a
   const endpoint = "https://fcm.googleapis.com/fcm/send/kept-one";
   const hash = createHash("sha256").update(endpoint).digest("hex").slice(0, 32);
   const kept = { id: "33333333-3333-4333-8333-333333333333", device: hash, label: "Grammi's laptop", kinds: ["comment", "quote"], createdAt: "2026-10-01T12:00:00.000Z", lastSentAt: null };
-  state.devices.push(structuredClone(kept));
   await page.evaluate((value) => {
     localStorage.setItem("test:push-subscription", JSON.stringify({ endpoint: value }));
     localStorage.setItem("test:permission", "default");
   }, endpoint);
+  // Not on the list yet: removed from another phone or computer.
   await page.reload();
   const card = here(page);
+  await expect(card).toContainText("This computer was removed from the phones your blog tells, so it's off.");
+  state.devices.push(structuredClone(kept));
+  await page.reload();
+  await expect(card).not.toContainText("was removed");
   await expect(card.locator("status-badge")).toHaveText("Off");
   // The switches show what she saved, not every kind.
   await expect(card.getByRole("switch", { name: "Someone leaves a comment" })).toHaveAttribute("aria-checked", "true");
@@ -447,7 +451,7 @@ test("Notifications and Add to Home Screen pass axe at 320 px without sideways s
   await axeClean(page, "#studio", "on");
   await page.goto(`${configured.origin}/admin/studio/#/notifications?sheet=home-screen`);
   await expect(page.getByRole("heading", { name: "Install your blog as an app" })).toBeFocused();
-  await expect(page.locator("side-sheet dialog[open]")).toContainText("Look for the Install button");
+  await expect(page.locator("side-sheet dialog[open]")).toContainText("Look for the Install button at the right end of the bar at the top where the address is. Or open the menu (the three dots at the top right) and choose Install.");
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/notifications");
   await axeClean(page, "side-sheet", "home screen sheet");
   await page.keyboard.press("Escape");

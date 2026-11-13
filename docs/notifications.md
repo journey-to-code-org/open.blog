@@ -26,11 +26,11 @@ post**, **Someone asks for a quote**, **Your other apps have news**) and press *
 Your phone asks first: choose **Allow**. A test arrives in a few seconds.
 
 While it's on, the switches save at once, **Send a test** checks it still works, **Rename** gives it a name
-you'll recognise, and **Turn off on this iPhone** stops it (with **Undo** right after). If the test doesn't
+you'll recognise, and **Turn off on this iPhone** stops it (with **Undo**, which stays until you do something else there). If the test doesn't
 come, **Didn't see the test?** lists what to check on that phone.
 
 **Not allowed**: if you chose **Don't Allow**, the card says **Not allowed** and shows the steps for your
-phone's Settings (or your browser's). Do them, come back, and the card notices by itself; **Check again**
+phone's Settings (or your browser's). Do them, come back, and the card notices by itself; **I changed it. Check again**
 does the same.
 
 **Other phones and computers** lists every other device that gets notifications, what each tells you about,
@@ -103,6 +103,6 @@ curl -X POST https://<your-netlify-site>/api/push/notify \
 
 `title` is required (up to 80 characters), `body` is optional (up to 180), and `url` is where tapping goes: a
 page in Studio like `/admin/studio/#/comments`, or any https page. (An older `/admin/#/…` address still
-works: the worker opens the same screen in Studio.) It reaches only devices that ticked
-**Your other apps**. The notify key can send and nothing else: it can't see, add or remove devices. Keep it
+works: the worker opens the same screen in Studio.) It reaches only devices with
+**News from your family's other apps** turned on. The notify key can send and nothing else: it can't see, add or remove devices. Keep it
 on the other app's server.

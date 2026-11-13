@@ -4,7 +4,7 @@
 // docs/specs/studio/r3/ux.md, "Add to Home Screen".
 import { h } from "./dom.js";
 import { installPrompt } from "./install-state.js";
-import { installSteps, installWay, promptOutcomeWords, sheetLabel } from "./install-rules.js";
+import { copiedWords, installSteps, installWay, promptOutcomeWords, sheetLabel } from "./install-rules.js";
 import { detailsBox } from "./account-details.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -52,13 +52,13 @@ export function createHomeScreen({ sheet, here, toast }) {
   function copyRow(status) {
     const code = h("code", { class: "studio-mono studio-address", text: address() });
     const copy = h("action-button", { variant: "secondary", onClick: () => {
-      const done = () => { status.textContent = "Copied. Paste it into Safari's address bar."; };
+      const done = () => { status.textContent = copiedWords(here, true); };
       const select = () => {
         const range = document.createRange();
         range.selectNodeContents(code);
         getSelection()?.removeAllRanges();
         getSelection()?.addRange(range);
-        status.textContent = "Select the address and copy it.";
+        status.textContent = copiedWords(here, false);
       };
       if (navigator.clipboard?.writeText) navigator.clipboard.writeText(address()).then(done, select);
       else select();
@@ -66,9 +66,8 @@ export function createHomeScreen({ sheet, here, toast }) {
     return h("p", { class: "studio-account-redirect" }, code, " ", copy);
   }
 
-  /** Open the sheet; from the icon it only says she's already using it. */
-  function open({ opener = document.activeElement } = {}) {
-    const way = installWay(here, installPrompt.has());
+  /** Open the sheet; from the icon it only says she's already using it. `way` overrides the detected one. */
+  function open({ opener = document.activeElement, way = installWay(here, installPrompt.has()) } = {}) {
     const plan = installSteps(way, here);
     const heading = sheetLabel(here);
     const status = h("p", { class: "studio-help studio-account-sheet-status", role: "status", "aria-live": "polite" });
@@ -77,7 +76,8 @@ export function createHomeScreen({ sheet, here, toast }) {
       button.loading = true;
       const outcome = await installPrompt.ask().catch(() => "dismissed");
       button.loading = false;
-      if (outcome === null) { status.textContent = "Your browser can't ask right now. Open its menu and choose Install."; return; }
+      // The question went (asked elsewhere, or installed meanwhile): show this phone's own steps instead.
+      if (outcome === null) { open({ opener, way: installWay(here, false) }); return; }
       const words = promptOutcomeWords(outcome, here);
       if (outcome === "accepted") { sheet.close(); toast?.(words); } else status.textContent = words;
     } }, "Add it") : null;
@@ -86,6 +86,7 @@ export function createHomeScreen({ sheet, here, toast }) {
       opener,
       children: [
         plan.intro ? h("p", { text: plan.intro }) : null,
+        plan.before ? h("p", { class: "studio-help", text: plan.before }) : null,
         plan.steps.length ? h("ol", { class: "studio-steps" }, ...plan.steps.map(stepItem)) : null,
         ask,
         plan.words ? h("p", { text: plan.words }) : null,

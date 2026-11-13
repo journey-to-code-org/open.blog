@@ -10,7 +10,7 @@ import {
   offeredKinds, keptKinds, kindsSummary, savedKindsWords, lastToldWords, deniedSteps, didntSeeIt, pushTrouble,
   stateWords, stateBadge, stopWords, ledeWords, startingPicks, turnOnChoices,
 } from "../../web/studio/parts/notification-rules.js";
-import { installWay, installSteps, menuLabel, sheetLabel, promptOutcomeWords } from "../../web/studio/parts/install-rules.js";
+import { installWay, installSteps, menuLabel, sheetLabel, promptOutcomeWords, copiedWords } from "../../web/studio/parts/install-rules.js";
 
 const PUBLIC = "BNJXQLrFqB91iIEvDTQE-lvUxvYyB_Hj57arqlCDifnNudW0TeOybFZdAm45MSdoDRrmo7yK48iuCh2rOHYV7MM";
 const ios = (v) => `Mozilla/5.0 (iPhone; CPU iPhone OS ${v.replace(".", "_")} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/${v} Mobile/15E148 Safari/604.1`;
@@ -142,9 +142,23 @@ test("denied steps and 'didn't see it' are this phone's only", () => {
   assert.match(deniedSteps(phone({ userAgent: FIREFOX })).join(" "), /Blocked: Send notifications/);
   assert.match(deniedSteps(phone({ userAgent: "Mozilla/5.0 (X11) SomethingElse/1.0" }))[0], /browser's settings/);
   const iphone = didntSeeIt(phone({ userAgent: IPHONE })).join(" ");
-  assert.match(iphone, /Lock Screen and Banners/);
+  assert.match(iphone, /with Lock Screen and Banners turned on/);
+  assert.match(iphone, /Check that Do Not Disturb is off\./);
+  assert.doesNotMatch(iphone, /Focus|ticked/);
   assert.doesNotMatch(iphone, /System Settings|Apps, then/);
   assert.match(didntSeeIt(phone({ userAgent: WIN_CHROME })).join(" "), /System, Notifications/);
+  // Her layer never says "address bar".
+  for (const ua of [PIXEL, WIN_CHROME, FIREFOX]) {
+    const steps = deniedSteps(phone({ userAgent: ua })).join(" ");
+    assert.doesNotMatch(steps, /address bar/, ua);
+    assert.match(steps, /the bar at the top where the address is/, ua);
+  }
+});
+
+test("her words: the other apps switch, and the phone taken off elsewhere", () => {
+  // The push function knows no app names (one notify key), so the switch names them by what they are.
+  assert.equal(KIND_WORDS.app.switch, "News from your family's other apps, like a card game");
+  assert.equal(stateWords("removed", phone({ userAgent: IPHONE })), "This iPhone was removed from the phones your blog tells, so it's off.");
 });
 
 test("trouble is told by the server's code, never as a code", () => {
@@ -154,7 +168,7 @@ test("trouble is told by the server's code, never as a code", () => {
   for (const code of ["hosted-unavailable", "hosted-timeout", "storage-unavailable", "bad-reply"]) assert.match(pushTrouble(e(502, code)), /couldn't reach its notification service/);
   for (const code of ["hosted-key-rejected", "not-enabled", "not-set-up"]) assert.match(pushTrouble(e(502, code)), /Tell the person who set up your site/);
   assert.match(pushTrouble(e(410, "gone"), { during: "test" }), /This iPhone stopped taking notifications/);
-  assert.match(pushTrouble(e(404, "not-found"), { during: "test" }), /taken off your list on another phone or computer/);
+  assert.match(pushTrouble(e(404, "not-found"), { during: "test" }), /This iPhone was removed from the phones your blog tells, on another phone or computer/);
   assert.match(pushTrouble(e(502, "send-failed"), { during: "test" }), /didn't reach this iPhone/);
   assert.equal(pushTrouble(e(410, "gone"), { during: "other-test", name: "Kitchen iPad" }), "Kitchen iPad stopped taking notifications, so your blog forgot it.");
   assert.equal(pushTrouble(e(400, "label-required")), "Give it a name, like Kitchen iPad.");
@@ -190,7 +204,23 @@ test("Add to Home Screen: one way per phone, its steps only, and the menu says i
   assert.match(steps.steps[0].text, /bottom of the screen/);
   assert.equal(steps.steps[0].share, true);
   const ipad = phone({ userAgent: IPAD_DESKTOP, platform: "MacIntel", touch: 5, capable: false });
+  assert.match(steps.steps[0].more, /the three dots \(•••\) at the bottom right/);
+  // Before step 1: she signs in again from the new icon, so she needs her password.
+  assert.equal(steps.before, "You'll sign in once more from the new icon, so have your password handy. If you don't know it, ask the person who set up your site first.");
+  assert.equal(installSteps("ios-other", iphone).before, steps.before);
+  assert.equal(installSteps("android-menu", phone({ userAgent: PIXEL })).before, "", "Android's icon keeps her signed in");
   assert.match(installSteps("ios-safari", ipad).steps[0].text, /top right/);
+  // Plain words for the menu, never "browser's menu" or "address bar".
+  for (const way of ["android-menu", "desktop-chromium"]) {
+    const plan = installSteps(way, phone({ userAgent: way === "android-menu" ? PIXEL : WIN_CHROME }));
+    const all = [plan.words, ...plan.steps.map((s) => s.text)].join(" ");
+    assert.doesNotMatch(all, /browser's menu|address bar/, way);
+    assert.match(all, /the three dots at the top right/, way);
+  }
+  // Pasting the copied address: how, in the app she'll paste it in.
+  assert.equal(copiedWords(phone({ userAgent: FACEBOOK, capable: false }), true), "Copied. Touch and hold in the bar at the top of Safari, then tap Paste.");
+  assert.equal(copiedWords(phone({ userAgent: `${PIXEL} [FB_IAB/FB4A;FBAV/480.0]` }), true), "Copied. Touch and hold in the bar at the top of Chrome, then tap Paste.");
+  assert.equal(copiedWords(phone({ userAgent: FACEBOOK, capable: false }), false), "Select the address and copy it. Then touch and hold in the bar at the top of Safari, and tap Paste.");
   assert.equal(installSteps("ios-other", iphone).copy, true);
   assert.equal(installSteps("prompt", phone({ userAgent: WIN_CHROME })).ask, true);
   assert.match(installSteps("prompt", phone({ userAgent: WIN_CHROME })).intro, /its own window/);
