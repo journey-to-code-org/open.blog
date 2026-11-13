@@ -1170,7 +1170,7 @@ const RULE = {
 };
 
 test("approval rule choices round-trip and never send an empty list", () => {
-  assert.deepEqual(APPROVAL_REQUIREMENTS.map((item) => item.value), ["allAuthors", "contributingAuthors", "namedAuthors", "authorsWithRoles", "quorum"]);
+  assert.deepEqual(APPROVAL_REQUIREMENTS.map((item) => item.value), ["allParticipants", "allAuthors", "contributingAuthors", "namedAuthors", "authorsWithRoles", "quorum", "participantQuorum"]);
   assert.deepEqual(APPROVAL_ROLE_CHOICES.map((item) => item.value), ["siteOwner", "coordinator", "contributor"]);
   assert.deepEqual(approvalPolicyChoice({ requirement: { namedAuthors: ["p2"] }, scope: "wholePiece" }), { kind: "namedAuthors", named: ["p2"], roles: [], scope: "wholePiece" });
   assert.deepEqual(approvalPolicyChoice({ requirement: { authorsWithRoles: ["coordinator"] } }).roles, ["coordinator"]);
@@ -1181,6 +1181,11 @@ test("approval rule choices round-trip and never send an empty list", () => {
   assert.deepEqual(approvalPolicyPayload({ kind: "contributingAuthors", scope: "wholePiece" }), { policy: { requirement: "contributingAuthors", scope: "wholePiece" } });
   assert.deepEqual(approvalPolicyChoice({ requirement: { quorum: 3 }, scope: "wholePiece" }).quorum, 3);
   assert.deepEqual(approvalPolicyPayload({ kind: "quorum", quorum: "3", scope: "wholePiece" }), { policy: { requirement: { quorum: 3 }, scope: "wholePiece" } });
+  assert.equal(approvalPolicyChoice({ requirement: "allParticipants", scope: "wholePiece" }).kind, "allParticipants");
+  assert.equal(approvalPolicyChoice({ requirement: { participantQuorum: 2 }, scope: "wholePiece" }).quorum, 2);
+  assert.deepEqual(approvalPolicyPayload({ kind: "participantQuorum", quorum: "2", scope: "wholePiece" }), { policy: { requirement: { participantQuorum: 2 }, scope: "wholePiece" } });
+  assert.deepEqual(approvalPolicyPayload({ kind: "allParticipants", scope: "wholePiece" }), { policy: { requirement: "allParticipants", scope: "wholePiece" } });
+  assert.match(approvalPolicyPayload({ kind: "allParticipants", scope: "ownSections" }).error, /whole-piece/);
   for (const quorum of ["", "0", "1.5", "101", "-1"]) assert.match(approvalPolicyPayload({ kind: "quorum", quorum, scope: "wholePiece" }).error, /whole number/);
   assert.match(approvalPolicyPayload({ kind: "quorum", quorum: 2, scope: "ownSections" }).error, /whole-piece/);
   assert.match(approvalRuleText({ summary: "S.", quorum: { approved: 1, required: 3, currentAuthors: 2 } }), /1 of 3 approvals; 2 current authors/);

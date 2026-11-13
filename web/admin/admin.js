@@ -7751,11 +7751,13 @@ export function previewStateText(preview) {
 
 /** Whose approval publication needs (ADR 0052). Every writer approves under every rule. */
 export const APPROVAL_REQUIREMENTS = Object.freeze([
+  { value: "allParticipants", label: "Every participant", help: "Everyone taking part approves after the piece has been explicitly shared with them." },
   { value: "allAuthors", label: "Every author", help: "Everyone taking part as an author approves, whether or not they wrote a section." },
   { value: "contributingAuthors", label: "Everyone who wrote", help: "Only authors who wrote a section, or are named on a conversation item, approve." },
   { value: "namedAuthors", label: "Writers and named people", help: "Everyone who wrote approves, and so do the people you choose below, even if they later leave." },
   { value: "authorsWithRoles", label: "Writers and people with a role", help: "Everyone who wrote approves, and so does every author with a role you choose below." },
   { value: "quorum", label: "Writers and a fixed number of authors", help: "Every writer must approve, and the total must reach the chosen number. It does not decrease if someone leaves." },
+  { value: "participantQuorum", label: "Writers and a fixed number of participants", help: "Every writer must approve, and the total must reach the chosen number of participants." },
 ]);
 
 /** The roles a role-based rule can list. Readers and editors cannot approve, so they are not offered. */
@@ -7775,6 +7777,7 @@ export function approvalPolicyChoice(policy) {
   else if (Array.isArray(requirement?.namedAuthors)) Object.assign(choice, { kind: "namedAuthors", named: [...requirement.namedAuthors] });
   else if (Array.isArray(requirement?.authorsWithRoles)) Object.assign(choice, { kind: "authorsWithRoles", roles: [...requirement.authorsWithRoles] });
   else if (Number.isInteger(requirement?.quorum)) Object.assign(choice, { kind: "quorum", quorum: requirement.quorum });
+  else if (Number.isInteger(requirement?.participantQuorum)) Object.assign(choice, { kind: "participantQuorum", quorum: requirement.participantQuorum });
   return choice;
 }
 
@@ -7804,11 +7807,15 @@ export function approvalPolicyPayload(choice) {
     if (!roles.length) return { error: "Choose at least one role whose authors must approve." };
     return { policy: { requirement: { authorsWithRoles: roles }, scope } };
   }
-  if (choice?.kind === "quorum") {
+  if (choice?.kind === "quorum" || choice?.kind === "participantQuorum") {
     const count = Number(choice.quorum);
     if (!Number.isInteger(count) || count < 1 || count > 100) return { error: "Choose a whole number of authors between 1 and 100." };
     if (scope !== "wholePiece") return { error: "A quorum requires whole-piece approval." };
-    return { policy: { requirement: { quorum: count }, scope } };
+    return { policy: { requirement: { [choice.kind]: count }, scope } };
+  }
+  if (choice?.kind === "allParticipants") {
+    if (scope !== "wholePiece") return { error: "Participant approval requires whole-piece approval." };
+    return { policy: { requirement: "allParticipants", scope } };
   }
   const kind = choice?.kind === "contributingAuthors" ? "contributingAuthors" : "allAuthors";
   return { policy: { requirement: kind, scope } };
@@ -7826,7 +7833,10 @@ export function approvalRuleText(rule) {
     if (rule.unmetNamed?.length) parts.push("A site owner can take them off the rule, or restore their access.");
     if (rule.unmetRoles?.length) parts.push("A coordinator can change the rule, or give an author that role.");
   }
-  if (rule?.quorum) parts.push(`Quorum: ${rule.quorum.approved} of ${rule.quorum.required} approvals; ${rule.quorum.currentAuthors} current authors.`);
+  if (rule?.quorum) {
+    const people = Number.isInteger(rule.policy?.requirement?.participantQuorum) ? "participants" : "authors";
+    parts.push(`Quorum: ${rule.quorum.approved} of ${rule.quorum.required} approvals; ${rule.quorum.currentAuthors} current ${people}.`);
+  }
   return parts.join(" ");
 }
 
@@ -18903,12 +18913,14 @@ export class ObAdmin extends AdminElement {
     const body = h("div", {});
     const previewStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const previewHolder = h("div", {});
+    const approvalHolder = h("div", {});
     const previewButton = h("button", { class: "oba-btn", type: "button" }, "View shared material together");
     previewButton.addEventListener("click", async () => {
       const current = request;
       previewButton.disabled = true;
       previewStatus.textContent = "Loading the preview.";
       previewHolder.replaceChildren();
+      approvalHolder.replaceChildren();
       try {
         const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
         if (current !== request || !details.open) return;
@@ -18916,7 +18928,50 @@ export class ObAdmin extends AdminElement {
           class: "oba-preview oba-preview-combined", title: "Shared material preview, not published",
           sandbox: "", src: preview.previewUrl,
         }));
-        previewStatus.textContent = "Read-only preview. Unshared or changed material is withheld; this preview cannot be used to approve publication.";
+        const requirement = preview.rule?.policy?.requirement;
+        const mayApprove = requirement === "allParticipants" || Number.isInteger(requirement?.participantQuorum);
+        previewStatus.textContent = mayApprove
+          ? (preview.seen ? "Review the entire piece before deciding." : "Approval is unavailable until the current piece has been shared with you in full.")
+          : "Read-only preview. Unshared or changed material is withheld; this preview cannot be used to approve publication.";
+        if (mayApprove) {
+          const confirm = h("input", { type: "checkbox", id: `oba-reader-approve-${index}` });
+          const approve = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Approve this piece");
+          approve.disabled = !preview.seen;
+          const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my approval");
+          approve.addEventListener("click", async () => {
+            if (!confirm.checked) {
+              previewStatus.textContent = "Confirm that you approve the piece you reviewed.";
+              confirm.focus();
+              return;
+            }
+            approve.disabled = true;
+            try {
+              await this.api.call("POST", "collaboration/approve", { json: { publicationId: id, seen: preview.seen, affirmed: true } });
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = "Your approval was recorded. Review the piece again to see the current state.";
+            } catch (error) {
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = error?.data?.error || "Your approval could not be recorded. Review the piece again.";
+            }
+            previewButton.focus();
+          });
+          withdraw.addEventListener("click", async () => {
+            withdraw.disabled = true;
+            try {
+              const result = await this.api.call("POST", "collaboration/approve/withdraw", { json: { publicationId: id } });
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = result?.withdrawn ? "Your approval was withdrawn." : "You had no approval to withdraw.";
+            } catch (error) {
+              withdraw.disabled = false;
+              previewStatus.textContent = error?.data?.error || "Your approval could not be withdrawn.";
+            }
+            previewButton.focus();
+          });
+          approvalHolder.append(
+            h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: confirm.id }, "I approve publishing exactly the piece I reviewed.")),
+            h("div", { class: "oba-toolbar" }, approve, withdraw),
+          );
+        }
       } catch (error) {
         if (current === request && details.open) previewStatus.textContent = error?.data?.error || "The preview could not be loaded. Try again.";
       } finally {
@@ -18925,12 +18980,13 @@ export class ObAdmin extends AdminElement {
     });
     const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Revisions shared with you"), heading,
       h("p", { class: "oba-small" }, "Only revisions explicitly shared with you appear here, along with any source moments sealed to the current revision. Later edits stay private."),
-      problem, body, previewButton, previewStatus, previewHolder);
+      problem, body, previewButton, previewStatus, previewHolder, approvalHolder);
     let request = 0;
     details.addEventListener("toggle", async () => {
       const current = ++request;
       if (!details.open) {
         previewHolder.replaceChildren();
+        approvalHolder.replaceChildren();
         previewStatus.textContent = "";
         return;
       }
@@ -19508,7 +19564,9 @@ export class ObAdmin extends AdminElement {
         // No scripts, forms, popups or same-origin access: the sandbox has no allowances at all.
         previewHolder.replaceChildren(h("iframe", { class: "oba-preview oba-preview-combined", title: "Combined piece preview, not published", sandbox: "", src: preview.previewUrl }));
         previewStatus.textContent = `Preview, not published. ${previewStateText(preview)}`;
-        if (roles.includes("contributor")) {
+        const requirement = preview.rule?.policy?.requirement;
+        const canApprove = roles.includes("contributor") || requirement === "allParticipants" || Number.isInteger(requirement?.participantQuorum);
+        if (canApprove) {
           const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my approval");
           withdraw.addEventListener("click", async () => {
             withdraw.disabled = true;
@@ -19525,7 +19583,7 @@ export class ObAdmin extends AdminElement {
           });
           approvalHolder.append(withdraw);
         }
-        if (roles.includes("contributor") && preview.complete && typeof preview.seen === "string") {
+        if (canApprove && preview.complete && typeof preview.seen === "string") {
           const confirm = h("input", { type: "checkbox", id: `${prefix}-approve-confirm` });
           const approve = h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: true }, "Approve this piece");
           confirm.addEventListener("change", () => { approve.disabled = !confirm.checked; });
@@ -19543,7 +19601,10 @@ export class ObAdmin extends AdminElement {
             }
           });
           approvalHolder.append(
-            h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-approve-confirm` }, "I approve publishing exactly the piece I reviewed and being publicly credited as an author under my contributor profile.")),
+            h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-approve-confirm` },
+              roles.includes("contributor")
+                ? "I approve publishing exactly the piece I reviewed and being publicly credited as an author under my contributor profile."
+                : "I approve publishing exactly the piece I reviewed.")),
             approve,
           );
         }
@@ -19881,7 +19942,8 @@ export class ObAdmin extends AdminElement {
       );
       const quorum = h("input", { type: "number", id: `${prefix}-rule-quorum-count`, min: "1", max: "100", step: "1", value: choice.quorum ?? "" });
       quorum.addEventListener("input", () => { choice.quorum = quorum.value; });
-      const quorumField = h("div", { class: "oba-field" }, h("label", { for: `${prefix}-rule-quorum-count` }, "Number of authors needed (with fixed-number rule)"), quorum);
+      const quorumField = h("div", { class: "oba-field" }, h("label", { for: `${prefix}-rule-quorum-count` }, "Number of authors needed (with fixed-number rule)"), quorum,
+        h("p", { class: "oba-small" }, "For the participant rule, this number counts participants instead of only authors."));
       const scopes = h(
         "fieldset",
         { class: "oba-fieldset" },

@@ -54,9 +54,15 @@ stored groups.
   All other whole-piece approvals now bind those revisions as well: membership or authorization
   changes invalidate them even if cleanup failed. Existing non-quorum whole-piece approvals must
   be reviewed again; legacy section-only bindings remain unchanged.
-  Reader- and coordinator-only participants can consent to the rule but cannot yet approve the
-  piece; extending piece approval to all participants remains open. Numeric rules cannot be read
-  by older releases.
+  Numeric rules cannot be read by older releases.
+- **Participant approval (amendment).** `allParticipants` requires every current participant;
+  `participantQuorum` requires a fixed number of participants, including every writer and
+  attributed author. Readers and coordinators approve only after their combined preview shows
+  every current revision, its sealed moments, and the conversation explicitly shared with them.
+  The server recomputes that visibility when recording consent. Changes to content, membership,
+  authorization, or the eligible participant set invalidate the approval. Existing `allAuthors`
+  and author-quorum rules keep their prior meaning; new participant rules require unanimous rule
+  consent. Older releases cannot read an approval set using the new rules.
 - **Approval rules.** `ApprovalRequirement` gains `namedAuthors` (participant ids) and
   `authorsWithRoles` (publication roles), next to `allAuthors` (all participants, the default) and
   `contributingAuthors`. Under every rule, each author who owns a section and each author named on

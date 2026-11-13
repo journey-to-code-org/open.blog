@@ -214,6 +214,38 @@ pub fn build(
         approvals,
         requester,
         active,
+        active,
+        None,
+        show_synthesis,
+        options,
+    )
+}
+
+/// Preview for a drafter with the current participant approval set.
+#[allow(clippy::too_many_arguments)]
+pub fn build_with_participants(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    requester: &str,
+    active: &[&str],
+    participants: &[&str],
+    show_synthesis: bool,
+    options: RenderOptions<'_>,
+) -> Result<CombinedPreview, PreviewError> {
+    build_for(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        requester,
+        active,
+        participants,
         None,
         show_synthesis,
         options,
@@ -245,6 +277,7 @@ pub fn build_for_recipient(
         approvals,
         requester,
         active,
+        recipients,
         Some(recipients),
         show_synthesis,
         options,
@@ -261,6 +294,7 @@ fn build_for(
     approvals: &ApprovalSet,
     requester: &str,
     active: &[&str],
+    participants: &[&str],
     recipients: Option<&[&str]>,
     show_synthesis: bool,
     options: RenderOptions<'_>,
@@ -296,13 +330,14 @@ fn build_for(
             })
         })
         .collect();
-    crate::assembly::with_subject(
+    crate::assembly::with_subject_for_participants(
         record,
         structure,
         drafts,
         synthesis,
         moments,
         active,
+        participants,
         |subject| {
             let mut sections = Vec::new();
             let mut rendered = Vec::new();
@@ -369,7 +404,11 @@ fn build_for(
                     record, structure, drafts, requester, active, recipients, &by_author, options,
                 )
             });
-            let complete = recipients.is_none()
+            let participant_policy = matches!(
+                approvals.policy().requirement,
+                ApprovalRequirement::AllParticipants | ApprovalRequirement::ParticipantQuorum(_)
+            );
+            let complete = (recipients.is_none() || participant_policy)
                 && show_synthesis
                 && !subject_sections.is_empty()
                 && !withheld

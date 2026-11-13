@@ -13384,6 +13384,14 @@ struct ApproveRequest {
     affirmed: bool,
 }
 
+fn participant_approval_rule(policy: &openblog_core::approval::ApprovalPolicy) -> bool {
+    matches!(
+        policy.requirement,
+        openblog_core::approval::ApprovalRequirement::AllParticipants
+            | openblog_core::approval::ApprovalRequirement::ParticipantQuorum(_)
+    )
+}
+
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct PublicationRequest {
@@ -13451,6 +13459,7 @@ struct GateInputs {
     approvals: crate::shared_publications::StoredApprovals,
     outcome: crate::shared_publications::StoredOutcome,
     active: Vec<String>,
+    participants: Vec<String>,
 }
 
 fn gate_inputs(
@@ -13486,6 +13495,7 @@ fn gate_inputs(
         approvals,
         outcome,
         active: active_drafters(transaction, record),
+        participants: policy_participants(transaction, record),
     })
 }
 
@@ -13539,10 +13549,15 @@ fn prepare_post(
     inputs: &GateInputs,
     date: DateTime,
 ) -> Result<Prepared, Response> {
-    use openblog_core::assembly::{assemble, AssemblyError};
+    use openblog_core::assembly::{assemble_for_participants, AssemblyError};
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let participants = inputs
+        .participants
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
     let build = |date: &str| {
-        assemble(
+        assemble_for_participants(
             record,
             inputs.structure.structure.as_ref(),
             &inputs.drafts,
@@ -13550,6 +13565,7 @@ fn prepare_post(
             &inputs.moments,
             &inputs.approvals.set,
             &active,
+            &participants,
             date,
         )
     };
@@ -13922,11 +13938,15 @@ fn change_approval(
     approving: Option<(&str, bool)>,
 ) -> Response {
     use openblog_core::approval::ApprovalError;
-    let (transaction, own) = match draft_request_target(state, publication_id, session) {
-        Ok(found) => found,
-        Err(_) => return publish_not_found(),
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return publish_not_found();
     };
-    let record = transaction.record.clone().expect("authorized record");
+    let Some(record) = transaction.record.clone() else {
+        return publish_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, &record, &session.user) else {
+        return publish_not_found();
+    };
     let allowed = transaction
         .with_identities(|identities| {
             record.authorize(
@@ -13937,13 +13957,15 @@ fn change_approval(
             )
         })
         .is_ok();
-    if !allowed {
-        return publish_not_found();
-    }
     let inputs = match gate_inputs(state, &transaction, &record) {
         Ok(inputs) => inputs,
         Err(response) => return response,
     };
+    if !participant_approval_rule(inputs.approvals.set.policy())
+        && (!allowed || !inputs.active.contains(&own))
+    {
+        return publish_not_found();
+    }
     if matches!(
         inputs.outcome.outcome,
         Some(openblog_core::assembly::Outcome::Published { .. })
@@ -13954,6 +13976,11 @@ fn change_approval(
         return Response::error(409, "This reflection needs a whole-piece approval rule before it can be approved. Ask a coordinator to propose that rule and agree to it; nothing was changed.");
     }
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let participants = inputs
+        .participants
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
     if let Some((seen, _)) = approving {
         let config = match site::load_config(&state.root) {
             Ok(config) => config,
@@ -13965,18 +13992,37 @@ fn change_approval(
                 );
             }
         };
-        let preview = openblog_core::preview::build(
-            &record,
-            inputs.structure.structure.as_ref(),
-            &inputs.drafts,
-            &inputs.synthesis,
-            &inputs.moments,
-            &inputs.approvals.set,
-            &own,
-            &active,
-            synthesis_owner(&transaction, &record, session).is_some(),
-            config.render_options(),
-        );
+        let show_synthesis =
+            synthesis_visible(&transaction, &record, session, &inputs.synthesis, &own);
+        let preview = if active.contains(&own.as_str()) {
+            openblog_core::preview::build_with_participants(
+                &record,
+                inputs.structure.structure.as_ref(),
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &own,
+                &active,
+                &participants,
+                show_synthesis,
+                config.render_options(),
+            )
+        } else {
+            openblog_core::preview::build_for_recipient(
+                &record,
+                inputs.structure.structure.as_ref(),
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &own,
+                &active,
+                &participants,
+                show_synthesis,
+                config.render_options(),
+            )
+        };
         if !matches!(preview, Ok(preview) if preview.seen.as_deref() == Some(seen)) {
             return Response::error(
                 409,
@@ -13986,13 +14032,14 @@ fn change_approval(
     }
     let mut next = inputs.approvals.set.clone();
     let result = match approving {
-        Some((seen, affirmed)) => openblog_core::assembly::with_subject(
+        Some((seen, affirmed)) => openblog_core::assembly::with_subject_for_participants(
             &record,
             inputs.structure.structure.as_ref(),
             &inputs.drafts,
             &inputs.synthesis,
             &inputs.moments,
             &active,
+            &participants,
             |subject| {
                 next.approve(&own, &own, subject, seen, affirmed, clock::now().unix())
                     .map(|()| true)
@@ -14077,6 +14124,29 @@ fn synthesis_authors(
     record: &SharedPublication,
 ) -> Vec<String> {
     grant_holders(transaction, record, AuthorizationAction::EditSynthesis)
+}
+
+fn synthesis_visible(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+    synthesis: &openblog_core::synthesis::SynthesisSet,
+    own: &str,
+) -> bool {
+    if synthesis_owner(transaction, record, session).is_some() {
+        return true;
+    }
+    let authors = synthesis_authors(transaction, record);
+    let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
+    let recipients = policy_participants(transaction, record);
+    let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+    let context = openblog_core::synthesis::DeliveryContext {
+        authors: &authors,
+        recipients: &recipients,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
+    };
+    synthesis.view_delivered(own, &context).is_ok()
 }
 
 /// The requester's own participant id once `SharedPublication::authorize` allows `action` on it.
@@ -14985,15 +15055,18 @@ fn reconcile_approvals(
         }
         let active = active_drafters(transaction, record);
         let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let participants = policy_participants(transaction, record);
+        let participants = participants.iter().map(String::as_str).collect::<Vec<_>>();
         let structure = crate::shared_publications::load_structure(&state.root, id)?;
         let mut next = stored.set.clone();
-        let dropped = openblog_core::assembly::with_subject(
+        let dropped = openblog_core::assembly::with_subject_for_participants(
             record,
             structure.structure.as_ref(),
             &drafts,
             &synthesis.set,
             &moments.set,
             &active,
+            &participants,
             |subject| next.reconcile(subject),
         );
         if matches!(dropped, Ok(count) if count > 0) {
@@ -15315,19 +15388,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     };
     let recipients = policy_participants(&transaction, record);
     let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
-    let synthesis_authors = synthesis_authors(&transaction, record);
-    let synthesis_authors = synthesis_authors
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
-    let context = openblog_core::synthesis::DeliveryContext {
-        authors: &synthesis_authors,
-        recipients: &recipients,
-        membership_revision: record.collaboration.revision,
-        authorization_revision: record.authorization.revision,
-    };
-    let show_synthesis = synthesis_owner(&transaction, record, session).is_some()
-        || (!active.contains(&own.as_str()) && synthesis.view_delivered(&own, &context).is_ok());
+    let show_synthesis = synthesis_visible(&transaction, record, session, &synthesis, &own);
     let config = match site::load_config(&state.root) {
         Ok(config) => config,
         Err(error) => {
@@ -15343,7 +15404,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         }
     };
     let preview = if active.contains(&own.as_str()) {
-        openblog_core::preview::build(
+        openblog_core::preview::build_with_participants(
             record,
             structure.structure.as_ref(),
             &set,
@@ -15352,6 +15413,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
             &approvals,
             &own,
             &active,
+            &recipients,
             show_synthesis,
             config.render_options(),
         )
@@ -15596,15 +15658,21 @@ fn approval_policy_json(
     set: &openblog_core::approval::ApprovalSet,
     approvers: &[String],
 ) -> Json {
-    use openblog_core::assembly::{display_names, with_subject};
+    use openblog_core::assembly::{display_names, with_subject_for_participants};
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
-    let (rule, required, missing) = with_subject(
+    let participants = inputs
+        .participants
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let (rule, required, missing) = with_subject_for_participants(
         record,
         inputs.structure.structure.as_ref(),
         &inputs.drafts,
         &inputs.synthesis,
         &inputs.moments,
         &active,
+        &participants,
         |subject| {
             let required = set.required(subject);
             let missing = required
@@ -15688,7 +15756,11 @@ fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session
         Ok(inputs) => inputs,
         Err(response) => return response,
     };
-    let approvers = active_approvers(&transaction, &record, &inputs.active);
+    let approvers = if participant_approval_rule(inputs.approvals.set.policy()) {
+        inputs.participants.clone()
+    } else {
+        active_approvers(&transaction, &record, &inputs.active)
+    };
     let mut response = if authority.is_some()
         || draft_owner(&transaction, &record, session).is_some()
     {
@@ -15777,7 +15849,11 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
     if !record.allows_approval_scope(body.policy.scope) {
         return shared_problem("policy", "This reflection requires whole-piece approval. Any edit must clear every approval. Nothing was changed.");
     }
-    let approvers = active_approvers(&transaction, &record, &inputs.active);
+    let approvers = if participant_approval_rule(&body.policy) {
+        inputs.participants.clone()
+    } else {
+        active_approvers(&transaction, &record, &inputs.active)
+    };
     let approver_ids = approvers.iter().map(String::as_str).collect::<Vec<_>>();
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
     let voters = policy_participants(&transaction, &record);
@@ -15786,13 +15862,14 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
         return Response::error(409, "The rule proposal changed since you loaded it. Reload before proposing another rule; nothing was changed.");
     }
     let mut next = inputs.approvals.set.clone();
-    let result = openblog_core::assembly::with_subject(
+    let result = openblog_core::assembly::with_subject_for_participants(
         &record,
         inputs.structure.structure.as_ref(),
         &inputs.drafts,
         &inputs.synthesis,
         &inputs.moments,
         &active,
+        &voters,
         |subject| {
             next.change_policy(
                 body.policy.clone(),
@@ -15949,7 +16026,16 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
     let active: Vec<_> = inputs.active.iter().map(String::as_str).collect();
     let voters = policy_participants(&transaction, record);
     let voters: Vec<_> = voters.iter().map(String::as_str).collect();
-    let approvers = active_approvers(&transaction, record, &inputs.active);
+    let approvers = if inputs
+        .approvals
+        .set
+        .proposal()
+        .is_some_and(|p| participant_approval_rule(&p.policy))
+    {
+        inputs.participants.clone()
+    } else {
+        active_approvers(&transaction, record, &inputs.active)
+    };
     let approver_ids: Vec<_> = approvers.iter().map(String::as_str).collect();
     let mut next = inputs.approvals.set.clone();
     if next
@@ -15981,13 +16067,14 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
     };
     let mut cleared = 0;
     if unanimous {
-        let applied = openblog_core::assembly::with_subject(
+        let applied = openblog_core::assembly::with_subject_for_participants(
             record,
             inputs.structure.structure.as_ref(),
             &inputs.drafts,
             &inputs.synthesis,
             &inputs.moments,
             &active,
+            &voters,
             |subject| {
                 next.apply_consented_policy(
                     body.proposal_id,
@@ -40543,6 +40630,169 @@ series: letters
     }
 
     #[test]
+    fn every_participant_can_approve_only_the_complete_released_piece() {
+        for requirement in [json!("allParticipants"), json!({"participantQuorum": 3})] {
+            let (f, mikey, grace, ada, id) = approval_fixture("all-participant-piece");
+            let ada_id = participant_of(&f, &id, "ada");
+            let mikey_id = participant_of(&f, &id, "mikey");
+            let grace_id = participant_of(&f, &id, "grace");
+            assert_eq!(
+                approval_policy_write(
+                    &f,
+                    &mikey,
+                    rule_body(&id, 0, json!({"requirement": requirement}), true),
+                    true
+                )
+                .status,
+                200
+            );
+            let proposal = body_json(&approval_policy_read(&f, &mikey, &id))["proposal"]["id"]
+                .as_u64()
+                .unwrap();
+            for who in [&mikey, &grace, &ada] {
+                assert_eq!(consent_rule(&f, who, &id, proposal).status, 200);
+            }
+            assert_eq!(
+                reveal_call(
+                    &f,
+                    &ada,
+                    "policy",
+                    policy_body(&id, "voluntary", "namedRecipients")
+                )
+                .status,
+                200
+            );
+            let auth_revision = stored_record(&f, &id).authorization.revision;
+            for (author, other) in [(&mikey, &grace_id), (&grace, &mikey_id)] {
+                assert_eq!(
+                    post_api(
+                        &f,
+                        author,
+                        "reveal/named",
+                        json!({
+                            "publicationId": id, "revision": 1, "recipients": [ada_id, other],
+                            "expectedAuthorizationRevision": auth_revision,
+                        })
+                    )
+                    .status,
+                    200
+                );
+            }
+            let before = body_json(&preview_call(&f, &ada, &id));
+            assert_eq!(before["preview"]["seen"], Json::Null);
+            assert_eq!(
+                post_api(
+                    &f,
+                    &ada,
+                    "approve",
+                    json!({
+                        "publicationId": id, "seen": "not-a-token", "affirmed": true
+                    })
+                )
+                .status,
+                409
+            );
+            for author in [&mikey, &grace] {
+                let revision = synthesis_revision(&f, author, &id);
+                assert_eq!(
+                    synthesis_change(
+                        &f,
+                        author,
+                        &id,
+                        revision,
+                        json!({
+                            "action": "delivery", "recipient": ada_id,
+                            "expectedAuthorizationRevision": auth_revision, "consent": true
+                        })
+                    )
+                    .status,
+                    200
+                );
+            }
+            let seen = body_json(&preview_call(&f, &ada, &id))["preview"]["seen"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let revision = synthesis_revision(&f, &mikey, &id);
+            assert_eq!(
+                synthesis_change(
+                    &f,
+                    &mikey,
+                    &id,
+                    revision,
+                    json!({
+                        "action": "delivery", "recipient": ada_id,
+                        "expectedAuthorizationRevision": auth_revision, "consent": false
+                    })
+                )
+                .status,
+                200
+            );
+            assert!(body_json(&preview_call(&f, &ada, &id))["preview"]["seen"].is_null());
+            assert_eq!(
+                post_api(
+                    &f,
+                    &ada,
+                    "approve",
+                    json!({ "publicationId": id, "seen": seen, "affirmed": true })
+                )
+                .status,
+                409
+            );
+            let revision = synthesis_revision(&f, &mikey, &id);
+            assert_eq!(
+                synthesis_change(
+                    &f,
+                    &mikey,
+                    &id,
+                    revision,
+                    json!({
+                        "action": "delivery", "recipient": ada_id,
+                        "expectedAuthorizationRevision": auth_revision, "consent": true
+                    })
+                )
+                .status,
+                200
+            );
+            for who in [&mikey, &grace] {
+                assert_eq!(approve_as(&f, who, &id).status, 200);
+            }
+            assert_eq!(publish_as(&f, &ada, &id).status, 409);
+            assert_eq!(approve_as(&f, &ada, &id).status, 200);
+            assert_eq!(draft_call(&f, &grace, &id, 1, "GRACE-EDITED").status, 200);
+            assert!(body_json(&preview_call(&f, &ada, &id))["preview"]["seen"].is_null());
+            assert_eq!(
+                post_api(
+                    &f,
+                    &ada,
+                    "approve",
+                    json!({ "publicationId": id, "seen": seen, "affirmed": true })
+                )
+                .status,
+                409
+            );
+            assert_eq!(publish_as(&f, &ada, &id).status, 409);
+            assert_eq!(
+                post_api(
+                    &f,
+                    &grace,
+                    "reveal/named",
+                    json!({
+                        "publicationId": id, "revision": 2, "recipients": [ada_id, mikey_id],
+                        "expectedAuthorizationRevision": auth_revision,
+                    })
+                )
+                .status,
+                200
+            );
+            for who in [&mikey, &grace, &ada] {
+                assert_eq!(approve_as(&f, who, &id).status, 200);
+            }
+            assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        }
+    }
+
+    #[test]
     fn numeric_quorum_requires_unanimous_rule_consent_and_exact_writer_approvals() {
         let (f, mikey, grace, ada, id) = approval_fixture("approval-quorum");
         let invalid = approval_policy_write(
@@ -43590,8 +43840,14 @@ series: letters
     #[test]
     fn scheduling_never_tells_a_coordinator_who_cannot_read_the_drafts_whether_a_part_exists() {
         let (f, mikey, _grace, ada, id) = approval_fixture("arrangement-oracle");
-        // Ada coordinates but writes nothing, so she is not entitled to the drafts.
-        assert_eq!(preview_call(&f, &ada, &id).status, 404);
+        // Ada can open a recipient preview, but is not entitled to the drafts or an approval token.
+        let response = preview_call(&f, &ada, &id);
+        assert_eq!(response.status, 200);
+        let preview = body_json(&response);
+        assert_eq!(preview["preview"]["complete"], false);
+        assert!(preview["preview"]["seen"].is_null());
+        let document = preview_document_text(&f, &ada, &preview);
+        assert!(!document.contains("MIKEY-SECRET") && !document.contains("GRACE-SECRET"));
         let participants = body_json(&arrangement_read(&f, &mikey, &id))["participants"].clone();
         let mikey_id = participants
             .as_array()

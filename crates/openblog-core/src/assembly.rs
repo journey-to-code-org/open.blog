@@ -150,6 +150,23 @@ pub fn with_subject<R>(
     active: &[&str],
     ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
 ) -> R {
+    with_subject_for_participants(
+        record, structure, drafts, synthesis, moments, active, active, ask,
+    )
+}
+
+/// Build a subject with a distinct set of currently eligible participants.
+#[allow(clippy::too_many_arguments)]
+pub fn with_subject_for_participants<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
     let authors: Vec<&str> = record
         .collaboration
         .participants
@@ -224,6 +241,7 @@ pub fn with_subject<R>(
         .collect();
     ask(&ApprovalSubject {
         authors: &authors,
+        participants,
         membership_revision: record.collaboration.revision,
         authorization_revision: record.authorization.revision,
         sections: &sections,
@@ -385,6 +403,24 @@ pub fn assemble(
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
+    assemble_for_participants(
+        record, structure, drafts, synthesis, moments, approvals, active, active, date,
+    )
+}
+
+/// Assemble using the current participants eligible for whole-piece approval.
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_for_participants(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    participants: &[&str],
+    date: &str,
+) -> Result<Assembly, AssemblyError> {
     if !record.allows_approval_scope(approvals.policy().scope) {
         return Err(AssemblyError::ApprovalScope);
     }
@@ -392,13 +428,14 @@ pub fn assemble(
     // the drafts first would refuse differently depending on whether a draft has a given part, an
     // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
     // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
-    match with_subject(
+    match with_subject_for_participants(
         record,
         structure,
         drafts,
         synthesis,
         moments,
         active,
+        participants,
         |subject| approvals.evaluate(subject),
     ) {
         Ok(Readiness::Ready) => {}

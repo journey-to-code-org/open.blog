@@ -467,9 +467,9 @@ binding includes the participants' display names and contributor-profile binding
 record, but not mutable contributor-registry profile details. Approvals made before that
 attribution binding was added must be reviewed again.
 
-When an author submits an approval, the server checks again that the current combined preview is
-complete for that author. If sharing changed after the preview was opened, the earlier review
-token cannot be used while any current section is hidden; the author must reload after it is shared.
+When an approver submits an approval, the server checks again that the current combined preview is
+complete for them. If sharing changed after the preview was opened, the earlier review token
+cannot be used while any current material is hidden; they must reload after it is shared.
 This check does not withdraw approvals already recorded before a sharing change.
 
 The approval rule may be proposed by a site owner or coordinator, but changes only after every
@@ -490,10 +490,13 @@ refused, and only a site owner may propose weakening an existing quorum. The nor
 proposal process still applies. Every whole-piece approval binds membership and authorization
 revisions, so changing access invalidates it even if a removed role is later restored. Existing
 non-quorum whole-piece approvals from before this binding require review again; legacy section-only
-bindings are unchanged. Reader and
-coordinator-only participants cannot yet approve the
-piece, so full all-participant quorum remains open in epic #592. Older releases cannot read an
-approval set that contains a numeric quorum.
+bindings are unchanged. A group can instead unanimously select all participants or a fixed
+participant quorum; every writer and attributed author must still approve. Readers and other
+non-drafters can approve only after all current drafts, their sealed moments, and the conversation
+have been explicitly shared with them. A conversation is shared with a recipient only after every
+current conversation author consents to that delivery. Existing author-only rules keep their
+meaning. Older releases cannot read an approval set containing a numeric quorum or either
+participant rule.
 
 Publishing stores a private receipt identifying the approved section revisions and hashing the
 exact resulting Post and credit sidecar. The receipt contains no draft prose and is not public

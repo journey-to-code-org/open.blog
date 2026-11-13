@@ -78,6 +78,10 @@ pub enum ApprovalRequirement {
     AuthorsWithRoles(Vec<AuthorizationRole>),
     /// At least this many current authors, including every writer and attributed author.
     Quorum(u16),
+    /// Every currently eligible participant, including non-drafting readers.
+    AllParticipants,
+    /// At least this many eligible participants, including every writer and attributed author.
+    ParticipantQuorum(u16),
 }
 
 /// What an approval covers, which decides which edits invalidate it.
@@ -118,7 +122,12 @@ impl ApprovalPolicy {
     pub fn normalized(mut self) -> Result<Self, ApprovalError> {
         match &mut self.requirement {
             ApprovalRequirement::AllAuthors | ApprovalRequirement::ContributingAuthors => {}
-            ApprovalRequirement::Quorum(count) => {
+            ApprovalRequirement::AllParticipants => {
+                if self.scope != ApprovalScope::WholePiece {
+                    return Err(ApprovalError::Invalid);
+                }
+            }
+            ApprovalRequirement::Quorum(count) | ApprovalRequirement::ParticipantQuorum(count) => {
                 if *count == 0
                     || usize::from(*count) > MAX_PARTICIPANTS
                     || self.scope != ApprovalScope::WholePiece
@@ -203,6 +212,10 @@ pub fn describe_policy(policy: &ApprovalPolicy, names: &[String]) -> String {
         ApprovalRequirement::Quorum(count) => {
             format!("{WRITERS} must approve, and at least {count} authors in total must approve.")
         }
+        ApprovalRequirement::AllParticipants => "Every participant must approve.".to_string(),
+        ApprovalRequirement::ParticipantQuorum(count) => format!(
+            "{WRITERS} must approve, and at least {count} participants in total must approve."
+        ),
     };
     let scope = match policy.scope {
         ApprovalScope::OwnSections => {
@@ -247,6 +260,8 @@ pub struct Section<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct ApprovalSubject<'a> {
     pub authors: &'a [&'a str],
+    /// Current participants eligible for whole-piece approval, including all authors.
+    pub participants: &'a [&'a str],
     /// Monotonic membership and authorization revisions protect whole-piece consent across churn.
     pub membership_revision: u64,
     pub authorization_revision: u64,
@@ -420,8 +435,21 @@ impl ApprovalSubject<'_> {
     fn is_valid(&self) -> bool {
         if self.authors.is_empty()
             || self.authors.len() > MAX_PARTICIPANTS
+            || self.participants.len() > MAX_PARTICIPANTS
             || self.sections.is_empty()
             || self.sections.len() > MAX_CONTRIBUTIONS
+        {
+            return false;
+        }
+        let mut participants = HashSet::new();
+        if self
+            .participants
+            .iter()
+            .any(|id| !valid_id(id) || !participants.insert(id.to_ascii_lowercase()))
+            || !self
+                .authors
+                .iter()
+                .all(|author| self.participants.contains(author))
         {
             return false;
         }
@@ -451,6 +479,15 @@ impl ApprovalSubject<'_> {
         self.authors.contains(&participant)
     }
 
+    fn eligible(&self, policy: &ApprovalPolicy, participant: &str) -> bool {
+        match policy.requirement {
+            ApprovalRequirement::AllParticipants | ApprovalRequirement::ParticipantQuorum(_) => {
+                self.participants.contains(&participant)
+            }
+            _ => self.has_author(participant),
+        }
+    }
+
     fn writes_or_is_attributed(&self, author: &str) -> bool {
         self.sections.iter().any(|section| section.owner == author)
             || self.attributed.contains(&author)
@@ -465,6 +502,9 @@ impl ApprovalSubject<'_> {
     /// Everyone whose approval the requirement needs, in author order, then named participants
     /// who are not authors (they can never approve, so they keep the piece blocked).
     fn required<'s>(&'s self, requirement: &'s ApprovalRequirement) -> Vec<&'s str> {
+        if matches!(requirement, ApprovalRequirement::AllParticipants) {
+            return self.participants.to_vec();
+        }
         let mut required: Vec<&str> = self
             .authors
             .iter()
@@ -473,6 +513,8 @@ impl ApprovalSubject<'_> {
                 ApprovalRequirement::AllAuthors => true,
                 ApprovalRequirement::ContributingAuthors => self.writes_or_is_attributed(author),
                 ApprovalRequirement::Quorum(_) => self.writes_or_is_attributed(author),
+                ApprovalRequirement::ParticipantQuorum(_) => self.writes_or_is_attributed(author),
+                ApprovalRequirement::AllParticipants => unreachable!(),
                 ApprovalRequirement::NamedAuthors(named) => {
                     self.writes_or_is_attributed(author) || named.iter().any(|n| n == author)
                 }
@@ -531,6 +573,18 @@ impl ApprovalSubject<'_> {
             put(&mut hasher, b"whole-piece-membership-v1");
             hasher.update(self.membership_revision.to_be_bytes());
             hasher.update(self.authorization_revision.to_be_bytes());
+        }
+        if matches!(
+            policy.requirement,
+            ApprovalRequirement::AllParticipants | ApprovalRequirement::ParticipantQuorum(_)
+        ) {
+            put(&mut hasher, b"eligible-participants-v1");
+            let mut participants = self.participants.to_vec();
+            participants.sort_unstable();
+            hasher.update((participants.len() as u64).to_be_bytes());
+            for participant in participants {
+                put(&mut hasher, participant.as_bytes());
+            }
         }
         let mut authors = self.authors.to_vec();
         authors.sort_unstable();
@@ -812,7 +866,7 @@ impl ApprovalSet {
         subject: &ApprovalSubject<'_>,
         participant: &str,
     ) -> Result<String, ApprovalError> {
-        if !subject.has_author(participant) {
+        if !subject.eligible(&self.policy, participant) {
             return Err(ApprovalError::Denied);
         }
         if !subject.is_valid() {
@@ -833,7 +887,7 @@ impl ApprovalSet {
         affirmed: bool,
         now: i64,
     ) -> Result<(), ApprovalError> {
-        if requester != participant || !subject.has_author(participant) {
+        if requester != participant || !subject.eligible(&self.policy, participant) {
             return Err(ApprovalError::Denied);
         }
         if !affirmed || now < 0 || !subject.is_valid() {
@@ -886,14 +940,35 @@ impl ApprovalSet {
             return Err(PolicyError::Unconfirmed);
         }
         if authority == RuleAuthority::Coordinator {
-            if let ApprovalRequirement::Quorum(before) = self.policy.requirement {
+            if let ApprovalRequirement::Quorum(before)
+            | ApprovalRequirement::ParticipantQuorum(before) = self.policy.requirement
+            {
                 let protects = match policy.requirement {
-                    ApprovalRequirement::Quorum(after) => after >= before,
+                    ApprovalRequirement::Quorum(after)
+                        if matches!(self.policy.requirement, ApprovalRequirement::Quorum(_)) =>
+                    {
+                        after >= before
+                    }
+                    ApprovalRequirement::ParticipantQuorum(after)
+                        if matches!(
+                            self.policy.requirement,
+                            ApprovalRequirement::ParticipantQuorum(_)
+                        ) =>
+                    {
+                        after >= before
+                    }
                     _ => {
-                        subject.authors.len() >= usize::from(before)
-                            && subject.required(&policy.requirement).len() >= subject.authors.len()
-                            && subject.authors.iter().all(|author| {
-                                subject.required(&policy.requirement).contains(author)
+                        let eligible = if matches!(
+                            self.policy.requirement,
+                            ApprovalRequirement::ParticipantQuorum(_)
+                        ) {
+                            subject.participants
+                        } else {
+                            subject.authors
+                        };
+                        eligible.len() >= usize::from(before)
+                            && eligible.iter().all(|person| {
+                                subject.required(&policy.requirement).contains(person)
                             })
                     }
                 };
@@ -923,6 +998,19 @@ impl ApprovalSet {
                     required: usize::from(required),
                     available,
                 });
+            }
+            if let ApprovalRequirement::ParticipantQuorum(required) = policy.requirement {
+                let available = subject
+                    .participants
+                    .iter()
+                    .filter(|person| approvers.contains(person))
+                    .count();
+                if available < usize::from(required) {
+                    return Err(PolicyError::QuorumUnavailable {
+                        required: usize::from(required),
+                        available,
+                    });
+                }
             }
         }
         let mut gaps = subject.gaps(&policy.requirement);
@@ -959,7 +1047,7 @@ impl ApprovalSet {
     }
 
     fn holds(&self, subject: &ApprovalSubject<'_>, participant: &str) -> bool {
-        subject.has_author(participant)
+        subject.eligible(&self.policy, participant)
             && self.approvals.iter().any(|approval| {
                 approval.participant_id == participant
                     && approval.binding
@@ -970,7 +1058,7 @@ impl ApprovalSet {
     /// Where `participant`'s approval stands against the content as it is now. A person who is
     /// not an author, or an invalid subject, is `Awaiting`: nothing about them is counted.
     pub fn state(&self, subject: &ApprovalSubject<'_>, participant: &str) -> ApprovalState {
-        if !subject.is_valid() || !subject.has_author(participant) {
+        if !subject.is_valid() || !subject.eligible(&self.policy, participant) {
             return ApprovalState::Awaiting;
         }
         if self.holds(subject, participant) {
@@ -1014,24 +1102,28 @@ impl ApprovalSet {
     }
 
     pub fn quorum_progress(&self, subject: &ApprovalSubject<'_>) -> Option<QuorumProgress> {
-        let ApprovalRequirement::Quorum(required) = self.policy.requirement else {
-            return None;
+        let (required, eligible) = match self.policy.requirement {
+            ApprovalRequirement::Quorum(required) => (required, subject.authors),
+            ApprovalRequirement::ParticipantQuorum(required) => (required, subject.participants),
+            _ => return None,
         };
         Some(QuorumProgress {
             approved: if subject.is_valid() {
-                subject
-                    .authors
+                eligible
                     .iter()
-                    .filter(|author| {
-                        subject.holds_role(author, &[AuthorizationRole::Contributor])
-                            && self.holds(subject, author)
+                    .filter(|person| {
+                        (matches!(
+                            self.policy.requirement,
+                            ApprovalRequirement::ParticipantQuorum(_)
+                        ) || subject.holds_role(person, &[AuthorizationRole::Contributor]))
+                            && self.holds(subject, person)
                     })
                     .count()
             } else {
                 0
             },
             required: usize::from(required),
-            current_authors: subject.authors.len(),
+            current_authors: eligible.len(),
         })
     }
 
@@ -1045,7 +1137,7 @@ impl ApprovalSet {
         let before = self.approvals.len();
         let (policy, revision) = (&self.policy, self.policy_revision);
         self.approvals.retain(|approval| {
-            subject.has_author(&approval.participant_id)
+            subject.eligible(policy, &approval.participant_id)
                 && approval.binding == subject.binding(policy, revision, &approval.participant_id)
         });
         Ok(before - self.approvals.len())
@@ -1117,6 +1209,7 @@ mod tests {
                 .collect();
             run(&ApprovalSubject {
                 authors: &self.authors,
+                participants: &self.authors,
                 membership_revision: 0,
                 authorization_revision: 0,
                 sections: &sections,

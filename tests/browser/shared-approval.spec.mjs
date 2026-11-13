@@ -343,3 +343,82 @@ test("all participants unanimously change the approval rule through the real Adm
     await readerContext.close();
   }
 });
+
+test("a reader approves only the fully released piece under a participant rule", async ({ browser, page }) => {
+  const graceContext = await browser.newContext({ viewport: { width: 400, height: 800 } });
+  const adaContext = await browser.newContext({ viewport: { width: 400, height: 800 } });
+  const readerContext = await browser.newContext({ viewport: { width: 400, height: 800 } });
+  const grace = await graceContext.newPage();
+  const ada = await adaContext.newPage();
+  const reader = await readerContext.newPage();
+  try {
+    await page.setViewportSize({ width: 400, height: 800 });
+    await openDraft(page, "mikey", "correct horse battery");
+    await openDraft(grace, "grace", "another correct horse");
+    await page.getByRole("radio", { name: "Every participant", exact: true }).check();
+    await page.getByLabel(/changing the rule clears every approval/).check();
+    await page.getByRole("button", { name: "Propose approval rule" }).click();
+    await expect(page.getByText("The proposed rule is waiting", { exact: false })).toBeVisible();
+    for (const author of [page, grace]) {
+      if (author === grace) {
+        await grace.reload();
+        await grace.locator("summary", { hasText: "Your draft" }).click();
+      }
+      await author.getByLabel(/I agree to this exact approval rule/).check();
+      await author.getByRole("button", { name: "Agree to this rule" }).click();
+    }
+    for (const [participant, username, password, section] of [
+      [ada, "ada", "a fourth correct horse", "Your draft"],
+      [reader, "linus", "yet another horse", "Approval rule"],
+    ]) {
+      await participant.goto(`${origin}/admin/`);
+      await participant.getByLabel("Username", { exact: true }).fill(username);
+      await participant.getByLabel("Password", { exact: true }).fill(password);
+      await participant.getByRole("button", { name: "Sign in", exact: true }).click();
+      await participant.goto(`${origin}/admin/#/shared`);
+      await participant.locator("summary", { hasText: section }).click();
+      await participant.getByLabel(/I agree to this exact approval rule/).check();
+      await participant.getByRole("button", { name: "Agree to this rule" }).click();
+    }
+    const reading = reader.locator("summary", { hasText: "Revisions shared with you" });
+    await reading.click();
+    await reader.getByRole("button", { name: "View shared material together" }).click();
+    await expect(reader.getByRole("button", { name: "Approve this piece" })).toBeDisabled();
+    for (const author of [page, grace]) {
+      await author.reload();
+      await author.locator("summary", { hasText: "Your draft" }).click();
+      const choose = author.getByRole("button", { name: /Choose who receives revision \d+/ });
+      const revision = Number((await choose.textContent()).match(/\d+/)[0]);
+      await author.getByRole("checkbox", { name: "Linus (can read without draft access)" }).check();
+      await choose.click();
+      await author.getByRole("group", { name: `Share revision ${revision}?` })
+        .getByRole("button", { name: `Share revision ${revision}` }).click();
+      await expect(author.getByText(`Revision ${revision} was shared with the selected people.`, { exact: false })).toBeVisible();
+      const row = author.locator(".oba-synthesis li").filter({ hasText: "Linus:" });
+      await row.getByRole("button", { name: "Choose to share with Linus" }).click();
+      await row.getByRole("group", { name: "Share with Linus" })
+        .getByRole("button", { name: "Agree to share" }).click();
+      await expect(row.getByText("you agreed.", { exact: false })).toBeVisible();
+    }
+    await reader.getByRole("button", { name: "View shared material together" }).click();
+    const preview = reader.frameLocator('iframe[title="Shared material preview, not published"]');
+    await expect(preview.getByText("READER-PRIVATE-LATER")).toBeVisible();
+    await expect(preview.getByText("PRIVATE-LATER-CONVERSATION")).toBeVisible();
+    await reader.evaluate(axe.source);
+    const audit = await reader.evaluate(() => window.axe.run(document, {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+    }));
+    expect(audit.violations).toEqual([]);
+    expect(await reader.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await reader.getByLabel("I approve publishing exactly the piece I reviewed.").check();
+    await reader.getByRole("button", { name: "Approve this piece" }).click();
+    await expect(reader.getByText("Your approval was recorded.", { exact: false })).toBeVisible();
+    await reader.getByRole("button", { name: "View shared material together" }).click();
+    await reader.getByRole("button", { name: "Withdraw my approval" }).click();
+    await expect(reader.getByText("Your approval was withdrawn.", { exact: false })).toBeVisible();
+  } finally {
+    await graceContext.close();
+    await adaContext.close();
+    await readerContext.close();
+  }
+});

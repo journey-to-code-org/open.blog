@@ -540,6 +540,7 @@ fn binding(set: &SynthesisSet, approvals: &ApprovalSet, who: &str) -> String {
         .binding_for(
             &ApprovalSubject {
                 authors: &authors,
+                participants: &authors,
                 membership_revision: 0,
                 authorization_revision: 0,
                 sections: &sections,
@@ -568,6 +569,7 @@ fn approval_binds_to_exact_items_order_and_attribution() {
         .binding_for(
             &ApprovalSubject {
                 authors: &["ann", "bo"],
+                participants: &["ann", "bo"],
                 membership_revision: 0,
                 authorization_revision: 0,
                 sections: &sections,
@@ -662,6 +664,7 @@ fn a_standing_approval_goes_stale_when_the_synthesis_changes() {
     let refs: Vec<&str> = metadata.iter().map(String::as_str).collect();
     let view = ApprovalSubject {
         authors: &authors,
+        participants: &authors,
         membership_revision: 0,
         authorization_revision: 0,
         sections: &sections,
@@ -692,6 +695,7 @@ fn a_standing_approval_goes_stale_when_the_synthesis_changes() {
     let refs: Vec<&str> = metadata.iter().map(String::as_str).collect();
     let changed = ApprovalSubject {
         authors: &authors,
+        participants: &authors,
         membership_revision: 0,
         authorization_revision: 0,
         sections: &sections,
@@ -732,6 +736,7 @@ fn a_named_author_must_approve_even_under_contributing_authors() {
     let attributed = set.attributed_authors();
     let view = ApprovalSubject {
         authors: &authors,
+        participants: &authors,
         membership_revision: 0,
         authorization_revision: 0,
         sections: &sections,

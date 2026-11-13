@@ -25,7 +25,7 @@ All notable changes to open.blog are recorded here. Releases follow
   latest saved draft.
 - Coordinators can choose named-recipient sharing. Authors confirm exactly which active participants
   receive their current revision; later edits stay private. Non-drafters can read explicitly shared
-  draft revisions and associated sealed source moments, but cannot yet approve the combined piece.
+  draft revisions and associated sealed source moments.
   A release to a writer does not grant reader access after a role change; the author must share
   again. Older releases cannot read stored releases that grant non-draft access.
 - Approval rule changes now require each active, bound participant, including readers and
@@ -33,6 +33,9 @@ All notable changes to open.blog are recorded here. Releases follow
   the group agrees, then are cleared.
 - Groups can propose a fixed numeric author quorum; every writer and attributed author must
   still approve the whole piece, and the threshold does not fall when participants leave.
+- Groups can also require every participant or a fixed participant quorum. A reader may approve
+  only after every current draft, sealed moment and the conversation are explicitly shared with
+  them. These new rules require unanimous agreement and cannot be read by older releases.
 - Whole-piece approvals bind membership and authorization revisions under every rule, so access
   restoration cannot revive approval after a failed cleanup. Existing non-quorum whole-piece
   approvals must be reviewed again; legacy section-only approval bindings remain unchanged.

@@ -328,6 +328,67 @@ fn whole_piece_rules_cannot_revive_consent_after_membership_or_access_changes() 
 }
 
 #[test]
+fn participant_rules_require_readers_and_never_waive_writer_consent() {
+    let record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let people = ["ann", "bo", "cy"];
+    for requirement in [
+        ApprovalRequirement::AllParticipants,
+        ApprovalRequirement::ParticipantQuorum(2),
+    ] {
+        let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+        assert!(approvals.set_policy(ApprovalPolicy {
+            requirement: requirement.clone(),
+            scope: ApprovalScope::WholePiece,
+        }));
+        openblog_core::assembly::with_subject_for_participants(
+            &record,
+            None,
+            &drafts,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &active,
+            &people,
+            |subject| {
+                for who in ["ann", "cy"] {
+                    let seen = approvals.binding_for(subject, who).unwrap();
+                    approvals
+                        .approve(who, who, subject, &seen, true, T)
+                        .unwrap();
+                }
+                assert!(matches!(
+                    approvals.evaluate(subject),
+                    Ok(Readiness::Blocked { .. })
+                ));
+                let seen = approvals.binding_for(subject, "bo").unwrap();
+                approvals
+                    .approve("bo", "bo", subject, &seen, true, T)
+                    .unwrap();
+                assert_eq!(approvals.evaluate(subject), Ok(Readiness::Ready));
+                assert!(approvals.binding_for(subject, "outside").is_err());
+            },
+        );
+        let changed = ["ann", "bo"];
+        openblog_core::assembly::with_subject_for_participants(
+            &record,
+            None,
+            &drafts,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &active,
+            &changed,
+            |subject| {
+                assert!(matches!(
+                    approvals.evaluate(subject),
+                    Ok(Readiness::Blocked { .. })
+                ));
+            },
+        );
+    }
+}
+
+#[test]
 fn legacy_section_only_bindings_remain_unchanged_by_revision_counters() {
     let mut record = record();
     record.initial_approval_scope = None;
