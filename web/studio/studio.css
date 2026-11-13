@@ -467,6 +467,9 @@ side-sheet.studio-wide-sheet dialog, side-sheet.studio-wide-sheet .sheet { width
 .studio-kinds { border: 1px solid var(--studio-linen); border-radius: var(--radius); margin: 0; padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-2); min-width: 0; }
 .studio-kinds legend { font-weight: 600; padding: 0 var(--space-1); }
 .studio-kinds toggle-switch { min-height: 2.75rem; }
+/* The card wraps names anywhere; a switch's words wrap only between words. */
+.studio-kinds toggle-switch .text { overflow-wrap: break-word; min-width: 0; }
+.studio-turn-off { margin-top: var(--space-6); }
 @media (max-width: 30rem) { .studio-wide-button, .studio-wide-button .action-button { width: 100%; } }
 .studio-own-line { display: block; margin-top: var(--space-2); }
 .studio-steps { margin: 0; padding-inline-start: 1.5rem; display: grid; gap: var(--space-2); }

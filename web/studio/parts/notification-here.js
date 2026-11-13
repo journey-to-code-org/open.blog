@@ -101,6 +101,7 @@ export function createHereCard(ctx) {
     busy = true;
     clear();
     button.loading = true;
+    say("");
     const mine = ctx.found().mine;
     try {
       await api.post("push/test", { id: mine.id });
@@ -237,7 +238,8 @@ export function createHereCard(ctx) {
       primary = full("Send a test", (button) => sendTest(button));
       parts.push(primary, h("p", { class: "studio-help", text: LOCK_SCREEN }));
       parts.push(h("details", { class: "studio-help" }, h("summary", { text: "Didn't see the test?" }), h("ul", {}, ...R.didntSeeIt(here).map((line) => h("li", { text: line })))));
-      parts.push(h("div", { class: "studio-own-line" }, full(`Turn off on this ${noun()}`, (button) => turnOff(button), "secondary")));
+      // Apart from Send a test, after "Didn't see the test?", so it isn't pressed by mistake.
+      parts.push(h("div", { class: "studio-own-line studio-turn-off" }, full(`Turn off on this ${noun()}`, (button) => turnOff(button), "secondary")));
     } else if (state === "denied") {
       parts.push(h("p", { text: R.stateWords(state, here) }), h("ol", { class: "studio-steps" }, ...R.deniedSteps(here).map((step) => h("li", { text: step }))), h("p", { text: "Then come back here." }));
       primary = full("Check again", async () => {

@@ -187,6 +187,14 @@ export async function createNotifications(context, route = { query: {} }) {
 
   // ---- Undo after turning off --------------------------------------------------------------------
 
+  // Undo stays (no timeout) until she does something else on the screen: pressing any other control
+  // here, turning on again included, takes it away. Opening a disclosure only reads, so it doesn't.
+  element.addEventListener("click", (event) => {
+    if (!undoSlot.firstChild || undoSlot.contains(event.target)) return;
+    if (event.target.closest?.("summary")) return;
+    if (event.target.closest?.("button, a, input, select, textarea, [role=switch]")) undoSlot.replaceChildren();
+  }, true);
+
   function showUndo(kept) {
     const button = h("action-button", { variant: "secondary", size: "sm", onClick: async () => {
       button.loading = true;

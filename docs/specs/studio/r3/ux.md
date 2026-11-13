@@ -111,7 +111,7 @@ Card heading via `deviceNoun`: "This iPhone", "This iPad", "This phone" (Android
 | `off`: can, allowed before | Off, neutral | switches; lock-screen line | **Turn on notifications** (no question) |
 | `off`, removed on another device | Off, neutral | "This iPhone was taken off your list, so it's off." + switches | **Turn on notifications** |
 | `asking`: no answer after 8 s | Off | "Your iPhone is asking. Choose Allow." Computer: "Don't see the question? Look for a bell at the right end of the address bar and click it." | button stays loading |
-| `on` | On, success | "This iPhone is called “iPhone”." **Rename** (link-styled). "Last told you 2 hours ago." / "Hasn't told you anything yet." Switches save at once. "Didn't see the test?" disclosure | **Send a test**; **Turn off on this iPhone** (secondary, own line) |
+| `on` | On, success | "This iPhone is called “iPhone”." **Rename** (link-styled). "Last told you 2 hours ago." / "Hasn't told you anything yet." Switches save at once. "Didn't see the test?" disclosure | **Send a test**; **Turn off on this iPhone** (secondary, own line, after "Didn't see the test?" and spaced well apart from Send a test) |
 | `denied` | Not allowed, warning | "You said no when your iPhone asked, so it can't show notifications from your blog. To change that:" + steps (below) + "Then come back here." | **Check again**; if still on the list, **Take this iPhone off the list** (secondary) |
 | `home-screen-first`: iOS 16.4+ in a tab | none | "On an iPhone, your blog can only send notifications once it's on your Home Screen. It takes four taps." | **Add your blog to your Home Screen** |
 | `update-first`: below iOS 16.4 | none | "This iPhone needs a newer iOS before your blog can send it notifications. In the Settings app: General, then Software Update." | none |
@@ -175,11 +175,11 @@ One press (button loading; status "Turning on…"):
 ### When it's on
 
 - **A switch changes:** `POST push/devices/<id> {kinds: keptKinds(...)}` at once. "Saved. This iPhone will tell you about comments and news from your other apps." With nothing on: "Saved. Nothing is on, so this iPhone stays quiet. To stop them for good, turn notifications off." Disabled while saving; on failure it flips back with the trouble words.
-- **Send a test:** `POST push/test {id}` → "Sent. It should show up in a few seconds." 410 `gone`: "This iPhone stopped taking notifications, so your blog forgot it. Turn them on again." (redraw off). 404: "This iPhone was taken off your list on another phone or computer. Turn them on again." `send-failed`: "The test didn't reach this iPhone. Try again in a minute. If it still doesn't come, turn notifications off, then on again."
-- **Rename** (`modal-dialog` "Rename this iPhone"): field "Name", ≤ 60 chars, help "So you can tell them apart, like Kitchen iPad." → `POST push/devices/<id> {label}` → "Renamed to “Kitchen iPad”." Empty/`label-required`: "Give it a name, like Kitchen iPad." **Rename** / **Cancel**.
-- **Turn off on this iPhone** (secondary, own line, no confirm):
+- **Send a test:** clears the status line first, then `POST push/test {id}` → "Sent. It should show up in a few seconds." 410 `gone`: "This iPhone stopped taking notifications, so your blog forgot it. Turn them on again." (redraw off). 404: "This iPhone was taken off your list on another phone or computer. Turn them on again." `send-failed`: "The test didn't reach this iPhone. Try again in a minute. If it still doesn't come, turn notifications off, then on again."
+- **Rename** (`modal-dialog` "Rename this iPhone"): field "Name" (required, so never marked optional), ≤ 60 chars, help "So you can tell them apart, like Kitchen iPad." → `POST push/devices/<id> {label}` → "Renamed to “Kitchen iPad”." Empty/`label-required`: "Give it a name, like Kitchen iPad." **Rename** / **Cancel**.
+- **Turn off on this iPhone** (secondary, own line after "Didn't see the test?", no confirm):
   1. `POST push/devices/<id>/remove`, then `unsubscribe()`. If removal fails, the sign-up stays and she sees the trouble words.
-  2. Status "Off. This iPhone won't get notifications." Toast "Turned off." with **Undo**. Focus to **Turn on notifications**.
+  2. Status "Off. This iPhone won't get notifications." Toast "Turned off." and, under the status line, "Turned off by mistake?" **Undo**, which stays (no timeout) until she presses anything else on the screen (turning on again included; opening a disclosure doesn't count). Focus to **Turn on notifications**.
   3. **Undo** subscribes again without asking and posts the same `label` and `kinds` → "On again." If permission went away: "Turn them on again with Turn on notifications."
 
 ### Other phones and computers
@@ -300,14 +300,14 @@ iPhone, Safari                              Android or computer, browser can ask
 
 ## Accessibility
 
-- **Keyboard order:** heading, lede, status, This iPhone (heading, switches, primary, secondary, Rename, "Didn't see the test?"), other cards (heading, Remove, More), details. Sheets/dialogs focus their heading (Rename: its field); Escape closes; focus returns.
+- **Keyboard order:** heading, lede, status, This iPhone (heading, Rename, switches, primary, "Didn't see the test?", secondary), other cards (heading, Remove, More), details. Sheets/dialogs focus their heading (Rename: its field); Escape closes; focus returns.
 - **Switches:** `fieldset` legend "Tell me when"; each named by its words; while saving `aria-disabled`, announces "Saving" once and "Saved" once.
 - **Browser question:** button `aria-busy`; the 8-second hint goes to the live region once.
 - **After actions:** on → "This iPhone"; off → **Turn on notifications**; Remove → next card or section heading; **Check again** → heading, outcome in status.
 - **Errors:** `role="alert"` on the card, linked from the button via `aria-describedby`.
 - Badges carry words; the Share drawing is `aria-hidden` beside the word "Share"; steps are `ol`.
 - Full names on repeated buttons: "Remove Kitchen iPad", "More for Kitchen iPad", "Send Kitchen iPad a test".
-- **320 px:** one column; buttons full width, stacked; names and addresses wrap; controls ≥ 44 px. No motion.
+- **320 px:** one column; buttons full width, stacked; names and addresses wrap anywhere, but switch labels wrap only between words (a browser check measures it); controls ≥ 44 px. No motion.
 - **Zubra:** `toggle-switch`, `action-button`, `content-card`, `status-badge`, `alert-banner`, `empty-state`, `skeleton-block`, `dropdown-menu`, `side-sheet`, `modal-dialog`, `text-field`, `toast-region`; native `fieldset` styled by tokens. No forks.
 
 ## Safety

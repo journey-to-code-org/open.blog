@@ -41,7 +41,7 @@ export function kindSwitches({ offered, picked = [], onChange = null, legend = "
 export function renameDialog({ title, label, save }) {
   return new Promise((resolve) => {
     let done = false;
-    const field = h("text-field", { label: "Name", value: label, maxlength: 60, description: "So you can tell them apart, like Kitchen iPad." });
+    const field = h("text-field", { label: "Name", value: label, required: true, maxlength: 60, description: "So you can tell them apart, like Kitchen iPad." });
     const finish = (value) => {
       if (done) return;
       done = true;

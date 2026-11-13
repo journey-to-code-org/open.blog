@@ -52,7 +52,7 @@ function handleHosted(request, response, body) {
     response.end(JSON.stringify(value));
   };
   if (url.pathname === "/__reset") {
-    Object.assign(state, { devices: [structuredClone(IPAD)], seen: [], tests: [] });
+    Object.assign(state, { devices: [structuredClone(IPAD)], seen: [], tests: [], failTests: false });
     return send(200, {});
   }
   const route = url.pathname.replace(/^\/api\/push\/?/, "");
@@ -89,6 +89,7 @@ function handleHosted(request, response, body) {
     return send(200, { device });
   }
   if (request.method === "POST" && route === "test") {
+    if (state.failTests) return send(502, { error: "send-failed" });
     const device = state.devices.find((d) => d.id === input.id);
     if (!device) return send(404, { error: "not-found" });
     state.tests.push(device.id);
@@ -249,9 +250,21 @@ test("turn on, change a switch, send a test, turn off and Undo, then remove anot
   await expect(statusLine(page)).toHaveText("Saved. This computer will tell you about comments.");
   expect(state.devices.find((d) => d.id === mine.id).kinds).toEqual(["comment"]);
 
+  // A test that fails clears the old status, so "Saved…" doesn't sit beside the trouble.
+  state.failTests = true;
+  await card.getByRole("button", { name: "Send a test" }).click();
+  await expect(card.locator("[role=alert]")).toBeVisible();
+  await expect(statusLine(page)).toHaveText("");
+  state.failTests = false;
   await card.getByRole("button", { name: "Send a test" }).click();
   await expect(statusLine(page)).toHaveText("Sent. It should show up in a few seconds.");
   expect(state.tests).toEqual([mine.id, mine.id]);
+  // Turn off sits apart from Send a test: after "Didn't see the test?".
+  expect(await card.evaluate((node) => {
+    const details = [...node.querySelectorAll("details")].find((d) => d.textContent.includes("Didn't see the test?"));
+    const off = [...node.querySelectorAll("action-button")].find((b) => b.textContent.includes("Turn off"));
+    return Boolean(details.compareDocumentPosition(off) & Node.DOCUMENT_POSITION_FOLLOWING);
+  })).toBe(true);
 
   // Turn off: off the list first, then Undo puts it back with the same name and kinds, without asking.
   await card.getByRole("button", { name: "Turn off on this computer" }).click();
@@ -264,6 +277,23 @@ test("turn on, change a switch, send a test, turn off and Undo, then remove anot
   const back = state.devices.find((d) => d.id !== IPAD.id);
   expect(back.label).toBe("Linux computer");
   expect(back.kinds).toEqual(["comment"]);
+  await expect(card.locator("status-badge")).toHaveText("On");
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+
+  // Undo stays, with no timeout, until she does something else on the screen; turning on again takes it away.
+  await card.getByRole("button", { name: "Turn off on this computer" }).click();
+  await expect(statusLine(page)).toHaveText("Off. This computer won't get notifications.");
+  await page.waitForTimeout(1500);
+  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+  await card.getByRole("button", { name: "Turn on notifications" }).click();
+  await expect(card.locator("status-badge")).toHaveText("On");
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+  await card.getByRole("button", { name: "Turn off on this computer" }).click();
+  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+  await card.getByRole("switch", { name: "Someone leaves a comment" }).click();
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+  await card.getByRole("switch", { name: "Someone leaves a comment" }).click();
+  await card.getByRole("button", { name: "Turn on notifications" }).click();
   await expect(card.locator("status-badge")).toHaveText("On");
 
   // Another computer: Remove asks, keeps on Keep it, goes on Remove.
@@ -331,6 +361,8 @@ test("another computer: send it a test, change what it tells you (asking before 
   await page.getByRole("menuitem", { name: "Rename…" }).click();
   const field = page.getByRole("textbox", { name: "Name" });
   await expect(field).toBeFocused();
+  // A name is needed, so it isn't marked optional.
+  await expect(page.locator("modal-dialog text-field label")).not.toContainText("optional");
   await field.fill("");
   await page.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(page.getByText("Give it a name, like Kitchen iPad.")).toBeVisible();
@@ -394,6 +426,21 @@ test("Notifications and Add to Home Screen pass axe at 320 px without sideways s
   await open(page, configured);
   await expect(here(page).locator("status-badge")).toHaveText("Off");
   await axeClean(page, "#studio", "off");
+  // The switches' words wrap between words, never inside one.
+  const broken = await page.evaluate(() => [...document.querySelectorAll(".studio-kinds toggle-switch .label")].flatMap((label) => {
+    const text = label.firstChild;
+    const words = [];
+    for (const match of text.data.matchAll(/\S+/g)) {
+      const range = document.createRange();
+      range.setStart(text, match.index);
+      range.setEnd(text, match.index + match[0].length);
+      const lines = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+      if (lines.size > 1) words.push(match[0]);
+    }
+    return words;
+  }));
+  expect(await page.locator(".studio-kinds toggle-switch .label").count()).toBeGreaterThan(0);
+  expect(broken, "words split across lines at 320 px").toEqual([]);
   await here(page).getByRole("button", { name: "Turn on notifications" }).click();
   await expect(here(page).locator("status-badge")).toHaveText("On");
   await here(page).getByText("Didn't see the test?").click();
