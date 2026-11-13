@@ -14572,9 +14572,11 @@ fn read_moments(state: &AppState, req: &Request, session: &auth::Session) -> Res
     let Some(record) = &transaction.record else {
         return moments_not_found();
     };
-    let Some(own) = moment_owner(&transaction, record, session) else {
+    let own = moment_owner(&transaction, record, session);
+    let recipient = policy_participant(&transaction, record, &session.user);
+    if own.is_none() && recipient.is_none() {
         return moments_not_found();
-    };
+    }
     let (stored, drafts) = match load_moment_state(state, publication_id, record) {
         Ok(loaded) => loaded,
         Err(error) => {
@@ -14584,12 +14586,46 @@ fn read_moments(state: &AppState, req: &Request, session: &auth::Session) -> Res
     };
     let authors = moment_authors(&transaction, record);
     let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
+    if own.is_none() {
+        let recipient = recipient.expect("authorized recipient");
+        let mut active = active_drafters(&transaction, record);
+        active.push(recipient.clone());
+        let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut shared = Vec::new();
+        for owner in &authors {
+            let readable = drafts
+                .view_named(&recipient, owner, &active)
+                .ok()
+                .and_then(|view| {
+                    let latest = drafts.current_stamp(owner)?;
+                    (view.stamp.number == latest.number).then_some(latest.number)
+                });
+            let moments = match stored.set.revealed_to_recipient(
+                &recipient,
+                &[recipient.as_str()],
+                &authors,
+                owner,
+                readable,
+            ) {
+                Ok(moments) => moments,
+                Err(_) => return moments_not_found(),
+            };
+            if !moments.is_empty() {
+                shared.push(json!({
+                    "participant": { "id": owner, "displayName": participant_name(record, owner) },
+                    "draftRevision": readable,
+                    "moments": moments.into_iter().map(|moment| moment_json(moment, record)).collect::<Vec<_>>(),
+                }));
+            }
+        }
+        return Response::json(200, &json!({ "shared": shared }));
+    }
     let active = active_drafters(&transaction, record);
     let active = active.iter().map(String::as_str).collect::<Vec<_>>();
     match moments_json(
         &stored.set,
         record,
-        &own,
+        own.as_deref().expect("authorized author"),
         &authors,
         Some((&drafts, &active)),
     ) {
@@ -38683,6 +38719,26 @@ series: letters
         assert_eq!(draft_call(&f, &mikey, &id, 0, "MIKEY-SECRET").status, 200);
         assert_eq!(draft_call(&f, &grace, &id, 0, "GRACE-SECRET").status, 200);
         assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "SHARED-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:03", "PRIVATE-MOMENT", "private")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
             reveal_call(
                 &f,
                 &mikey,
@@ -38704,6 +38760,9 @@ series: letters
         let before = body_json(&reveal_state(&f, &linus, &id)).to_string();
         assert!(!before.contains("MIKEY-SECRET"));
         assert!(!before.contains("\"ready\":true"));
+        let reader_moments = moments_read(&f, &linus, &id);
+        assert_eq!(reader_moments.status, 200);
+        assert!(!body_json(&reader_moments).to_string().contains("MOMENT"));
         let writer_view = body_json(&reveal_state(&f, &mikey, &id));
         assert!(writer_view["slots"]
             .as_array()
@@ -38725,13 +38784,36 @@ series: letters
         let shared = body_json(&reveal_state(&f, &linus, &id)).to_string();
         assert!(shared.contains("MIKEY-SECRET"));
         assert!(!shared.contains("GRACE-SECRET"));
+        let reader_moments = body_json(&moments_read(&f, &linus, &id));
+        assert_eq!(reader_moments["shared"][0]["draftRevision"], 1);
+        assert!(reader_moments.to_string().contains("SHARED-MOMENT"));
+        assert!(!reader_moments.to_string().contains("PRIVATE-MOMENT"));
+        assert!(!body_json(&moments_read(&f, &reader2, &id))
+            .to_string()
+            .contains("SHARED-MOMENT"));
         assert!(!body_json(&reveal_state(&f, &reader2, &id))
             .to_string()
             .contains("MIKEY-SECRET"));
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:04", "NEW-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        let changed_moments = body_json(&moments_read(&f, &linus, &id)).to_string();
+        assert!(!changed_moments.contains("NEW-MOMENT"));
+        assert!(!changed_moments.contains("SHARED-MOMENT"));
         assert_eq!(draft_call(&f, &mikey, &id, 1, "NEW-SECRET").status, 200);
         let shared = body_json(&reveal_state(&f, &linus, &id)).to_string();
         assert!(shared.contains("MIKEY-SECRET"));
         assert!(!shared.contains("NEW-SECRET"));
+        assert!(!body_json(&moments_read(&f, &linus, &id))
+            .to_string()
+            .contains("SHARED-MOMENT"));
         assert_eq!(
             post_api(
                 &f,
@@ -38777,6 +38859,7 @@ series: letters
             200
         );
         assert_eq!(reveal_state(&f, &linus, &id).status, 404);
+        assert_eq!(moments_read(&f, &linus, &id).status, 404);
     }
 
     #[test]
@@ -41247,13 +41330,13 @@ series: letters
         assert_eq!(seen["shared"], json!([]));
         assert!(!seen.to_string().contains("MOMENT-SECRET"));
 
-        // A coordinator who is not a contributor, an unknown publication and no session are all
-        // refused alike, for reads and writes.
+        // A coordinator without a named release reads no moments and cannot edit them.
         let unknown = moments_read(&f, &mikey, "shared-ffffffffffff");
         assert_eq!(unknown.status, 404);
         let denied = moments_read(&f, &ada, &id);
-        assert_eq!(denied.status, 404);
-        assert_eq!(denied.body, unknown.body);
+        assert_eq!(denied.status, 200);
+        assert_eq!(body_json(&denied)["shared"], json!([]));
+        assert!(!body_json(&denied).to_string().contains("MOMENT-SECRET"));
         let write = moments_change(
             &f,
             &ada,

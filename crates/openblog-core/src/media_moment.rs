@@ -1114,6 +1114,31 @@ impl MomentSet {
         if requester == owner {
             return Ok(self.publication_of(owner));
         }
+        Ok(self.sealed_publication(authors, owner, readable_latest))
+    }
+
+    /// Read sealed publication moments as an authorized recipient after the caller has checked
+    /// that the owner's latest draft revision was explicitly released to that recipient.
+    pub fn revealed_to_recipient(
+        &self,
+        requester: &str,
+        recipients: &[&str],
+        authors: &[&str],
+        owner: &str,
+        readable_latest: Option<u64>,
+    ) -> Result<Vec<&Moment>, MomentError> {
+        if !recipients.contains(&requester) {
+            return Err(MomentError::Denied);
+        }
+        Ok(self.sealed_publication(authors, owner, readable_latest))
+    }
+
+    fn sealed_publication(
+        &self,
+        authors: &[&str],
+        owner: &str,
+        readable_latest: Option<u64>,
+    ) -> Vec<&Moment> {
         let shown = readable_latest.is_some_and(|revision| {
             self.seals.iter().any(|seal| {
                 seal.participant == owner
@@ -1121,11 +1146,11 @@ impl MomentSet {
                     && seal.digest == self.owner_digest(owner)
             })
         });
-        Ok(if shown && authors.contains(&owner) {
+        if shown && authors.contains(&owner) {
             self.publication_of(owner)
         } else {
             Vec::new()
-        })
+        }
     }
 
     /// Whether every publication moment of `owner` is sealed to `revision` as it is now: what a

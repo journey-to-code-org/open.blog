@@ -340,6 +340,11 @@ test("a named release confirms the selected recipients and revision at 400px", a
 
 test("a reader can open an explicitly shared revision at 400px", async ({ page, context }) => {
   await install(context);
+  let sharedRevision = 1;
+  await context.route("**/admin/api/collaboration/moments?**", (route) => json(route, 200, {
+    shared: [{ participant: { id: "p-other", displayName: "Another writer" }, draftRevision: sharedRevision,
+      moments: [{ source: "source-1", location: "at 1:02", observation: "Shared observation." }] }],
+  }));
   await context.route("**/admin/api/collaboration/publications", (route) => json(route, 200, {
     publications: [{ publicationId: PUBLICATION, roles: ["reader"], title: "A shared reflection", sources: [] }],
   }));
@@ -356,13 +361,18 @@ test("a reader can open an explicitly shared revision at 400px", async ({ page, 
   await page.goto(`${origin}/admin/#/shared`);
   await page.locator("summary", { hasText: "Revisions shared with you" }).press("Enter");
   await expect(page.getByRole("group", { name: "Text from Another writer" })).toHaveText("Shared words.");
-  await expect(page.getByText("Later edits and source moments are not shown.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Observation" })).toHaveText("Shared observation.");
   await page.evaluate(axe.source);
   const result = await page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect(result.violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  sharedRevision = 2;
+  await page.locator("summary", { hasText: "Revisions shared with you" }).click();
+  await page.locator("summary", { hasText: "Revisions shared with you" }).click();
+  await expect(page.getByRole("group", { name: "Text from Another writer" })).toHaveText("Shared words.");
+  await expect(page.getByRole("group", { name: "Observation" })).toHaveCount(0);
 });
 
 test("going offline keeps the text and says so, and saving works again afterwards", async ({ page, context }) => {

@@ -26,7 +26,8 @@ each draft would allow.
   edits remain private; releasing to a different person does not extend an earlier release.
   The author must retain draft access and the recipient must retain publication access to read a
   named release. Non-drafters see only explicitly named releases, never private offer state or
-  mutual releases; source moments are not yet available to them. As with other
+  mutual releases. They may also read publication moments sealed to a current revision they can
+  read; private, changed, or unsealed moments remain hidden. As with other
   committed reveals, a copy already read cannot be recalled, and restoring the same participant's
   access makes their previously named releases readable again. Proposed source moments may be
   sealed and shown with the released revision under ADR 0063. Changing policy does not undo a

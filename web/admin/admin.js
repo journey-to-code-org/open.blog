@@ -7602,6 +7602,29 @@ export function momentLinkText(moment) {
   return moment.link.atTime && start ? `Open the source at ${start}` : "Open the source (find the location yourself)";
 }
 
+function momentBody(moment, sourceName, stater = "you") {
+  const parts = [];
+  if (moment.quotation) {
+    const rights = QUOTATION_RIGHTS.find((entry) => entry.value === moment.quotation.rights)?.label || "";
+    const provenance = QUOTATION_PROVENANCE.find((entry) => entry.value === moment.quotation.provenance)?.label || "";
+    const statement = stater === "you" ? "Rights, as you state them" : `Rights, as ${stater} states them`;
+    const notices = Array.isArray(moment.notices) ? moment.notices : [];
+    parts.push(
+      h("figure", { class: "oba-moment-quote" },
+        h("blockquote", {}, h("p", { class: "oba-draft-revealed" }, moment.quotation.text)),
+        h("figcaption", { class: "oba-small" }, `— ${moment.attribution || `${sourceName(moment.source)}, ${moment.location}`}`)),
+      h("p", { class: "oba-small" }, `${statement}: ${rights}. ${provenance}.`, moment.quotation.rightsNote ? ` Rights note: ${moment.quotation.rightsNote}` : ""),
+      notices.length ? h("ul", { class: "oba-moment-notices", "aria-label": "Things to check in this quotation" }, notices.map((notice) => h("li", {}, notice.message))) : null,
+    );
+  }
+  if (moment.observation) parts.push(h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": "Observation" }, moment.observation));
+  const linkText = momentLinkText(moment);
+  parts.push(linkText
+    ? h("p", {}, h("a", { href: moment.link.href, rel: "noopener noreferrer external", target: "_blank" }, linkText, h("span", { class: "oba-sr" }, ` in ${sourceName(moment.source)} (opens in a new tab)`)))
+    : h("p", { class: "oba-small" }, "This source has no link. The location is kept with the moment."));
+  return parts;
+}
+
 /**
  * What an offer's response says about the writer's proposed moments: nothing when they were shared
  * or the writer has none, the write-once advice when that revision was already sealed with other
@@ -18838,20 +18861,38 @@ export class ObAdmin extends AdminElement {
     const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const body = h("div", {});
     const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Revisions shared with you"), heading,
-      h("p", { class: "oba-small" }, "Only revisions explicitly shared with you appear here. Later edits and source moments are not shown."),
+      h("p", { class: "oba-small" }, "Only revisions explicitly shared with you appear here, along with any source moments sealed to the current revision. Later edits stay private."),
       problem, body);
+    let request = 0;
     details.addEventListener("toggle", async () => {
+      const current = ++request;
       if (!details.open) return;
       problem.hidden = true;
+      body.replaceChildren();
       try {
-        const reveal = await this.api.call("GET", `collaboration/reveal?publicationId=${encodeURIComponent(id)}`);
+        const [reveal, moments] = await Promise.all([
+          this.api.call("GET", `collaboration/reveal?publicationId=${encodeURIComponent(id)}`),
+          this.api.call("GET", `collaboration/moments?publicationId=${encodeURIComponent(id)}`),
+        ]);
+        if (current !== request || !details.open) return;
         const slots = reveal.slots || [];
+        const sourceName = (sourceId) => {
+          const source = (publication.sources || []).find((entry) => entry.id === sourceId);
+          const kind = SHARED_SOURCE_KINDS.find((entry) => entry.value === source?.kind)?.label || "Source";
+          return source ? `${source.title} (${kind})` : "A source that is no longer listed";
+        };
         body.replaceChildren(...(slots.length ? [h("ul", { class: "oba-member-list", "aria-label": "Shared revisions" }, slots.map((slot) =>
           h("li", {}, h("span", {}, revealSlotText(slot)),
-            h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || "")),
+            h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || ""),
+            (moments.shared || []).filter((entry) => entry.participant?.id === slot.participantId && entry.draftRevision === slot.stamp?.number).flatMap((entry) =>
+              (entry.moments || []).map((moment) => h("div", { class: "oba-moment" },
+                h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`),
+                ...momentBody(moment, sourceName, slot.displayName || "a participant")))),
+          ),
         ))] : [h("p", { class: "oba-small" }, "No revisions have been shared with you.")]));
       } catch (error) {
-        problem.textContent = draftFailure(error).message;
+        if (current !== request || !details.open) return;
+        problem.textContent = error?.data?.error || "The shared revisions could not be read. Try again.";
         problem.hidden = false;
         problem.focus();
       }
@@ -20364,37 +20405,7 @@ export class ObAdmin extends AdminElement {
       return source ? `${source.title} (${source.kindLabel})` : "A source that is no longer listed";
     };
 
-    // `stater` names whose rights statement it is: "you" for the writer's own moments.
-    const momentBody = (moment, stater = "you") => {
-      const parts = [];
-      if (moment.quotation) {
-        const rights = QUOTATION_RIGHTS.find((entry) => entry.value === moment.quotation.rights)?.label || "";
-        const provenance = QUOTATION_PROVENANCE.find((entry) => entry.value === moment.quotation.provenance)?.label || "";
-        const statement = stater === "you" ? "Rights, as you state them" : `Rights, as ${stater} states them`;
-        const notices = Array.isArray(moment.notices) ? moment.notices : [];
-        parts.push(
-          h(
-            "figure",
-            { class: "oba-moment-quote" },
-            h("blockquote", {}, h("p", { class: "oba-draft-revealed" }, moment.quotation.text)),
-            // The server's one attribution line: speaker, source and location, as every view shows it.
-            h("figcaption", { class: "oba-small" }, `— ${moment.attribution || `${sourceName(moment.source)}, ${moment.location}`}`),
-          ),
-          h("p", { class: "oba-small" }, `${statement}: ${rights}. ${provenance}.`, moment.quotation.rightsNote ? ` Rights note: ${moment.quotation.rightsNote}` : ""),
-          notices.length
-            ? h("ul", { class: "oba-moment-notices", "aria-label": "Things to check in this quotation" }, notices.map((notice) => h("li", {}, notice.message)))
-            : null,
-        );
-      }
-      if (moment.observation) parts.push(h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": "Observation" }, moment.observation));
-      const linkText = momentLinkText(moment);
-      parts.push(
-        linkText
-          ? h("p", {}, h("a", { href: moment.link.href, rel: "noopener noreferrer external", target: "_blank" }, linkText, h("span", { class: "oba-sr" }, ` in ${sourceName(moment.source)} (opens in a new tab)`)))
-          : h("p", { class: "oba-small" }, "This source has no link. The location is kept with the moment."),
-      );
-      return parts;
-    };
+    const renderMomentBody = (moment, stater = "you") => momentBody(moment, sourceName, stater);
 
     const itemView = (moment, position, total) => {
       const actions = h("div", { class: "oba-toolbar" });
@@ -20462,7 +20473,7 @@ export class ObAdmin extends AdminElement {
         "li",
         { class: "oba-moment" },
         h("p", { class: "oba-small" }, h("strong", {}, `Moment ${position + 1} of ${total}. `), momentText(moment, current.sources)),
-        ...momentBody(moment),
+        ...renderMomentBody(moment),
         actions,
         confirmHolder,
       );
@@ -20629,7 +20640,7 @@ export class ObAdmin extends AdminElement {
               "ul",
               { class: "oba-moments-list" },
               sortMoments(entry.moments, current.sources).map((moment) =>
-                h("li", { class: "oba-moment" }, h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`), ...momentBody(moment, entry.participant?.displayName || "a participant")),
+                h("li", { class: "oba-moment" }, h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`), ...renderMomentBody(moment, entry.participant?.displayName || "a participant")),
               ),
             ),
           ),

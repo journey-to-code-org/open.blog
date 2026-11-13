@@ -475,7 +475,8 @@ This check does not withdraw approvals already recorded before a sharing change.
 The approval rule may be proposed by a site owner or coordinator, but changes only after every
 active, bound participant explicitly agrees to the same proposal, including coordinators and
 readers. Reader-only participants can review and vote on the rule and read explicitly named draft
-releases, but cannot see mutual releases, source moments, or the piece's approval status. Consent
+releases and their sealed current source moments, but cannot see mutual releases or the piece's
+approval status. Consent
 can be withdrawn before the rule changes. Membership or access
 changes stale the proposal. Rule consent does not approve the piece; applying the rule clears
 piece approvals. New reflections require whole-piece approval under every rule, so an edit
@@ -501,8 +502,7 @@ output. Older timestamp-only publication outcomes remain readable.
 Alongside the mutual-reveal default, a coordinator may select named-recipient sharing. Each
 author chooses the current revision and recipients and confirms the release. Only the named
 active recipients can read that revision; later edits and other recipients remain private.
-Proposed source moments may accompany the revision for drafters; non-drafters cannot yet view
-them. See
+Proposed source moments sealed to a current revision may accompany it. See
 [ADR 0018](../adr/0018-reveal-policy-readiness-and-comparison.md) for access and compatibility.
 
 ## Public source attribution
