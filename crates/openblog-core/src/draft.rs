@@ -935,13 +935,59 @@ impl DraftSet {
             })
             .map(|d| d.id.clone())
             .ok_or(DraftError::Denied)?;
+        self.offer_contributions(requester, &[(contribution_id.as_str(), revision)], active)
+    }
+
+    /// Atomically offer every live contribution owned by the requester at its current revision.
+    /// Omissions, duplicate identifiers and stale revisions cannot produce a partial offer.
+    pub fn mark_ready_contributions(
+        &mut self,
+        requester: &str,
+        contributions: &[(&str, u64)],
+        active: &[&str],
+    ) -> Result<ReadyOutcome, DraftError> {
+        if !self.is_member(requester) || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        let owned = self.stamps_for_owner(requester);
+        if owned.is_empty() || owned.len() != contributions.len() {
+            return Err(DraftError::Invalid);
+        }
+        let mut ids = HashSet::new();
+        for (id, revision) in contributions {
+            let Some(stamp) = owned.iter().find(|stamp| stamp.contribution_id == *id) else {
+                return Err(DraftError::Invalid);
+            };
+            if !ids.insert(*id) {
+                return Err(DraftError::Invalid);
+            }
+            if stamp.number != *revision {
+                return Err(DraftError::Stale);
+            }
+        }
+        self.offer_contributions(requester, contributions, active)
+    }
+
+    fn offer_contributions(
+        &mut self,
+        requester: &str,
+        contributions: &[(&str, u64)],
+        active: &[&str],
+    ) -> Result<ReadyOutcome, DraftError> {
+        if !matches!(
+            self.policy,
+            RevealPolicy::Voluntary | RevealPolicy::AllReady
+        ) {
+            return Err(DraftError::Invalid);
+        }
         let mut next = self.clone();
         next.ready.retain(|r| r.participant_id != requester);
-        next.ready.push(Readiness {
-            participant_id: requester.to_owned(),
-            contribution_id,
-            revision,
-        });
+        next.ready
+            .extend(contributions.iter().map(|(id, revision)| Readiness {
+                participant_id: requester.to_owned(),
+                contribution_id: (*id).to_string(),
+                revision: *revision,
+            }));
         if next.policy == RevealPolicy::Voluntary {
             // Nothing is stored beyond the offer: who sees what is derived when a draft is read.
             let others = next
@@ -956,6 +1002,9 @@ impl DraftSet {
             if !next.is_valid() {
                 return Err(DraftError::Invalid);
             }
+            if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
+                return Err(DraftError::LimitReached);
+            }
             *self = next;
             return Ok(if others > 0 {
                 ReadyOutcome::Revealed
@@ -969,9 +1018,20 @@ impl DraftSet {
             .filter(|r| active.contains(&r.participant_id.as_str()))
             .cloned()
             .collect();
+        let members: Vec<String> = active
+            .iter()
+            .filter(|id| group.iter().any(|offer| offer.participant_id == **id))
+            .map(|id| (*id).to_string())
+            .collect();
         let needed = active.iter().filter(|a| self.is_member(a)).count().max(2);
-        let waiting_for = needed.saturating_sub(group.len());
+        let waiting_for = needed.saturating_sub(members.len());
         if waiting_for > 0 {
+            if !next.is_valid() {
+                return Err(DraftError::Invalid);
+            }
+            if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
+                return Err(DraftError::LimitReached);
+            }
             *self = next;
             return Ok(ReadyOutcome::Waiting { waiting_for });
         }
@@ -988,7 +1048,7 @@ impl DraftSet {
         }
         next.exchanges.push(Exchange {
             id: format!("reveal-{number}"),
-            members: group.iter().map(|r| r.participant_id.clone()).collect(),
+            members,
             state: ExchangeState::Revealed,
             commitments: group
                 .iter()
@@ -1003,6 +1063,9 @@ impl DraftSet {
             .retain(|r| !group.iter().any(|g| g.participant_id == r.participant_id));
         if !next.is_valid() {
             return Err(DraftError::Invalid);
+        }
+        if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
+            return Err(DraftError::LimitReached);
         }
         *self = next;
         Ok(ReadyOutcome::Revealed)
@@ -1102,7 +1165,7 @@ impl DraftSet {
                     self.policy,
                     RevealPolicy::Voluntary | RevealPolicy::AllReady
                 )
-                || !offered.insert(offer.participant_id.as_str())
+                || !offered.insert(offer.contribution_id.to_ascii_lowercase())
             {
                 return false;
             }
@@ -1131,6 +1194,7 @@ impl DraftSet {
         for exchange in &self.exchanges {
             let members: HashSet<&str> = exchange.members.iter().map(String::as_str).collect();
             let mut committed = HashSet::new();
+            let mut committed_members = HashSet::new();
             if !valid_id(&exchange.id)
                 || !exchange_ids.insert(exchange.id.as_str())
                 || exchange.members.len() < 2
@@ -1147,12 +1211,13 @@ impl DraftSet {
                 });
                 if !owned
                     || !members.contains(c.participant_id.as_str())
-                    || !committed.insert(c.participant_id.as_str())
+                    || !committed.insert(c.contribution_id.to_ascii_lowercase())
                 {
                     return false;
                 }
+                committed_members.insert(c.participant_id.as_str());
             }
-            let complete = exchange.commitments.len() == exchange.members.len();
+            let complete = committed_members.len() == exchange.members.len();
             let consistent = match exchange.state {
                 ExchangeState::Pending => !complete,
                 ExchangeState::Revealed => complete,
@@ -1241,6 +1306,91 @@ mod tests {
             "private other"
         );
         assert_eq!(drafts.owned_views("unknown"), Err(DraftError::Denied));
+    }
+
+    #[test]
+    fn multiple_contributions_reveal_only_after_every_author_offers_exact_revisions() {
+        let active = ["ada", "bo"];
+        let mut drafts = set(&active);
+        drafts.set_policy(RevealPolicy::AllReady);
+        drafts.save("ada", "first", 0, "first private", T).unwrap();
+        drafts
+            .save("ada", "second", 0, "second private", T)
+            .unwrap();
+        drafts.save("bo", "other", 0, "other private", T).unwrap();
+        let before = drafts.to_json();
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1)], &active),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1), ("other", 1)], &active),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1), ("first", 1)], &active),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1), ("second", 0)], &active),
+            Err(DraftError::Stale)
+        );
+        assert_eq!(drafts.to_json(), before);
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1), ("second", 1)], &active),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(drafts.view("bo", "first", &active), Err(DraftError::Denied));
+        assert_eq!(
+            drafts.view("bo", "second", &active),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("bo", &[("other", 1)], &active),
+            Ok(ReadyOutcome::Revealed)
+        );
+        drafts
+            .save("ada", "second", 1, "new private", T + 1)
+            .unwrap();
+        let drafts = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(
+            drafts.view("bo", "first", &active).unwrap().markdown,
+            "first private"
+        );
+        assert_eq!(
+            drafts.view("bo", "second", &active).unwrap().markdown,
+            "second private"
+        );
+        assert_eq!(
+            drafts.view("ada", "other", &active).unwrap().markdown,
+            "other private"
+        );
+    }
+
+    #[test]
+    fn voluntary_multi_contribution_offers_are_scoped_and_can_be_retracted() {
+        let active = ["ada", "bo", "cy"];
+        let mut drafts = set(&active);
+        drafts.set_policy(RevealPolicy::Voluntary);
+        drafts.save("ada", "one", 0, "one", T).unwrap();
+        drafts.save("ada", "two", 0, "two", T).unwrap();
+        drafts.save("bo", "bo", 0, "bo", T).unwrap();
+        drafts.save("cy", "cy", 0, "cy", T).unwrap();
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("one", 1), ("two", 1)], &active),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("bo", &[("bo", 1)], &active),
+            Ok(ReadyOutcome::Revealed)
+        );
+        assert_eq!(drafts.view("bo", "one", &active).unwrap().markdown, "one");
+        assert_eq!(drafts.view("bo", "two", &active).unwrap().markdown, "two");
+        assert_eq!(drafts.view("cy", "two", &active), Err(DraftError::Denied));
+        drafts.unready("ada").unwrap();
+        assert_eq!(drafts.view("bo", "one", &active), Err(DraftError::Denied));
+        assert_eq!(drafts.view("bo", "two", &active), Err(DraftError::Denied));
+        assert!(DraftSet::from_json(&drafts.to_json()).is_ok());
     }
 
     #[test]

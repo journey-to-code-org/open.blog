@@ -480,6 +480,11 @@ order and ordering revision. A monotonic order revision is bound into approval, 
 an order is restored.
 The opt-in multi-contribution approval subject covers every live contribution's owner, ID and
 revision; it is not issued by Admin until complete multi-contribution previews are available.
+The draft set also supports atomic offers of all of an author's current contributions: mutual
+reveal waits for each active author, and each committed revision remains distinct. Voluntary
+offers can be taken back, while named releases remain specific to a contribution and recipients.
+Older releases cannot read multi-contribution offers or exchanges; the Admin routes do not yet
+create them.
 The Admin route, reveal, preview and publication paths still support one draft per participant;
 the core ordering operation is not exposed until those paths can safely handle every contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.
