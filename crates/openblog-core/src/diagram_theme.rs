@@ -17,7 +17,7 @@
 use crate::look_contrast::{contrast, Rgb};
 
 /// The colour properties rewritten in CSS text and style attributes.
-const PROPERTIES: [&str; 8] = [
+const PROPERTIES: [&str; 9] = [
     "fill",
     "stroke",
     "color",
@@ -26,6 +26,7 @@ const PROPERTIES: [&str; 8] = [
     "background-color",
     "background",
     "border-color",
+    "border",
 ];
 
 /// The presentation attributes moved into `style` when their colour is rewritten.
@@ -208,8 +209,9 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (f64, f64, f64) {
     ((r + m) * 255.0, (g + m) * 255.0, (b + m) * 255.0)
 }
 
-/// The variable a renderer colour plays in the look.
-fn role(colour: Colour) -> &'static str {
+/// The variable a renderer colour plays in the look. A line (`stroke`, `border`) is never given a
+/// fill's role: a light line becomes the line colour, or an accent when it has a hue.
+fn role(colour: Colour, line: bool) -> &'static str {
     let (hue, saturation, lightness) = colour.hsl();
     let luminance = colour.rgb().luminance();
     // Very dark colours read as ink, whatever their tint.
@@ -217,14 +219,16 @@ fn role(colour: Colour) -> &'static str {
         return "--ob-diagram-text";
     }
     if saturation < 0.2 || lightness > 0.97 {
-        if luminance >= 0.5 {
+        if line && luminance > 0.05 {
+            "--ob-diagram-line"
+        } else if luminance >= 0.5 {
             "--ob-diagram-fill"
         } else if luminance <= 0.05 {
             "--ob-diagram-text"
         } else {
             "--ob-diagram-line"
         }
-    } else if luminance >= 0.6 {
+    } else if luminance >= 0.6 && !line {
         "--ob-diagram-highlight"
     } else {
         match hue {
@@ -262,12 +266,13 @@ pub fn authored_colours(source: &str) -> Vec<String> {
 }
 
 /// The rewrite of one colour value, or `None` to keep it.
-fn themed(value: &str, authored: &[String]) -> Option<String> {
+fn themed(value: &str, property: &str, authored: &[String]) -> Option<String> {
     let colour = parse(value)?;
     if colour.a == 0.0 || authored.contains(&colour.hex()) {
         return None;
     }
-    let variable = role(colour);
+    let line = matches!(property, "stroke" | "border" | "border-color");
+    let variable = role(colour, line);
     let fallback = if colour.a < 1.0 {
         value.trim().to_string()
     } else {
@@ -319,20 +324,45 @@ fn rewrite_css(css: &str, authored: &[String]) -> String {
             .find([';', '}', '!'])
             .map_or(rest.len(), |end| value_start + end);
         let value = &rest[value_start..value_end];
-        // `border` shorthands and other multi-part values: rewrite each colour inside.
-        let replaced = if property == "background" || value.split_whitespace().count() > 1 {
-            value
-                .split(' ')
-                .map(|part| themed(part, authored).unwrap_or_else(|| part.to_string()))
+        // A single colour, or a shorthand (`1px solid #666`): rewrite each colour inside it.
+        let replaced = themed(value, property, authored).unwrap_or_else(|| {
+            top_level_words(value)
+                .into_iter()
+                .map(|part| themed(part, property, authored).unwrap_or_else(|| part.to_string()))
                 .collect::<Vec<_>>()
                 .join(" ")
-        } else {
-            themed(value, authored).unwrap_or_else(|| value.to_string())
-        };
+        });
         out.push_str(&replaced);
         rest = &rest[value_end..];
     }
     out
+}
+
+/// The space-separated words of a CSS value, keeping `rgb(1, 2, 3)` and the like whole.
+fn top_level_words(value: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut depth = 0usize;
+    let mut start = None;
+    for (at, c) in value.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            c if c.is_whitespace() && depth == 0 => {
+                if let Some(from) = start.take() {
+                    words.push(&value[from..at]);
+                }
+                continue;
+            }
+            _ => {}
+        }
+        if start.is_none() {
+            start = Some(at);
+        }
+    }
+    if let Some(from) = start {
+        words.push(&value[from..]);
+    }
+    words
 }
 
 /// Rewrite one start tag: its `style`, and colour attributes moved into `style`.
@@ -377,7 +407,7 @@ fn rewrite_tag(tag: &str, authored: &[String]) -> String {
             continue;
         }
         if ATTRIBUTES.contains(&name) {
-            if let Some(new) = themed(value, authored) {
+            if let Some(new) = themed(value, name, authored) {
                 moved.push_str(&format!("{name}:{new};"));
                 continue;
             }
@@ -507,7 +537,7 @@ mod tests {
 
     #[test]
     fn roles_follow_what_a_colour_looks_like() {
-        let r = |v: &str| role(parse(v).unwrap());
+        let r = |v: &str| role(parse(v).unwrap(), false);
         assert_eq!(r("#000000"), "--ob-diagram-text");
         assert_eq!(r("#28253D"), "--ob-diagram-text");
         assert_eq!(r("#ffffff"), "--ob-diagram-fill");
@@ -520,6 +550,10 @@ mod tests {
         assert_eq!(r("#4ADE80"), "--ob-diagram-accent-3");
         assert_eq!(r("#08427B"), "--ob-diagram-accent-5");
         assert_eq!(r("#9370DB"), "--ob-diagram-accent-6");
+        let line = |v: &str| role(parse(v).unwrap(), true);
+        assert_eq!(line("#ffffff"), "--ob-diagram-line");
+        assert_eq!(line("#000000"), "--ob-diagram-text");
+        assert_eq!(line("#fff5ad"), "--ob-diagram-accent-2");
     }
 
     #[test]
@@ -557,6 +591,26 @@ mod tests {
         assert_eq!(findings.len(), 2, "{findings:?}");
         assert!(findings[0].contains("line 4") && findings[0].contains("without a text colour"));
         assert!(findings[1].contains("line 5") && findings[1].contains("4.5:1"));
+    }
+
+    #[test]
+    fn functional_colours_with_spaces_and_shorthands_are_rewritten() {
+        let out = rewrite_css(
+            ".c{stroke:hsl(240, 100%, 46%);fill:rgb(253, 244, 255);border:1px solid hsl(0, 0%, 0%)}",
+            &[],
+        );
+        assert!(
+            out.contains("stroke:var(--ob-diagram-accent-5, #0000eb)"),
+            "{out}"
+        );
+        assert!(
+            out.contains("fill:var(--ob-diagram-fill, #fdf4ff)"),
+            "{out}"
+        );
+        assert!(
+            out.contains("border:1px solid var(--ob-diagram-text, #000000)"),
+            "{out}"
+        );
     }
 
     #[test]
