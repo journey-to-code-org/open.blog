@@ -498,7 +498,7 @@ checks those constraints after credit-bound approvals and publishes every arrang
 An initial arrangement can be derived in each owner's chosen contribution order; it splits
 large arrangements into rounds and refuses pieces beyond the part limit rather than truncating.
 The coverage check reads private drafts and its result must not be exposed before whole-piece
-approval. These are core foundations only and are not yet used by Admin preview or publication.
+approval.
 An opt-in complete review path refuses a token unless every current contribution is visible,
 the arrangement covers every part, and the public credit choices are complete. It uses the same
 credit-bound subject as multi-contribution assembly. A matching opt-in receipt captures every
@@ -506,8 +506,9 @@ included contribution revision. Proposed moments must be sealed to the owner's e
 contribution revisions before review or assembly. A seal for a given snapshot is write-once;
 editing a moment stays private until a different contribution revision is offered. These moment
 seals are not yet wired into Admin sharing, and older releases cannot read them.
-The Admin route, reveal, preview and publication paths still support one draft per participant;
-the core ordering operation is not exposed until those paths can safely handle every contribution.
+Admin review, approval, scheduling and publication now use these multi-contribution gates when
+separate contributions already exist. Authoring and sharing controls still support one draft per
+participant; the core ordering operation is not exposed until those paths are completed.
 The legacy preview cannot issue complete-review tokens and the legacy assembly cannot publish
 while an active author has a separate live contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.

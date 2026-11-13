@@ -57,6 +57,7 @@ use openblog_core::participation::{self, ParticipationKind};
 use openblog_core::passage_target::PassageDocument;
 use openblog_core::perspective_publication;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
+use openblog_core::reflection::ReflectionStructure;
 use openblog_core::research_bundle;
 use openblog_core::research_notes::{
     NoteDiagnostic, NoteDiagnosticCode, Passage, QuestionState, ResearchNote,
@@ -13488,6 +13489,36 @@ struct GateInputs {
     participants: Vec<String>,
     choices: Option<openblog_core::shared_credit::CreditChoices>,
     credit_binding: Option<String>,
+    contributions: Option<ContributionGate>,
+}
+
+struct ContributionGate {
+    record: SharedPublication,
+    structure: ReflectionStructure,
+}
+
+fn contribution_gate(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    structure: Option<&ReflectionStructure>,
+    active: &[&str],
+) -> Result<Option<ContributionGate>, String> {
+    if !drafts.requires_contribution_mode(active) {
+        return Ok(None);
+    }
+    let mut derived = record.clone();
+    derived.collaboration = drafts
+        .contract_for_contributions(&record.collaboration, active)
+        .map_err(|_| "contribution ownership is not usable")?;
+    let structure = match structure {
+        Some(structure) => structure.clone(),
+        None => ReflectionStructure::from_all_contributions(&derived.collaboration, drafts, active)
+            .map_err(|_| "contribution arrangement is not usable")?,
+    };
+    Ok(Some(ContributionGate {
+        record: derived,
+        structure,
+    }))
 }
 
 fn gate_inputs(
@@ -13517,7 +13548,14 @@ fn gate_inputs(
         .map_err(|error| publish_failed(&error))?;
     let stored_choices = crate::shared_publications::load_credit_choices(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
-    let choices = (record.credit_choices_required || stored_choices.choices.revision() != 0)
+    let active = active_drafters(transaction, record);
+    let active_ids = active.iter().map(String::as_str).collect::<Vec<_>>();
+    let contributions =
+        contribution_gate(record, &drafts, structure.structure.as_ref(), &active_ids)
+            .map_err(|_| publish_failed("the current piece is not usable"))?;
+    let choices = (contributions.is_some()
+        || record.credit_choices_required
+        || stored_choices.choices.revision() != 0)
         .then_some(stored_choices.choices);
     let credit_binding = choices
         .as_ref()
@@ -13534,10 +13572,11 @@ fn gate_inputs(
         moments,
         approvals,
         outcome,
-        active: active_drafters(transaction, record),
+        active,
         participants: policy_participants(transaction, record),
         choices,
         credit_binding,
+        contributions,
     })
 }
 
@@ -13548,19 +13587,34 @@ fn with_gate_subject<R>(
     ask: impl FnOnce(&openblog_core::approval::ApprovalSubject<'_>) -> R,
 ) -> R {
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
-    openblog_core::assembly::with_subject_for_participants(
-        record,
-        inputs.structure.structure.as_ref(),
-        &inputs.drafts,
-        &inputs.synthesis,
-        &inputs.moments,
-        &active,
-        participants,
-        |subject| match &inputs.credit_binding {
-            Some(binding) => openblog_core::assembly::with_credit_binding(subject, binding, ask),
-            None => ask(subject),
-        },
-    )
+    let ask = |subject: &openblog_core::approval::ApprovalSubject<'_>| match &inputs.credit_binding
+    {
+        Some(binding) => openblog_core::assembly::with_credit_binding(subject, binding, ask),
+        None => ask(subject),
+    };
+    if let Some(contributions) = &inputs.contributions {
+        openblog_core::assembly::with_subject_for_all_contributions(
+            &contributions.record,
+            Some(&contributions.structure),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &active,
+            participants,
+            ask,
+        )
+    } else {
+        openblog_core::assembly::with_subject_for_participants(
+            record,
+            inputs.structure.structure.as_ref(),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &active,
+            participants,
+            ask,
+        )
+    }
 }
 
 /// The grant check, always through the single entry point. A requester without the grant, or
@@ -13621,6 +13675,23 @@ fn prepare_post(
         .map(String::as_str)
         .collect::<Vec<_>>();
     let build = |date: &str| {
+        if let Some(contributions) = &inputs.contributions {
+            let Some(choices) = &inputs.choices else {
+                return Err(AssemblyError::Invalid);
+            };
+            return openblog_core::assembly::assemble_all_contributions_with_credits(
+                &contributions.record,
+                &contributions.structure,
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &active,
+                &participants,
+                date,
+                choices,
+            );
+        }
         if let Some(choices) = &inputs.choices {
             return openblog_core::assembly::assemble_for_participants_with_credits(
                 record,
@@ -13800,16 +13871,29 @@ fn commit_publication(
     }
     let prepared = prepare_post(state, record, &inputs, date)?;
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
-    let revision = openblog_core::assembly::PublishedRevision::capture(
-        record,
-        inputs.structure.structure.as_ref(),
-        &inputs.drafts,
-        &inputs.synthesis,
-        &inputs.moments,
-        &inputs.approvals.set,
-        &active,
-        &prepared.assembly,
-    );
+    let revision = if let Some(contributions) = &inputs.contributions {
+        openblog_core::assembly::PublishedRevision::capture_all_contributions(
+            &contributions.record,
+            &contributions.structure,
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &inputs.approvals.set,
+            &active,
+            &prepared.assembly,
+        )
+    } else {
+        openblog_core::assembly::PublishedRevision::capture(
+            record,
+            inputs.structure.structure.as_ref(),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &inputs.approvals.set,
+            &active,
+            &prepared.assembly,
+        )
+    };
     let published = Outcome::published_with_revision(clock::now().unix(), revision);
     if Outcome::from_json(&published.to_json()).is_none() {
         return Err(publish_failed("the publication receipt is not usable"));
@@ -14072,7 +14156,29 @@ fn change_approval(
         };
         let show_synthesis =
             synthesis_visible(&transaction, &record, session, &inputs.synthesis, &own);
-        let preview = if let Some(choices) = &inputs.choices {
+        let preview = if let Some(contributions) = &inputs.contributions {
+            let Some(choices) = &inputs.choices else {
+                return Response::error(
+                    409,
+                    "Public credit choices are required. Nothing was recorded.",
+                );
+            };
+            openblog_core::preview::build_all_contributions_with_credit_choices(
+                &contributions.record,
+                &contributions.structure,
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &own,
+                &active,
+                &participants,
+                !active.contains(&own.as_str()),
+                show_synthesis,
+                config.render_options(),
+                choices,
+            )
+        } else if let Some(choices) = &inputs.choices {
             openblog_core::preview::build_with_credit_choices(
                 &record,
                 inputs.structure.structure.as_ref(),
@@ -15143,34 +15249,52 @@ fn reconcile_approvals(
         let participants = policy_participants(transaction, record);
         let participants = participants.iter().map(String::as_str).collect::<Vec<_>>();
         let structure = crate::shared_publications::load_structure(&state.root, id)?;
+        let contributions =
+            contribution_gate(record, &drafts, structure.structure.as_ref(), &active)?;
         let mut next = stored.set.clone();
         let choices = crate::shared_publications::load_credit_choices(&state.root, id)?.choices;
-        let binding = if record.credit_choices_required || choices.revision() != 0 {
-            Some(
-                choices
-                    .binding()
-                    .map_err(|_| "credit choices are not usable")?,
+        let binding =
+            if contributions.is_some() || record.credit_choices_required || choices.revision() != 0
+            {
+                Some(
+                    choices
+                        .binding()
+                        .map_err(|_| "credit choices are not usable")?,
+                )
+            } else {
+                None
+            };
+        let reconcile = |subject: &openblog_core::approval::ApprovalSubject<'_>| match &binding {
+            Some(binding) => {
+                openblog_core::assembly::with_credit_binding(subject, binding, |subject| {
+                    next.reconcile(subject)
+                })
+            }
+            None => next.reconcile(subject),
+        };
+        let dropped = if let Some(contributions) = &contributions {
+            openblog_core::assembly::with_subject_for_all_contributions(
+                &contributions.record,
+                Some(&contributions.structure),
+                &drafts,
+                &synthesis.set,
+                &moments.set,
+                &active,
+                &participants,
+                reconcile,
             )
         } else {
-            None
+            openblog_core::assembly::with_subject_for_participants(
+                record,
+                structure.structure.as_ref(),
+                &drafts,
+                &synthesis.set,
+                &moments.set,
+                &active,
+                &participants,
+                reconcile,
+            )
         };
-        let dropped = openblog_core::assembly::with_subject_for_participants(
-            record,
-            structure.structure.as_ref(),
-            &drafts,
-            &synthesis.set,
-            &moments.set,
-            &active,
-            &participants,
-            |subject| match &binding {
-                Some(binding) => {
-                    openblog_core::assembly::with_credit_binding(subject, binding, |subject| {
-                        next.reconcile(subject)
-                    })
-                }
-                None => next.reconcile(subject),
-            },
-        );
         if matches!(dropped, Ok(count) if count > 0) {
             crate::shared_publications::replace_approvals(&state.root, id, &stored, &next)
                 .map_err(|_| "approvals not stored".to_string())?;
@@ -15510,7 +15634,33 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         Ok(stored) => stored.choices,
         Err(error) => return credit_choice_failed(&error),
     };
-    let preview = if record.credit_choices_required || choices.revision() != 0 {
+    let contributions = match contribution_gate(record, &set, structure.structure.as_ref(), &active)
+    {
+        Ok(contributions) => contributions,
+        Err(_) => {
+            return Response::error(
+                409,
+                "The whole piece is not available for review. Nothing was changed.",
+            )
+        }
+    };
+    let preview = if let Some(contributions) = &contributions {
+        openblog_core::preview::build_all_contributions_with_credit_choices(
+            &contributions.record,
+            &contributions.structure,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &own,
+            &active,
+            &recipients,
+            !active.contains(&own.as_str()),
+            show_synthesis,
+            config.render_options(),
+            &choices,
+        )
+    } else if record.credit_choices_required || choices.revision() != 0 {
         openblog_core::preview::build_with_credit_choices(
             record,
             structure.structure.as_ref(),
@@ -40355,6 +40505,80 @@ series: letters
 
     fn published_post(f: &Fixture, id: &str) -> Option<String> {
         fs::read_to_string(f.dir.join(format!("content/posts/{id}.md"))).ok()
+    }
+
+    #[test]
+    fn multi_contribution_gate_reviews_and_publishes_all_revisions() {
+        let (f, mikey, grace, ada, id) = approval_fixture("multi-gate");
+        let record = stored_record(&f, &id);
+        let owner = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "mikey")
+            .unwrap()
+            .participant_id
+            .clone();
+        let other = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id
+            .clone();
+        let active = [owner.as_str(), other.as_str()];
+        let stored = crate::shared_publications::load_drafts(&f.dir, &id).unwrap();
+        let mut set = stored.set.clone().unwrap();
+        set.save(&owner, "extra", 0, "EXTRA-SECRET", clock::now().unix())
+            .unwrap();
+        crate::shared_publications::replace_drafts(&f.dir, &id, &stored, &set).unwrap();
+        assert_eq!(select_profile_credit(&f, &mikey, &id, 0).status, 200);
+        assert_eq!(select_profile_credit(&f, &grace, &id, 1).status, 200);
+        let hidden = preview_call(&f, &grace, &id);
+        assert_eq!(hidden.status, 409);
+        assert!(!String::from_utf8_lossy(&hidden.body).contains("EXTRA-SECRET"));
+        let stored = crate::shared_publications::load_drafts(&f.dir, &id).unwrap();
+        set = stored.set.clone().unwrap();
+        set.mark_ready_contributions(&owner, &[(owner.as_str(), 1), ("extra", 1)], &active)
+            .unwrap();
+        crate::shared_publications::replace_drafts(&f.dir, &id, &stored, &set).unwrap();
+        for who in [&mikey, &grace] {
+            let response = preview_call(&f, who, &id);
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let body = body_json(&response);
+            assert!(preview_document_text(&f, who, &body).contains("EXTRA-SECRET"));
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let response = publish_as(&f, &ada, &id);
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert!(published_post(&f, &id).unwrap().contains("EXTRA-SECRET"));
+        let outcome = crate::shared_publications::load_outcome(&f.dir, &id)
+            .unwrap()
+            .outcome
+            .unwrap();
+        let openblog_core::assembly::Outcome::Published {
+            revision: Some(revision),
+            ..
+        } = outcome
+        else {
+            panic!("published outcome lacks receipt");
+        };
+        assert_eq!(revision.sections.len(), 3);
+        assert!(revision
+            .sections
+            .iter()
+            .any(|section| section.contribution_id == "extra"));
     }
 
     #[test]
