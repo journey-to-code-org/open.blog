@@ -39,6 +39,7 @@ fn record() -> SharedPublication {
     })
     .unwrap();
     record.initial_approval_scope = None;
+    record.initial_approval_requirement = None;
     record.collaboration.participants[0].id = "ann".into();
     record.authorization.bindings[0].participant_id = "ann".into();
     for (id, name) in [("bo", "Bo"), ("cy", "Cy")] {

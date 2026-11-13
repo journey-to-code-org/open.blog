@@ -639,6 +639,15 @@ impl ApprovalSet {
         }
     }
 
+    /// Initialize an empty set without recording a policy change.
+    pub fn with_initial_policy(policy: ApprovalPolicy) -> Result<Self, ApprovalError> {
+        let policy = policy.normalized()?;
+        Ok(Self {
+            policy,
+            ..Self::new()
+        })
+    }
+
     pub fn from_json(source: &str) -> Result<Self, ApprovalError> {
         if source.len() > MAX_APPROVAL_SET_BYTES {
             return Err(ApprovalError::Invalid);

@@ -12455,6 +12455,8 @@ struct SharedPublicationRequest {
     guiding_question: String,
     #[serde(default)]
     contributor_id: String,
+    #[serde(default)]
+    initial_approval_requirement: openblog_core::collaboration::InitialApprovalRequirement,
     sources: Vec<SharedSourceRequest>,
 }
 
@@ -12631,6 +12633,12 @@ fn create_shared_publication(state: &AppState, req: &Request, session: &auth::Se
             "This shared reflection request is not valid. Reload Admin Studio and try again.",
         );
     };
+    if !body.initial_approval_requirement.valid() {
+        return shared_problem(
+            "initialApprovalRequirement",
+            "Choose a participant quorum between 1 and 100.",
+        );
+    }
     if !openblog_core::collaboration::valid_admin_username(&session.user) {
         return shared_problem(
             "",
@@ -12675,7 +12683,11 @@ fn create_shared_publication(state: &AppState, req: &Request, session: &auth::Se
             display_name: contributor.name.clone(),
         },
     };
-    match crate::shared_publications::create(&state.root, new) {
+    match crate::shared_publications::create_selected(
+        &state.root,
+        new,
+        body.initial_approval_requirement,
+    ) {
         Ok(record) => {
             eprintln!(
                 "admin: created shared publication {}",
@@ -13480,7 +13492,7 @@ fn gate_inputs(
     let approvals = crate::shared_publications::load_approvals_for_update(
         &state.root,
         id,
-        record.initial_approval_scope.unwrap_or_default(),
+        record.initial_approval_policy(),
     )
     .map_err(|error| publish_failed(&error))?;
     let structure = crate::shared_publications::load_structure(&state.root, id)
@@ -13578,7 +13590,7 @@ fn prepare_post(
             return Err(Response::json(
                 409,
                 &json!({
-                    "error": "Every required author must approve the current piece first. Nothing was changed.",
+                    "error": "Every required participant must approve the current piece first. Nothing was changed.",
                     "missing": missing,
                 }),
             ))
@@ -15026,7 +15038,7 @@ fn reconcile_approvals(
         let stored = crate::shared_publications::load_approvals_for_update(
             &state.root,
             id,
-            record.initial_approval_scope.unwrap_or_default(),
+            record.initial_approval_policy(),
         )?;
         let drafts = load_reveal_drafts(state, id).map_err(|_| "drafts are not usable")?;
         let drafts =
@@ -15362,7 +15374,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     let approvals = match crate::shared_publications::load_approvals_for_update(
         &state.root,
         publication_id,
-        record.initial_approval_scope.unwrap_or_default(),
+        record.initial_approval_policy(),
     ) {
         Ok(approvals) => approvals.set,
         Err(error) => {
@@ -37299,6 +37311,58 @@ series: letters
     }
 
     #[test]
+    fn creation_persists_the_initial_participant_rule_without_reducing_quorum() {
+        let f = fixture("initial-participant-rule");
+        register_contributors(&f, json!({ "mikey-writer": { "name": "Mikey" } }));
+        let session = login_ok(&f);
+        for (requirement, expected) in [
+            (None, json!("allParticipants")),
+            (
+                Some(json!({ "participantQuorum": 3 })),
+                json!({ "participantQuorum": 3 }),
+            ),
+        ] {
+            let mut request = reflection_request();
+            if let Some(requirement) = requirement {
+                request["initialApprovalRequirement"] = requirement;
+            }
+            let response = create_shared(&f, &session, request);
+            assert_eq!(response.status, 201);
+            let id = body_json(&response)["publication"]["publicationId"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let record = stored_record(&f, &id);
+            assert_eq!(
+                serde_json::to_value(record.initial_approval_policy().requirement).unwrap(),
+                expected
+            );
+            let policy = body_json(&approval_policy_read(&f, &session, &id));
+            assert_eq!(policy["policy"]["requirement"], expected);
+            assert_eq!(policy["revision"], 0);
+            if expected.is_object() {
+                assert_eq!(policy["quorum"]["required"], 3);
+                assert_eq!(policy["quorum"]["currentAuthors"], 1);
+                assert_eq!(
+                    draft_call(&f, &session, &id, 0, "A perspective").status,
+                    200
+                );
+                assert_eq!(approve_as(&f, &session, &id).status, 200);
+                assert_eq!(publish_as(&f, &session, &id).status, 409);
+            }
+        }
+        let before = shared_records(&f);
+        for count in [0, 101] {
+            let mut request = reflection_request();
+            request["initialApprovalRequirement"] = json!({ "participantQuorum": count });
+            let response = create_shared(&f, &session, request);
+            assert_eq!(response.status, 422);
+            assert_eq!(body_json(&response)["field"], "initialApprovalRequirement");
+            assert_eq!(shared_records(&f), before);
+        }
+    }
+
+    #[test]
     fn shared_reflection_creation_is_private_and_leaves_canonical_content_unchanged() {
         let f = fixture("shared-create");
         register_contributors(
@@ -37624,6 +37688,14 @@ series: letters
             .as_str()
             .unwrap()
             .to_string();
+        // Most invitation and approval regressions exercise pre-participant-rule records.
+        let path = f
+            .dir
+            .join(crate::shared_publications::DIRECTORY)
+            .join(format!("{id}.json"));
+        let mut record = stored_record(&f, &id);
+        record.initial_approval_requirement = None;
+        fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
         (f, mikey, id)
     }
 

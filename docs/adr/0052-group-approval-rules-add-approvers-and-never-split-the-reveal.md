@@ -63,6 +63,12 @@ stored groups.
   authorization, or the eligible participant set invalidate the approval. Existing `allAuthors`
   and author-quorum rules keep their prior meaning; new participant rules require unanimous rule
   consent. Older releases cannot read an approval set using the new rules.
+- **Initial rule (amendment).** A new reflection starts with all participants or a fixed
+  participant quorum chosen at creation, always for the whole piece. A threshold may exceed the
+  current group while people are invited; it never decreases automatically. Subsequent changes
+  require unanimous agreement. Records without the initial-requirement marker keep the former
+  author-only initial rule, and a stored approval set always takes precedence. Older releases
+  cannot read records containing the marker.
 - **Approval rules.** `ApprovalRequirement` gains `namedAuthors` (participant ids) and
   `authorsWithRoles` (publication roles), next to `allAuthors` (all participants, the default) and
   `contributingAuthors`. Under every rule, each author who owns a section and each author named on

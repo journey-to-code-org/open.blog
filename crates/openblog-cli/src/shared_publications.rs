@@ -68,8 +68,17 @@ fn random_publication_id() -> Result<String, String> {
 }
 
 /// Create a record under a fresh opaque ID without ever replacing an existing file.
+#[cfg(test)]
 pub fn create(root: &Path, new: NewSharedPublication) -> Result<SharedPublication, CreateError> {
-    create_with(root, new, random_publication_id, |from, to| {
+    create_selected(root, new, Default::default())
+}
+
+pub fn create_selected(
+    root: &Path,
+    new: NewSharedPublication,
+    requirement: openblog_core::collaboration::InitialApprovalRequirement,
+) -> Result<SharedPublication, CreateError> {
+    create_with_requirement(root, new, requirement, random_publication_id, |from, to| {
         fs::hard_link(from, to)
     })
 }
@@ -77,16 +86,28 @@ pub fn create(root: &Path, new: NewSharedPublication) -> Result<SharedPublicatio
 /// The record is written completely to a private temporary file and then linked into place.
 /// Linking fails when the target exists, so two creators can never overwrite each other, and a
 /// crash leaves either no record or a complete one. The temporary file is always removed.
+#[cfg(test)]
 fn create_with(
     root: &Path,
+    new: NewSharedPublication,
+    next_id: impl FnMut() -> Result<String, String>,
+    link: impl Fn(&Path, &Path) -> io::Result<()>,
+) -> Result<SharedPublication, CreateError> {
+    create_with_requirement(root, new, Default::default(), next_id, link)
+}
+
+fn create_with_requirement(
+    root: &Path,
     mut new: NewSharedPublication,
+    requirement: openblog_core::collaboration::InitialApprovalRequirement,
     mut next_id: impl FnMut() -> Result<String, String>,
     link: impl Fn(&Path, &Path) -> io::Result<()>,
 ) -> Result<SharedPublication, CreateError> {
     let directory = directory(root).map_err(CreateError::Storage)?;
     for _ in 0..MAX_ID_ATTEMPTS {
         new.publication_id = next_id().map_err(CreateError::Storage)?;
-        let record = SharedPublication::create(&new).map_err(CreateError::Invalid)?;
+        let record = SharedPublication::create_with_initial_requirement(&new, requirement.clone())
+            .map_err(CreateError::Invalid)?;
         let text = record_text(&record).map_err(CreateError::Storage)?;
         create_private_directory(&directory).map_err(CreateError::Storage)?;
         let target = directory.join(format!("{}.json", record.publication_id));
@@ -379,18 +400,19 @@ fn approvals_directory(root: &Path) -> Result<PathBuf, String> {
 }
 
 /// Read the approval set and retain the original text for compare-and-swap writes.
-/// A missing set starts with the record's initial scope; a malformed file is an error.
+/// A missing set starts with the record's initial policy; a malformed file is an error.
 pub fn load_approvals_for_update(
     root: &Path,
     publication_id: &str,
-    initial_scope: openblog_core::approval::ApprovalScope,
+    initial_policy: openblog_core::approval::ApprovalPolicy,
 ) -> Result<StoredApprovals, String> {
     let target = approvals_directory(root)?.join(format!("{publication_id}.json"));
     let text = read_drafts_file(&target).map_err(|_| "the approval file is not usable")?;
     let set = match &text {
         Some(text) => ApprovalSet::from_json(text)
             .map_err(|_| "the approval file is not usable".to_string())?,
-        None => ApprovalSet::with_scope(initial_scope),
+        None => ApprovalSet::with_initial_policy(initial_policy)
+            .map_err(|_| "the initial approval policy is not usable".to_string())?,
     };
     Ok(StoredApprovals { set, text })
 }
@@ -758,17 +780,45 @@ mod tests {
 
     #[test]
     fn initial_approval_scope_applies_only_when_no_set_exists() {
-        use openblog_core::approval::ApprovalScope;
+        use openblog_core::approval::{ApprovalPolicy, ApprovalRequirement, ApprovalScope};
 
         let root = root("initial-approval-scope");
         let id = "shared-scope";
-        let fresh = load_approvals_for_update(&root.0, id, ApprovalScope::WholePiece).unwrap();
+        let fresh = load_approvals_for_update(
+            &root.0,
+            id,
+            ApprovalPolicy {
+                scope: ApprovalScope::WholePiece,
+                ..ApprovalPolicy::default()
+            },
+        )
+        .unwrap();
         assert_eq!(fresh.set.policy().scope, ApprovalScope::WholePiece);
         assert_eq!(fresh.set.policy_revision(), 0);
-        let legacy = load_approvals_for_update(&root.0, id, ApprovalScope::OwnSections).unwrap();
+        let legacy = load_approvals_for_update(&root.0, id, ApprovalPolicy::default()).unwrap();
         replace_approvals(&root.0, id, &legacy, &legacy.set).unwrap();
-        let existing = load_approvals_for_update(&root.0, id, ApprovalScope::WholePiece).unwrap();
+        let existing = load_approvals_for_update(
+            &root.0,
+            id,
+            ApprovalPolicy {
+                scope: ApprovalScope::WholePiece,
+                ..ApprovalPolicy::default()
+            },
+        )
+        .unwrap();
         assert_eq!(existing.set.policy().scope, ApprovalScope::OwnSections);
+        let other_id = "shared-new-quorum";
+        let chosen = ApprovalPolicy {
+            scope: ApprovalScope::WholePiece,
+            requirement: ApprovalRequirement::ParticipantQuorum(3),
+        };
+        let fresh = load_approvals_for_update(&root.0, other_id, chosen.clone()).unwrap();
+        assert_eq!(fresh.set.policy(), &chosen);
+        assert_eq!(fresh.set.policy_revision(), 0);
+        replace_approvals(&root.0, other_id, &fresh, &fresh.set).unwrap();
+        let existing =
+            load_approvals_for_update(&root.0, other_id, ApprovalPolicy::default()).unwrap();
+        assert_eq!(existing.set.policy(), &chosen);
     }
 
     #[test]

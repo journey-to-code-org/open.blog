@@ -142,6 +142,9 @@ test("creating a shared reflection is accessible at 400px, including validation"
   await openPanel(page);
   await page.getByRole("link", { name: "Start a shared reflection" }).click();
   await expect(page.getByRole("button", { name: "Create shared reflection" })).toBeVisible();
+  await expect(page.getByLabel("Who must approve")).toHaveValue("allParticipants");
+  await page.getByLabel("Who must approve").selectOption("participantQuorum");
+  await expect(page.getByLabel("Number of participants needed")).toBeVisible();
   await page.evaluate(axe.source);
   const audit = () => page.evaluate(() => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
@@ -154,6 +157,12 @@ test("creating a shared reflection is accessible at 400px, including validation"
   await page.getByLabel("Source title").fill("A source");
   await page.getByRole("button", { name: "Create shared reflection" }).click();
   await expect(page.getByLabel("Working title")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await page.getByLabel("Working title").fill("A reflection");
+  await page.getByLabel("You will appear as").selectOption("writer");
+  await page.getByLabel("Number of participants needed").fill("101");
+  await page.getByRole("button", { name: "Create shared reflection" }).click();
+  await expect(page.getByLabel("Number of participants needed")).toBeFocused();
   expect((await audit()).violations).toEqual([]);
 });
 

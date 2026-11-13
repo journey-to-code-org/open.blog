@@ -1,9 +1,10 @@
-use openblog_core::approval::ApprovalScope;
+use openblog_core::approval::{ApprovalRequirement, ApprovalScope};
 use openblog_core::collaboration::{
     AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
-    NewParticipant, NewSharedPublication, NewSourceReference, SharedPublication,
-    SharedPublicationError, SourceField, SourceKind, SourceProvenance, MAX_GUIDING_QUESTION_BYTES,
-    MAX_PUBLICATION_TITLE_BYTES, MAX_SHARED_PUBLICATION_BYTES, MAX_SOURCES, MAX_SOURCE_URL_BYTES,
+    InitialApprovalRequirement, NewParticipant, NewSharedPublication, NewSourceReference,
+    SharedPublication, SharedPublicationError, SourceField, SourceKind, SourceProvenance,
+    MAX_GUIDING_QUESTION_BYTES, MAX_PUBLICATION_TITLE_BYTES, MAX_SHARED_PUBLICATION_BYTES,
+    MAX_SOURCES, MAX_SOURCE_URL_BYTES,
 };
 use openblog_core::draft::RevealPolicy;
 use serde_json::{json, Value};
@@ -14,6 +15,50 @@ fn ada() -> NewParticipant {
         contributor_id: "ada".into(),
         display_name: "Ada Lovelace".into(),
     }
+}
+
+#[test]
+fn initial_participant_requirement_is_fixed_and_legacy_records_keep_their_author_rule() {
+    let request = new_publication(vec![video()]);
+    let default = SharedPublication::create(&request).unwrap();
+    assert_eq!(
+        default.initial_approval_policy().requirement,
+        ApprovalRequirement::AllParticipants
+    );
+    for count in [1, 3, 100] {
+        let record = SharedPublication::create_with_initial_requirement(
+            &request,
+            InitialApprovalRequirement::ParticipantQuorum(count),
+        )
+        .unwrap();
+        let loaded =
+            SharedPublication::from_json(&serde_json::to_string(&record).unwrap()).unwrap();
+        assert_eq!(
+            loaded.initial_approval_policy().requirement,
+            ApprovalRequirement::ParticipantQuorum(count)
+        );
+    }
+    for count in [0, 101] {
+        assert!(SharedPublication::create_with_initial_requirement(
+            &request,
+            InitialApprovalRequirement::ParticipantQuorum(count),
+        )
+        .is_err());
+    }
+    let mut legacy = record_json(&default);
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("initialApprovalRequirement");
+    let legacy = SharedPublication::from_json(&legacy.to_string()).unwrap();
+    assert_eq!(
+        legacy.initial_approval_policy().requirement,
+        ApprovalRequirement::AllAuthors
+    );
+    assert_eq!(
+        legacy.initial_approval_policy().scope,
+        ApprovalScope::WholePiece
+    );
 }
 
 fn source(kind: SourceKind, title: &str, url: &str) -> NewSourceReference {
@@ -92,6 +137,10 @@ fn new_reflections_initially_approve_the_whole_piece_and_legacy_records_keep_the
         .as_object_mut()
         .unwrap()
         .remove("initialApprovalScope");
+    stored
+        .as_object_mut()
+        .unwrap()
+        .remove("initialApprovalRequirement");
     let legacy = SharedPublication::from_json(&stored.to_string()).unwrap();
     assert_eq!(legacy.initial_approval_scope, None);
     assert_eq!(

@@ -856,6 +856,10 @@ workspace for it). The form asks, in plain words:
 3. **You will appear as.** Choose your entry from the contributor registry. If you are not in
    it yet, add yourself under **Site → Contributors** first. Admin Studio does not yet check that
    the entry you pick is yours, so choose your own.
+4. **Approval to publish.** Everyone participating must approve by default. Alternatively, choose
+   a fixed number of participants; every writer and attributed author must still approve. The
+   number does not shrink when someone leaves, and can exceed the current group while you invite
+   people. Changing the rule later requires every active participant's agreement.
 
 You don’t need Markdown anywhere in this form. Links must be complete web addresses starting with
 `https://` or `http://` and cannot contain a username or password; a pasted link with non-English

@@ -761,6 +761,9 @@ pub struct SharedPublication {
     /// Scope of a newly initialized approval set, absent in legacy records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initial_approval_scope: Option<crate::approval::ApprovalScope>,
+    /// Requirement selected at creation; absent on records created before participant rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_approval_requirement: Option<InitialApprovalRequirement>,
     /// Publication-scoped invitations. They live in the record so accepting one adds the
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -858,6 +861,23 @@ pub struct NewSharedPublication {
     pub creator: NewParticipant,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InitialApprovalRequirement {
+    #[default]
+    AllParticipants,
+    ParticipantQuorum(u16),
+}
+
+impl InitialApprovalRequirement {
+    pub fn valid(&self) -> bool {
+        match self {
+            Self::AllParticipants => true,
+            Self::ParticipantQuorum(count) => *count > 0 && usize::from(*count) <= MAX_PARTICIPANTS,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct NewSourceReference {
     pub kind: SourceKind,
@@ -934,6 +954,23 @@ impl std::error::Error for SharedPublicationError {}
 const CREATOR_PARTICIPANT_ID: &str = "participant-1";
 
 impl SharedPublication {
+    pub fn initial_approval_policy(&self) -> crate::approval::ApprovalPolicy {
+        use crate::approval::ApprovalRequirement;
+        let requirement = match &self.initial_approval_requirement {
+            Some(InitialApprovalRequirement::AllParticipants) => {
+                ApprovalRequirement::AllParticipants
+            }
+            Some(InitialApprovalRequirement::ParticipantQuorum(count)) => {
+                ApprovalRequirement::ParticipantQuorum(*count)
+            }
+            None => ApprovalRequirement::AllAuthors,
+        };
+        crate::approval::ApprovalPolicy {
+            requirement,
+            scope: self.initial_approval_scope.unwrap_or_default(),
+        }
+    }
+
     /// New reflections require an approval bound to the entire piece under every policy.
     pub fn allows_approval_scope(&self, scope: crate::approval::ApprovalScope) -> bool {
         self.initial_approval_scope != Some(crate::approval::ApprovalScope::WholePiece)
@@ -958,6 +995,16 @@ impl SharedPublication {
     /// the only participant, bound as site owner and contributor. Nothing here touches a Post,
     /// Document, credit, or generated output.
     pub fn create(new: &NewSharedPublication) -> Result<Self, SharedPublicationError> {
+        Self::create_with_initial_requirement(new, InitialApprovalRequirement::default())
+    }
+
+    pub fn create_with_initial_requirement(
+        new: &NewSharedPublication,
+        requirement: InitialApprovalRequirement,
+    ) -> Result<Self, SharedPublicationError> {
+        if !requirement.valid() {
+            return Err(SharedPublicationError::InvalidRecord);
+        }
         let optional = |value: &str| {
             let value = value.trim();
             (!value.is_empty()).then(|| value.to_string())
@@ -1041,6 +1088,7 @@ impl SharedPublication {
             invitations: Vec::new(),
             initial_reveal_policy: crate::draft::RevealPolicy::AllReady,
             initial_approval_scope: Some(crate::approval::ApprovalScope::WholePiece),
+            initial_approval_requirement: Some(requirement),
             audit: Vec::new(),
             series: None,
             series_revision: 0,
@@ -1138,6 +1186,14 @@ impl SharedPublication {
             || self.authorization.publication_id != self.publication_id
             || !self.collaboration.is_valid()
             || !self.authorization.is_valid()
+            || self
+                .initial_approval_requirement
+                .as_ref()
+                .is_some_and(|requirement| {
+                    !requirement.valid()
+                        || self.initial_approval_scope
+                            != Some(crate::approval::ApprovalScope::WholePiece)
+                })
         {
             return Err(SharedPublicationError::InvalidRecord);
         }

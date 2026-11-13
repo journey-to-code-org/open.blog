@@ -472,6 +472,12 @@ complete for them. If sharing changed after the preview was opened, the earlier 
 cannot be used while any current material is hidden; they must reload after it is shared.
 This check does not withdraw approvals already recorded before a sharing change.
 
+At creation, the initial whole-piece rule defaults to all participants; the creator may instead
+select a fixed participant quorum from 1 to 100. The threshold may exceed the current group and
+never decreases automatically. Records without an initial requirement retain their legacy
+author-only default, and an existing approval set always takes precedence over that initial rule.
+Older releases cannot read records containing the new initial requirement.
+
 The approval rule may be proposed by a site owner or coordinator, but changes only after every
 active, bound participant explicitly agrees to the same proposal, including coordinators and
 readers. Reader-only participants can review and vote on the rule and read explicitly named draft

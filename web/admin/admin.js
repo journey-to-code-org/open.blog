@@ -7141,6 +7141,10 @@ export function validateSharedReflectionDraft(draft = {}) {
     return { field: "title", message: "Add a working title or a guiding question." };
   }
   if (!text(draft.contributorId)) return { field: "contributorId", message: "Choose the contributor profile you will appear as." };
+  if (draft.approvalRule === "participantQuorum" &&
+      (!/^\d+$/.test(text(draft.approvalQuorum)) || Number(draft.approvalQuorum) < 1 || Number(draft.approvalQuorum) > 100)) {
+    return { field: "initialApprovalRequirement", message: "Choose a participant quorum between 1 and 100." };
+  }
   return null;
 }
 
@@ -7151,6 +7155,9 @@ export function sharedReflectionPayload(draft = {}) {
     title: text(draft.title),
     guidingQuestion: text(draft.guidingQuestion),
     contributorId: text(draft.contributorId),
+    initialApprovalRequirement: draft.approvalRule === "participantQuorum"
+      ? { participantQuorum: Number(draft.approvalQuorum) }
+      : "allParticipants",
     sources: (Array.isArray(draft.sources) ? draft.sources : []).map((source) => ({
       kind: SHARED_SOURCE_KINDS.some((kind) => kind.value === source.kind) ? source.kind : "other",
       title: text(source.title),
@@ -7170,7 +7177,7 @@ export function contributorSaveRefusalDetail(data) {
 }
 
 export function sharedReflectionFieldId(field) {
-  const fixed = { title: "oba-shared-title", guidingQuestion: "oba-shared-question", contributorId: "oba-shared-contributor", sources: "oba-shared-add-source" };
+  const fixed = { title: "oba-shared-title", guidingQuestion: "oba-shared-question", contributorId: "oba-shared-contributor", sources: "oba-shared-add-source", initialApprovalRequirement: "oba-shared-quorum" };
   if (Object.hasOwn(fixed, field)) return fixed[field];
   const match = /^sources\.(\d{1,2})\.(title|url|creator|publisher|published|isbn)$/.exec(String(field ?? ""));
   return match ? `oba-shared-source-${match[1]}-${match[2]}` : "";
@@ -18369,6 +18376,17 @@ export class ObAdmin extends AdminElement {
       h("option", { value: "" }, contributors.length ? "Choose your profile" : "No contributor profiles yet"),
       contributors.map(([id, entry]) => h("option", { value: id, selected: id === this.user }, `${entry.name || id} (${id})`)),
     );
+    const approvalRule = h("select", {},
+      h("option", { value: "allParticipants" }, "Every participant"),
+      h("option", { value: "participantQuorum" }, "A fixed number of participants"));
+    const approvalQuorum = h("input", { type: "number", min: "1", max: "100", step: "1", value: "2" });
+    const quorumField = field("oba-shared-quorum", "Number of participants needed", approvalQuorum,
+      "The number stays fixed even if someone leaves. Every writer must also approve.");
+    quorumField.hidden = true;
+    approvalRule.addEventListener("change", () => {
+      quorumField.hidden = approvalRule.value !== "participantQuorum";
+      markDirty();
+    });
     const addSource = h("button", { class: "oba-btn", type: "button", id: "oba-shared-add-source" }, "Add another source");
     const sourceLimit = h("small", { class: "oba-small", id: "oba-shared-source-limit", hidden: true }, `You can add up to ${MAX_SHARED_SOURCES} sources.`);
     const updateSourceLimit = () => {
@@ -18494,7 +18512,7 @@ export class ObAdmin extends AdminElement {
         onSubmit: async (event) => {
           event.preventDefault();
           status.hidden = true;
-          const draft = { title: title.value, guidingQuestion: question.value, contributorId: contributor.value, sources };
+          const draft = { title: title.value, guidingQuestion: question.value, contributorId: contributor.value, approvalRule: approvalRule.value, approvalQuorum: approvalQuorum.value, sources };
           const problem = validateSharedReflectionDraft(draft);
           if (problem) return showProblem(problem);
           submit.disabled = true;
@@ -18538,6 +18556,11 @@ export class ObAdmin extends AdminElement {
         ),
         contributors.length ? null : h("p", { class: "oba-notice" }, "Add yourself as a contributor first. ", h("a", { href: "#/contributors" }, "Open Contributors")),
       ),
+      h("fieldset", { class: "oba-contributor-card" },
+        h("legend", { class: "oba-legend" }, "Approval to publish"),
+        field("oba-shared-approval-rule", "Who must approve", approvalRule,
+          "The group may change this rule later only if every active participant agrees."),
+        quorumField),
       status,
       h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn", href: "#/shared" }, "Cancel"), h("span", { class: "oba-spacer" }), submit),
     );
