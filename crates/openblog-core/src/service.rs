@@ -332,5 +332,7 @@ pub fn json_ld(site: &Site, service: &Service) -> String {
             "mainEntity": questions,
         }));
     }
-    json!({ "@context": "https://schema.org", "@graph": graph }).to_string()
+    let mut document = json!({ "@context": "https://schema.org", "@graph": graph });
+    document.sort_all_objects();
+    document.to_string()
 }

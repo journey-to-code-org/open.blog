@@ -31,9 +31,9 @@ The feature also enables `serde_json`'s `preserve_order` through merman. Cargo
 unifies that feature across the CLI, so the feed, portfolio, theme manifest and
 primary page JSON-LD explicitly sort object keys. Comparisons of newly
 initialized standard, documentation and trade sites now match all 109, 113 and
-107 files respectively, byte for byte with and without the feature. Other
-optional site projections still need the same compatibility review before the
-feature can be enabled by default.
+107 files respectively, byte for byte with and without the feature. The portable-publishing example (100 files) and the larger example
+site (219 files) also match. Other optional site projections still need the same
+compatibility review before the feature can be enabled by default.
 
 Test it with:
 
