@@ -28,11 +28,12 @@ The feature is disabled by default and requires Rust 1.95 or newer. It updates
 the shared `pulldown-cmark` lockfile entry from 0.13.5 to 0.13.6.
 
 The feature also enables `serde_json`'s `preserve_order` through merman. Cargo
-unifies that feature across the CLI, changing the key order of unrelated JSON
-and JSON-LD outputs even when a site has no diagrams. A direct comparison of
-default and feature-enabled builds of a newly initialized site showed changes
-in seven output files. This violates the epic's byte-for-byte no-diagram
-requirement and must be resolved before the feature can be enabled by default.
+unifies that feature across the CLI, so the feed, portfolio, theme manifest and
+primary page JSON-LD explicitly sort object keys. Comparisons of newly
+initialized standard, documentation and trade sites now match all 109, 113 and
+107 files respectively, byte for byte with and without the feature. Other
+optional site projections still need the same compatibility review before the
+feature can be enabled by default.
 
 Test it with:
 

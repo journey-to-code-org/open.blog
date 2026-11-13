@@ -406,6 +406,8 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
 /// JSON for a data element: `<`, `>`, `&` and the line separators written
 /// as escapes, so no published text can end or confuse the element.
 fn script_json(data: &serde_json::Value) -> String {
+    let mut data = data.clone();
+    data.sort_all_objects();
     let mut json = String::new();
     for character in data.to_string().chars() {
         match character {
@@ -1525,6 +1527,7 @@ impl<'a> Renderer<'a> {
             if let Some(served) = c.service_areas.area_served() {
                 business["areaServed"] = served;
             }
+            business.sort_all_objects();
             h.push_str(&format!(
                 "<script type=\"application/ld+json\">{}</script>\n",
                 business
@@ -2438,6 +2441,7 @@ impl<'a> Renderer<'a> {
                     blog["author"] = author.clone();
                     blog["publisher"] = author;
                 }
+                blog.sort_all_objects();
                 blog.to_string()
             }),
             reader_references: None,
@@ -2985,6 +2989,7 @@ impl<'a> Renderer<'a> {
                     nodes.push(crate::proof::review_node(self.site, proof, true));
                 }
                 if nodes.is_empty() {
+                    posting.sort_all_objects();
                     posting.to_string()
                 } else {
                     let mut posting = posting;
@@ -2992,11 +2997,12 @@ impl<'a> Renderer<'a> {
                         o.remove("@context");
                     }
                     nodes.insert(0, posting);
-                    serde_json::json!({
+                    let mut graph = serde_json::json!({
                         "@context": "https://schema.org",
                         "@graph": nodes,
-                    })
-                    .to_string()
+                    });
+                    graph.sort_all_objects();
+                    graph.to_string()
                 }
             }),
             reader_references: references.map(ReaderReferences::to_script_element),
