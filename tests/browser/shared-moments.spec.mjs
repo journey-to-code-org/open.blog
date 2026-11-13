@@ -17,7 +17,7 @@ import { removeTree } from "./teardown.mjs";
 // rights guidance and warnings (ADR 0065).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
+const binary = join(process.env.CARGO_TARGET_DIR || join(repository, "target"), "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
 const password = randomBytes(24).toString("hex");
 const PUBLICATION = "shared-0a1b2c3d4e5f";
 const SOURCES = [

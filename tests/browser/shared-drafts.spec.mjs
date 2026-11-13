@@ -15,7 +15,7 @@ import { removeTree } from "./teardown.mjs";
 // draft panel in a browser: keyboard use, a phone viewport, going offline, two tabs, large text.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
+const binary = join(process.env.CARGO_TARGET_DIR || join(repository, "target"), "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
 const password = randomBytes(24).toString("hex");
 const PUBLICATION = "shared-0a1b2c3d4e5f";
 const LIMIT = 100000;
@@ -57,12 +57,14 @@ test.afterAll(async () => {
   removeTree(root);
 });
 
-const stamp = (number) => ({ number, contributionId: "participant-1", digest: "d" });
+const stamp = (number, contributionId = "participant-1") => ({ number, contributionId, authorParticipantId: "participant-1", digest: "d" });
 const json = (route, status, body) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
 async function install(context, { coordinator = false } = {}) {
   store = { number: 0, markdown: "" };
   synthesis = { revision: 0, items: [], authors: [{ id: "p-me", displayName: "Writer" }], you: "p-me" };
+  let extras = [];
+  let orderRevision = 0;
   offline = false;
   if (coordinator) await context.route("**/admin/api/contributors", (route) => json(route, 200, { contributors: { writer: { name: "Writer" } } }));
   await context.route("**/admin/api/collaboration/**", async (route) => {
@@ -85,6 +87,33 @@ async function install(context, { coordinator = false } = {}) {
       }
       store = { number: store.number + 1, markdown: body.markdown };
       return json(route, 200, { stamp: stamp(store.number) });
+    }
+    if (path === "contributions/shared" && method === "GET") return json(route, 200, { contributions: [] });
+    if (path === "contributions" && method === "GET") return json(route, 200, {
+      contributions: [...(store.number ? [{ stamp: stamp(store.number), markdown: store.markdown }] : []), ...extras],
+      orderRevision,
+    });
+    if (path === "contributions" && method === "POST") {
+      const body = route.request().postDataJSON();
+      const item = { stamp: stamp(1, `extra-${orderRevision + 1}`), markdown: body.markdown };
+      extras.push(item);
+      orderRevision += 1;
+      return json(route, 200, { stamp: item.stamp });
+    }
+    if (path === "contributions" && method === "PUT") {
+      const body = route.request().postDataJSON();
+      const item = extras.find((entry) => entry.stamp.contributionId === body.contributionId);
+      if (!item) return json(route, 404, { error: "Not found." });
+      if (item.stamp.number !== body.expectedRevision) return json(route, 409, { error: "Changed elsewhere.", current: item });
+      item.stamp.number += 1;
+      item.markdown = body.markdown;
+      return json(route, 200, { stamp: item.stamp });
+    }
+    if (path === "contributions/withdraw" && method === "POST") {
+      const body = route.request().postDataJSON();
+      extras = extras.filter((entry) => entry.stamp.contributionId !== body.contributionId);
+      orderRevision += 1;
+      return json(route, 200, { withdrawn: true });
     }
     if (path === "synthesis" && method === "GET") return json(route, 200, synthesis);
     if (path === "synthesis" && method === "POST") {
@@ -345,8 +374,93 @@ test("a named release confirms the selected recipients and revision at 400px", a
   }));
   expect(result.violations).toEqual([]);
   await confirmation.getByRole("button", { name: "Share revision 1" }).click();
-  await expect.poll(() => released).toEqual({ publicationId: PUBLICATION, revision: 1, recipients: ["p-other", "p-reader"], expectedAuthorizationRevision: 7 });
+  await expect.poll(() => released).toEqual({ publicationId: PUBLICATION, contributionId: "participant-1", revision: 1, recipients: ["p-other", "p-reader"], expectedAuthorizationRevision: 7 });
   await expect(page.getByText("Revision 1 was shared with the selected people.")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("additional contributions stay editable and are offered together at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "Main private text." };
+  let offer;
+  await context.route("**/admin/api/collaboration/contributions/ready", (route) => {
+    offer = route.request().postDataJSON();
+    return json(route, 200, { ready: true, revealed: false });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByLabel("New contribution (Markdown)").fill("Extra private text.");
+  await page.getByRole("button", { name: "Add contribution" }).click();
+  await expect(page.getByLabel("Contribution 2 text")).toHaveValue("Extra private text.");
+  await page.getByLabel("Contribution 2 text").fill("Revised extra.");
+  await page.getByRole("button", { name: "Save contribution" }).click();
+  await expect(page.getByRole("heading", { name: "Contribution 2, revision 2" })).toBeVisible();
+  await page.getByRole("button", { name: "Offer all my contributions to the group" }).click();
+  const confirmation = page.getByRole("group", { name: "Share 2 contributions?" });
+  await expect(confirmation).toBeFocused();
+  await expect(confirmation).toContainText("Contribution 2, revision 2");
+  await page.evaluate(axe.source);
+  expect((await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }))).violations).toEqual([]);
+  await confirmation.getByRole("button", { name: "Share these revisions" }).click();
+  await expect.poll(() => offer?.contributions).toEqual([
+    { contributionId: "participant-1", revision: 1 },
+    { contributionId: "extra-1", revision: 2 },
+  ]);
+  await page.getByRole("button", { name: "Withdraw contribution" }).click();
+  const withdrawal = page.getByRole("group", { name: "Confirm withdrawal of contribution 2" });
+  await expect(withdrawal).toBeFocused();
+  await withdrawal.getByRole("button", { name: "Yes, withdraw" }).click();
+  await expect(page.getByLabel("Contribution 2 text")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("a stale additional contribution keeps the writer's text and can be saved on retry", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "Main draft." };
+  await openPanel(page);
+  await page.getByLabel("New contribution (Markdown)").fill("First version.");
+  await page.getByRole("button", { name: "Add contribution" }).click();
+  const second = await context.newPage();
+  try {
+    await openPanel(second);
+    await second.getByLabel("Contribution 2 text").fill("Saved in another tab.");
+    await second.getByRole("button", { name: "Save contribution" }).click();
+    await expect(second.getByRole("heading", { name: "Contribution 2, revision 2" })).toBeVisible();
+    await page.getByLabel("Contribution 2 text").fill("My unsaved version.");
+    await page.getByRole("button", { name: "Save contribution" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "Saved in another tab." })).toBeVisible();
+    await expect(page.getByLabel("Contribution 2 text")).toHaveValue("My unsaved version.");
+    await page.getByRole("button", { name: "Save contribution" }).click();
+    await expect(page.getByRole("heading", { name: "Contribution 2, revision 3" })).toBeVisible();
+    await expect(page.getByLabel("Contribution 2 text")).toHaveValue("My unsaved version.");
+  } finally {
+    await second.close();
+  }
+});
+
+test("an unavailable arrangement can be explicitly replaced at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "My draft." };
+  let reset;
+  await context.route("**/admin/api/collaboration/reflection?**", (route) =>
+    json(route, 409, { error: "The arrangement is not available to you.", revision: 3 }));
+  await context.route("**/admin/api/collaboration/reflection/reset", (route) => {
+    reset = route.request().postDataJSON();
+    return json(route, 200, { structure: {} });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByRole("button", { name: "Replace arrangement with current contributions" }).click();
+  const confirmation = page.getByRole("group", { name: "Confirm replacement of the arrangement" });
+  await expect(confirmation).toBeFocused();
+  await page.evaluate(axe.source);
+  expect((await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }))).violations).toEqual([]);
+  await confirmation.getByRole("button", { name: "Yes, replace arrangement" }).click();
+  await expect.poll(() => reset).toEqual({ publicationId: PUBLICATION, expectedRevision: 3, confirmed: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 

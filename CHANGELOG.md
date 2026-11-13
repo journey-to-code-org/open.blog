@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Shared reflection authors can privately add, edit, reorder and withdraw multiple contributions,
+  offer all current revisions together or share one revision with named recipients. Complete
+  review, publication and private receipts cover every contribution, with whole-piece approval
+  and participant-selected credits. Arrangement choices expose only contributions the requester
+  can read; source moments require the entire sealed contribution snapshot to be visible.
 - New shared reflections default to mutual reveal: each active author must offer a revision
   before the group can read it. Existing reflections and saved sharing policies are unchanged.
 - New shared reflections require every participant's approval by default, or a fixed participant

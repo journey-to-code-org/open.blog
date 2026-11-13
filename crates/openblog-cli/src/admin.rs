@@ -968,6 +968,7 @@ fn authenticated_api(
         }
         ("GET", "collaboration/reflection") => read_arrangement(state, req, session),
         ("PUT", "collaboration/reflection") => save_arrangement(state, req, session),
+        ("POST", "collaboration/reflection/reset") => reset_arrangement(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
         ("POST", "collaboration/reveal/named") => release_named_draft(state, req, session),
         ("GET", "collaboration/preview") => read_combined_preview(state, req, session),
@@ -13496,33 +13497,45 @@ fn read_visible_contributions(
     let Some(record) = transaction.record.as_ref() else {
         return draft_not_found();
     };
-    let writer = draft_owner(&transaction, record, session);
-    let recipient = policy_participant(&transaction, record, &session.user);
-    let Some(requester) = writer.as_ref().or(recipient.as_ref()) else {
-        return draft_not_found();
-    };
-    let stored = match load_reveal_drafts(state, id) {
-        Ok(stored) => stored,
-        Err(response) => return response,
-    };
-    let set = match draft_set_for(stored.set.as_ref(), record) {
-        Ok(set) => set,
-        Err(_) => return Response::error(500, "Shared contributions could not be read."),
-    };
-    let mut active = active_drafters(&transaction, record);
-    let named_reader = writer.is_none();
-    if named_reader && !active.contains(requester) {
-        active.push(requester.clone());
-    }
-    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
-    let views = match set.visible_views(requester, &active, named_reader) {
+    let views = match visible_contributions(state, &transaction, record, session) {
         Ok(views) => views,
-        Err(_) => return draft_not_found(),
+        Err(response) => return response,
     };
     Response::json(
         200,
         &json!({ "contributions": views.iter().map(draft_json).collect::<Vec<_>>() }),
     )
+}
+
+fn visible_contributions(
+    state: &AppState,
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+) -> Result<Vec<DraftView>, Response> {
+    let writer = draft_owner(transaction, record, session);
+    let recipient = policy_participant(transaction, record, &session.user);
+    let Some(requester) = writer.as_ref().or(recipient.as_ref()) else {
+        return Err(draft_not_found());
+    };
+    let stored = load_reveal_drafts(state, &record.publication_id)?;
+    let set = match draft_set_for(stored.set.as_ref(), record) {
+        Ok(set) => set,
+        Err(_) => {
+            return Err(Response::error(
+                500,
+                "Shared contributions could not be read.",
+            ))
+        }
+    };
+    let mut active = active_drafters(transaction, record);
+    let named_reader = writer.is_none();
+    if named_reader && !active.contains(requester) {
+        active.push(requester.clone());
+    }
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    set.visible_views(requester, &active, named_reader)
+        .map_err(|_| draft_not_found())
 }
 
 fn create_own_contribution(state: &AppState, req: &Request, session: &auth::Session) -> Response {
@@ -15212,9 +15225,22 @@ fn moments_json(
             let latest = drafts.current_stamp(owner)?;
             (view.stamp.number == latest.number).then_some(latest.number)
         });
-        let moments = set
-            .revealed(own, authors, owner, readable)
-            .unwrap_or_default();
+        let moments = if let Some((drafts, active)) =
+            drafts.filter(|(drafts, active)| drafts.requires_contribution_mode(active))
+        {
+            if can_read_current_contributions(drafts, own, owner, active, false)
+                && set.are_contributions_sealed(owner, drafts)
+            {
+                set.publication_moments()
+                    .into_iter()
+                    .filter(|moment| moment.participant() == *owner)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            set.revealed(own, authors, owner, readable).ok()?
+        };
         if !moments.is_empty() {
             shared.push(json!({
                 "participant": { "id": owner, "displayName": participant_name(record, owner) },
@@ -15243,6 +15269,27 @@ fn moments_json(
         "you": own,
         "quotationGuide": quotation_guide(),
     }))
+}
+
+fn can_read_current_contributions(
+    drafts: &DraftSet,
+    requester: &str,
+    owner: &str,
+    active: &[&str],
+    named_reader: bool,
+) -> bool {
+    let Ok(owned) = drafts.owned_views(owner) else {
+        return false;
+    };
+    !owned.is_empty()
+        && owned.iter().all(|current| {
+            let seen = if named_reader {
+                drafts.view_named(requester, &current.stamp.contribution_id, active)
+            } else {
+                drafts.view(requester, &current.stamp.contribution_id, active)
+            };
+            seen.is_ok_and(|seen| seen.stamp == current.stamp)
+        })
 }
 
 /// The rights guidance and quotation thresholds, from the core definitions, so the panel's live
@@ -15329,20 +15376,36 @@ fn read_moments(state: &AppState, req: &Request, session: &auth::Session) -> Res
                 let latest = drafts.current_stamp(owner)?;
                 (view.stamp.number == latest.number).then_some(latest.number)
             });
-            let moments = match stored.set.revealed_to_recipient(
-                &recipient,
-                &[recipient.as_str()],
-                &authors,
-                owner,
-                readable,
-            ) {
-                Ok(moments) => moments,
-                Err(_) => return moments_not_found(),
+            let moments = if drafts.requires_contribution_mode(&active) {
+                if can_read_current_contributions(&drafts, &recipient, owner, &active, !is_drafter)
+                    && stored.set.are_contributions_sealed(owner, &drafts)
+                {
+                    stored
+                        .set
+                        .publication_moments()
+                        .into_iter()
+                        .filter(|moment| moment.participant() == *owner)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                match stored.set.revealed_to_recipient(
+                    &recipient,
+                    &[recipient.as_str()],
+                    &authors,
+                    owner,
+                    readable,
+                ) {
+                    Ok(moments) => moments,
+                    Err(_) => return moments_not_found(),
+                }
             };
             if !moments.is_empty() {
                 shared.push(json!({
                     "participant": { "id": owner, "displayName": participant_name(record, owner) },
                     "draftRevision": readable,
+                    "contributionSnapshot": drafts.requires_contribution_mode(&active),
                     "moments": moments.into_iter().map(|moment| moment_json(moment, record)).collect::<Vec<_>>(),
                 }));
             }
@@ -17086,9 +17149,7 @@ fn may_arrange(
         .is_ok()
 }
 
-/// The stored arrangement, who is in the piece, and whether the caller may change it. It holds no
-/// prose, no part counts and no draft state, so any member may read it; everyone else gets the
-/// same not-found as a missing publication.
+/// The arrangement and the draft identifiers this member is entitled to see.
 fn read_arrangement(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let Some(publication_id) = req.query.get("publicationId") else {
         return draft_not_found();
@@ -17122,12 +17183,58 @@ fn read_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
             );
         }
     };
-    let participants: Vec<Json> = record
+    let visible = match visible_contributions(state, &transaction, record, session) {
+        Ok(visible) => visible,
+        Err(response) => return response,
+    };
+    let participant_known = |id: &str| {
+        record
+            .collaboration
+            .participants
+            .iter()
+            .any(|participant| participant.id.eq_ignore_ascii_case(id))
+    };
+    let visible_id = |id: &str| {
+        visible
+            .iter()
+            .any(|view| view.stamp.contribution_id.eq_ignore_ascii_case(id))
+    };
+    if stored.structure.as_ref().is_some_and(|structure| {
+        structure
+            .rounds
+            .iter()
+            .flat_map(|round| &round.turns)
+            .any(|turn| !participant_known(&turn.draft) && !visible_id(&turn.draft))
+    }) {
+        return Response::json(
+            409,
+            &json!({
+                "error": "The arrangement is not available to you. Ask the authors to share their contributions.",
+                "revision": stored.structure.as_ref().map_or(0, |structure| structure.revision),
+            }),
+        );
+    }
+    let mut participants: Vec<Json> = record
         .collaboration
         .participants
         .iter()
         .map(|p| json!({ "id": p.id, "displayName": p.display_name }))
         .collect();
+    for (index, view) in visible
+        .iter()
+        .filter(|view| !participant_known(&view.stamp.contribution_id))
+        .enumerate()
+    {
+        let name = record
+            .collaboration
+            .participants
+            .iter()
+            .find(|participant| participant.id == view.stamp.author_participant_id)
+            .map_or("A participant", |participant| {
+                participant.display_name.as_str()
+            });
+        participants.push(json!({ "id": view.stamp.contribution_id, "displayName": format!("{name}: shared contribution {}", index + 1) }));
+    }
     Response::json(
         200,
         &json!({
@@ -17140,9 +17247,8 @@ fn read_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
 }
 
 /// A coordinator stores the layout and arrangement. The write names the revision it was built on
-/// and is refused if another write got there first. It does not read a draft, so it cannot tell
-/// the coordinator whether a part exists; a stale reference is caught by the combined preview and
-/// the publish gate. Standing approvals that no longer match are dropped in the same request.
+/// and is refused if another write got there first. Non-legacy IDs must be visible to the caller;
+/// complete part coverage is checked by the combined preview and publish gate.
 fn save_arrangement(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     use openblog_core::reflection::{ReflectionError, ReflectionStructure};
     if let Err(response) = require_json(req) {
@@ -17213,13 +17319,29 @@ fn save_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
     let Ok(next) = next else {
         return invalid();
     };
+    let visible = match visible_contributions(state, &transaction, &record, session) {
+        Ok(visible) => visible,
+        Err(response) => return response,
+    };
     let known = |id: &str| {
         record
             .collaboration
             .participants
             .iter()
             .any(|p| p.id.eq_ignore_ascii_case(id))
+            || visible
+                .iter()
+                .any(|view| view.stamp.contribution_id.eq_ignore_ascii_case(id))
     };
+    if stored.structure.as_ref().is_some_and(|structure| {
+        structure
+            .rounds
+            .iter()
+            .flat_map(|round| &round.turns)
+            .any(|turn| !known(&turn.draft))
+    }) {
+        return Response::error(409, "The arrangement is not available to you. Ask the authors to share their contributions.");
+    }
     if !next
         .rounds
         .iter()
@@ -17252,6 +17374,142 @@ fn save_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
         "admin: arranged shared publication {} at revision {}",
         body.publication_id, next.revision
     );
+    Response::json(200, &json!({ "structure": next }))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ResetArrangementRequest {
+    publication_id: String,
+    expected_revision: u64,
+    confirmed: bool,
+}
+
+fn reset_arrangement(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ResetArrangementRequest>(&req.body) else {
+        return shared_problem("", "This arrangement request is not valid.");
+    };
+    if !body.confirmed {
+        return shared_problem(
+            "confirmed",
+            "Confirm that you want to replace the arrangement.",
+        );
+    }
+    let transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return draft_not_found();
+    };
+    if !may_arrange(&transaction, record, session) {
+        return draft_not_found();
+    }
+    match crate::shared_publications::load_outcome(&state.root, &body.publication_id) {
+        Ok(outcome)
+            if matches!(
+                outcome.outcome,
+                Some(openblog_core::assembly::Outcome::Published { .. })
+            ) =>
+        {
+            return published_already()
+        }
+        Ok(_) => {}
+        Err(error) => {
+            eprintln!(
+                "admin: publication outcome not readable for {}: {error}",
+                body.publication_id
+            );
+            return Response::error(500, "The arrangement could not be replaced.");
+        }
+    }
+    let stored = match crate::shared_publications::load_structure(&state.root, &body.publication_id)
+    {
+        Ok(stored) => stored,
+        Err(error) => {
+            eprintln!(
+                "admin: arrangement not readable for {}: {error}",
+                body.publication_id
+            );
+            return Response::error(500, "The arrangement could not be replaced.");
+        }
+    };
+    if stored
+        .structure
+        .as_ref()
+        .map_or(0, |structure| structure.revision)
+        != body.expected_revision
+    {
+        return Response::error(409, "The arrangement changed. Reload before replacing it.");
+    }
+    let visible = match visible_contributions(state, &transaction, record, session) {
+        Ok(visible) => visible,
+        Err(response) => return response,
+    };
+    let stored_drafts = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let drafts = match draft_set_for(stored_drafts.set.as_ref(), record) {
+        Ok(drafts) => drafts,
+        Err(_) => return Response::error(500, "The arrangement could not be replaced."),
+    };
+    let active = active_drafters(&transaction, record);
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    for owner in &active {
+        let owned = match drafts.owned_views(owner) {
+            Ok(owned) => owned,
+            Err(_) => return Response::error(500, "The arrangement could not be replaced."),
+        };
+        if owned
+            .iter()
+            .any(|current| !visible.iter().any(|seen| seen.stamp == current.stamp))
+        {
+            return Response::error(409, "The current contributions are not all available to you. Ask the authors to share them.");
+        }
+    }
+    let contract = match drafts.contract_for_contributions(&record.collaboration, &active) {
+        Ok(contract) => contract,
+        Err(_) => return Response::error(500, "The arrangement could not be replaced."),
+    };
+    let mut next = match ReflectionStructure::from_all_contributions(&contract, &drafts, &active) {
+        Ok(next) => next,
+        Err(_) => {
+            return shared_problem(
+                "structure",
+                "The current contributions cannot be arranged. Nothing was changed.",
+            )
+        }
+    };
+    let Some(revision) = body.expected_revision.checked_add(1) else {
+        return Response::error(409, "The arrangement has reached its revision limit.");
+    };
+    next.revision = revision;
+    match crate::shared_publications::replace_structure(
+        &state.root,
+        &body.publication_id,
+        &stored,
+        &next,
+    ) {
+        Ok(()) => {}
+        Err(crate::shared_publications::ReplaceError::Conflict) => {
+            return Response::error(409, "The arrangement changed. Reload before replacing it.")
+        }
+        Err(crate::shared_publications::ReplaceError::TooLarge) => {
+            return shared_problem(
+                "structure",
+                "The current contributions cannot be arranged. Nothing was changed.",
+            )
+        }
+        Err(crate::shared_publications::ReplaceError::Storage(error)) => {
+            eprintln!("admin: arrangement not replaced: {error}");
+            return Response::error(500, "The arrangement could not be replaced.");
+        }
+    }
+    reconcile_approvals(state, &transaction, record);
     Response::json(200, &json!({ "structure": next }))
 }
 
@@ -17318,8 +17576,15 @@ fn set_contributions_ready(state: &AppState, req: &Request, session: &auth::Sess
             "waitingFor": body.contributions.as_ref().map(|_| waiting_for),
         }),
     };
-    if body.contributions.is_some() {
-        if let Some(sealed) = seal_contribution_moments(state, &transaction, record, &owner, &set) {
+    if let Some(offers) = &body.contributions {
+        let sealed = if set.requires_contribution_mode(&active) {
+            seal_contribution_moments(state, &transaction, record, &owner, &set)
+        } else {
+            offers.first().and_then(|offer| {
+                seal_offered_moments(state, &transaction, record, &owner, offer.revision)
+            })
+        };
+        if let Some(sealed) = sealed {
             let object = result
                 .as_object_mut()
                 .expect("sharing response is an object");
@@ -41088,6 +41353,16 @@ series: letters
             .as_str()
             .unwrap()
             .to_string();
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "MULTI-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
         let record = stored_record(&f, &id);
         let reader = record
             .authorization
@@ -41139,11 +41414,156 @@ series: letters
         let shared = String::from_utf8_lossy(&after.body);
         assert!(shared.contains("EXTRA-SECRET"));
         assert!(!shared.contains("BASE-SECRET"));
+        assert!(!body_json(&moments_read(&f, &linus, &id))
+            .to_string()
+            .contains("MULTI-MOMENT"));
+        let base = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "mikey")
+            .unwrap()
+            .participant_id
+            .clone();
+        let release_base = post_api(
+            &f,
+            &mikey,
+            "reveal/named",
+            json!({
+                "publicationId": id, "contributionId": base, "revision": 1,
+                "recipients": [reader], "expectedAuthorizationRevision": record.authorization.revision,
+            }),
+        );
+        assert_eq!(release_base.status, 200);
+        assert!(body_json(&moments_read(&f, &linus, &id))
+            .to_string()
+            .contains("MULTI-MOMENT"));
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:03", "LATER-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        let changed = body_json(&moments_read(&f, &linus, &id)).to_string();
+        assert!(!changed.contains("MULTI-MOMENT"));
+        assert!(!changed.contains("LATER-MOMENT"));
+    }
+
+    #[test]
+    fn withdrawn_contribution_arrangement_can_be_replaced_without_disclosure() {
+        let (f, mikey, grace, ada, id) = approval_fixture("multi-arrangement-reset");
+        let created = post_api(
+            &f,
+            &mikey,
+            "contributions",
+            json!({
+                "publicationId": id, "markdown": "PRIVATE-RESET-TEXT"
+            }),
+        );
+        assert_eq!(created.status, 200);
+        let extra = body_json(&created)["stamp"]["contributionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let record = stored_record(&f, &id);
+        let owner = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "mikey")
+            .unwrap()
+            .participant_id
+            .clone();
+        let other = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id
+            .clone();
+        let call = |who: &Session, method: &str, path: &str, body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, &format!("/admin/api/collaboration/{path}"), body),
+                    who,
+                    true,
+                ),
+            )
+        };
+        assert_eq!(call(&mikey, "PUT", "contributions/ready", json!({
+            "publicationId": id, "contributions": [
+                { "contributionId": owner, "revision": 1 }, { "contributionId": extra, "revision": 1 }
+            ]
+        })).status, 200);
+        assert_eq!(call(&mikey, "PUT", "reflection", json!({
+            "publicationId": id, "expectedRevision": 0, "structure": {
+                "version": 1, "revision": 1, "layout": "sequential",
+                "rounds": [{ "id": "round-1", "turns": [
+                    { "draft": owner, "part": 0 }, { "draft": extra, "part": 0 }, { "draft": other, "part": 0 }
+                ] }]
+            }
+        })).status, 200);
+        let reset = |revision, confirmed| json!({ "publicationId": id, "expectedRevision": revision, "confirmed": confirmed });
+        assert_eq!(
+            call(&grace, "POST", "reflection/reset", reset(1, true)).status,
+            404
+        );
+        assert_eq!(
+            call(&ada, "POST", "reflection/reset", reset(1, true)).status,
+            409
+        );
+        assert_eq!(
+            call(&mikey, "POST", "reflection/reset", reset(1, false)).status,
+            422
+        );
+        assert_eq!(
+            call(&mikey, "POST", "reflection/reset", reset(0, true)).status,
+            409
+        );
+        assert_eq!(call(&mikey, "POST", "contributions/withdraw", json!({
+            "publicationId": id, "contributionId": extra, "expectedRevision": 1, "confirmed": true
+        })).status, 200);
+        let unavailable = call(
+            &mikey,
+            "GET",
+            &format!("reflection?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(unavailable.status, 409);
+        assert_eq!(body_json(&unavailable)["revision"], 1);
+        assert!(!String::from_utf8_lossy(&unavailable.body).contains(&extra));
+        let replaced = call(&mikey, "POST", "reflection/reset", reset(1, true));
+        assert_eq!(
+            replaced.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&replaced.body)
+        );
+        let result = String::from_utf8_lossy(&replaced.body);
+        assert!(!result.contains(&extra));
+        assert!(!result.contains("PRIVATE-RESET-TEXT"));
+        assert_eq!(body_json(&replaced)["structure"]["revision"], 2);
     }
 
     #[test]
     fn multi_contribution_gate_reviews_and_publishes_all_revisions() {
         let (f, mikey, grace, ada, id) = approval_fixture("multi-gate");
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "MULTI-GATE-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
         let record = stored_record(&f, &id);
         let owner = record
             .authorization
@@ -41306,6 +41726,14 @@ series: letters
         let hidden_text = String::from_utf8_lossy(&hidden_shared.body);
         assert!(!hidden_text.contains("EXTRA-SECRET"));
         assert!(!hidden_text.contains(&extra));
+        let hidden_arrangement = call(
+            &ada,
+            "GET",
+            &format!("reflection?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(hidden_arrangement.status, 200);
+        assert!(!String::from_utf8_lossy(&hidden_arrangement.body).contains(&extra));
         let order = json!({
             "publicationId": id, "expectedRevision": order_revision,
             "expected": [owner, extra], "order": [extra, owner]
@@ -41342,6 +41770,9 @@ series: letters
         let hidden = preview_call(&f, &grace, &id);
         assert_eq!(hidden.status, 409);
         assert!(!String::from_utf8_lossy(&hidden.body).contains("EXTRA-SECRET"));
+        assert!(!body_json(&moments_read(&f, &grace, &id))
+            .to_string()
+            .contains("MULTI-GATE-MOMENT"));
         let offer = call(
             &mikey,
             "PUT",
@@ -41368,6 +41799,59 @@ series: letters
         );
         assert_eq!(shared.status, 200);
         assert!(String::from_utf8_lossy(&shared.body).contains("EXTRA-SECRET"));
+        assert!(body_json(&moments_read(&f, &grace, &id))
+            .to_string()
+            .contains("MULTI-GATE-MOMENT"));
+        let arrangement = call(
+            &mikey,
+            "GET",
+            &format!("reflection?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(arrangement.status, 200);
+        assert!(body_json(&arrangement)["participants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == extra));
+        let grace_id = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id
+            .clone();
+        let arranged = call(
+            &mikey,
+            "PUT",
+            "reflection",
+            json!({
+                "publicationId": id, "expectedRevision": 0,
+                "structure": {
+                    "version": 1, "revision": 1, "layout": "sequential",
+                    "rounds": [{ "id": "round-1", "turns": [
+                        { "draft": owner, "part": 0 },
+                        { "draft": extra, "part": 0 },
+                        { "draft": grace_id, "part": 0 }
+                    ] }]
+                }
+            }),
+        );
+        assert_eq!(
+            arranged.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&arranged.body)
+        );
+        let hidden_arrangement = call(
+            &ada,
+            "GET",
+            &format!("reflection?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(hidden_arrangement.status, 409);
+        assert!(!String::from_utf8_lossy(&hidden_arrangement.body).contains(&extra));
         for who in [&mikey, &grace] {
             let response = preview_call(&f, who, &id);
             assert_eq!(
@@ -41388,6 +41872,9 @@ series: letters
             String::from_utf8_lossy(&response.body)
         );
         assert!(published_post(&f, &id).unwrap().contains("EXTRA-SECRET"));
+        assert!(published_post(&f, &id)
+            .unwrap()
+            .contains("MULTI-GATE-MOMENT"));
         let outcome = crate::shared_publications::load_outcome(&f.dir, &id)
             .unwrap()
             .outcome
@@ -43751,7 +44238,29 @@ series: letters
             draft_call(&f, &mikey, &id, 1, "MIKEY-SECRET v2").status,
             200
         );
-        let offered = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        let owner = stored_record(&f, &id)
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "mikey")
+            .unwrap()
+            .participant_id
+            .clone();
+        let offered = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/collaboration/contributions/ready",
+                    json!({
+                        "publicationId": id, "contributions": [{ "contributionId": owner, "revision": 2 }]
+                    }),
+                ),
+                &mikey,
+                true,
+            ),
+        );
+        assert_eq!(offered.status, 200);
         assert_eq!(body_json(&offered)["momentsShared"], true);
         let grace_view = body_json(&moments_read(&f, &grace, &id));
         assert_eq!(

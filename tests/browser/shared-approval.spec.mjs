@@ -10,7 +10,7 @@ import axe from "axe-core";
 import { removeTree } from "./teardown.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
+const binary = join(process.env.CARGO_TARGET_DIR || join(repository, "target"), "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
 let root;
 let server;
 let origin;

@@ -884,6 +884,9 @@ message names each entry that is in use. The design is recorded in
 Open the reflection and expand **Your draft** to write and save your own perspective. Saving
 creates a private revision; it does not share it. If another session saved a newer revision,
 Admin refuses the stale save and lets you choose between the newer copy and your own text.
+Use **Additional contributions** to add and edit separate contributions, change their order, or
+withdraw one after confirming. A stale save keeps your text and shows the newer saved copy.
+Adding a contribution requires a whole-piece approval rule.
 
 New reflections start with mutual reveal: each active writer offers a saved revision before the
 group can read the offered perspectives. An author can continue editing privately after an
@@ -891,7 +894,9 @@ offer; the sharing panel identifies the offered revision and warns when it is ol
 latest draft. A coordinator can instead select named-recipient sharing, where an author
 confirms which active participants receive a particular revision. Participants without draft
 access can open **Revisions shared with you** to read only the revisions named for them, together
-with source moments sealed to a current revision. Later edits remain private.
+with source moments sealed to the author's current contribution snapshot. Group offers name
+every current contribution and revision together; a named release selects one contribution.
+Later edits remain private. An already read copy cannot be recalled.
 If a writer becomes a reader, the author must explicitly share the revision with them again.
 Changes to access while choosing recipients require reloading before sharing.
 
@@ -918,10 +923,15 @@ Site owners and coordinators can expand **Publish shared reflection**, confirm t
 and publish. The server checks the current credits and required approvals again before writing
 the public post; a stale approval or missing choice blocks publication.
 
-This workflow is still incomplete: multiple contribution authoring is not yet available.
-See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
-and [epic #592](https://github.com/journey-to-code-org/open.blog/issues/592) before relying on
-the workflow for publication.
+Coordinators can arrange contributions they are entitled to read. After authors share additional
+contributions, use **Reload arrangement and shared contributions** to update the choices;
+reloading discards unsaved arrangement edits. If an earlier saved arrangement omits a new
+contribution or part, add its turns before review. The complete review and publish gate refuses
+missing or duplicate parts. A coordinator without access cannot inspect a hidden contribution.
+If a withdrawn contribution leaves an unavailable arrangement, a coordinator who can read all
+current revisions can confirm replacing it with a new complete arrangement. This clears earlier
+approvals; a stale replacement is refused.
+See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin).
 
 ### Inviting other writers
 

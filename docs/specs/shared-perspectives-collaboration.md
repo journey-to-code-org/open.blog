@@ -481,13 +481,12 @@ an order is restored or a separate contribution is created and withdrawn. Once t
 been used, new or withdrawn contributions also advance that revision.
 The opt-in multi-contribution approval subject covers every live contribution's owner, ID and
 revision; a credit-aware variant also binds participant credit choices and projects credit for
-authors whose contribution IDs differ from their participant IDs. These subjects are not issued
-by Admin until complete multi-contribution previews are available.
+authors whose contribution IDs differ from their participant IDs. Admin uses these subjects for
+complete multi-contribution review, approval and publication.
 The draft set also supports atomic offers of all of an author's current contributions: mutual
 reveal waits for each active author, and each committed revision remains distinct. Voluntary
 offers can be taken back, while named releases remain specific to a contribution and recipients.
-Older releases cannot read multi-contribution offers or exchanges; the Admin routes do not yet
-create them.
+Older releases cannot read multi-contribution offers or exchanges.
 An opt-in arrangement reader resolves distinct contribution IDs against authorized ownership
 metadata, checks stored ownership, and applies draft or named-reader visibility to each turn.
 Ownership metadata can be derived transiently from the private draft set, without copying private
@@ -505,10 +504,16 @@ credit-bound subject as multi-contribution assembly. A matching opt-in receipt c
 included contribution revision. Proposed moments must be sealed to the owner's exact live
 contribution revisions before review or assembly. A seal for a given snapshot is write-once;
 editing a moment stays private until a different contribution revision is offered. These moment
-seals are not yet wired into Admin sharing, and older releases cannot read them.
-Admin review, approval, scheduling and publication now use these multi-contribution gates when
-separate contributions already exist. Authoring and sharing controls still support one draft per
-participant; the core ordering operation is not exposed until those paths are completed.
+seals are written by Admin sharing, and older releases cannot read them. A recipient sees those
+moments only when they can read every current contribution in the sealed snapshot.
+Admin lets authors create, edit, order, withdraw and share their own contributions. Ordering
+uses an owner-scoped revision that does not change when another author edits their private work.
+Arrangement choices include only contribution IDs visible to the coordinator. A stored
+arrangement naming a hidden contribution is unavailable to that requester; no hidden ID or prose
+is returned. Authors must share new contributions before a coordinator can place them, and
+coverage is checked before review and publication. A stale-checked, confirmed replacement can
+recover an arrangement referencing withdrawn contributions, but only when the coordinator can
+read every current contribution revision. The replacement clears obsolete approvals.
 The legacy preview cannot issue complete-review tokens and the legacy assembly cannot publish
 while an active author has a separate live contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.
