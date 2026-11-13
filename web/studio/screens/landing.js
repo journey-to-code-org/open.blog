@@ -127,7 +127,7 @@ export async function createLanding(context) {
       }
       draft.sections = draft.sections.map((s) => (s.id === section.id ? next : s));
       sheet.open = false;
-      say.replaceChildren(`${titleOf(next)} ${isNew ? "added" : "changed"}. Not saved yet.`);
+      say.replaceChildren(`${titleOf(next)} ${isNew ? "added" : "changed"}. Press Save to put it on your site.`);
       paint();
       focusRow(section.id);
     };
@@ -136,7 +136,7 @@ export async function createLanding(context) {
       info.description ? h("p", { class: "studio-help", text: info.description }) : null,
       f.element, problems,
       h("div", { class: "studio-sheet-actions" },
-        h("action-button", { onClick: done }, "Done"),
+        h("action-button", { onClick: done }, "Keep this change"),
         h("action-button", { variant: "secondary", onClick: () => { sheet.open = false; if (isNew) { draft.sections = draft.sections.filter((s) => s.id !== section.id); paint(); } } }, "Cancel")));
     sheet.open = true;
     requestAnimationFrame(() => f.focus());

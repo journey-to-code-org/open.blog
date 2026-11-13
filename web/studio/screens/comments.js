@@ -11,7 +11,7 @@ import { sendOut, siteLink, wentOutWords } from "../parts/publish.js";
 import { routeHash } from "../router.js";
 import {
   VIEWS, viewOf, otherViewWords, reasonWords, handled, cardLabel, buttonsFor, quietReason,
-  decidedWords, undoWords, decisionLine, troubleWords, decisionRequest,
+  decidedWords, undoWords, decisionLine, troubleWords, decisionRequest, reportReason,
 } from "../parts/comment-words.js";
 
 const LONG = 600;
@@ -243,7 +243,9 @@ export async function createComments({ api, meta, go }, route) {
       if (!choice) return;
       return decide(item, b.action, choice, line, control);
     }
-    const reason = b.action === "reject" && item.source === "report" ? quietReason(b.offer) : null;
+    const reason = item.source !== "report" ? null
+      : b.action === "reject" ? quietReason(b.offer)
+        : b.action === "uphold-report" ? reportReason(item) : null;
     return decide(item, b.action, reason, line, control);
   }
 
@@ -388,6 +390,14 @@ export async function createComments({ api, meta, go }, route) {
   let saving = false;
   async function setComments(on) {
     if (!settings || saving || on === (settings.comments !== false)) return;
+    if (!on) {
+      const choice = await ask({
+        heading: "Turn comments off?",
+        text: "The comments section leaves your posts, and nobody can leave a new one. Nothing is deleted; you can turn them back on any time.",
+        choices: [{ label: "Keep comments on", value: "keep" }, { label: "Turn them off", value: "off", variant: "secondary" }],
+      });
+      if (choice !== "off") { switcher.checked = true; return; }
+    }
     saving = true;
     try {
       const body = {

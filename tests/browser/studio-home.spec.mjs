@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
 // Studio slice 5: Home says how the whole site is doing. With nothing waiting, one calm line; with
-// a change waiting to go out (a git repository with a remote), it says so and Send them out now
+// a change waiting to go out (a git repository with a remote), it says so and Put them on my site
 // pushes it; Rebuild works from the details; axe at 320 px.
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
@@ -86,9 +86,9 @@ test("Home says all is well, then that a change is waiting, and sends it out", a
   await expect(health.getByText("Everything you've saved is on your site.")).toBeVisible();
   writeFileSync(join(root, "content", "posts", "a-new-note.md"), "---\ntitle: A new note\ndate: 2026-01-02\n---\n\nHello.\n");
   await page.reload();
-  await expect(health.getByText("1 change is waiting to go out to your site.")).toBeVisible();
-  await health.getByRole("button", { name: "Send them out now" }).click();
-  await expect(page.getByText("Sent. Your readers will see the changes in a few minutes.")).toBeVisible();
+  await expect(health.getByText("1 change is saved here but isn't on your public site yet.")).toBeVisible();
+  await health.getByRole("button", { name: "Put them on my site" }).click();
+  await expect(page.getByText("Done. Your readers will see the changes in a few minutes.")).toBeVisible();
   await expect(health.getByText("Everything you've saved is on your site.")).toBeVisible();
   expect(execFileSync("git", ["--git-dir", remote, "log", "--oneline", "-1", "main"]).toString()).toMatch(/Send out what's waiting/);
 });

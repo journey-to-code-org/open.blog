@@ -203,7 +203,12 @@ test("Home says what's waiting, and the switch rewrites only engagement", async 
   await page.goto(`${origin}/admin/studio/#/comments`);
   const toggle = page.getByRole("switch", { name: "Let people leave comments" });
   await expect(toggle).toBeChecked();
+  // Turning them off asks first; keeping them on changes nothing.
   await toggle.click();
+  await page.getByRole("button", { name: "Keep comments on" }).click();
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await page.getByRole("button", { name: "Turn them off" }).click();
   await expect(page.locator(".studio-comments p[role=status]").filter({ hasText: /^Comments are off\./ })).toBeVisible();
   await expect(page.getByText("Comments are switched off", { exact: true })).toBeVisible();
   const after = JSON.parse(readFileSync(join(root, "openblog.json"), "utf8"));

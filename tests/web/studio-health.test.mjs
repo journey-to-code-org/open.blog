@@ -13,7 +13,7 @@ test("all well says nothing needs her", () => {
 test("a failed update, waiting changes and a forgetful server are each said once, in her words", () => {
   const found = needs({ lastError: "theme `x` not found", filesMayVanish: true }, { ...site, changed: ["content/posts/a.md", "openblog.json"] });
   assert.deepEqual(found.map((n) => n.id), ["build", "send", "vanish"]);
-  assert.equal(found[1].words, "2 changes are waiting to go out to your site.");
+  assert.equal(found[1].words, "2 changes are saved here but aren't on your public site yet.");
   assert.doesNotMatch(found.map((n) => n.words).join(" "), /theme|json|commit|push|git/i);
-  assert.equal(needs({}, { ...site, ahead: 2 })[0].words, "Some saved changes haven't reached your site yet.");
+  assert.equal(needs({}, { ...site, ahead: 2 })[0].words, "Some saved changes aren't on your public site yet.");
 });

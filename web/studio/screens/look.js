@@ -22,7 +22,7 @@ export async function createLook({ api, meta }) {
   let darkDraft = null;
 
   const heading = h("h2", { id: "studio-look-h", class: "studio-question", tabindex: "-1", text: "How your site looks" });
-  const lede = h("p", { class: "studio-lede", text: "These change every page, whatever the season's decorations. Any choice can go back to your theme's own." });
+  const lede = h("p", { class: "studio-lede" }, "These change every page, all year round. Any choice can go back to your theme's own. Christmas lights, trees and snow are in ", h("a", { href: "#/decorations" }, "Decorations"), ".");
   const banner = h("div", { class: "studio-banner", "aria-live": "polite" });
   const controls = h("div", { class: "studio-look-controls" }, h("skeleton-block", { lines: 6 }));
   const saveButton = h("action-button", { onClick: () => save() }, "Save");

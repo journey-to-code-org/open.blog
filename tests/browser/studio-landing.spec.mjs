@@ -88,7 +88,7 @@ test("build a front page: a layout, a change, the theme's tree, move, hide, remo
     else {
       await page.getByRole("button", { name: "Add a section" }).click();
       await page.locator("side-sheet").getByRole("button", { name: /Welcome banner/ }).click();
-      await page.locator("side-sheet").getByRole("button", { name: "Done" }).click();
+      await page.locator("side-sheet").getByRole("button", { name: "Keep this change" }).click();
     }
   }
   const first = rows.filter({ hasText: "Welcome banner" }).first();
@@ -96,12 +96,12 @@ test("build a front page: a layout, a change, the theme's tree, move, hide, remo
   await first.getByRole("button", { name: /^Change / }).click();
   const sheet = page.locator("side-sheet");
   await sheet.getByRole("textbox", { name: "Welcome heading" }).fill("Welcome to Toyland");
-  await sheet.getByRole("button", { name: "Done" }).click();
-  await expect(page.getByText("Welcome banner changed. Not saved yet.")).toBeVisible();
+  await sheet.getByRole("button", { name: "Keep this change" }).click();
+  await expect(page.getByText("Welcome banner changed. Press Save to put it on your site.")).toBeVisible();
   await page.getByRole("button", { name: "Add a section" }).click();
   await sheet.getByRole("button", { name: /Little tree/ }).click();
   await sheet.getByRole("combobox", { name: "On top" }).selectOption("bow");
-  await sheet.getByRole("button", { name: "Done" }).click();
+  await sheet.getByRole("button", { name: "Keep this change" }).click();
   const tree = rows.filter({ hasText: "Little tree" });
   await expect(tree).toBeVisible();
   await tree.getByRole("button", { name: /More for Little tree/ }).click();
@@ -135,7 +135,7 @@ test("an earlier version comes back, and the front page passes axe at 320 px", a
   const first = page.locator(".studio-landing-row").filter({ hasText: "Welcome banner" }).first();
   await first.getByRole("button", { name: /^Change / }).click();
   await page.locator("side-sheet").getByRole("textbox", { name: "Welcome heading" }).fill("A second heading");
-  await page.locator("side-sheet").getByRole("button", { name: "Done" }).click();
+  await page.locator("side-sheet").getByRole("button", { name: "Keep this change" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(() => landing().sections.find((s) => s.type === "welcome").heading).toBe("A second heading");
   await page.getByText("Earlier versions").click();

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   VIEWS, viewOf, reasonWords, cardLabel, buttonsFor, quietReason, decidedWords, undoWords,
-  decisionLine, waitingLine, troubleWords, decisionRequest,
+  decisionLine, waitingLine, troubleWords, decisionRequest, reportReason,
 } from "../../web/studio/parts/comment-words.js";
 
 const DECLINE = [{ id: "spam", label: "Spam" }, { id: "abusive", label: "Abusive" }, { id: "other", label: "Other" }];
@@ -47,6 +47,10 @@ test("an unknown server action still shows in More, under its own label", () => 
 test("Keep the comment sends no-action quietly when offered, and asks otherwise", () => {
   const { top } = buttonsFor(report());
   assert.deepEqual(top.map((b) => [b.label, b.asks]), [["Take the comment down", true], ["Keep the comment", false]]);
+  // When the reader's own reason is one the server takes, taking it down doesn't ask again.
+  const grounded = report({ report: { ground: "abusive", groundLabel: "Abusive" } });
+  assert.equal(buttonsFor(grounded).top[0].asks, false);
+  assert.equal(reportReason(grounded), "abusive");
   assert.equal(quietReason(report().actions[1]), "no-action");
   const asking = buttonsFor(report({ actions: [{ action: "reject", label: "Dismiss", reasons: [{ id: "spam", label: "Spam" }] }] }));
   assert.equal(asking.top[0].asks, true);

@@ -67,7 +67,8 @@ export function buttonsFor(item) {
     offered.delete(action);
   };
   if (item.source === "report") {
-    take("uphold-report", "Take the comment down", true, true);
+    // The reader already said why; ask again only when that reason isn't one the server takes.
+    take("uphold-report", "Take the comment down", true, !reportReason(item));
     take("reject", "Keep the comment", false, !quietReason(offered.get("reject")));
     take("reopen", "Decide again", false, false);
   } else if (item.source === "comment") {
@@ -85,6 +86,13 @@ export function buttonsFor(item) {
     offer,
   }));
   return { top, more };
+}
+
+/** Taking a reported comment down sends the report's own reason, when the server takes it. */
+export function reportReason(item) {
+  const ground = item.report?.ground;
+  const offer = (item.actions || []).find((a) => a.action === "uphold-report");
+  return ground && (offer?.reasons || []).some((r) => r.id === ground) ? ground : null;
 }
 
 /** "Keep the comment" sends this reason without asking, when the server offers it. */

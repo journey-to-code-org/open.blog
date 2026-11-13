@@ -12,7 +12,7 @@ export function needs(status, publish) {
   if (status?.lastError) out.push({ id: "build", words: "Your site couldn't be updated last time. Your work is saved.", action: "Try again" });
   const waiting = (publish?.changed || []).length;
   if (publish?.repo && publish.remote && !publish.auto && (waiting || publish.ahead > 0)) {
-    out.push({ id: "send", words: waiting === 1 ? "1 change is waiting to go out to your site." : waiting ? `${waiting} changes are waiting to go out to your site.` : "Some saved changes haven't reached your site yet.", action: "Send them out now" });
+    out.push({ id: "send", words: waiting === 1 ? "1 change is saved here but isn't on your public site yet." : waiting ? `${waiting} changes are saved here but aren't on your public site yet.` : "Some saved changes aren't on your public site yet.", action: "Put them on my site" });
   }
   if (status?.filesMayVanish || publish?.filesMayVanish) out.push({ id: "vanish", words: "This server doesn't keep its files when it restarts. Ask the person who set up your site to fix that." });
   return out;
@@ -58,7 +58,7 @@ export function siteHealth({ api, meta }) {
       try {
         const reply = await api.post("publish", { summary: "Send out what's waiting" });
         const said = wentOutWords({ sent: reply.pushed ? "pushed" : "failed", message: reply.message || "" }, { meta, action: "saved" });
-        toast(reply.pushed ? "Sent. Your readers will see the changes in a few minutes." : said.words, { variant: reply.pushed ? "success" : "warning", duration: reply.pushed ? undefined : 0 });
+        toast(reply.pushed ? "Done. Your readers will see the changes in a few minutes." : said.words, { variant: reply.pushed ? "success" : "warning", duration: reply.pushed ? undefined : 0 });
       } catch {
         toast("They didn't go out. Your work is saved; try again in a minute.", { variant: "warning", duration: 0 });
       }
