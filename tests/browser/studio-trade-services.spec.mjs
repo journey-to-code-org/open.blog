@@ -362,6 +362,47 @@ test("Requests: an older requests service is said in plain words, and nothing is
   expect(calls.filter((c) => c.path === "retention/run").map((c) => c.body)).toEqual([{ dryRun: true }]);
 });
 
+test("Escape on “Save this topic?” goes back to the sheet with her edits, and sheets keep opening", async ({ page }) => {
+  await mockSeasonal(page);
+  await signIn(page, "#/reminders");
+  const sheet = page.locator("side-sheet");
+  const openSheet = async () => {
+    await page.getByRole("button", { name: /More/ }).first().click();
+    await page.getByRole("menuitem", { name: "Change topics and dates…" }).click();
+    await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
+  };
+  await openSheet();
+  const ice = sheet.locator("[data-topic='roofing-ice']");
+  await ice.getByRole("button", { name: /Change/ }).click();
+  await ice.getByRole("textbox", { name: "Topic" }).fill("Ice dams and icicles");
+  for (let round = 0; round < 2; round += 1) {
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("heading", { name: "Save this topic?" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("heading", { name: "Save this topic?" })).toHaveCount(0);
+    await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
+    await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveValue("Ice dams and icicles");
+    expect(await page.evaluate(() => Boolean(document.querySelector("side-sheet")?.contains(document.activeElement)))).toBe(true);
+  }
+  // The × asks too, and Escape there also keeps the sheet and her edits.
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("heading", { name: "Save this topic?" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Save this topic?" })).toHaveCount(0);
+  await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
+  await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveValue("Ice dams and icicles");
+  expect(await page.evaluate(() => Boolean(document.querySelector("side-sheet")?.contains(document.activeElement)))).toBe(true);
+  // Leaving without saving closes it; it opens again, and again after an Escape with nothing changed.
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Leave without saving" }).click();
+  await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toHaveCount(0);
+  await openSheet();
+  await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toHaveCount(0);
+  await openSheet();
+});
+
 async function mockSharing(page) {
   const sent = [];
   const items = [

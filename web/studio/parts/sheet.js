@@ -31,13 +31,33 @@ export async function createSheet({ label, wide = true }) {
     return choice === "go";
   }
 
+  /** Ask before closing a sheet with changes; staying puts focus back inside it. */
+  async function askThenClose() {
+    if (await confirmLeave()) close();
+    else if (current) requestAnimationFrame(() => current?.focus?.());
+  }
+
+  // Escape with changes: ask before the sheet's dialog closes at all, so it stays where it is.
+  element.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !current?.dirty?.()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!asking) askThenClose();
+  }, true);
+
+  // Waits for the component to settle closed, then opens it again (a write of `open` back to true
+  // inside its own openchange would leave the native dialog shut while `open` says true).
+  const reopen = () => new Promise((done) => requestAnimationFrame(() => {
+    if (current) element.open = true;
+    requestAnimationFrame(done);
+  }));
+
   element.addEventListener("openchange", async (event) => {
     if (event.target !== element || event.detail || !current) return;
-    // Closed by Escape or the ×: keep it open while she answers.
+    // Closed by the × (or by the browser) with changes: open it again while she answers.
     if (current.dirty?.()) {
-      element.open = true;
-      if (await confirmLeave()) close();
-      else current?.focus?.();
+      await reopen();
+      if (!asking) await askThenClose();
       return;
     }
     finish();
