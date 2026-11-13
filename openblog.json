@@ -31,6 +31,7 @@
   "postsPerPage": 10,
   "nav": [
     { "label": "Home", "href": "/" },
+    { "label": "Docs", "href": "/docs/" },
     { "label": "Series", "href": "/series/" },
     { "label": "Archive", "href": "/archive/" },
     { "label": "Search", "href": "/search/" }
@@ -102,5 +103,18 @@
     "secureCookies": false,
     "maxUploadMb": 10,
     "trustedProxies": []
+  },
+  "docs": {
+    "enabled": true,
+    "title": "Example handbook"
+  },
+  "podcast": {
+    "version": 1,
+    "title": "open.blog example episodes",
+    "description": "Demo audio episodes from open.blog's example site.",
+    "author": "open.blog",
+    "category": "Technology",
+    "explicit": false,
+    "image": "/images/open-blog-og.png"
   }
 }

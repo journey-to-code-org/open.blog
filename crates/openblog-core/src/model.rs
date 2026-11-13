@@ -568,7 +568,7 @@ pub struct Tag {
     pub posts: Vec<usize>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Page {
     pub title: String,
     pub slug: String,
@@ -1046,7 +1046,7 @@ impl Site {
             &mut warnings,
             &mut errors,
         );
-        // Posts and pages may link into the documentation by file too (ADR 0407).
+        // Posts and pages may link into the documentation by file too (ADR 0411).
         if !doc_addresses.is_empty() {
             use crate::docs_section::rewrite_links_into_docs as into_docs;
             for post in &mut posts {
@@ -2935,7 +2935,7 @@ fn load_docs(
                     format!("{DOCS_SEGMENT}/{path}")
                 };
                 page.url = url_for(&path);
-                // The section's own index is the home page when docs.home is on (ADR 0407);
+                // The section's own index is the home page when docs.home is on (ADR 0411);
                 // its usual address sends readers there.
                 if path.is_empty() && config.docs.home {
                     page.url = "/".to_string();
