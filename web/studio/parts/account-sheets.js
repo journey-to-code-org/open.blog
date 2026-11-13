@@ -17,7 +17,7 @@ let uid = 0;
 const errorText = (error) => `error ${error?.status ?? "no answer"}${error?.data?.code ? ` (${error.data.code})` : ""}: ${error?.message || ""}`;
 
 /**
- * The sheets of one screen. `ctx`: { api, sheet, providerOf(name), canReturn(), links, timeZone,
+ * The sheets of one screen. `ctx`: { api, sheet, providerOf(name), links, timeZone,
  * done(event) } where event is { kind: "connected" | "reconnected" | "stopped" | "refresh" |
  * "gone" | "already", ... }.
  */
@@ -43,11 +43,12 @@ export function createAccountSheets(ctx) {
     const url = R.safeAuthorizeUrl(reply?.authorizeUrl, instance);
     if (!url) {
       if (reply?.connection?.id) await api.post(`social/connections/${reply.connection.id}/cancel`, {}).catch(() => {});
-      say(status, `Studio couldn't open ${providerName(provider)}. Tell the person who set up your site.`, "danger");
+      say(status, `Your blog couldn't open ${providerName(provider)}. Tell the person who set up your site.`, "danger");
       heading.focus();
       return { refused: true, lines: ["authorizeUrl refused"] };
     }
-    if (ctx.canReturn()) {
+    // Decided by this start's own reply: true only when Admin named the way back with it.
+    if (reply?.returns === true) {
       // She leaves for the provider now. The link isn't kept: coming Back means she didn't finish.
       location.assign(url);
       return { left: true };
@@ -232,7 +233,10 @@ export function createAccountSheets(ctx) {
         } else if (code === "destination-not-eligible") {
           const at = options.indexOf(picked);
           const input = radios[at]?.querySelector("input");
-          const why = h("p", { id: `${group}-${at}-now`, class: "studio-help", text: R.reasonWords(picked.reason || "", name) });
+          // The one she picked was allowed when the list came; the server's list now says why not.
+          const fresh = await ctx.reread(connection.id).catch((trouble) => { if (trouble.status === 401) throw trouble; return null; });
+          const now = fresh?.destinations?.find((d) => d.id === picked.id);
+          const why = h("p", { id: `${group}-${at}-now`, class: "studio-help", text: R.reasonWords(now?.reason || picked.reason || "", name) });
           radios[at]?.append(why);
           if (input) { input.checked = false; input.disabled = true; input.setAttribute("aria-describedby", why.id); }
           picked = null;
@@ -325,13 +329,13 @@ export function createAccountSheets(ctx) {
     return openConnect(provider, { now: true });
   }
 
-  /** "Facebook said yes. Studio is finishing up…": shown while the attempt is exchanging. */
+  /** "Facebook said yes. Your blog is finishing up…": shown while the attempt is exchanging. */
   async function openFinishing(connection, { opener = document.activeElement } = {}) {
     await use("side-sheet");
     const p = providerName(connection.provider);
     const heading = headingOf(`${p} said yes`);
     sheet.show({ heading: `${p} said yes`, opener, focus: focusOn(heading),
-      children: [h("p", { "data-finishing": connection.id, text: "Studio is finishing up. This takes a few seconds." }), detailsBox(connectionLines(connection))] });
+      children: [h("p", { "data-finishing": connection.id, text: "Your blog is finishing up. This takes a few seconds." }), detailsBox(connectionLines(connection))] });
   }
 
   return { openConnect, openChoose, openBluesky, openReconnect, startAgain, openFinishing, stop, stopButton, errorText };

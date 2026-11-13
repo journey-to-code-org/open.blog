@@ -92,7 +92,9 @@ export function blueskySheet({ api, sheet, ctx, say, statusBox, headingOf, openC
         detailsBox([...providerLines(ctx.providerOf("bluesky")), account ? `account ${account.id} ${account.externalId}` : ""])],
       dirty: typed,
       save: submit,
-      question: { heading: "Connect Bluesky?", text: "You typed your Bluesky name and didn't connect.", save: account ? `Reconnect ${account.displayName}` : "Connect Bluesky", leave: "Leave without connecting" },
+      question: account
+        ? { heading: `Reconnect ${account.displayName}?`, text: "You typed your Bluesky name and didn't reconnect.", save: `Reconnect ${account.displayName}`, leave: "Leave without reconnecting" }
+        : { heading: "Connect Bluesky?", text: "You typed your Bluesky name and didn't connect.", save: "Connect Bluesky", leave: "Leave without connecting" },
       focus: () => input(account ? secret : nameField)?.focus(),
       onClose: () => { secret.value = ""; },
     });

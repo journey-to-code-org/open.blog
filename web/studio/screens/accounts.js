@@ -39,7 +39,8 @@ export async function createAccounts(context, route = { query: {} }) {
   let retried = new Set(); // accounts whose "Try them again" already ran this time
   const watchers = new Map();
 
-  const heading = h("h2", { id: "studio-accounts-page-h", class: "studio-question", tabindex: "-1", text: "Your accounts" });
+  // The shell's h1 already says "Your accounts": like Your posts, the h2 is there for focus and screen readers only.
+  const heading = h("h2", { id: "studio-accounts-page-h", class: "studio-visually-hidden", tabindex: "-1", text: "Your accounts" });
   const status = h("p", { class: "studio-help", role: "status", "aria-live": "polite", tabindex: "-1" });
   const top = h("div", { class: "studio-banner" });
   const primarySlot = h("div", { class: "studio-account-primary" });
@@ -49,15 +50,13 @@ export async function createAccounts(context, route = { query: {} }) {
   const element = h("section", { class: "studio-page studio-accounts", "aria-labelledby": "studio-accounts-page-h" },
     h("a", { class: "studio-more-link", href: "#/sharing", text: "< Back to Sharing" }),
     heading,
-    h("p", { class: "studio-lede", text: "Where Studio can post for you. It posts only when you share a post." }),
+    h("p", { class: "studio-lede", text: "Where your blog can post for you. It posts only when you share a post." }),
     primarySlot, top, status,
     h("div", { class: "studio-account-columns" }, h("div", { class: "studio-account-main" }, main), side));
 
   const providerOf = (name) => overview?.providers?.find((p) => p.provider === name) || null;
-  const loopback = () => ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
   const sheets = createAccountSheets({
     api, sheet, links, timeZone, providerOf,
-    canReturn: () => overview?.returns === true && (location.protocol === "https:" || loopback()),
     reread: async (id) => { await readConnections(); return connections.find((c) => c.id === id) || null; },
     watch: (id, then) => watchers.set(id, then),
     done,
@@ -74,6 +73,9 @@ export async function createAccounts(context, route = { query: {} }) {
 
   async function load() {
     clearTimeout(pollTimer);
+    // The address goes back to plain Your accounts whatever happens next (sharing off, a failed
+    // read), so Back or a reload never runs a link again. `pending` keeps it for this page.
+    if (Object.keys(pending).length) context.replaceRoute?.(ACCOUNTS);
     if (meta.social !== true) return drawOff({ state: "off" });
     main.setAttribute("aria-busy", "true");
     try {
@@ -255,13 +257,11 @@ export async function createAccounts(context, route = { query: {} }) {
     const query = pending;
     pending = {};
     if (!Object.keys(query).length) return;
-    // The address goes back to plain Your accounts, so Back or a reload never runs this again.
-    context.replaceRoute?.(ACCOUNTS);
     const id = R.returnConnectionId(query);
     if (id) {
       const found = connections.find((c) => c.id === id);
       if (!found) {
-        say("Studio couldn't find that connection. If your account isn't listed, connect it again.");
+        say("Your blog couldn't find that connection. If your account isn't listed, connect it again.");
         requestAnimationFrame(() => status.focus());
         return;
       }

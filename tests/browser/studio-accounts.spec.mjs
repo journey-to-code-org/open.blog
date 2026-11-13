@@ -138,6 +138,7 @@ function handleHosted(request, response, body) {
   if (match) {
     const connection = state.connections.find((c) => c.id === match[1]);
     const destination = connection.destinations.find((d) => d.id === input.destination);
+    if (!destination.eligible) return send(409, { error: "destination-not-eligible", message: "That destination cannot be used." });
     connection.status = "completed";
     const account = { id: uuid(), provider: connection.provider, kind: destination.kind, externalId: destination.id, displayName: destination.name, status: "connected", health: "ok", connectedBy: "writer", createdAt: new Date().toISOString(), updatedAt: "2026-10-29T10:00:00Z", disconnectedAt: null, credential: credential(connection.grantedScopes) };
     state.accounts.unshift(account);
@@ -268,11 +269,18 @@ test("without sharing settings Your accounts says so, offers nothing, and the br
   await expect(page.getByRole("button", { name: /^Connect / })).toHaveCount(0);
   const status = await page.evaluate(async () => (await fetch("/admin/api/social/accounts", { credentials: "same-origin" })).status);
   expect(status).toBe(404);
+  // A way back that lands on a site without sharing is still taken out of the address.
+  await page.goto(`${plain.origin}/admin/studio/#/sharing/accounts?connection=00000001-0000-4000-8000-000000000000`);
+  await expect(page.getByText("Sharing to Facebook isn't set up")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/sharing/accounts");
 });
 
 test("connect Facebook in the same tab: say yes, come back to the choice, pick by keyboard, and see the account", async ({ page }) => {
   await openAccounts(page, configured);
   await expect(page.locator("#studio-accounts-page-h")).toBeFocused();
+  // One "Your accounts" to see: the shell's title. The screen's h2 is there for focus and screen readers.
+  await expect(page.locator("h1")).toHaveText("Your accounts");
+  expect(await page.locator("h1, h2").filter({ hasText: /^Your accounts$/ }).evaluateAll((nodes) => nodes.filter((n) => n.getBoundingClientRect().height > 1).length)).toBe(1);
   await page.locator('li[data-provider="facebook"]').getByRole("button", { name: "Connect Facebook" }).click();
   const connect = sheet(page);
   await expect(heading(page, "Connect Facebook")).toBeFocused();
@@ -309,7 +317,7 @@ test("connect Facebook in the same tab: say yes, come back to the choice, pick b
   await expect(card.getByRole("heading", { name: "Grammi's House" })).toBeFocused();
   await expect(card).toContainText("Facebook Page");
   await expect(card.locator("status-badge")).toHaveText("Connected");
-  await expect(page.locator(".studio-accounts [role=status]").first()).toContainText("Connected. Studio can post to Grammi's House on Facebook now.");
+  await expect(page.locator(".studio-accounts [role=status]").first()).toContainText("Connected. Your blog can post to Grammi's House on Facebook now.");
   for (const text of [await page.locator("body").innerText(), await page.content()]) expect(text).not.toContain(TOKEN);
   // Back never runs the return again.
   await page.goBack();
@@ -344,9 +352,9 @@ test("a foreign ?connection= is ignored and taken out; an unknown one is said pl
   await expect(page.locator("#studio-accounts-page-h")).toBeVisible();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/sharing/accounts");
   await expect(sheet(page)).toHaveCount(0);
-  await expect(page.getByText("Studio couldn't find that connection")).toHaveCount(0);
+  await expect(page.getByText("Your blog couldn't find that connection")).toHaveCount(0);
   await page.goto(`${configured.origin}/admin/studio/#/sharing/accounts?connection=99999999-0000-4000-8000-000000000000`);
-  await expect(page.getByText("Studio couldn't find that connection. If your account isn't listed, connect it again.")).toBeVisible();
+  await expect(page.getByText("Your blog couldn't find that connection. If your account isn't listed, connect it again.")).toBeVisible();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/sharing/accounts");
 });
 
@@ -358,7 +366,7 @@ test("an account that needs reconnecting: Reconnect in the same tab, then Try th
   await openAccounts(page, configured, `#/sharing/accounts`);
   const card = page.locator(`li[data-account="${id}"]`);
   await expect(card.locator("status-badge")).toHaveText("Needs reconnecting");
-  await expect(card).toContainText("Facebook stopped taking posts from Studio. Reconnect it, signing in to the Facebook account you used the first time.");
+  await expect(card).toContainText("Facebook stopped taking posts from your blog. Reconnect it, signing in to the Facebook account you used the first time.");
   await expect(card).toContainText("1 post is waiting for it.");
   await card.getByRole("button", { name: "Reconnect Grammi's House" }).click();
   await expect(heading(page, "Reconnect Grammi's House")).toBeFocused();
@@ -429,6 +437,20 @@ test("leaving the Bluesky sheet with a typed name asks first", async ({ page }) 
   await expect(sheet(page)).toHaveCount(0);
 });
 
+test("leaving a Bluesky reconnect with a changed name asks in reconnect words", async ({ page }) => {
+  const id = uuid();
+  state.accounts.push({ id, provider: "bluesky", kind: "account", externalId: DID, displayName: "@ada.bsky.social", status: "needs-reauth", health: "needs-reauth", connectedBy: "writer", createdAt: "2026-11-02T10:00:00Z", updatedAt: "2026-11-02T10:00:00Z", disconnectedAt: null, credential: credential() });
+  await openAccounts(page, configured);
+  await page.locator(`li[data-account="${id}"]`).getByRole("button", { name: "Reconnect @ada.bsky.social" }).click();
+  await sheet(page).getByRole("textbox", { name: "Your Bluesky name" }).fill("ada2.bsky.social");
+  await page.keyboard.press("Escape");
+  const question = page.getByRole("dialog", { name: "Reconnect @ada.bsky.social?" });
+  await expect(question).toContainText("You typed your Bluesky name and didn't reconnect.");
+  await expect(question.getByRole("button", { name: "Reconnect @ada.bsky.social" })).toBeVisible();
+  await question.getByRole("button", { name: "Leave without reconnecting" }).click();
+  await expect(sheet(page)).toHaveCount(0);
+});
+
 test("without a way back (an older sharing service), Facebook opens in a new tab she opens herself", async ({ page }) => {
   state.returns = false;
   await openAccounts(page, configured);
@@ -449,6 +471,79 @@ test("without a way back (an older sharing service), Facebook opens in a new tab
   await sheet(page).getByRole("button", { name: "I've said yes" }).click();
   await expect(heading(page, "Where should LinkedIn posts go?")).toBeFocused();
   await expect(page.getByRole("radio", { name: /Lantern/ })).toBeDisabled();
+});
+
+test("new tab, she says no on Facebook: I've said yes closes the waiting step and opens step 1 with the reason and Try again", async ({ page }) => {
+  state.returns = false;
+  await openAccounts(page, configured);
+  await page.locator('li[data-provider="facebook"]').getByRole("button", { name: "Connect Facebook" }).click();
+  await sheet(page).getByRole("button", { name: "Continue to Facebook" }).click();
+  const open = sheet(page).getByRole("link", { name: "Open Facebook, in a new tab" });
+  const tab = await page.context().newPage();
+  await tab.route(/^https:\/\/www\.facebook\.com\//, (route) => route.fulfill({ status: 200, contentType: "text/html", body: `<a href="http://127.0.0.1:${hostedPort}/api/social/callback/facebook?state=${new URL(route.request().url()).searchParams.get("state")}&error=access_denied">Say no</a>` }));
+  await tab.goto(await open.getAttribute("href"));
+  await tab.getByRole("link", { name: "Say no" }).click();
+  await tab.close();
+  await sheet(page).getByRole("button", { name: "I've said yes" }).click();
+  await expect(heading(page, "Connect Facebook")).toBeFocused();
+  await expect(sheet(page)).toContainText("You said no on Facebook, so nothing was connected.");
+  await expect(sheet(page).getByRole("button", { name: "Try connecting Facebook again" })).toBeVisible();
+  // It stays open: the closing of the waiting step never catches up with it.
+  await page.waitForTimeout(500);
+  await expect(sheet(page)).toHaveCount(1);
+  await expect(sheet(page)).toContainText("You said no on Facebook");
+});
+
+test("coming back while Facebook is still finishing: the finishing step gives way to the choice once it's ready", async ({ page }) => {
+  const connection = newConnection("facebook", { status: "exchanging" });
+  state.connections.unshift(connection);
+  await openAccounts(page, configured, `#/sharing/accounts?connection=${connection.id}`);
+  await expect(sheet(page)).toContainText("Facebook said yes");
+  await expect(sheet(page).locator(`[data-finishing="${connection.id}"]`)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/sharing/accounts");
+  Object.assign(connection, {
+    status: "authorized", grantedScopes: ["pages_show_list", "pages_manage_posts"],
+    destinations: [{ id: "111", kind: "page", name: "Grammi's House", eligible: true, reason: null }],
+  });
+  await expect(heading(page, "Where should Facebook posts go?")).toBeFocused({ timeout: 10000 });
+  await page.waitForTimeout(500);
+  await expect(sheet(page)).toHaveCount(1);
+  await expect(sheet(page).getByRole("radio", { name: "Grammi's House, Facebook Page" })).toBeChecked();
+});
+
+test("same tab or new tab is decided by the start's own reply, not by what the page read when it loaded", async ({ page }) => {
+  // The page loaded saying it returns; by the time she presses Continue, it doesn't.
+  await openAccounts(page, configured);
+  await expect(page.locator('li[data-provider="linkedin"]')).toBeVisible();
+  state.returns = false;
+  await page.locator('li[data-provider="linkedin"]').getByRole("button", { name: "Connect LinkedIn" }).click();
+  await sheet(page).getByRole("button", { name: "Continue to LinkedIn" }).click();
+  await expect(sheet(page).getByRole("link", { name: "Open LinkedIn, in a new tab" })).toBeVisible();
+  expect(page.url()).toContain("/admin/studio/");
+  await sheet(page).getByRole("button", { name: "Don't connect LinkedIn" }).click();
+  // And the other way round: loaded saying no, the start named a way back, so she goes in this tab.
+  await page.reload();
+  await expect(page.locator('li[data-provider="facebook"]')).toBeVisible();
+  state.returns = true;
+  await connectFacebook(page);
+});
+
+test("a Page that stopped being allowed while she chose shows the reason the server gives now", async ({ page }) => {
+  const connection = newConnection("facebook", {
+    status: "authorized", returnTo: null, grantedScopes: ["pages_show_list", "pages_manage_posts"],
+    destinations: [{ id: "111", kind: "page", name: "Grammi's House", eligible: true, reason: null }, { id: "333", kind: "page", name: "Jimmy's Diner", eligible: true, reason: null }],
+  });
+  state.connections.unshift(connection);
+  await openAccounts(page, configured, `#/sharing/accounts?connection=${connection.id}`);
+  await expect(heading(page, "Where should Facebook posts go?")).toBeFocused();
+  const mine = sheet(page).getByRole("radio", { name: "Grammi's House, Facebook Page" });
+  await mine.check();
+  // Meanwhile her role on the Page was taken away.
+  Object.assign(connection.destinations[0], { eligible: false, reason: "no-posting-role" });
+  await sheet(page).getByRole("button", { name: "Connect Grammi's House" }).click();
+  await expect(mine).toBeDisabled();
+  await expect(mine).toHaveAccessibleDescription("Facebook doesn't let your account post on this Page.");
+  await expect(sheet(page).getByRole("button", { name: "Connect this one" })).toBeVisible();
 });
 
 test("Mastodon: the only address followed is that instance's own sign-in page", async ({ page }) => {

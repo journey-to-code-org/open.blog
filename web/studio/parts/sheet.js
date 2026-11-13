@@ -15,6 +15,10 @@ export async function createSheet({ label, wide = true }) {
   const element = h("side-sheet", { label, side: "right", class: wide ? "studio-wide-sheet" : "" });
   let current = null; // { dirty, save, question, opener }
   let asking = false;
+  // While a close we asked for is still reaching the native dialog: its "close" event comes a task
+  // later, and if the sheet were opened again before it, that late event would shut the new sheet
+  // (and finish it) as soon as it showed. An open waits for this instead.
+  let settling = null;
 
   async function confirmLeave() {
     if (!current || !current.dirty?.()) return true;
@@ -72,14 +76,38 @@ export async function createSheet({ label, wide = true }) {
     if (opener?.isConnected) requestAnimationFrame(() => (opener.querySelector?.("button, a, input") || opener).focus?.());
   }
 
-  /** Open with `children`; `focus` runs once it shows. */
+  /** Open with `children`; `focus` runs once it shows. Safe straight after `close()`. */
   function show({ heading, children, dirty = () => false, save = null, question = null, opener = document.activeElement, focus = null, onClose = null }) {
-    current = { dirty, save, question, opener, focus, onClose };
+    const shown = { dirty, save, question, opener, focus, onClose };
+    current = shown;
     element.label = heading;
     element.replaceChildren(h("span", { slot: "heading", text: heading }), ...children.flat().filter(Boolean));
     if (!element.isConnected) document.body.append(element);
-    element.open = true;
-    requestAnimationFrame(() => focus?.());
+    const open = () => {
+      if (current !== shown) return; // closed, or replaced, while the last close settled
+      element.open = true;
+      requestAnimationFrame(() => focus?.());
+    };
+    if (settling) settling.then(open);
+    else open();
+  }
+
+  /** Resolves once the native dialog has really closed (its "close" event), or at once if it isn't open. */
+  function settle() {
+    const dialog = element.querySelector(":scope > dialog");
+    if (!dialog?.open || !element.isConnected) return null;
+    const done = new Promise((resolve) => {
+      const end = () => {
+        clearTimeout(timer);
+        dialog.removeEventListener("close", end);
+        if (settling === done) settling = null;
+        resolve();
+      };
+      // A safety net only: the close event comes within a task of the component's update.
+      const timer = setTimeout(end, 1000);
+      dialog.addEventListener("close", end);
+    });
+    return done;
   }
 
   /** Close without asking (after a save, or Cancel on a sheet with nothing changed). */
@@ -87,6 +115,7 @@ export async function createSheet({ label, wide = true }) {
     if (!current) return;
     // Setting `open` from outside fires no openchange, so the sheet is finished here.
     element.open = false;
+    settling = settle() || settling;
     finish();
   }
 
