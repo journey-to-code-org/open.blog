@@ -1,4 +1,4 @@
-# ADR 0411: Diagram rendering needs a bounded headless engine
+# ADR 0413: Diagram rendering needs a bounded headless engine
 
 - Status: Proposed
 - Date: 2026-11-12

@@ -719,7 +719,7 @@ pub fn generate_with_trail_budget(
         c.posts_per_page
     };
     let page_count = site.posts.len().div_ceil(per_page).max(1);
-    // With docs.home the documentation's index is the home page (ADR 0407), written with the
+    // With docs.home the documentation's index is the home page (ADR 0411), written with the
     // other pages; there is no post list at `/` or `/page/N/`.
     let home_pages = if c.docs.enabled && c.docs.home {
         0
@@ -3820,14 +3820,19 @@ impl<'a> Renderer<'a> {
             "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\"><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
         );
         if self.site.config.docs.enabled {
-            // A site with documentation searches it too (ADR 0407).
+            // A site with documentation searches it too (ADR 0411).
             body = body.replace(
                 "<label for=\"q\">Search posts</label>",
                 "<label for=\"q\">Search the site</label>",
             );
         }
         body.push_str("</section>\n</div>");
-        let mut meta = self.meta_simple(theme, "Search", "Search every post.", "/search/");
+        let description = if self.site.config.docs.enabled {
+            "Search the documentation and every post."
+        } else {
+            "Search every post."
+        };
+        let mut meta = self.meta_simple(theme, "Search", description, "/search/");
         meta.noindex = true;
         self.document(&meta, &body)
     }

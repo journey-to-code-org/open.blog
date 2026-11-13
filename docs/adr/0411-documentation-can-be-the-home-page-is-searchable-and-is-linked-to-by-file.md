@@ -1,4 +1,4 @@
-# ADR 0407: Documentation can be the home page, is searchable, and is linked to by file
+# ADR 0411: Documentation can be the home page, is searchable, and is linked to by file
 
 - Status: Accepted
 - Date: 2026-11-11
