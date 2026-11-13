@@ -46,7 +46,7 @@ export async function createNotifications(context, route = { query: {} }) {
 
   const card = createHereCard({
     here: () => here, api, push, overview: () => overview, found: () => found, offered, limit, say, toast,
-    picked: () => picked ?? offered(), setPicked: (kinds) => { picked = kinds; },
+    picked: () => picked ?? R.startingPicks(offered(), found.mine), setPicked: (kinds) => { picked = kinds; },
     reload: () => load(),
     homeScreen: (opener) => homeScreen.open({ opener }),
     turnedOff: (kept) => showUndo(kept),

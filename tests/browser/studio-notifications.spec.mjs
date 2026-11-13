@@ -152,6 +152,20 @@ test.beforeEach(async ({ page, context }) => {
   page.on("dialog", (dialog) => { throw new Error(`unexpected ${dialog.type()}: ${dialog.message()}`); });
   for (const server of [configured, plain]) await context.grantPermissions(["notifications"], { origin: server.origin });
   // Headless Chrome has no push service: the sign-up is stood in for, kept in localStorage like a real one is kept by the browser.
+  // A phone whose answer was reset (localStorage "test:permission" = "default") is asked again; and
+  // "test:standalone" stands in for the app opened from its icon.
+  await context.addInitScript(() => {
+    if (globalThis.Notification) {
+      const real = Object.getOwnPropertyDescriptor(Notification, "permission").get;
+      const ask = Notification.requestPermission.bind(Notification);
+      Object.defineProperty(Notification, "permission", { configurable: true, get: () => localStorage.getItem("test:permission") || real.call(Notification) });
+      Notification.requestPermission = async () => (localStorage.getItem("test:permission") ? (localStorage.removeItem("test:permission"), "granted") : ask());
+    }
+    if (localStorage.getItem("test:standalone")) {
+      const media = globalThis.matchMedia.bind(globalThis);
+      globalThis.matchMedia = (query) => (/display-mode: standalone/.test(query) ? { matches: true, media: query, addEventListener() {}, removeEventListener() {} } : media(query));
+    }
+  });
   await context.addInitScript(() => {
     if (!globalThis.PushManager) return;
     const KEY = "test:push-subscription";
@@ -266,6 +280,32 @@ test("turn on, change a switch, send a test, turn off and Undo, then remove anot
   const scopes = await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).map((r) => [r.scope, (r.active || r.waiting || r.installing)?.scriptURL]));
   expect(scopes).toEqual([[`${configured.origin}/admin/`, `${configured.origin}/admin/sw.js`]]);
   for (const text of [await page.locator("body").innerText()]) expect(text).not.toContain("fcm.googleapis.com");
+});
+
+test("turning on again where the server still has this computer keeps its name and her choices", async ({ page }) => {
+  await open(page, configured);
+  // This computer's sign-up is still on the list, named and chosen in the old Admin; only its answer was reset.
+  const endpoint = "https://fcm.googleapis.com/fcm/send/kept-one";
+  const hash = createHash("sha256").update(endpoint).digest("hex").slice(0, 32);
+  const kept = { id: "33333333-3333-4333-8333-333333333333", device: hash, label: "Grammi's laptop", kinds: ["comment", "quote"], createdAt: "2026-10-01T12:00:00.000Z", lastSentAt: null };
+  state.devices.push(structuredClone(kept));
+  await page.evaluate((value) => {
+    localStorage.setItem("test:push-subscription", JSON.stringify({ endpoint: value }));
+    localStorage.setItem("test:permission", "default");
+  }, endpoint);
+  await page.reload();
+  const card = here(page);
+  await expect(card.locator("status-badge")).toHaveText("Off");
+  // The switches show what she saved, not every kind.
+  await expect(card.getByRole("switch", { name: "Someone leaves a comment" })).toHaveAttribute("aria-checked", "true");
+  await expect(card.getByRole("switch", { name: "A reader sends you a note about a post" })).toHaveAttribute("aria-checked", "false");
+  await card.getByRole("button", { name: "Turn on notifications" }).click();
+  await expect(card.locator("status-badge")).toHaveText("On");
+  const after = state.devices.find((d) => d.device === hash);
+  expect(after.id).toBe(kept.id);
+  expect(after.label).toBe("Grammi's laptop");
+  expect(after.kinds).toEqual(["comment", "quote"]);
+  await expect(card).toContainText("This computer is called “Grammi's laptop”.");
 });
 
 test("another computer: send it a test, change what it tells you (asking before losing a change), rename it", async ({ page }) => {

@@ -49,8 +49,11 @@ export function createHereCard(ctx) {
     button.loading = true;
     button.setAttribute("aria-busy", "true");
     say("Turning on…");
-    const label = R.uniqueLabel(R.guessLabel(navigator.userAgent), (overview.devices || []).filter((d) => d.device !== found.hash));
-    const kinds = R.keptKinds(ctx.picked(), ctx.offered(), []);
+    // Where the server already has this phone, her name and choices stay (never a new guess).
+    const { label, kinds } = R.turnOnChoices({
+      mine: found.mine, guess: R.guessLabel(navigator.userAgent), picked: ctx.picked(), offered: ctx.offered(),
+      devices: (overview.devices || []).filter((d) => d.device !== found.hash),
+    });
     const asking = Notification.permission === "default";
     const hint = asking ? setTimeout(() => say(ctx.here().desktop
       ? `Your ${noun()} is asking. Choose Allow. Don't see the question? Look for a bell at the right end of the address bar and click it.`

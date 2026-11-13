@@ -133,6 +133,21 @@ export function keptKinds(picked = [], offered = [], held = []) {
   return byOrder([...held.filter((k) => !offered.includes(k)), ...picked.filter((k) => offered.includes(k))]);
 }
 
+/** The switches before turning on: what she saved when the server already has this phone, otherwise every offered kind. */
+export function startingPicks(offered = [], mine = null) {
+  return mine ? offered.filter((k) => (mine.kinds || []).includes(k)) : [...offered];
+}
+
+/**
+ * The name and kinds to send when turning on. Where the server already has this phone's sign-up
+ * (`mine`, found by endpointHash) her name stays and every kind it holds that isn't shown is kept;
+ * otherwise the guessed name, made unique among `devices`.
+ */
+export function turnOnChoices({ mine = null, guess = "Phone", devices = [], picked = [], offered = [] } = {}) {
+  if (mine) return { label: mine.label, kinds: keptKinds(picked, offered, mine.kinds || []) };
+  return { label: uniqueLabel(guess, devices), kinds: keptKinds(picked, offered, []) };
+}
+
 const listWords = (words) => (words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`);
 
 /** "Tells you about comments and news from your other apps." */

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import {
   KIND_WORDS, herePhone, hereState, deviceNoun, guessLabel, uniqueLabel, endpointHash, keyBytes, sameKey,
   offeredKinds, keptKinds, kindsSummary, savedKindsWords, lastToldWords, deniedSteps, didntSeeIt, pushTrouble,
-  stateWords, stateBadge, stopWords, ledeWords,
+  stateWords, stateBadge, stopWords, ledeWords, startingPicks, turnOnChoices,
 } from "../../web/studio/parts/notification-rules.js";
 import { installWay, installSteps, menuLabel, sheetLabel, promptOutcomeWords } from "../../web/studio/parts/install-rules.js";
 
@@ -102,6 +102,18 @@ test("the switches are only what the site offers; a change keeps every kind it d
   assert.deepEqual(keptKinds(["app"], ["comment", "feedback", "app"], ["comment", "quote", "app"]), ["quote", "app"]);
   assert.deepEqual(keptKinds([], ["comment"], ["comment"]), []);
   assert.deepEqual(keptKinds(["comment", "quote"], ["comment"], []), ["comment"], "never what isn't offered");
+});
+
+test("turning on where the server already has this phone keeps her name and choices", () => {
+  const offered = ["comment", "feedback", "app"];
+  const mine = { id: "a", device: "h", label: "Grammi's laptop", kinds: ["comment", "quote"] };
+  // The switches before turning on show what she saved, not every kind.
+  assert.deepEqual(startingPicks(offered, mine), ["comment"]);
+  assert.deepEqual(startingPicks(offered, null), offered, "a new phone starts with every offered kind on");
+  // Her name stays and quote, which this site doesn't show, is never dropped.
+  assert.deepEqual(turnOnChoices({ mine, guess: "Linux computer", devices: [], picked: ["comment", "app"], offered }), { label: "Grammi's laptop", kinds: ["comment", "quote", "app"] });
+  // A phone the server doesn't know gets a guessed name, made unique, and only what she picked.
+  assert.deepEqual(turnOnChoices({ mine: null, guess: "iPhone", devices: [{ label: "iPhone" }], picked: ["comment", "quote"], offered }), { label: "iPhone 2", kinds: ["comment"] });
 });
 
 test("summaries, saved words and when it last told her", () => {

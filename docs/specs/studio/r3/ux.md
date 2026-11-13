@@ -128,7 +128,7 @@ Card heading via `deviceNoun`: "This iPhone", "This iPad", "This phone" (Android
 | `quote` | Someone asks for a quote | quote requests | `meta.quote` |
 | `app` | Your other apps have news, like a gift or a game | news from your other apps | `status.otherApps` |
 
-A new phone starts with every offered kind on. Kinds the server holds but this screen doesn't offer are **kept** on change (`keptKinds`); Studio never drops what it doesn't show.
+A new phone starts with every offered kind on. A phone whose sign-up the server already has (found by `endpointHash`, say after its answer was reset) shows its saved choices instead (`startingPicks`). Kinds the server holds but this screen doesn't offer are **kept** on change (`keptKinds`); Studio never drops what it doesn't show.
 
 **Nothing offered:** `empty-state` "There's nothing for notifications to tell you about yet" / "They tell you about comments and quote requests, and neither is turned on for your blog."
 
@@ -155,7 +155,7 @@ One press (button loading; status "Turning on…"):
 1. **Ask first, inside the press:** `Notification.requestPermission()` before any `await` (Safari needs the tap). Not asked when already `granted`.
 2. Register `/admin/sw.js`, scope `/admin/`; wait for `ready`.
 3. Reuse this phone's sign-up if its key matches `status.publicKey` (`sameKey`); otherwise unsubscribe the stale one and subscribe with `userVisibleOnly: true`.
-4. `POST push/devices {subscription, label, kinds}`; `label` from `guessLabel(userAgent)`, made unique ("iPhone 2").
+4. `POST push/devices {subscription, label, kinds}` (`turnOnChoices`). When the server already has this sign-up, its `label` stays and its kinds are kept (`keptKinds`, so "quote" is never dropped); otherwise `label` from `guessLabel(userAgent)`, made unique ("iPhone 2").
 5. `POST push/test {id}`.
 6. Status "On. A test is on its way to this iPhone." Toast "Notifications are on." Focus to the card heading.
 
