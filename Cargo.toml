@@ -9,6 +9,8 @@ members = [
 [workspace.package]
 version = "0.56.0"
 edition = "2021"
+# Merman, the diagram renderer, needs 1.95 (ADR 0416).
+rust-version = "1.95"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/journey-to-code-org/open.blog"
 
@@ -40,3 +42,9 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.png]
 opt-level = 3
+
+[patch.crates-io]
+# merman-core and merman-model 0.10.0 with one change: it does not turn on serde_json's `preserve_order`, which
+# would otherwise change the key order of every JSON file open.blog writes (ADR 0416).
+merman-core = { path = "vendor/merman-core" }
+merman-model = { path = "vendor/merman-model" }

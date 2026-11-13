@@ -68,7 +68,16 @@ fn json_ld(page: &str) -> Value {
     let marker = "application/ld+json\">";
     let start = page.find(marker).expect("structured data") + marker.len();
     let end = start + page[start..].find("</script>").unwrap();
-    serde_json::from_str(&page[start..end]).expect("valid JSON")
+    let value: Value = serde_json::from_str(&page[start..end]).expect("valid JSON");
+    let mut sorted = value.clone();
+    sorted.sort_all_objects();
+    let canonical = sorted
+        .to_string()
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026");
+    assert_eq!(&page[start..end], canonical);
+    value
 }
 
 #[test]

@@ -1,0 +1,63 @@
+# ADR 0416: Diagrams are rendered at build time by merman, on by default
+
+- Status: Accepted
+- Date: 2026-11-12 (proposed), 2026-11-13 (accepted)
+- Epic: [#566](https://github.com/journey-to-code-org/open.blog/issues/566)
+
+## Context
+
+Mermaid source needs to produce the same accessible, script-free diagram in
+builds and Admin previews. A renderer must be evaluated on more than whether it
+returns SVG: malformed input, resource use, browser payload, output safety and
+the licenses of transitive dependencies matter too.
+
+## Decision
+
+Use the [renderer comparison](../../tests/fixtures/diagrams/README.md) to
+develop against merman 0.10.0, with only the required diagram families, SVG and
+Cytoscape enabled; disable its default ELK feature. Use strict parsing and
+plain SVG labels. This configuration preserved the fixture descriptions,
+rejected the malformed example, and matched Windows, Linux and browser WASM
+output on the initial corpus. It was visually close to Mermaid on those
+examples. The other candidates either include an EPL-2.0 layout dependency or
+failed the malformed-input and accessibility-text checks.
+
+Do not treat this proposal as approval to publish raw SVG. Before enabling
+diagrams, implement and test an allowlist sanitizer, bounded rendering and
+publication gates. Review and satisfy the MPL-2.0 and other dependency notice
+and source-distribution obligations for the exact shipped feature set.
+
+## Consequences
+
+Merman 0.10.0 declares Rust 1.95 as its minimum, while the project's README
+currently promises Rust 1.85 or newer. Adding it to the shared workspace would
+therefore break the documented compiler support. The renderer choice remains
+provisional until a compatible implementation or an explicitly approved
+compiler-support change is established. Ferrigura 0.7.0 also declares 1.95;
+the comparison's remaining candidate did not meet the malformed-input and
+accessibility-text checks.
+
+The current lockfile already includes dependencies declaring newer compilers,
+including the CLI's image 0.25.10 at Rust 1.88. That discrepancy does not
+establish that a further increase to 1.95 is acceptable.
+
+The initial generated WASM binding is about 9.9 MB uncompressed, substantially
+larger than the existing Admin module. It must be loaded separately on demand
+and measured against a documented budget; the spike is not a production
+payload measurement. Expand the fixture corpus and repeat visual, safety,
+license, native/WASM and cross-platform checks whenever the pinned renderer,
+its features or its dependencies change. Revisit this decision if those checks
+fail or the payload cannot meet the budget.
+
+## Acceptance (2026-11-13)
+
+The compiler question above is settled by raising the project's minimum Rust to **1.95**, the version merman
+declares, and turning diagram rendering **on by default** in the `openblog` binary (`openblog-cli`'s default
+`diagram-rendering` feature). Stable Rust is 1.97 at the time of writing, and the lockfile already needed 1.88.
+`cargo build --no-default-features -p openblog-cli` still builds a binary without the renderer, in which a
+` ```mermaid ` fence stays a code block, as before diagrams existed. `openblog-core` and `openblog-wasm` keep the
+feature off by default so the search WebAssembly module never carries the renderer; the Admin diagram preview is
+its own module, built with the feature and loaded only by the diagram editor.
+
+A site with no ` ```mermaid ` fence builds byte for byte the same with and without the feature (checked for every
+starter, the portable example and the example site).

@@ -5260,3 +5260,105 @@ ob-docs-nav {
   margin-inline-start: auto;
   text-align: end;
 }
+
+/* ---------- Diagrams (ADRs 0416, 0417) ----------
+   A diagram's colours are these variables, made from the look's own colours, so one SVG follows
+   the look in light and dark. The accents mix six hues with the text colour: dark in light mode,
+   light in dark mode, and readable against the page and the diagram's fills in every bundled look
+   (checked by diagram_contrast.rs, which reads the hues and amounts below). */
+
+.ob-diagram {
+  --ob-diagram-text: var(--ob-color-text);
+  --ob-diagram-fill: var(--ob-color-surface-raised);
+  --ob-diagram-line: var(--ob-color-muted);
+  --ob-diagram-highlight: color-mix(in srgb, var(--ob-color-accent) 14%, var(--ob-color-surface-raised));
+  --ob-diagram-accent-1: color-mix(in srgb, #e5484d 60%, var(--ob-color-text));
+  --ob-diagram-accent-2: color-mix(in srgb, #f76b15 60%, var(--ob-color-text));
+  --ob-diagram-accent-3: color-mix(in srgb, #30a46c 60%, var(--ob-color-text));
+  --ob-diagram-accent-4: color-mix(in srgb, #12a594 60%, var(--ob-color-text));
+  --ob-diagram-accent-5: color-mix(in srgb, #3e63dd 60%, var(--ob-color-text));
+  --ob-diagram-accent-6: color-mix(in srgb, #8e4ec6 60%, var(--ob-color-text));
+  margin: 1.75rem 0;
+  overflow-x: auto;
+}
+
+.ob-diagram > svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.ob-diagram figcaption {
+  margin-top: 0.5rem;
+  text-align: center;
+  color: var(--ob-color-muted);
+  font-size: 0.9rem;
+}
+
+.ob-diagram details {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* Printed on paper: black on white, whatever the look. */
+@media print {
+  .ob-diagram {
+    --ob-diagram-text: #000000;
+    --ob-diagram-fill: #ffffff;
+    --ob-diagram-line: #000000;
+    --ob-diagram-highlight: #ffffff;
+    --ob-diagram-accent-1: #000000;
+    --ob-diagram-accent-2: #000000;
+    --ob-diagram-accent-3: #000000;
+    --ob-diagram-accent-4: #000000;
+    --ob-diagram-accent-5: #000000;
+    --ob-diagram-accent-6: #000000;
+    break-inside: avoid;
+  }
+
+  .ob-diagram details {
+    display: none;
+  }
+}
+
+/* Forced colours (Windows High Contrast and the like): the system's own text and background. */
+@media (forced-colors: active) {
+  .ob-diagram {
+    --ob-diagram-text: CanvasText;
+    --ob-diagram-fill: Canvas;
+    --ob-diagram-line: CanvasText;
+    --ob-diagram-highlight: Canvas;
+    --ob-diagram-accent-1: CanvasText;
+    --ob-diagram-accent-2: CanvasText;
+    --ob-diagram-accent-3: CanvasText;
+    --ob-diagram-accent-4: CanvasText;
+    --ob-diagram-accent-5: CanvasText;
+    --ob-diagram-accent-6: CanvasText;
+  }
+
+  .ob-diagram > svg {
+    forced-color-adjust: none;
+  }
+}
+
+/* Diagram node links (ADR 0418): the nodes are links for a pointer; the list under the figure is
+   where a keyboard or screen reader finds them. */
+.ob-diagram .ob-diagram-link {
+  cursor: pointer;
+}
+
+.ob-diagram .ob-diagram-link:hover {
+  opacity: 0.8;
+}
+
+.ob-diagram-links ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  justify-content: center;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+}

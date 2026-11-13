@@ -585,6 +585,25 @@ fn route(state: &AppState, req: &Request) -> Response {
             None => Response::error(404, "Not found"),
         };
     }
+    #[cfg(feature = "diagram-rendering")]
+    if let Some(name) = path.strip_prefix("/admin/diagram-wasm/") {
+        let config = site::load_config(&state.root).unwrap_or_default();
+        return match site::diagram_wasm_file(&state.root, &config, name) {
+            Ok(Some(bytes)) => Response::new(
+                200,
+                if name.ends_with(".wasm") {
+                    "application/wasm"
+                } else if name.ends_with(".txt") {
+                    "text/plain; charset=utf-8"
+                } else {
+                    "text/javascript; charset=utf-8"
+                },
+                bytes,
+            ),
+            Ok(None) => Response::error(404, "Not found"),
+            Err(error) => Response::error(500, &error),
+        };
+    }
     let file = match path {
         "/admin" | "/admin/" => "index.html",
         "/admin/admin.js" => "admin.js",
@@ -606,6 +625,8 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/job-form.js" => "job-form.js",
         "/admin/job-capture.js" => "job-capture.js",
         "/admin/episode-editor.js" => "episode-editor.js",
+        "/admin/diagram-preview.js" => "diagram-preview.js",
+        "/admin/diagram-worker.js" => "diagram-worker.js",
         "/admin/capture-queue.js" => "capture-queue.js",
         "/admin/capture-recorder.js" => "capture-recorder.js",
         "/admin/capture-assistant.js" => "capture-assistant.js",
@@ -4206,6 +4227,7 @@ fn meta(state: &AppState) -> Response {
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
             "quizGeneration": assistant_ready,
+            "diagramRendering": cfg!(feature = "diagram-rendering"),
             "codeInteractionGeneration": assistant_ready,
             "codeRunnerLanguages": code_runner_languages,
             "social": social::is_configured(),
@@ -27923,6 +27945,45 @@ What I read:
         r.headers
             .insert("x-forwarded-for".into(), "203.0.113.9".into());
         assert_eq!(handle(&f.state, &r).status, 200);
+    }
+
+    #[cfg(feature = "diagram-rendering")]
+    #[test]
+    fn publishing_a_diagram_without_a_text_alternative_is_refused_but_a_draft_saves() {
+        let f = fixture("diagram-gate");
+        let session = login_ok(&f);
+        let fence = "Intro.\n\n```mermaid\nflowchart LR\nA --> B\n```\n";
+        let save = |draft: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({
+                            "kind": "posts",
+                            "fields": { "title": if draft { "Draft flow" } else { "Live flow" }, "date": "2020-01-01", "draft": draft },
+                            "body": fence,
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let refused = save(false);
+        let text = String::from_utf8_lossy(&refused.body).to_string();
+        assert_ne!(refused.status, 200, "{text}");
+        assert!(text.contains("diagram"), "{text}");
+        assert!(text.contains("screen readers"), "{text}");
+        assert!(text.contains("title="), "{text}");
+        let draft = save(true);
+        assert_eq!(
+            draft.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&draft.body)
+        );
     }
 
     #[test]

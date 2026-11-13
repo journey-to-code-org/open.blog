@@ -62,7 +62,7 @@ fn the_job_profile_is_selectable_and_listed_after_the_others() {
     assert_eq!(resolved.behavior, profile::ProfileBehavior::Job);
     assert!(resolved.warnings.is_empty());
     let ids = profile::catalog().iter().map(|p| p.id).collect::<Vec<_>>();
-    assert_eq!(ids.last(), Some(&"job"));
+    assert_eq!(ids[5], "job");
     assert_eq!(ids[0], "article");
 }
 

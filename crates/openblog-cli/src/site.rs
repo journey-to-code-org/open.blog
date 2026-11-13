@@ -396,6 +396,14 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/episode-editor.js"),
     ),
     (
+        "diagram-preview.js",
+        include_str!("../../../web/admin/diagram-preview.js"),
+    ),
+    (
+        "diagram-worker.js",
+        include_str!("../../../web/admin/diagram-worker.js"),
+    ),
+    (
         "capture-queue.js",
         include_str!("../../../web/admin/capture-queue.js"),
     ),
@@ -1057,6 +1065,32 @@ pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>
         .map(|(_, c)| c.as_bytes().to_vec())
 }
 
+#[cfg(feature = "diagram-rendering")]
+pub fn diagram_wasm_file(
+    root: &Path,
+    config: &SiteConfig,
+    name: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    let embedded: &[u8] = match name {
+        "openblog_wasm.js" => include_bytes!("../../../web/admin/diagram-wasm/openblog_wasm.js"),
+        "openblog_wasm_bg.wasm" => {
+            include_bytes!("../../../web/admin/diagram-wasm/openblog_wasm_bg.wasm")
+        }
+        "NOTICES.txt" => include_bytes!("../../../web/admin/diagram-wasm/NOTICES.txt"),
+        _ => return Ok(None),
+    };
+    let path = root
+        .join(&config.paths.web)
+        .join("admin")
+        .join("diagram-wasm")
+        .join(name);
+    match fs::read(&path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Some(embedded.to_vec())),
+        Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+    }
+}
+
 /// The front-end assets the site's own `paths.web` folder adds to (or
 /// overrides in) the embedded ones, as paths under `assets/`: stylesheets,
 /// scripts and the WebAssembly build, never the Admin's.
@@ -1274,6 +1308,48 @@ fn unstored_comparisons_warning() -> String {
 
 /// Everything a full build or `check` generates, after the guards that keep
 /// private research out of public inputs and generated output.
+/// The PNG copy of every published diagram, by its site path: the SVG's path with `.png`.
+#[cfg(feature = "diagram-rendering")]
+pub(crate) fn diagram_pngs(site: &Site) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    let assets = site
+        .posts
+        .iter()
+        .flat_map(|post| post.diagram_assets())
+        .chain(site.pages.iter().flat_map(|page| page.diagram_assets()))
+        .chain(
+            site.series
+                .iter()
+                .filter(|series| !series.posts.is_empty())
+                .flat_map(|series| series.diagram_assets()),
+        );
+    for asset in assets {
+        let path = asset.png_path();
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let png = openblog_core::diagram_svg::render_png(&asset.diagram)
+            .map_err(|error| format!("{}: diagram PNG: {error}", asset.path))?;
+        out.push((path, png));
+    }
+    // A diagram a post names as its cover also gets its card image (ADR 0419).
+    for post in &site.posts {
+        let Some(cover) = post.cover.as_deref() else {
+            continue;
+        };
+        for asset in post.diagram_assets() {
+            let path = asset.card_png_path();
+            if cover.trim_start_matches('/') == path && seen.insert(path.clone()) {
+                let png = openblog_core::diagram_svg::render_card_png(&asset.diagram)
+                    .map_err(|error| format!("{}: diagram card image: {error}", asset.path))?;
+                out.push((path, png));
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub fn generate_site(
     root: &Path,
     site: &mut Site,
@@ -1486,6 +1562,12 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         } else {
             put(f.path, f.contents.as_bytes())?;
         }
+    }
+
+    // 5. A PNG copy of each diagram beside its SVG (ADR 0419), for cross-posting and link previews.
+    #[cfg(feature = "diagram-rendering")]
+    for (path, png) in diagram_pngs(&site)? {
+        put(path, &png)?;
     }
 
     fsutil::remove_stale(&out_dir, &written);

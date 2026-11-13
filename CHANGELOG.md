@@ -55,6 +55,17 @@ All notable changes to open.blog are recorded here. Releases follow
 - Shared publication outcomes retain a private receipt for the approved section revisions and
   the exact published Post and credit sidecar, without storing draft prose in the receipt.
 - The Admin publishing setup status has stronger text contrast on the workspace bar.
+- Diagrams (epic #566; ADRs 0416-0419): a ` ```mermaid ` fence with a `title` and `description` is drawn at build
+  time as an accessible image with no JavaScript: flowcharts, sequence, class, state, entity-relationship, git and
+  C4 diagrams. Colours follow the look in light, dark, print and forced-colours modes; colours you write yourself must
+  set a readable text colour. Flowchart nodes can link to pages on the site with `click Node "/path/"`, and the links
+  are listed under the diagram. A published post whose diagram is missing its title or description, does not draw,
+  is too large or links to a missing page is not built; drafts warn. Feeds, portable copies and cross-posts carry a
+  PNG of each diagram with its text alternative and source, and every provider manifest now declares diagrams
+  unsupported (policy version 2026-11-13, so earlier approvals are reviewed again). `coverDiagram: N` makes a
+  diagram the post's link preview image. Admin's **Add diagram** has examples and a live preview, and
+  `openblog diagram git` drafts a git graph. Diagrams are on by default; the minimum Rust is now 1.95. See
+  [Diagrams](docs/diagrams.md).
 - Social announcements can opt into an approved Bluesky card, LinkedIn cover or Facebook Page photo after installing the optional
   media schema. Admin previews the exact image and verifies it again at delivery. Oversized Bluesky covers are
   resized within its thumbnail limit; authors choose whether LinkedIn or Facebook can fall back to a text-only post.

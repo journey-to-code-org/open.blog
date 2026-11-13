@@ -51,6 +51,8 @@ mentions [action]          Receive and moderate Webmentions from other sites: li
                            approve, reject, remove, block, unblock, prune (see mentions OPTIONS)
 card <slug>                Build and check a published post's visual cards for Pinterest
                            and link previews from its own images; sends nothing
+diagram git [--repo <path>] --from <ref> --to <ref>
+                           Print a reviewable Mermaid draft of local Git history; publishes nothing
 outcomes [--json] [--days N]
                            Where each post went: every destination's status from your own
                            records, and visits the built-in counter attributed to it (N days,
@@ -162,6 +164,23 @@ block|unblock <host>       Drop a site's requests unread (its subdomains too) an
 prune [--write]            Delete closed and stale mentions older than
                            webmention.receive.retentionDays (approved ones are kept)
 --json                     Print list or pull as JSON
+```
+
+## `diagram git` options
+
+```text
+--repo <path>          Read local Git history from this repository (default: current directory)
+--from <ref> --to <ref>
+                       Exclude commits reachable from --from and include those reachable
+                       from --to; print a draft only, without writing or publishing
+The draft omits author metadata and commit hashes, and makes a best-effort attempt
+to redact email addresses and full hashes. Subjects and ref names can still contain
+sensitive information: review the entire draft before sharing it.
+Add a meaningful accTitle and accDescr before publishing. The draft shows at most 30
+commits and reports omitted history, out-of-range parents and additional merge
+parents. Branch names and all tags are listed as review notes.
+Diagram rendering is experimental and requires the diagram-rendering feature;
+default builds show source as code. The draft is not publication-ready.
 ```
 
 ## `card` options
@@ -300,6 +319,7 @@ was saved when you resume after the deadline. Nothing edits a rough draft.
 --recipe                   Start from a recipe template (servings, times, ingredients, steps)
 --profile job              Start a job: the job front matter and the headings Problem, What we
                            found, What we did, Result. Always a draft until it is filled in
+--profile decision         Start a draft decision record with before and after diagram slots
 --trade <id>               With --profile job: the trade (bundled, or from extraTrades)
 --service <id>             With --profile job: the service, such as hardwood-install
 --town <name>              With --profile job: the town (never an address)

@@ -189,6 +189,7 @@ pub struct PortableProjection<'a> {
     capabilities: &'a [CapabilityDescriptor],
     html: &'a str,
     markdown: &'a str,
+    diagrams: &'a [crate::diagram::Asset],
     text: &'a str,
     render_options: RenderOptions<'static>,
     /// Languages the canonical page can run; `None` without a configured runner.
@@ -714,6 +715,7 @@ impl<'a> PortableProjection<'a> {
             capabilities: &post.capabilities,
             html: &post.html,
             markdown: post.portable_markdown(),
+            diagrams: &post.diagrams,
             text: &post.text,
             render_options: RenderOptions {
                 smart_punctuation: config.markdown.smart_punctuation,
@@ -836,6 +838,112 @@ impl<'a> PortableProjection<'a> {
         }
     }
 
+    fn diagram_portable_source(&self, markdown: &str) -> Result<String, String> {
+        if self.diagrams.is_empty() {
+            return Ok(markdown.to_string());
+        }
+        let mut findings = crate::diagram::discover(markdown).into_iter();
+        let mut open = None;
+        let mut edits = Vec::new();
+        for (event, range) in
+            Parser::new_ext(markdown, crate::markdown::parser_options(false)).into_offset_iter()
+        {
+            match event {
+                Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Fenced(info)))
+                    if info.split_whitespace().next() == Some("mermaid") =>
+                {
+                    open = Some(range);
+                }
+                Event::End(TagEnd::CodeBlock) if open.is_some() => {
+                    let start = open.take().expect("diagram fence is open");
+                    let finding = findings.next().ok_or_else(|| {
+                        format!(
+                            "{}: diagram source positions do not match",
+                            self.source_path
+                        )
+                    })?;
+                    let Ok(diagram) = finding else {
+                        continue;
+                    };
+                    let asset = self
+                        .diagrams
+                        .iter()
+                        .find(|asset| {
+                            asset.diagram.source == diagram.source
+                                && asset.diagram.options == diagram.options
+                                && asset.diagram.title == diagram.title
+                                && asset.diagram.description == diagram.description
+                        })
+                        .ok_or_else(|| {
+                            format!(
+                                "{}: diagram at line {} has no rendered portable image",
+                                self.source_path, diagram.line
+                            )
+                        })?;
+                    let opening = &markdown[start.clone()];
+                    let marker = opening.find(['`', '~']).ok_or_else(|| {
+                        format!("{}: diagram fence has no opening marker", self.source_path)
+                    })?;
+                    let edit_start = start.start + marker;
+                    let line_start = markdown[..edit_start]
+                        .rfind('\n')
+                        .map_or(0, |index| index + 1);
+                    let continuation: String = markdown[line_start..edit_start]
+                        .chars()
+                        .map(|character| {
+                            if character == '>' || character.is_whitespace() {
+                                character
+                            } else {
+                                ' '
+                            }
+                        })
+                        .collect();
+                    let url = format!(
+                        "{}/{}",
+                        self.base_url.trim_end_matches('/'),
+                        portable_image_path(asset)
+                    );
+                    let alt = diagram.alternative_text();
+                    let mut replacement =
+                        format!("![{}]({})", markdown_text(&alt), markdown_destination(&url));
+                    if let Some(caption) = &diagram.options.caption {
+                        replacement.push_str(&format!("\n\n{}", markdown_text(caption)));
+                    }
+                    if let Some(source) = &diagram.options.source {
+                        let source = self.resolve_link(source)?;
+                        replacement.push_str(&format!(
+                            "\n\n[Diagram source]({})",
+                            markdown_destination(&source)
+                        ));
+                    }
+                    replacement.push_str("\n\nDiagram source:\n\n");
+                    replacement.push_str(&markdown_code_fence(
+                        "text",
+                        diagram.source.trim_end_matches('\n'),
+                    ));
+                    replacement = replacement
+                        .split('\n')
+                        .collect::<Vec<_>>()
+                        .join(&format!("\n{continuation}"))
+                        + "\n";
+                    edits.push((edit_start..range.end, replacement));
+                }
+                _ => {}
+            }
+        }
+        if findings.next().is_some() {
+            return Err(format!(
+                "{}: diagram source positions do not match",
+                self.source_path
+            ));
+        }
+        let mut output = markdown.to_string();
+        for (range, replacement) in edits.into_iter().rev() {
+            output.replace_range(range, &replacement);
+        }
+        Ok(output)
+    }
+
     /// Render HTML from the canonical Markdown body without parsing native HTML.
     pub fn portable_html(&self) -> Result<PortableHtmlOutput, String> {
         // The canonical page's runner languages decide which fences are interactive
@@ -849,7 +957,8 @@ impl<'a> PortableProjection<'a> {
             }),
             ..self.render_options
         };
-        let rendered = crate::markdown::render_portable(self.markdown, options, self)?;
+        let diagram_source = self.diagram_portable_source(self.markdown)?;
+        let rendered = crate::markdown::render_portable(&diagram_source, options, self)?;
         if !rendered.errors.is_empty() {
             return Err(format!(
                 "{}: {}",
@@ -1030,7 +1139,7 @@ impl<'a> PortableProjection<'a> {
     /// public work metadata. No generated HTML is parsed to reconstruct content.
     pub fn portable_markdown(&self) -> Result<String, String> {
         let html = self.portable_html()?;
-        let source = self.portable_source();
+        let source = self.diagram_portable_source(&self.portable_source())?;
         let (body, raw_html_count) = escape_raw_html(&source);
         let body = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
@@ -1283,6 +1392,75 @@ impl<'a> PortableProjection<'a> {
         }
         self.ensure_semantics(RepresentationFormat::Markdown, &output)?;
         Ok(output)
+    }
+
+    /// Bundle generated diagram images alongside a portable Markdown export.
+    /// `directory` is a single ASCII path component chosen by the exporter.
+    pub fn portable_markdown_bundle(
+        &self,
+        directory: &str,
+    ) -> Result<(String, Vec<crate::diagram::Asset>), String> {
+        if directory.is_empty()
+            || !directory
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err("diagram bundle directory must be a single safe path component".into());
+        }
+        let markdown = self.portable_markdown()?;
+        if self.diagrams.is_empty() {
+            return Ok((markdown, Vec::new()));
+        }
+        let mut edits = Vec::new();
+        let mut assets = std::collections::BTreeMap::new();
+        for asset in self.diagrams {
+            let image = portable_image_path(asset);
+            let filename = image
+                .strip_prefix("assets/diagrams/")
+                .ok_or_else(|| format!("{}: invalid diagram asset path", self.source_path))?;
+            if filename.len() != 68
+                || !(filename.ends_with(".svg") || filename.ends_with(".png"))
+                || !filename.as_bytes()[..64].iter().all(u8::is_ascii_hexdigit)
+            {
+                return Err(format!("{}: invalid diagram asset name", self.source_path));
+            }
+            assets.insert(
+                format!("{}/{}", self.base_url.trim_end_matches('/'), image),
+                (format!("{directory}/{filename}"), asset.clone()),
+            );
+        }
+        for (event, range) in
+            Parser::new_ext(&markdown, crate::markdown::parser_options(false)).into_offset_iter()
+        {
+            if let Event::Start(Tag::Image {
+                dest_url,
+                link_type: pulldown_cmark::LinkType::Inline,
+                ..
+            }) = event
+            {
+                let Some((local, _)) = assets.get(dest_url.as_ref()) else {
+                    continue;
+                };
+                let raw = &markdown[range.clone()];
+                let close = raw.rfind("](").ok_or_else(|| {
+                    format!(
+                        "{}: cannot locate diagram image destination",
+                        self.source_path
+                    )
+                })?;
+                let (start, end, _) = markdown_destination_range(raw, close + 1)
+                    .ok_or_else(|| format!("{}: invalid diagram image", self.source_path))?;
+                edits.push((range.start + start..range.start + end, local.clone()));
+            }
+        }
+        let mut output = markdown;
+        for (range, value) in edits.into_iter().rev() {
+            output.replace_range(range, &value);
+        }
+        Ok((
+            output,
+            assets.into_values().map(|(_, asset)| asset).collect(),
+        ))
     }
 
     /// Compare a derived artifact with required public facts from canonical data.
@@ -3153,6 +3331,16 @@ fn reflection_items(format: RepresentationFormat, artifact: &str) -> Vec<(Reflec
         }
     }
     items
+}
+
+/// The diagram image a portable copy points at: the PNG copy where one is built (ADR 0419), since
+/// destinations and feed readers that re-host images often refuse SVG; otherwise the SVG.
+fn portable_image_path(asset: &crate::diagram::Asset) -> String {
+    if cfg!(feature = "diagram-png") {
+        asset.png_path()
+    } else {
+        asset.path.clone()
+    }
 }
 
 #[cfg(test)]

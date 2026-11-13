@@ -101,7 +101,14 @@ pub(crate) fn build(
         let Some(path) = &candidate.site_path else {
             return Measurement::Remote;
         };
-        match static_file(&static_dir, path, &private) {
+        // A diagram's PNG copy is drawn by the build rather than kept in the static folder
+        // (ADR 0419): draw it now, into private state, so it is measured and previewed as the
+        // build will publish it.
+        let file = match diagram_png(root, post, path) {
+            Some(drawn) => Some(drawn),
+            None => static_file(&static_dir, path, &private),
+        };
+        match file {
             None => Measurement::NotFound,
             Some(file) => match facts(&file) {
                 Some(facts) => {
@@ -121,6 +128,27 @@ pub(crate) fn build(
         &mut measure,
     );
     Ok((plan, measured))
+}
+
+/// The card image of one of the post's diagrams, when `path` is where the build publishes it,
+/// drawn into `.openblog/diagram-cards/`.
+#[cfg(feature = "diagram-rendering")]
+fn diagram_png(root: &Path, post: &openblog_core::model::Post, path: &str) -> Option<PathBuf> {
+    let asset = post
+        .diagram_assets()
+        .iter()
+        .find(|asset| asset.card_png_path() == path.trim_start_matches('/'))?;
+    let bytes = openblog_core::diagram_svg::render_card_png(&asset.diagram).ok()?;
+    let dir = root.join(".openblog").join("diagram-cards");
+    fs::create_dir_all(&dir).ok()?;
+    let file = dir.join(asset.card_png_path().rsplit('/').next()?);
+    fs::write(&file, bytes).ok()?;
+    Some(file)
+}
+
+#[cfg(not(feature = "diagram-rendering"))]
+fn diagram_png(_: &Path, _: &openblog_core::model::Post, _: &str) -> Option<PathBuf> {
+    None
 }
 
 /// The file the site would serve at `path` from its static folder: a regular file inside the
@@ -348,6 +376,38 @@ mod tests {
             .iter()
             .any(|p| p.code == "page-image-unusable"));
         assert_eq!(measured.len(), 1);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[cfg(feature = "diagram-rendering")]
+    #[test]
+    fn a_diagram_named_as_the_cover_is_the_card_image_and_the_link_preview() {
+        let post = "---\ntitle: Request flow\nslug: tart\ndate: 2026-01-01\ndescription: How a request travels.\ntags: [web]\ncoverDiagram: 1\n---\nIntro.\n\n```mermaid title=\"Request flow\" description=\"The browser asks the server, which answers.\"\nflowchart LR\nBrowser --> Server\nServer --> Browser\n```\n";
+        let root = site(post);
+        let (plan, measured) = build(&root, "tart", &CardFormat::ALL).unwrap();
+        let link = plan
+            .cards
+            .iter()
+            .find(|card| card.format == CardFormat::FacebookLink)
+            .unwrap();
+        let image = link.image.as_ref().unwrap_or_else(|| panic!("{link:#?}"));
+        assert!(image.candidate.src.starts_with("/assets/diagrams/"));
+        assert!(image.candidate.src.ends_with(".card.png"));
+        let facts = image.facts.unwrap();
+        assert_eq!((facts.width, facts.height), (1200, 630));
+        assert_eq!(facts.media_type, openblog_core::image_facts::MediaType::Png);
+        assert_eq!(
+            link.alt.as_deref(),
+            Some("Request flow: The browser asks the server, which answers.")
+        );
+        assert!(!link
+            .problems
+            .iter()
+            .any(|p| p.code == "page-image-unusable"));
+        assert_eq!(measured.len(), 1);
+        assert!(measured[0]
+            .1
+            .starts_with(root.join(".openblog/diagram-cards")));
         fs::remove_dir_all(root).ok();
     }
 

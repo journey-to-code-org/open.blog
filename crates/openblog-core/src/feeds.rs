@@ -228,6 +228,7 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
         }
         feed["authors"] = serde_json::Value::Array(vec![author]);
     }
+    feed.sort_all_objects();
     serde_json::to_string_pretty(&feed).map_err(|error| error.to_string())
 }
 
@@ -249,8 +250,9 @@ pub fn portfolio_snapshot(site: &Site, limit: usize) -> Result<String, String> {
             }))
         })
         .collect::<Result<_, String>>()?;
-    serde_json::to_string_pretty(&serde_json::json!({ "schemaVersion": 1, "posts": posts }))
-        .map_err(|error| error.to_string())
+    let mut snapshot = serde_json::json!({ "schemaVersion": 1, "posts": posts });
+    snapshot.sort_all_objects();
+    serde_json::to_string_pretty(&snapshot).map_err(|error| error.to_string())
 }
 
 /// Every public URL, for `/sitemap.xml`.

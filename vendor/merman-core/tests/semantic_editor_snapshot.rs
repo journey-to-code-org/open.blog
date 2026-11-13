@@ -1,0 +1,333 @@
+#![cfg(feature = "editor-facts")]
+
+use merman_core::{SemanticParser, SemanticSnapshotCapture};
+#[cfg(feature = "diagram-class")]
+use {merman_core::ParsedEditorFacts, merman_model::semantic::SemanticDiagramModel};
+
+#[cfg(feature = "diagram-class")]
+#[test]
+fn appearance_declarations_keep_same_value_directive_provenance_and_admission() {
+    use merman_core::preprocess::{SourceAppearanceSummary, SourceConfigOrigin};
+    use merman_model::config::MermaidConfig;
+    use serde_json::json;
+
+    let frontmatter =
+        "\u{feff}---\r\nconfig:\r\n  theme: forest\r\n  class:\r\n    look: neo\r\n---\r\n";
+    let directive = "%%{init: {theme: 'forest', /* JSON5 */ fontFamily: 'Fira Code'}}%%";
+    let source = format!("{frontmatter}{directive}\r\nclassDiagram\r\nclass User\r\n");
+    let parser = SemanticParser::new().with_site_config(MermaidConfig::from_value(json!({
+        "secure": ["look"]
+    })));
+    let SemanticSnapshotCapture::Snapshot(snapshot) = parser.capture_diagram_snapshot_sync(&source)
+    else {
+        panic!("valid source must produce a snapshot");
+    };
+    let SourceAppearanceSummary::Known { theme, font, look } =
+        snapshot.source_config().appearance()
+    else {
+        panic!("complete source configuration must be known");
+    };
+    let theme = theme.as_ref().unwrap();
+    assert_eq!(theme.value(), "forest");
+    assert_eq!(
+        theme.origin(),
+        SourceConfigOrigin::Directive { directive_index: 0 }
+    );
+    assert_eq!(
+        &source[theme.construct_span().start..theme.construct_span().end],
+        directive
+    );
+    assert_eq!(font.as_ref().unwrap().value(), "Fira Code");
+    assert!(look.is_none());
+}
+
+#[cfg(feature = "diagram-class")]
+#[test]
+fn appearance_declarations_survive_family_errors_but_not_incomplete_config() {
+    use merman_core::preprocess::SourceAppearanceSummary;
+
+    for (source, known) in [
+        (
+            "%%{init: {theme: 'dark'}}%%\nclassDiagram\nclass User {\n+field\n",
+            true,
+        ),
+        ("%%{init: {theme: 'dark'\nclassDiagram\nclass User\n", false),
+        (
+            "---\nconfig: [\n---\n%%{init: {theme: 'dark'}}%%\nclassDiagram\n",
+            false,
+        ),
+    ] {
+        let capture = SemanticParser::new().capture_diagram_snapshot_sync(source);
+        let evidence = match &capture {
+            SemanticSnapshotCapture::Snapshot(snapshot) => snapshot.source_config(),
+            SemanticSnapshotCapture::Failed { source_config, .. }
+            | SemanticSnapshotCapture::Panicked { source_config, .. } => source_config,
+        };
+        assert_eq!(
+            matches!(evidence.appearance(), SourceAppearanceSummary::Known { .. }),
+            known
+        );
+    }
+}
+
+#[cfg(feature = "diagram-class")]
+#[test]
+fn appearance_uses_decoded_json5_assignments_without_requiring_key_spans() {
+    use merman_core::preprocess::{SourceAppearanceSummary, SourceConfigOrigin};
+
+    let first = r#"%%{init: {theme: 'dark', fontFamily: 'serif', class: {look: 'neo'}}}%%"#;
+    let second = r#"%%{initialize: {"th\u0065me": 'forest', /* retained */ themeVariables: {fontFamily: ''}}}%%"#;
+    let source = format!("{first}\n{second}\nclassDiagram\nclass User\n");
+    let SemanticSnapshotCapture::Snapshot(snapshot) =
+        SemanticParser::new().capture_diagram_snapshot_sync(&source)
+    else {
+        panic!("valid JSON5 declarations must produce a snapshot");
+    };
+    let SourceAppearanceSummary::Known { theme, font, look } =
+        snapshot.source_config().appearance()
+    else {
+        panic!("missing lexical key spans do not make decoded declarations unknown");
+    };
+    let theme = theme.as_ref().unwrap();
+    assert_eq!(theme.value(), "forest");
+    assert_eq!(
+        theme.origin(),
+        SourceConfigOrigin::Directive { directive_index: 1 }
+    );
+    assert_eq!(
+        &source[theme.construct_span().start..theme.construct_span().end],
+        second
+    );
+    let font = font.as_ref().unwrap();
+    assert_eq!(font.value(), "serif");
+    assert_eq!(
+        font.origin(),
+        SourceConfigOrigin::Directive { directive_index: 0 }
+    );
+    assert_eq!(look.as_ref().unwrap().value(), "neo");
+}
+
+#[cfg(feature = "diagram-class")]
+#[test]
+fn class_snapshot_captures_canonical_model_and_editor_facts_in_lean_core() {
+    let capture = SemanticParser::new()
+        .capture_diagram_snapshot_controlled_sync(
+            "classDiagram\nclass User\n",
+            &merman_model::operation::OperationControl::new(),
+        )
+        .expect("snapshot operation should not be cancelled");
+    let SemanticSnapshotCapture::Snapshot(snapshot) = capture else {
+        panic!("valid Class input should produce a semantic snapshot");
+    };
+    let SemanticDiagramModel::Class(model) = snapshot.outcome().parsed_model().expect("parsed")
+    else {
+        panic!("snapshot should retain the canonical Class model");
+    };
+    assert!(model.classes.contains_key("User"));
+    let ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+        panic!("Class parser should provide editor facts");
+    };
+    assert!(facts.symbols.iter().any(|symbol| symbol.name == "User"));
+    let capability = merman_core::diagram_family_capabilities()
+        .iter()
+        .find(|fact| fact.diagram_type == "classDiagram")
+        .expect("known Class identity");
+    assert!(capability.has_editor_parser);
+    #[cfg(not(feature = "presentation"))]
+    assert!(!capability.has_render_parser);
+}
+
+#[cfg(feature = "diagram-class")]
+#[test]
+fn failed_class_capture_preserves_recovery_facts_and_original_source_spans() {
+    let source = "\u{feff}---\r\ntitle: \u{4e2d}\u{6587}\r\n---\r\nclassDiagram\r\nclass User {\r\n+field\r\n";
+    let parser = SemanticParser::new();
+    let merman_core::Error::DiagramParse {
+        diagnostic: strict, ..
+    } = parser.parse_diagram_sync(source).unwrap_err()
+    else {
+        panic!("incomplete Class input must fail strict parsing");
+    };
+    for known_type in [false, true] {
+        let capture = if known_type {
+            parser.capture_diagram_snapshot_with_type_sync("classDiagram", source)
+        } else {
+            parser.capture_diagram_snapshot_sync(source)
+        };
+        let SemanticSnapshotCapture::Snapshot(snapshot) = capture else {
+            panic!("family failure must retain a snapshot");
+        };
+        let merman_core::SemanticParseOutcome::Failed(merman_core::Error::DiagramParse {
+            diagnostic,
+            ..
+        }) = snapshot.outcome()
+        else {
+            panic!("snapshot must retain the original Class parse error");
+        };
+        assert_eq!(*diagnostic, strict);
+        let ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+            panic!("grammar failure must retain parser facts");
+        };
+        assert_eq!(
+            facts.completeness,
+            merman_core::EditorSemanticCompleteness::Recovered
+        );
+        let symbol = facts
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == "User")
+            .expect("partial class declaration");
+        let start = source.find("User").unwrap();
+        assert_eq!(
+            symbol.selection,
+            merman_model::source::SourceSpan::new(start, start + "User".len())
+        );
+    }
+}
+
+#[cfg(feature = "diagram-class")]
+#[test]
+fn comment_heavy_frontmatter_has_the_same_semantics_in_strict_and_snapshot_parsing() {
+    let source = format!(
+        "---\ntitle: # first comment\n{}config:\n  theme: forest\n---\nclassDiagram\nclass User\n",
+        "# buffered comment\n".repeat(128)
+    );
+    let parser = SemanticParser::new();
+    let strict = parser.parse_diagram_sync(&source).expect("valid source");
+    for capture in [
+        parser.capture_diagram_snapshot_sync(&source),
+        parser
+            .capture_diagram_recovery_snapshot_controlled_sync(
+                &source,
+                &merman_model::operation::OperationControl::new(),
+            )
+            .expect("active control"),
+    ] {
+        let SemanticSnapshotCapture::Snapshot(snapshot) = capture else {
+            panic!("comment evidence must not change source acceptance");
+        };
+        let SemanticDiagramModel::Class(model) = snapshot.outcome().parsed_model().expect("parsed")
+        else {
+            panic!("snapshot must retain the Class model");
+        };
+        assert!(model.classes.contains_key("User"));
+        assert_eq!(
+            snapshot.metadata().semantic_config,
+            strict.metadata.semantic_config
+        );
+        assert!(snapshot.source_config().keys().is_empty());
+    }
+}
+
+#[cfg(feature = "diagram-treemap")]
+#[test]
+fn treemap_snapshot_keeps_requested_facts_before_semantic_source_conversion() {
+    let parser = SemanticParser::new();
+    for (body, recovered) in [
+        ("\"Root\"\r\n  \"Leaf\": 42\r\n", false),
+        ("\"Root\"\r\n  \"Broken\":\r\n", true),
+    ] {
+        let source = format!("---\r\ntitle: Snapshot\r\n---\r\ntreemap\r\n{body}");
+        let SemanticSnapshotCapture::Snapshot(snapshot) =
+            parser.capture_diagram_snapshot_sync(&source)
+        else {
+            panic!("Treemap parsing must retain its requested snapshot");
+        };
+        assert_eq!(snapshot.outcome().parsed_model().is_none(), recovered);
+        let merman_core::ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+            panic!("Treemap must retain requested editor facts");
+        };
+        let expected = if recovered {
+            merman_core::EditorSemanticCompleteness::Recovered
+        } else {
+            merman_core::EditorSemanticCompleteness::Complete
+        };
+        assert_eq!(facts.completeness, expected);
+        let root_start = source.find("Root").unwrap();
+        assert!(facts.symbols.iter().any(|symbol| {
+            symbol.name == "Root"
+                && symbol.selection
+                    == merman_model::source::SourceSpan::new(root_start, root_start + 4)
+        }));
+        if recovered {
+            let broken_start = source.find("\"Broken\":").unwrap();
+            assert!(facts.diagnostics.iter().any(|diagnostic| {
+                diagnostic.message.contains("expected number")
+                    && diagnostic.span
+                        == Some(merman_model::source::SourceSpan::new(
+                            broken_start,
+                            broken_start + 9,
+                        ))
+            }));
+        } else {
+            assert!(facts.symbols.iter().any(|symbol| symbol.name == "Leaf"));
+        }
+        let SemanticSnapshotCapture::Snapshot(recovery) = parser
+            .capture_diagram_recovery_snapshot_controlled_sync(
+                &source,
+                &merman_model::operation::OperationControl::new(),
+            )
+            .unwrap()
+        else {
+            panic!("Treemap recovery must retain its snapshot");
+        };
+        let merman_core::ParsedEditorFacts::Available(recovery_facts) = recovery.editor_facts()
+        else {
+            panic!("Treemap recovery must retain its diagnostics");
+        };
+        assert_eq!(recovery_facts.completeness, facts.completeness);
+        assert_eq!(recovery_facts.diagnostics, facts.diagnostics);
+        assert!(recovery_facts.symbols.is_empty());
+        assert!(recovery_facts.expected_syntax.is_empty());
+        assert!(recovery_facts.directive_prefixes.is_empty());
+    }
+}
+
+#[test]
+fn capture_keeps_source_config_when_preprocessing_fails_without_any_family() {
+    let nested = format!(
+        "{}true{}",
+        "{".repeat(merman_model::MAX_DIAGRAM_NESTING_DEPTH + 1),
+        "}".repeat(merman_model::MAX_DIAGRAM_NESTING_DEPTH + 1)
+    );
+    let source = format!(
+        "---\nconfig:\n  fontFamily: Serif\n---\n%%{{init: {{fontSize: 18}}}}%%\n%%{{init: {nested}}}%%\nclassDiagram\n"
+    );
+    let capture =
+        SemanticParser::new().capture_diagram_snapshot_with_type_sync("classDiagram", &source);
+    let SemanticSnapshotCapture::Failed {
+        error,
+        source_config,
+    } = capture
+    else {
+        panic!("over-budget directive must fail before family construction");
+    };
+    assert!(matches!(
+        error,
+        merman_core::Error::InvalidDirectiveJson { .. }
+    ));
+    assert_eq!(source_config.directives().len(), 2);
+    assert!(
+        source_config
+            .keys()
+            .iter()
+            .any(|key| key.matches_path(&["config", "fontFamily"]))
+    );
+}
+
+#[test]
+fn pre_cancelled_capture_never_becomes_a_recovery_snapshot() {
+    let parser = SemanticParser::new();
+    let control = merman_model::operation::OperationControl::new();
+    control.cancel();
+    assert!(
+        parser
+            .capture_diagram_snapshot_controlled_sync("unknown", &control)
+            .is_err()
+    );
+    assert!(
+        parser
+            .capture_diagram_snapshot_with_type_controlled_sync("classDiagram", "unknown", &control)
+            .is_err()
+    );
+}
