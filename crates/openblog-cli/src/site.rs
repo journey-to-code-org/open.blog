@@ -365,6 +365,11 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/greetings.js"),
     ),
     (
+        "notifications.js",
+        include_str!("../../../web/admin/notifications.js"),
+    ),
+    ("sw.js", include_str!("../../../web/admin/sw.js")),
+    (
         "voice-library.js",
         include_str!("../../../web/admin/voice-library.js"),
     ),
@@ -1034,6 +1039,29 @@ pub fn check_season_themes(config: &SiteConfig, themes: &ThemeSet) -> Result<(),
 }
 
 /// An admin UI file: from `web/admin/` if present, else the embedded copy.
+/// Admin's app icons (ADR 0412): the site's own under `<paths.web>/admin/icons/`, or the built-in ones.
+pub const EMBEDDED_ADMIN_ICONS: &[(&str, &[u8])] = &[
+    (
+        "icon-192.png",
+        include_bytes!("../../../web/admin/icons/icon-192.png"),
+    ),
+    (
+        "icon-512.png",
+        include_bytes!("../../../web/admin/icons/icon-512.png"),
+    ),
+    (
+        "apple-touch-icon.png",
+        include_bytes!("../../../web/admin/icons/apple-touch-icon.png"),
+    ),
+];
+
+pub fn admin_icon(root: &Path, config: &SiteConfig, name: &str) -> Option<Vec<u8>> {
+    let known = EMBEDDED_ADMIN_ICONS.iter().find(|(n, _)| *n == name)?;
+    fs::read(root.join(&config.paths.web).join("admin/icons").join(name))
+        .ok()
+        .or_else(|| Some(known.1.to_vec()))
+}
+
 pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
     if let Ok(bytes) = fs::read(root.join(&config.paths.web).join("admin").join(rel)) {
         return Some(bytes);

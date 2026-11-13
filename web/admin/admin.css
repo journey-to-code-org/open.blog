@@ -7173,3 +7173,13 @@ ob-voice-library {
 .oba-greetings-design { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.5rem; border: 1px solid var(--oba-border, #d9d3c7); border-radius: 999px; }
 .oba-greetings-editor textarea { width: 100%; min-height: 9rem; }
 .oba-greetings-frame { width: 100%; height: 34rem; border: 1px solid var(--oba-border, #d9d3c7); border-radius: 10px; background: #efe9e1; }
+
+/* Notifications (ADR 0412) */
+.oba-notifications { display: grid; gap: 0.9rem; min-width: 0; }
+.oba-notifications section { display: grid; gap: 0.6rem; }
+.oba-notifications-kinds { display: grid; gap: 0.4rem; border: 0; padding: 0; margin: 0; }
+.oba-notifications-kinds legend { font-weight: 600; margin-bottom: 0.3rem; }
+.oba-notifications-kind { display: flex; align-items: center; gap: 0.4rem; }
+.oba-notifications-devices { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.oba-notifications-devices li { display: grid; gap: 0.4rem; padding: 0.7rem 0.9rem; border: 1px solid var(--oba-border, #d9d3c7); border-radius: 10px; overflow-wrap: anywhere; }
+.oba-notifications-devices p { margin: 0; }
