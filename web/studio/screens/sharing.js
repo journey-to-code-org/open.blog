@@ -2,7 +2,8 @@
 // next, grouped by what needs her. Share a post opens the composer (share-new.js). Her accounts are
 // at the bottom: what's connected, how it's doing, Disconnect. Each row changes, checks or shows the
 // history of its share in a sheet (parts/share-sheets.js), and one banner says when shares run late.
-// Connecting or reconnecting an account is in the old Admin until R2. Nothing is ever shared by
+// Connecting, reconnecting and disconnecting are on Your accounts (#/sharing/accounts, R2), in the
+// same tab; the side column only sums them up. Nothing is ever shared by
 // itself: publishing never shares. A second view, "Where each post went" (?view=posts), shows every
 // place each post ended up (parts/where-it-went.js); a site with no accounts that has shared
 // something gets only that view. Studio slice 10c, R1; docs/specs/studio/slice-10bc/ux.md, r1/ux.md.
@@ -10,7 +11,8 @@ import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { sayWhen } from "../parts/dates.js";
-import { accountLabel, BADGES, deliveryOf, groups, healthWords, HEALTH_BADGES, lateBanner, needsReconnect, problemLine, providerName, shareTrouble } from "../parts/share-words.js";
+import { accountLabel, BADGES, deliveryOf, groups, healthBadge, healthWords, lateBanner, needsReconnect, problemLine, providerName, shareTrouble } from "../parts/share-words.js";
+import { connectTarget, reconnectHref } from "../parts/social-rules.js";
 import { browserZone, healthLines } from "../parts/announcements-rules.js";
 import { createSheet, guardedLeave } from "../parts/sheet.js";
 import { openChange, openCheck, openHistory } from "../parts/share-sheets.js";
@@ -30,6 +32,7 @@ export async function createSharing({ api, go, meta = {}, posts: store = null },
   let items = [];
   let accounts = [];
   let health = null;
+  let providers = null;
   let sendingTimer = null;
   const zone = browserZone();
   const sheet = await createSheet({ label: "Share" });
@@ -73,6 +76,8 @@ export async function createSharing({ api, go, meta = {}, posts: store = null },
       items = queue.announcements || [];
       accounts = (acc.accounts || []).filter((a) => a.status !== "disconnected" && a.health !== "disconnected");
       health = (await api.get("social/announcements/health").catch((error) => { if (error.status === 401) throw error; return null; }))?.health || null;
+      // Only to name the empty state's button for the one place she can connect.
+      if (!destinations.length) providers = (await api.get("social/status").catch((error) => { if (error.status === 401) throw error; return null; }))?.providers || null;
       banner.replaceChildren();
       draw();
       if (checkId) openFromLink(checkId);
@@ -93,15 +98,16 @@ export async function createSharing({ api, go, meta = {}, posts: store = null },
     const late = lateBanner(health);
     banner.replaceChildren(
       ...(late ? [h("alert-banner", { variant: "warning", heading: late.heading }, ...late.lines.map((line) => h("p", { text: line })))] : []),
-      ...reconnect.map((a) => h("alert-banner", { variant: "warning", heading: `${accountLabel(a)} needs reconnecting` }, healthWords(a), " ",
-        h("a", { href: "/admin/#/social", target: "_blank", rel: "noopener" }, "Reconnect it"))));
+      ...reconnect.map((a) => h("alert-banner", { variant: "warning", heading: `${accountLabel(a)} needs reconnecting` }, healthWords(a, { timeZone: zone }), " ",
+        h("a", { href: reconnectHref(a.id), "aria-label": `Reconnect ${a.displayName}` }, "Reconnect it"))));
     clearTimeout(sendingTimer);
     if (items.some((i) => deliveryOf(i) === "processing")) sendingTimer = setTimeout(() => { if (element.isConnected && !sheet.isOpen) load(); }, SENDING_RELOAD_MS);
     share.hidden = !destinations.length;
     if (!destinations.length) {
+      const target = connectTarget(providers);
       body.replaceChildren(h("empty-state", { heading: "Nothing to share to yet" },
         "Connect your Facebook Page or another account, then share posts from here.",
-        h("action-button", { slot: "actions", href: "/admin/#/social", target: "_blank" }, "Connect an account")));
+        h("action-button", { slot: "actions", href: target.href }, target.label)));
       return;
     }
     const sets = groups(items);
@@ -122,7 +128,7 @@ export async function createSharing({ api, go, meta = {}, posts: store = null },
     const buttons = [];
     if (state === "failed") {
       buttons.push(needsReconnect(item.lastErrorCode)
-        ? h("action-button", { href: "/admin/#/social", target: "_blank", label: `Reconnect: ${title}` }, "Reconnect")
+        ? h("action-button", { href: reconnectHref(item.accountId), label: `Reconnect: ${title}` }, "Reconnect")
         : h("action-button", { label: `Try again: ${title}`, onClick: (e) => retry(item, e.currentTarget) }, "Try again"));
     }
     if (state === "unknown") buttons.push(h("action-button", { label: `Check it: ${title}`, onClick: (e) => openCheck({ sheet, api, item, title, opener: e.currentTarget, onDone: (words, id) => changed(words, id), onRefresh: moved }) }, "Check it"));
@@ -221,49 +227,17 @@ export async function createSharing({ api, go, meta = {}, posts: store = null },
 
   // ---- her accounts ---------------------------------------------------------------------------
 
+  /** A summary: each account's name and how it's doing, then the way to manage them. */
   function drawAccounts() {
     accountsBox.replaceChildren(h("h3", { id: "studio-accounts-h", text: "Your accounts" }));
     if (!accounts.length) {
       accountsBox.append(h("p", { class: "studio-help", text: "None connected yet." }));
     } else {
-      accountsBox.append(h("ul", { class: "studio-comment-list" }, ...accounts.map((a) => {
-        const menu = h("dropdown-menu", {
-          class: "studio-row-menu",
-          items: [{ value: "disconnect", label: "Disconnect" }],
-          onItemselect: () => disconnect(a),
-        }, h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: ` for ${accountLabel(a)}` })));
-        const words = healthWords(a);
-        return h("li", { class: "studio-comment", "data-account": a.id },
-          h("div", { class: "studio-comment-head" },
-            h("h4", { class: "studio-comment-who", tabindex: "-1", text: a.displayName }),
-            h("status-badge", { variant: a.health === "ok" ? "success" : "warning" }, HEALTH_BADGES[a.health] || "Needs reconnecting"), menu),
-          h("p", { class: "studio-help", text: providerName(a.provider) }),
-          words ? h("p", { class: "studio-help", text: words }) : null);
-      })));
+      accountsBox.append(h("ul", { class: "studio-account-summary" }, ...accounts.map((a) => h("li", { "data-account": a.id },
+        h("span", { class: "studio-account-name", text: a.displayName }), " ",
+        h("status-badge", { variant: a.health === "ok" ? "success" : "warning" }, healthBadge(a, { timeZone: zone }))))));
     }
-    accountsBox.append(h("p", {}, h("a", { href: "/admin/#/social", target: "_blank", rel: "noopener" }, "Connect or reconnect an account (opens the old Admin)")));
-  }
-
-  async function disconnect(a) {
-    const choice = await ask({
-      heading: `Disconnect ${a.displayName}?`,
-      text: "Posts waiting to go there won't be shared, and Studio forgets how to post there. You can connect it again later.",
-      choices: [{ label: "Keep it connected", value: "keep" }, { label: "Disconnect", value: "go", variant: "destructive" }],
-    });
-    if (choice !== "go") return;
-    try {
-      const done = await api.post(`social/accounts/${a.id}/disconnect`, {});
-      await load();
-      const n = done?.canceledAnnouncements || 0;
-      const words = `Disconnected.${n ? ` ${n === 1 ? "1 waiting post won't" : `${n} waiting posts won't`} be shared.` : ""}`;
-      status.textContent = words;
-      toast(words);
-      heading.focus();
-    } catch (error) {
-      if (error.status === 401) throw error;
-      status.textContent = shareTrouble(error);
-      drawDetails(error);
-    }
+    accountsBox.append(h("p", {}, h("a", { class: "studio-more-link", href: "#/sharing/accounts" }, "Manage your accounts")));
   }
 
   function drawDetails(error = null) {
@@ -287,7 +261,7 @@ export async function createSharing({ api, go, meta = {}, posts: store = null },
     focus: () => heading.focus(),
     get palette() {
       return [
-        ...(social ? [{ id: "new", label: "Share a post", group: "Sharing" }, { id: "going", label: "Going out", group: "Sharing" }] : []),
+        ...(social ? [{ id: "new", label: "Share a post", group: "Sharing" }, { id: "going", label: "Going out", group: "Sharing" }, { id: "accounts", label: "Go to Your accounts", group: "Sharing" }] : []),
         { id: "posts", label: "Where each post went", group: "Sharing" },
       ];
     },
@@ -295,6 +269,7 @@ export async function createSharing({ api, go, meta = {}, posts: store = null },
       if (id === "new") go("#/sharing/new");
       if (id === "posts") go("#/sharing?view=posts");
       if (id === "going") go("#/sharing");
+      if (id === "accounts") go("#/sharing/accounts");
     },
   };
 }

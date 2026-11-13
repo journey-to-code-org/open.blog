@@ -25,7 +25,7 @@ export function parseRoute(hash) {
 // blank Home. Retirement plan R0; each later slice moves its names out of NOT_YET.
 const OLD_RENAMED = {
   overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations",
-  moderation: "comments", feedback: "comments", analytics: "visitors", social: "sharing",
+  moderation: "comments", feedback: "comments", analytics: "visitors", social: "sharing/accounts",
   announcements: "sharing", greetings: "cards",
 };
 const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
@@ -54,6 +54,8 @@ export function legacyRoute(hash) {
   }
   // R1: "Where it went" is a view of Sharing, and Share this job lives under it.
   if (name === "distribution") return `#/sharing?view=posts${search ? `&${search}` : ""}`;
+  // R2: the old accounts page, whatever was after it, is Your accounts.
+  if (name === "social") return `#/${OLD_RENAMED.social}`;
   if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
   if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
   if (NOT_YET.has(name)) return `#/not-yet/${name}`;

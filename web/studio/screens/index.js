@@ -24,6 +24,7 @@ import { createReminders } from "./reminders.js";
 import { createSharing } from "./sharing.js";
 import { createShareNew } from "./share-new.js";
 import { createJobShare } from "./job-share.js";
+import { createAccounts } from "./accounts.js";
 import { createNotYet } from "./not-yet.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
@@ -54,14 +55,16 @@ export const SCREENS = [
   // Each only when it applies: the quote form is set up, reminders are for this trade, sharing is set up.
   { name: "quotes", nav: "Requests", area: "quotes", when: (meta) => meta.quote === true, create: (context) => createQuotes(context) },
   { name: "reminders", nav: "Reminders", area: "reminders", when: (meta) => meta.siteUses?.reminders === true, create: (context) => createReminders(context) },
-  // #/sharing/new is the composer; #/sharing/job/<path> shares one finished job; ?view=posts is
+  // #/sharing/new is the composer; #/sharing/accounts is Your accounts (R2: connect, reconnect,
+  // disconnect; only "not set up" when sharing isn't); #/sharing/job/<path> shares one finished job; ?view=posts is
   // "Where each post went", which a site that shared something has even without accounts (G16).
   // Share this job opens on any trade site (the checklist's last step); the nav item only once
   // there's something to show.
   { name: "sharing", nav: "Sharing", area: "sharing", when: (meta) => meta.social === true || meta.siteUses?.shared === true || meta.siteUses?.trade === true,
     navWhen: (meta) => meta.social === true || meta.siteUses?.shared === true,
     create: (context, route) => (route.arg === "new" && context.meta.social === true ? createShareNew(context, route)
-      : route.arg.startsWith("job/") ? createJobShare(context, route.arg.slice(4), route)
+      : route.arg === "accounts" ? createAccounts(context, route)
+        : route.arg.startsWith("job/") ? createJobShare(context, route.arg.slice(4), route)
         : createSharing(context, route)) },
   // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
   { name: "not-yet", create: (context, route) => createNotYet(context, route) },

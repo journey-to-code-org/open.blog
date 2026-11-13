@@ -26,7 +26,6 @@ test("renamed screens, new things and the old inbox's states", () => {
   assert.equal(legacyRoute("#/seasons"), "#/decorations");
   assert.equal(legacyRoute("#/greetings"), "#/cards");
   assert.equal(legacyRoute("#/analytics"), "#/visitors");
-  assert.equal(legacyRoute("#/social"), "#/sharing");
   assert.equal(legacyRoute("#/moderation/pending?kind=comment"), "#/comments?kind=comment");
   assert.equal(legacyRoute("#/moderation/approved"), "#/comments/shown");
   assert.equal(legacyRoute("#/moderation/removed"), "#/comments/taken-down");
@@ -46,4 +45,13 @@ test("R1: Where it went is a view of Sharing, and Share this job lives under it"
   assert.equal(legacyRoute("#/share"), "#/sharing");
   assert.deepEqual(parseRoute(legacyRoute("#/distribution")), { name: "sharing", arg: "", query: { view: "posts" } });
   assert.equal(legacyRoute("#/sharing/job/posts%2Fx.md"), null, "Studio's own address is left alone");
+});
+
+test("R2: the old accounts page, and anything after it, opens Your accounts; announcements still open Sharing", () => {
+  for (const old of ["#/social", "#/social/", "#/social/connections", "#/social/linkedin/x?y=1", "#social", "#/social?connection=11111111-1111-4111-8111-111111111111"]) {
+    assert.equal(legacyRoute(old), "#/sharing/accounts", old);
+  }
+  assert.equal(legacyRoute("#/announcements"), "#/sharing");
+  assert.equal(legacyRoute("#/sharing/accounts"), null, "Studio's own address is left alone");
+  assert.equal(legacyRoute("#/sharing/accounts?connection=11111111-1111-4111-8111-111111111111"), null);
 });

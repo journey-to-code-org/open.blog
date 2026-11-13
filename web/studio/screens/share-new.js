@@ -65,7 +65,7 @@ export async function createShareNew({ api, go }, route) {
     if (!destinations.length || !posts.length) {
       body.replaceChildren(h("alert-banner", { variant: "info", heading: !destinations.length ? "Nothing to share to yet" : "Nothing to share yet" },
         !destinations.length ? "Connect an account first. " : "Publish a post first, then share it here. ",
-        !destinations.length ? h("a", { href: "/admin/#/social", target: "_blank", rel: "noopener" }, "Connect an account") : null));
+        !destinations.length ? h("a", { href: "#/sharing/accounts" }, "Connect an account") : null));
       return;
     }
     let remembered = null;
