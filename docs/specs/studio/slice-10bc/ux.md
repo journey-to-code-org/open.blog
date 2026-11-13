@@ -221,3 +221,11 @@ Server text never on the first layer (some carries setting names). 502 `hosted-k
 - **G9.** `formatWhen` is en-GB 24-hour; Studio uses `sayWhen` and keeps `formatWhen` for details.
 - **G10.** More tools: "Seasonal reminders for customers" is wrong. Change all four Business-group rows to Studio links; Reminders reads "What to write about, by season".
 - **G11.** Account choice and erase picks want the `check-group` from slice 10a G4; until then `toggle-switch` per row.
+
+## As built
+
+- **Routes:** Sharing is `#/sharing` (the composer is `#/sharing/new?post=`), named like its nav item. Her accounts sit at the side of the Sharing screen instead of on their own route: what's connected, its health, and Disconnect.
+- **In the old Admin for now** (linked from the screen): connecting or reconnecting an account (G6), changing a share's words or time, checking an unclear share, the auto-erase setting for archived requests, downloading a chosen date range, and changing reminder topics and dates (G4).
+- **Request words** are Studio's own (`parts/quote-words.js`), not the old helpers, so nothing shows an ISO date (G3).
+- **Reminders:** Not now has no Undo (G4). Stop suggesting this and Turn reminders off do.
+- **G10 done:** More tools links Quote requests, Reminders and Sharing to Studio, and describes Reminders as what it is.
