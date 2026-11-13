@@ -171,6 +171,55 @@ pub struct Placement {
 }
 
 impl ReflectionStructure {
+    /// Create a complete initial arrangement in participant and owner-controlled draft order.
+    /// This reads private drafts; callers must first authorize the full contribution metadata.
+    /// Refuse oversized pieces rather than silently dropping any part.
+    pub fn from_all_contributions(
+        contract: &CollaborationContract,
+        drafts: &DraftSet,
+        active: &[&str],
+    ) -> Result<Self, ReflectionError> {
+        let mut turns = Vec::new();
+        for participant in &contract.participants {
+            if !active.contains(&participant.id.as_str()) {
+                continue;
+            }
+            for view in drafts
+                .owned_views(&participant.id)
+                .map_err(|_| ReflectionError::Invalid)?
+            {
+                let count = split_parts(&view.markdown).len();
+                if count > MAX_PART + 1 || turns.len().saturating_add(count) > MAX_TOTAL_TURNS {
+                    return Err(ReflectionError::Invalid);
+                }
+                for part in 0..count {
+                    turns.push(Turn {
+                        draft: view.stamp.contribution_id.clone(),
+                        part,
+                        label: None,
+                    });
+                }
+            }
+        }
+        let rounds = turns
+            .chunks(MAX_TURNS_PER_ROUND)
+            .enumerate()
+            .map(|(index, chunk)| Round {
+                id: format!("round-{}", index + 1),
+                round_prompt: None,
+                turns: chunk.to_vec(),
+            })
+            .collect();
+        let result = Self {
+            version: REFLECTION_STRUCTURE_VERSION,
+            revision: 1,
+            layout: ReflectionLayout::default(),
+            rounds,
+        };
+        result.validate_contribution_coverage(contract, drafts, active)?;
+        Ok(result)
+    }
+
     /// One round holding every part of every participant's draft, in participant order, for a
     /// publication that has not arranged anything. A participant with no draft or a withdrawn
     /// draft has no turns. It reads prose to count parts, so it is crate-private.

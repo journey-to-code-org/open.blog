@@ -240,6 +240,22 @@ fn multi_contribution_publication_requires_every_current_part_exactly_once() {
         .unwrap();
     set.save("ann", "second", 0, "three", T).unwrap();
     set.save("bo", "third", 0, "four", T).unwrap();
+    let initial =
+        ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).unwrap();
+    assert_eq!(
+        initial
+            .rounds
+            .iter()
+            .flat_map(|round| &round.turns)
+            .map(|turn| (turn.draft.as_str(), turn.part))
+            .collect::<Vec<_>>(),
+        [("first", 0), ("first", 1), ("second", 0), ("third", 0)]
+    );
+    set.reorder_owned("ann", 0, &["first", "second"], &["second", "first"])
+        .unwrap();
+    let reordered =
+        ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).unwrap();
+    assert_eq!(reordered.rounds[0].turns[0].draft, "second");
     let complete = structure(
         r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":1},{"draft":"second","part":0},{"draft":"first","part":0},{"draft":"third","part":0}]}]}"#,
     );
@@ -276,6 +292,35 @@ fn multi_contribution_publication_requires_every_current_part_exactly_once() {
     assert!(complete
         .validate_contribution_coverage(&record.collaboration, &set, &ALL)
         .is_err());
+}
+
+#[test]
+fn default_multi_contribution_arrangement_never_truncates_parts() {
+    use openblog_core::collaboration::Contribution;
+
+    let mut record = record();
+    record.collaboration.contributions = vec![Contribution {
+        id: "first".into(),
+        participant_id: "ann".into(),
+        markdown: String::new(),
+    }];
+    let mut set = DraftSet::new(&ALL).unwrap();
+    let parts = std::iter::repeat_n("word", 101)
+        .collect::<Vec<_>>()
+        .join(&format!("\n{PART_MARKER}\n"));
+    set.save("ann", "first", 0, &parts, T).unwrap();
+    let arrangement =
+        ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).unwrap();
+    assert_eq!(arrangement.rounds.len(), 2);
+    assert_eq!(arrangement.rounds[0].turns.len(), 100);
+    assert_eq!(arrangement.rounds[1].turns[0].part, 100);
+    let too_many = std::iter::repeat_n("word", 1001)
+        .collect::<Vec<_>>()
+        .join(&format!("\n{PART_MARKER}\n"));
+    set.save("ann", "first", 1, &too_many, T + 1).unwrap();
+    assert!(
+        ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).is_err()
+    );
 }
 
 #[test]

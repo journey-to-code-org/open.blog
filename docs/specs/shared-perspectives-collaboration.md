@@ -492,6 +492,8 @@ metadata, checks stored ownership, and applies draft or named-reader visibility 
 A separate opt-in coverage check rejects arrangements that omit a live part or reference a
 different owner, duplicate ownership metadata, or nonexistent parts. An opt-in assembly path
 checks those constraints after credit-bound approvals and publishes every arranged part in order.
+An initial arrangement can be derived in each owner's chosen contribution order; it splits
+large arrangements into rounds and refuses pieces beyond the part limit rather than truncating.
 The coverage check reads private drafts and its result must not be exposed before whole-piece
 approval. These are core foundations only and are not yet used by Admin preview or publication.
 An opt-in complete review path refuses a token unless every current contribution is visible,
