@@ -555,19 +555,32 @@ impl SynthesisSet {
     ) -> Result<&[SynthesisItem], SynthesisError> {
         if context.authors.is_empty()
             || !context.recipients.contains(&recipient)
-            || !context.authors.iter().all(|author| {
-                self.delivery_consents.iter().any(|entry| {
-                    entry.author == *author
-                        && entry.recipient == recipient
-                        && entry.content_revision == self.content_revision
-                        && entry.membership_revision == context.membership_revision
-                        && entry.authorization_revision == context.authorization_revision
-                })
-            })
+            || !context
+                .authors
+                .iter()
+                .all(|author| self.delivery_consented(author, recipient, context))
         {
             return Err(SynthesisError::Denied);
         }
         Ok(&self.items)
+    }
+
+    /// Whether this author currently consents to delivery to this recipient.
+    pub fn delivery_consented(
+        &self,
+        author: &str,
+        recipient: &str,
+        context: &DeliveryContext<'_>,
+    ) -> bool {
+        context.authors.contains(&author)
+            && context.recipients.contains(&recipient)
+            && self.delivery_consents.iter().any(|entry| {
+                entry.author == author
+                    && entry.recipient == recipient
+                    && entry.content_revision == self.content_revision
+                    && entry.membership_revision == context.membership_revision
+                    && entry.authorization_revision == context.authorization_revision
+            })
     }
 
     fn content_changed(&mut self) {

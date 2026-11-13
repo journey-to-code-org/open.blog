@@ -183,6 +183,75 @@ test("a named reader receives only the explicitly released revision through the 
   }
 });
 
+test("all authors explicitly share the conversation with a reader", async ({ browser, page }) => {
+  const graceContext = await browser.newContext({ viewport: { width: 400, height: 800 } });
+  const readerContext = await browser.newContext({ viewport: { width: 400, height: 800 } });
+  const grace = await graceContext.newPage();
+  const reader = await readerContext.newPage();
+  try {
+    await page.setViewportSize({ width: 400, height: 800 });
+    await openDraft(page, "mikey", "correct horse battery");
+    const form = page.locator(".oba-synthesis-form");
+    await form.getByLabel("Text (Markdown)").fill("READER-CONVERSATION");
+    await form.getByRole("button", { name: "Add item" }).click();
+    await expect(page.getByText("Item added.", { exact: false })).toBeVisible();
+    await openDraft(grace, "grace", "another correct horse");
+    await reader.goto(`${origin}/admin/`);
+    await reader.getByLabel("Username", { exact: true }).fill("linus");
+    await reader.getByLabel("Password", { exact: true }).fill("yet another horse");
+    await reader.getByRole("button", { name: "Sign in", exact: true }).click();
+    await reader.goto(`${origin}/admin/#/shared`);
+    const reading = reader.locator("summary", { hasText: "Conversation shared with you" });
+    await reading.click();
+    await expect(reader.getByText("No conversation is available to you.")).toBeVisible();
+    for (const author of [page, grace]) {
+      if (author === grace) {
+        await grace.reload();
+        await grace.locator("summary", { hasText: "Your draft" }).click();
+      }
+      const row = author.locator(".oba-synthesis li").filter({ hasText: "Linus:" });
+      await row.getByRole("button", { name: "Choose to share with Linus" }).click();
+      const confirmation = row.getByRole("group", { name: "Share with Linus" });
+      await expect(confirmation).toBeFocused();
+      if (author === page) {
+        await page.evaluate(axe.source);
+        const audit = await page.evaluate(() => window.axe.run(document, {
+          runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+        }));
+        expect(audit.violations).toEqual([]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      }
+      await confirmation.getByRole("button", { name: "Agree to share" }).click();
+      await expect(row.getByText("you agreed.", { exact: false })).toBeVisible();
+      if (author === page) {
+        await reading.click();
+        await reading.click();
+        await expect(reader.getByText("No conversation is available to you.")).toBeVisible();
+      }
+    }
+    await reading.click();
+    await reading.click();
+    await expect(reader.getByRole("group", { name: "Agreement text" })).toHaveText("READER-CONVERSATION");
+    await reader.evaluate(axe.source);
+    const audit = await reader.evaluate(() => window.axe.run(document, {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+    }));
+    expect(audit.violations).toEqual([]);
+    expect(await reader.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.reload();
+    await page.locator("summary", { hasText: "Your draft" }).click();
+    await form.getByLabel("Text (Markdown)").fill("PRIVATE-LATER-CONVERSATION");
+    await form.getByRole("button", { name: "Add item" }).click();
+    await reading.click();
+    await reading.click();
+    await expect(reader.getByText("No conversation is available to you.")).toBeVisible();
+    await expect(reader.locator("body")).not.toContainText("PRIVATE-LATER-CONVERSATION");
+  } finally {
+    await graceContext.close();
+    await readerContext.close();
+  }
+});
+
 test("all participants unanimously change the approval rule through the real Admin API", async ({ browser, page }) => {
   const graceContext = await browser.newContext();
   const grace = await graceContext.newPage();

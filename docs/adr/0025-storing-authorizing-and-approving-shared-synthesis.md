@@ -81,6 +81,10 @@ prevents delivery; restoring access alone does not restore it. A delivered conve
 for recipients without the synthesis author grant. These grants do not enable combined review or
 whole-piece approval for non-authors; that requires further work.
 
+Admin lets each author confirm or withdraw their own agreement for each eligible recipient and
+lets recipients read the delivered conversation. A recipient who is not entitled to read it sees
+the same unavailable message whether the conversation is empty or contains private items.
+
 Delivery is stored in the private synthesis file. Older versions that reject unknown synthesis
 fields cannot read files containing delivery consent or its content revision. Rollback requires
 preserving those files and removing the new fields only after accounting for the lost consent.

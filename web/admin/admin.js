@@ -18299,6 +18299,7 @@ export class ObAdmin extends AdminElement {
         ),
         this.draftPanel(publication, index),
         this.sharedReadingPanel(publication, index),
+        this.sharedConversationReadingPanel(publication, index),
         this.readerPolicyPanel(publication, index),
         this.seriesPanel(publication, index),
         this.invitationPanel(publication, index),
@@ -18852,6 +18853,46 @@ export class ObAdmin extends AdminElement {
   }
 
   // ---- shared reflection series
+
+  sharedConversationReadingPanel(publication, index) {
+    if ((publication.roles || []).includes("contributor")) return null;
+    const headingId = `oba-shared-conversation-${index}`;
+    const body = h("div", {});
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const details = h("details", { class: "oba-invitations" },
+      h("summary", {}, "Conversation shared with you"),
+      h("h3", { id: headingId }, "Conversation shared with you"),
+      h("p", { class: "oba-small" }, "Only the current conversation explicitly shared with you appears here. Later changes stay private."),
+      problem, body);
+    let request = 0;
+    details.addEventListener("toggle", async () => {
+      const current = ++request;
+      if (!details.open) return;
+      problem.hidden = true;
+      body.replaceChildren();
+      try {
+        const result = await this.api.call("GET", `collaboration/synthesis?publicationId=${encodeURIComponent(publication.publicationId)}`);
+        if (current !== request || !details.open) return;
+        const items = result.items || [];
+        body.replaceChildren(items.length
+          ? h("ul", { "aria-labelledby": headingId }, items.map((item) =>
+            h("li", {},
+              h("p", { class: "oba-small" }, synthesisItemText(item)),
+              h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `${synthesisKindLabel(item.kind)} text` }, item.markdown))))
+          : h("p", { class: "oba-small" }, "The shared conversation is empty."));
+      } catch (error) {
+        if (current !== request || !details.open) return;
+        if (error?.status === 404) {
+          body.replaceChildren(h("p", { class: "oba-small" }, "No conversation is available to you."));
+          return;
+        }
+        problem.textContent = error?.data?.error || "The conversation could not be read. Try again.";
+        problem.hidden = false;
+        problem.focus();
+      }
+    });
+    return details;
+  }
 
   sharedReadingPanel(publication, index) {
     const roles = publication.roles || [];
@@ -20070,6 +20111,7 @@ export class ObAdmin extends AdminElement {
     const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const list = h("ul", { class: "oba-synthesis-list", "aria-label": "Continuing conversation items" });
     const form = h("form", { class: "oba-synthesis-form", novalidate: true, "aria-labelledby": `${prefix}-add-heading` });
+    const delivery = h("div", {});
     const root = h("div", { class: "oba-synthesis", hidden: true });
     let current = { revision: 0, items: [], authors: [], you: "" };
     let dismissed = promptsDismissed();
@@ -20282,6 +20324,43 @@ export class ObAdmin extends AdminElement {
       list.replaceChildren(...items.map((item, position) => itemView(item, position, items.length)));
       list.hidden = items.length === 0;
       renderForm();
+      const recipients = current.delivery?.recipients || [];
+      delivery.replaceChildren(...(recipients.length ? [
+        h("h5", {}, "Share this conversation"),
+        h("p", { class: "oba-small" }, "Each author must agree before the named person can read the entire current conversation. Changes or access changes require everyone to agree again. A copy already read cannot be taken back."),
+        h("ul", {}, recipients.map((recipient) => {
+          const holder = h("div", {});
+          const button = h("button", {
+            class: "oba-btn", type: "button",
+            "aria-label": recipient.consented ? `Withdraw my agreement to share with ${recipient.displayName}` : `Choose to share with ${recipient.displayName}`,
+          }, recipient.consented ? "Withdraw my agreement" : "Choose to share");
+          controls.set(`delivery:${recipient.id}`, button);
+          const change = (consent) => send({
+            action: "delivery", recipient: recipient.id,
+            expectedAuthorizationRevision: current.delivery.authorizationRevision, consent,
+          }, consent ? `You agreed to share with ${recipient.displayName}. Every author must agree.` : `You withdrew your agreement to share with ${recipient.displayName}.`, `delivery:${recipient.id}`);
+          button.addEventListener("click", () => {
+            if (recipient.consented) {
+              change(false);
+              return;
+            }
+            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, "Agree to share");
+            const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+            const confirmation = h("div", { class: "oba-confirm", role: "group", tabindex: "-1", "aria-label": `Share with ${recipient.displayName}` },
+              h("p", {}, `Allow ${recipient.displayName} to read the entire current conversation when all authors agree?`),
+              h("p", { class: "oba-small" }, "This includes every item shown above. A copy already read cannot be taken back."),
+              yes, " ", no);
+            holder.replaceChildren(confirmation);
+            confirmation.focus();
+            no.addEventListener("click", () => { holder.replaceChildren(); button.focus(); });
+            confirmation.addEventListener("keydown", (event) => {
+              if (event.key === "Escape") { holder.replaceChildren(); button.focus(); }
+            });
+            yes.addEventListener("click", () => change(true));
+          });
+          return h("li", {}, h("span", {}, recipient.displayName, recipient.consented ? ": you agreed. " : ": you have not agreed. "), button, holder);
+        })),
+      ] : []));
       root.hidden = false;
     };
 
@@ -20299,10 +20378,11 @@ export class ObAdmin extends AdminElement {
 
     root.append(
       heading,
-      h("p", { class: "oba-small" }, "After comparing your reflections you may add shared items: where you agree, differ, still wonder, or would apply it. None are required. Only the authors of this reflection can see them."),
+      h("p", { class: "oba-small" }, "After comparing your reflections you may add shared items: where you agree, differ, still wonder, or would apply it. None are required. Authors can see them; other participants can see them only when every author agrees to share."),
       status,
       problem,
       list,
+      delivery,
       form,
     );
     return { element: root, load };

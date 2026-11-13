@@ -14144,14 +14144,13 @@ fn participant_name(record: &SharedPublication, id: &str) -> String {
         .unwrap_or_default()
 }
 
-/// The synthesis as one author sees it. Items carry prose, so this is built only after the
-/// requester was authorized and `SynthesisSet::view` accepted them as an author.
+/// Serialize only items the requester has already been authorized to read.
 fn synthesis_json(
     set: &openblog_core::synthesis::SynthesisSet,
     items: &[openblog_core::synthesis::SynthesisItem],
     record: &SharedPublication,
     own: &str,
-    authors: &[&str],
+    context: &openblog_core::synthesis::DeliveryContext<'_>,
 ) -> Json {
     let who = |id: &str| json!({ "id": id, "displayName": participant_name(record, id) });
     let items: Vec<Json> = items
@@ -14170,11 +14169,24 @@ fn synthesis_json(
             })
         })
         .collect();
+    let delivery = context.authors.contains(&own).then(|| {
+        json!({
+            "authorizationRevision": context.authorization_revision,
+            "recipients": context.recipients.iter()
+                .filter(|recipient| !context.authors.contains(recipient))
+                .map(|recipient| json!({
+                    "id": recipient,
+                    "displayName": participant_name(record, recipient),
+                    "consented": set.delivery_consented(own, recipient, context),
+                })).collect::<Vec<_>>(),
+        })
+    });
     json!({
         "revision": set.revision(),
         "items": items,
-        "authors": authors.iter().map(|id| who(id)).collect::<Vec<_>>(),
+        "authors": context.authors.iter().map(|id| who(id)).collect::<Vec<_>>(),
         "you": own,
+        "delivery": delivery,
     })
 }
 
@@ -14216,7 +14228,7 @@ fn read_synthesis(state: &AppState, req: &Request, session: &auth::Session) -> R
     match items {
         Ok(items) => Response::json(
             200,
-            &synthesis_json(&stored.set, items, record, &own, &authors),
+            &synthesis_json(&stored.set, items, record, &own, &context),
         ),
         Err(_) => synthesis_not_found(),
     }
@@ -14441,8 +14453,16 @@ fn change_synthesis(state: &AppState, req: &Request, session: &auth::Session) ->
             body.publication_id
         );
     }
+    let recipients = policy_participants(&transaction, record);
+    let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+    let context = openblog_core::synthesis::DeliveryContext {
+        authors: &authors,
+        recipients: &recipients,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
+    };
     match next.view(&own, &authors) {
-        Ok(items) => Response::json(200, &synthesis_json(&next, items, record, &own, &authors)),
+        Ok(items) => Response::json(200, &synthesis_json(&next, items, record, &own, &context)),
         Err(_) => synthesis_not_found(),
     }
 }
@@ -42093,6 +42113,17 @@ series: letters
         assert_eq!(added.status, 200);
         assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
         let auth_revision = stored_record(&f, &id).authorization.revision;
+        let author_view = body_json(&synthesis_read(&f, &mikey, &id));
+        let recipients = author_view["delivery"]["recipients"].as_array().unwrap();
+        let ada_entry = recipients
+            .iter()
+            .find(|entry| entry["id"] == ada_id)
+            .unwrap();
+        assert_eq!(ada_entry["consented"], false);
+        assert_eq!(
+            author_view["delivery"]["authorizationRevision"],
+            auth_revision
+        );
         let change = |revision, consent| {
             json!({
                 "action": "delivery",
@@ -42109,6 +42140,15 @@ series: letters
             synthesis_change(&f, &mikey, &id, 1, change(auth_revision, true)).status,
             200
         );
+        let author_view = body_json(&synthesis_read(&f, &mikey, &id));
+        let recipients = author_view["delivery"]["recipients"].as_array().unwrap();
+        assert_eq!(
+            recipients
+                .iter()
+                .find(|entry| entry["id"] == ada_id)
+                .unwrap()["consented"],
+            true
+        );
         assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
         assert_eq!(
             synthesis_change(&f, &grace, &id, 2, change(auth_revision, true)).status,
@@ -42116,6 +42156,7 @@ series: letters
         );
         let delivered = synthesis_read(&f, &ada, &id);
         assert_eq!(delivered.status, 200);
+        assert_eq!(body_json(&delivered)["delivery"], Json::Null);
         assert_eq!(
             body_json(&delivered)["items"][0]["markdown"],
             "PRIVATE-CONVERSATION"
