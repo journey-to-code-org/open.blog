@@ -899,6 +899,9 @@ The fixed-number rule requires that many active authors' whole-piece approvals, 
 writer and attributed author. The threshold does not decrease if someone leaves. Only current
 contributors can approve a piece; reader and coordinator-only participants vote on rule changes
 but cannot yet approve the piece.
+Whole-piece approvals become stale when membership or access changes and cannot revive if access
+is restored. Existing non-quorum whole-piece approvals created before this change need review again;
+legacy section-only approval bindings are unchanged.
 
 This workflow is still incomplete: the approval confirmation describes the current contributor
 profile credit, but separate display-name-only and uncredited choices are not available.

@@ -487,8 +487,10 @@ which always requires whole-piece approval. A fixed quorum counts standing appro
 authors who hold the contributor role; every writer and attributed author must separately approve.
 It is not reduced when authors leave. A proposal exceeding the current eligible author count is
 refused, and only a site owner may propose weakening an existing quorum. The normal unanimous
-proposal process still applies. Quorum approvals bind the membership and authorization revisions,
-so changing access invalidates them even if a removed role is later restored. Reader and
+proposal process still applies. Every whole-piece approval binds membership and authorization
+revisions, so changing access invalidates it even if a removed role is later restored. Existing
+non-quorum whole-piece approvals from before this binding require review again; legacy section-only
+bindings are unchanged. Reader and
 coordinator-only participants cannot yet approve the
 piece, so full all-participant quorum remains open in epic #592. Older releases cannot read an
 approval set that contains a numeric quorum.

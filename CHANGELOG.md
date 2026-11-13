@@ -33,6 +33,9 @@ All notable changes to open.blog are recorded here. Releases follow
   the group agrees, then are cleared.
 - Groups can propose a fixed numeric author quorum; every writer and attributed author must
   still approve the whole piece, and the threshold does not fall when participants leave.
+- Whole-piece approvals bind membership and authorization revisions under every rule, so access
+  restoration cannot revive approval after a failed cleanup. Existing non-quorum whole-piece
+  approvals must be reviewed again; legacy section-only approval bindings remain unchanged.
 - Shared publication outcomes retain a private receipt for the approved section revisions and
   the exact published Post and credit sidecar, without storing draft prose in the receipt.
 - The Admin publishing setup status has stronger text contrast on the workspace bar.

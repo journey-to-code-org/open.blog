@@ -247,7 +247,7 @@ pub struct Section<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct ApprovalSubject<'a> {
     pub authors: &'a [&'a str],
-    /// Monotonic membership and authorization revisions protect quorum consent across churn.
+    /// Monotonic membership and authorization revisions protect whole-piece consent across churn.
     pub membership_revision: u64,
     pub authorization_revision: u64,
     pub sections: &'a [Section<'a>],
@@ -527,6 +527,10 @@ impl ApprovalSubject<'_> {
             hasher.update([u8::from(
                 self.holds_role(participant, &[AuthorizationRole::Contributor]),
             )]);
+        } else if policy.scope == ApprovalScope::WholePiece {
+            put(&mut hasher, b"whole-piece-membership-v1");
+            hasher.update(self.membership_revision.to_be_bytes());
+            hasher.update(self.authorization_revision.to_be_bytes());
         }
         let mut authors = self.authors.to_vec();
         authors.sort_unstable();

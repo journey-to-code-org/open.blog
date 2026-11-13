@@ -292,6 +292,57 @@ fn quorum_churn_cannot_revive_consent_even_without_reconciliation() {
 }
 
 #[test]
+fn whole_piece_rules_cannot_revive_consent_after_membership_or_access_changes() {
+    for requirement in [
+        ApprovalRequirement::AllAuthors,
+        ApprovalRequirement::ContributingAuthors,
+        ApprovalRequirement::NamedAuthors(vec!["cy".into()]),
+        ApprovalRequirement::AuthorsWithRoles(vec![AuthorizationRole::Contributor]),
+    ] {
+        for membership_change in [true, false] {
+            let mut record = record();
+            let drafts = drafts(&["ann", "bo"]);
+            let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+            approvals.set_policy(ApprovalPolicy {
+                requirement: requirement.clone(),
+                scope: ApprovalScope::WholePiece,
+            });
+            for who in ALL {
+                approve(&record, &drafts, &mut approvals, &ALL, who);
+            }
+            assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+            if membership_change {
+                record.collaboration.revision += 2;
+            } else {
+                record.authorization.revision += 2;
+            }
+            assert!(
+                matches!(
+                    gate(&record, &drafts, &approvals, &ALL),
+                    Err(AssemblyError::Blocked { .. })
+                ),
+                "{requirement:?}, membership_change={membership_change}"
+            );
+        }
+    }
+}
+
+#[test]
+fn legacy_section_only_bindings_remain_unchanged_by_revision_counters() {
+    let mut record = record();
+    record.initial_approval_scope = None;
+    let drafts = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+    record.collaboration.revision += 2;
+    record.authorization.revision += 2;
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+}
+
+#[test]
 fn new_reflections_cannot_publish_section_only_approvals() {
     let mut record = record();
     record.initial_approval_scope = Some(ApprovalScope::WholePiece);
