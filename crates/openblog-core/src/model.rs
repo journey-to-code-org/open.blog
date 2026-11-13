@@ -854,16 +854,6 @@ impl Site {
         for file in &sources.series {
             match load_series(file, concept_options(render_options)) {
                 Ok(mut s) => {
-                    if let Some(error) = s.diagram_error.take() {
-                        if options.preview_source.is_some() {
-                            warnings.push(format!(
-                                "{}: diagram not published in this preview: {error}",
-                                file.path
-                            ));
-                        } else {
-                            errors.push(format!("{}: {error}", file.path));
-                        }
-                    }
                     let (html, notes) = crate::concept_links::plain_outside_post(
                         &s.description_html,
                         &s.concept_refusals,
@@ -1267,6 +1257,20 @@ impl Site {
             series[position].posts.push(index);
         }
         for s in &mut series {
+            if let Some(error) = s.diagram_error.take() {
+                let source = s.source.as_deref().unwrap_or("series");
+                if s.posts.is_empty() {
+                    warnings.push(format!(
+                        "{source}: diagram not published because the series has no posts: {error}"
+                    ));
+                } else if options.preview_source.is_some() {
+                    warnings.push(format!(
+                        "{source}: diagram not published in this preview: {error}"
+                    ));
+                } else {
+                    errors.push(format!("{source}: {error}"));
+                }
+            }
             s.posts.sort_by(|&a, &b| {
                 let (pa, pb) = (&posts[a], &posts[b]);
                 match (pa.series_order, pb.series_order) {
@@ -1288,6 +1292,9 @@ impl Site {
                     s.cover_dark = post.cover_dark.clone();
                 }
             }
+        }
+        if !errors.is_empty() {
+            return Err(errors);
         }
         series.sort_by(|a, b| {
             let latest =

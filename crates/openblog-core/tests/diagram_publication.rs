@@ -256,6 +256,7 @@ fn series_descriptions_render_and_gate_diagrams() {
 
     let sources = || Sources {
         series: vec![series(INVALID)],
+        posts: vec![post("A post in the guide.\n", "series: guide\n")],
         ..Default::default()
     };
     let errors = load(sources(), LoadOptions::default()).unwrap_err();
@@ -278,6 +279,22 @@ fn series_descriptions_render_and_gate_diagrams() {
     assert!(!preview.series[0]
         .description_html
         .contains("<figure class=\"ob-diagram\">"));
+    let unused = load(
+        Sources {
+            series: vec![series(INVALID)],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    assert!(unused
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("accTitle")));
+    assert!(!generate(&unused, &ThemeSet::new())
+        .unwrap()
+        .iter()
+        .any(|file| file.path == "series/guide/index.html"));
 }
 
 #[test]
