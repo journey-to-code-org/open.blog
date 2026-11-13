@@ -132,3 +132,17 @@ test("with no Studio window, or for another app's page, a window is opened inste
   await foreign.tap(undefined);
   assert.deepEqual(foreign.opened, [`${ORIGIN}/admin/studio/`, `${ORIGIN}/admin/studio/`]);
 });
+
+test("the worker's studioAddress and the rules' copy are the same function", async () => {
+  const rules = readFileSync(new URL("../../web/studio/parts/notification-rules.js", import.meta.url), "utf8");
+  const body = (code) => {
+    const start = code.indexOf("function studioAddress(");
+    assert.ok(start >= 0);
+    const end = code.indexOf("\n}\n", start);
+    return code.slice(start, end + 2);
+  };
+  assert.equal(body(rules), body(source));
+  const { studioAddress } = await import("../../web/studio/parts/notification-rules.js");
+  assert.equal(studioAddress("/admin/#/quotes", ORIGIN), `${ORIGIN}/admin/studio/#/quotes`);
+  assert.equal(studioAddress("javascript:alert(1)", ORIGIN), `${ORIGIN}/admin/studio/`);
+});
