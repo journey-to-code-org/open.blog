@@ -215,6 +215,70 @@ fn multi_contribution_arrangement_shows_only_released_drafts() {
 }
 
 #[test]
+fn multi_contribution_publication_requires_every_current_part_exactly_once() {
+    use openblog_core::collaboration::Contribution;
+    let mut record = record();
+    record.collaboration.contributions = vec![
+        Contribution {
+            id: "first".into(),
+            participant_id: "ann".into(),
+            markdown: String::new(),
+        },
+        Contribution {
+            id: "second".into(),
+            participant_id: "ann".into(),
+            markdown: String::new(),
+        },
+        Contribution {
+            id: "third".into(),
+            participant_id: "bo".into(),
+            markdown: String::new(),
+        },
+    ];
+    let mut set = DraftSet::new(&ALL).unwrap();
+    set.save("ann", "first", 0, &two_part("one", "two"), T)
+        .unwrap();
+    set.save("ann", "second", 0, "three", T).unwrap();
+    set.save("bo", "third", 0, "four", T).unwrap();
+    let complete = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":1},{"draft":"second","part":0},{"draft":"first","part":0},{"draft":"third","part":0}]}]}"#,
+    );
+    assert!(complete
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_ok());
+    let omitted = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"second","part":0},{"draft":"third","part":0}]}]}"#,
+    );
+    assert!(omitted
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+    let omitted_draft = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"first","part":1},{"draft":"third","part":0}]}]}"#,
+    );
+    assert!(omitted_draft
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+    let unknown = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"first","part":1},{"draft":"second","part":0},{"draft":"third","part":9}]}]}"#,
+    );
+    assert!(unknown
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+    record.collaboration.contributions[1].participant_id = "bo".into();
+    assert!(complete
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+    record.collaboration.contributions[1].participant_id = "ann".into();
+    record
+        .collaboration
+        .contributions
+        .push(record.collaboration.contributions[1].clone());
+    assert!(complete
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+}
+
+#[test]
 fn a_piece_without_a_structure_keeps_participant_order_and_never_shows_the_marker() {
     let record = record();
     let set = world();

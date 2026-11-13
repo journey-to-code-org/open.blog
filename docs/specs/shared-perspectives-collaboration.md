@@ -487,7 +487,10 @@ Older releases cannot read multi-contribution offers or exchanges; the Admin rou
 create them.
 An opt-in arrangement reader resolves distinct contribution IDs against authorized ownership
 metadata, checks stored ownership, and applies draft or named-reader visibility to each turn.
-It is a core foundation only and is not yet used by Admin preview or publication.
+A separate opt-in coverage check rejects arrangements that omit a live part or reference a
+different owner, duplicate ownership metadata, or nonexistent parts. It reads private drafts
+and its result must not be exposed before whole-piece approval. These are core foundations only
+and are not yet used by Admin preview or publication.
 The Admin route, reveal, preview and publication paths still support one draft per participant;
 the core ordering operation is not exposed until those paths can safely handle every contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.

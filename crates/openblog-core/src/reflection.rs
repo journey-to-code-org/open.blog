@@ -359,6 +359,52 @@ impl ReflectionStructure {
         self.order_contributions(contract, drafts, requester, active, true)
     }
 
+    /// Validate exact coverage of all live parts belonging to active authors. This reads private
+    /// drafts: callers must not expose the result until the whole piece has been approved.
+    pub fn validate_contribution_coverage(
+        &self,
+        contract: &CollaborationContract,
+        drafts: &DraftSet,
+        active: &[&str],
+    ) -> Result<(), ReflectionError> {
+        if !self.is_valid() {
+            return Err(ReflectionError::Invalid);
+        }
+        let mut expected = HashSet::new();
+        for author in active {
+            let views = drafts
+                .owned_views(author)
+                .map_err(|_| ReflectionError::Invalid)?;
+            for view in views {
+                let id = &view.stamp.contribution_id;
+                let mut matches = contract
+                    .contributions
+                    .iter()
+                    .filter(|contribution| contribution.id.eq_ignore_ascii_case(id));
+                let contribution = matches.next().ok_or(ReflectionError::Invalid)?;
+                if contribution.participant_id != *author || matches.next().is_some() {
+                    return Err(ReflectionError::Invalid);
+                }
+                for part in 0..split_parts(&view.markdown).len() {
+                    if !expected.insert((id.to_ascii_lowercase(), part)) {
+                        return Err(ReflectionError::Invalid);
+                    }
+                }
+            }
+        }
+        let actual: HashSet<_> = self
+            .rounds
+            .iter()
+            .flat_map(|round| &round.turns)
+            .map(|turn| (turn.draft.to_ascii_lowercase(), turn.part))
+            .collect();
+        if actual == expected {
+            Ok(())
+        } else {
+            Err(ReflectionError::Invalid)
+        }
+    }
+
     fn order_contributions<'a>(
         &'a self,
         contract: &'a CollaborationContract,
