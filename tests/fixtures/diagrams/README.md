@@ -18,7 +18,7 @@ of links, images and interaction/configuration directives. The experimental
 `markdown::render_diagrams` entry point adds figure markup, caption, source
 disclosure, collision-checked IDs and source-scoped findings; invalid diagrams
 remain escaped code. Native builds explicitly compiled with the feature use it
-for posts, pages and documentation, failing publication on findings and
+for posts, pages, series and documentation, failing publication on findings and
 warning for drafts and previews. Builds emit digest-named SVG files and full
 feeds and portable Markdown/HTML link to those files with text alternatives.
 Parser diagnostics retain their source line and column, including the Markdown

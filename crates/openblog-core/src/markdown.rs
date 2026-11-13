@@ -2210,7 +2210,6 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
 }
 
 /// Experimental native rendering, with source-scoped diagnostics for the caller to gate.
-/// This is not yet a publication or portable-rendering entry point.
 #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
 pub fn render_diagrams(
     markdown: &str,

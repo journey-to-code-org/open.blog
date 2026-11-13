@@ -539,6 +539,8 @@ pub struct Series {
     pub posts: Vec<usize>,
     pub source: Option<String>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
+    pub(crate) diagram_error: Option<String>,
+    pub(crate) diagrams: Vec<crate::diagram::Asset>,
     /// Semantic capabilities detected in the authored description.
     pub capabilities: Vec<CapabilityDescriptor>,
     /// Old series addresses (`aliases:` in the series page) that redirect here.
@@ -852,6 +854,16 @@ impl Site {
         for file in &sources.series {
             match load_series(file, concept_options(render_options)) {
                 Ok(mut s) => {
+                    if let Some(error) = s.diagram_error.take() {
+                        if options.preview_source.is_some() {
+                            warnings.push(format!(
+                                "{}: diagram not published in this preview: {error}",
+                                file.path
+                            ));
+                        } else {
+                            errors.push(format!("{}: {error}", file.path));
+                        }
+                    }
                     let (html, notes) = crate::concept_links::plain_outside_post(
                         &s.description_html,
                         &s.concept_refusals,
@@ -1244,6 +1256,8 @@ impl Site {
                         posts: Vec::new(),
                         source: None,
                         accessibility: Vec::new(),
+                        diagram_error: None,
+                        diagrams: Vec::new(),
                         capabilities: Vec::new(),
                         aliases: Vec::new(),
                     });
@@ -2677,7 +2691,7 @@ fn concept_options(options: RenderOptions<'_>) -> RenderOptions<'_> {
 fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
-    let rendered = markdown::render(&doc.body, options);
+    let (rendered, diagram_error) = render_site_markdown(&doc.body, options, doc.body_line);
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
     }
@@ -2719,6 +2733,8 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
         posts: Vec::new(),
         source: Some(file.path.clone()),
         accessibility,
+        diagram_error,
+        diagrams: rendered.diagrams,
         capabilities: rendered.capabilities,
         aliases: aliases(fm)?,
     })

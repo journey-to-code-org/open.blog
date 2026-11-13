@@ -680,6 +680,12 @@ pub fn generate_with_trail_budget(
         .iter()
         .flat_map(|post| &post.diagrams)
         .chain(site.pages.iter().flat_map(|page| &page.diagrams))
+        .chain(
+            site.series
+                .iter()
+                .filter(|series| !series.posts.is_empty())
+                .flat_map(|series| &series.diagrams),
+        )
     {
         if let Some(previous) = diagrams.insert(&asset.path, &asset.svg) {
             if previous != &asset.svg {

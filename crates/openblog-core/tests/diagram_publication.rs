@@ -216,6 +216,71 @@ fn docs_publication_and_draft_preview_use_the_same_gate() {
 }
 
 #[test]
+fn series_descriptions_render_and_gate_diagrams() {
+    let series = |body: &str| SourceFile {
+        path: "series/guide.md".into(),
+        contents: format!("---\nname: Guide\n---\n{body}"),
+    };
+    let site = load(
+        Sources {
+            series: vec![series(VALID)],
+            posts: vec![post("A post in the guide.\n", "series: guide\n")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    let files = generate(&site, &ThemeSet::new()).unwrap();
+    let page = files
+        .iter()
+        .find(|file| file.path == "series/guide/index.html")
+        .unwrap();
+    assert!(page.contents.contains("<figure class=\"ob-diagram\">"));
+    assert!(page.contents.contains("Show diagram source"));
+    assert!(files
+        .iter()
+        .any(|file| file.path.starts_with("assets/diagrams/") && file.path.ends_with(".svg")));
+
+    let unpublished = load(
+        Sources {
+            series: vec![series(VALID)],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    let files = generate(&unpublished, &ThemeSet::new()).unwrap();
+    assert!(!files
+        .iter()
+        .any(|file| file.path.starts_with("assets/diagrams/")));
+
+    let sources = || Sources {
+        series: vec![series(INVALID)],
+        ..Default::default()
+    };
+    let errors = load(sources(), LoadOptions::default()).unwrap_err();
+    assert!(errors.iter().any(|error| error.contains("series/guide.md")
+        && error.contains("line 4, column 1")
+        && error.contains("accTitle")));
+    let preview = load(
+        sources(),
+        LoadOptions {
+            preview_source: Some("series/guide.md".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(preview
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("accTitle")));
+    assert!(preview.series[0].description_html.contains("flowchart LR"));
+    assert!(!preview.series[0]
+        .description_html
+        .contains("<figure class=\"ob-diagram\">"));
+}
+
+#[test]
 fn feeds_and_portable_copies_use_real_digest_named_images_with_alternatives() {
     let nested = format!(
         "{VALID}\n> ```mermaid title=\"Nested\" description=\"C calls D\"\n> flowchart LR\n> C --> D\n> ```\n"
