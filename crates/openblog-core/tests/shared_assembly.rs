@@ -91,6 +91,138 @@ fn approve(record: &SharedPublication, set: &DraftSet, approvals: &mut ApprovalS
 }
 
 #[test]
+fn choice_aware_assembly_uses_only_approved_public_identities() {
+    use openblog_core::approval::ApprovalScope;
+    use openblog_core::assembly::{
+        assemble_for_participants_with_credits, with_credit_subject_for_participants,
+    };
+    use openblog_core::reflection::ReflectionStructure;
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let mut record = record();
+    for (participant, name) in record.collaboration.participants.iter_mut().zip([
+        "Private Ann",
+        "Private Bo",
+        "Private Cy",
+    ]) {
+        participant.display_name = name.into();
+    }
+    let set = drafts(&[
+        ("ann", "First words"),
+        ("bo", "Second words"),
+        ("cy", "Third words"),
+    ]);
+    let structure = ReflectionStructure::from_json(
+        r#"{"version":1,"revision":1,"layout":"roundtable","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0},{"draft":"cy","part":0}]}]}"#,
+    )
+    .unwrap();
+    let mut choices = CreditChoices::default();
+    choices
+        .select(
+            "ann",
+            "ann",
+            "ann",
+            0,
+            CreditChoice::Profile {
+                contributor_id: "ann".into(),
+                profile: Contributor {
+                    name: "Approved Ann".into(),
+                    ..Contributor::default()
+                },
+            },
+        )
+        .unwrap();
+    choices
+        .select(
+            "bo",
+            "bo",
+            "bo",
+            1,
+            CreditChoice::DisplayName {
+                name: "Pen Name".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+    choices
+        .select("cy", "cy", "cy", 2, CreditChoice::Uncredited)
+        .unwrap();
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    with_credit_subject_for_participants(
+        &record,
+        Some(&structure),
+        &set,
+        &synthesis,
+        &moments,
+        &ALL,
+        &ALL,
+        &choices,
+        |subject| {
+            for who in ALL {
+                let seen = approvals.binding_for(subject, who).unwrap();
+                approvals
+                    .approve(who, who, subject, &seen, true, T)
+                    .unwrap();
+            }
+        },
+    )
+    .unwrap();
+    let build = |choices: &CreditChoices| {
+        assemble_for_participants_with_credits(
+            &record,
+            Some(&structure),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &ALL,
+            &ALL,
+            DATE,
+            choices,
+        )
+    };
+    let post = build(&choices).unwrap();
+    assert!(post.source.contains("Approved Ann"));
+    assert!(post.source.contains("Pen Name"));
+    assert!(post.source.contains("Uncredited participant"));
+    assert!(post.source.contains("ob-turn-by-ann"));
+    assert!(!post.source.contains("ob-turn-by-bo"));
+    assert!(!post.source.contains("ob-turn-by-cy"));
+    for private in [
+        "Private Ann",
+        "Private Bo",
+        "Private Cy",
+        "ann-admin",
+        "bo-admin",
+        "cy-admin",
+    ] {
+        assert!(!post.source.contains(private));
+        assert!(!post.credits.contains(private));
+    }
+    assert!(post.credits.contains("Approved Ann"));
+    assert!(post.credits.contains("Pen Name"));
+    assert!(!post.credits.contains("\"cy\""));
+    choices
+        .select(
+            "cy",
+            "cy",
+            "cy",
+            3,
+            CreditChoice::DisplayName {
+                name: "New name".into(),
+                public_id: Some("fedcba9876543210fedcba9876543210".into()),
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        build(&choices),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
 fn the_gate_binding_equals_the_one_the_preview_hands_out() {
     let record = record();
     let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);

@@ -286,6 +286,57 @@ pub fn with_credit_subject_for_participants<R>(
     ))
 }
 
+/// Prepare the names used in public rendering without changing the private record. Only active
+/// participants whose draft, conversation attribution, or moment appears need a credit choice.
+pub fn public_credit_projection(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<(SharedPublication, crate::shared_credit::PublicCredits), AssemblyError> {
+    let attributed = synthesis.attributed_authors();
+    let noted = moments.attributed_participants();
+    if attributed
+        .iter()
+        .chain(&noted)
+        .any(|id| !active.contains(id))
+    {
+        return Err(AssemblyError::Invalid);
+    }
+    let people: Vec<&str> = record
+        .collaboration
+        .participants
+        .iter()
+        .map(|participant| participant.id.as_str())
+        .filter(|id| {
+            active.contains(id)
+                && (drafts.current_stamp(id).is_some()
+                    || attributed.contains(id)
+                    || noted.contains(id))
+        })
+        .collect();
+    if attributed
+        .iter()
+        .chain(&noted)
+        .any(|id| !people.contains(id))
+    {
+        return Err(AssemblyError::Invalid);
+    }
+    let credits = choices
+        .project(&people)
+        .map_err(|_| AssemblyError::Invalid)?;
+    let mut public_record = record.clone();
+    for participant in &mut public_record.collaboration.participants {
+        if let Some(name) = credits.display_name(&participant.id) {
+            participant.display_name = name.to_string();
+            participant.profile_url = None;
+        }
+    }
+    Ok((public_record, credits))
+}
+
 /// Display names for participant ids, in the order given; unknown ids are skipped.
 pub fn display_names<'a>(
     record: &SharedPublication,
@@ -456,6 +507,61 @@ pub fn assemble_for_participants(
     participants: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
+    assemble_inner(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        active,
+        participants,
+        date,
+        None,
+    )
+}
+
+/// Assemble with explicit, approval-bound participant credit choices.
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_for_participants_with_credits(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    participants: &[&str],
+    date: &str,
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<Assembly, AssemblyError> {
+    assemble_inner(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        active,
+        participants,
+        date,
+        Some(choices),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble_inner(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    participants: &[&str],
+    date: &str,
+    choices: Option<&crate::shared_credit::CreditChoices>,
+) -> Result<Assembly, AssemblyError> {
     if !record.allows_approval_scope(approvals.policy().scope) {
         return Err(AssemblyError::ApprovalScope);
     }
@@ -463,16 +569,31 @@ pub fn assemble_for_participants(
     // the drafts first would refuse differently depending on whether a draft has a given part, an
     // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
     // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
-    match with_subject_for_participants(
-        record,
-        structure,
-        drafts,
-        synthesis,
-        moments,
-        active,
-        participants,
-        |subject| approvals.evaluate(subject),
-    ) {
+    let readiness = match choices {
+        Some(choices) => with_credit_subject_for_participants(
+            record,
+            structure,
+            drafts,
+            synthesis,
+            moments,
+            active,
+            participants,
+            choices,
+            |subject| approvals.evaluate(subject),
+        )
+        .map_err(|_| AssemblyError::Invalid)?,
+        None => with_subject_for_participants(
+            record,
+            structure,
+            drafts,
+            synthesis,
+            moments,
+            active,
+            participants,
+            |subject| approvals.evaluate(subject),
+        ),
+    };
+    match readiness {
         Ok(Readiness::Ready) => {}
         Ok(Readiness::Blocked { gaps, .. }) if !gaps.is_empty() => {
             return Err(AssemblyError::RuleUnmet {
@@ -500,6 +621,12 @@ pub fn assemble_for_participants(
     if !moments.unresolved(&record.sources).is_empty() {
         return Err(AssemblyError::UnresolvedMoment);
     }
+    let projected = choices
+        .map(|choices| {
+            public_credit_projection(record, drafts, synthesis, moments, active, choices)
+        })
+        .transpose()?;
+    let public_record = projected.as_ref().map_or(record, |(record, _)| record);
     let title = record
         .title
         .as_deref()
@@ -521,13 +648,14 @@ pub fn assemble_for_participants(
     };
     let mut prose = Vec::new();
     let mut credits = Vec::new();
+    let mut credit_order = Vec::new();
     let mut arranged = None;
     if let Some(structure) = structure {
         // The same latest revisions the approval's binding covers, in the one reading order. A
         // turn naming a part an author has since removed is a coordinator's fix, so it gets its
         // own error; it is reached only once the approvals are met.
         let order = structure
-            .reading_order(&record.collaboration, drafts)
+            .reading_order(&public_record.collaboration, drafts)
             .map_err(|_| AssemblyError::ArrangementMismatch)?;
         let order: Vec<_> = order
             .into_iter()
@@ -544,17 +672,21 @@ pub fn assemble_for_participants(
             }
             if !credited.contains(&entry.participant_id) {
                 credited.push(entry.participant_id);
-                credits.push(credit_for(entry.participant_id)?);
+                credit_order.push(entry.participant_id.to_string());
+                if choices.is_none() {
+                    credits.push(credit_for(entry.participant_id)?);
+                }
             }
             prose.push(text.to_string());
-            bound.push(
-                record
+            bound.push(match &projected {
+                Some((_, projection)) => projection.contributor_id(entry.participant_id),
+                None => record
                     .authorization
                     .bindings
                     .iter()
                     .find(|binding| binding.participant_id == entry.participant_id)
                     .map(|binding| binding.contributor_id.as_str()),
-            );
+            });
             turns.push(ComposedTurn {
                 round: entry.round,
                 round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
@@ -575,7 +707,10 @@ pub fn assemble_for_participants(
             let Some(view) = drafts.latest_view(&participant.id) else {
                 continue;
             };
-            credits.push(credit_for(&participant.id)?);
+            credit_order.push(participant.id.clone());
+            if choices.is_none() {
+                credits.push(credit_for(&participant.id)?);
+            }
             prose.push(strip_part_markers(&view.markdown).trim().to_string());
         }
     }
@@ -583,7 +718,7 @@ pub fn assemble_for_participants(
         return Err(AssemblyError::Invalid);
     }
 
-    let conversation = conversation_chunks(record, synthesis);
+    let conversation = conversation_chunks(public_record, synthesis);
     match unsafe_markup(&prose, &conversation) {
         None => {}
         Some(error) => return Err(error),
@@ -591,9 +726,10 @@ pub fn assemble_for_participants(
     let mut body = arranged.unwrap_or_else(|| prose.join(SECTION_BREAK));
     if !conversation.is_empty() {
         body.push_str(SECTION_BREAK);
-        body.push_str(&conversation_markdown(record, synthesis));
+        body.push_str(&conversation_markdown(public_record, synthesis));
     }
-    let public = published_moment::published(record, moments).ok_or(AssemblyError::Invalid)?;
+    let public =
+        published_moment::published(public_record, moments).ok_or(AssemblyError::Invalid)?;
     if !public.is_empty() {
         let observations: Vec<&str> = public
             .iter()
@@ -663,16 +799,37 @@ pub fn assemble_for_participants(
     }
     let path = post_path(record);
     let credits_path = crate::contributor::sidecar_path(&path).ok_or(AssemblyError::Invalid)?;
-    let credits = serde_json::to_string_pretty(&serde_json::json!({
-        "version": 1,
-        "credits": credits,
-    }))
-    .map_err(|_| AssemblyError::Invalid)?;
+    let credits = match choices {
+        Some(choices) => {
+            for id in synthesis
+                .attributed_authors()
+                .into_iter()
+                .chain(moments.attributed_participants())
+            {
+                if !credit_order.iter().any(|existing| existing == id) {
+                    credit_order.push(id.to_string());
+                }
+            }
+            let ids = credit_order.iter().map(String::as_str).collect::<Vec<_>>();
+            choices
+                .project(&ids)
+                .map_err(|_| AssemblyError::Invalid)?
+                .sidecar()
+                .to_string()
+        }
+        None => {
+            let text = serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1, "credits": credits,
+            }))
+            .map_err(|_| AssemblyError::Invalid)?;
+            format!("{text}\n")
+        }
+    };
     Ok(Assembly {
         path,
         source: frontmatter::compose(&fields, &body),
         credits_path,
-        credits: format!("{credits}\n"),
+        credits,
     })
 }
 

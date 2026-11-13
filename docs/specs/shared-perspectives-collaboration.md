@@ -475,6 +475,9 @@ choices never silently fall back to profile credit. Existing approvals can still
 Display-name choices receive a separately generated public identifier, never the participant ID.
 The public-credit projection refuses missing choices or older display-name choices without such an
 identifier; the participant must select the name again before that projection can be used.
+The core choice-aware assembler binds the choices to approval and uses their public projection
+for turn headings, conversation and moments, and frozen credits. It is not yet connected to the
+Admin review and publish routes, which remain guarded as described above.
 
 When an approver submits an approval, the server checks again that the current combined preview is
 complete for them. If sharing changed after the preview was opened, the earlier review token

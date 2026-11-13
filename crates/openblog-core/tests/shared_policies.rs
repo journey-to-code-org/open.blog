@@ -329,6 +329,62 @@ fn whole_piece_rules_cannot_revive_consent_after_membership_or_access_changes() 
 }
 
 #[test]
+fn publication_credit_projection_never_falls_back_to_private_names() {
+    use openblog_core::assembly::public_credit_projection;
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo", "cy"];
+    let mut choices = CreditChoices::default();
+    choices
+        .select("ann", "ann", "ann", 0, CreditChoice::Uncredited)
+        .unwrap();
+    assert!(public_credit_projection(
+        &record,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &active,
+        &choices
+    )
+    .is_err());
+    choices
+        .select(
+            "bo",
+            "bo",
+            "bo",
+            1,
+            CreditChoice::DisplayName {
+                name: "Pen Name".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+    let (projected, credits) = public_credit_projection(
+        &record,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &active,
+        &choices,
+    )
+    .unwrap();
+    assert_eq!(record.collaboration.participants[0].display_name, "Ann");
+    assert_eq!(
+        projected.collaboration.participants[0].display_name,
+        "Uncredited participant"
+    );
+    assert_eq!(
+        projected.collaboration.participants[1].display_name,
+        "Pen Name"
+    );
+    assert!(!credits.sidecar().contains("\"ann\""));
+    assert!(!credits.sidecar().contains("\"bo\""));
+    assert!(credits.sidecar().contains("Pen Name"));
+}
+
+#[test]
 fn credit_selection_and_reversion_invalidate_whole_piece_approvals() {
     use openblog_core::assembly::with_credit_subject_for_participants;
     use openblog_core::shared_credit::{CreditChoice, CreditChoices};
