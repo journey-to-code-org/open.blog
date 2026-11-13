@@ -21,6 +21,8 @@ remain escaped code. Native builds explicitly compiled with the feature use it
 for posts, pages and documentation, failing publication on findings and
 warning for drafts and previews. Builds emit digest-named SVG files and full
 feeds and portable Markdown/HTML link to those files with text alternatives.
+Parser diagnostics retain their source line and column, including the Markdown
+prefix on a diagram nested in a blockquote.
 When `openblog export` writes Markdown with diagrams, it also creates a new
 sibling directory containing the referenced SVG files. Other content surfaces
 are not integrated. This is not yet a complete production feature.

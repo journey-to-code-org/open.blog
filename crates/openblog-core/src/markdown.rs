@@ -2216,8 +2216,15 @@ pub fn render_diagrams(
     markdown: &str,
     options: RenderOptions<'_>,
 ) -> (Rendered, Vec<crate::diagram::Finding>) {
+    let fences = crate::diagram::discover(markdown);
+    let source_lines = if fences.is_empty() {
+        Vec::new()
+    } else {
+        markdown.lines().collect()
+    };
     let mut work = DiagramWork {
-        fences: crate::diagram::discover(markdown),
+        fences,
+        source_lines,
         findings: Vec::new(),
         assets: Vec::new(),
     };
@@ -2226,7 +2233,11 @@ pub fn render_diagrams(
     (rendered, work.findings)
 }
 
-struct DiagramWork {
+struct DiagramWork<'a> {
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    source_lines: Vec<&'a str>,
+    #[cfg(not(all(feature = "diagram-rendering", not(target_arch = "wasm32"))))]
+    _source: std::marker::PhantomData<&'a str>,
     #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
     fences: Vec<Result<crate::diagram::Diagram, crate::diagram::Finding>>,
     #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
@@ -2238,7 +2249,7 @@ struct DiagramWork {
 fn render_with_diagram_work(
     markdown: &str,
     options: RenderOptions<'_>,
-    diagram_work: Option<&mut DiagramWork>,
+    diagram_work: Option<&mut DiagramWork<'_>>,
 ) -> Rendered {
     let source = without_nul(markdown, options.supplements);
     let mut parsed_events =
@@ -2937,7 +2948,7 @@ fn render_events<'a>(
     options: RenderOptions<'_>,
     portable: Option<PortableContext<'_>>,
     id_findings: Vec<crate::reading_depth::Finding>,
-    diagram_work: Option<&mut DiagramWork>,
+    diagram_work: Option<&mut DiagramWork<'_>>,
 ) -> Rendered {
     let (parsed_events, inside_supplement, reading_depth) = if options.supplements {
         let transformed = crate::reading_depth::transform(parsed_events, true);
@@ -3261,7 +3272,7 @@ fn render_events<'a>(
 }
 
 #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
-fn render_diagram_events<'a>(events: Vec<Event<'a>>, work: &mut DiagramWork) -> Vec<Event<'a>> {
+fn render_diagram_events<'a>(events: Vec<Event<'a>>, work: &mut DiagramWork<'_>) -> Vec<Event<'a>> {
     let mut ids = written_ids(&events);
     let mut fences = std::mem::take(&mut work.fences).into_iter();
     let mut result = Vec::with_capacity(events.len());
@@ -3294,7 +3305,12 @@ fn render_diagram_events<'a>(events: Vec<Event<'a>>, work: &mut DiagramWork) -> 
                 let svg = crate::diagram_svg::render_diagnostic(&diagram, ordinal).map_err(|error| {
                     crate::diagram::Finding {
                         line: error.position.map_or(diagram.line, |(line, _)| diagram.line + line),
-                        column: if error.position.is_some() { 1 } else { diagram.column },
+                        column: error.position.map_or(diagram.column, |(line, column)| {
+                            diagram.source.lines().nth(line.saturating_sub(1))
+                                .zip(work.source_lines.get(diagram.line + line.saturating_sub(1)))
+                                .and_then(|(source, original)| original.strip_suffix(source))
+                                .map_or(column, |prefix| prefix.chars().count() + column)
+                        }),
                         message: error.message,
                     }
                 })?;
@@ -3849,6 +3865,26 @@ mod tests {
         assert!(r.html.contains(
             "<pre><code class=\"language-future-capability\">unmodified source\n</code></pre>"
         ));
+    }
+
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    #[test]
+    fn diagram_diagnostics_preserve_parser_columns_inside_blockquotes() {
+        let body = "flowchart LR\nA[Unclosed label --> B\n";
+        let nested = "> ```mermaid title=Broken description=Broken\n> flowchart LR\n> A[Unclosed label --> B\n> ```\n";
+        let diagram =
+            crate::diagram::validate_source("mermaid title=Broken description=Broken", body)
+                .unwrap();
+        let (line, column) = crate::diagram_svg::render_diagnostic(&diagram, 1)
+            .unwrap_err()
+            .position
+            .unwrap();
+        assert!(line <= body.lines().count(), "position: {line}:{column}");
+        assert!(column > 1, "position: {line}:{column}");
+        let (_, findings) = render_diagrams(nested, RenderOptions::default());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, line + 1);
+        assert_eq!(findings[0].column, column + 2);
     }
 
     #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
