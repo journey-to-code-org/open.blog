@@ -162,6 +162,7 @@ pub mod search;
 pub mod seasonal;
 pub mod service;
 pub mod service_area;
+pub mod shared_credit;
 pub mod shared_series;
 pub mod shared_source;
 pub mod shingles;
