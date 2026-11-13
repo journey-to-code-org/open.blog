@@ -467,6 +467,11 @@ binding includes the participants' display names and contributor-profile binding
 record, but not mutable contributor-registry profile details. Approvals made before that
 attribution binding was added must be reviewed again.
 
+When an author submits an approval, the server checks again that the current combined preview is
+complete for that author. If sharing changed after the preview was opened, the earlier review
+token cannot be used while any current section is hidden; the author must reload after it is shared.
+This check does not withdraw approvals already recorded before a sharing change.
+
 The approval rule may be proposed by a site owner or coordinator, but changes only after every
 active, bound participant explicitly agrees to the same proposal, including coordinators and
 readers. Reader-only participants can review and vote on the rule without seeing drafts or the

@@ -13948,6 +13948,36 @@ fn change_approval(
         return Response::error(409, "This reflection needs a whole-piece approval rule before it can be approved. Ask a coordinator to propose that rule and agree to it; nothing was changed.");
     }
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    if let Some((seen, _)) = approving {
+        let config = match site::load_config(&state.root) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("admin: approval preview configuration unavailable: {error}");
+                return Response::error(
+                    500,
+                    "The preview could not be checked. Nothing was recorded.",
+                );
+            }
+        };
+        let preview = openblog_core::preview::build(
+            &record,
+            inputs.structure.structure.as_ref(),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &inputs.approvals.set,
+            &own,
+            &active,
+            synthesis_owner(&transaction, &record, session).is_some(),
+            config.render_options(),
+        );
+        if !matches!(preview, Ok(preview) if preview.seen.as_deref() == Some(seen)) {
+            return Response::error(
+                409,
+                "The piece or your access to it changed after you read it. Reload the combined preview and read it again; nothing was recorded.",
+            );
+        }
+    }
     let mut next = inputs.approvals.set.clone();
     let result = match approving {
         Some((seen, affirmed)) => openblog_core::assembly::with_subject(
@@ -15141,7 +15171,13 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         }
     };
     let show_synthesis = synthesis_owner(&transaction, record, session).is_some();
-    let config = site::load_config(&state.root).unwrap_or_default();
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("admin: preview configuration unavailable: {error}");
+            return Response::error(500, "The preview could not be built. Nothing was changed.");
+        }
+    };
     let structure = match crate::shared_publications::load_structure(&state.root, publication_id) {
         Ok(structure) => structure,
         Err(error) => {
@@ -39366,6 +39402,39 @@ series: letters
         assert!(!stored.contains("SECRET"));
         assert_eq!(state_trees(&f)[0], before[0]);
         assert_eq!(state_trees(&f)[1], before[1]);
+    }
+
+    #[test]
+    fn approval_requires_the_piece_to_remain_visible_to_the_author() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-after-reveal-change");
+        let seen = approval_body(&f, &mikey, &id);
+        assert!(seen["seen"].is_string());
+        assert_eq!(
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "voluntary", "allReady"),
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            body_json(&preview_call(&f, &mikey, &id))["preview"]["complete"],
+            false
+        );
+        let before = state_trees(&f);
+        let response = post_api(&f, &mikey, "approve", seen);
+        assert_eq!(response.status, 409);
+        assert_no_prose(&response);
+        assert_eq!(state_trees(&f), before);
+        for author in [&mikey, &grace] {
+            assert_eq!(
+                reveal_call(&f, author, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
     }
 
     #[test]

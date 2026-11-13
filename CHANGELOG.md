@@ -13,6 +13,8 @@ All notable changes to open.blog are recorded here. Releases follow
   Legacy reflections retain their existing scope.
 - Authors can approve a complete combined preview in Admin, explicitly confirming the current
   public contributor-profile credit. Additional credit choices are not yet available.
+- Approval requests now recheck that the complete current piece remains visible to the author;
+  changing sharing after a preview can no longer allow approval while sections are hidden.
 - Shared-piece approvals now cover participant attribution in the reflection record. Existing
   approvals must be reviewed again, including for older reflections.
 - The sharing panel names the revision an author offered, and warns when it is older than their
