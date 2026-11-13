@@ -13,6 +13,7 @@ All notable changes to open.blog are recorded here. Releases follow
   Legacy reflections retain their existing scope.
 - Authors can approve a complete combined preview in Admin, explicitly confirming the current
   public contributor-profile credit. Additional credit choices are not yet available.
+- The combined-preview control restores keyboard focus after loading unless the user moved it.
 - Approval requests now recheck that the complete current piece remains visible to the author;
   changing sharing after a preview can no longer allow approval while sections are hidden.
 - Shared-piece approvals now cover participant attribution in the reflection record. Existing

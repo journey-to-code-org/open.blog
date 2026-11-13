@@ -19346,6 +19346,7 @@ export class ObAdmin extends AdminElement {
     const approvalHolder = h("div", {});
     const previewButton = h("button", { class: "oba-btn", type: "button" }, "Review the combined piece");
     previewButton.addEventListener("click", async () => {
+      const restoreFocus = document.activeElement === previewButton;
       previewButton.disabled = true;
       previewStatus.textContent = "Loading the preview…";
       approvalHolder.replaceChildren();
@@ -19405,6 +19406,7 @@ export class ObAdmin extends AdminElement {
         previewStatus.textContent = "The preview could not be loaded, or you cannot preview this reflection. Nothing was changed.";
       } finally {
         previewButton.disabled = false;
+        if (restoreFocus && document.activeElement === document.body) previewButton.focus();
       }
     });
     const previewSection = h(

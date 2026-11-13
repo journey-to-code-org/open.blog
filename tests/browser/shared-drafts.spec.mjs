@@ -485,18 +485,28 @@ test("approval requires a complete preview and explicit credit consent; stale re
   });
   await page.setViewportSize({ width: 400, height: 800 });
   await openPanel(page);
-  await page.getByRole("button", { name: "Review the combined piece" }).click();
+  const review = page.getByRole("button", { name: "Review the combined piece" });
+  await review.focus();
+  await page.keyboard.press("Enter");
   const consent = page.getByRole("checkbox", { name: /I approve publishing exactly the piece I reviewed/ });
   const approve = page.getByRole("button", { name: "Approve this piece" });
   await expect(approve).toBeDisabled();
-  await consent.check();
+  await expect(review).toBeFocused();
+  for (let i = 0; i < 6 && !(await consent.evaluate((element) => element === document.activeElement)); i += 1) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(consent).toBeFocused();
+  await page.keyboard.press("Space");
   await expect(approve).toBeEnabled();
   await page.evaluate(axe.source);
-  const audit = await page.evaluate(async () => window.axe.run(document.querySelector(".oba-preview-review"), {
+  const audit = await page.evaluate(async () => window.axe.run(document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
   }));
   expect(audit.violations).toEqual([]);
-  await approve.click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect(approve).toBeFocused();
+  await page.keyboard.press("Enter");
   expect(requests[0]).toEqual({ publicationId: PUBLICATION, seen: token, affirmed: true });
   await expect(page.getByText("The piece changed after you read it. Reload the combined preview.")).toBeVisible();
   await expect(approve).toHaveCount(0);
@@ -512,6 +522,40 @@ test("approval requires a complete preview and explicit credit consent; stale re
   await page.getByRole("button", { name: "Withdraw my approval" }).click();
   expect(withdrawals).toBe(1);
   await expect(page.getByText("Your approval was withdrawn.", { exact: false })).toBeVisible();
+});
+
+test("preview loading preserves deliberate focus changes and restores focus after an error", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "My draft." };
+  let release;
+  const delayed = new Promise((resolve) => { release = resolve; });
+  let fail = false;
+  await context.route("**/admin/api/collaboration/preview?**", async (route) => {
+    if (fail) return json(route, 500, { error: "Preview unavailable." });
+    await delayed;
+    return json(route, 200, {
+      preview: { complete: false, ready: false, seen: null, previewUrl: "/admin/api/preview/" + "a".repeat(64), sections: [] },
+    });
+  });
+  await context.route("**/admin/api/preview/**", (route) => route.fulfill({
+    status: 200, contentType: "text/html", body: previewDocument,
+    headers: { "Content-Security-Policy": previewPolicy },
+  }));
+  await openPanel(page);
+  const review = page.getByRole("button", { name: "Review the combined piece" });
+  await review.focus();
+  await page.keyboard.press("Enter");
+  await expect(review).toBeDisabled();
+  await editor(page).focus();
+  release();
+  await expect(review).toBeEnabled();
+  await expect(editor(page)).toBeFocused();
+
+  fail = true;
+  await review.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("The preview could not be loaded, or you cannot preview this reflection. Nothing was changed.")).toBeVisible();
+  await expect(review).toBeFocused();
 });
 
 test("the continuing conversation works with the keyboard alone at phone width, and focus is never lost", async ({ page, context }) => {
