@@ -179,7 +179,8 @@ test("regression: erase is previewed first; Keep it erases nothing; Erase for go
   await page.getByRole("menuitem", { name: "Erase this request" }).click();
   await expect(page.getByRole("heading", { name: "Erase Sam Lee's request?" })).toBeVisible();
   expect(calls.map((c) => c.path)).toContain("erase/preview");
-  expect(await activeText(page)).toMatch(/Keep it/);
+  // The dialog moves focus to its safe choice as it opens.
+  await expect.poll(() => activeText(page)).toMatch(/Keep it/);
   await page.keyboard.press("Enter");
   expect(calls.map((c) => c.path)).not.toContain("erase");
   await sam.getByRole("button", { name: /More/ }).click();

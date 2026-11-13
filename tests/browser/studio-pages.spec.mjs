@@ -115,7 +115,8 @@ test("a hand-written nav: yes and a collection's title: survive a save", async (
   await page.goto(`${origin}/admin/studio/#/collection/series%2Fcookies.md`);
   await page.getByRole("textbox", { name: "Name" }).fill("Christmas Cookie Tins");
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect.poll(() => read("series/cookies.md")).toContain("title: Christmas Cookie Tins");
+  // The save may wait for the previous step's send-out to free the content lock.
+  await expect.poll(() => read("series/cookies.md"), { timeout: 20000 }).toContain("title: Christmas Cookie Tins");
   expect(read("series/cookies.md")).not.toContain("name:");
 });
 
