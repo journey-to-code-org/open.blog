@@ -102,7 +102,8 @@ fn a_finished_service_builds_its_pages() {
     let source = fs::read_to_string(&path).unwrap();
     let source = source
         .replace("summary: \"\"", "summary: Bathroom and kitchen tile.")
-        .replace("draft: \"true\"\n", "");
+        .replace("draft: \"true\"\n", "")
+        .replace("draft: true\n", "");
     fs::write(&path, source).unwrap();
     let out = root.join("site-out");
     let build = run(&root, &["build", "--out", out.to_str().unwrap()]);

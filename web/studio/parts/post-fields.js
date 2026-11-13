@@ -190,3 +190,28 @@ export function statusLine({ state, savedAt, dirtyPublished = false, date } = {}
   }
   return "Add a title and your draft will save itself.";
 }
+
+const sameValue = (a, b) => {
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => String(item) === String(b[i]));
+  return String(a ?? "") === String(b ?? "");
+};
+
+/**
+ * Just what changed, for a save that keeps the file as written (`frontMatter: "keep"`): keys
+ * whose value differs from what was received, and `null` for keys being removed. A key left out
+ * stays as it is on the server, so an unchanged field is never sent back.
+ * @param {Record<string, unknown>} received
+ * @param {Record<string, unknown>} fields the full set `fieldsToSend` built
+ */
+export function onlyChanges(received, fields) {
+  const out = {};
+  for (const [key, value] of Object.entries(fields)) {
+    const had = received?.[key];
+    if (value === null || value === undefined || value === "") {
+      if (had !== undefined && String(had ?? "").trim() !== "" && !(Array.isArray(had) && !had.length)) out[key] = null;
+      continue;
+    }
+    if (had === undefined || !sameValue(had, value)) out[key] = value;
+  }
+  return out;
+}

@@ -50,7 +50,7 @@ fn describe(root: &Path, bytes: &[u8]) -> Result<Json, String> {
     let today = seasons::month_day(now);
     let wearing = config
         .seasons
-        .theme_on(today)
+        .theme_at(now)
         .unwrap_or(&config.theme)
         .to_string();
     let next = config.seasons.next_change(now).map(|at| {
@@ -65,10 +65,7 @@ fn describe(root: &Path, bytes: &[u8]) -> Result<Json, String> {
         "version": SEASONS_VERSION,
         "etag": revision(&stored(&raw)),
         "theme": config.theme,
-        "seasons": {
-            "enabled": config.seasons.enabled,
-            "windows": config.seasons.to_value()["windows"],
-        },
+        "seasons": config.seasons.to_value(),
         "themes": choices,
         "today": today.text(),
         "wearing": wearing,
@@ -153,24 +150,41 @@ pub(super) fn save_seasons(state: &AppState, req: &Request) -> Response {
         return Response::error(422, &missing.join("; "));
     }
 
-    let seasons_value = submitted.to_value();
-    let mut candidate = match config_text::set_member(&current_text, "theme", Some(&json!(theme))) {
-        Ok(text) => text,
-        Err(error) => return Response::error(500, &error),
-    };
-    candidate = match config_text::set_member(
-        &candidate,
-        "seasons",
-        (!submitted.is_default()).then_some(&seasons_value),
-    ) {
-        Ok(text) => text,
-        Err(error) => return Response::error(500, &error),
-    };
+    // Only what changed is written: an unchanged member keeps its bytes, and a changed `seasons`
+    // is written in its documented key order, so the owner's file reads as they wrote it.
+    let mut candidate = current_text.clone();
+    // The theme the site already uses (written, or the default when the key is absent) isn't
+    // written again, so a file without a `theme` key doesn't gain one.
+    if site_config.theme != theme {
+        candidate = match config_text::set_member(&candidate, "theme", Some(&json!(theme))) {
+            Ok(text) => text,
+            Err(error) => return Response::error(500, &error),
+        };
+    }
+    let stored_seasons =
+        SeasonsConfig::from_value(config.get("seasons").unwrap_or(&Json::Null)).ok();
+    if stored_seasons.as_ref() != Some(&submitted) {
+        let pretty = submitted.to_pretty();
+        candidate = match config_text::set_member_pretty(
+            &candidate,
+            "seasons",
+            (!submitted.is_default()).then_some(pretty.as_str()),
+        ) {
+            Ok(text) => text,
+            Err(error) => return Response::error(500, &error),
+        };
+    }
+    let unchanged = candidate == current_text;
     // The whole file must still load.
     let mut described = match describe(&state.root, candidate.as_bytes()) {
         Ok(described) => described,
         Err(error) => return Response::error(422, &error),
     };
+    described["changed"] = json!(!unchanged);
+    if unchanged {
+        described["buildError"] = Json::Null;
+        return Response::json(200, &described);
+    }
     if let Err(error) = write_atomic(&path, &candidate) {
         return Response::error(500, &error);
     }
@@ -178,5 +192,89 @@ pub(super) fn save_seasons(state: &AppState, req: &Request) -> Response {
         Ok(_) => Json::Null,
         Err(error) => Json::String(error),
     };
+    // Like a saved post, changed decorations go out when the site sends itself out.
+    state_arc(state).auto_publish("Change the decorations".to_string());
     Response::json(200, &described)
+}
+
+/// `POST seasons/preview { look }`: the home page dressed in one look, built in memory from what's
+/// on disk, so the owner can see Christmas before it goes up (Studio slice 3). The calendar is set
+/// aside for the preview; owner scripts and analytics stay off; nothing is written or published.
+pub(super) fn preview_look(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > MAX_REQUEST_BYTES {
+        return Response::error(413, "That request is too large");
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(Json::Object(body)) => Json::Object(body),
+        _ => return Response::error(400, "Invalid JSON"),
+    };
+    let Some(look) = body.get("look").and_then(Json::as_str).map(str::trim) else {
+        return Response::error(422, "Choose the look to see");
+    };
+    let mut config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    match site::load_themes(&state.root, &config) {
+        Ok(themes) if themes.contains(look) => {}
+        Ok(_) => {
+            return Response::error(
+                422,
+                &format!("There is no theme called `{look}` in your themes folder"),
+            )
+        }
+        Err(error) => return Response::error(500, &error),
+    }
+    config.theme = look.to_string();
+    config.seasons = SeasonsConfig::default();
+    config.snippets = Default::default();
+    config.analytics.builtin = false;
+    config.analytics.show_views = false;
+    config.analytics.endpoint.clear();
+    config.engagement.enabled = false;
+    let guard = lock(&state.build);
+    let sources = match site::read_sources(&state.root, &config) {
+        Ok(sources) => sources,
+        Err(error) => return Response::error(500, &error),
+    };
+    let (preview_site, themes) = match site::load_site_from_sources_listing(
+        &state.root,
+        config,
+        sources,
+        LoadOptions {
+            include_drafts: false,
+            now: Some(clock::now()),
+            preview_source: None,
+        },
+    ) {
+        Ok(loaded) => loaded,
+        Err(errors) => return Response::error(422, &site::content_problems(&errors)),
+    };
+    drop(guard);
+    let document = match openblog_core::generate_home(&preview_site, &themes) {
+        Ok(document) => document,
+        Err(error) => return Response::error(422, &error),
+    };
+    let c = &preview_site.config;
+    let theme = match themes.resolve(&c.theme) {
+        Ok(theme) => theme,
+        Err(error) => return Response::error(422, &error),
+    };
+    // The look's own stylesheet goes in the page, so it shows even when that theme isn't built yet.
+    let tokens = c.apply_base_path(&c.cdn.apply(&theme.tokens_css()));
+    let html = super::look::inline_tokens(&document.contents, &c.theme, &tokens);
+    let html = html.replacen("<head>", "<head>\n<base target=\"_blank\">", 1);
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    let csp = preview_csp(c);
+    store_preview(state, &token, html, csp);
+    Response::json(
+        200,
+        &json!({ "previewUrl": format!("/admin/api/preview/{token}"), "look": look }),
+    )
 }

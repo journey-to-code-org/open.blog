@@ -1,10 +1,15 @@
 // Hash routes → screens. `#/`, `#/posts`, `#/write`, `#/write/<path>`, `#/sign-in`.
 // Before leaving a screen the router asks it (`leave()`), so unsaved work is never lost on the way.
 
-/** "#/write/posts/x.md" → { name: "write", arg: "posts/x.md" } (DOM-free, tested). */
+/**
+ * "#/write/posts/x.md" → { name: "write", arg: "posts/x.md", query: {} };
+ * "#/posts?status=draft&q=pie" → { name: "posts", arg: "", query: { status: "draft", q: "pie" } }.
+ * DOM-free, tested.
+ */
 export function parseRoute(hash) {
   const raw = String(hash || "").replace(/^#\/?/, "");
-  const [path] = raw.split("?");
+  const [path, search = ""] = raw.split("?");
+  const query = Object.fromEntries(new URLSearchParams(search));
   const [name, ...rest] = path.split("/");
   let arg = rest.join("/");
   try {
@@ -12,12 +17,14 @@ export function parseRoute(hash) {
   } catch {
     // A mangled address: keep it as typed rather than failing to start.
   }
-  return { name: name || "home", arg };
+  return { name: name || "home", arg, query };
 }
 
-export function routeHash(name, arg = "") {
-  if (name === "home") return "#/";
-  return arg ? `#/${name}/${encodeURIComponent(arg)}` : `#/${name}`;
+/** The address for a route; empty query values are left out. */
+export function routeHash(name, arg = "", query = {}) {
+  const search = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== "" && value != null)).toString();
+  const base = name === "home" ? "#/" : arg ? `#/${name}/${encodeURIComponent(arg)}` : `#/${name}`;
+  return search ? `${base}?${search}` : base;
 }
 
 export function createRouter({ screens, onShow }) {

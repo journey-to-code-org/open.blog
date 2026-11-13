@@ -508,7 +508,8 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
             Value::Scalar(s) => {
                 out.push_str(key);
                 out.push_str(": ");
-                out.push_str(&quote_scalar(s));
+                // `draft` is a plain YAML boolean, which every reader agrees on.
+                out.push_str(&scalar_for(key, s, None));
                 out.push('\n');
             }
             Value::List(items) => {
@@ -619,6 +620,433 @@ pub fn compose(fields: &BTreeMap<String, Value>, body: &str) -> String {
     out
 }
 
+/// Write `fields` and `body` into `original` changing as few bytes as possible:
+/// a key whose value didn't change keeps its line exactly (order, quoting,
+/// inline or block list, comments, empty values like `cover: ""`); a changed
+/// value keeps the style it was written in; a removed or emptied key loses
+/// only its own lines; a new key goes beside its neighbour in `KEY_ORDER`; an
+/// unchanged body keeps its bytes. Returns `None` when the result would not
+/// parse back to exactly `fields` and `body` (the caller then uses `compose`).
+pub fn splice(original: &str, fields: &BTreeMap<String, Value>, body: &str) -> Option<String> {
+    splice_explained(original, fields, body).ok()
+}
+
+/// `splice`, saying in a sentence why a file couldn't be kept as written.
+pub fn splice_explained(
+    original: &str,
+    fields: &BTreeMap<String, Value>,
+    body: &str,
+) -> Result<String, String> {
+    splice_inner(original, fields, body)
+}
+
+fn splice_inner(
+    original: &str,
+    fields: &BTreeMap<String, Value>,
+    body: &str,
+) -> Result<String, String> {
+    let (bom, source) = match original.strip_prefix('\u{feff}') {
+        Some(rest) => ("\u{feff}", rest),
+        None => ("", original),
+    };
+    let eol = if source.lines().next().is_some_and(|_| {
+        source
+            .find('\n')
+            .is_some_and(|at| at > 0 && source.as_bytes()[at - 1] == b'\r')
+    }) {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let old = parse(source).map_err(|error| format!("its front matter can't be read: {error}"))?;
+    let wanted: BTreeMap<String, Value> = fields
+        .iter()
+        .filter(|(_, value)| !is_empty_value(value))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let lines: Vec<&str> = source.split_inclusive('\n').collect();
+    let has_front_matter = lines.first().is_some_and(|line| line.trim_end() == "---");
+
+    let mut out = String::from(bom);
+    let body_start = if has_front_matter {
+        let close = (1..lines.len())
+            .find(|&at| matches!(lines[at].trim_end(), "---" | "..."))
+            .ok_or("its front matter is never closed")?;
+        let mut pieces = front_matter_pieces(&lines[1..close])
+            .ok_or("a line in its front matter isn't a plain `key: value` or list item")?;
+        let mut seen = std::collections::BTreeSet::new();
+        for piece in &pieces {
+            if let Piece::Span { key, .. } = piece {
+                if !seen.insert(key.clone()) {
+                    // A key written twice: don't guess which one counts.
+                    return Err(format!("`{key}` is written twice in its front matter"));
+                }
+            }
+        }
+        for piece in pieces.iter_mut() {
+            let Piece::Span { key, lines } = piece else {
+                continue;
+            };
+            *lines = match key.as_str() {
+                NESTED_KEY | FAQ_KEY => {
+                    let prefix = format!("{key}.");
+                    let before = subset(&old.front_matter.fields, &prefix);
+                    let after = subset(&wanted, &prefix);
+                    if before == after {
+                        continue;
+                    }
+                    render_block(key, &after, eol)
+                }
+                _ => {
+                    let before = old
+                        .front_matter
+                        .fields
+                        .get(key.as_str())
+                        .filter(|v| !is_empty_value(v));
+                    let after = wanted.get(key.as_str());
+                    if before == after {
+                        continue;
+                    }
+                    match after {
+                        None => Vec::new(),
+                        Some(value) => render_changed(key, lines, value, eol),
+                    }
+                }
+            };
+        }
+        // Keys that are new to this file.
+        let present: Vec<String> = pieces
+            .iter()
+            .filter_map(|piece| match piece {
+                Piece::Span { key, .. } => Some(key.clone()),
+                Piece::Free(_) => None,
+            })
+            .collect();
+        let mut added: Vec<(String, Vec<String>)> = Vec::new();
+        for (key, value) in &wanted {
+            let top = key.split('.').next().unwrap_or(key);
+            let grouped = top == NESTED_KEY || top == FAQ_KEY;
+            if present.iter().any(|p| p == top) || added.iter().any(|(k, _)| k == top) {
+                continue;
+            }
+            let rendered = if grouped {
+                render_block(top, &subset(&wanted, &format!("{top}.")), eol)
+            } else {
+                render_value(key, value, eol)
+            };
+            added.push((top.to_string(), rendered));
+        }
+        for (key, rendered) in added {
+            let at = insertion_point(&pieces, &key);
+            pieces.insert(
+                at,
+                Piece::Span {
+                    key,
+                    lines: rendered,
+                },
+            );
+        }
+        out.push_str(lines[0]);
+        for piece in &pieces {
+            match piece {
+                Piece::Free(line) => out.push_str(line),
+                Piece::Span { lines, .. } => lines.iter().for_each(|line| out.push_str(line)),
+            }
+        }
+        out.push_str(lines[close]);
+        if !lines[close].ends_with('\n') {
+            out.push_str(eol);
+        }
+        close + 1
+    } else {
+        if !wanted.is_empty() {
+            let ordered = ordered_fields(&wanted);
+            out.push_str(&serialize(&ordered).replace('\n', eol));
+            out.push_str(eol);
+        }
+        0
+    };
+
+    let original_body: String = lines[body_start.min(lines.len())..].concat();
+    if trim_newlines(&original_body) == trim_newlines(body)
+        && trim_newlines(&old.body) == trim_newlines(body)
+    {
+        out.push_str(&original_body);
+    } else {
+        let lead_len = original_body.len() - original_body.trim_start_matches(['\r', '\n']).len();
+        let lead = if trim_newlines(&original_body).is_empty() {
+            eol
+        } else {
+            &original_body[..lead_len]
+        };
+        out.push_str(if has_front_matter { lead } else { "" });
+        let content = body.replace("\r\n", "\n");
+        let content = content.trim_start_matches('\n').trim_end_matches('\n');
+        out.push_str(&content.replace('\n', eol));
+        if original_body.is_empty() || original_body.ends_with('\n') {
+            out.push_str(eol);
+        }
+    }
+
+    // Self-check: the result must read back as exactly what was asked for.
+    let check = parse(out.strip_prefix('\u{feff}').unwrap_or(&out))
+        .map_err(|_| "the kept file wouldn't read back".to_string())?;
+    let got: BTreeMap<String, Value> = check
+        .front_matter
+        .fields
+        .into_iter()
+        .filter(|(_, value)| !is_empty_value(value))
+        .collect();
+    if got != wanted {
+        let differs = wanted
+            .keys()
+            .chain(got.keys())
+            .find(|key| wanted.get(*key) != got.get(*key))
+            .cloned()
+            .unwrap_or_default();
+        return Err(format!("`{differs}` wouldn't read back the same if kept"));
+    }
+    if trim_newlines(&check.body) != trim_newlines(body) {
+        return Err("its words wouldn't read back the same if kept".to_string());
+    }
+    Ok(out)
+}
+
+enum Piece {
+    /// A blank or comment line that belongs to no key; it stays where it is.
+    Free(String),
+    /// A top-level key's own lines: `key: value`, or `key:` and its items.
+    Span { key: String, lines: Vec<String> },
+}
+
+fn front_matter_pieces(lines: &[&str]) -> Option<Vec<Piece>> {
+    let mut pieces = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let bare = line.trim_end_matches(['\r', '\n']);
+        if is_skipped(bare) {
+            pieces.push(Piece::Free(line.to_string()));
+            i += 1;
+            continue;
+        }
+        if bare.starts_with([' ', '\t']) || bare.starts_with('-') {
+            return None;
+        }
+        let colon = find_key_colon(bare)?;
+        let key = bare[..colon].trim().to_string();
+        let mut own = vec![line.to_string()];
+        i += 1;
+        // Items, indented lines, and blanks or comments between them.
+        let mut held = Vec::new();
+        while i < lines.len() {
+            let next = lines[i].trim_end_matches(['\r', '\n']);
+            if is_skipped(next) {
+                held.push(lines[i].to_string());
+                i += 1;
+                continue;
+            }
+            if next.starts_with([' ', '\t']) || next.starts_with("- ") || next == "-" {
+                own.append(&mut held);
+                own.push(lines[i].to_string());
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        pieces.push(Piece::Span { key, lines: own });
+        pieces.extend(held.into_iter().map(Piece::Free));
+    }
+    Some(pieces)
+}
+
+fn is_empty_value(value: &Value) -> bool {
+    match value {
+        Value::Scalar(text) => text.trim().is_empty(),
+        Value::List(items) => items.is_empty(),
+    }
+}
+
+fn subset(fields: &BTreeMap<String, Value>, prefix: &str) -> BTreeMap<String, Value> {
+    fields
+        .iter()
+        .filter(|(key, value)| key.starts_with(prefix) && !is_empty_value(value))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
+fn trim_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n").trim_matches('\n').to_string()
+}
+
+fn with_eol(text: &str, eol: &str) -> Vec<String> {
+    text.lines().map(|line| format!("{line}{eol}")).collect()
+}
+
+/// The `job:` or `faq:` block written fresh (they are machine-shaped).
+fn render_block(top: &str, fields: &BTreeMap<String, Value>, eol: &str) -> Vec<String> {
+    if fields.is_empty() {
+        return Vec::new();
+    }
+    let ordered: Vec<(&str, Value)> = fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.clone()))
+        .collect();
+    let mut out = String::new();
+    if top == FAQ_KEY {
+        serialize_faq(&ordered, &mut out);
+    } else {
+        serialize_nested(&ordered, &format!("{top}."), &mut out);
+    }
+    with_eol(&out, eol)
+}
+
+/// A key that is new to the file, in the house style.
+fn render_value(key: &str, value: &Value, eol: &str) -> Vec<String> {
+    match value {
+        Value::Scalar(text) => vec![format!("{key}: {}{eol}", scalar_for(key, text, None))],
+        Value::List(items) => {
+            let mut out = vec![format!("{key}:{eol}")];
+            out.extend(
+                items
+                    .iter()
+                    .map(|item| format!("  - {}{eol}", quote_scalar(item))),
+            );
+            out
+        }
+    }
+}
+
+/// A changed value written the way the old one was: same quotes, inline or
+/// block list, same item indent, and a trailing `# comment` kept.
+fn render_changed(key: &str, old_lines: &[String], value: &Value, eol: &str) -> Vec<String> {
+    let first = old_lines[0].trim_end_matches(['\r', '\n']);
+    let colon = find_key_colon(first).unwrap_or(first.len());
+    let written_key = &first[..colon];
+    let rest = first.get(colon + 1..).unwrap_or("").trim();
+    match value {
+        Value::Scalar(text) => {
+            let (body, comment) = match rest.chars().next() {
+                Some('"') | Some('\'') | Some('[') | None => (rest, ""),
+                _ => match rest.find(" #") {
+                    Some(at) => (&rest[..at], &rest[at..]),
+                    None => (rest, ""),
+                },
+            };
+            let written = match body.chars().next() {
+                Some('"') => quote_double(text),
+                Some('\'') if !text.chars().any(char::is_control) => {
+                    format!("'{}'", text.replace('\'', "''"))
+                }
+                Some('\'') => quote_double(text),
+                _ => scalar_for(key, text, Some(body)),
+            };
+            vec![format!("{written_key}: {written}{comment}{eol}")]
+        }
+        Value::List(items) if rest.starts_with('[') => {
+            let inner: Vec<String> = items.iter().map(|item| inline_item(item)).collect();
+            vec![format!("{written_key}: [{}]{eol}", inner.join(", "))]
+        }
+        Value::List(items) => {
+            let lead = old_lines[1..]
+                .iter()
+                .map(|line| line.trim_end_matches(['\r', '\n']))
+                .find_map(|line| {
+                    let dash = line
+                        .find("- ")
+                        .or_else(|| (line.trim() == "-").then(|| line.find('-').unwrap_or(0)))?;
+                    line[..dash]
+                        .trim()
+                        .is_empty()
+                        .then(|| format!("{}- ", &line[..dash]))
+                })
+                .unwrap_or_else(|| "  - ".to_string());
+            let mut out = vec![format!("{written_key}:{eol}")];
+            out.extend(
+                items
+                    .iter()
+                    .map(|item| format!("{lead}{}{eol}", quote_scalar(item))),
+            );
+            out
+        }
+    }
+}
+
+/// A bare scalar. `draft`, and any value that was a bare true/false before,
+/// stays a bare boolean, which every YAML reader agrees on.
+fn scalar_for(key: &str, text: &str, old_bare: Option<&str>) -> String {
+    let was_bool = old_bare
+        .is_some_and(|old| matches!(old.trim().to_ascii_lowercase().as_str(), "true" | "false"));
+    let is_bool = matches!(text, "true" | "false");
+    if is_bool && (key == "draft" || was_bool) {
+        text.to_string()
+    } else {
+        quote_scalar(text)
+    }
+}
+
+fn quote_double(text: &str) -> String {
+    let escaped = text
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\r', "")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t");
+    format!("\"{escaped}\"")
+}
+
+fn inline_item(item: &str) -> String {
+    let plain = !item.is_empty()
+        && item.trim() == item
+        && !item.contains([',', '[', ']', '"', '\'', '#'])
+        && !item.chars().any(char::is_control);
+    if plain {
+        item.to_string()
+    } else {
+        quote_double(item)
+    }
+}
+
+/// Where a new key goes: after the last key that comes before it in
+/// `KEY_ORDER`, else before the first that comes after it, else at the end.
+fn insertion_point(pieces: &[Piece], key: &str) -> usize {
+    let rank = |name: &str| KEY_ORDER.iter().position(|k| *k == name);
+    let end = pieces
+        .iter()
+        .rposition(|piece| matches!(piece, Piece::Span { .. }))
+        .map_or(pieces.len(), |at| at + 1);
+    let Some(mine) = rank(key) else {
+        return end;
+    };
+    let mut after = None;
+    let mut before = None;
+    for (at, piece) in pieces.iter().enumerate() {
+        if let Piece::Span { key: other, .. } = piece {
+            match rank(other) {
+                Some(theirs) if theirs < mine => after = Some(at + 1),
+                Some(theirs) if theirs > mine && before.is_none() => before = Some(at),
+                _ => {}
+            }
+        }
+    }
+    after.or(before).unwrap_or(end)
+}
+
+fn ordered_fields(fields: &BTreeMap<String, Value>) -> Vec<(&str, Value)> {
+    let mut ordered: Vec<(&str, Value)> = Vec::new();
+    for key in KEY_ORDER {
+        if let Some(value) = fields.get(*key) {
+            ordered.push((key, value.clone()));
+        }
+    }
+    for (key, value) in fields {
+        if !KEY_ORDER.contains(&key.as_str()) {
+            ordered.push((key.as_str(), value.clone()));
+        }
+    }
+    ordered
+}
+
 fn quote_scalar(s: &str) -> String {
     let needs_quotes = s.is_empty()
         || s.contains(": ")
@@ -645,6 +1073,216 @@ fn quote_scalar(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PIE: &str = "---\ntitle: Grammi's Pumpkin Pie\ndate: 2026-11-06\ndraft: true\nseries: thanksgiving\nprofile: recipe\n# filled in by Grammi\nservings: 8\nprep: 15 min\ncook: 30 min\ntags: [thanksgiving]\ndescription: \"One sentence: about pie.\"\ncover: \"\"\n---\n\n\nThe story.\n\n## Ingredients\n\n- 1 can pumpkin\n";
+
+    fn with(
+        source: &str,
+        change: impl FnOnce(&mut BTreeMap<String, Value>),
+    ) -> BTreeMap<String, Value> {
+        let mut fields = parse(source).unwrap().front_matter.fields;
+        change(&mut fields);
+        fields
+    }
+
+    fn body_of(source: &str) -> String {
+        parse(source).unwrap().body
+    }
+
+    fn changed_lines(before: &str, after: &str) -> Vec<(String, String)> {
+        let a: Vec<&str> = before.lines().collect();
+        let b: Vec<&str> = after.lines().collect();
+        assert_eq!(a.len(), b.len(), "line count changed:\n{after}");
+        a.iter()
+            .zip(&b)
+            .filter(|(x, y)| x != y)
+            .map(|(x, y)| (x.to_string(), y.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn splice_leaves_every_example_post_untouched_and_changes_one_line_at_a_time() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        let mut stack = vec![root];
+        let mut checked = 0;
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
+                }
+                let source = std::fs::read_to_string(&path).unwrap();
+                let Ok(doc) = parse(&source) else { continue };
+                if doc.front_matter.fields.is_empty() {
+                    continue;
+                }
+                let fields = doc.front_matter.fields.clone();
+                assert_eq!(
+                    splice(&source, &fields, &doc.body).as_deref(),
+                    Some(source.as_str()),
+                    "{}",
+                    path.display()
+                );
+                if fields.contains_key("title") {
+                    let mut retitled = fields.clone();
+                    retitled.insert("title".into(), Value::Scalar("A new: title".into()));
+                    let out = splice(&source, &retitled, &doc.body)
+                        .unwrap_or_else(|| panic!("{}", path.display()));
+                    let diff = source
+                        .lines()
+                        .zip(out.lines())
+                        .filter(|(a, b)| a != b)
+                        .count();
+                    assert_eq!(diff, 1, "{}\n{out}", path.display());
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 10, "only {checked} posts found");
+    }
+
+    #[test]
+    fn splice_keeps_an_untouched_file_byte_for_byte() {
+        let fields = parse(PIE).unwrap().front_matter.fields;
+        assert_eq!(splice(PIE, &fields, &body_of(PIE)).unwrap(), PIE);
+        // Studio drops the leading blank lines it shows: still untouched.
+        assert_eq!(
+            splice(
+                PIE,
+                &fields,
+                "The story.\n\n## Ingredients\n\n- 1 can pumpkin"
+            )
+            .unwrap(),
+            PIE
+        );
+    }
+
+    #[test]
+    fn splice_changes_only_the_changed_line() {
+        let fields = with(PIE, |f| {
+            f.insert("servings".into(), Value::Scalar("10".into()));
+        });
+        let out = splice(PIE, &fields, &body_of(PIE)).unwrap();
+        assert_eq!(
+            changed_lines(PIE, &out),
+            vec![("servings: 8".into(), "servings: 10".into())]
+        );
+        let fields = with(PIE, |f| {
+            f.insert("description".into(), Value::Scalar("Pie: the best".into()));
+        });
+        let out = splice(PIE, &fields, &body_of(PIE)).unwrap();
+        assert_eq!(
+            changed_lines(PIE, &out),
+            vec![(
+                "description: \"One sentence: about pie.\"".into(),
+                "description: \"Pie: the best\"".into()
+            )]
+        );
+    }
+
+    #[test]
+    fn splice_publishing_removes_only_the_draft_line() {
+        let fields = with(PIE, |f| {
+            f.remove("draft");
+        });
+        let out = splice(PIE, &fields, &body_of(PIE)).unwrap();
+        assert_eq!(out, PIE.replace("draft: true\n", ""));
+    }
+
+    #[test]
+    fn splice_writes_draft_bare_and_keeps_list_style() {
+        let published = PIE.replace("draft: true\n", "");
+        let fields = with(&published, |f| {
+            f.insert("draft".into(), Value::Scalar("true".into()));
+            f.insert(
+                "tags".into(),
+                Value::List(vec!["thanksgiving".into(), "pie, sweet".into()]),
+            );
+        });
+        let out = splice(&published, &fields, &body_of(&published)).unwrap();
+        assert!(
+            out.contains("tags: [thanksgiving, \"pie, sweet\"]\n"),
+            "{out}"
+        );
+        assert!(out.contains("\ndraft: true\n"), "{out}");
+        let block = "---\ntitle: A\ntags:\n    - one\n---\nBody\n";
+        let fields = with(block, |f| {
+            f.insert("tags".into(), Value::List(vec!["one".into(), "two".into()]));
+        });
+        assert_eq!(
+            splice(block, &fields, "Body").unwrap(),
+            "---\ntitle: A\ntags:\n    - one\n    - two\n---\nBody\n"
+        );
+    }
+
+    #[test]
+    fn splice_keeps_comments_quotes_and_empty_values() {
+        let source = "---\ntitle: 'Mom''s pie'\nsubtitle: plain # a note\ncover: \"\"\n---\nBody\n";
+        let fields = with(source, |f| {
+            f.insert("title".into(), Value::Scalar("Mom's best pie".into()));
+            f.insert("subtitle".into(), Value::Scalar("still plain".into()));
+        });
+        let out = splice(source, &fields, "Body").unwrap();
+        assert_eq!(out, "---\ntitle: 'Mom''s best pie'\nsubtitle: still plain # a note\ncover: \"\"\n---\nBody\n");
+    }
+
+    #[test]
+    fn splice_body_edits_keep_the_gap_and_line_endings() {
+        let out = splice(
+            PIE,
+            &parse(PIE).unwrap().front_matter.fields,
+            "A new story.",
+        )
+        .unwrap();
+        assert!(out.ends_with("---\n\n\nA new story.\n"), "{out}");
+        let crlf = "---\r\ntitle: A\r\n---\r\nOld\r\n";
+        let fields = with(crlf, |f| {
+            f.insert("servings".into(), Value::Scalar("4".into()));
+        });
+        assert_eq!(
+            splice(crlf, &fields, "New\nline").unwrap(),
+            "---\r\ntitle: A\r\nservings: 4\r\n---\r\nNew\r\nline\r\n"
+        );
+        let bom = "\u{feff}---\ntitle: A\n---\nBody\n";
+        assert!(splice(bom, &with(bom, |_| {}), "Body")
+            .unwrap()
+            .starts_with('\u{feff}'));
+    }
+
+    #[test]
+    fn splice_removes_emptied_keys_and_handles_no_front_matter() {
+        let fields = with(PIE, |f| {
+            f.insert("prep".into(), Value::Scalar(String::new()));
+        });
+        let out = splice(PIE, &fields, &body_of(PIE)).unwrap();
+        assert_eq!(out, PIE.replace("prep: 15 min\n", ""));
+        let plain = "Just words\n";
+        let mut fields = BTreeMap::new();
+        fields.insert("title".to_string(), Value::Scalar("Hi".into()));
+        let out = splice(plain, &fields, "Just words").unwrap();
+        assert_eq!(parse(&out).unwrap().front_matter.get("title"), Some("Hi"));
+        assert!(out.ends_with("Just words\n"));
+    }
+
+    #[test]
+    fn splice_rewrites_a_changed_job_block_and_refuses_duplicates() {
+        let source = "---\ntitle: Floor\njob:\n  trade: flooring\n  place:\n    town: Maple Falls\n---\nDone.\n";
+        let fields = with(source, |f| {
+            f.insert("job.place.town".into(), Value::Scalar("Elkins".into()));
+        });
+        let out = splice(source, &fields, "Done.").unwrap();
+        assert_eq!(
+            parse(&out).unwrap().front_matter.get("job.place.town"),
+            Some("Elkins")
+        );
+        assert!(out.starts_with("---\ntitle: Floor\njob:\n"));
+        let twice = "---\ntitle: A\ntitle: B\n---\nx\n";
+        assert!(splice(twice, &with("---\ntitle: B\n---\nx\n", |_| {}), "x").is_none());
+    }
 
     #[test]
     fn parses_scalars_lists_and_body() {

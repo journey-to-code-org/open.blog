@@ -4,15 +4,26 @@ import { h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { postList } from "../parts/post-list.js";
 import { countByStatus, matchPosts, summary } from "../parts/search.js";
+import { parseRoute, routeHash } from "../router.js";
+import { ask } from "../parts/dialogs.js";
+import { postHref } from "../parts/post-list.js";
+import { takeOffQuestion, takeOffSite } from "../parts/take-off.js";
+import { wentOutWords } from "../parts/publish.js";
+import { toast } from "../parts/dom.js";
 
-export async function createPosts({ api }) {
-  await use("action-button", "text-field", "segmented-control", "empty-state", "skeleton-block", "status-badge", "alert-banner");
+const STATUSES = ["all", "draft", "scheduled", "published"];
+
+export async function createPosts({ api, meta, posts, replaceRoute, undo, go }) {
+  await use("dropdown-menu", "action-button", "text-field", "segmented-control", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   let items = [];
-  let query = "";
-  let status = "all";
+  // Search and filter live in the address, so Back and a reload come back to the same list.
+  const asked = parseRoute(location.hash).query;
+  let query = asked.q || "";
+  let status = STATUSES.includes(asked.status) ? asked.status : "all";
+  const remember = () => replaceRoute?.(routeHash("posts", "", { q: query.trim(), status: status === "all" ? "" : status }));
   const lede = h("p", { class: "studio-lede", role: "status" });
-  const find = h("text-field", { label: "Find a post", type: "search", placeholder: "Type part of a title", onValuechange: (e) => { query = e.detail; draw(); } });
-  const filter = h("segmented-control", { label: "Show", value: "all", options: [], onValuechange: (e) => { status = e.detail; draw(); } });
+  const find = h("text-field", { label: "Find a post", type: "search", placeholder: "A title or a tag", value: query, onValuechange: (e) => { query = e.detail; remember(); draw(); } });
+  const filter = h("segmented-control", { label: "Show", value: status, options: [], onValuechange: (e) => { status = e.detail; remember(); draw(); } });
   const list = h("div", { class: "studio-list", "aria-busy": "true" }, h("skeleton-block", { lines: 6 }));
   const element = h("section", { class: "studio-page", "aria-labelledby": "studio-posts-h" },
     h("h2", { id: "studio-posts-h", class: "studio-visually-hidden", tabindex: "-1", text: "Your posts" }),
@@ -35,15 +46,47 @@ export async function createPosts({ api }) {
         h("action-button", { slot: "actions", href: "#/write" }, "Write something new")));
     } else if (!shown.length) {
       list.replaceChildren(h("empty-state", { heading: "Nothing matches" }, query ? `No posts match “${query}”.` : "No posts here yet.",
-        h("action-button", { slot: "actions", variant: "secondary", onClick: () => { query = ""; status = "all"; find.value = ""; filter.value = "all"; draw(); } }, "Show all posts")));
+        h("action-button", { slot: "actions", variant: "secondary", onClick: () => { query = ""; status = "all"; find.value = ""; filter.value = "all"; remember(); draw(); } }, "Show all posts")));
     } else {
-      list.replaceChildren(postList(shown, "Posts"));
+      list.replaceChildren(postList(shown, "Posts", rowMenu));
+    }
+  }
+
+  // Each row ends with More: open it, take it off the site, or delete it (with Undo).
+  function rowMenu(post) {
+    const items = [{ value: "open", label: "Open it" }];
+    if (post.status === "published" || post.status === "scheduled") items.push({ value: "takeoff", label: "Take it off my site" });
+    items.push({ value: "delete", label: "Delete" });
+    return h("dropdown-menu", { class: "studio-row-menu", items, onItemselect: (e) => rowChoice(post, e.detail) },
+      h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: ` for ${post.title || "this post"}` })));
+  }
+
+  async function rowChoice(post, value) {
+    const title = post.title || "this post";
+    if (value === "open") go(postHref(post.path));
+    if (value === "takeoff") await takeOff(post);
+    if (value === "delete") {
+      const deleted = await undo.deletePost({ path: post.path, title, state: post.status, ask, takeOff: () => takeOff(post, true) });
+      if (deleted) load();
+    }
+  }
+
+  async function takeOff(post, asked = false) {
+    if (!asked && (await ask(takeOffQuestion(post.title || "this post"))) !== "yes") return;
+    try {
+      const { sent } = await takeOffSite(api, post.path);
+      posts.stale();
+      const said = wentOutWords(sent, { meta, action: "takenOff" });
+      toast(said.words, { variant: said.variant });
+      load();
+    } catch (error) {
+      toast(error.message, { variant: "warning" });
     }
   }
 
   async function load() {
     try {
-      items = (await api.get("documents?kind=posts")).items || [];
+      items = await posts.list({ fresh: true });
       draw();
     } catch (error) {
       list.removeAttribute("aria-busy");
@@ -51,5 +94,5 @@ export async function createPosts({ api }) {
     }
   }
 
-  return { title: "Posts", element, load };
+  return { title: "Posts", element, load, reload: load };
 }

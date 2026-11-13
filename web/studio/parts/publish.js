@@ -6,11 +6,15 @@
  * { kind: "auto" } (the site sends itself after saving), { kind: "manual" } (Studio sends it).
  * Unknown (the call failed) is "none" with `unknown: true`.
  */
-export async function howItGoesOut(api) {
+let known = null; // { at, how }: the setting rarely changes, so it's asked at most once a minute
+
+export async function howItGoesOut(api, { now = Date.now() } = {}) {
+  if (known && now - known.at < 60000 && known.api === api) return known.how;
   try {
     const info = await api.get("publish");
-    if (!info?.repo || !info.remote) return { kind: "none", info };
-    return { kind: info.auto ? "auto" : "manual", info };
+    const how = !info?.repo || !info.remote ? { kind: "none", info } : { kind: info.auto ? "auto" : "manual", info };
+    known = { at: now, how, api };
+    return how;
   } catch {
     return { kind: "none", unknown: true, info: null };
   }
@@ -35,6 +39,31 @@ export async function sendOut(api, summary) {
   } catch (error) {
     return { sent: "failed", message: error.message };
   }
+}
+
+/**
+ * Whether this server is the site readers visit (its public address is here), so a post saved
+ * here is on the site. When the public address is elsewhere and nothing sends the site out, a
+ * publish only changes the copy here.
+ */
+export function servedHere(meta, origin = globalThis.location?.origin || "") {
+  try {
+    return !meta?.siteUrl || new URL(meta.siteUrl).origin === origin;
+  } catch {
+    return true;
+  }
+}
+
+/** What to tell her after a publish, an update or taking a post off, in her words. */
+export function wentOutWords(result, { meta, action = "published", origin } = {}) {
+  const verb = { published: "Published", updated: "Updated", saved: "Saved", takenOff: "Taken off your site. It's a draft again" }[action];
+  if (result.sent === "failed") return { words: action === "takenOff" ? "It's a draft again here, but your site hasn't caught up yet, so readers may still see it." : `${verb} here, but it hasn't reached your readers yet.`, variant: "warning" };
+  if (result.sent === "none" && !servedHere(meta, origin)) {
+    return { words: action === "takenOff" ? "It's a draft again. Your public site catches up when the person who set it up sends it out." : `${verb}. Your public site catches up when the person who set it up sends it out.`, variant: "warning" };
+  }
+  if (action === "takenOff") return { words: `${verb}.`, variant: "success" };
+  if (result.sent === "none") return { words: `${verb}. It's on your site.`, variant: "success" };
+  return { words: `${verb}. Your readers will see it in about a minute.`, variant: "success" };
 }
 
 /**
