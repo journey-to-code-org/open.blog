@@ -33,7 +33,8 @@ Images are tried in this order, and the first one the destination accepts is use
 
 1. `cardImage` (with `cardImageAlt`, and optionally `cardImageCredit` and `cardImageCreditUrl`): set this to choose
    the card's image yourself.
-2. Your cover (`cover`, with `coverAlt`, and optionally `coverCredit` and `coverCreditUrl`).
+2. Your cover (`cover`, with `coverAlt`, and optionally `coverCredit` and `coverCreditUrl`), or a diagram in the
+   post named with `coverDiagram` ([Diagrams](diagrams.md#a-diagram-as-the-posts-image)).
 3. For a `recipe` or `field-journal` post only: the photographs in the post, in order (up to eight). Their
    alternative text is the description you wrote in Markdown, `![like this](/img/step-2.jpg)`.
 

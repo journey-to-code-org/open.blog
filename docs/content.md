@@ -46,6 +46,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `cover` | Canonical cover shown at the top and used in feeds, exports, and social cards. It is also the on-site fallback for either colour mode. Defaults to the first image in the body. |
 | `coverLight`, `coverDark` | Optional on-site cover variants for light and dark mode. The saved theme toggle and the system preference select the matching image; `cover` is used when a variant is omitted. |
 | `coverAlt` | Alternative text for the cover. |
+| `coverDiagram` | Use a diagram in the post as the cover: its number, counting from 1. open.blog draws a 1200 × 630 image of it for link previews and cards, described by the diagram's title and description unless `coverAlt` is set. Not with `cover`. See [Diagrams](diagrams.md#a-diagram-as-the-posts-image). |
 | `draft` | `true` keeps the post out of every build and feed. |
 | `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
 | `participation` | This post's mode for reader participation beyond comments, as `kind: mode` entries: `participation: [question: open, third-perspective: locked]`, or one `- kind: mode` per line. Modes are `open`, `locked` and `hidden`, as for `comments`. A kind only takes effect once the site switches it on; see [Reader participation](configuration.md#reader-participation). |
@@ -82,8 +83,8 @@ Unknown fields are kept and ignored, so you can store your own notes in the fron
 Use `openblog new "Choose storage" --profile decision` or **New decision record**
 in Admin to start a draft. Fill in the `## Context`, `## Options considered`,
 `## Decision`, and `## Consequences` sections. The starter includes **Before**
-and **After** headings as optional diagram slots. Mermaid rendering is not yet
-available; Mermaid fences currently display as source code.
+and **After** headings as optional diagram slots: put a ` ```mermaid ` fence under
+each to draw the system before and after the decision (see [Diagrams](diagrams.md)).
 
 The status appears on the post and in its structured data. When a record is
 `superseded`, set `supersededBy` to another published post or page's exact

@@ -3289,6 +3289,20 @@ pub fn humanize(slug: &str) -> String {
         .join(" ")
 }
 
+impl Page {
+    /// The diagrams this page draws (ADR 0416), for writing their files.
+    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
+        &self.diagrams
+    }
+}
+
+impl Series {
+    /// The diagrams in this series' description (ADR 0416), for writing their files.
+    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
+        &self.diagrams
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3713,19 +3727,5 @@ docs: Vec::new(),
             .warnings
             .iter()
             .any(|warning| warning.contains("coverAlt")));
-    }
-}
-
-impl Page {
-    /// The diagrams this page draws (ADR 0416), for writing their files.
-    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
-        &self.diagrams
-    }
-}
-
-impl Series {
-    /// The diagrams in this series' description (ADR 0416), for writing their files.
-    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
-        &self.diagrams
     }
 }

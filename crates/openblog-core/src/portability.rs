@@ -3333,6 +3333,16 @@ fn reflection_items(format: RepresentationFormat, artifact: &str) -> Vec<(Reflec
     items
 }
 
+/// The diagram image a portable copy points at: the PNG copy where one is built (ADR 0419), since
+/// destinations and feed readers that re-host images often refuse SVG; otherwise the SVG.
+fn portable_image_path(asset: &crate::diagram::Asset) -> String {
+    if cfg!(feature = "diagram-png") {
+        asset.png_path()
+    } else {
+        asset.path.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5830,15 +5840,5 @@ A[^a b].
             "{html}"
         );
         assert!(html.trim_end().ends_with("<p>Enjoy.</p>"), "{html}");
-    }
-}
-
-/// The diagram image a portable copy points at: the PNG copy where one is built (ADR 0419), since
-/// destinations and feed readers that re-host images often refuse SVG; otherwise the SVG.
-fn portable_image_path(asset: &crate::diagram::Asset) -> String {
-    if cfg!(feature = "diagram-png") {
-        asset.png_path()
-    } else {
-        asset.path.clone()
     }
 }

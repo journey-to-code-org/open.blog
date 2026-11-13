@@ -60,7 +60,7 @@ fn cache_key(diagram: &Diagram, ordinal: usize) -> [u8; 32] {
     use blake2::{Blake2s256, Digest};
     let mut digest = Blake2s256::new();
     for value in [
-        "merman-0.10.0-static-inline-themed-v2",
+        "merman-0.10.0-static-inline-themed-v3",
         &diagram.source,
         &diagram.title,
         &diagram.description,
@@ -499,7 +499,9 @@ fn link_nodes(svg: &str, links: &[crate::diagram::NodeLink]) -> Result<String, S
         ));
         inserts.push((range.end, "</a>".to_string()));
     }
-    inserts.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.len().cmp(&b.1.len())));
+    // From the end, so earlier offsets stay valid. Where one node ends and the next begins, the
+    // opening tag goes in first so the closing tag lands before it: `</a><a …>`.
+    inserts.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.len().cmp(&a.1.len())));
     let mut out = svg.to_string();
     for (at, text) in inserts {
         out.insert_str(at, &text);
@@ -683,6 +685,17 @@ mod tests {
         assert_eq!(
             list,
             "<nav class=\"ob-diagram-links\" aria-label=\"Links in this diagram\"><ul><li><a href=\"/posts/the-api/\">API</a></li></ul></nav>"
+        );
+        // Neighbouring linked nodes each get their own link, not one inside the other.
+        let both = render(
+            &diagram("flowchart LR\nA[Client] --> B[API] --> C[Store]\nclick A \"/a/\"\nclick B \"/b/\"\nclick C \"/c/\""),
+            1,
+        )
+        .unwrap();
+        assert!(roxmltree::Document::parse(&both).is_ok());
+        assert_eq!(
+            links_list(&both),
+            "<nav class=\"ob-diagram-links\" aria-label=\"Links in this diagram\"><ul><li><a href=\"/a/\">Client</a></li><li><a href=\"/b/\">API</a></li><li><a href=\"/c/\">Store</a></li></ul></nav>"
         );
         let missing = render(&diagram("flowchart LR\nA --> B\nclick C \"/x/\""), 1).unwrap_err();
         assert!(missing.contains("does not have"), "{missing}");

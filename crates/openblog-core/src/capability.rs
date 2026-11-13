@@ -17,6 +17,7 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "citations",
     "claim-evidence",
     "guided-reading-supplements",
+    "diagrams",
 ];
 
 /// Planned capabilities registered in `docs/portability/planned-capability-contracts.json`,
@@ -46,7 +47,6 @@ const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
     ("shared-source-led-reflections", Some("Shared reflections")),
     ("protected-reflection-drafts", None),
     ("third-perspectives", Some("Third Perspectives")),
-    ("diagrams", Some("Diagram")),
 ];
 
 /// Features of the site's own pages that a portable copy leaves out entirely and names nowhere:
@@ -170,6 +170,11 @@ impl CapabilityDescriptor {
                 "Author-approved supplements, each labelled with its kind and the least reading mode that shows it; a mode only hides or shows them.",
                 Some("labeled-static-group"),
                 PortabilityLevel::FullyPortable,
+            ),
+            "diagrams" => (
+                "Mermaid source with its required title and description, drawn as an image at build time; copies carry a PNG of it with that text as its alternative, and the source.",
+                Some("image-with-text-alternative"),
+                PortabilityLevel::GracefullyTransformed,
             ),
             page_only if PAGE_ONLY_CAPABILITIES.contains(&page_only) => (
                 "A form on the site's own page that sends to its hosted function; a portable copy carries nothing for it.",

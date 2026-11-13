@@ -25,7 +25,7 @@ there. You do not edit it; it is part of the code, and it decides what open.blog
 
 Anything open.blog does not recognise (a capability, a provider, a manifest format) is refused, never guessed at.
 
-## The destinations (policy version 2026-10-29; LinkedIn, Facebook, Bluesky and YouTube 2026-11-12)
+## The destinations (policy version 2026-11-13; YouTube 2026-11-13.1)
 
 | Capability | DEV | Hashnode | Ghost | WordPress | Medium | LinkedIn | Facebook Page | Bluesky | Mastodon | YouTube |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -36,15 +36,21 @@ Anything open.blog does not recognise (a capability, a provider, a manifest form
 | Video as video | unsupported | unsupported | unsupported | unsupported | unsupported | manual | manual | manual | manual | adapter (uploaded private) |
 | Remote draft | adapter | adapter | adapter | adapter | manual | unsupported | unsupported | unsupported | unsupported | adapter (a private upload) |
 | Scheduled delivery | unsupported | unsupported | unsupported | manual | unsupported | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (open.blog's queue) | adapter (`publishAt`, kept by YouTube) |
+| Diagrams drawn from Mermaid | unsupported (sent as a PNG) | unsupported (sent as a PNG) | unsupported (sent as a PNG) | unsupported (sent as a PNG) | unsupported (sent as a PNG) | unsupported | unsupported | unsupported | unsupported | unsupported |
 | Login | environment key | environment key | environment key | environment key | none | OAuth | OAuth | app password | OAuth (one instance) | OAuth (on your computer) |
 | Canonical address | sent | sent | sent | not supported by core | set by hand | the post links it | the post links it | the post links it | the post links it | the description links it |
 | Becomes public | your approval | draft only | your approval | your approval | by hand | your approval | your approval | your approval | your approval | your approval (private until `--publish-at` or by hand) |
+
+No destination is known to draw Mermaid source, so every one is `unsupported` for diagrams: an article sent in
+full carries each diagram as its PNG copy with its text alternative and source ([diagrams](diagrams.md),
+[ADR 0419](adr/0419-diagrams-travel-as-png-copies-with-their-text-alternative.md)). Raising the policy version to
+2026-11-13 for this means earlier approvals are reviewed again.
 
 Image adapters require the optional media schema and explicit approval; Bluesky's card does not provide an image-alt
 field. The generic manifest does not declare captions as a separate capability: YouTube caption files are uploaded
 only when the author grants the optional `youtube.force-ssl` permission, otherwise they remain a manual step.
 
-Hacker News and Reddit are *community* destinations (policy version 2026-10-29,
+Hacker News and Reddit are *community* destinations (policy version 2026-11-13,
 [ADR 0337](adr/0337-hacker-news-and-reddit-are-community-destinations-whose-manifests-say-the-author-submits-by-hand.md)):
 the link is **manual** (you submit it yourself on the community's own form) and every other capability is
 **unsupported**; there is no login and nothing becomes public except by your own submission. A community manifest that
@@ -66,12 +72,12 @@ Pinterest; whole articles, remote drafts and scheduling are not possible. Login 
 `boards:write`, `pins:read`, `pins:write`), the Pin links your post, and it becomes public only with your
 confirmation. A description is at most 800 characters.
 
-Google Business Profile (a finished job from `openblog job-share`, policy version 2026-11-08,
+Google Business Profile (a finished job from `openblog job-share`, policy version 2026-11-13,
 [ADR 0393](adr/0393-a-job-reaches-google-business-profile-from-the-cli-only-when-the-owner-turned-it-on-and-confirmed-its-digest.md)):
 link (a Learn more button), short text and one photo are done by the adapter; whole articles, video, remote drafts
 and scheduling are not possible. Login is OAuth (`https://www.googleapis.com/auth/business.manage`), and Google gives
 API access only to a project it approved, so sending stays off until you turn it on. The words are at most 1,500
-characters. Nextdoor (policy version 2026-11-08,
+characters. Nextdoor (policy version 2026-11-13,
 [ADR 0394](adr/0394-nextdoor-is-a-by-hand-kit-because-its-publish-api-is-for-approved-partners.md)) is a community
 destination: the link, words and photo are **manual**, posted by you from the job kit, and the rest is
 **unsupported**.
