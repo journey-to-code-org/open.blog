@@ -2,6 +2,7 @@
 //! Studio's files (the Admin rebuilt on Zubra UI), embedded in the binary and served under
 //! `/admin/studio/`.
 
+#[rustfmt::skip]
 pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("api.js", include_bytes!("../../../web/studio/api.js")),
     ("fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2", include_bytes!("../../../web/studio/fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2")),
