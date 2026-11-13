@@ -108,7 +108,8 @@ export function buildJobForm({ fields, meta = {}, upload, check, onChange = () =
   tradeSelect.value = state.trade;
   tradeSelect.addEventListener("change", () => { state.trade = tradeSelect.value; touch(); });
 
-  const serviceList = el("datalist", { id: `${id}-services` }, (meta.services || []).map((service) => el("option", { value: service })));
+  // meta.services is [{ id, title }] since Studio R4 (G33); an older server sent plain ids.
+  const serviceList = el("datalist", { id: `${id}-services` }, (meta.services || []).map((service) => el("option", { value: typeof service === "string" ? service : service?.id })));
   const serviceInput = el("input", { id: `${id}-service`, type: "text", list: `${id}-services`, value: state.service, autocomplete: "off", autocapitalize: "none", spellcheck: "false", "data-job-field": "service" });
   serviceInput.addEventListener("input", () => { state.service = serviceInput.value; touch(); });
 

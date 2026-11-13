@@ -368,7 +368,7 @@ pub(super) fn route_with(
 /// in its own window. `id` and `scope` stay `/admin/`, so an app installed before Studio is the same
 /// app, updated (Chrome and Edge read a new `start_url` as an update), and the worker at
 /// `/admin/sw.js` still covers it. Colours are Studio's flour and ink.
-pub(super) fn manifest(config: &SiteConfig) -> Response {
+pub(super) fn manifest(config: &SiteConfig, trade: bool) -> Response {
     let title = config.title.trim();
     let name = if title.is_empty() { "My blog" } else { title };
     let short = if title.is_empty() || title.chars().count() > 12 {
@@ -376,7 +376,7 @@ pub(super) fn manifest(config: &SiteConfig) -> Response {
     } else {
         title
     };
-    let body = json!({
+    let mut body = json!({
         "name": name,
         "short_name": short,
         "id": "/admin/",
@@ -391,6 +391,15 @@ pub(super) fn manifest(config: &SiteConfig) -> Response {
             { "src": "/admin/icons/badge-96.png", "sizes": "96x96", "type": "image/png", "purpose": "monochrome" }
         ]
     });
+    // A trade site's icon, touched and held, offers New job (Studio R4 G34).
+    if trade {
+        body["shortcuts"] = json!([{
+            "name": "New job",
+            "short_name": "New job",
+            "url": "/admin/studio/#/new-job",
+            "icons": [{ "src": "/admin/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+        }]);
+    }
     Response::new(
         200,
         "application/manifest+json; charset=utf-8",

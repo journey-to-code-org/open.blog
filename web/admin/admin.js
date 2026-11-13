@@ -22156,7 +22156,7 @@ export class Editor {
         fields: f,
         meta: this.meta.job || {},
         upload: (file) => this.upload(file),
-        check: async (jobFields) => (await this.app.api.call("POST", "job/check", { json: { fields: jobFields } })).problems || [],
+        check: async (jobFields) => { const reply = await this.app.api.call("POST", "job/check", { json: { fields: jobFields } }); return reply.messages || reply.problems || []; },
         onChange: () => {
           this.app.dirty = true;
           this.markDirty();

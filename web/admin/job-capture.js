@@ -229,7 +229,8 @@ export function createJobCapture({ api, meta = {}, storage = globalThis.localSto
   const tradeSelect = el("select", { id: `${id}-trade`, "data-capture-field": "trade" }, el("option", { value: "" }, "Choose a trade"), trades.map((trade) => el("option", { value: trade }, trade)));
   tradeSelect.value = prefs.trade;
 
-  const services = [...new Set([prefs.service, ...(job.services || [])].filter(Boolean))];
+  // meta.job.services is [{ id, title }] since Studio R4 (G33); an older server sent plain ids.
+  const services = [...new Set([prefs.service, ...(job.services || []).map((service) => (typeof service === "string" ? service : service?.id))].filter(Boolean))];
   const serviceList = el("datalist", { id: `${id}-services` }, services.map((service) => el("option", { value: service })));
   const serviceInput = el("input", { id: `${id}-service`, type: "text", list: `${id}-services`, value: prefs.service, autocomplete: "off", autocapitalize: "none", spellcheck: "false", "data-capture-field": "service" });
 

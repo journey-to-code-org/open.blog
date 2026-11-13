@@ -368,7 +368,10 @@ fn the_installed_app_opens_studio_under_the_same_id_and_scope_with_studios_worke
     assert_eq!(worker.status, 200);
     assert!(ctype(&worker).starts_with("text/javascript"));
     assert_eq!(header(&worker, "cache-control"), "no-cache");
-    assert_eq!(worker.body, crate::admin::studio_bytes("sw.js").unwrap());
+    // Studio's file, after the one line naming this release's own files (R4 G35).
+    let mut expected = crate::admin::studio_release_line().into_bytes();
+    expected.extend_from_slice(crate::admin::studio_bytes("sw.js").unwrap());
+    assert_eq!(worker.body, expected);
     let code = String::from_utf8_lossy(&worker.body).to_string();
     assert!(code.contains("showNotification") && code.contains("/admin/studio/"));
     assert_eq!(
@@ -394,14 +397,17 @@ fn the_installed_app_opens_studio_under_the_same_id_and_scope_with_studios_worke
     let r = handle(&f.state, &req("GET", "/admin/icons/icon-192.png"));
     assert_eq!(r.body, b"\x89PNG-grammi");
     let worker = handle(&f.state, &req("GET", "/admin/sw.js"));
-    assert_eq!(worker.body, crate::admin::studio_bytes("sw.js").unwrap());
+    // Studio's file, after the one line naming this release's own files (R4 G35).
+    let mut expected = crate::admin::studio_release_line().into_bytes();
+    expected.extend_from_slice(crate::admin::studio_bytes("sw.js").unwrap());
+    assert_eq!(worker.body, expected);
 }
 
 #[test]
 fn the_manifest_names_the_app_after_the_site_or_my_blog() {
     let mut config = SiteConfig::default();
     let named = |config: &SiteConfig| -> Json {
-        serde_json::from_slice(&crate::admin::push::manifest(config).body).unwrap()
+        serde_json::from_slice(&crate::admin::push::manifest(config, false).body).unwrap()
     };
     config.title = "Grammi's House".into();
     let value = named(&config);

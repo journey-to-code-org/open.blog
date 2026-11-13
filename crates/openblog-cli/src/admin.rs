@@ -609,8 +609,14 @@ fn route(state: &AppState, req: &Request) -> Response {
     // every sign-up survives. Always asked again, so an update is seen at once; a site can't replace it.
     if path == "/admin/sw.js" {
         return match studio_bytes("sw.js") {
-            Some(bytes) => Response::new(200, "text/javascript; charset=utf-8", bytes.to_vec())
-                .with_header("Cache-Control", "no-cache"),
+            Some(bytes) => {
+                // Which release of Studio's files it keeps for opening with no signal (R4 G35): a
+                // new release is a new worker, which replaces the old copy.
+                let mut script = studio_release_line().into_bytes();
+                script.extend_from_slice(bytes);
+                Response::new(200, "text/javascript; charset=utf-8", script)
+                    .with_header("Cache-Control", "no-cache")
+            }
             None => Response::error(404, "Not found"),
         };
     }
@@ -624,7 +630,13 @@ fn route(state: &AppState, req: &Request) -> Response {
     // The installed app (ADR 0412): its manifest from the site's own name, and its icons (Studio's,
     // `web/studio/icons/`), which a site may replace with its own under `<paths.web>/admin/icons/`.
     if path == "/admin/manifest.webmanifest" {
-        return push::manifest(&site::load_config(&state.root).unwrap_or_default());
+        let config = site::load_config(&state.root).unwrap_or_default();
+        let trade = {
+            let _guard = lock(&state.build);
+            let sources = site::read_sources(&state.root, &config).unwrap_or_default();
+            is_trade_site(&config, &sources)
+        };
+        return push::manifest(&config, trade);
     }
     if let Some(icon) = path.strip_prefix("/admin/icons/") {
         let config = site::load_config(&state.root).unwrap_or_default();
@@ -723,6 +735,40 @@ fn studio_file(path: &str) -> Response {
         _ => "application/octet-stream",
     };
     Response::new(200, ctype, bytes.to_vec())
+}
+
+/// The first line of the served worker: this release's version (a hash of every Studio file) and the
+/// addresses of Studio's own files, which the worker keeps so Studio opens with no signal (R4 G35).
+/// Never an API address, never the old Admin's files.
+pub(crate) fn studio_release_line() -> String {
+    static LINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    LINE.get_or_init(|| {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut files = Vec::new();
+        for (name, bytes) in crate::studio_files::STUDIO_FILES {
+            for byte in name.as_bytes().iter().chain(bytes.iter()) {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+            let skip = *name == "sw.js"
+                || name.ends_with(".md")
+                || name.ends_with("LICENSE")
+                || name.ends_with(".json");
+            if !skip {
+                files.push(if *name == "index.html" {
+                    "/admin/studio/".to_string()
+                } else {
+                    format!("/admin/studio/{name}")
+                });
+            }
+        }
+        files.sort();
+        format!(
+            "self.STUDIO_RELEASE = {};\n",
+            json!({ "version": format!("{hash:016x}"), "files": files })
+        )
+    })
+    .clone()
 }
 
 /// One of Studio's embedded files, by its path under `web/studio/`.
@@ -1115,6 +1161,8 @@ fn authenticated_api(
         ("POST", "upload") => upload(state, req),
         ("GET", "images") => list_images(state),
         ("POST", "capture-audio") => upload_capture_audio(state, req),
+        ("GET", "capture-audio") => capture_audio(state, req),
+        ("GET", "capture") => capture_status(state, req),
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
@@ -3948,6 +3996,11 @@ fn etag(text: &str) -> String {
     etag_bytes(text.as_bytes())
 }
 
+/// A refusal with a short `code` a screen can say in its own words, and the sentence as the detail.
+pub(crate) fn coded_error(status: u16, code: &str, message: &str) -> Response {
+    Response::json(status, &json!({ "error": message, "code": code }))
+}
+
 fn etag_bytes(bytes: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
@@ -3980,15 +4033,102 @@ fn job_check(state: &AppState, req: &Request) -> Response {
         Err(e) => return Response::error(500, &e),
     };
     let front_matter = frontmatter::FrontMatter { fields };
-    let problems = match openblog_core::job::from_front_matter(&front_matter, &config.extra_trades)
+    let mut messages =
+        match openblog_core::job::from_front_matter(&front_matter, &config.extra_trades) {
+            Ok(_) => Vec::new(),
+            Err(problems) => problems,
+        };
+    // What the build checks across files (Studio R4 G32): the service is one of the site's published
+    // services, and the review one of its published reviews, when it has any.
+    let sources = site::read_sources(&state.root, &config).unwrap_or_default();
+    let (services, reviews) = published_services_and_reviews(&sources);
+    if let Some(service) = front_matter
+        .get("job.service")
+        .and_then(|value| openblog_core::job::normalize_service(value).ok())
     {
-        Ok(_) => Vec::new(),
-        Err(problems) => problems,
-    };
+        let known: Vec<&str> = services.iter().map(|(id, _)| id.as_str()).collect();
+        messages.extend(openblog_core::service::unknown_service_problem(
+            &known, &service,
+        ));
+    }
+    if let Some(review) = front_matter.get("job.review").map(str::trim) {
+        let known: Vec<&str> = reviews.iter().map(String::as_str).collect();
+        if !review.is_empty() && !known.is_empty() {
+            messages.extend(openblog_core::proof::unknown_review_problem(&known, review));
+        }
+    }
+    let problems: Vec<Json> = messages
+        .iter()
+        .map(|message| {
+            let (field, code) = openblog_core::job::problem_code(message);
+            json!({ "field": field, "code": code, "message": message })
+        })
+        .collect();
+    // `messages` keeps the old Admin's list of sentences for one release.
     Response::json(
         200,
-        &json!({ "ok": problems.is_empty(), "problems": problems }),
+        &json!({ "ok": problems.is_empty(), "problems": problems, "messages": messages }),
     )
+}
+
+/// The site's published services, as `(id, title)`, and its published reviews' ids: the ones the build
+/// accepts a job naming.
+fn published_services_and_reviews(
+    sources: &openblog_core::Sources,
+) -> (Vec<(String, String)>, Vec<String>) {
+    let mut services: Vec<(String, String)> = Vec::new();
+    for file in &sources.services {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if doc.front_matter.get_bool("draft").unwrap_or(false) {
+            continue;
+        }
+        let Some(id) = doc.front_matter.get("id").map(str::trim) else {
+            continue;
+        };
+        if openblog_core::service::check_id(id).is_err()
+            || services.iter().any(|(known, _)| known == id)
+        {
+            continue;
+        }
+        let title = doc
+            .front_matter
+            .get("name")
+            .or_else(|| doc.front_matter.get("title"))
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(id)
+            .to_string();
+        services.push((id.to_string(), title));
+    }
+    let mut reviews = Vec::new();
+    for file in &sources.proof {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if doc.front_matter.get_bool("draft").unwrap_or(false) {
+            continue;
+        }
+        if let Ok(review) = openblog_core::proof::from_front_matter(&doc.front_matter) {
+            reviews.push(review.id);
+        }
+    }
+    (services, reviews)
+}
+
+/// Whether the site is a trade site (`meta.siteUses.trade`): Studio's Business, Services, Reviews and
+/// New job show for it, and only for it.
+fn is_trade_site(config: &SiteConfig, sources: &openblog_core::Sources) -> bool {
+    config.business != openblog_core::business::BusinessConfig::default()
+        || !sources.services.is_empty()
+        || !sources.proof.is_empty()
+        || !config.business.trade.is_empty()
+        || config.seasonal_prompts.enabled
+        || sources.posts.iter().any(|file| {
+            frontmatter::parse(&file.contents)
+                .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
+        })
 }
 
 fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
@@ -4139,32 +4279,55 @@ fn meta(state: &AppState) -> Response {
         }
     }
     tags.sort_by_key(|t| t.to_lowercase());
-    let mut services: Vec<String> = Vec::new();
+    // The services a job can name (Studio R4 G33): the published Services by their names, then any
+    // other service a job already names, by its id in words.
+    let (mut services, _) = published_services_and_reviews(&sources);
+    let mut regions: Vec<String> = Vec::new();
     for file in &sources.posts {
         if let Ok(doc) = frontmatter::parse(&file.contents) {
             if let Some(service) = doc.front_matter.get("job.service") {
                 if let Ok(service) = openblog_core::job::normalize_service(service) {
-                    if !services.contains(&service) {
-                        services.push(service);
+                    if !services.iter().any(|(known, _)| *known == service) {
+                        let words = service.replace('-', " ");
+                        let mut title = words.clone();
+                        if let Some(first) = words.chars().next() {
+                            title = first.to_uppercase().collect::<String>()
+                                + &words[first.len_utf8()..];
+                        }
+                        services.push((service, title));
                     }
+                }
+            }
+            if let Some(region) = doc.front_matter.get("job.place.region").map(str::trim) {
+                if !region.is_empty() {
+                    regions.push(region.to_string());
                 }
             }
         }
     }
-    for file in &sources.services {
-        let Ok(doc) = frontmatter::parse(&file.contents) else {
-            continue;
-        };
-        if let Some(id) = doc.front_matter.get("id").map(str::trim) {
-            if openblog_core::service::check_id(id).is_ok()
-                && !doc.front_matter.get_bool("draft").unwrap_or(false)
-                && !services.iter().any(|known| known == id)
+    services.sort_by(|a, b| {
+        a.1.to_lowercase()
+            .cmp(&b.1.to_lowercase())
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    // The state most of the site's jobs name, as the one a new job starts with.
+    let site_region = {
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for region in &regions {
+            match counts
+                .iter_mut()
+                .find(|(known, _)| known.eq_ignore_ascii_case(region))
             {
-                services.push(id.to_string());
+                Some((_, count)) => *count += 1,
+                None => counts.push((region.clone(), 1)),
             }
         }
-    }
-    services.sort();
+        counts
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+            .map(|(region, _)| region)
+            .unwrap_or_default()
+    };
     // The saved reviews a job can link (ADR 0389): published and valid ones only, newest first.
     let mut reviews: Vec<(String, Json)> = Vec::new();
     for file in &sources.proof {
@@ -4190,9 +4353,11 @@ fn meta(state: &AppState) -> Response {
     let job_form = json!({
         "trades": openblog_core::job::known_trades(&config.extra_trades),
         "costBands": openblog_core::job::CostBand::ALL.map(openblog_core::job::CostBand::as_str),
-        "services": services,
+        "services": services.iter().map(|(id, title)| json!({ "id": id, "title": title })).collect::<Vec<_>>(),
         "reviews": reviews.into_iter().map(|(_, review)| review).collect::<Vec<_>>(),
         "scaffold": openblog_core::job::scaffold_body(),
+        "siteTrade": config.business.trade.trim().to_ascii_lowercase(),
+        "siteRegion": site_region,
     });
     let (owner_courses, owner_cuisines) =
         openblog_core::recipe_listing::owner_values(&sources.posts);
@@ -4252,15 +4417,7 @@ fn meta(state: &AppState) -> Response {
     if !config.code_runner.endpoint.is_empty() {
         code_runner_languages.extend(config.code_runner.languages.iter().cloned());
     }
-    let trade_site = config.business != openblog_core::business::BusinessConfig::default()
-        || !sources.services.is_empty()
-        || !sources.proof.is_empty()
-        || !config.business.trade.is_empty()
-        || config.seasonal_prompts.enabled
-        || sources.posts.iter().any(|file| {
-            frontmatter::parse(&file.contents)
-                .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
-        });
+    let trade_site = is_trade_site(&config, &sources);
     let engagement_ready = config.engagement.enabled
         && engagement_credential_summary(&state.root, &config.engagement.endpoint)
             .is_ok_and(|summary| summary["configured"] == json!(true));
@@ -12325,10 +12482,14 @@ fn get_document(state: &AppState, req: &Request) -> Response {
             } else {
                 Json::Null
             };
-            Response::json(
-                200,
-                &json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error }),
-            )
+            let mut reply = json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error });
+            // A job made on a phone: the capture it came from, for its voice note (Studio R4 G30).
+            if kind == "posts" && doc.front_matter.get("profile") == Some("job") {
+                if let Some(capture) = capture_for_path(state, rel) {
+                    reply["capture"] = capture;
+                }
+            }
+            Response::json(200, &reply)
         }
         Err(e) => Response::json(
             200,
@@ -16907,7 +17068,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         {
             Some(id.clone())
         }
-        Some(_) => return Response::error(422, "That capture id is not valid"),
+        Some(_) => return coded_error(422, "capture-id", "That capture id is not valid"),
     };
     let mut status = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
@@ -17196,7 +17357,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
 fn replayed_capture(state: &AppState, config: &SiteConfig, ledger: &[u8]) -> Response {
     let rel = match openblog_core::capture::parse_ledger(&String::from_utf8_lossy(ledger)) {
         Ok(rel) => rel,
-        Err(error) => return Response::error(409, &error),
+        Err(error) => return coded_error(409, "ledger-version", &error),
     };
     let source = resolve_content_path(&state.root, config, &rel)
         .ok()
@@ -18816,11 +18977,12 @@ fn upload(state: &AppState, req: &Request) -> Response {
         Err(e) => return Response::error(500, &e),
     };
     if req.body.is_empty() {
-        return Response::error(400, "No image data");
+        return coded_error(400, "not-image", "No image data");
     }
     if req.body.len() > upload_intake_bytes(&config) {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "This picture is over {} MB, which is too large to use. Try a smaller copy.",
                 upload_intake_bytes(&config) / (1024 * 1024)
@@ -18829,14 +18991,16 @@ fn upload(state: &AppState, req: &Request) -> Response {
     }
     let Some(sniffed) = sniff_image(&req.body) else {
         if is_heic(&req.body) {
-            return Response::error(
+            return coded_error(
                 415,
+                "heic",
                 "This photo is in the HEIC format iPhones use, which web pages cannot show. \
                  Choose it directly from the iPhone, or save a copy as a JPEG and upload that.",
             );
         }
-        return Response::error(
+        return coded_error(
             415,
+            "not-image",
             "Only PNG, JPEG, GIF, WebP, and AVIF images can be uploaded",
         );
     };
@@ -18847,8 +19011,9 @@ fn upload(state: &AppState, req: &Request) -> Response {
         None => (req.body.as_slice(), sniffed),
     };
     if bytes.len() > config.admin.max_upload_mb as usize * 1024 * 1024 {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "This picture could not be made smaller and is over the {} MB limit. Try a smaller copy.",
                 config.admin.max_upload_mb
@@ -18867,10 +19032,22 @@ fn upload(state: &AppState, req: &Request) -> Response {
                 .and_then(|slot| openblog_core::capture::photo_stem(id, slot))
             {
                 Some(stem) => Some(stem),
-                None => return Response::error(400, "That capture id or photo slot is not valid"),
+                None => {
+                    return coded_error(
+                        400,
+                        "capture-slot",
+                        "That capture id or photo slot is not valid",
+                    )
+                }
             }
         }
-        _ => return Response::error(400, "A capture upload needs both capture and slot"),
+        _ => {
+            return coded_error(
+                400,
+                "capture-slot",
+                "A capture upload needs both capture and slot",
+            )
+        }
     };
     let stem = sanitize_upload_stem(name);
     let year = clock::now().civil().year;
@@ -18987,14 +19164,15 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
         .get("capture")
         .filter(|id| openblog_core::capture::valid_id(id))
     else {
-        return Response::error(400, "That capture id is not valid");
+        return coded_error(400, "capture-id", "That capture id is not valid");
     };
     if req.body.is_empty() {
-        return Response::error(400, "No audio data");
+        return coded_error(400, "not-audio", "No audio data");
     }
     if req.body.len() > openblog_core::capture::MAX_AUDIO_BYTES {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "A voice note can be at most {} MB",
                 openblog_core::capture::MAX_AUDIO_BYTES / (1024 * 1024)
@@ -19002,10 +19180,14 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
         );
     }
     let Some(extension) = openblog_core::capture::sniff_audio(&req.body) else {
-        return Response::error(415, "That is not an audio recording this site can keep");
+        return coded_error(
+            415,
+            "not-audio",
+            "That is not an audio recording this site can keep",
+        );
     };
     let Some(name) = openblog_core::capture::audio_file_name(id, extension) else {
-        return Response::error(400, "That capture id is not valid");
+        return coded_error(400, "capture-id", "That capture id is not valid");
     };
     let _guard = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
@@ -19020,6 +19202,134 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
     }
     eprintln!("admin: kept a voice note ({} bytes)", req.body.len());
     Response::json(201, &json!({ "stored": true, "bytes": req.body.len() }))
+}
+
+/// The image extensions a capture's photo can be stored under (what `sniff_image` and
+/// `photo::fit_for_web` produce).
+const CAPTURE_PHOTO_EXTENSIONS: [&str; 5] = ["jpg", "png", "webp", "gif", "avif"];
+
+/// What the server already has of a capture (Studio R4 G29): the photos stored for each slot, whether
+/// its voice note is kept, and the draft it became, so a phone sending it again skips what arrived.
+/// Reads only; the same lock as a save, so it never sees half a capture.
+fn capture_status(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("id")
+        .filter(|id| openblog_core::capture::valid_id(id))
+    else {
+        return coded_error(400, "capture-id", "That capture id is not valid");
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(c) => c,
+        Err(e) => return Response::error(500, &e),
+    };
+    let _guard = lock(&state.build);
+    let static_dir = state.root.join(&config.paths.static_dir);
+    let mut photos = Vec::new();
+    for slot in 0..openblog_core::capture::MAX_PHOTOS {
+        let Some(stem) = openblog_core::capture::photo_stem(id, slot) else {
+            continue;
+        };
+        if let Some(ext) = CAPTURE_PHOTO_EXTENSIONS.iter().find(|ext| {
+            static_dir
+                .join(format!("images/uploads/captures/{stem}.{ext}"))
+                .is_file()
+        }) {
+            photos.push(
+                json!({ "slot": slot, "url": format!("/images/uploads/captures/{stem}.{ext}") }),
+            );
+        }
+    }
+    let draft = match read_optional_bytes(&captures_dir(state).join(format!("{id}.json"))) {
+        Ok(Some(bytes)) => {
+            match openblog_core::capture::parse_ledger(&String::from_utf8_lossy(&bytes)) {
+                Ok(rel) => {
+                    let status = resolve_content_path(&state.root, &config, &rel)
+                        .ok()
+                        .and_then(|path| fs::read_to_string(path).ok())
+                        .map_or("removed", |source| {
+                            describe(&rel, &source, &config, clock::now()).0
+                        });
+                    json!({ "path": rel, "status": status })
+                }
+                Err(_) => Json::Null,
+            }
+        }
+        _ => Json::Null,
+    };
+    Response::json(
+        200,
+        &json!({ "photos": photos, "audio": stored_capture_audio(state, id).is_some(), "draft": draft }),
+    )
+}
+
+/// A capture's kept voice note, for the post it became (Studio R4 G30). Signed in only, never cached,
+/// and typed by its own bytes.
+fn capture_audio(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("capture")
+        .filter(|id| openblog_core::capture::valid_id(id))
+    else {
+        return coded_error(400, "capture-id", "That capture id is not valid");
+    };
+    let _guard = lock(&state.build);
+    let Some(name) = stored_capture_audio(state, id) else {
+        return coded_error(404, "no-note", "No voice note is kept for that capture");
+    };
+    let Ok(bytes) = fs::read(captures_dir(state).join(name)) else {
+        return Response::error(500, "Cannot read the voice note");
+    };
+    let ctype = match openblog_core::capture::sniff_audio(&bytes) {
+        Some("webm") => "audio/webm",
+        Some("ogg") => "audio/ogg",
+        Some("m4a") => "audio/mp4",
+        Some("wav") => "audio/wav",
+        Some("mp3") => "audio/mpeg",
+        _ => return coded_error(415, "not-audio", "That voice note can't be read"),
+    };
+    Response::new(200, ctype, bytes)
+        .with_header("Cache-Control", "no-store")
+        .with_header("X-Content-Type-Options", "nosniff")
+}
+
+/// Most ledger entries read to find which capture a post came from.
+const MAX_LEDGERS_SCANNED: usize = 2000;
+
+/// The capture a post was made from, by the ledger entry naming its path (Studio R4 G30): its id,
+/// whether its voice note is kept and whether it has been turned into words. The ledger is the index;
+/// entries whose id starts with the post's slug suffix (a capture's slug ends with the id's first six
+/// digits) are read first, so the usual case reads one file.
+fn capture_for_path(state: &AppState, rel: &str) -> Option<Json> {
+    let dir = captures_dir(state);
+    let hint = rel
+        .trim_end_matches(".md")
+        .rsplit('-')
+        .next()
+        .filter(|tail| tail.len() == 6)
+        .unwrap_or("")
+        .to_string();
+    let mut ids: Vec<String> = fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            let id = name.strip_suffix(".json")?.to_string();
+            openblog_core::capture::valid_id(&id).then_some(id)
+        })
+        .take(MAX_LEDGERS_SCANNED)
+        .collect();
+    ids.sort_by_key(|id| !(!hint.is_empty() && id.starts_with(&hint)));
+    let id = ids.into_iter().find(|id| {
+        fs::read_to_string(dir.join(format!("{id}.json")))
+            .ok()
+            .and_then(|text| openblog_core::capture::parse_ledger(&text).ok())
+            .is_some_and(|path| path == rel)
+    })?;
+    let transcript = openblog_core::capture::transcript_file_name(&id)
+        .is_some_and(|name| dir.join(name).is_file());
+    Some(
+        json!({ "id": id, "audio": stored_capture_audio(state, &id).is_some(), "transcript": transcript }),
+    )
 }
 
 fn upload_track(state: &AppState, req: &Request) -> Response {
@@ -19231,6 +19541,7 @@ mod tests {
     mod seasons_routes;
     mod service_routes;
     mod social_routes;
+    mod studio_job_routes;
     mod studio_routes;
     mod theme_draft_routes;
     mod trade_checklist_routes;
@@ -26675,7 +26986,12 @@ What I read:
             .iter()
             .any(|t| t == "flooring"));
         assert_eq!(job["costBands"][0], "under-500");
-        assert_eq!(job["services"], json!(["hardwood-install"]));
+        assert_eq!(
+            job["services"],
+            json!([{ "id": "hardwood-install", "title": "Hardwood install" }])
+        );
+        assert_eq!(job["siteTrade"], "");
+        assert_eq!(job["siteRegion"], "");
         assert!(job["scaffold"]
             .as_str()
             .unwrap()
@@ -26742,11 +27058,19 @@ What I read:
             true,
         );
         assert_eq!(bad.status, 200);
-        let problems = body_json(&bad)["problems"].to_string();
+        let problems = body_json(&bad)["messages"].to_string();
         assert!(
             problems.contains("welding") && problems.contains("job.costBand"),
             "{problems}"
         );
+        let coded = &body_json(&bad)["problems"];
+        assert!(coded
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["field"] == "job.trade"
+                && p["code"] == "unknown-trade"
+                && p["message"].as_str().unwrap().contains("welding")));
         assert!(
             problems.contains("job.place.town"),
             "every problem at once: {problems}"

@@ -433,3 +433,41 @@ fn is_image_reference(value: &str) -> bool {
     path.rsplit_once('.')
         .is_some_and(|(_, extension)| IMAGE_EXTENSIONS.contains(&extension))
 }
+
+/// The field and a short code for one of the sentences this module (and the build's service and
+/// review checks) gives, so a screen can say it in its own words and point at the field. The
+/// sentence itself stays the detail. Anything not recognised is `("job", "invalid")`.
+pub fn problem_code(problem: &str) -> (String, &'static str) {
+    let (field, rest) = match problem.split_once(':') {
+        Some((field, rest)) if field.starts_with("job") && !field.contains(' ') => {
+            (field.trim(), rest.trim())
+        }
+        _ => ("job", problem.trim()),
+    };
+    let code = if rest.starts_with("add ") {
+        "missing"
+    } else if rest.contains("is not one of this site's services") {
+        "unknown-service"
+    } else if rest.contains("is not one of this site's saved reviews")
+        || rest.contains("but this site has none yet")
+    {
+        "unknown-review"
+    } else if rest.contains("not an address") {
+        "address"
+    } else if rest.contains("is not a date") {
+        "bad-date"
+    } else if rest.starts_with("must be the same day") {
+        "order"
+    } else if rest.contains("is not a known trade") {
+        "unknown-trade"
+    } else if rest.contains("is not a service id") {
+        "bad-service"
+    } else if rest.contains("is not a cost band") {
+        "bad-cost-band"
+    } else if field.starts_with("job.media") {
+        "bad-media"
+    } else {
+        "invalid"
+    };
+    (field.to_string(), code)
+}

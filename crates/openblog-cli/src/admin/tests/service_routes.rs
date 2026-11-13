@@ -257,7 +257,7 @@ fn the_job_form_is_offered_the_published_service_ids() {
     );
     assert_eq!(
         body_json(&meta)["job"]["services"],
-        json!(["hardwood-install"])
+        json!([{ "id": "hardwood-install", "title": "Hardwood installation" }])
     );
 }
 
