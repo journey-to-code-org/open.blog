@@ -79,6 +79,7 @@ export async function startShell(root, api, meta) {
   const BASE = [
     ...NAV.map((item) => ({ id: `go-${item.id}`, label: item.label, group: "Go to", href: item.href })),
     { id: "write-recipe", label: "Write a new recipe", group: "Do", href: "#/write/new/recipe" },
+    { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
     { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
     { id: "site", label: "View my site", group: "Do" },
     { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin" },

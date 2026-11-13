@@ -7,11 +7,11 @@ import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { askWhichToKeep } from "../parts/conflict.js";
 import { showPreview } from "../parts/preview.js";
-import { sendOut, wentOutWords } from "../parts/publish.js";
+import { sendOut, servedHere, wentOutWords } from "../parts/publish.js";
 import { editSeason } from "../parts/season-sheet.js";
 import { askPutUpNow } from "../parts/put-up-now.js";
 import { dayAfter, sayLongDate, todaySentence } from "../parts/season-words.js";
-import { MAX_WINDOWS, nextChange, problems, sayRange, switchTimeWords, toStored, upNowUntil, wearingOn } from "../parts/season-windows.js";
+import { MAX_WINDOWS, nextChange, problems, sayRange, switchTimeWords, toStored, upNowUntil, wearingOn, windowHolds as windowHoldsDay } from "../parts/season-windows.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 const todayUtc = () => new Date().toISOString().slice(0, 10);
@@ -22,7 +22,7 @@ export async function createDecorations({ api, meta }) {
   let saved = null; // GET seasons, as on the server
   let draft = null; // { theme, seasons } she's changing
   let looks = []; // [{ value, label }] by label
-  const card = h("section", { class: "studio-today", "aria-labelledby": "studio-deco-h" });
+  const card = h("div", { class: "studio-today" });
   const banner = h("div", { class: "studio-banner", "aria-live": "polite" });
   const live = h("p", { class: "studio-help studio-row-note", "aria-live": "polite" });
   const toggle = h("toggle-switch", { label: "Change by itself with the calendar", onCheckedchange: (e) => { draft.seasons.enabled = e.detail; changed(); } });
@@ -34,7 +34,7 @@ export async function createDecorations({ api, meta }) {
   const bar = h("div", { class: "studio-write-bar studio-deco-bar", hidden: true }, barWords, saveButton);
   const details = h("side-sheet", { label: "For the person who set up your site", side: "right" });
   const element = h("section", { class: "studio-page studio-decorations", "aria-labelledby": "studio-deco-h" },
-    card, banner,
+    banner, card,
     h("section", { class: "studio-section", "aria-labelledby": "studio-cal-h" },
       h("h3", { id: "studio-cal-h", text: "Your calendar" }),
       toggle,
@@ -52,14 +52,14 @@ export async function createDecorations({ api, meta }) {
   function drawCard() {
     const today = todayUtc();
     const lines = todaySentence(saved, label, { today });
-    if (saved.next) lines.push(`It goes up on your site ${switchTimeWords(saved.next.day, { timeZone: zone() })}.`);
+    if (saved.next) lines.push(`The change reaches your site ${switchTimeWords(saved.next.day, { timeZone: zone() })}.`);
     const up = saved.seasons?.upNow && saved.seasons.upNow.until >= today ? saved.seasons.upNow : null;
     const nextLook = saved.next?.theme || windows()[0]?.theme || saved.theme;
     card.replaceChildren(
       h("h2", { id: "studio-deco-h", class: "studio-question", tabindex: "-1", text: lines[0] }),
       ...lines.slice(1).map((line) => h("p", { class: "studio-lede", text: line })),
       h("cluster-layout", { gap: "0.75rem" },
-        up ? h("action-button", { variant: "secondary", onClick: () => backToCalendar() }, "Go back to the calendar")
+        up ? h("action-button", { variant: "secondary", onClick: () => backToCalendar() }, `Take ${label(up.theme)} down early`)
           : h("action-button", { size: "lg", onClick: () => putUp(nextLook) }, `Put ${label(nextLook)} up now`),
         h("action-button", { variant: "secondary", onClick: (e) => preview(up ? up.theme : nextLook, e.currentTarget) }, `See how ${label(up ? up.theme : nextLook)} looks`)));
   }
@@ -83,7 +83,7 @@ export async function createDecorations({ api, meta }) {
       const badges = [
         index === wornIndex ? h("status-badge", { variant: "success" }, "Up now") : null,
         season.theme === nextTheme && index !== wornIndex ? h("status-badge", { variant: "neutral" }, "Next") : null,
-        notes.length ? h("status-badge", { variant: "warning" }, "Check this") : null,
+        notes.length ? h("status-badge", { variant: "warning" }, notes.every((n) => /overlaps/.test(n.words)) ? "Shares days" : "Check this") : null,
       ];
       const name = `Season ${index + 1} of ${list.length}: ${label(season.theme)}, ${sayRange(season)}`;
       const open = h("button", { type: "button", class: "studio-season-open", "aria-label": name, onClick: () => change(index) },
@@ -110,10 +110,25 @@ export async function createDecorations({ api, meta }) {
         },
       }, h("span", { slot: "label" }, "Move or remove", h("span", { class: "studio-visually-hidden", text: ` ${label(season.theme)}` })));
       return h("li", { class: "studio-season-row" }, open, h("span", { class: "studio-season-badges" }, ...badges.filter(Boolean)), menu,
-        ...notes.map((problem) => h("p", { class: "studio-help studio-season-problem", text: problem.words })));
+        ...notes.map((problem) => h("p", { class: "studio-help studio-season-problem", text: problem.words })),
+        ...overlapFix(index));
     }));
     if (!list.length) rows.replaceChildren(h("li", {}, h("empty-state", { heading: "No seasons yet" }, "Add one, like Christmas from December 1 to January 6, and your house changes by itself.")));
     add.disabled = list.length >= MAX_WINDOWS;
+  }
+
+  // When a season runs into the next one, offer to start the next one the day after it ends.
+  function overlapFix(index) {
+    const list = windows();
+    const season = list[index];
+    const after = list.findIndex((other, i) => i !== index && other.start !== season.start && windowHoldsDay(season, other.start));
+    if (after < 0) return [];
+    const start = dayAfter(`2028-${season.end}`).slice(5);
+    return [h("action-button", { variant: "secondary", size: "sm", class: "studio-season-fix", onClick: () => {
+      list[after] = { ...list[after], start };
+      changed();
+      say(`${label(list[after].theme)} now starts ${sayRange({ start, end: start }).split(" to ")[0]}. Not saved yet.`);
+    } }, `Start ${label(list[after].theme)} on ${sayRange({ start, end: start }).split(" to ")[0]} instead`)];
   }
 
   function coversEveryDay() {
@@ -125,6 +140,9 @@ export async function createDecorations({ api, meta }) {
   }
 
   function changed() {
+    toggle.description = draft.seasons.enabled ? "Your house changes by itself on the days below."
+      : saved.seasons?.enabled ? `When you save, your house wears ${label(draft.theme)} every day. Your seasons are kept for when you turn this back on.`
+        : `Your house wears ${label(draft.theme)} every day.`;
     drawList();
     const dirty = isDirty();
     bar.hidden = !dirty;
@@ -150,7 +168,7 @@ export async function createDecorations({ api, meta }) {
     const list = windows();
     const last = list[list.length - 1];
     const start = last ? dayAfter(`2028-${last.end}`).slice(5) : "12-01";
-    list.push({ theme: looks[0]?.value || draft.theme, start, end: start, fresh: true });
+    list.push({ theme: draft.theme, start, end: start, fresh: true });
     draft.seasons.windows = list;
     changed();
     say(`Season ${list.length} of ${list.length} added. Not saved yet.`);
@@ -179,36 +197,68 @@ export async function createDecorations({ api, meta }) {
     return showPreview(api, {
       opener, request: () => api.post("seasons/preview", { look }),
       heading: `How ${label(look)} looks`, backLabel: "Back to decorations",
-      note: "Only you can see this. Nothing is saved or put up.", frameTitle: `Your front page decorated for ${label(look)}`,
+      note: "Only you can see this. Nothing is saved or put up. This shows the decorations; your front page's own words change with the date.", frameTitle: `Your front page decorated for ${label(look)}`,
     });
   }
 
   // ---- saving
-  async function send(next, { quiet = false } = {}) {
-    const body = { etag: saved.etag, theme: next.theme, seasons: toStored(next.seasons) };
+  // `upNowOnly`: putting a look up (or taking it down) changes only `upNow`, so on a conflict it's
+  // put on top of the other device's calendar instead of asking, and never undoes their changes.
+  // Her own unsaved calendar edits stay on screen either way.
+  async function send(next, { quiet = false, upNowOnly = false } = {}) {
+    const pending = upNowOnly && isDirty() ? clone(draft) : null;
+    const put = (base, etag) => api.put("seasons", { etag, theme: base.theme, seasons: toStored(base.seasons) });
     let reply;
     try {
-      reply = await api.put("seasons", body);
+      reply = await put(next, saved.etag);
     } catch (error) {
-      if (error.status === 409 && error.data?.etag) return conflict(error.data, next);
-      banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your decorations weren't saved" }, error.status ? error.message : "Check your connection and try again. Your changes are still here."));
-      return null;
+      if (error.status === 409 && error.data?.etag && upNowOnly) {
+        const fresh = error.data;
+        const seasons = { ...clone(fresh.seasons), upNow: next.seasons.upNow };
+        if (!next.seasons.upNow) delete seasons.upNow;
+        try {
+          reply = await put({ theme: fresh.theme, seasons }, fresh.etag);
+        } catch (again) {
+          banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your decorations weren't saved" }, again.message));
+          return null;
+        }
+      } else if (error.status === 409 && error.data?.etag) {
+        return conflict(error.data, next);
+      } else {
+        // Her words, not the server's: a 422 names what to fix; anything else says try again.
+        const words = error.status === 422 ? error.message.replace(/There is no theme called `([^`]+)` in your themes folder/g, "The look $1 isn't on your site anymore. Choose another.")
+          : error.status ? "Something went wrong on your site. Your changes are still here; try again in a moment." : "Check your connection and try again. Your changes are still here.";
+        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your decorations weren't saved" }, words));
+        return null;
+      }
     }
     adopt(reply);
-    if (!quiet) await announce(reply, "Saved.");
+    if (pending) {
+      draft = { ...pending, seasons: { ...pending.seasons, upNow: reply.seasons?.upNow } };
+      if (!reply.seasons?.upNow) delete draft.seasons.upNow;
+      changed();
+    }
+    if (!quiet) {
+      await announce(reply, "Saved.");
+      requestAnimationFrame(() => card.querySelector("h2")?.focus());
+    }
     return reply;
   }
 
-  async function announce(reply, lead) {
-    if (reply.changed === false) { toast("Nothing's changed. Your site already has this."); return; }
-    if (reply.buildError) { toast("Saved, but your site couldn't be put together yet. The person who set up your site can see why in Details.", { variant: "warning", duration: 0 }); return; }
+  async function announce(reply, lead, { toast: say = true } = {}) {
+    lastBuildError = reply.buildError || "";
+    if (reply.changed === false) { toast("Nothing's changed. Your site already has this."); return null; }
+    if (reply.buildError) { toast("Saved, but your site couldn't be put together yet. The person who set up your site can see why in Details.", { variant: "warning", duration: 0 }); return null; }
     const result = await sendOut(api, "Change the decorations");
     lastPublish = result;
+    if (!say) return result;
     const said = wentOutWords(result, { meta, action: "saved" });
     toast(`${lead === "Saved." ? "" : `${lead} `}${said.words}`, { variant: said.variant, duration: result.sent === "failed" ? 0 : undefined });
+    return result;
   }
 
   let lastPublish = null;
+  let lastBuildError = "";
 
   async function save() {
     const found = problems(draft.seasons, looks.map((look) => ({ name: look.value, label: look.label })));
@@ -227,7 +277,7 @@ export async function createDecorations({ api, meta }) {
   }
 
   async function conflict(fresh, mine) {
-    const choice = await askWhichToKeep({ name: "Your decorations", theirState: "", myState: "", what: "changes", them: "them" });
+    const choice = await askWhichToKeep({ name: "Your decorations", were: true, theirState: "", myState: "", what: "changes", them: "them" });
     if (choice === "mine") { saved.etag = fresh.etag; return send(mine); }
     if (choice === "theirs") {
       const kept = clone(mine);
@@ -262,19 +312,24 @@ export async function createDecorations({ api, meta }) {
     });
     if (!choice) return;
     const before = clone(saved);
-    const reply = await send({ theme: saved.theme, seasons: { ...clone(saved.seasons), upNow: choice } }, { quiet: true });
+    const reply = await send({ theme: saved.theme, seasons: { ...clone(saved.seasons), upNow: choice } }, { quiet: true, upNowOnly: true });
     if (!reply) return;
     const undo = h("action-button", { onClick: () => undoPutUp(before) }, "Undo");
-    banner.replaceChildren(h("alert-banner", { variant: "success", dismissible: true, heading: `${label(choice.theme)} is up.${before.wearing !== choice.theme ? ` ${label(before.wearing)} came down.` : ""}` }, h("cluster-layout", { gap: "0.5rem" }, undo)));
-    await announce(reply, `${label(choice.theme)} is up.`);
-    requestAnimationFrame(() => undo.querySelector("button")?.focus());
+    const result = await announce(reply, `${label(choice.theme)} is up.`, { toast: false });
+    // Honest about where: "up" on the public site only when it really went out.
+    const here = result && result.sent === "none" && !servedHere(meta);
+    const heading = `${label(choice.theme)} is up${here ? " here" : ""}.${before.wearing !== choice.theme ? ` ${label(before.wearing)} came down.` : ""}`;
+    banner.replaceChildren(h("alert-banner", { variant: "success", dismissible: true, heading },
+      here ? "Your public site catches up when the person who set it up sends it out. " : "",
+      h("cluster-layout", { gap: "0.5rem" }, undo)));
+    requestAnimationFrame(() => { element.scrollIntoView?.({ block: "start" }); undo.querySelector("button")?.focus({ preventScroll: true }); });
   }
 
   async function undoPutUp(before) {
     const seasons = clone(saved.seasons);
     if (before.seasons?.upNow) seasons.upNow = before.seasons.upNow;
     else delete seasons.upNow;
-    const reply = await send({ theme: saved.theme, seasons }, { quiet: true });
+    const reply = await send({ theme: saved.theme, seasons }, { quiet: true, upNowOnly: true });
     if (!reply) return;
     banner.replaceChildren();
     toast(`Undone. ${label(reply.wearing)} is back up.`);
@@ -284,8 +339,9 @@ export async function createDecorations({ api, meta }) {
   async function backToCalendar() {
     const seasons = clone(saved.seasons);
     delete seasons.upNow;
-    const reply = await send({ theme: saved.theme, seasons }, { quiet: true });
+    const reply = await send({ theme: saved.theme, seasons }, { quiet: true, upNowOnly: true });
     if (reply) await announce(reply, `Back to your calendar. ${label(reply.wearing)} is up again.`);
+    requestAnimationFrame(() => card.querySelector("h2")?.focus());
   }
 
   // ---- details, for the person who set up the site
@@ -299,7 +355,8 @@ export async function createDecorations({ api, meta }) {
         ...row("Up early", saved.seasons?.upNow ? JSON.stringify(saved.seasons.upNow) : "none"),
         ...row("Today (UTC)", `${saved.today}, wearing ${saved.wearing}`),
         ...row("Next change", saved.next ? `${saved.next.day} ${saved.next.theme} (first build after ${saved.next.day}T00:00Z)` : "none"),
-        ...row("File kept as written", "Yes: only members that changed are written, in their documented order."),
+        ...row("How it's written", "Only members that changed are written. A changed seasons block is written in its documented key order (version, enabled, windows, upNow), so one written in another order is reordered on its first change."),
+        ...row("Last build", lastBuildError || "Fine"),
         ...row("Last send-out", lastPublish ? [lastPublish.message, lastPublish.commit ? `commit ${String(lastPublish.commit).slice(0, 12)}` : ""].filter(Boolean).join(" · ") : "Not in this visit")),
       h("table", { class: "studio-season-table" },
         h("thead", {}, h("tr", {}, ...["#", "Look", "Theme", "Start", "End"].map((text) => h("th", { text })))),
@@ -314,6 +371,11 @@ export async function createDecorations({ api, meta }) {
     card.replaceChildren(h("skeleton-block", { lines: 3 }));
     try {
       adopt(await api.get("seasons"));
+      // From Find anywhere: "Put a look up now" lands here and asks straight away.
+      if (new URLSearchParams(location.hash.split("?")[1] || "").get("do") === "putup") {
+        history.replaceState(null, "", "#/decorations");
+        putUp(saved.next?.theme || saved.wearing);
+      }
     } catch (error) {
       card.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your decorations didn't load" }, error.message,
         h("action-button", { variant: "secondary", onClick: load }, "Try again")));

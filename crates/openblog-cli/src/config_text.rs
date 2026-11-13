@@ -88,13 +88,20 @@ pub fn set_member_pretty(text: &str, key: &str, value: Option<&str>) -> Result<S
 }
 
 /// The value as pretty JSON whose continuation lines sit under `indent`.
+/// The value's continuation lines sit under `indent`, and each nesting level uses the file's own
+/// step (`indent` itself, for a top-level member: two spaces, four spaces or a tab), so a member
+/// written into a four-space file reads like the rest of it.
 fn render(pretty: &str, indent: &str, newline: &str) -> String {
+    let step = if indent.is_empty() { "  " } else { indent };
     let mut lines = pretty.lines();
     let mut out = lines.next().unwrap_or("").to_string();
     for line in lines {
+        let body = line.trim_start_matches(' ');
+        let depth = (line.len() - body.len()) / 2;
         out.push_str(newline);
         out.push_str(indent);
-        out.push_str(line);
+        out.push_str(&step.repeat(depth));
+        out.push_str(body);
     }
     out
 }

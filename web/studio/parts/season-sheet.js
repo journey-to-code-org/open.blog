@@ -55,14 +55,14 @@ export async function editSeason({ season, looks, number, count, onPreview }) {
     }
     const value = () => ({ theme: state.theme, start: monthDay(state.start.month, state.start.day), end: monthDay(state.end.month, state.end.day) });
     sheet.append(heading,
-      h("p", { class: "studio-help", text: `Season ${number} of ${count}` }),
+      h("p", { class: "studio-help", text: `Season ${number} of ${count}. Changes are saved when you press Save.` }),
       look,
       h("action-button", { variant: "secondary", onClick: (e) => onPreview?.(state.theme, e.currentTarget) }, "See how it looks"),
       dayPicker("start", "First day"),
       dayPicker("end", "Last day", "It comes down after this day."),
       crossing, leapNote,
       h("cluster-layout", { gap: "0.5rem" },
-        h("action-button", { onClick: () => finish(value()) }, "Done"),
+        h("action-button", { onClick: () => finish(value()) }, "Use these dates"),
         h("action-button", { variant: "secondary", onClick: () => finish(null) }, "Never mind")));
     sheet.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); finish({ ...value(), andSave: true }); }

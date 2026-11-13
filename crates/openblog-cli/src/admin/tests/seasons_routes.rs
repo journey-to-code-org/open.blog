@@ -198,7 +198,11 @@ fn preview_dresses_the_home_page_in_a_look_and_writes_nothing() {
         .to_string();
     let page = handle(&f.state, &authed(req("GET", &url), &s, false));
     assert_eq!(page.status, 200);
-    assert!(String::from_utf8_lossy(&page.body).contains("<html"));
+    let html = String::from_utf8_lossy(&page.body);
+    assert!(
+        html.contains(&format!("data-ob-theme=\"{second}\"")),
+        "the page wears the look asked for"
+    );
     let missing = handle(
         &f.state,
         &authed(
@@ -226,4 +230,38 @@ fn preview_dresses_the_home_page_in_a_look_and_writes_nothing() {
     );
     assert_eq!(no_csrf.status, 403);
     assert_eq!(on_disk(&f), before);
+}
+
+#[test]
+fn a_four_space_config_stays_four_spaces() {
+    let (f, _, _) = house("seasons-indent");
+    let s = login_ok(&f);
+    let path = f.dir.join(site::CONFIG_FILE);
+    let four: String = fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let body = line.trim_start_matches(' ');
+            format!("{}{body}\n", " ".repeat((line.len() - body.len()) * 2))
+        })
+        .collect();
+    fs::write(&path, &four).unwrap();
+    let got = get(&f, &s);
+    let mut seasons = got["seasons"].clone();
+    seasons["windows"][0]["end"] = json!("01-10");
+    let response = put(
+        &f,
+        &s,
+        json!({ "etag": got["etag"], "theme": got["theme"], "seasons": seasons }),
+    );
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    assert_eq!(
+        on_disk(&f),
+        four.replace("\"end\": \"01-06\"", "\"end\": \"01-10\"")
+    );
 }

@@ -277,23 +277,23 @@ export function problems(seasons, themes) {
 export function switchTimeWords(date, { timeZone, buildMinute = 17 } = {}) {
   const day = dayNumber(date);
   if (day === null) return "";
-  // The build that day runs between buildMinute and buildMinute + 60 past UTC midnight; say the
-  // local time it starts, down to the half hour (7:17 → "7 pm", 5:47 in India → "5:30 am").
-  const instant = day * DAY_MS + buildMinute * 60000;
+  // The first build that day starts at buildMinute past UTC midnight, often late, and the site
+  // takes a few minutes to go out: say a time it's surely up by, the build plus half an hour, up to
+  // the next half hour (7:17 pm Eastern → "by about 8 pm"; 5:47 am in India → "by about 6:30 am").
+  const ready = day * DAY_MS + (buildMinute + 30) * 60000;
+  const instant = Math.ceil(ready / (30 * 60000)) * 30 * 60000;
   const parts = {};
   for (const part of new Intl.DateTimeFormat("en-US", {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).formatToParts(new Date(instant))) {
     if (part.type !== "literal") parts[part.type] = Number(part.value);
   }
-  parts.minute = parts.minute < 30 ? 0 : 30;
   const hour = parts.hour % 24;
   const local = Date.UTC(parts.year, parts.month - 1, parts.day) / DAY_MS;
-  if (local === day && hour === 0 && parts.minute === 0) return "just after midnight";
   const clock = `${hour % 12 || 12}${parts.minute ? `:${pad(parts.minute)}` : ""} ${hour < 12 ? "am" : "pm"}`;
   const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
   const when = local < day ? `the ${part} before` : local > day ? `the ${part} after` : `that ${part}`;
-  return `${when}, around ${clock} your time`;
+  return `${when}, by about ${clock} your time`;
 }
 
 /**

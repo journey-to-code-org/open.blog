@@ -11,3 +11,50 @@ Made by the stakeholder delegate on 2026-11-13.
 | Writing reminders (`seasonal`) | Out of this slice (brief). Kept for the parity audit. |
 | Turning one decoration off | Out of this slice, first follow-up. *(Mikey to confirm.)* |
 | `write.js` split | The body host landed in 65b7f46. The post session (`parts/post-session.js`, DOM-free) lands before the Decorations screen. |
+
+## Review round (QA, Grammi, Mikey using the running slice)
+
+Grammi finished task 1 without help. QA passed checks 3 and 5. Mikey's config round trips were byte-identical.
+
+**Fixed:**
+- **Unsaved edits kept.** Putting a look up keeps her unsaved calendar edits (QA B1, Mikey P1).
+- **Conflicts.** Put up, Undo and Take down change only `upNow`. On a conflict they apply it on top of the other device's calendar instead of resending the old one, so someone else's edit is never undone. "Your decorations were changed…".
+- **Honest words.**
+  - "Christmas is up here", plus "Your public site catches up when the person who set it up sends it out", when the public site lives elsewhere and nothing sends it out. The same words are used for posts.
+  - Switch time: "by about 8 pm your time" (build minute plus half an hour, rounded up). The old "around 7 pm" was before it can ever show.
+  - "The change reaches your site …" instead of an ambiguous "It goes up …".
+- **Files and errors.**
+  - Configs keep their own indent (2 spaces, 4 spaces or tabs) when a member is rewritten.
+  - Details no longer claims "kept as written: yes". It says how members are written, and gives the last build result.
+  - Server errors are shown in her words. A 422 for a missing look says "The look x isn't on your site anymore. Choose another."
+- **Accessibility and layout.**
+  - One landmark per name.
+  - At 320 px each season row stacks.
+  - Focus returns to the top sentence after a save, a put-up or a take-down.
+  - "Put a look up now" is in Find from any screen.
+- **Grammi's words.**
+  - **Take Christmas down early**.
+  - **Use these dates** (with "Changes are saved when you press Save.").
+  - The put-up date is also said in words ("That's Wednesday, January 6, 2027"), and it can't be before today.
+  - The switch says what saving it off will do.
+  - Overlaps read "Shares days", in calm colours, with a one-tap **Start January on January 11 instead**.
+  - The preview says that only the decorations change.
+  - The Undo banner sits above the sentence.
+  - New seasons start with the between-seasons look.
+- **Tests.**
+  - Preview: the route test checks the page wears the look asked for.
+  - Four-space configs stay four-space.
+  - Eastern-evening cases (Nov 30 6:30 pm, 11:30 pm, Dec 1 12:30 am).
+  - A browser test that putting a look up keeps unsaved edits.
+
+**Mikey's decisions (2026-11-13):**
+- Auto-publish comes later.
+- The Rudolph and Island of Misfit Toys look is theme work in `grammis-house`.
+- He wants decorations she can turn off one by one, a choice of decorations, a tree she decorates, and family gifts under it that she opens on Christmas. That is slice 3b.
+
+**Deferred:**
+- Hide series and utility looks from her pickers (`"season": false` in `theme.json`).
+- Swatches.
+- A read-only "what's up early" history.
+- `decorations.js` is 416 lines; move put-up and Details into parts.
+- `write.js` is 543 lines.

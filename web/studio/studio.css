@@ -255,7 +255,8 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-season-dates { font-size: var(--text-sm); color: var(--studio-ink-soft); }
 .studio-season-badges { display: flex; gap: var(--space-2); grid-column: 1; }
 .studio-season-row .studio-row-menu { grid-column: 2; grid-row: 1; }
-.studio-season-problem { grid-column: 1 / -1; color: var(--studio-beet); }
+.studio-season-problem { grid-column: 1 / -1; color: var(--studio-ink); }
+.studio-season-fix { grid-column: 1 / -1; justify-self: start; }
 .studio-deco-bar { justify-content: space-between; align-items: center; }
 .studio-save-words { margin: 0; font-weight: 600; }
 .studio-season-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: var(--text-sm); }
@@ -263,3 +264,8 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-season-sheet select-field { display: block; }
 /* Long look names ("Put January: snowy morning up now") wrap instead of pushing the page sideways. */
 .studio-today .action-button, .studio-decorations .action-button { white-space: normal; height: auto; min-height: 2.75rem; padding-block: 0.5rem; text-align: center; }
+/* At 320 px the season's name and dates take the whole line; Move or remove goes under them. */
+@media (max-width: 24rem) {
+  .studio-season-row { grid-template-columns: minmax(0, 1fr); }
+  .studio-season-row .studio-row-menu { grid-column: 1; grid-row: auto; justify-self: start; }
+}

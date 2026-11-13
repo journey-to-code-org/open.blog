@@ -252,18 +252,18 @@ test("upNowUntil: the end of the look's coming window, or 14 days", () => {
 
 test("switch time in her own time zone", () => {
   // December 1 starts at midnight UTC: 7 pm the evening before in New York (EST).
-  assert.equal(switchTimeWords("2026-12-01", { timeZone: "America/New_York" }), "the evening before, around 7 pm your time");
+  assert.equal(switchTimeWords("2026-12-01", { timeZone: "America/New_York" }), "the evening before, by about 8 pm your time");
   // In summer (EDT), 8 pm.
-  assert.equal(switchTimeWords("2027-07-01", { timeZone: "America/New_York" }), "the evening before, around 8 pm your time");
+  assert.equal(switchTimeWords("2027-07-01", { timeZone: "America/New_York" }), "the evening before, by about 9 pm your time");
   // London: midnight in winter (GMT), 1 am in summer (BST).
-  assert.equal(switchTimeWords("2026-12-01", { timeZone: "Europe/London" }), "just after midnight");
-  assert.equal(switchTimeWords("2027-07-01", { timeZone: "Europe/London" }), "that morning, around 1 am your time");
-  assert.equal(switchTimeWords("2026-12-01", { timeZone: "Asia/Tokyo" }), "that morning, around 9 am your time");
-  assert.equal(switchTimeWords("2026-12-01", { timeZone: "UTC" }), "just after midnight");
+  assert.equal(switchTimeWords("2026-12-01", { timeZone: "Europe/London" }), "that morning, by about 1 am your time");
+  assert.equal(switchTimeWords("2027-07-01", { timeZone: "Europe/London" }), "that morning, by about 2 am your time");
+  assert.equal(switchTimeWords("2026-12-01", { timeZone: "Asia/Tokyo" }), "that morning, by about 10 am your time");
+  assert.equal(switchTimeWords("2026-12-01", { timeZone: "UTC" }), "that morning, by about 1 am your time");
   // Half-hour zones, and a build later in the hour.
-  assert.equal(switchTimeWords("2026-12-01", { timeZone: "Asia/Kolkata" }), "that morning, around 5:30 am your time");
-  assert.equal(switchTimeWords("2026-12-01", { timeZone: "Pacific/Honolulu" }), "the afternoon before, around 2 pm your time");
-  assert.equal(switchTimeWords("2026-12-01", { timeZone: "America/New_York", buildMinute: 45 }), "the evening before, around 7:30 pm your time");
+  assert.equal(switchTimeWords("2026-12-01", { timeZone: "Asia/Kolkata" }), "that morning, by about 6:30 am your time");
+  assert.equal(switchTimeWords("2026-12-01", { timeZone: "Pacific/Honolulu" }), "the afternoon before, by about 3 pm your time");
+  assert.equal(switchTimeWords("2026-12-01", { timeZone: "America/New_York", buildMinute: 45 }), "the evening before, by about 8:30 pm your time");
   assert.equal(switchTimeWords("2026-02-30", { timeZone: "UTC" }), "");
 });
 
@@ -286,4 +286,14 @@ test("toStored writes keys in the documented order", () => {
   const { upNow, ...undone } = toStored({ ...GRAMMI, upNow: { theme: "christmas", until: "2027-01-06" } });
   assert.ok(upNow);
   assert.deepEqual(undone, toStored(GRAMMI));
+});
+
+test("Eastern evening of November 30 is already December 1 for the site (UTC days)", async () => {
+  const { wearingOn } = await import("../../web/studio/parts/season-windows.js");
+  const seasons = { version: 1, enabled: true, windows: [{ theme: "christmas", start: "12-01", end: "01-06" }, { theme: "thanksgiving", start: "11-01", end: "11-30" }] };
+  const utcDay = (instant) => new Date(instant).toISOString().slice(0, 10);
+  for (const [instant, theme] of [["2026-11-30T18:30:00-05:00", "thanksgiving"], ["2026-11-30T23:30:00-05:00", "christmas"], ["2026-12-01T00:30:00-05:00", "christmas"]]) {
+    const day = utcDay(instant);
+    assert.equal(wearingOn(seasons, "grammis", day.slice(5), { date: day }).theme, theme, instant);
+  }
 });

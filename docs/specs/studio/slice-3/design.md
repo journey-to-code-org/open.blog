@@ -16,7 +16,7 @@ By `studio-senior-ux`, 2026-11-13. This is a condensed record of the design that
 
 | State | Words |
 | --- | --- |
-| A season is up | "Your house is decorated for Thanksgiving." / "On Tuesday, December 1 it changes to Christmas." / "It goes up on your site the evening before, around 7 pm your time." |
+| A season is up | "Your house is decorated for Thanksgiving." / "On Tuesday, December 1 it changes to Christmas." / "The change reaches your site the evening before, by about 8 pm your time." |
 | Put up early | "Your house is decorated for Christmas, put up early. It stays up through Wednesday, January 6, 2027." |
 | Everyday look | "Your house is wearing its everyday look: No decorations (just the house)." |
 | Calendar off | "Your house wears No decorations (just the house) every day. The calendar is off." |

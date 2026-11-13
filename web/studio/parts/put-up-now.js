@@ -13,6 +13,7 @@ export async function askPutUpNow({ looks, look, untilFor, words, unsaved = fals
   await use("modal-dialog", "select-field", "date-field", "action-button");
   return new Promise((resolve) => {
     let done = false;
+    const today = new Date().toISOString().slice(0, 10);
     const state = { look, until: untilFor(look) };
     const finish = (value) => {
       if (done) return;
@@ -24,11 +25,14 @@ export async function askPutUpNow({ looks, look, untilFor, words, unsaved = fals
     const label = () => looks.find((l) => l.value === state.look)?.label || state.look;
     const heading = h("span", { slot: "heading", text: `Put ${label()} up now?` });
     const said = h("div", { "aria-live": "polite" });
-    const until = h("date-field", { label: "Keep it up through", value: state.until, description: "After this day, your calendar takes over.",
-      onValuechange: (e) => { if (e.detail) { state.until = e.detail; draw(); } } });
+    const until = h("date-field", { label: "Keep it up through", value: state.until,
+      // Never before today: a look can't be put up for a day that's gone.
+      onValuechange: (e) => { if (e.detail) { state.until = e.detail < today ? today : e.detail; if (state.until !== e.detail) until.value = state.until; draw(); } } });
+    const sayUntil = () => { until.description = `That's ${sayLongDate(state.until)}. After that, your calendar takes over.`; };
     const which = h("select-field", { label: "Which look", options: looks, value: state.look,
       onValuechange: (e) => { state.look = e.detail; state.until = untilFor(state.look); until.value = state.until; draw(); } });
     function draw() {
+      sayUntil();
       heading.textContent = `Put ${label()} up now?`;
       said.replaceChildren(...words({ look: state.look, until: state.until }).map((line) => h("p", { text: line })),
         ...(unsaved ? [h("p", { class: "studio-help", text: "Your other changes stay here, not saved yet." })] : []));

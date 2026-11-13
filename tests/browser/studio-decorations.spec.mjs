@@ -102,12 +102,14 @@ test("put a look up now, then Undo gives back the identical file", async ({ page
   const paper = await labelOf(page, "paper");
   await page.keyboard.press("Control+k");
   await page.getByPlaceholder("Find a post or something to do…").fill(`Put up ${paper}`);
+  await expect(page.locator("command-palette .palette-option").first()).toBeVisible();
   await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Next year's dates don't change.")).toBeVisible();
   expect(await axeViolations(page)).toEqual([]);
   await dialog.getByRole("button", { name: "Put it up now" }).click();
-  await expect(page.getByText(`${paper} is up.`).first()).toBeVisible();
+  // "is up here." when the public site lives elsewhere and nothing sends it out (this test site).
+  await expect(page.getByText(new RegExp(`^${escape(paper)} is up( here)?\\.`)).first()).toBeVisible();
   await expect.poll(config).toContain('"upNow": {\n      "theme": "paper",');
   expect(config().replace(/,\n    "upNow": \{\n[^}]*\}\n/, "\n")).toBe(original);
   await page.getByRole("button", { name: "Undo" }).click();
@@ -120,7 +122,7 @@ test("changing one season's last day changes only that value", async ({ page }) 
   await page.getByRole("button", { name: new RegExp(`^Season 1 of 2: ${escape(paper)}`) }).click();
   const sheet = page.getByRole("dialog");
   await sheet.getByRole("group", { name: "Last day" }).getByRole("combobox", { name: "Day" }).selectOption("10");
-  await sheet.getByRole("button", { name: "Done" }).click();
+  await sheet.getByRole("button", { name: "Use these dates" }).click();
   await expect(page.getByText("Not saved yet.", { exact: true })).toBeVisible();
   await page.keyboard.press("Control+Enter");
   await expect.poll(config).toBe(original.replace('"end": "01-06"', '"end": "01-10"'));
@@ -142,10 +144,30 @@ test("See how it looks shows a look in a sandboxed frame and writes nothing", as
   const paper = await labelOf(page, "paper");
   await page.keyboard.press("Control+k");
   await page.getByPlaceholder("Find a post or something to do…").fill(`See how it looks in ${paper}`);
+  await expect(page.locator("command-palette .palette-option").first()).toBeVisible();
   await page.keyboard.press("Enter");
   const frame = page.locator("iframe.studio-preview-frame");
   await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
   await expect(page.frameLocator("iframe.studio-preview-frame").locator("body")).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole("button", { name: "Back to decorations" })).toBeFocused();
   expect(config()).toBe(original);
+});
+
+test("putting a look up keeps her unsaved calendar changes", async ({ page }) => {
+  writeFileSync(join(root, "openblog.json"), original);
+  await signIn(page);
+  const paper = await labelOf(page, "paper");
+  await page.getByRole("button", { name: new RegExp(`^Season 1 of 2: ${escape(paper)}`) }).focus();
+  await page.keyboard.press("Alt+Shift+ArrowDown");
+  await expect(page.getByText("Not saved yet.", { exact: true })).toBeVisible();
+  await page.keyboard.press("Control+k");
+  await page.getByPlaceholder("Find a post or something to do…").fill(`Put up ${paper}`);
+  await expect(page.locator("command-palette .palette-option").first()).toBeVisible();
+  await page.keyboard.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Put it up now" }).click();
+  await expect.poll(config).toContain('"upNow"');
+  await expect(page.getByText("Not saved yet.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(`^Season 2 of 2: ${escape(paper)}`) })).toBeVisible();
+  expect(config().indexOf('"theme": "paper"')).toBeLessThan(config().indexOf('"theme": "demo"'));
+  writeFileSync(join(root, "openblog.json"), original);
 });

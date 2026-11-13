@@ -59,7 +59,7 @@ export function wentOutWords(result, { meta, action = "published", origin } = {}
   const verb = { published: "Published", updated: "Updated", saved: "Saved", takenOff: "Taken off your site. It's a draft again" }[action];
   if (result.sent === "failed") return { words: action === "takenOff" ? "It's a draft again here, but your site hasn't caught up yet, so readers may still see it." : `${verb} here, but it hasn't reached your readers yet.`, variant: "warning" };
   if (result.sent === "none" && !servedHere(meta, origin)) {
-    return { words: action === "takenOff" ? "It's a draft again here. Your public site doesn't update from Studio yet, so ask the person who set it up." : `${verb} here. Your public site doesn't update from Studio yet, so ask the person who set it up.`, variant: "warning" };
+    return { words: action === "takenOff" ? "It's a draft again. Your public site catches up when the person who set it up sends it out." : `${verb}. Your public site catches up when the person who set it up sends it out.`, variant: "warning" };
   }
   if (action === "takenOff") return { words: `${verb}.`, variant: "success" };
   if (result.sent === "none") return { words: `${verb}. It's on your site.`, variant: "success" };
