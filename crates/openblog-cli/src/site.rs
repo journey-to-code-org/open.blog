@@ -365,10 +365,6 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
         include_str!("../../../web/admin/greetings.js"),
     ),
     (
-        "notifications.js",
-        include_str!("../../../web/admin/notifications.js"),
-    ),
-    (
         "voice-library.js",
         include_str!("../../../web/admin/voice-library.js"),
     ),

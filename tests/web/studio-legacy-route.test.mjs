@@ -32,7 +32,18 @@ test("renamed screens, new things and the old inbox's states", () => {
 });
 
 test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
-  for (const name of ["research", "voice", "capture", "notifications", "contributors"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+  for (const name of ["research", "voice", "capture", "contributors"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+});
+
+test("R3: Notifications is Studio's own; anything after it goes, the query stays", () => {
+  assert.equal(legacyRoute("#/notifications"), null);
+  assert.equal(legacyRoute("#/notifications?sheet=home-screen"), null);
+  assert.equal(legacyRoute("#/notifications/devices"), "#/notifications");
+  assert.equal(legacyRoute("#/notifications/x/y?sheet=home-screen"), "#/notifications?sheet=home-screen");
+  // Old notice addresses the worker hands over as Studio's keep landing on their screens.
+  assert.equal(legacyRoute("#/moderation"), "#/comments");
+  assert.equal(legacyRoute("#/feedback"), "#/comments");
+  assert.equal(legacyRoute("#/quotes"), null);
 });
 
 test("R1: Where it went is a view of Sharing, and Share this job lives under it", () => {

@@ -34,6 +34,8 @@ test("a device gets a sensible name, and a second of the same name gets a number
   assert.equal(guessLabel(IPHONE), "iPhone");
   assert.equal(guessLabel(PIXEL), "Android phone");
   assert.equal(guessLabel(WIN_CHROME), "Windows computer");
+  assert.equal(guessLabel("Mozilla/5.0 (X11; Linux x86_64) HeadlessChrome/131.0"), "Linux computer");
+  assert.equal(guessLabel("Something/1.0"), "Computer");
   assert.equal(uniqueLabel("iPhone", [{ label: "iPhone" }]), "iPhone 2");
   assert.equal(uniqueLabel("iPhone", [{ label: "iPhone" }, { label: "iphone 2" }]), "iPhone 3");
   assert.equal(uniqueLabel("Kitchen iPad", [{ label: "iPhone" }]), "Kitchen iPad");

@@ -9,6 +9,7 @@ import { ask } from "../parts/dialogs.js";
 import { sayDay, sayWhen } from "../parts/dates.js";
 import { sendOut, siteLink, wentOutWords } from "../parts/publish.js";
 import { routeHash } from "../router.js";
+import { quietNotifyLink } from "../parts/notify-link.js";
 import {
   VIEWS, viewOf, otherViewWords, reasonWords, handled, cardLabel, buttonsFor, quietReason,
   decidedWords, undoWords, decisionLine, troubleWords, decisionRequest, reportReason,
@@ -50,8 +51,10 @@ export async function createComments({ api, meta, go }, route) {
   const switchSection = h("section", { class: "studio-section studio-comment-switch", "aria-labelledby": "studio-taking-h" },
     h("h3", { id: "studio-taking-h", text: "Taking comments" }), switcher);
   const details = h("details", { class: "studio-help" });
+  const notifyLink = h("p", { class: "studio-quiet-link" });
+  quietNotifyLink(notifyLink, { meta, what: "someone comments" });
   const element = h("section", { class: "studio-page studio-comments", "aria-labelledby": "studio-comments-h" },
-    h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: view.lede }), picker),
+    h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: view.lede }), notifyLink, picker),
     undoSlot, banner, status,
     h("div", { class: "studio-comment-columns" },
       h("div", { class: "studio-comment-main" }, list, more, after),

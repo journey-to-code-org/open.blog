@@ -665,7 +665,6 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/social.js" => "social.js",
         "/admin/quotes.js" => "quotes.js",
         "/admin/greetings.js" => "greetings.js",
-        "/admin/notifications.js" => "notifications.js",
         "/admin/announcements.js" => "announcements.js",
         "/admin/job-share.js" => "job-share.js",
         "/admin/voice-library.js" => "voice-library.js",

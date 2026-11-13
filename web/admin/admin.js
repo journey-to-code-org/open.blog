@@ -24,7 +24,6 @@ import { createReviews } from "./proof.js";
 import { createSocialAccounts } from "./social.js";
 import { createQuoteRequests } from "./quotes.js";
 import { createGreetingCards } from "./greetings.js";
-import { createNotifications, registerServiceWorker } from "./notifications.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
@@ -12357,7 +12356,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "social") await this.showSocial();
       else if (head === "quotes") await this.showQuotes();
       else if (head === "greetings") await this.showGreetings();
-      else if (head === "notifications") await this.showNotifications();
+      else if (head === "notifications") location.replace(studioBridge(nextHash, false));
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "announcements") await this.showAnnouncements();
@@ -14648,19 +14647,6 @@ export class ObAdmin extends AdminElement {
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
-  }
-
-  /**
-   * `#/notifications`: push notifications to the owner's devices (ADR 0412). Optional: with no push
-   * settings the page says so. It holds no draft.
-   */
-  async showNotifications() {
-    const view = createNotifications({ api: this.api });
-    this.mount(this.shell("notifications", view.element));
-    this.viewDirty = () => view.isDirty();
-    this.viewBusy = () => view.isBusy();
-    this.viewCleanup = () => view.destroy();
-    await view.load();
   }
 
   /**
@@ -26557,6 +26543,23 @@ export class Editor {
   }
 }
 
-if (globalThis.customElements && !customElements.get("ob-admin")) customElements.define("ob-admin", ObAdmin);
-// Admin as an installed app (ADR 0412): the worker only shows notifications, so it is safe to register at once.
-if (globalThis.document) registerServiceWorker();
+/**
+ * The bridge to Studio until the old Admin goes (Studio R3, G25; deleted in R15): Notifications lives
+ * in Studio now, and an iPhone app installed from here (whose start address never updates) opens
+ * Studio when launched from its icon. Returns where to go, or null to stay.
+ */
+export function studioBridge(hash, standalone) {
+  const raw = String(hash || "");
+  if (/^#\/?notifications(?:[/?]|$)/.test(raw)) return "/admin/studio/#/notifications";
+  if (standalone && (raw === "" || raw === "#")) return "/admin/studio/";
+  return null;
+}
+
+const bridged = globalThis.document && globalThis.location
+  ? studioBridge(location.hash, Boolean(globalThis.matchMedia?.("(display-mode: standalone)")?.matches) || globalThis.navigator?.standalone === true)
+  : null;
+if (bridged) location.replace(bridged);
+else if (globalThis.customElements && !customElements.get("ob-admin")) customElements.define("ob-admin", ObAdmin);
+// The installed app's one worker (ADR 0412; Studio's file since R3): it only shows notifications,
+// so it is safe to register at once, at the same address and scope as ever.
+if (globalThis.document && globalThis.navigator?.serviceWorker && !bridged) navigator.serviceWorker.register("/admin/sw.js", { scope: "/admin/" }).catch(() => {});

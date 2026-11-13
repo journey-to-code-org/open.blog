@@ -29,7 +29,7 @@ const OLD_RENAMED = {
   announcements: "sharing", greetings: "cards",
 };
 const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
-const NOT_YET = new Set(["capture", "comparisons", "contributors", "design", "notifications", "paths", "research", "shared", "voice"]);
+const NOT_YET = new Set(["capture", "comparisons", "contributors", "design", "paths", "research", "shared", "voice"]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
@@ -56,6 +56,8 @@ export function legacyRoute(hash) {
   if (name === "distribution") return `#/sharing?view=posts${search ? `&${search}` : ""}`;
   // R2: the old accounts page, whatever was after it, is Your accounts.
   if (name === "social") return `#/${OLD_RENAMED.social}`;
+  // R3: Notifications is Studio's own; whatever came after it (the old Admin had nothing there) goes.
+  if (name === "notifications") return rest.length ? `#/notifications${tail}` : null;
   if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
   if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
   if (NOT_YET.has(name)) return `#/not-yet/${name}`;

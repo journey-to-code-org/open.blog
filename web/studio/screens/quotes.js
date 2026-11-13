@@ -8,10 +8,11 @@ import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { sayWhen } from "../parts/dates.js";
 import { createSheet, guardedLeave } from "../parts/sheet.js";
+import { quietNotifyLink } from "../parts/notify-link.js";
 import { openDownload, openCleanup } from "../parts/quote-sheets.js";
 import { LISTS, listLabel, emailLine, troubleBanner, eraseLine, statusWords, telHref, quoteTrouble } from "../parts/quote-words.js";
 
-export async function createQuotes({ api }) {
+export async function createQuotes({ api, meta }) {
   await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "select-field", "skeleton-block", "status-badge");
   let reply = null;
   let list = "new";
@@ -31,9 +32,11 @@ export async function createQuotes({ api }) {
   const pickers = h("div", { class: "studio-quote-pickers" });
   const cards = h("ul", { class: "studio-comment-list", "aria-labelledby": "studio-quotes-h", "aria-busy": "true" }, ...[1, 2, 3].map(() => h("li", {}, h("skeleton-block", { shape: "card" }))));
   const details = h("details", { class: "studio-help" });
+  const notifyLink = h("p", { class: "studio-quiet-link" });
+  quietNotifyLink(notifyLink, { meta, what: "someone asks for a quote" });
   const element = h("section", { class: "studio-page studio-quotes", "aria-labelledby": "studio-quotes-h" },
     h("div", { class: "studio-today" }, h("div", { class: "studio-comment-head" }, heading, screenMore),
-      h("p", { class: "studio-lede", text: "Newest first. Only you see these; they're never on your site." })),
+      h("p", { class: "studio-lede", text: "Newest first. Only you see these; they're never on your site." }), notifyLink),
     undoSlot, banner, status, pickers, cards, details);
 
   const requests = () => reply?.requests || [];

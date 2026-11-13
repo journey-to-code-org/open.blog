@@ -78,7 +78,7 @@ export function deviceNoun(here) {
   return "computer";
 }
 
-/** A name for this device to start from, which the owner can change. */
+/** A name for this device to start from, which the owner can change (never "browser": she reads it). */
 export function guessLabel(userAgent = "") {
   if (/iphone/i.test(userAgent)) return "iPhone";
   if (/ipad/i.test(userAgent)) return "iPad";
@@ -86,7 +86,8 @@ export function guessLabel(userAgent = "") {
   if (/macintosh/i.test(userAgent)) return "Mac";
   if (/windows/i.test(userAgent)) return "Windows computer";
   if (/cros/i.test(userAgent)) return "Chromebook";
-  return "This browser";
+  if (/linux/i.test(userAgent)) return "Linux computer";
+  return "Computer";
 }
 
 /** "iPhone" again on a list that has one is "iPhone 2" (then 3...), so she can tell them apart. */

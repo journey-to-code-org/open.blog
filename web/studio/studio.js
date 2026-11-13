@@ -4,6 +4,11 @@ import { createApi } from "./api.js";
 import { use } from "./zubra.js";
 import { startShell } from "./shell.js";
 import { showSignIn } from "./screens/signin.js";
+import { listenForInstall } from "./parts/install-state.js";
+
+// The browser's "Install" question can come at any moment from the start: keep it for Add to Home
+// Screen (Studio R3).
+listenForInstall(globalThis);
 
 const api = createApi();
 

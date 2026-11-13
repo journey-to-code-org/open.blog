@@ -10,16 +10,35 @@ import { createPostsStore } from "./parts/store.js";
 import { createUndo } from "./parts/undo.js";
 import { ApiError } from "./api.js";
 import { sayListDate } from "./parts/post-list.js";
+import { registerWorker } from "./parts/push-here.js";
+import { installPrompt } from "./parts/install-state.js";
+import { menuLabel } from "./parts/install-rules.js";
+import { herePhone } from "./parts/notification-rules.js";
 
 const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+/** The account menu: the phone in her hand (Notifications, Add to Home Screen) before the rest. */
+function accountMenu(meta) {
+  const install = menuLabel(herePhone({ navigator, window: globalThis }), installPrompt.has());
+  return [
+    { value: "site", label: "View my site" },
+    ...(meta.push ? [{ value: "notifications", label: "Notifications" }] : []),
+    ...(install ? [{ value: "home-screen", label: install }] : []),
+    { value: "tools", label: "More tools" },
+    { value: "signout", label: "Sign out" },
+  ];
+}
 
 export async function startShell(root, api, meta) {
   await use("dashboard-shell", "command-palette", "action-button", "modal-dialog", "toast-region");
   const NAV = navFor(meta);
   const siteName = meta.siteTitle || "Your site";
   rememberSiteName(siteName);
+  // The name under the icon when she adds it to her Home Screen (the manifest says the same).
+  const shortName = meta.siteTitle && meta.siteTitle.length <= 12 ? meta.siteTitle : "My blog";
+  document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute("content", shortName);
   const posts = createPostsStore(api);
   const context = { api, meta, siteName, posts, go: (hash) => router.go(hash) };
   // A change that alters what the site uses (naming a trade, say) shows its screens without a reload.
@@ -45,7 +64,7 @@ export async function startShell(root, api, meta) {
     nav: NAV,
     current: "home",
     user: api.user,
-    menu: [{ value: "site", label: "View my site" }, { value: "tools", label: "More tools" }, { value: "signout", label: "Sign out" }],
+    menu: accountMenu(meta),
     onMenuselect: (event) => account(event.detail),
   }, h("div", { slot: "actions", class: "studio-actions-wrap" }, actions, find), content);
 
@@ -60,7 +79,7 @@ export async function startShell(root, api, meta) {
     const back = () => setTimeout(() => was?.isConnected && was.focus?.(), 0);
     signInForm(api, {
       heading: "",
-      intro: "You were signed out. Your words are safe; sign in and Studio will finish what it was doing.",
+      intro: "You were signed out. Your words are safe; sign in and your blog will finish what it was doing.",
       onDone: () => { dialog.open = false; dialog.remove(); back(); resolve(); },
     }).then((form) => {
       dialog = h("modal-dialog", { label: "Sign in again", class: "studio-signin-dialog" }, h("span", { slot: "heading", text: "Sign in again" }), form);
@@ -75,6 +94,8 @@ export async function startShell(root, api, meta) {
   function account(choice) {
     if (choice === "site") open(meta.siteUrl || "/", "_blank", "noopener");
     if (choice === "tools") router.go("#/tools");
+    if (choice === "notifications") router.go("#/notifications");
+    if (choice === "home-screen") router.go("#/notifications?sheet=home-screen");
     if (choice === "signout") signOut();
   }
 
@@ -87,12 +108,21 @@ export async function startShell(root, api, meta) {
   }
 
   let paletteScreen = [];
+  function installItem() {
+    const label = menuLabel(herePhone({ navigator, window: globalThis }), installPrompt.has());
+    return label ? [{ id: "home-screen", label, group: "Do", href: "#/notifications?sheet=home-screen" }] : [];
+  }
   const BASE = [
     ...NAV.map((item) => ({ id: `go-${item.id}`, label: item.label, group: "Go to", href: item.href })),
     { id: "write-recipe", label: "Write a new recipe", group: "Do", href: "#/write/new/recipe" },
     { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
     { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
     { id: "site", label: "View my site", group: "Do" },
+    ...(meta.push ? [
+      { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },
+      { id: "notifications-here", label: "Turn on notifications here", group: "Do", href: "#/notifications" },
+      { id: "notifications-test", label: "Send a test notification", group: "Do", href: "#/notifications" },
+    ] : []),
     { id: "rebuild-all", label: "Rebuild the site now", group: "Do" },
     { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin" },
     { id: "signout", label: "Sign out", group: "Do" },
@@ -108,6 +138,7 @@ export async function startShell(root, api, meta) {
       ...(context.undo?.has() ? [{ id: "undo", label: "Undo the delete", group: "Do" }] : []),
       ...(router.current()?.palette || paletteScreen),
       ...BASE,
+      ...installItem(),
       ...items.filter((p) => p.status !== "error").map((p) => ({
         id: `post:${p.path}`, label: p.title || p.path, group: "Posts", href: `#/write/${encodeURIComponent(p.path)}`,
         hint: p.status === "draft" ? "Draft" : p.status === "scheduled" ? `Scheduled ${sayListDate(p.date)}` : "Published",
@@ -154,7 +185,7 @@ export async function startShell(root, api, meta) {
       screenHost.replaceChildren(screen.element);
       actions.replaceChildren(...(screen.actions || []));
       paletteScreen = screen.palette || [];
-      palette.items = [...paletteScreen, ...BASE];
+      palette.items = [...paletteScreen, ...BASE, ...installItem()];
       await screen.load?.();
       if (context.undo?.takeFocus()) return;
       if (screen.focus) screen.focus();
@@ -162,6 +193,17 @@ export async function startShell(root, api, meta) {
     },
   });
   context.replaceRoute = (hash) => router.replace(hash);
+  // The browser offering to install changes what the account menu says.
+  addEventListener("beforeinstallprompt", () => setTimeout(() => { shell.menu = accountMenu(meta); }, 0));
+  addEventListener("appinstalled", () => { shell.menu = accountMenu(meta); toast("Added."); });
+  // The blog's one worker (it only shows notifications, so registering early is harmless), and a
+  // tapped notification asking this window to move: through the router, so the leave-guard asks.
+  registerWorker(navigator, globalThis)?.catch(() => {});
+  navigator.serviceWorker?.addEventListener("message", (event) => {
+    const hash = event.data?.type === "open" && typeof event.data.hash === "string" ? event.data.hash : "";
+    if (/^#\/[^\s]*$/.test(hash) && hash.length <= 500) router.go(hash);
+  });
+  navigator.serviceWorker?.startMessages?.();
   context.undo = await createUndo({ api, posts, slot: undoSlot, onRestored: () => router.current()?.reload?.() });
   context.setTitle = (title) => { shell.heading = title; document.title = `${title} · ${siteName}`; };
   context.setActions = (nodes) => actions.replaceChildren(...nodes);

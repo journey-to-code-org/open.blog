@@ -36,7 +36,6 @@ const SLOW_ROUTES = [
   "#/seasons",
   "#/design",
   "#/greetings",
-  "#/notifications",
   "#/announcements",
   `#/share/${POST_PATH}`,
   "#/paths",
@@ -61,8 +60,9 @@ const SLOW_ROUTES = [
   "#/shared/new",
   `#/shared/accept/${TOKEN}`,
 ];
-// Routes with nothing to hold: Social is where the tests land, and a new document opens at once.
-const OTHER_HEADS = ["social", "new"];
+// Routes with nothing to hold: Social is where the tests land, a new document opens at once, and
+// Notifications leaves for Studio (R3, G25).
+const OTHER_HEADS = ["social", "new", "notifications"];
 
 let parent;
 let origin;

@@ -26,6 +26,7 @@ import { createShareNew } from "./share-new.js";
 import { createJobShare } from "./job-share.js";
 import { createAccounts } from "./accounts.js";
 import { createNotYet } from "./not-yet.js";
+import { createNotifications } from "./notifications.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 
@@ -66,6 +67,10 @@ export const SCREENS = [
       : route.arg === "accounts" ? createAccounts(context, route)
         : route.arg.startsWith("job/") ? createJobShare(context, route.arg.slice(4), route)
         : createSharing(context, route)) },
+  // R3: the phone in her hand, not in the navigation (account menu, Find, and the quiet link on
+  // Comments and Requests). Always present, so an old link never lands on a blank Home; with no
+  // push settings it says "not set up". ?sheet=home-screen opens Add to Home Screen.
+  { name: "notifications", area: "notifications", create: (context, route) => createNotifications(context, route) },
   // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
   { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },

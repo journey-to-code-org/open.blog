@@ -461,3 +461,20 @@ side-sheet.studio-wide-sheet dialog, side-sheet.studio-wide-sheet .sheet { width
 .studio-radio:disabled + label { color: var(--muted-foreground); cursor: not-allowed; }
 .studio-radio:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
 .studio-wide-sheet action-button[size="lg"] { display: block; margin-block: var(--space-3); }
+
+/* Notifications and Add to Home Screen (R3). */
+.studio-here { gap: var(--space-3); }
+.studio-kinds { border: 1px solid var(--studio-linen); border-radius: var(--radius); margin: 0; padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-2); min-width: 0; }
+.studio-kinds legend { font-weight: 600; padding: 0 var(--space-1); }
+.studio-kinds toggle-switch { min-height: 2.75rem; }
+@media (max-width: 30rem) { .studio-wide-button, .studio-wide-button .action-button { width: 100%; } }
+.studio-own-line { display: block; margin-top: var(--space-2); }
+.studio-steps { margin: 0; padding-inline-start: 1.5rem; display: grid; gap: var(--space-2); }
+.studio-steps strong { font-weight: 600; }
+.studio-share-icon { vertical-align: -0.2em; color: var(--studio-damson); }
+.studio-block { display: block; }
+.studio-address { overflow-wrap: anywhere; min-width: 0; }
+.studio-notifications-undo:empty { display: none; }
+.studio-notifications-undo p { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.studio-quiet-link { margin: 0; }
+.studio-quiet-link:empty { display: none; }
