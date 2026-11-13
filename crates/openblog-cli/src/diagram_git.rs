@@ -81,8 +81,8 @@ pub fn draft(repo: &Path, from: &str, to: &str) -> Result<String, String> {
         &records[..]
     };
     let mut output = String::from(
-        "Review branch names, tags and commit subjects before sharing this draft. No author identities or commit hashes are included.\n\n```mermaid\n\
-gitGraph\n  accTitle: Git history (replace with a descriptive title)\n  accDescr: Reviewed summary of this change (replace with a description)\n  commit id: \"Starting point\"\n",
+        "Review branch names, tags and commit subjects before sharing this draft. No author identities or commit hashes are included. Add an accTitle and accDescr before publishing.\n\n```mermaid\n\
+gitGraph\n  commit id: \"Starting point\"\n",
     );
     if summarized {
         output.push_str("  commit id: \"Earlier history omitted\"\n");

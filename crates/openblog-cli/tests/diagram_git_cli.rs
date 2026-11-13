@@ -90,8 +90,15 @@ fn drafts_merge_and_tag_without_mutating_the_repository() {
     assert!(!draft.contains("me@example.test"));
     assert!(!draft.contains("0123456789012345678901234567890123456789"));
     assert!(!draft.contains(&head));
+    let findings = openblog_core::diagram::discover(&draft);
+    assert_eq!(findings.len(), 1);
+    assert!(findings[0]
+        .as_ref()
+        .unwrap_err()
+        .message
+        .contains("accTitle"));
     #[cfg(feature = "diagram-rendering")]
-    assert_renderable(&draft);
+    assert_renderable_after_edit(&draft);
     assert_eq!(repo.git(&["show-ref"]), refs);
     assert_eq!(repo.git(&["status", "--porcelain"]), before);
 }
@@ -142,14 +149,38 @@ fn caps_large_ranges_and_reports_omitted_history() {
     assert!(!draft.contains("step 0"));
     assert!(draft.contains("step 34"));
     #[cfg(feature = "diagram-rendering")]
-    assert_renderable(&draft);
+    assert_renderable_after_edit(&draft);
 }
 
 #[cfg(feature = "diagram-rendering")]
-fn assert_renderable(draft: &str) {
-    let findings = openblog_core::diagram::discover(draft);
+fn assert_renderable_after_edit(draft: &str) {
+    let site_from = |body: &str| {
+        openblog_core::Site::load(
+            openblog_core::SiteConfig::from_json(
+                r#"{"title":"Test","url":"https://example.test"}"#,
+            )
+            .unwrap(),
+            openblog_core::Sources {
+                posts: vec![openblog_core::SourceFile {
+                    path: "posts/git-history.md".into(),
+                    contents: format!("---\ntitle: Git history\ndate: 2020-01-01\n---\n{body}"),
+                }],
+                ..Default::default()
+            },
+            openblog_core::LoadOptions::default(),
+        )
+    };
+    let errors = site_from(draft).unwrap_err();
+    assert!(errors.iter().any(|error| error.contains("accTitle")));
+    let edited = draft.replacen(
+        "gitGraph\n",
+        "gitGraph\n  accTitle: Reviewed Git history\n  accDescr: A reviewed summary of the changes.\n",
+        1,
+    );
+    assert!(site_from(&edited).is_ok());
+    let findings = openblog_core::diagram::discover(&edited);
     assert_eq!(findings.len(), 1);
     let diagram = findings.into_iter().next().unwrap().unwrap();
     openblog_core::diagram_svg::render(&diagram, 1)
-        .unwrap_or_else(|error| panic!("generated Git diagram failed to render: {error}\n{draft}"));
+        .unwrap_or_else(|error| panic!("edited Git diagram failed to render: {error}\n{edited}"));
 }

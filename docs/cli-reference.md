@@ -185,14 +185,16 @@ not reachable from `--from`. It does not write or publish anything.
 The draft omits author metadata and commit hashes, and makes a best-effort attempt to
 redact email addresses and full hashes in labels. Commit subjects and local ref names
 can still contain sensitive information: review the entire draft before sharing it.
-Replace the placeholder title and description with meaningful alternatives. The output
+Add a meaningful `accTitle` and `accDescr` before publishing: the draft intentionally
+omits both so the diagram accessibility gate cannot accept it unchanged. The output
 shows at most 30 commits and reports omitted history, out-of-range parents and
 additional merge parents; branch names are listed as review notes rather than used as
 graph identifiers. A commit with multiple tags displays one in the diagram; its refs
 are listed in the notes.
 
-Mermaid diagram rendering in published pages is not yet available. The generated source
-is a draft, not a publication-ready diagram.
+Mermaid diagram rendering is experimental and requires the `diagram-rendering` feature;
+default builds show the source as code. The generated source is a draft, not a
+publication-ready diagram.
 
 ## `job-share` options
 
