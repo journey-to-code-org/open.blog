@@ -15,7 +15,7 @@
 // credential; errors are fixed text and never repeat a value they refused.
 
 export const MANIFEST_VERSION = 1;
-export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
+export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule", "diagram"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
 const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community", "product-hunt": "community", bluesky: "social", mastodon: "social", pinterest: "social", youtube: "video", "google-business-profile": "social", nextdoor: "community", "apple-podcasts": "podcast", spotify: "podcast", "podcast-index": "podcast" });
 const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2", "app-password"]);
@@ -203,7 +203,7 @@ export function checkRequest(manifest, request = {}) {
 // built-in ones (the fixture holds both to the same JSON). Changing one is a provider policy
 // change: raise its policyVersion (ADR 0327).
 const SCHEDULE = { scheduleMinLeadSeconds: 60, scheduleMaxHorizonSeconds: 366 * 86400 };
-const SOCIAL_CAPABILITIES = { article: "unsupported", draft: "unsupported", image: "manual", link: "adapter", schedule: "adapter", text: "adapter", video: "manual" };
+const SOCIAL_CAPABILITIES = { article: "unsupported", diagram: "unsupported", draft: "unsupported", image: "manual", link: "adapter", schedule: "adapter", text: "adapter", video: "manual" };
 const none = { maxRequestBodyBytes: null, maxTagNameChars: null, maxTags: null, maxTextChars: null };
 export const MANIFESTS = Object.freeze({
   linkedin: parseManifest({
@@ -214,7 +214,7 @@ export const MANIFESTS = Object.freeze({
     label: "LinkedIn",
     login: { method: "oauth2", scopes: ["openid", "profile", "w_member_social"] },
     manifestVersion: 1,
-    policyVersion: "2026-11-12",
+    policyVersion: "2026-11-13",
     provider: "linkedin",
     publishing: "explicit-approval",
     sources: [
@@ -231,7 +231,7 @@ export const MANIFESTS = Object.freeze({
     label: "Facebook",
     login: { method: "oauth2", scopes: ["pages_show_list", "pages_manage_posts"] },
     manifestVersion: 1,
-    policyVersion: "2026-11-12",
+    policyVersion: "2026-11-13",
     provider: "facebook",
     publishing: "explicit-approval",
     sources: ["https://developers.facebook.com/docs/pages-api/posts", "https://developers.facebook.com/docs/graph-api/reference/page/feed", "https://developers.facebook.com/docs/graph-api/reference/page/photos/"],
@@ -245,7 +245,7 @@ export const MANIFESTS = Object.freeze({
     label: "Bluesky",
     login: { method: "app-password", scopes: [] },
     manifestVersion: 1,
-    policyVersion: "2026-11-12",
+    policyVersion: "2026-11-13",
     provider: "bluesky",
     publishing: "explicit-approval",
     sources: [
@@ -267,7 +267,7 @@ export const MANIFESTS = Object.freeze({
     label: "Mastodon",
     login: { method: "oauth2", scopes: ["read:accounts", "write:statuses"] },
     manifestVersion: 1,
-    policyVersion: "2026-10-29",
+    policyVersion: "2026-11-13",
     provider: "mastodon",
     publishing: "explicit-approval",
     sources: [

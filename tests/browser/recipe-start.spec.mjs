@@ -64,6 +64,18 @@ async function signIn(page) {
 const visual = (page) => page.getByRole("textbox", { name: "Visual editor" });
 const view = (page, name) => page.getByRole("button", { name, exact: true });
 
+test("New decision record starts a draft with its sections and proposed status", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: "New decision record" }).click();
+  for (const name of ["Context", "Before", "Options considered", "Decision", "Consequences", "After"]) {
+    await expect(visual(page).getByRole("heading", { name, exact: true })).toBeVisible();
+  }
+  await view(page, "Settings").click();
+  await expect(page.locator("#oba-profile")).toHaveValue("decision");
+  await expect(page.getByLabel("Decision status")).toHaveValue("proposed");
+  await expect(page.getByLabel("Draft", { exact: true })).toBeChecked();
+});
+
 test("New recipe opens a laid-out recipe whose sample becomes a real recipe", async ({ page }) => {
   await signIn(page);
   await page.getByRole("link", { name: /New recipe/ }).click();

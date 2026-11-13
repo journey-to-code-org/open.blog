@@ -293,7 +293,12 @@ pub struct Post {
     /// decide as for citations: refuse a post it publishes, warn otherwise.
     pub(crate) evidence_error: Option<String>,
     pub(crate) audio_error: Option<String>,
+    pub(crate) decision_error: Option<String>,
+    pub(crate) diagram_error: Option<String>,
+    pub(crate) diagrams: Vec<crate::diagram::Asset>,
     pub audio: Option<crate::audio::AudioEpisode>,
+    /// Validated metadata for a decision record.
+    pub decision: Option<crate::decision::Decision>,
     /// The approved reader notes this post's canonical page shows, read
     /// through the public projection (ADR 0083); empty for most posts.
     pub(crate) reader_feedback: Vec<crate::feedback_publication::PublicFeedback>,
@@ -368,7 +373,40 @@ pub struct Post {
     pub source: String,
 }
 
+/// The diagram `coverDiagram: N` names as the post's cover (ADR 0419): the Nth diagram in the
+/// post, counted from 1. Its card image becomes the cover, so the page's link preview and every
+/// visual card use it, with the diagram's own text alternative unless `coverAlt` says otherwise.
+fn cover_diagram<'a>(
+    fm: &FrontMatter,
+    diagrams: &'a [crate::diagram::Asset],
+) -> Result<Option<&'a crate::diagram::Asset>, String> {
+    let Some(value) = first(fm, &["coverDiagram", "cover_diagram"]) else {
+        return Ok(None);
+    };
+    if !cfg!(feature = "diagram-png") {
+        return Err(
+            "`coverDiagram` needs a build that draws diagram PNG copies; set `cover` instead"
+                .to_string(),
+        );
+    }
+    let count = diagrams.len();
+    match value.trim().parse::<usize>() {
+        Ok(n) if (1..=count).contains(&n) => Ok(Some(&diagrams[n - 1])),
+        _ if count == 0 => Err(format!(
+            "`coverDiagram: {value}` names a diagram, but this post draws none"
+        )),
+        _ => Err(format!(
+            "`coverDiagram: {value}` must be a number from 1 to {count}, counting the post's diagrams in order"
+        )),
+    }
+}
+
 impl Post {
+    /// The diagrams this post draws (ADR 0416), for writing their files.
+    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
+        &self.diagrams
+    }
+
     /// The post's own share image, the one its page declares as `og:image` before the site's
     /// `ogImage`: the cover, else a video post's thumbnail. The page renderer and visual cards
     /// both use this, so a card always checks the image the page really declares.
@@ -534,6 +572,8 @@ pub struct Series {
     pub posts: Vec<usize>,
     pub source: Option<String>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
+    pub(crate) diagram_error: Option<String>,
+    pub(crate) diagrams: Vec<crate::diagram::Asset>,
     /// Semantic capabilities detected in the authored description.
     pub capabilities: Vec<CapabilityDescriptor>,
     /// Old series addresses (`aliases:` in the series page) that redirect here.
@@ -588,6 +628,8 @@ pub struct Page {
     /// Where the page sits in the documentation section, for a page from `docs/` (ADR 0405).
     pub doc: Option<crate::docs_section::DocPlace>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
+    pub(crate) diagram_error: Option<String>,
+    pub(crate) diagrams: Vec<crate::diagram::Asset>,
     /// Semantic capabilities detected in the authored Markdown.
     pub capabilities: Vec<CapabilityDescriptor>,
 }
@@ -958,10 +1000,25 @@ impl Site {
                         None
                     };
                     let mut refused = false;
-                    for (what, error) in [
-                        ("citations are", post.citation_error.take()),
-                        ("claim evidence is", post.evidence_error.take()),
-                        ("audio is", post.audio_error.take()),
+                    let decision_reason = if post.draft {
+                        reason
+                    } else if options.now.is_some_and(|now| post.date > now) {
+                        Some("until the post is due, and must resolve before then")
+                    } else if options.preview_source.is_some() {
+                        Some("in this preview")
+                    } else {
+                        None
+                    };
+                    for (what, error, reason) in [
+                        ("citations are", post.citation_error.take(), reason),
+                        ("claim evidence is", post.evidence_error.take(), reason),
+                        ("audio is", post.audio_error.take(), reason),
+                        (
+                            "decision record is",
+                            post.decision_error.take(),
+                            decision_reason,
+                        ),
+                        ("diagram is", post.diagram_error.take(), decision_reason),
                     ] {
                         let Some(error) = error else { continue };
                         match reason {
@@ -1016,6 +1073,17 @@ impl Site {
         for file in &sources.pages {
             match load_page(file, concept_options(render_options)) {
                 Ok(mut page) => {
+                    if let Some(error) = page.diagram_error.take() {
+                        if options.preview_source.is_some() {
+                            warnings.push(format!(
+                                "{}: diagram not published in this preview: {error}",
+                                file.path
+                            ));
+                        } else {
+                            errors.push(format!("{}: {error}", file.path));
+                            continue;
+                        }
+                    }
                     let (html, notes) = crate::concept_links::plain_outside_post(
                         &page.html,
                         &page.concept_refusals,
@@ -1040,12 +1108,43 @@ impl Site {
             &sources.docs,
             &config,
             options.include_drafts,
+            options.preview_source.is_some(),
             concept_options(render_options),
             &mut pages,
             &mut accessibility,
             &mut warnings,
             &mut errors,
         );
+        let public_successors: std::collections::HashSet<String> = posts
+            .iter()
+            .filter(|post| !post.draft && options.now.is_none_or(|now| post.date <= now))
+            .map(|post| post.url.clone())
+            .chain(pages.iter().map(|page| page.url.clone()))
+            .collect();
+        for post in &mut posts {
+            let Some(successor) = post
+                .decision
+                .as_ref()
+                .and_then(|decision| decision.superseded_by.as_ref())
+            else {
+                continue;
+            };
+            if successor == &post.url || !public_successors.contains(successor) {
+                let message = format!(
+                    "{}: decision successor `{successor}` must name another published post or page",
+                    post.source
+                );
+                if post.draft
+                    || options.now.is_some_and(|now| post.date > now)
+                    || options.preview_source.is_some()
+                {
+                    warnings.push(message);
+                    post.decision = None;
+                } else {
+                    errors.push(message);
+                }
+            }
+        }
         // Posts and pages may link into the documentation by file too (ADR 0411).
         if !doc_addresses.is_empty() {
             use crate::docs_section::rewrite_links_into_docs as into_docs;
@@ -1180,6 +1279,8 @@ impl Site {
                         posts: Vec::new(),
                         source: None,
                         accessibility: Vec::new(),
+                        diagram_error: None,
+                        diagrams: Vec::new(),
                         capabilities: Vec::new(),
                         aliases: Vec::new(),
                     });
@@ -1189,6 +1290,20 @@ impl Site {
             series[position].posts.push(index);
         }
         for s in &mut series {
+            if let Some(error) = s.diagram_error.take() {
+                let source = s.source.as_deref().unwrap_or("series");
+                if s.posts.is_empty() {
+                    warnings.push(format!(
+                        "{source}: diagram not published because the series has no posts: {error}"
+                    ));
+                } else if options.preview_source.is_some() {
+                    warnings.push(format!(
+                        "{source}: diagram not published in this preview: {error}"
+                    ));
+                } else {
+                    errors.push(format!("{source}: {error}"));
+                }
+            }
             s.posts.sort_by(|&a, &b| {
                 let (pa, pb) = (&posts[a], &posts[b]);
                 match (pa.series_order, pb.series_order) {
@@ -1210,6 +1325,9 @@ impl Site {
                     s.cover_dark = post.cover_dark.clone();
                 }
             }
+        }
+        if !errors.is_empty() {
+            return Err(errors);
         }
         series.sort_by(|a, b| {
             let latest =
@@ -1254,6 +1372,11 @@ impl Site {
                         .into(),
                 );
             }
+        }
+
+        check_diagram_links(&posts, &pages, &series, &tags, &mut warnings, &mut errors);
+        if !errors.is_empty() {
+            return Err(errors);
         }
 
         scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
@@ -2224,7 +2347,7 @@ fn load_post_in(
         }
         _ => None,
     };
-    let mut rendered = markdown::render(
+    let (mut rendered, diagram_error) = render_site_markdown(
         published
             .as_ref()
             .map_or(base, |(published, _)| &published.markdown),
@@ -2243,6 +2366,7 @@ fn load_post_in(
             supplements: reading_setting.enabled,
             ..options
         },
+        doc.body_line,
     );
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
@@ -2285,6 +2409,14 @@ fn load_post_in(
         (profile.behavior == ProfileBehavior::Video).then(|| VideoMetadata::from_front_matter(fm));
     let field_journal = (profile.behavior == ProfileBehavior::FieldJournal)
         .then(|| FieldJournalMetadata::from_front_matter(fm));
+    let (decision, decision_error) = if profile.behavior == ProfileBehavior::Decision {
+        match crate::decision::parse(fm, &doc.body) {
+            Ok(decision) => (Some(decision), None),
+            Err(problems) => (None, Some(problems.join("; "))),
+        }
+    } else {
+        (None, None)
+    };
     let job = if profile.behavior == ProfileBehavior::Job {
         match crate::job::from_front_matter(fm, &config.extra_trades) {
             Ok(job) => Some(job),
@@ -2368,7 +2500,14 @@ fn load_post_in(
     let description = first(fm, &["description", "summary", "brief", "excerpt"])
         .map(str::to_string)
         .unwrap_or_else(|| markdown::excerpt(&rendered.prose, 180));
-    let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
+    let diagram_cover = cover_diagram(fm, &rendered.diagrams)?;
+    if diagram_cover.is_some() && first(fm, &["cover", "image", "coverImage", "hero"]).is_some() {
+        return Err(
+            "`coverDiagram` and `cover` both name the cover image; keep one of them".to_string(),
+        );
+    }
+    let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]))
+        .or_else(|| diagram_cover.map(|asset| format!("/{}", asset.card_png_path())));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
     let cover_light = optional_string(first(fm, &["coverLight", "cover_light"]));
     let cover_dark = optional_string(first(fm, &["coverDark", "cover_dark"]));
@@ -2396,8 +2535,9 @@ fn load_post_in(
         }
     }
     let cover_alt = first(fm, &["coverAlt", "imageAlt", "cover_alt"])
-        .unwrap_or("")
-        .to_string();
+        .map(str::to_string)
+        .or_else(|| diagram_cover.map(|asset| asset.diagram.alternative_text()))
+        .unwrap_or_default();
     let accessibility = accessibility::audit_document(DocumentAuditInput {
         path: &file.path,
         markdown: &doc.body,
@@ -2501,7 +2641,11 @@ fn load_post_in(
         claim_evidence: claim_section.map(|(_, post_evidence)| post_evidence),
         evidence_error,
         audio_error,
+        decision_error,
+        diagram_error,
+        diagrams: rendered.diagrams,
         audio: None,
+        decision,
         reader_feedback: Vec::new(),
         third_perspectives: Vec::new(),
         community_features: Vec::new(),
@@ -2600,7 +2744,7 @@ fn concept_options(options: RenderOptions<'_>) -> RenderOptions<'_> {
 fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
-    let rendered = markdown::render(&doc.body, options);
+    let (rendered, diagram_error) = render_site_markdown(&doc.body, options, doc.body_line);
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
     }
@@ -2642,6 +2786,8 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
         posts: Vec::new(),
         source: Some(file.path.clone()),
         accessibility,
+        diagram_error,
+        diagrams: rendered.diagrams,
         capabilities: rendered.capabilities,
         aliases: aliases(fm)?,
     })
@@ -2811,10 +2957,41 @@ fn load_service(file: &SourceFile, options: RenderOptions<'_>) -> Result<Service
     })
 }
 
+fn render_site_markdown(
+    source: &str,
+    options: RenderOptions<'_>,
+    body_line: usize,
+) -> (markdown::Rendered, Option<String>) {
+    #[cfg(all(feature = "diagram-rendering", not(target_arch = "wasm32")))]
+    {
+        let (rendered, findings) = markdown::render_diagrams(source, options);
+        let error = (!findings.is_empty()).then(|| {
+            findings
+                .iter()
+                .map(|finding| {
+                    format!(
+                        "line {}, column {}: {}",
+                        body_line + finding.line.saturating_sub(1),
+                        finding.column,
+                        finding.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        });
+        (rendered, error)
+    }
+    #[cfg(not(all(feature = "diagram-rendering", not(target_arch = "wasm32"))))]
+    {
+        let _ = body_line;
+        (markdown::render(source, options), None)
+    }
+}
+
 fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
-    let rendered = markdown::render(&doc.body, options);
+    let (rendered, diagram_error) = render_site_markdown(&doc.body, options, doc.body_line);
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
     }
@@ -2855,8 +3032,62 @@ fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, Stri
         source: file.path.clone(),
         doc: None,
         accessibility,
+        diagram_error,
+        diagrams: rendered.diagrams,
         capabilities: rendered.capabilities,
     })
+}
+
+/// Every diagram node link (ADR 0418) must lead to a page this build writes: a post, a page, a
+/// series, a tag, or one of the site's own index pages. A broken one stops a published post, as a
+/// diagram that does not draw does, and is a warning on a draft.
+fn check_diagram_links(
+    posts: &[Post],
+    pages: &[Page],
+    series: &[Series],
+    tags: &[Tag],
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) {
+    let mut known: std::collections::BTreeSet<&str> =
+        ["/", "/archive/", "/search/", "/series/", "/tags/"]
+            .into_iter()
+            .collect();
+    known.extend(posts.iter().map(|post| post.url.as_str()));
+    known.extend(pages.iter().map(|page| page.url.as_str()));
+    known.extend(series.iter().map(|s| s.url.as_str()));
+    known.extend(tags.iter().map(|tag| tag.url.as_str()));
+    let documents = posts
+        .iter()
+        .map(|post| (&post.source, post.draft, &post.diagrams))
+        .chain(
+            pages
+                .iter()
+                .map(|page| (&page.source, false, &page.diagrams)),
+        );
+    for (source, draft, diagrams) in documents {
+        for asset in diagrams {
+            let Ok(links) = crate::diagram::node_links(&asset.diagram.source) else {
+                continue;
+            };
+            for link in links {
+                let path = link.href.split(['#', '?']).next().unwrap_or("");
+                let with_slash = format!("{}/", path.trim_end_matches('/'));
+                if known.contains(path) || known.contains(with_slash.as_str()) {
+                    continue;
+                }
+                let message = format!(
+                    "{source}: the diagram at line {} links `{}` to {}, which is not a page on this site",
+                    asset.diagram.line, link.node, link.href
+                );
+                if draft {
+                    warnings.push(message);
+                } else {
+                    errors.push(message);
+                }
+            }
+        }
+    }
 }
 
 /// Load `content/docs/` as documentation pages (ADR 0405): each file's address comes from its
@@ -2868,6 +3099,7 @@ fn load_docs(
     files: &[SourceFile],
     config: &SiteConfig,
     include_drafts: bool,
+    preview: bool,
     options: RenderOptions<'_>,
     pages: &mut Vec<Page>,
     accessibility: &mut Vec<AccessibilityFinding>,
@@ -2898,9 +3130,11 @@ fn load_docs(
             continue;
         };
         let titled_by_heading;
+        let draft;
         let doc = match frontmatter::parse(&file.contents) {
             Ok(document) => {
-                if is_draft(&document.front_matter) && !include_drafts {
+                draft = is_draft(&document.front_matter);
+                if draft && !include_drafts {
                     continue;
                 }
                 titled_by_heading = first(&document.front_matter, &["title"]).is_none();
@@ -2917,6 +3151,14 @@ fn load_docs(
         };
         match load_page(file, options) {
             Ok(mut page) => {
+                if let Some(error) = page.diagram_error.take() {
+                    if draft || preview {
+                        warnings.push(format!("{}: diagram not published while this document is a draft or preview: {error}", file.path));
+                    } else {
+                        errors.push(format!("{}: {error}", file.path));
+                        continue;
+                    }
+                }
                 if let Some(other) = docs
                     .iter()
                     .find(|other| other.doc.as_ref().is_some_and(|d| d.path == path))
@@ -3045,6 +3287,20 @@ pub fn humanize(slug: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+impl Page {
+    /// The diagrams this page draws (ADR 0416), for writing their files.
+    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
+        &self.diagrams
+    }
+}
+
+impl Series {
+    /// The diagrams in this series' description (ADR 0416), for writing their files.
+    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
+        &self.diagrams
+    }
 }
 
 #[cfg(test)]

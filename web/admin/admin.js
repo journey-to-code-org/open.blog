@@ -324,7 +324,7 @@ export function draftRoute(hash) {
 export function workspacePanelKey(hash) {
   const { head, tail } = parseAdminHash(canonicalAdminHash(hash));
   if (head === "research") return tail.split("/")[0] || null;
-  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series", "recipe"].includes(tail))) return "draft";
+  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series", "recipe", "decision"].includes(tail))) return "draft";
   return null;
 }
 
@@ -12089,6 +12089,7 @@ export class ObAdmin extends AdminElement {
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New recipe", category: "Create", keywords: "cook food ingredients dish", run: () => go("#/new/recipe") },
+      { label: "New decision record", category: "Create", keywords: "decision context options consequences", run: () => go("#/new/decision") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
       { label: "New series", category: "Create", keywords: "collection", run: () => go("#/new/series") },
@@ -12313,7 +12314,7 @@ export class ObAdmin extends AdminElement {
     this.arrivingHash = nextHash;
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
-      else if (head === "new" && tail === "recipe") await this.showEditor(null, "posts", "recipe");
+      else if (head === "new" && ["recipe", "decision"].includes(tail)) await this.showEditor(null, "posts", tail);
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
@@ -12469,7 +12470,7 @@ export class ObAdmin extends AdminElement {
         h("span", {}, h("strong", {}, label), h("small", {}, description)),
       );
     const quickCreateKind = (kind, description) => quickCreate(kind, `New ${KINDS[kind].single}`, description);
-    const quickCreatePanel = h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("recipe", "New recipe", "Ingredients and steps, ready to fill in"), quickCreateKind("posts", "Write an article or draft"), quickCreateKind("pages", "Add evergreen site content"), quickCreateKind("series", "Group posts into a collection")));
+    const quickCreatePanel = h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("recipe", "New recipe", "Ingredients and steps, ready to fill in"), quickCreate("decision", "New decision record", "Context, options, decision and consequences"), quickCreateKind("posts", "Write an article or draft"), quickCreateKind("pages", "Add evergreen site content"), quickCreateKind("series", "Group posts into a collection")));
     const recentList = h(
       "ol",
       { class: "oba-recent-list" },
@@ -12709,7 +12710,7 @@ export class ObAdmin extends AdminElement {
       this.shell(
         kind,
         ...banner,
-        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), kind === "posts" ? h("a", { class: "oba-btn", href: "#/new/recipe" }, "New recipe") : null, filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
+        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), kind === "posts" ? h("a", { class: "oba-btn", href: "#/new/recipe" }, "New recipe") : null, kind === "posts" ? h("a", { class: "oba-btn", href: "#/new/decision" }, "New decision record") : null, filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
         table,
       ),
     );
@@ -21594,7 +21595,7 @@ export class ObAdmin extends AdminElement {
         path: null,
         kind: newKind,
         etag: null,
-        fields: newProfile ? { profile: newProfile } : {},
+        fields: newProfile === "decision" ? { profile: newProfile, decisionStatus: "proposed" } : newProfile ? { profile: newProfile } : {},
         body: profileStarter(this.meta?.profiles, newProfile),
       };
     }
@@ -22190,8 +22191,10 @@ export class Editor {
     const imageButton = h("button", { class: "oba-btn", type: "button", "data-action": "insert-image", onClick: () => this.chooseBodyImage() }, "Insert image");
     const captureButton = kind === "posts" ? h("button", { class: "oba-btn", type: "button", "data-simple-page": "editor-tool", hidden: this.app.simpleHides?.("editor-tool"), "data-research-capture": "true", onClick: () => this.openResearchCapture() }, "Capture research") : null;
     const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", "data-simple-page": "editor-tool", hidden: this.app.simpleHides?.("editor-tool"), onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
+    const diagramButton = this.meta.diagramRendering && ["posts", "pages"].includes(kind)
+      ? h("button", { class: "oba-btn", type: "button", onClick: () => this.openDiagram() }, "Add diagram") : null;
     const back = h("a", { class: "oba-btn", href: `#/${kind}` }, "← Back");
-    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, captureButton, quizButton, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
+    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, captureButton, quizButton, diagramButton, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
 
     let savedPreviewWidth = "wide";
     try {
@@ -25907,6 +25910,114 @@ export class Editor {
         h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", onClick: returnToDraft }, "Close")),
       );
       body.querySelector("button")?.focus();
+    }
+  }
+
+  async openDiagram() {
+    this.captureVisualSelection();
+    const target = this.knowledgeCheckTarget();
+    const trigger = document.activeElement;
+    const dialog = h("dialog", { class: "oba-dialog oba-diagram-dialog", "aria-labelledby": "oba-diagram-title" });
+    const templates = h("select", { id: "oba-diagram-template", disabled: true });
+    const source = h("textarea", { id: "oba-diagram-source", rows: 10, spellcheck: false });
+    const title = h("input", { id: "oba-diagram-name", type: "text", placeholder: "Optional fence title" });
+    const description = h("textarea", { id: "oba-diagram-description", rows: 2, placeholder: "Optional fence description" });
+    const caption = h("input", { id: "oba-diagram-caption", type: "text", placeholder: "Optional caption" });
+    const status = h("p", { role: "status", "aria-live": "polite" }, "Loading diagram editor…");
+    const preview = h("div", { class: "oba-diagram-preview" });
+    const insert = h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: true }, "Insert diagram");
+    let active = null;
+    let timer;
+    let revision = 0;
+    let helpers;
+    const close = () => {
+      revision += 1;
+      clearTimeout(timer);
+      active?.cancel();
+      dialog.close();
+      dialog.remove();
+      if (trigger instanceof HTMLElement) trigger.focus();
+    };
+    const values = () => ({ title: title.value, description: description.value, caption: caption.value });
+    const schedule = () => {
+      const current = ++revision;
+      clearTimeout(timer);
+      active?.cancel();
+      active = null;
+      insert.disabled = true;
+      preview.replaceChildren();
+      let fence;
+      try {
+        fence = helpers.diagramFence(source.value, values());
+      } catch (error) {
+        status.textContent = error.message;
+        return;
+      }
+      status.textContent = "Waiting to update the preview…";
+      timer = setTimeout(async () => {
+        status.textContent = "Rendering diagram…";
+        try {
+          active = helpers.startDiagramRequest({ type: "render", info: fence.info, source: source.value });
+          const result = await active.promise;
+          if (current !== revision || !dialog.isConnected) return;
+          if (typeof result.svg !== "string" || !result.svg.startsWith("<svg")) throw new Error("The renderer did not return an SVG.");
+          const image = h("img", { alt: "Diagram preview", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(result.svg)}` });
+          preview.replaceChildren(image);
+          status.textContent = "Diagram is ready. Review its title and description before publishing.";
+          insert.disabled = false;
+        } catch (error) {
+          if (current === revision && dialog.isConnected) status.textContent = `Diagram needs attention: ${error.message}`;
+        }
+      }, 250);
+    };
+    for (const control of [source, title, description, caption]) control.addEventListener("input", () => { if (helpers) schedule(); });
+    insert.addEventListener("click", () => {
+      try {
+        const fence = helpers.diagramFence(source.value, values());
+        this.insertInteractionBlocks([fence.markdown], target);
+        close();
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+    dialog.append(
+      h("h2", { id: "oba-diagram-title" }, "Add a diagram"),
+      h("p", { class: "oba-help" }, "Edit the example and replace its accessible title and description. Values in the source take precedence over fence fields."),
+      h("p", { class: "oba-help" }, h("a", { href: "/admin/diagram-wasm/NOTICES.txt" }, "Diagram renderer licenses and source")),
+      this.field("oba-diagram-template", "Example", templates),
+      this.field("oba-diagram-source", "Mermaid source", source),
+      this.field("oba-diagram-name", "Fence title", title),
+      this.field("oba-diagram-description", "Fence description", description),
+      this.field("oba-diagram-caption", "Caption", caption),
+      status, preview,
+      h("div", { class: "oba-toolbar" }, h("span", { class: "oba-spacer" }), h("button", { class: "oba-btn", type: "button", onClick: close }, "Cancel"), insert),
+    );
+    dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
+    document.body.append(dialog);
+    dialog.showModal();
+    try {
+      helpers = await import("./diagram-preview.js");
+      if (!dialog.isConnected) return;
+      active = helpers.startDiagramRequest({ type: "templates" });
+      const response = await active.promise;
+      if (!dialog.isConnected) return;
+      if (!Array.isArray(response.templates) || !response.templates.length) throw new Error("No diagram examples were returned.");
+      templates.replaceChildren(...response.templates.map((template) => h("option", { value: template.id }, template.label)));
+      const useTemplate = () => {
+        const template = response.templates.find((item) => item.id === templates.value);
+        if (!template || typeof template.source !== "string") {
+          status.textContent = "The selected diagram example is unavailable.";
+          insert.disabled = true;
+          return;
+        }
+        source.value = template.source;
+        schedule();
+      };
+      templates.addEventListener("change", useTemplate);
+      templates.disabled = false;
+      useTemplate();
+    } catch (error) {
+      if (dialog.isConnected) status.textContent = `Diagram editor could not load: ${error.message}`;
     }
   }
 

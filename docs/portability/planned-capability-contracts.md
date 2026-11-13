@@ -25,7 +25,7 @@ behavior, while the contract task owns the portability gate.
 | Shared source-led reflections | [#144](https://github.com/journey-to-code-org/open.blog/issues/144) | [#158](https://github.com/journey-to-code-org/open.blog/issues/158) | Defined |
 | Protected reflection drafts | [#146](https://github.com/journey-to-code-org/open.blog/issues/146) | [#162](https://github.com/journey-to-code-org/open.blog/issues/162) | Defined |
 | Third Perspectives | [#201](https://github.com/journey-to-code-org/open.blog/issues/201) | [#222](https://github.com/journey-to-code-org/open.blog/issues/222) | Defined |
-| Diagrams | No owning story exists | [#110](https://github.com/journey-to-code-org/open.blog/issues/110) | Blocked; scope guard only |
+| Diagrams | [#583](https://github.com/journey-to-code-org/open.blog/issues/583) | [#584](https://github.com/journey-to-code-org/open.blog/issues/584) | Implemented: PNG with its text alternative and source |
 
 ## Required gate for every defined capability
 
@@ -68,13 +68,15 @@ contributor reflections. Hosted submissions must use the shared moderation polic
 ([#211](https://github.com/journey-to-code-org/open.blog/issues/211)); public output
 contains only approved material.
 
-## Unowned diagram scope
+## Diagrams
 
-The capability matrix found no diagram authoring story, data model, or renderer. The
-diagram entry is therefore a blocking guard, not authorization to add syntax or a
-renderer. Existing Markdown image and raw-HTML behavior remains unchanged. A future
-diagram owner must first define nodes, relationships, labels, evidence, rights, a static
-list/table fallback, privacy boundaries, and regression tests.
+Diagrams were a scope guard ([#110](https://github.com/journey-to-code-org/open.blog/issues/110)) until epic
+[#566](https://github.com/journey-to-code-org/open.blog/issues/566) defined them. Story #583 owns how they travel:
+the canonical page draws sanitized inline SVG with a required title and description and the source beneath it;
+every copy carries a PNG of the same diagram with that text as its alternative and the source as text
+([ADR 0419](../adr/0419-diagrams-travel-as-png-copies-with-their-text-alternative.md)). Node links lead only to
+pages on the same site and are not carried into copies
+([ADR 0418](../adr/0418-diagram-nodes-link-only-to-pages-on-the-site-and-the-links-are-listed.md)).
 
 The registry validator runs with:
 

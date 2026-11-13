@@ -1563,7 +1563,10 @@ mod tests {
         );
         assert_eq!(codes(&preview.notes), ["captions-conditional"]);
         assert_eq!(preview.privacy, "private");
-        assert_eq!(preview.policy_version, "2026-11-12");
+        assert_eq!(
+            preview.policy_version,
+            crate::provider_manifest::YOUTUBE_POLICY_VERSION
+        );
         assert!(preview
             .description
             .contains("Read the article: https://blog.example.org/posts/episode-1/"));

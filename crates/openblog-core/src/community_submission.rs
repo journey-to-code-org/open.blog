@@ -1304,7 +1304,10 @@ mod tests {
             hn.submit_url.as_deref(),
             Some("https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fblog.example.org%2Fa-post%2F%3Fx%3D1%26y%3D%3C2%3E&t=Why%20borrow%20checking%20helps")
         );
-        assert_eq!(hn.policy_version, "2026-10-29");
+        assert_eq!(
+            hn.policy_version,
+            crate::provider_manifest::BUILTIN_POLICY_VERSION
+        );
         assert!(hn.rules.len() >= 5);
         assert!(hn.rules.iter().all(|rule| rule.source.is_some()));
     }

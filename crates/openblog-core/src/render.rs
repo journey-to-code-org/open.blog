@@ -406,6 +406,8 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
 /// JSON for a data element: `<`, `>`, `&` and the line separators written
 /// as escapes, so no published text can end or confuse the element.
 fn script_json(data: &serde_json::Value) -> String {
+    let mut data = data.clone();
+    data.sort_all_objects();
     let mut json = String::new();
     for character in data.to_string().chars() {
         match character {
@@ -671,6 +673,29 @@ pub fn generate_with_trail_budget(
         seen: HashSet::new(),
     };
     let default_theme = &resolved[&c.theme];
+
+    let mut diagrams = std::collections::BTreeMap::new();
+    for asset in site
+        .posts
+        .iter()
+        .flat_map(|post| &post.diagrams)
+        .chain(site.pages.iter().flat_map(|page| &page.diagrams))
+        .chain(
+            site.series
+                .iter()
+                .filter(|series| !series.posts.is_empty())
+                .flat_map(|series| &series.diagrams),
+        )
+    {
+        if let Some(previous) = diagrams.insert(&asset.path, &asset.svg) {
+            if previous != &asset.svg {
+                return Err(format!("conflicting diagram asset `{}`", asset.path));
+            }
+        }
+    }
+    for (path, svg) in diagrams {
+        out.add(path.clone(), svg.clone())?;
+    }
 
     if let Some(podcast) = &c.podcast {
         let (feed, files) = crate::podcast::generate(site, podcast)?;
@@ -1508,6 +1533,7 @@ impl<'a> Renderer<'a> {
             if let Some(served) = c.service_areas.area_served() {
                 business["areaServed"] = served;
             }
+            business.sort_all_objects();
             h.push_str(&format!(
                 "<script type=\"application/ld+json\">{}</script>\n",
                 business
@@ -2421,6 +2447,7 @@ impl<'a> Renderer<'a> {
                     blog["author"] = author.clone();
                     blog["publisher"] = author;
                 }
+                blog.sort_all_objects();
                 blog.to_string()
             }),
             reader_references: None,
@@ -2574,6 +2601,19 @@ impl<'a> Renderer<'a> {
             body.push_str("</ul>\n");
         }
         body.push_str("</header>\n");
+        if let Some(decision) = &post.decision {
+            body.push_str(&format!(
+                "<p class=\"ob-decision-status\">Decision status: <strong>{}</strong>",
+                text(decision.status.as_str())
+            ));
+            if let Some(successor) = &decision.superseded_by {
+                body.push_str(&format!(
+                    ". <a href=\"{}\">Read the decision that supersedes this one</a>",
+                    attr(successor)
+                ));
+            }
+            body.push_str(".</p>\n");
+        }
         if post.credit_provenance == CreditProvenance::ExplicitSidecar && !post.credits.is_empty() {
             body.push_str(&contributions_html(post));
         }
@@ -2863,6 +2903,9 @@ impl<'a> Renderer<'a> {
                 if let Some(subtitle) = &post.subtitle {
                     posting["alternativeHeadline"] = serde_json::json!(subtitle);
                 }
+                if let Some(decision) = &post.decision {
+                    posting["creativeWorkStatus"] = serde_json::json!(decision.status.as_str());
+                }
                 match post.credit_provenance {
                     CreditProvenance::LegacySiteAuthor => {
                         if let Some(author) = author_json_ld(c) {
@@ -2952,6 +2995,7 @@ impl<'a> Renderer<'a> {
                     nodes.push(crate::proof::review_node(self.site, proof, true));
                 }
                 if nodes.is_empty() {
+                    posting.sort_all_objects();
                     posting.to_string()
                 } else {
                     let mut posting = posting;
@@ -2959,11 +3003,12 @@ impl<'a> Renderer<'a> {
                         o.remove("@context");
                     }
                     nodes.insert(0, posting);
-                    serde_json::json!({
+                    let mut graph = serde_json::json!({
                         "@context": "https://schema.org",
                         "@graph": nodes,
-                    })
-                    .to_string()
+                    });
+                    graph.sort_all_objects();
+                    graph.to_string()
                 }
             }),
             reader_references: references.map(ReaderReferences::to_script_element),

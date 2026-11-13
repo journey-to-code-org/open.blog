@@ -16,6 +16,7 @@ mod community;
 mod comparison_store;
 mod config_text;
 mod contributor_migration;
+mod diagram_git;
 mod fsutil;
 mod git;
 mod hashnode;
@@ -106,6 +107,8 @@ COMMANDS
                                approve, reject, remove, block, unblock, prune (see mentions OPTIONS)
     card <slug>                Build and check a published post's visual cards for Pinterest
                                and link previews from its own images; sends nothing
+    diagram git [--repo <path>] --from <ref> --to <ref>
+                               Print a reviewable Mermaid draft of local Git history; publishes nothing
     outcomes [--json] [--days N]
                                Where each post went: every destination's status from your own
                                records, and visits the built-in counter attributed to it (N days,
@@ -202,6 +205,20 @@ mentions OPTIONS
     prune [--write]            Delete closed and stale mentions older than
                                webmention.receive.retentionDays (approved ones are kept)
     --json                     Print list or pull as JSON
+
+diagram git OPTIONS
+    --repo <path>          Read local Git history from this repository (default: current directory)
+    --from <ref> --to <ref>
+                           Exclude commits reachable from --from and include those reachable
+                           from --to; print a draft only, without writing or publishing
+    The draft omits author metadata and commit hashes, and makes a best-effort attempt
+    to redact email addresses and full hashes. Subjects and ref names can still contain
+    sensitive information: review the entire draft before sharing it.
+    Add a meaningful accTitle and accDescr before publishing. The draft shows at most 30
+    commits and reports omitted history, out-of-range parents and additional merge
+    parents. Branch names and all tags are listed as review notes.
+    Diagram rendering is experimental and requires the diagram-rendering feature;
+    default builds show source as code. The draft is not publication-ready.
 
 card OPTIONS
     --format a,b               pinterest-pin, facebook-link, linkedin-link (default: all)
@@ -312,6 +329,7 @@ new OPTIONS
     --recipe                   Start from a recipe template (servings, times, ingredients, steps)
     --profile job              Start a job: the job front matter and the headings Problem, What we
                                found, What we did, Result. Always a draft until it is filled in
+    --profile decision         Start a draft decision record with before and after diagram slots
     --trade <id>               With --profile job: the trade (bundled, or from extraTrades)
     --service <id>             With --profile job: the service, such as hardwood-install
     --town <name>              With --profile job: the town (never an address)
@@ -539,6 +557,18 @@ fn run(raw: &[String]) -> Result<(), String> {
                     scaffold::new_job(&root, title, series, &tags, &start)?
                 }
                 Some("job") => return Err("--recipe and --profile job cannot be combined".into()),
+                Some("decision") if !recipe => {
+                    if ["trade", "service", "town", "region", "id", "price-band"]
+                        .iter()
+                        .any(|name| args.options.contains_key(*name))
+                    {
+                        return Err("trade and service options cannot be used with a decision".into());
+                    }
+                    scaffold::new_decision(&root, title, series, &tags)?
+                }
+                Some("decision") => {
+                    return Err("--recipe and --profile decision cannot be combined".into())
+                }
                 None | Some("article") | Some("recipe") => {
                     if ["trade", "service", "town", "region"]
                         .iter()
@@ -559,13 +589,16 @@ fn run(raw: &[String]) -> Result<(), String> {
                 }
                 Some(other) => {
                     return Err(format!(
-                        "`--profile {other}` is not supported by `new`; use article, recipe, job or service"
+                        "`--profile {other}` is not supported by `new`; use article, recipe, job, decision or service"
                     ))
                 }
             };
             println!("created {created}");
             if profile.as_deref() == Some("job") {
                 println!("It is a draft until you fill in the job's details; `openblog check` lists what is missing.");
+            }
+            if profile.as_deref() == Some("decision") {
+                println!("It is a draft until you fill in the decision record and remove `draft`.");
             }
             if profile.as_deref() == Some("service") {
                 println!("It is a draft until you write its summary and remove `draft`; `openblog check` lists what is missing.");
@@ -621,6 +654,23 @@ fn run(raw: &[String]) -> Result<(), String> {
                     preview: args.options.get("preview").cloned(),
                 },
             )
+        }
+        "diagram" => {
+            if args.positional.as_slice() != ["git"] || !args.switches.is_empty() {
+                return Err(diagram_git::USAGE.into());
+            }
+            if args
+                .options
+                .keys()
+                .any(|key| !["repo", "from", "to"].contains(&key.as_str()))
+            {
+                return Err(diagram_git::USAGE.into());
+            }
+            let repo = args.options.get("repo").map(PathBuf::from).unwrap_or(root);
+            let from = args.options.get("from").ok_or(diagram_git::USAGE)?;
+            let to = args.options.get("to").ok_or(diagram_git::USAGE)?;
+            print!("{}", diagram_git::draft(&repo, from, to)?);
+            Ok(())
         }
         "job-share" => {
             let slug = args.positional.first().ok_or(job_share::USAGE)?;

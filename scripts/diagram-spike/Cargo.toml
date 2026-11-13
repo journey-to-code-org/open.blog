@@ -1,0 +1,37 @@
+[package]
+name = "openblog-diagram-spike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "diagram-spike"
+path = "src/main.rs"
+
+[features]
+merman = ["dep:merman", "dep:serde_json"]
+ferrigura = ["dep:ferrigura"]
+mermaid = ["dep:mermaid-rs-renderer"]
+
+[dependencies]
+merman = { version = "=0.10.0", default-features = false, features = ["diagram-c4", "diagram-class", "diagram-er", "diagram-flowchart", "diagram-git-graph", "diagram-sequence", "diagram-state", "svg", "layout-cytoscape"], optional = true }
+ferrigura = { version = "=0.7.0", optional = true }
+mermaid-rs-renderer = { version = "=0.3.1", default-features = false, optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+roxmltree = "=0.20.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.128"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -389,7 +389,9 @@ pub fn json_ld(site: &crate::model::Site, area: &ServiceArea) -> String {
         json!({ "@type": "Organization", "name": c.title, "url": c.absolute("/") })
     };
     node["areaServed"] = area.area_served();
-    json!({ "@context": "https://schema.org", "@graph": [node] }).to_string()
+    let mut document = json!({ "@context": "https://schema.org", "@graph": [node] });
+    document.sort_all_objects();
+    document.to_string()
 }
 
 fn finish(errors: Vec<String>, areas: Vec<ServiceArea>) -> Result<ServiceAreasConfig, Vec<String>> {

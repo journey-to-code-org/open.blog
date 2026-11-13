@@ -1,0 +1,4 @@
+flowchart LR
+  accTitle: Label safety
+  accDescr: A label contains untrusted markup.
+  A["<img src=x onerror=alert(1)>"] --> B["<script>alert(1)</script>"]

@@ -375,6 +375,34 @@ pub fn new_post(
     draft: bool,
     recipe: bool,
 ) -> Result<String, String> {
+    let profile = recipe.then_some(openblog_core::profile::RECIPE_ID);
+    new_profile_post(root, title, series, tags, draft, profile)
+}
+
+pub fn new_decision(
+    root: &Path,
+    title: &str,
+    series: Option<&str>,
+    tags: &[String],
+) -> Result<String, String> {
+    new_profile_post(
+        root,
+        title,
+        series,
+        tags,
+        true,
+        Some(openblog_core::profile::DECISION_ID),
+    )
+}
+
+fn new_profile_post(
+    root: &Path,
+    title: &str,
+    series: Option<&str>,
+    tags: &[String],
+    draft: bool,
+    profile: Option<&str>,
+) -> Result<String, String> {
     let config = site::load_config(root)?;
     let slug = slugify(title);
     if slug.is_empty() {
@@ -397,7 +425,7 @@ pub fn new_post(
         fields.push(("tags", Value::List(tags.to_vec())));
     }
     fields.push(("description", Value::Scalar(String::new())));
-    if recipe {
+    if profile == Some(openblog_core::profile::RECIPE_ID) {
         for (key, value) in [
             ("profile", "recipe"),
             ("servings", "4"),
@@ -406,6 +434,9 @@ pub fn new_post(
         ] {
             fields.push((key, Value::Scalar(value.into())));
         }
+    } else if profile == Some(openblog_core::profile::DECISION_ID) {
+        fields.push(("profile", Value::Scalar("decision".into())));
+        fields.push(("decisionStatus", Value::Scalar("proposed".into())));
     }
     if draft {
         fields.push(("draft", Value::Scalar("true".into())));
@@ -413,7 +444,7 @@ pub fn new_post(
     let mut text = frontmatter::serialize(&fields);
     match openblog_core::profile::catalog()
         .iter()
-        .find(|profile| recipe && profile.id == openblog_core::profile::RECIPE_ID)
+        .find(|candidate| Some(candidate.id) == profile)
         .and_then(|profile| profile.starter)
     {
         Some(starter) => {
@@ -597,6 +628,34 @@ mod tests {
 
     fn trade(trade: &str) -> Starter {
         Starter::parse("trade", Some(trade)).unwrap()
+    }
+
+    #[test]
+    fn decision_starts_as_a_draft_with_sections_and_diagram_slots() {
+        let dir = fresh("decision");
+        init(&dir, None, false).unwrap();
+        let path = new_decision(&dir, "Choose storage", None, &[]).unwrap();
+        let source = fs::read_to_string(dir.join(&path)).unwrap();
+        let document = frontmatter::parse(&source).unwrap();
+        assert_eq!(document.front_matter.get("profile"), Some("decision"));
+        assert_eq!(
+            document.front_matter.get("decisionStatus"),
+            Some("proposed")
+        );
+        assert_eq!(document.front_matter.get_bool("draft"), Some(true));
+        for heading in [
+            "## Context",
+            "## Options considered",
+            "## Decision",
+            "## Consequences",
+            "### Before",
+            "### After",
+        ] {
+            assert!(document.body.contains(heading));
+        }
+        assert!(openblog_core::decision::parse(&document.front_matter, &document.body).is_err());
+        assert!(new_decision(&dir, "Choose storage", None, &[]).is_err());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

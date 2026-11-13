@@ -55,7 +55,8 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             "research",
             "video",
             "field-journal",
-            "job"
+            "job",
+            "decision"
         ]
     );
     assert_eq!(profiles[0].label, "Article");

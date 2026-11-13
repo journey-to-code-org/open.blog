@@ -72,6 +72,50 @@ jobs:
         working-directory: tests/browser
         run: npm test
 
+  diagram-wasm:
+    # Admin's diagram preview runs the same core renderer compiled to WebAssembly (#580). Build it
+    # from this commit, check it draws every fixture exactly as the native build does, and check
+    # the module Admin serves is that build; the artifact is the module to commit when it is not.
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-bindgen
+        run: |
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Build the diagram module
+        run: |
+          cargo build -p openblog-wasm --lib --release --target wasm32-unknown-unknown --features diagram-rendering
+          wasm-bindgen --target web --out-dir target/diagram-wasm-web target/wasm32-unknown-unknown/release/openblog_wasm.wasm
+          wasm-bindgen --target nodejs --out-dir target/diagram-wasm-node target/wasm32-unknown-unknown/release/openblog_wasm.wasm
+          cp web/admin/diagram-wasm/NOTICES.txt target/diagram-wasm-web/
+      - name: Check the module draws what the build draws
+        run: |
+          cargo build -p openblog-wasm --example diagram-parity --features diagram-rendering
+          node scripts/diagram-spike/core-parity.cjs target/diagram-wasm-node target/debug/examples/diagram-parity
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diagram-wasm
+          path: |
+            target/diagram-wasm-web/openblog_wasm.js
+            target/diagram-wasm-web/openblog_wasm_bg.wasm
+            target/diagram-wasm-web/NOTICES.txt
+      - name: Check Admin serves this build
+        run: |
+          for file in openblog_wasm.js openblog_wasm_bg.wasm; do
+            cmp "target/diagram-wasm-web/$file" "web/admin/diagram-wasm/$file" || {
+              echo "::error::web/admin/diagram-wasm/$file is not this commit's build; replace it with the diagram-wasm artifact"
+              exit 1
+            }
+          done
+
   social-queue-sql:
     # Runs the real plpgsql of the social delivery queue (claim, SKIP LOCKED, leases, settle and the
     # rollbacks), and of the Webmention request store, against a throwaway Postgres, so the SQL is

@@ -1,0 +1,1630 @@
+use super::*;
+#[cfg(feature = "editor-facts")]
+use crate::{EditorExpectedSyntaxKind, EditorSemanticCompleteness, EditorSemanticRole};
+use crate::{MermaidEngine, ParseOptions, RenderSemanticModel, SourceSpan};
+use futures::executor::block_on;
+use merman_model::families::mindmap::compat;
+use merman_model::presentation::compat::CompatJsonMetadata;
+use serde_json::Value;
+
+fn parse(text: &str) -> crate::ManagedSemanticJson {
+    let engine = MermaidEngine::new();
+    block_on(engine.parse_diagram(text, ParseOptions::default()))
+        .unwrap()
+        .unwrap()
+        .model
+}
+
+fn deep_mindmap_chain(depth: usize) -> String {
+    let mut input = String::from("mindmap\n");
+    for level in 0..depth {
+        input.push_str(&" ".repeat(level));
+        input.push_str(&format!("n{level}\n"));
+    }
+    input
+}
+
+fn root_descr(model: &Value) -> &str {
+    model["rootNode"]["descr"].as_str().unwrap()
+}
+
+#[test]
+fn mindmap_simple_root() {
+    let model = parse("mindmap\n    root");
+    assert_eq!(root_descr(&model), "root");
+}
+
+#[test]
+fn mindmap_simple_root_shaped_without_id() {
+    let model = parse("mindmap\n    (root)");
+    assert_eq!(root_descr(&model), "root");
+    assert_eq!(model["rootNode"]["nodeId"].as_str().unwrap(), "root");
+}
+
+#[test]
+fn mindmap_hierarchy_two_children() {
+    let model = parse("mindmap\n    root\n      child1\n      child2\n");
+    assert_eq!(root_descr(&model), "root");
+    assert_eq!(model["rootNode"]["children"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        model["rootNode"]["children"][0]["descr"].as_str().unwrap(),
+        "child1"
+    );
+    assert_eq!(
+        model["rootNode"]["children"][1]["descr"].as_str().unwrap(),
+        "child2"
+    );
+}
+
+#[test]
+fn mindmap_deeper_hierarchy() {
+    let model = parse("mindmap\n    root\n      child1\n        leaf1\n      child2");
+    let mm = &model["rootNode"];
+    assert_eq!(mm["descr"].as_str().unwrap(), "root");
+    let children = mm["children"].as_array().unwrap();
+    assert_eq!(children.len(), 2);
+    assert_eq!(children[0]["descr"].as_str().unwrap(), "child1");
+    assert_eq!(
+        children[0]["children"][0]["descr"].as_str().unwrap(),
+        "leaf1"
+    );
+    assert_eq!(children[1]["descr"].as_str().unwrap(), "child2");
+}
+
+#[test]
+fn mindmap_multiple_roots_is_error() {
+    let engine = MermaidEngine::new();
+    let err =
+        block_on(engine.parse_diagram("mindmap\n    root\n    fakeRoot", ParseOptions::default()))
+            .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("There can be only one root. No parent could be found for (\"fakeRoot\")")
+    );
+}
+
+#[test]
+fn mindmap_real_root_in_wrong_place_is_error() {
+    let engine = MermaidEngine::new();
+    let text = "mindmap\n          root\n        fakeRoot\n    realRootWrongPlace";
+    let err = block_on(engine.parse_diagram(text, ParseOptions::default())).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("There can be only one root. No parent could be found for (\"fakeRoot\")")
+    );
+}
+
+#[test]
+fn mindmap_node_id_and_label_and_type_rect() {
+    let model = parse("mindmap\n    root[The root]\n");
+    assert_eq!(model["rootNode"]["nodeId"].as_str().unwrap(), "root");
+    assert_eq!(root_descr(&model), "The root");
+    assert_eq!(
+        model["rootNode"]["type"].as_i64().unwrap(),
+        NODE_TYPE_RECT as i64
+    );
+}
+
+#[test]
+fn mindmap_child_node_id_and_type_rounded_rect() {
+    let model = parse("mindmap\n    root\n      theId(child1)");
+    let child = &model["rootNode"]["children"][0];
+    assert_eq!(child["descr"].as_str().unwrap(), "child1");
+    assert_eq!(child["nodeId"].as_str().unwrap(), "theId");
+    assert_eq!(
+        child["type"].as_i64().unwrap(),
+        NODE_TYPE_ROUNDED_RECT as i64
+    );
+}
+
+#[test]
+fn mindmap_node_types_circle_cloud_bang_hexagon() {
+    let circle = parse("mindmap\n root((the root))");
+    assert_eq!(
+        circle["rootNode"]["type"].as_i64().unwrap(),
+        NODE_TYPE_CIRCLE as i64
+    );
+    assert_eq!(circle["rootNode"]["descr"].as_str().unwrap(), "the root");
+
+    let cloud = parse("mindmap\n root)the root(");
+    assert_eq!(
+        cloud["rootNode"]["type"].as_i64().unwrap(),
+        NODE_TYPE_CLOUD as i64
+    );
+    assert_eq!(cloud["rootNode"]["descr"].as_str().unwrap(), "the root");
+
+    let bang = parse("mindmap\n root))the root((");
+    assert_eq!(
+        bang["rootNode"]["type"].as_i64().unwrap(),
+        NODE_TYPE_BANG as i64
+    );
+    assert_eq!(bang["rootNode"]["descr"].as_str().unwrap(), "the root");
+
+    let hex = parse("mindmap\n root{{the root}}");
+    assert_eq!(
+        hex["rootNode"]["type"].as_i64().unwrap(),
+        NODE_TYPE_HEXAGON as i64
+    );
+    assert_eq!(hex["rootNode"]["descr"].as_str().unwrap(), "the root");
+}
+
+#[test]
+fn mindmap_icon_and_class_decorations() {
+    let model = parse("mindmap\n    root[The root]\n    :::m-4 p-8\n    ::icon(bomb)\n");
+    assert_eq!(model["rootNode"]["class"].as_str().unwrap(), "m-4 p-8");
+    assert_eq!(model["rootNode"]["icon"].as_str().unwrap(), "bomb");
+}
+
+#[test]
+fn mindmap_can_set_icon_then_class_or_class_then_icon() {
+    let model = parse("mindmap\n    root[The root]\n    :::m-4 p-8\n    ::icon(bomb)\n");
+    assert_eq!(model["rootNode"]["class"].as_str().unwrap(), "m-4 p-8");
+    assert_eq!(model["rootNode"]["icon"].as_str().unwrap(), "bomb");
+
+    let model = parse("mindmap\n    root[The root]\n    ::icon(bomb)\n    :::m-4 p-8\n");
+    assert_eq!(model["rootNode"]["class"].as_str().unwrap(), "m-4 p-8");
+    assert_eq!(model["rootNode"]["icon"].as_str().unwrap(), "bomb");
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_multiline_icon_and_editor_facts_share_exact_payload_ranges() {
+    for newline in ["\n", "\r\n"] {
+        for payload in ["  fa\n  fa-star 🌳  ", "\n "] {
+            let raw_payload = payload.replace('\n', newline);
+            let directive = format!("::ICON({raw_payload})");
+            let source = format!(
+                "---{newline}config:{newline}  layout: dagre{newline}---{newline}mindmap{newline}  root[根]{newline}  {directive}{newline}  :::section-12{newline}    child[Child]{newline}"
+            );
+            reset_mindmap_syntax_construction_count();
+            let snapshot = MermaidEngine::new()
+                .parse_diagram_snapshot_sync(&source)
+                .unwrap()
+                .unwrap();
+            let model = snapshot.outcome().parsed_model().unwrap();
+            assert_eq!(model["rootNode"]["icon"], payload);
+            assert_eq!(model["rootNode"]["class"], "section-12");
+            assert_eq!(model["nodes"][0]["icon"], payload);
+            assert_eq!(model["rootNode"]["children"][0]["nodeId"], "child");
+            let crate::ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+                panic!("Mindmap parser facts");
+            };
+            assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+            let icons = facts
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.detail.as_deref() == Some("mindmap icon"))
+                .collect::<Vec<_>>();
+            assert_eq!(icons.len(), 1);
+            let icon = icons[0];
+            let start = source.find(&directive).unwrap();
+            let payload_start = start + "::ICON(".len();
+            assert_eq!(icon.name, payload);
+            assert_eq!(icon.role, EditorSemanticRole::Payload);
+            assert_eq!(icon.span, SourceSpan::new(start, start + directive.len()));
+            assert_eq!(
+                icon.selection,
+                SourceSpan::new(payload_start, payload_start + raw_payload.len())
+            );
+            assert_eq!(
+                &source[icon.selection.start..icon.selection.end],
+                raw_payload
+            );
+            assert!(
+                facts
+                    .directive_prefixes
+                    .iter()
+                    .any(|prefix| prefix == "::icon")
+            );
+            assert_eq!(mindmap_syntax_construction_count(), 1);
+        }
+    }
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_empty_icon_prefixes_keep_following_decorator_source_ranges() {
+    let source = "mindmap\n  root[根]\n  ::icon():::after\n  ::icon()::icon(  retained  )\n";
+    let snapshot = MermaidEngine::new()
+        .parse_diagram_snapshot_sync(source)
+        .unwrap()
+        .unwrap();
+    let model = snapshot.outcome().parsed_model().unwrap();
+    assert_eq!(model["rootNode"]["class"], "after");
+    assert_eq!(model["rootNode"]["icon"], "  retained  ");
+    let crate::ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+        panic!("Mindmap parser facts");
+    };
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    for (name, statement) in [
+        ("after", ":::after"),
+        ("  retained  ", "::icon(  retained  )"),
+    ] {
+        let symbol = facts
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name)
+            .unwrap();
+        let start = source.find(statement).unwrap();
+        assert_eq!(symbol.span, SourceSpan::new(start, start + statement.len()));
+        let selection_start = source.find(name).unwrap();
+        assert_eq!(
+            symbol.selection,
+            SourceSpan::new(selection_start, selection_start + name.len())
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_icon_comment_preprocessing_keeps_only_exact_mappable_facts() {
+    let source = concat!(
+        "mindmap\r\n",
+        "  root[根]\r\n",
+        "  ::icon(fa\r\n",
+        "  %% removed comment 🌳\r\n",
+        "  fa-star)\r\n",
+        "    child[Child]\r\n",
+        "    ::icon(  retained  )\r\n",
+        "    ::icon()\r\n",
+    );
+    reset_mindmap_syntax_construction_count();
+    let snapshot = MermaidEngine::new()
+        .parse_diagram_snapshot_sync(source)
+        .unwrap()
+        .unwrap();
+    let model = snapshot.outcome().parsed_model().unwrap();
+    assert_eq!(model["rootNode"]["icon"], "fa\n  fa-star");
+    assert_eq!(model["rootNode"]["children"][0]["icon"], "  retained  ");
+    let crate::ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+        panic!("Mindmap parser facts");
+    };
+    // A single payload crossing a deleted comment has no exact original span.
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    assert!(facts.diagnostics.iter().any(|diagnostic| {
+        diagnostic.message.contains("crossed a preprocessing edit") && diagnostic.span.is_none()
+    }));
+    let icons = facts
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.detail.as_deref() == Some("mindmap icon"))
+        .collect::<Vec<_>>();
+    assert_eq!(icons.len(), 1);
+    assert_eq!(icons[0].name, "  retained  ");
+    let start = source.find("  retained  ").unwrap();
+    assert_eq!(
+        icons[0].selection,
+        SourceSpan::new(start, start + "  retained  ".len())
+    );
+    let child_start = source.find("child").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "child"
+            && symbol.selection == SourceSpan::new(child_start, child_start + "child".len())
+    }));
+    assert_eq!(mindmap_syntax_construction_count(), 1);
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_invalid_multiline_icons_keep_strict_errors_and_parser_recovery_spans() {
+    for (directive, message, invalid, recovers_child) in [
+        (
+            "::icon(fa\r\n  fa-star) trailing 🌳",
+            "unexpected trailing input after mindmap icon directive",
+            "trailing 🌳",
+            true,
+        ),
+        (
+            "::icon(fa\r\n  fa-star",
+            "unterminated mindmap icon directive",
+            "::icon(fa\r\n  fa-star\r\n    child[Child]",
+            false,
+        ),
+    ] {
+        let source = format!("mindmap\r\n  root[根]\r\n  {directive}\r\n    child[Child]\r\n");
+        let engine = MermaidEngine::new();
+        let start = source.find(invalid).unwrap();
+        let expected_span = SourceSpan::new(start, start + invalid.len());
+        let error = engine
+            .parse_diagram_for_render_model_sync(&source, ParseOptions::strict())
+            .unwrap_err();
+        let crate::Error::DiagramParse { diagnostic, .. } = error else {
+            panic!("expected invalid Mindmap ICON diagnostic");
+        };
+        assert_eq!(diagnostic.message(), message);
+        assert_eq!(diagnostic.span(), Some(expected_span));
+        reset_mindmap_syntax_construction_count();
+        let facts = engine
+            .parse_editor_semantic_facts_with_type_sync("mindmap", &source)
+            .unwrap()
+            .unwrap();
+        assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+        assert!(facts.diagnostics.iter().any(|diagnostic| {
+            diagnostic.message == format!("mindmap parser recovered after parse error: {message}")
+                && diagnostic.span == Some(expected_span)
+        }));
+        assert!(
+            !facts
+                .symbols
+                .iter()
+                .any(|symbol| symbol.detail.as_deref() == Some("mindmap icon"))
+        );
+        assert_eq!(
+            facts.symbols.iter().any(|symbol| symbol.name == "child"),
+            recovers_child
+        );
+        assert_eq!(mindmap_syntax_construction_count(), 1);
+    }
+}
+
+#[test]
+fn mindmap_quoted_descriptions_can_contain_delimiters() {
+    let model = parse("mindmap\n    root[\"String containing []\"]");
+    assert_eq!(model["rootNode"]["nodeId"].as_str().unwrap(), "root");
+    assert_eq!(
+        model["rootNode"]["descr"].as_str().unwrap(),
+        "String containing []"
+    );
+
+    let model = parse(
+        "mindmap\n    root[\"String containing []\"]\n      child1[\"String containing ()\"]",
+    );
+    assert_eq!(model["rootNode"]["children"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        model["rootNode"]["children"][0]["descr"].as_str().unwrap(),
+        "String containing ()"
+    );
+}
+
+#[test]
+fn mindmap_child_after_class_assignment_is_attached_to_last_node() {
+    let model = parse(
+        "mindmap\n  root(Root)\n    Child(Child)\n    :::hot\n      a(a)\n      b[New Stuff]",
+    );
+    let mm = &model["rootNode"];
+    assert_eq!(mm["nodeId"].as_str().unwrap(), "root");
+    let child = &mm["children"][0];
+    assert_eq!(child["nodeId"].as_str().unwrap(), "Child");
+    assert_eq!(child["children"].as_array().unwrap().len(), 2);
+    assert_eq!(child["children"][0]["nodeId"].as_str().unwrap(), "a");
+    assert_eq!(child["children"][1]["nodeId"].as_str().unwrap(), "b");
+}
+
+#[test]
+fn mindmap_comment_end_of_line_is_ignored() {
+    let model = parse(
+        "mindmap\n  root(Root)\n    Child(Child)\n      a(a) %% This is a comment\n      b[New Stuff]\n",
+    );
+    let child = &model["rootNode"]["children"][0];
+    assert_eq!(child["nodeId"].as_str().unwrap(), "Child");
+    assert_eq!(child["children"].as_array().unwrap().len(), 2);
+    assert_eq!(child["children"][1]["nodeId"].as_str().unwrap(), "b");
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_bare_percent_label_and_multiline_mixed_closer_share_exact_facts() {
+    let source = concat!(
+        "mindmap\r\n",
+        "  根 %% literal\r\n",
+        "    child(\r\n",
+        "      Label %% 字面 🌳\r\n",
+        "    ]\r\n",
+        "    sibling[Sibling]\r\n",
+    );
+    reset_mindmap_syntax_construction_count();
+    let snapshot = MermaidEngine::new()
+        .parse_diagram_snapshot_sync(source)
+        .unwrap()
+        .unwrap();
+    let model = snapshot.outcome().parsed_model().unwrap();
+    assert_eq!(model["rootNode"]["nodeId"], "根 %% literal");
+    assert_eq!(model["rootNode"]["descr"], "根 %% literal");
+    let label = "\n      Label %% 字面 🌳\n    ";
+    let authored_label = "\r\n      Label %% 字面 🌳\r\n    ";
+    assert_eq!(model["rootNode"]["children"][0]["descr"], label);
+    assert_eq!(model["rootNode"]["children"][0]["type"], NODE_TYPE_CLOUD);
+    let crate::ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+        panic!("Mindmap parser facts");
+    };
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    for (name, authored, detail) in [
+        ("根 %% literal", "根 %% literal", "mindmap node"),
+        (label, authored_label, "mindmap node label"),
+        ("sibling", "sibling", "mindmap node"),
+    ] {
+        let start = source.find(authored).unwrap();
+        let symbol = facts
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name && symbol.detail.as_deref() == Some(detail))
+            .unwrap();
+        assert_eq!(
+            symbol.selection,
+            SourceSpan::new(start, start + authored.len())
+        );
+        assert_eq!(
+            &source[symbol.selection.start..symbol.selection.end],
+            authored
+        );
+    }
+    assert_eq!(mindmap_syntax_construction_count(), 1);
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_icon_trailing_input_recovers_without_publishing_an_icon_fact() {
+    let source = concat!(
+        "mindmap\r\n",
+        "  Root %% literal\r\n",
+        "  ::icon(star) trailing 🌳\r\n",
+        "    broken[\r\n",
+        "    recovered(Label]\r\n",
+    );
+    reset_mindmap_syntax_construction_count();
+    let facts = MermaidEngine::new()
+        .parse_editor_semantic_facts_with_type_sync("mindmap", source)
+        .unwrap()
+        .unwrap();
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    for name in ["Root %% literal", "recovered"] {
+        assert!(facts.symbols.iter().any(|symbol| symbol.name == name));
+    }
+    assert!(!facts.symbols.iter().any(|symbol| {
+        symbol.detail.as_deref() == Some("mindmap icon") || symbol.name == "broken"
+    }));
+    let tail = "trailing 🌳";
+    let start = source.find(tail).unwrap();
+    assert!(facts.diagnostics.iter().any(|diagnostic| {
+        diagnostic.message.contains("trailing input")
+            && diagnostic.span == Some(SourceSpan::new(start, start + tail.len()))
+    }));
+    assert_eq!(mindmap_syntax_construction_count(), 1);
+}
+
+#[test]
+fn mindmap_rows_above_declaration_are_ignored() {
+    let model = parse("\n \n\nmindmap\nroot\n A\n \n\n B");
+    assert_eq!(model["rootNode"]["nodeId"].as_str().unwrap(), "root");
+    assert_eq!(model["rootNode"]["children"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn mindmap_leading_comment_lines_before_declaration_are_ignored() {
+    let model = parse("%% comment\n\nmindmap\nroot\n A\n B");
+    assert_eq!(model["rootNode"]["nodeId"].as_str().unwrap(), "root");
+    assert_eq!(model["rootNode"]["children"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn mindmap_root_without_indent_child_with_indent() {
+    let model = parse("mindmap\nroot\n      theId(child1)");
+    let mm = &model["rootNode"];
+    assert_eq!(mm["nodeId"].as_str().unwrap(), "root");
+    assert_eq!(mm["children"].as_array().unwrap().len(), 1);
+    let child = &mm["children"][0];
+    assert_eq!(child["descr"].as_str().unwrap(), "child1");
+    assert_eq!(child["nodeId"].as_str().unwrap(), "theId");
+}
+
+#[test]
+fn mindmap_rows_with_only_spaces_do_not_interfere() {
+    let model = parse("mindmap\nroot\n A\n \n\n B");
+    let mm = &model["rootNode"];
+    assert_eq!(mm["nodeId"].as_str().unwrap(), "root");
+    assert_eq!(mm["children"].as_array().unwrap().len(), 2);
+    assert_eq!(mm["children"][0]["nodeId"].as_str().unwrap(), "A");
+    assert_eq!(mm["children"][1]["nodeId"].as_str().unwrap(), "B");
+}
+
+#[test]
+fn mindmap_meaningless_empty_rows_do_not_interfere() {
+    let model = parse("mindmap\n  root(Root)\n    Child(Child)\n      a(a)\n\n      b[New Stuff]");
+    let mm = &model["rootNode"];
+    assert_eq!(mm["nodeId"].as_str().unwrap(), "root");
+    let child = &mm["children"][0];
+    assert_eq!(child["nodeId"].as_str().unwrap(), "Child");
+    assert_eq!(child["children"].as_array().unwrap().len(), 2);
+    assert_eq!(child["children"][1]["nodeId"].as_str().unwrap(), "b");
+}
+
+#[test]
+fn mindmap_header_can_share_line_with_root_node() {
+    let model = parse("mindmap root\n  child1\n");
+    let mm = &model["rootNode"];
+    assert_eq!(mm["descr"].as_str().unwrap(), "root");
+    assert_eq!(mm["children"].as_array().unwrap().len(), 1);
+    assert_eq!(mm["children"][0]["descr"].as_str().unwrap(), "child1");
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_editor_facts_preserve_parser_node_spans() {
+    let engine = MermaidEngine::new();
+    let text = "mindmap root(Root Node)\n  child1(Child 1)\n  :::hot\n  ::icon(bomb)\n  child2\n";
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("mindmap", text)
+        .unwrap()
+        .expect("mindmap editor facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+
+    let symbol_at = |name: &str, start: usize| {
+        facts
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name && symbol.selection.start == start)
+            .unwrap_or_else(|| panic!("missing symbol {name} at {start}"))
+    };
+
+    let root_start = text.find("root(Root Node)").unwrap();
+    assert_eq!(
+        symbol_at("root", root_start).selection.end,
+        root_start + "root".len()
+    );
+
+    let child1_start = text.find("child1").unwrap();
+    assert_eq!(
+        symbol_at("child1", child1_start).selection.end,
+        child1_start + "child1".len()
+    );
+
+    let child2_start = text.find("child2").unwrap();
+    assert_eq!(
+        symbol_at("child2", child2_start).selection.end,
+        child2_start + "child2".len()
+    );
+
+    let class_start = text.find("hot").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "hot"
+            && symbol.role == EditorSemanticRole::Payload
+            && symbol.detail.as_deref() == Some("mindmap class")
+            && symbol.selection.start == class_start
+            && symbol.selection.end == class_start + "hot".len()
+    }));
+
+    let icon_start = text.find("bomb").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "bomb"
+            && symbol.role == EditorSemanticRole::Payload
+            && symbol.detail.as_deref() == Some("mindmap icon")
+            && symbol.selection.start == icon_start
+            && symbol.selection.end == icon_start + "bomb".len()
+    }));
+
+    let label_start = text.find("Root Node").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "Root Node"
+            && symbol.role == EditorSemanticRole::Payload
+            && symbol.detail.as_deref() == Some("mindmap node label")
+            && symbol.selection.start == label_start
+            && symbol.selection.end == label_start + "Root Node".len()
+    }));
+
+    assert!(facts.expected_syntax.iter().any(|expected| {
+        expected.kind == EditorExpectedSyntaxKind::NodeIdentifier
+            && expected.span.start == root_start
+            && expected.span.end == root_start + "root".len()
+    }));
+    assert!(facts.expected_syntax.iter().any(|expected| {
+        expected.kind == EditorExpectedSyntaxKind::Payload
+            && expected.span.start == text.find("Root Node").unwrap()
+            && expected.span.end == text.find("Root Node").unwrap() + "Root Node".len()
+    }));
+
+    assert!(facts.directive_prefixes.iter().any(|p| p == ":::"));
+    assert!(facts.directive_prefixes.iter().any(|p| p == "::icon"));
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_parser_preserves_crlf_unicode_multiline_semantic_spans() {
+    let source = concat!(
+        "mindmap root[\"`根节点 🌳\r\n",
+        "第二行`\"]\r\n",
+        "  bare节点\r\n",
+        "  重复[\"重复\"]\r\n",
+        "  (无 ID)\r\n",
+        "  :::hot warm\r\n",
+        "  ::icon(lucide:home)\r\n",
+        "  %% global comment\r\n",
+    );
+    let facts = MermaidEngine::new()
+        .parse_editor_semantic_facts_with_type_sync("mindmap", source)
+        .expect("mindmap editor parse")
+        .expect("mindmap editor facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    let repeated = "重复[\"重复\"]";
+    let repeated_start = source.find(repeated).expect("repeated node source");
+    let id = facts
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "重复" && symbol.detail.as_deref() == Some("mindmap node"))
+        .expect("repeated id symbol");
+    let label = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "重复" && symbol.detail.as_deref() == Some("mindmap node label")
+        })
+        .expect("repeated label symbol");
+    assert_eq!(
+        id.selection,
+        SourceSpan::new(repeated_start, repeated_start + "重复".len())
+    );
+    let label_start = repeated_start + "重复[\"".len();
+    assert_eq!(
+        label.selection,
+        SourceSpan::new(label_start, label_start + "重复".len()),
+    );
+}
+
+#[test]
+fn mindmap_unquoted_multiline_nodes_continue_until_the_shape_delimiter() {
+    let source = concat!(
+        "mindmap\n",
+        "  root[\n",
+        "    Multi-line root\n",
+        "    with Unicode 🤓\n",
+        "  ]\n",
+        "    child[Later child]\n",
+    );
+    #[cfg(feature = "editor-facts")]
+    let parsed = MermaidEngine::new()
+        .parse_diagram_snapshot_sync(source)
+        .expect("unquoted multiline mindmap parses")
+        .expect("mindmap model");
+    #[cfg(feature = "editor-facts")]
+    let model = parsed
+        .outcome()
+        .parsed_model()
+        .expect("expected parsed snapshot");
+    #[cfg(not(feature = "editor-facts"))]
+    let model = parse(source);
+
+    assert_eq!(model["rootNode"]["nodeId"], "root");
+    assert_eq!(
+        model["rootNode"]["descr"],
+        "\n    Multi-line root\n    with Unicode 🤓\n  "
+    );
+    assert_eq!(model["rootNode"]["children"][0]["nodeId"], "child");
+    #[cfg(feature = "editor-facts")]
+    {
+        let crate::ParsedEditorFacts::Available(facts) = parsed.editor_facts() else {
+            panic!("mindmap editor facts");
+        };
+        assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    }
+}
+
+#[test]
+fn mindmap_bare_markdown_continuation_stays_open_across_same_indent_content() {
+    let source = concat!(
+        "mindmap\n",
+        "    id1[`**Start** with\n",
+        "    a same-indent second line`]\n",
+        "      child[Later child]\n",
+    );
+    #[cfg(feature = "editor-facts")]
+    let parsed = MermaidEngine::new()
+        .parse_diagram_snapshot_sync(source)
+        .expect("bare markdown mindmap parses")
+        .expect("mindmap model");
+    #[cfg(feature = "editor-facts")]
+    let model = parsed
+        .outcome()
+        .parsed_model()
+        .expect("expected parsed snapshot");
+    #[cfg(not(feature = "editor-facts"))]
+    let model = parse(source);
+
+    assert_eq!(model["rootNode"]["nodeId"], "id1");
+    assert_eq!(
+        model["rootNode"]["descr"],
+        "`**Start** with\n    a same-indent second line`"
+    );
+    assert_eq!(model["rootNode"]["children"][0]["nodeId"], "child");
+    #[cfg(feature = "editor-facts")]
+    {
+        let crate::ParsedEditorFacts::Available(facts) = parsed.editor_facts() else {
+            panic!("mindmap editor facts");
+        };
+        assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    }
+}
+
+#[test]
+fn mindmap_unmatched_bare_backtick_does_not_hide_the_shape_closing_delimiter() {
+    let source = "mindmap\n  root[Use ` unmatched marker]\n";
+    #[cfg(feature = "editor-facts")]
+    let parsed = MermaidEngine::new()
+        .parse_diagram_snapshot_sync(source)
+        .expect("mindmap node with unmatched bare backtick parses")
+        .expect("mindmap model");
+    #[cfg(feature = "editor-facts")]
+    let model = parsed
+        .outcome()
+        .parsed_model()
+        .expect("expected parsed snapshot");
+    #[cfg(not(feature = "editor-facts"))]
+    let model = parse(source);
+
+    assert_eq!(model["rootNode"]["nodeId"], "root");
+    assert_eq!(model["rootNode"]["descr"], "Use ` unmatched marker");
+    #[cfg(feature = "editor-facts")]
+    {
+        let crate::ParsedEditorFacts::Available(facts) = parsed.editor_facts() else {
+            panic!("mindmap editor facts");
+        };
+        assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    }
+}
+
+#[test]
+fn mindmap_recovery_keeps_failed_prefix_and_later_node_semantics() {
+    let source = concat!(
+        "mindmap\n",
+        " root\n",
+        "  broken[unterminated\n",
+        "  ::icon(lucide:home)\n",
+        "  后续(After)\n",
+        "  another[unterminated\n",
+        "  :::hot\n",
+    );
+    let engine = MermaidEngine::new();
+    let error = engine
+        .parse_diagram_sync(source, ParseOptions::strict())
+        .expect_err("strict mindmap parse must return the first syntax error");
+    assert!(error.to_string().contains("unterminated node delimiter"));
+
+    #[cfg(feature = "editor-facts")]
+    {
+        let facts = engine
+            .parse_editor_semantic_facts_with_type_sync("mindmap", source)
+            .expect("mindmap recovery parse")
+            .expect("mindmap recovery facts");
+
+        assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+        assert!(facts.symbols.iter().any(|symbol| symbol.name == "后续"));
+        assert!(
+            facts
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("unterminated node delimiter"))
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_recovery_constructs_one_parser_outcome() {
+    reset_mindmap_syntax_construction_count();
+    let facts = MermaidEngine::new()
+        .parse_editor_semantic_facts_with_type_sync(
+            "mindmap",
+            "mindmap\n root\n  broken[unterminated\n  after\n",
+        )
+        .expect("mindmap recovery parse")
+        .expect("mindmap recovery facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    assert_eq!(mindmap_syntax_construction_count(), 1);
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_editor_facts_recovers_from_incomplete_input() {
+    let engine = MermaidEngine::new();
+    let text = "mindmap\nroot\n child[unterminated";
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("mindmap", text)
+        .unwrap()
+        .expect("mindmap editor facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    let child_start = text.find("child").unwrap();
+    assert!(facts.diagnostics.iter().any(|diagnostic| {
+        diagnostic.message.contains("unterminated node delimiter")
+            && diagnostic.span == Some(SourceSpan::new(child_start, text.len()))
+    }));
+    assert!(facts.symbols.iter().any(|symbol| symbol.name == "root"));
+    assert!(!facts.symbols.iter().any(|symbol| symbol.name == "child"));
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_editor_facts_preserve_prior_symbols_when_later_node_is_invalid() {
+    let engine = MermaidEngine::new();
+    let text = "mindmap\nroot\n child1\n child2[broken]]\n";
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("mindmap", text)
+        .unwrap()
+        .expect("mindmap editor facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    assert!(facts.symbols.iter().any(|symbol| symbol.name == "root"));
+    assert!(facts.symbols.iter().any(|symbol| symbol.name == "child1"));
+    assert!(!facts.symbols.iter().any(|symbol| symbol.name == "child2"));
+    assert!(
+        facts
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("unexpected trailing input"))
+    );
+}
+
+#[test]
+fn mindmap_editor_facts_report_database_validation_errors() {
+    let text = "mindmap\r\n    root\r\n    fakeRoot\r\n";
+    let invalid = "fakeRoot";
+    let start = text.find(invalid).unwrap();
+    let expected_span = SourceSpan::new(start, start + invalid.len());
+    let engine = MermaidEngine::new();
+
+    let error = engine
+        .parse_diagram_sync(text, ParseOptions::strict())
+        .expect_err("multiple mindmap roots must fail strict parsing");
+    let crate::Error::DiagramParse { diagnostic, .. } = error else {
+        panic!("expected mindmap parse diagnostic");
+    };
+    assert_eq!(diagnostic.span(), Some(expected_span));
+
+    #[cfg(feature = "editor-facts")]
+    {
+        let facts = engine
+            .parse_editor_semantic_facts_with_type_sync("mindmap", text)
+            .unwrap()
+            .expect("mindmap editor recovery facts");
+        assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+        assert!(facts.symbols.iter().any(|symbol| symbol.name == "root"));
+        assert!(facts.symbols.iter().any(|symbol| symbol.name == "fakeRoot"));
+        assert!(facts.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == crate::EditorSemanticDiagnosticKind::ParserRecovery
+                && diagnostic.span == Some(expected_span)
+                && diagnostic.message.contains("There can be only one root")
+        }));
+    }
+}
+
+#[test]
+#[cfg(feature = "editor-facts")]
+fn mindmap_editor_facts_report_invalid_header() {
+    let text = "  mindmap-beta\r\nroot\r\n";
+    let invalid = "mindmap-beta";
+    let start = text.find(invalid).unwrap();
+    let expected_span = SourceSpan::new(start, start + invalid.len());
+    let facts = MermaidEngine::new()
+        .parse_editor_semantic_facts_with_type_sync("mindmap", text)
+        .unwrap()
+        .expect("mindmap editor recovery facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    assert!(facts.symbols.is_empty());
+    assert!(facts.diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind == crate::EditorSemanticDiagnosticKind::ParserRecovery
+            && diagnostic.span == Some(expected_span)
+            && diagnostic.message.contains("expected mindmap header")
+    }));
+}
+
+#[test]
+fn mindmap_multiline_markdown_string_node_description_is_parsed() {
+    let model = parse(
+        "mindmap\n    id1[\"`**Root** with\n\
+a second line\n\
+Unicode works too: 🤓`\"]\n      id2[\"`The dog in **the** hog... a *very long text* that wraps to a new line`\"]\n      id3[Regular labels still works]\n",
+    );
+    let root = &model["rootNode"];
+    assert_eq!(root["nodeId"].as_str().unwrap(), "id1");
+    let descr = root["descr"].as_str().unwrap();
+    assert!(descr.contains("Root"));
+    assert!(descr.contains("a second line"));
+    assert!(descr.contains("🤓"));
+}
+
+#[test]
+fn mindmap_get_data_empty_when_no_nodes() {
+    let model = parse("mindmap\n");
+    assert_eq!(model["nodes"].as_array().unwrap().len(), 0);
+    assert_eq!(model["edges"].as_array().unwrap().len(), 0);
+    assert!(model.get("rootNode").is_none());
+    assert!(model.get("config").is_some());
+}
+
+#[test]
+fn mindmap_get_data_basic_nodes_edges_and_layout_defaults() {
+    let model = parse("mindmap\nroot(Root Node)\n child1(Child 1)\n child2(Child 2)\n");
+
+    assert_eq!(model["nodes"].as_array().unwrap().len(), 3);
+    assert_eq!(model["edges"].as_array().unwrap().len(), 2);
+    assert_eq!(model["config"]["layout"].as_str().unwrap(), "cose-bilkent");
+    assert!(model.get("diagramId").is_none());
+
+    let root = model["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"].as_str() == Some("0"))
+        .unwrap();
+    assert_eq!(root["label"].as_str().unwrap(), "Root Node");
+    assert_eq!(root["level"].as_i64().unwrap(), 0);
+
+    let edge_0_1 = model["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["start"].as_str() == Some("0") && e["end"].as_str() == Some("1"))
+        .unwrap();
+    assert_eq!(edge_0_1["depth"].as_i64().unwrap(), 0);
+}
+
+#[test]
+fn mindmap_data_is_stable_for_the_same_operation_seed() {
+    let source = "mindmap\nroot\n child\n";
+
+    let first = parse(source);
+    let repeated = parse(source);
+
+    assert_eq!(first, repeated);
+    assert!(first.get("diagramId").is_none());
+}
+
+#[test]
+fn mindmap_data_does_not_depend_on_the_operation_seed() {
+    fn model(seed: u64) -> Value {
+        let engine = MermaidEngine::new().with_runtime_policy(
+            merman_model::runtime::RuntimePolicy::deterministic().with_fixed_seed(seed),
+        );
+        block_on(engine.parse_diagram("mindmap\nroot\n", ParseOptions::default()))
+            .unwrap()
+            .unwrap()
+            .model
+            .into_unmanaged_value()
+    }
+
+    let first = model(11);
+    let other = model(22);
+    let replayed = model(11);
+
+    assert_eq!(first, replayed);
+    assert_eq!(first, other);
+    assert!(first.get("diagramId").is_none());
+}
+
+#[test]
+fn mindmap_typed_render_model_projects_exact_compatibility_json() {
+    let source = concat!(
+        "mindmap root(Root Node)\n",
+        "  :::root-class\n",
+        "  child1[Child 1]\n",
+        "  ::icon(bomb)\n",
+        "  child2[\"`**Markdown** child`\"]\n",
+    );
+    let engine = MermaidEngine::new();
+    let parsed = block_on(engine.parse_diagram(source, ParseOptions::strict()))
+        .unwrap()
+        .unwrap();
+    let typed = parse_mindmap_model_for_render(
+        source,
+        &crate::diagrams::source_metadata_for_test(&parsed.meta),
+    )
+    .unwrap();
+    let metadata = CompatJsonMetadata::from(&parsed.meta);
+    let projected = compat::project(&typed, &metadata).unwrap();
+    let expected = parsed.model.into_unmanaged_value();
+    assert_eq!(
+        projected, expected,
+        "Mindmap typed compatibility projection must preserve the exact public JSON"
+    );
+    assert_eq!(projected["rootNode"]["class"], "root-class");
+    assert_eq!(projected["rootNode"]["children"][0]["padding"], 20);
+    assert_eq!(projected["rootNode"]["children"][0]["icon"], "bomb");
+    assert_eq!(projected["nodes"][0]["labelType"], "markdown");
+    assert_eq!(projected["nodes"][1]["labelType"], "markdown");
+    assert_eq!(projected["nodes"][2]["labelType"], "markdown");
+}
+
+#[test]
+fn mindmap_fractional_dimensions_survive_typed_and_compatibility_projection() {
+    let body = concat!(
+        "mindmap\n  Root\n    circle((Circle))\n    rect[Rect]\n",
+        "    rounded(Rounded)\n    hexagon{{Hexagon}}\n    cloud)Cloud(\n    bang))Bang((\n",
+    );
+    let source =
+        format!("---\nconfig:\n  mindmap:\n    padding: 10.5\n    maxNodeWidth: 80.5\n---\n{body}");
+    let engine = MermaidEngine::new();
+    let parsed = block_on(engine.parse_diagram(&source, ParseOptions::strict()))
+        .unwrap()
+        .unwrap();
+    let typed = parse_mindmap_model_for_render(
+        body,
+        &crate::diagrams::source_metadata_for_test(&parsed.meta),
+    )
+    .unwrap();
+    let projected = compat::project(&typed, &CompatJsonMetadata::from(&parsed.meta)).unwrap();
+    assert_eq!(projected, parsed.model.into_unmanaged_value());
+    for (index, padding) in [10.5, 10.5, 21.0, 21.0, 21.0, 10.5, 10.5]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(typed.nodes[index].width, 80.5);
+        assert_eq!(typed.nodes[index].padding, padding);
+        let record = if index == 0 {
+            &projected["rootNode"]
+        } else {
+            &projected["rootNode"]["children"][index - 1]
+        };
+        assert_eq!(record["width"].as_f64(), Some(80.5));
+        assert_eq!(record["padding"].as_f64(), Some(padding));
+        assert_eq!(projected["nodes"][index]["padding"].as_f64(), Some(padding));
+        assert_eq!(
+            projected["shapes"][index.to_string()]["width"].as_f64(),
+            Some(80.5)
+        );
+    }
+}
+
+#[test]
+fn mindmap_json_projection_observes_cancellation_inside_large_models() {
+    let source = deep_mindmap_chain(512);
+    let engine = MermaidEngine::new();
+    let parsed = block_on(engine.parse_diagram(&source, ParseOptions::strict()))
+        .unwrap()
+        .unwrap();
+    let typed = parse_mindmap_model_for_render(
+        &source,
+        &crate::diagrams::source_metadata_for_test(&parsed.meta),
+    )
+    .unwrap();
+    let control = crate::OperationControl::new();
+    control.cancel_after_checkpoints(2);
+
+    assert!(
+        compat::project_controlled(&typed, &CompatJsonMetadata::from(&parsed.meta), &control,)
+            .is_err()
+    );
+}
+
+#[cfg(feature = "all-diagrams")]
+#[test]
+fn mindmap_projection_cancels_after_deep_completed_subtree_child() {
+    crate::diagrams::treemap::tests::run_lifecycle_child(
+        "diagrams::mindmap::tests::mindmap_projection_cancels_after_deep_completed_subtree_child",
+        || {
+            const DEPTH: usize = 3_000;
+            let mut source = deep_mindmap_chain(DEPTH + 1);
+            source.push_str(" sibling\n");
+            let parsed = MermaidEngine::new()
+                .parse_diagram_for_render_model_sync(&source, ParseOptions::strict())
+                .unwrap()
+                .unwrap();
+            let RenderSemanticModel::Mindmap(model) = parsed.model() else {
+                panic!("typed mindmap");
+            };
+            let control = crate::OperationControl::new();
+            let node_count = DEPTH + 2;
+            let edge_count = DEPTH + 1;
+            // Cancel at the second root-child transfer; the first deep child is in a managed vector.
+            let checkpoints = node_count.div_ceil(128)
+                + 2
+                + edge_count.div_ceil(128)
+                + (2 * node_count).div_ceil(128)
+                + edge_count
+                + DEPTH;
+            control.cancel_after_checkpoints(checkpoints);
+            assert!(matches!(
+                compat::root_node_controlled(
+                    model,
+                    &CompatJsonMetadata::from(parsed.metadata()),
+                    &control
+                ),
+                Err(crate::OperationCancelled { .. })
+            ));
+            let metadata = CompatJsonMetadata::from(parsed.metadata());
+            let projected = compat::project(model, &metadata).unwrap();
+            drop(crate::ManagedSemanticJson::from_value(projected));
+            drop(parsed);
+        },
+    );
+}
+
+#[cfg(feature = "all-diagrams")]
+#[test]
+fn mindmap_projection_failure_drops_deep_completed_children_child() {
+    crate::diagrams::treemap::tests::run_lifecycle_child(
+        "diagrams::mindmap::tests::mindmap_projection_failure_drops_deep_completed_children_child",
+        || {
+            let source = deep_mindmap_chain(3_001);
+            let parsed = MermaidEngine::new()
+                .parse_diagram_for_render_model_sync(&source, ParseOptions::strict())
+                .unwrap()
+                .unwrap();
+            let RenderSemanticModel::Mindmap(model) = parsed.model() else {
+                panic!("typed mindmap");
+            };
+            let mut model = model.clone();
+            let root = model.nodes[0].id.clone();
+            model.nodes[0].id = "invalid-number".to_string();
+            for edge in &mut model.edges {
+                if edge.start == root {
+                    edge.start = "invalid-number".to_string();
+                }
+            }
+            assert!(
+                compat::root_node_controlled(
+                    &model,
+                    &CompatJsonMetadata::from(parsed.metadata()),
+                    &crate::OperationControl::new()
+                )
+                .unwrap()
+                .is_err()
+            );
+            drop(model);
+            drop(parsed);
+        },
+    );
+}
+
+#[test]
+fn mindmap_get_data_projects_look_and_theme_shape_like_mermaid_11_15() {
+    let model = parse(
+        r#"%%{init: {"theme": "redux", "look": "neo"}}%%
+mindmap
+root
+ child
+"#,
+    );
+
+    let nodes = model["nodes"].as_array().unwrap();
+    let root = nodes
+        .iter()
+        .find(|n| n["id"].as_str() == Some("0"))
+        .unwrap();
+    let child = nodes
+        .iter()
+        .find(|n| n["id"].as_str() == Some("1"))
+        .unwrap();
+    assert_eq!(root["look"].as_str().unwrap(), "neo");
+    assert_eq!(child["look"].as_str().unwrap(), "neo");
+    assert_eq!(root["shape"].as_str().unwrap(), "rounded");
+    assert_eq!(child["shape"].as_str().unwrap(), "rounded");
+    assert_eq!(model["shapes"]["0"]["shape"].as_str().unwrap(), "rounded");
+
+    let edge = model["edges"].as_array().unwrap()[0].as_object().unwrap();
+    assert_eq!(edge["look"].as_str().unwrap(), "neo");
+
+    let default_model = parse("mindmap\nroot\n child\n");
+    assert_eq!(
+        default_model["nodes"][0]["look"].as_str().unwrap(),
+        "classic"
+    );
+    assert_eq!(
+        default_model["nodes"][0]["shape"].as_str().unwrap(),
+        "defaultMindmapNode"
+    );
+}
+
+#[test]
+fn mindmap_render_model_projects_same_look_and_theme_shape_as_json_model() {
+    let engine = MermaidEngine::new();
+    let input = r#"%%{init: {"theme": "redux", "look": "neo"}}%%
+mindmap
+root
+ child
+"#;
+
+    let parsed = engine
+        .parse_diagram_for_render_model_sync(input, ParseOptions::strict())
+        .unwrap()
+        .unwrap();
+
+    match parsed.model() {
+        RenderSemanticModel::Mindmap(model) => {
+            assert_eq!(model.nodes[0].look, "neo");
+            assert_eq!(model.nodes[1].look, "neo");
+            assert_eq!(model.nodes[0].shape, "rounded");
+            assert_eq!(model.nodes[1].shape, "rounded");
+            assert_eq!(model.edges[0].look, "neo");
+        }
+        other => panic!("mindmap render parse should return typed model, got {other:?}"),
+    }
+}
+
+// Mermaid 12.2 mindmapColors.spec.ts deliberately uses an indented root and irregular columns.
+const MERMAID_12_2_COLOR_DIAGRAM: &str = r#"mindmap
+    root((Root))
+          ownerA{{Owner A}}
+            repoA[Repo A]
+                leafA[Leaf A]
+              leafB[Leaf B]
+          ownerB{{Owner B}}
+              repoB[Repo B]
+                leafC[Leaf C]
+"#;
+
+#[test]
+fn mindmap_mermaid_12_2_colors_by_structural_depth_across_semantic_paths() {
+    let branch_sections = [
+        None,
+        Some(0),
+        Some(0),
+        Some(0),
+        Some(0),
+        Some(1),
+        Some(1),
+        Some(1),
+    ];
+    let depth_sections = [
+        None,
+        Some(0),
+        Some(1),
+        Some(2),
+        Some(2),
+        Some(0),
+        Some(1),
+        Some(2),
+    ];
+    for (mode, expected) in [
+        (None, branch_sections),
+        (Some("branch"), branch_sections),
+        (Some("depth"), depth_sections),
+    ] {
+        let source = match mode {
+            Some(mode) => format!(
+                "%%{{init: {{\"mindmap\": {{\"colorBy\": \"{mode}\"}}}}}}%%\n{MERMAID_12_2_COLOR_DIAGRAM}"
+            ),
+            None => MERMAID_12_2_COLOR_DIAGRAM.to_string(),
+        };
+        let engine = MermaidEngine::new();
+        #[cfg(feature = "editor-facts")]
+        let snapshot = engine
+            .parse_diagram_snapshot_sync(&source)
+            .unwrap()
+            .unwrap();
+        #[cfg(feature = "editor-facts")]
+        let model = snapshot.outcome().parsed_model().unwrap();
+        #[cfg(not(feature = "editor-facts"))]
+        let model = parse(&source);
+        let sections: Vec<_> = model["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| node["section"].as_i64().map(|section| section as i32))
+            .collect();
+        assert_eq!(sections, expected, "colorBy={mode:?}");
+
+        let typed = engine
+            .parse_diagram_for_render_model_sync(&source, ParseOptions::strict())
+            .unwrap()
+            .unwrap();
+        let RenderSemanticModel::Mindmap(typed) = typed.model() else {
+            panic!("typed mindmap");
+        };
+        assert_eq!(
+            typed
+                .nodes
+                .iter()
+                .map(|node| node.section)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        for edge in &typed.edges {
+            let child = typed.nodes.iter().find(|node| node.id == edge.end).unwrap();
+            assert_eq!(edge.section, child.section);
+            assert!(
+                edge.classes
+                    .contains(&format!("section-edge-{}", child.section.unwrap()))
+            );
+        }
+        #[cfg(feature = "editor-facts")]
+        {
+            let crate::ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+                panic!("mindmap editor facts");
+            };
+            assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+            let leaf_b = facts
+                .symbols
+                .iter()
+                .find(|symbol| {
+                    symbol.name == "leafB" && symbol.detail.as_deref() == Some("mindmap node")
+                })
+                .unwrap();
+            let start = source.find("leafB").unwrap();
+            assert_eq!(
+                leaf_b.selection,
+                SourceSpan::new(start, start + "leafB".len())
+            );
+        }
+    }
+}
+
+#[test]
+fn mindmap_mermaid_12_2_depth_colors_survive_branch_insertion_and_cycle() {
+    let prefix = "%%{init: {\"mindmap\": {\"colorBy\": \"depth\"}}}%%\n";
+    let original = parse(&format!("{prefix}{MERMAID_12_2_COLOR_DIAGRAM}"));
+    let edited = parse(&format!(
+        "{prefix}{}",
+        MERMAID_12_2_COLOR_DIAGRAM.replace(
+            "          ownerA",
+            "          added[Added]\n          ownerA"
+        )
+    ));
+    for node in original["nodes"].as_array().unwrap() {
+        let candidate = edited["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["nodeId"] == node["nodeId"])
+            .unwrap();
+        assert_eq!(candidate["section"], node["section"]);
+    }
+
+    let mut deep = format!("{prefix}mindmap\nRoot\n");
+    for depth in 1..=13 {
+        deep.push_str(&format!("{}Node {depth}\n", "  ".repeat(depth)));
+    }
+    let model = parse(&deep);
+    let sections: Vec<_> = model["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .skip(1)
+        .map(|node| node["section"].as_i64().unwrap())
+        .collect();
+    assert_eq!(sections, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 1]);
+    assert!(
+        parse(&format!("{prefix}mindmap\n"))["nodes"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let root_only = parse(&format!("{prefix}mindmap\nRoot\n"));
+    assert!(root_only["nodes"][0].get("section").is_none());
+    assert!(root_only["edges"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn mindmap_mermaid_12_2_centers_every_shape_and_preserves_decorations() {
+    let model = parse(
+        r#"%%{init: {"mindmap": {"colorBy": "depth"}}}%%
+mindmap
+Root((Root))
+  :::custom-root
+  square[Square]
+    :::custom-child
+    ::icon(mdi:fire)
+  rounded(Rounded)
+  hexagon{{Hexagon}}
+  cloud)Cloud(
+  bang))Bang((
+  Default
+"#,
+    );
+    let nodes = model["nodes"].as_array().unwrap();
+    assert_eq!(nodes.len(), 7);
+    assert!(nodes.iter().all(|node| node["centerLabel"] == true));
+    assert!(
+        nodes[0]["cssClasses"]
+            .as_str()
+            .unwrap()
+            .contains("custom-root")
+    );
+    assert!(
+        nodes[1]["cssClasses"]
+            .as_str()
+            .unwrap()
+            .contains("custom-child")
+    );
+    assert_eq!(nodes[1]["icon"], "mdi:fire");
+}
+
+#[test]
+fn mindmap_deep_chain_semantic_and_render_model_use_heap_traversal() {
+    const DEPTH: usize = 1200;
+    let input = deep_mindmap_chain(DEPTH);
+
+    let model = parse(&input);
+    let nodes = model["nodes"].as_array().expect("nodes array");
+    let edges = model["edges"].as_array().expect("edges array");
+    assert_eq!(nodes.len(), DEPTH);
+    assert_eq!(edges.len(), DEPTH - 1);
+    assert_eq!(nodes[0]["label"].as_str(), Some("n0"));
+    let expected_last = format!("n{}", DEPTH - 1);
+    assert_eq!(
+        nodes
+            .last()
+            .and_then(|node| node.get("label"))
+            .and_then(Value::as_str),
+        Some(expected_last.as_str())
+    );
+
+    let parsed = MermaidEngine::new()
+        .parse_diagram_for_render_model_sync(&input, ParseOptions::strict())
+        .unwrap()
+        .unwrap();
+    match parsed.model() {
+        RenderSemanticModel::Mindmap(model) => {
+            assert_eq!(model.nodes.len(), DEPTH);
+            assert_eq!(model.edges.len(), DEPTH - 1);
+            assert_eq!(model.nodes[0].label, "n0");
+            assert_eq!(
+                model.nodes.last().map(|node| node.label.as_str()),
+                Some(expected_last.as_str())
+            );
+        }
+        other => panic!("mindmap render parse should return typed model, got {other:?}"),
+    }
+}
+
+#[test]
+fn mindmap_get_data_assigns_section_classes_to_nodes_and_edges() {
+    let model = parse("mindmap\nA\n a0\n  aa0\n a1\n  aaa\n a2\n");
+    let nodes = model["nodes"].as_array().unwrap();
+
+    let node_a = nodes
+        .iter()
+        .find(|n| n["label"].as_str() == Some("A"))
+        .unwrap();
+    let node_a0 = nodes
+        .iter()
+        .find(|n| n["label"].as_str() == Some("a0"))
+        .unwrap();
+    let node_aa0 = nodes
+        .iter()
+        .find(|n| n["label"].as_str() == Some("aa0"))
+        .unwrap();
+    let node_a1 = nodes
+        .iter()
+        .find(|n| n["label"].as_str() == Some("a1"))
+        .unwrap();
+    let node_aaa = nodes
+        .iter()
+        .find(|n| n["label"].as_str() == Some("aaa"))
+        .unwrap();
+    let node_a2 = nodes
+        .iter()
+        .find(|n| n["label"].as_str() == Some("a2"))
+        .unwrap();
+
+    assert!(node_a.get("section").is_none());
+    assert_eq!(
+        node_a["cssClasses"].as_str().unwrap(),
+        "mindmap-node section-root section--1"
+    );
+    assert_eq!(node_a0["section"].as_i64().unwrap(), 0);
+    assert_eq!(node_aa0["section"].as_i64().unwrap(), 0);
+    assert_eq!(node_a1["section"].as_i64().unwrap(), 1);
+    assert_eq!(node_aaa["section"].as_i64().unwrap(), 1);
+    assert_eq!(node_a2["section"].as_i64().unwrap(), 2);
+
+    let edges = model["edges"].as_array().unwrap();
+    assert_eq!(edges.len(), 5);
+
+    let edge_0_1 = edges
+        .iter()
+        .find(|e| e["start"].as_str() == Some("0") && e["end"].as_str() == Some("1"))
+        .unwrap();
+    let edge_1_2 = edges
+        .iter()
+        .find(|e| e["start"].as_str() == Some("1") && e["end"].as_str() == Some("2"))
+        .unwrap();
+    let edge_0_3 = edges
+        .iter()
+        .find(|e| e["start"].as_str() == Some("0") && e["end"].as_str() == Some("3"))
+        .unwrap();
+    let edge_3_4 = edges
+        .iter()
+        .find(|e| e["start"].as_str() == Some("3") && e["end"].as_str() == Some("4"))
+        .unwrap();
+    let edge_0_5 = edges
+        .iter()
+        .find(|e| e["start"].as_str() == Some("0") && e["end"].as_str() == Some("5"))
+        .unwrap();
+
+    assert_eq!(
+        edge_0_1["classes"].as_str().unwrap(),
+        "edge section-edge-0 edge-depth-1"
+    );
+    assert_eq!(
+        edge_1_2["classes"].as_str().unwrap(),
+        "edge section-edge-0 edge-depth-2"
+    );
+    assert_eq!(
+        edge_0_3["classes"].as_str().unwrap(),
+        "edge section-edge-1 edge-depth-1"
+    );
+    assert_eq!(
+        edge_3_4["classes"].as_str().unwrap(),
+        "edge section-edge-1 edge-depth-2"
+    );
+    assert_eq!(
+        edge_0_5["classes"].as_str().unwrap(),
+        "edge section-edge-2 edge-depth-1"
+    );
+
+    assert_eq!(edge_0_1["section"].as_i64().unwrap(), 0);
+    assert_eq!(edge_1_2["section"].as_i64().unwrap(), 0);
+    assert_eq!(edge_0_3["section"].as_i64().unwrap(), 1);
+    assert_eq!(edge_3_4["section"].as_i64().unwrap(), 1);
+    assert_eq!(edge_0_5["section"].as_i64().unwrap(), 2);
+}
+
+#[test]
+fn mindmap_get_data_edge_ids_are_unique() {
+    let model = parse("mindmap\nroot\n child1\n child2\n child3\n");
+    let edges = model["edges"].as_array().unwrap();
+    assert_eq!(edges.len(), 3);
+
+    let ids: Vec<&str> = edges.iter().map(|e| e["id"].as_str().unwrap()).collect();
+    let unique: std::collections::BTreeSet<&str> = ids.iter().copied().collect();
+    assert_eq!(unique.len(), ids.len());
+}
+
+#[test]
+fn mindmap_get_data_missing_optional_properties_are_absent() {
+    let model = parse("mindmap\nroot\n");
+    let nodes = model["nodes"].as_array().unwrap();
+    assert_eq!(nodes.len(), 1);
+    let node = nodes[0].as_object().unwrap();
+
+    assert!(node.get("section").is_none());
+    assert_eq!(
+        node.get("cssClasses").and_then(|v| v.as_str()).unwrap(),
+        "mindmap-node section-root section--1"
+    );
+    assert!(node.get("icon").is_none());
+    assert!(node.get("x").is_none());
+    assert!(node.get("y").is_none());
+}
+
+#[test]
+fn mindmap_get_data_preserves_custom_classes_while_adding_section_classes() {
+    let model = parse(
+        "mindmap\nroot(Root Node)\n:::custom-root-class\n child(Child Node)\n :::custom-child-class\n",
+    );
+
+    let nodes = model["nodes"].as_array().unwrap();
+    let root = nodes
+        .iter()
+        .find(|n| n["label"].as_str() == Some("Root Node"))
+        .unwrap();
+    let child = nodes
+        .iter()
+        .find(|n| n["label"].as_str() == Some("Child Node"))
+        .unwrap();
+
+    assert_eq!(
+        root["cssClasses"].as_str().unwrap(),
+        "mindmap-node section-root section--1 custom-root-class"
+    );
+    assert_eq!(
+        child["cssClasses"].as_str().unwrap(),
+        "mindmap-node section-0 custom-child-class"
+    );
+}
+
+#[test]
+fn mindmap_padding_doubles_for_rect_like_nodes() {
+    let model = parse("mindmap\nroot[Root]\n");
+    let node = model["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"].as_str() == Some("0"))
+        .unwrap();
+    assert_eq!(node["type"].as_i64().unwrap(), NODE_TYPE_RECT as i64);
+    assert_eq!(node["padding"].as_i64().unwrap(), 20);
+}
+
+#[test]
+fn mindmap_empty_rows_and_comments_do_not_interfere() {
+    let model = parse(
+        "mindmap\n  root(Root)\n    Child(Child)\n      a(a)\n\n      %% This is a comment\n      b[New Stuff]\n",
+    );
+    let child = &model["rootNode"]["children"][0];
+    assert_eq!(child["nodeId"].as_str().unwrap(), "Child");
+    assert_eq!(child["children"].as_array().unwrap().len(), 2);
+    assert_eq!(child["children"][1]["nodeId"].as_str().unwrap(), "b");
+}

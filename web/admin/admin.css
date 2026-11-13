@@ -389,6 +389,17 @@ kbd {
   background: rgb(0 0 0 / 0.55);
 }
 
+.oba-diagram-preview {
+  overflow: auto;
+  max-width: 100%;
+}
+
+.oba-diagram-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
 .oba-dialog h2 {
   margin-top: 0;
 }

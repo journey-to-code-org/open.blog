@@ -178,7 +178,7 @@ fn other_profiles_and_stray_job_options_are_refused_and_plain_new_is_unchanged()
     let root = project("other", &[]);
     let odd = run(&root, &["new", "A post", "--profile", "video"]);
     assert!(!odd.status.success());
-    assert!(text(&odd.stderr).contains("article, recipe, job or service"));
+    assert!(text(&odd.stderr).contains("article, recipe, job, decision or service"));
     let stray = run(&root, &["new", "A post", "--trade", "flooring"]);
     assert!(!stray.status.success());
     assert!(text(&stray.stderr).contains("--profile job"));
@@ -188,5 +188,110 @@ fn other_profiles_and_stray_job_options_are_refused_and_plain_new_is_unchanged()
     let source = only_post(&root);
     assert!(!source.contains("job") && !source.contains("profile"));
     assert!(source.contains("Write your post here."));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_decision_starts_as_a_draft_and_check_enforces_publication() {
+    let root = project("decision", &[]);
+    let created = run(&root, &["new", "Use a queue", "--profile", "decision"]);
+    assert!(created.status.success(), "{}", text(&created.stderr));
+    let source = only_post(&root);
+    let document = frontmatter::parse(&source).unwrap();
+    assert_eq!(document.front_matter.get("profile"), Some("decision"));
+    assert_eq!(document.front_matter.get("draft"), Some("true"));
+    assert_eq!(
+        document.front_matter.get("decisionStatus"),
+        Some("proposed")
+    );
+    for heading in [
+        "## Context",
+        "### Before",
+        "## Options considered",
+        "## Decision",
+        "## Consequences",
+        "### After",
+    ] {
+        assert!(document.body.contains(heading), "{heading}");
+    }
+
+    let draft_check = run(&root, &["check"]);
+    assert!(
+        draft_check.status.success(),
+        "{}",
+        text(&draft_check.stderr)
+    );
+    let report = format!("{}{}", text(&draft_check.stdout), text(&draft_check.stderr));
+    assert!(report.contains("decision"), "{report}");
+    let path = fs::read_dir(root.join("content/posts"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let published = source.replace("draft: \"true\"", "draft: \"false\"");
+    assert_ne!(published, source);
+    fs::write(&path, &published).unwrap();
+    let incomplete_check = run(&root, &["check"]);
+    assert!(!incomplete_check.status.success());
+    let report = format!(
+        "{}{}",
+        text(&incomplete_check.stdout),
+        text(&incomplete_check.stderr)
+    );
+    assert!(report.contains("Context"), "{report}");
+
+    let complete = [
+        ("## Context\n", "## Context\n\nThe problem.\n"),
+        (
+            "## Options considered\n",
+            "## Options considered\n\nTwo choices.\n",
+        ),
+        ("## Decision\n", "## Decision\n\nUse a queue.\n"),
+        ("## Consequences\n", "## Consequences\n\nMore components.\n"),
+    ]
+    .into_iter()
+    .fold(published, |source, (before, after)| {
+        source.replace(before, after)
+    });
+    fs::write(path, complete).unwrap();
+    let complete_check = run(&root, &["check"]);
+    assert!(
+        complete_check.status.success(),
+        "{}",
+        text(&complete_check.stderr)
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(feature = "diagram-rendering")]
+#[test]
+fn opt_in_cli_check_and_build_enforce_diagram_accessibility() {
+    let root = project("diagram", &[]);
+    let path = root.join("content/posts/diagram.md");
+    let source = "---\ntitle: Diagram\ndate: 2020-01-01\ndraft: true\n---\n```mermaid\nflowchart LR\nA --> B\n```\n";
+    fs::write(&path, source).unwrap();
+    let draft = run(&root, &["check"]);
+    assert!(draft.status.success(), "{}", text(&draft.stderr));
+    let report = format!("{}{}", text(&draft.stdout), text(&draft.stderr));
+    assert!(report.contains("accTitle"), "{report}");
+    let published = source.replace("draft: true", "draft: false");
+    fs::write(&path, &published).unwrap();
+    for command in ["check", "build"] {
+        let output = run(&root, &[command]);
+        assert!(!output.status.success(), "{command}");
+        let report = format!("{}{}", text(&output.stdout), text(&output.stderr));
+        assert!(report.contains("accTitle"), "{report}");
+        assert!(report.contains("line 6"), "{report}");
+    }
+    let valid = published.replace(
+        "```mermaid\n",
+        "```mermaid title=\"Request\" description=\"A calls B\"\n",
+    );
+    fs::write(path, valid).unwrap();
+    let output = run(&root, &["build"]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    let html = fs::read_to_string(root.join("dist/posts/diagram/index.html")).unwrap();
+    assert!(html.contains("<figure class=\"ob-diagram\">"));
     let _ = fs::remove_dir_all(&root);
 }
