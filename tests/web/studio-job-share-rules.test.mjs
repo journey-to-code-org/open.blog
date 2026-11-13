@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { facebookAnnouncement, jobShareTrouble, keyFor, newKey, pageOpen, problemWords, soon, standing, standingText, wayFor } from "../../web/studio/parts/job-share-rules.js";
+import { facebookAnnouncement, jobShareTrouble, keyFor, offersPosting, troubleAction, newKey, pageOpen, problemWords, soon, standing, standingText, wayFor } from "../../web/studio/parts/job-share-rules.js";
 
 function place(destination, overrides = {}) {
   return {
@@ -83,4 +83,21 @@ test("what to fix first, and refusals, in her words", () => {
   assert.equal(jobShareTrouble({ status: 409, data: { code: "changed" } }), "The job changed while you looked. Here are the new words.");
   assert.equal(jobShareTrouble({ status: 409, data: { code: "sent" } }, "Nextdoor"), "Your site already sent this, or may have. Look on Nextdoor first.");
   assert.equal(jobShareTrouble({ status: 0 }), "Studio couldn't reach your site's server. Check your connection, then try again.");
+});
+
+test("a job that isn't there says so and offers nothing to open; a stale Undo says the newer mark stays", () => {
+  const missing = { status: 404, data: { code: "not-found" } };
+  assert.equal(jobShareTrouble(missing), "Studio couldn't find this job. It may have been deleted or renamed.");
+  assert.equal(troubleAction(missing), null);
+  assert.equal(troubleAction({ status: 422, data: { code: "not-shareable" } }), "write");
+  assert.equal(troubleAction({ status: 500 }), "retry");
+  assert.equal(troubleAction({ status: 0 }), "retry");
+  assert.equal(jobShareTrouble({ status: 409, data: { code: "marked-again" } }, "Nextdoor"), "You marked Nextdoor again since, so that newer mark stays.");
+});
+
+test("the post buttons come back when the job changed since it was posted", () => {
+  assert.equal(offersPosting(standing(place("nextdoor"))), true);
+  assert.equal(offersPosting(standing(place("nextdoor", { record: { status: "posted-by-hand" } }))), false);
+  assert.equal(offersPosting(standing(place("nextdoor", { record: { status: "posted-by-hand" }, changedSince: true }))), true);
+  assert.equal(offersPosting(standing(place("google-business-profile", { record: { status: "posted" }, changedSince: true }))), true);
 });

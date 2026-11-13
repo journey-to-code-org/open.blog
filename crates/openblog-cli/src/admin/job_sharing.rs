@@ -4,7 +4,8 @@
 //! The first shows, for Google Business Profile, a Facebook Page and Nextdoor, exactly what would
 //! go (the projection of `openblog_core::job_destination`) and what has happened there (the private
 //! record in `.openblog/job-shares.json`). The second lets the owner say she posted one by hand,
-//! and take that back (`undo: true`, Studio R1 G17), which removes only her own by-hand mark.
+//! and take that back (`undo: true` with the mark's `at`, Studio R1 G17), which takes away only
+//! that by-hand mark and puts back the record it replaced.
 //! Nothing here sends anything: Google is sent from the command (ADR 0393), and a Facebook Page is
 //! reached through the announcement routes, which the screen calls itself (ADR 0396).
 
@@ -21,6 +22,15 @@ fn unshareable(error: String) -> Response {
     Response::json(422, &json!({ "error": error, "code": "not-shareable" }))
 }
 
+/// Whether the file named is in the content folder: a missing job is told apart from one that
+/// can't be shared, so Studio doesn't offer to open it.
+fn source_exists(state: &AppState, path: &str) -> bool {
+    site::load_config(&state.root)
+        .ok()
+        .and_then(|config| resolve_content_path(&state.root, &config, path).ok())
+        .is_some_and(|file| file.is_file())
+}
+
 /// Everything the Share this job screen shows for one job.
 pub(super) fn get(state: &AppState, req: &Request) -> Response {
     let path = req.query.get("path").map(String::as_str).unwrap_or("");
@@ -29,6 +39,12 @@ pub(super) fn get(state: &AppState, req: &Request) -> Response {
     }
     let job = match job_share::load_job(&state.root, Which::Source(path), &JobDestination::ALL) {
         Ok(job) => job,
+        Err(_) if !source_exists(state, path) => {
+            return Response::json(
+                404,
+                &json!({ "error": "There is no such file in the content folder", "code": "not-found" }),
+            )
+        }
         Err(error) => return unshareable(error),
     };
     let records = match State::load(&state_path(state)) {
@@ -75,6 +91,10 @@ struct ByHandBody {
     digest: Option<String>,
     #[serde(default)]
     undo: bool,
+    /// For an undo: the stamp of the mark being taken back, so an Undo shown for an earlier mark
+    /// never removes a newer one.
+    #[serde(default)]
+    at: Option<String>,
 }
 
 /// The owner says she posted the job by hand at one destination, exactly as shown (its digest).
@@ -100,7 +120,10 @@ pub(super) fn by_hand(state: &AppState, req: &Request) -> Response {
         Err(error) => return unshareable(error),
     };
     if body.undo {
-        return undo_by_hand(state, &job.source_path, destination);
+        let Some(at) = body.at.as_deref() else {
+            return Response::error(400, "Say which \"I posted it\" to take back");
+        };
+        return undo_by_hand(state, &job.source_path, destination, at);
     }
     let Some(digest) = body.digest.as_deref() else {
         return Response::error(400, "Say which words were posted");
@@ -135,6 +158,14 @@ pub(super) fn by_hand(state: &AppState, req: &Request) -> Response {
             &json!({ "error": "open.blog already sent this, or may have. Check the place first.", "code": "sent" }),
         );
     }
+    // What the mark replaces is kept beside it, so Undo can put it back.
+    let replaced = records
+        .record(&job.source_path, destination)
+        .cloned()
+        .map(|mut earlier| {
+            earlier.replaced = None;
+            Box::new(earlier)
+        });
     let record = Record {
         status: Status::PostedByHand,
         at: clock::now().rfc3339(),
@@ -142,6 +173,7 @@ pub(super) fn by_hand(state: &AppState, req: &Request) -> Response {
         post_name: None,
         post_url: None,
         failure: None,
+        replaced,
     };
     records.set(&job.source_path, destination, record.clone());
     if let Err(error) = records.save(&path) {
@@ -153,38 +185,45 @@ pub(super) fn by_hand(state: &AppState, req: &Request) -> Response {
     )
 }
 
-/// Takes back her own "I posted it" (G17). Only a by-hand mark goes: a post open.blog made, or may
-/// have made, is never forgotten from here.
-fn undo_by_hand(state: &AppState, source: &str, destination: JobDestination) -> Response {
+/// Takes back her own "I posted it" (G17): the mark stamped `at`, and only it, and puts back the
+/// record it replaced. A post open.blog made, or may have made, is never forgotten from here, and an
+/// Undo for an earlier mark refuses once she has marked it again (409 `marked-again`).
+fn undo_by_hand(state: &AppState, source: &str, destination: JobDestination, at: &str) -> Response {
     let path = state_path(state);
     let mut records = match State::load(&path) {
         Ok(records) => records,
         Err(error) => return Response::error(500, &error),
     };
-    match records
-        .record(source, destination)
-        .map(|record| record.status)
-    {
-        Some(Status::PostedByHand) => {}
+    let Some(current) = records.record(source, destination).cloned() else {
+        return Response::json(
+            200,
+            &json!({ "destination": destination, "record": Json::Null }),
+        );
+    };
+    if current.status != Status::PostedByHand {
+        return Response::json(
+            409,
+            &json!({ "error": "Only your own \"I posted it\" can be taken back here.", "code": "not-by-hand" }),
+        );
+    }
+    if current.at != at {
+        return Response::json(
+            409,
+            &json!({ "error": "This place was marked again since; that newer mark stays.", "code": "marked-again" }),
+        );
+    }
+    let restored = current.replaced.map(|earlier| *earlier);
+    match &restored {
+        Some(earlier) => records.set(source, destination, earlier.clone()),
         None => {
-            return Response::json(
-                200,
-                &json!({ "destination": destination, "record": Json::Null }),
-            )
-        }
-        Some(_) => {
-            return Response::json(
-                409,
-                &json!({ "error": "Only your own \"I posted it\" can be taken back here.", "code": "not-by-hand" }),
-            )
+            records.remove(source, destination);
         }
     }
-    records.remove(source, destination);
     if let Err(error) = records.save(&path) {
         return Response::error(500, &error);
     }
     Response::json(
         200,
-        &json!({ "destination": destination, "record": Json::Null }),
+        &json!({ "destination": destination, "record": restored }),
     )
 }

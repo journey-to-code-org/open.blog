@@ -223,5 +223,5 @@ Port `tests/web/admin-{distribution,job-share,trade-checklist}.test.mjs` to `stu
 - **G14.** `recipe-notes` returns finished sentences in old-Admin words ("Settings", "Slug", "Admin has no setting"). Return `{code, address, fallback, page: {path, kind, title}, byAlias, value}` beside `text`, so Studio words them and links the page.
 - **G15.** `GET documents` items lack `profile`, so Posts can't tell a job. Add `profile`.
 - **G16.** Sharing needs `meta.siteUses.shared`: any distribution record readable and non-empty (`outcomes::report` families).
-- **G17.** No way to undo **I posted it**. Add `POST job-share/by-hand {path, destination, undo: true}`, removing only a `posted-by-hand` record.
+- **G17.** No way to undo **I posted it**. Add `POST job-share/by-hand {path, destination, undo: true, at}`, taking back only the `posted-by-hand` mark stamped `at` (else 409 `marked-again`) and putting back the record it replaced (kept beside the mark as `replaced`).
 - Not gaps: `reschedule` unused (PATCH covers it); trade-checklist hrefs stay old hashes, mapped by `legacyRoute` until R15.

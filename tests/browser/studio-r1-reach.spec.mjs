@@ -260,3 +260,31 @@ test("Home, Share this job and Where each post went pass axe at 320 px without s
   }
   expect(await page.locator("img[src=x]").count()).toBe(0);
 });
+
+test("Share this job: after the job changed, the post buttons come back, and Undo puts back the earlier mark", async ({ page }) => {
+  await mockSocial(page);
+  // A job that isn't there offers nothing to open.
+  await signIn(page, "#/sharing/job/posts%2Fgone.md");
+  const banner = page.locator(".studio-job-share alert-banner");
+  await expect(banner).toContainText("Studio couldn't find this job. It may have been deleted or renamed.");
+  await expect(page.getByRole("link", { name: "Open it in Write" })).toHaveCount(0);
+  await expect(banner.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  // Nextdoor was marked earlier; then she changed the job's words.
+  const file = join(root, "content", "posts", "maple-roof.md");
+  writeFileSync(file, readFileSync(file, "utf8").replace("A worn roof replaced before winter.", "A worn roof replaced before the snow."));
+  const before = JSON.parse(readFileSync(join(root, ".openblog", "job-shares.json"), "utf8")).jobs["posts/maple-roof.md"].nextdoor;
+  expect(before.status).toBe("posted-by-hand");
+  await page.evaluate(() => { location.hash = "#/sharing/job/posts%2Fmaple-roof.md"; });
+  const nextdoor = page.locator("[data-destination=nextdoor]");
+  await expect(nextdoor.getByText("You changed the job since. Post the new words if you like.")).toBeVisible();
+  await expect(nextdoor.getByRole("button", { name: "Copy the words for Nextdoor" })).toBeVisible();
+  await expect(nextdoor.getByRole("link", { name: "Open Nextdoor (opens a new tab)" })).toBeVisible();
+  await nextdoor.getByRole("button", { name: "I posted it on Nextdoor" }).click();
+  await expect(page.locator(".studio-job-share p[role=status]")).toHaveText("Noted: you posted it on Nextdoor.");
+  await expect(nextdoor.getByText("You changed the job since.")).toHaveCount(0);
+  // Undo takes back only the new mark, and the earlier one is there again.
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".studio-job-share p[role=status]")).toHaveText("Undone. Nextdoor is back to how it was.");
+  await expect(nextdoor.getByText("You changed the job since. Post the new words if you like.")).toBeVisible();
+  expect(JSON.parse(readFileSync(join(root, ".openblog", "job-shares.json"), "utf8")).jobs["posts/maple-roof.md"].nextdoor).toEqual(before);
+});

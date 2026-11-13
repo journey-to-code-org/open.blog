@@ -6,7 +6,7 @@
 // ever text. docs/specs/studio/r1/ux.md; old Admin's web/admin/job-share.js.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
-import { facebookAnnouncement, jobShareTrouble, keyFor, newKey, pageOpen, problemWords, soon, standing, standingText, wayFor } from "../parts/job-share-rules.js";
+import { facebookAnnouncement, jobShareTrouble, keyFor, newKey, offersPosting, pageOpen, problemWords, soon, standing, standingText, troubleAction, wayFor } from "../parts/job-share-rules.js";
 
 export async function createJobShare({ api, go }, path, route = { query: {} }) {
   await use("action-button", "alert-banner", "skeleton-block", "status-badge");
@@ -55,10 +55,11 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
       if (error.status === 401) throw error;
       list.removeAttribute("aria-busy");
       list.replaceChildren();
-      banner.replaceChildren(h("alert-banner", { variant: error.status === 422 ? "info" : "danger", heading: error.status === 422 ? "Nothing to share" : "This job didn't open" },
+      const action = troubleAction(error);
+      banner.replaceChildren(h("alert-banner", { variant: action === "retry" ? "danger" : "info", heading: action === "retry" ? "This job didn't open" : "Nothing to share" },
         jobShareTrouble(error), " ",
-        error.status === 422 ? h("a", { href: `#/write/${encodeURIComponent(path)}` }, "Open it in Write")
-          : h("action-button", { variant: "secondary", size: "sm", onClick: () => load() }, "Try again")));
+        action === "write" ? h("a", { href: `#/write/${encodeURIComponent(path)}` }, "Open it in Write")
+          : action === "retry" ? h("action-button", { variant: "secondary", size: "sm", onClick: () => load() }, "Try again") : null));
       drawDetails(error);
     }
   }
@@ -89,7 +90,7 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
       if (way === "facebook-page" && pageOpen(announcement) && d.record?.status !== "posted-by-hand") {
         buttons.push(h("action-button", { variant: variant(), onClick: (e) => postToPage(d, e.currentTarget) }, `Post to ${pages[0].displayName}`));
       }
-      if (!now.done) {
+      if (offersPosting(now)) {
         buttons.push(h("action-button", { variant: variant(), label: `Copy the words for ${d.label}`, onClick: () => copy(d, words) }, "Copy the words"));
         if (d.openUrl) buttons.push(h("action-button", { variant: "secondary", href: d.openUrl, target: "_blank", label: `Open ${d.label} (opens a new tab)` }, `Open ${d.label}`));
         buttons.push(h("action-button", { variant: "secondary", label: `I posted it on ${d.label}`, onClick: (e) => markPosted(d, e.currentTarget) }, "I posted it"));
@@ -162,7 +163,8 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
     if (button.loading) return;
     button.loading = true;
     try {
-      await api.post("job-share/by-hand", { path: data.path, destination: d.destination, digest: d.digest });
+      const marked = await api.post("job-share/by-hand", { path: data.path, destination: d.destination, digest: d.digest });
+      const at = marked?.record?.at;
       await load();
       const words = `Noted: you posted it on ${d.label}.`;
       say(words);
@@ -171,14 +173,15 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
         if (undo.loading) return;
         undo.loading = true;
         try {
-          await api.post("job-share/by-hand", { path: data.path, destination: d.destination, undo: true });
+          const back = await api.post("job-share/by-hand", { path: data.path, destination: d.destination, undo: true, at });
           undoSlot.replaceChildren();
           await load();
-          say(`Undone. ${d.label} is back to not yet.`);
+          say(back?.record ? `Undone. ${d.label} is back to how it was.` : `Undone. ${d.label} is back to not yet.`);
           focusCard(d);
         } catch (error) {
           if (error.status === 401) throw error;
           undo.loading = false;
+          if (error.data?.code === "marked-again") { undoSlot.replaceChildren(); await load(); focusCard(d); }
           say(jobShareTrouble(error, d.label));
         }
       } }, "Undo");

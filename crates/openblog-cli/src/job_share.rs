@@ -100,6 +100,10 @@ pub struct Record {
     pub post_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<String>,
+    /// The record an "I posted it" mark replaced, kept beside it so Undo can put it back (Studio
+    /// R1). One level only: a kept record never keeps its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaced: Option<Box<Record>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -544,6 +548,7 @@ fn write_kit(
                     post_name: None,
                     post_url: None,
                     failure: None,
+                    replaced: None,
                 },
             );
         }
@@ -770,6 +775,7 @@ fn send_google(
         post_name: None,
         post_url: None,
         failure: None,
+        replaced: None,
     };
     state.set(&job.source_path, destination, record.clone());
     state.save(state_path)?;
@@ -1090,6 +1096,7 @@ mod tests {
                     post_name: None,
                     post_url: None,
                     failure: None,
+                    replaced: None,
                 },
             );
         }
