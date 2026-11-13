@@ -471,7 +471,7 @@ pub fn publication_credit_order(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn publication_credit_order_mode(
+pub(crate) fn publication_credit_order_mode(
     record: &SharedPublication,
     structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,

@@ -285,6 +285,8 @@ fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
         assemble_all_contributions_with_credits, with_credit_subject_for_all_contributions,
     };
     use openblog_core::collaboration::Contribution;
+    use openblog_core::draft::RevealPolicy;
+    use openblog_core::preview::{build_all_contributions_with_credit_choices, PreviewError};
     use openblog_core::shared_credit::{CreditChoice, CreditChoices};
 
     let mut record = record();
@@ -329,7 +331,49 @@ fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
         ),
         Err(AssemblyError::ApprovalScope)
     ));
+    set.set_policy(RevealPolicy::AllReady);
+    set.mark_ready_contributions("ann", &[("first", 1), ("second", 1)], &active)
+        .unwrap();
+    assert!(matches!(
+        build_all_contributions_with_credit_choices(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            "ann",
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        ),
+        Err(PreviewError::Incomplete)
+    ));
+    set.mark_ready_contributions("bo", &[("third", 1)], &active)
+        .unwrap();
     for who in active {
+        let preview = build_all_contributions_with_credit_choices(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            who,
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        )
+        .unwrap();
+        assert!(preview.complete);
+        assert!(in_order(&preview.document, &["FIRST", "THIRD", "SECOND"]));
+        let seen = preview.seen.unwrap();
         with_credit_subject_for_all_contributions(
             &record,
             Some(&arrangement),
@@ -340,7 +384,7 @@ fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
             &active,
             &choices,
             |subject| {
-                let seen = approvals.binding_for(subject, who).unwrap();
+                assert_eq!(seen, approvals.binding_for(subject, who).unwrap());
                 approvals.approve(who, who, subject, &seen, true, T)
             },
         )
@@ -405,7 +449,43 @@ fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
         ),
         Err(AssemblyError::ArrangementMismatch)
     ));
+    assert!(matches!(
+        build_all_contributions_with_credit_choices(
+            &record,
+            &incomplete,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            "ann",
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        ),
+        Err(PreviewError::Incomplete)
+    ));
     set.save("ann", "second", 1, "Changed", T + 1).unwrap();
+    assert!(matches!(
+        build_all_contributions_with_credit_choices(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            "bo",
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        ),
+        Err(PreviewError::Incomplete)
+    ));
     assert!(matches!(
         assemble(&set, &choices),
         Err(AssemblyError::Blocked { .. })

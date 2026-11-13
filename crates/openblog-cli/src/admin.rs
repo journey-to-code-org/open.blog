@@ -15562,6 +15562,10 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
             409,
             "Each person whose work appears must choose their public credit before the complete piece can be reviewed. Nothing was changed.",
         ),
+        Err(openblog_core::preview::PreviewError::Incomplete) => return Response::error(
+            409,
+            "The whole piece is not available for review. Nothing was changed.",
+        ),
     };
     drop(transaction);
     // The document is served from its own address with its own policy, so a sandboxed frame can
