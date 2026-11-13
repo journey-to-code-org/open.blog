@@ -113,6 +113,8 @@ test("a hand-written nav: yes and a collection's title: survive a save", async (
   await expect.poll(() => read("pages/hand.md")).toContain("description: Said by hand.");
   expect(read("pages/hand.md")).toContain("nav: yes");
   await page.goto(`${origin}/admin/studio/#/collection/series%2Fcookies.md`);
+  // Type only once the collection has loaded, or the two names run together.
+  await expect(page.getByRole("textbox", { name: "Name" })).toHaveValue("Christmas Cookies");
   await page.getByRole("textbox", { name: "Name" }).fill("Christmas Cookie Tins");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   // The save may wait for the previous step's send-out to free the content lock.
