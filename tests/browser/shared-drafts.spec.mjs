@@ -603,7 +603,7 @@ test("preview loading preserves deliberate focus changes and restores focus afte
   fail = true;
   await review.focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByText("The preview could not be loaded, or you cannot preview this reflection. Nothing was changed.")).toBeVisible();
+  await expect(page.getByText("Preview unavailable.")).toBeVisible();
   await expect(review).toBeFocused();
 });
 

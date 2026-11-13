@@ -14,8 +14,9 @@ All notable changes to open.blog are recorded here. Releases follow
   any section invalidates every author's approval. A section-only rule previously saved for a
   new reflection must be replaced by unanimous agreement before approval or publication.
   Legacy reflections retain their existing scope.
-- Authors can approve a complete combined preview in Admin, explicitly confirming the current
-  public contributor-profile credit. Additional credit choices are not yet available.
+- Authors can approve a complete combined preview in Admin, explicitly confirming public credits.
+  The private credit-choice API supports frozen profile, display-name-only and uncredited
+  choices; Admin choice controls and explicit choices for new reflections remain in progress.
 - The combined-preview control restores keyboard focus after loading unless the user moved it.
 - Revealed drafts, conversation items and observations use valid accessible labels in Admin.
 - Approval requests now recheck that the complete current piece remains visible to the author;

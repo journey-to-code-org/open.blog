@@ -458,28 +458,21 @@ the remaining requirements are tracked in epic #592.
 ## Reviewing and approving in Admin
 
 An author can open the combined preview and, when every current section is visible, affirm
-approval of that exact preview. The confirmation states that the current publication path
-credits authors using their contributor profiles. An author may withdraw their approval, and
-an out-of-date preview must be reloaded before it can be approved. The current workflow does
-not yet offer display-name-only or uncredited choices, and the approval API does not record an
-independent credit preference; the remaining consent work is tracked in epic #592. The approval
-binding includes the participants' display names and contributor-profile bindings from the shared
-record, but not mutable contributor-registry profile details. Approvals made before that
-attribution binding was added must be reviewed again.
+approval of that exact preview, including its public credits. An author may withdraw approval,
+and an out-of-date preview must be reloaded before it can be approved.
 
-The private credit-choice API is a foundation, not a publication feature: participants can
-save only their own choice, and profile details are taken from the server's registry. Responses
-mark publication support as unavailable. Once any choice is saved, review, new approvals,
-publishing, and scheduling are refused until the choice-aware publication workflow is implemented;
-choices never silently fall back to profile credit. Existing approvals can still be withdrawn.
-Display-name choices receive a separately generated public identifier, never the participant ID.
-The public-credit projection refuses missing choices or older display-name choices without such an
-identifier; the participant must select the name again before that projection can be used.
-The core choice-aware assembler binds the choices to approval and uses their public projection
-for turn headings, conversation and moments, and frozen credits. A choice-aware preview shows
-the exact frozen credits only after the requester can read the entire piece, and its approval token
-uses the same binding as assembly. These are not yet connected to the Admin review and publish
-routes, which remain guarded as described above.
+The private credit-choice API lets participants save only their own choice; profile details
+are taken from the server's registry. Once any choice is saved, complete review, approval,
+scheduling and publication require choices for everyone whose work appears. Display-name
+choices receive a separately generated public identifier, never the participant ID. Missing
+choices and older display-name choices without such an identifier block complete review and
+publication; the participant must select the name again. Choice revisions bind the complete
+preview, approval and publication, so changing and reverting a choice does not revive consent.
+The preview shows the exact frozen credits only after the requester can read the entire piece.
+
+Reflections without any saved choices still use the legacy contributor-profile publication
+path. Admin does not yet provide choice controls or require explicit choices for new
+reflections; the remaining consent work is tracked in epic #592.
 
 When an approver submits an approval, the server checks again that the current combined preview is
 complete for them. If sharing changed after the preview was opened, the earlier review token

@@ -274,16 +274,23 @@ pub fn with_credit_subject_for_participants<R>(
         moments,
         active,
         participants,
-        |subject| {
-            let mut metadata = subject.metadata.to_vec();
-            metadata.push("participant-credit-choices-v1");
-            metadata.push(&binding);
-            ask(&ApprovalSubject {
-                metadata: &metadata,
-                ..*subject
-            })
-        },
+        |subject| with_credit_binding(subject, &binding, ask),
     ))
+}
+
+/// Extend an existing subject with a previously validated credit-choice binding.
+pub fn with_credit_binding<R>(
+    subject: &ApprovalSubject<'_>,
+    binding: &str,
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
+    let mut metadata = subject.metadata.to_vec();
+    metadata.push("participant-credit-choices-v1");
+    metadata.push(binding);
+    ask(&ApprovalSubject {
+        metadata: &metadata,
+        ..*subject
+    })
 }
 
 /// Prepare the names used in public rendering without changing the private record. Only active

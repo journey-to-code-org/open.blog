@@ -13476,18 +13476,6 @@ fn publish_store_problem(error: crate::shared_publications::ReplaceError) -> Res
     }
 }
 
-fn require_credit_publication_support(state: &AppState, id: &str) -> Result<(), Response> {
-    let choices = crate::shared_publications::load_credit_choices(&state.root, id)
-        .map_err(|error| publish_failed(&error))?;
-    if choices.choices.revision() != 0 {
-        return Err(Response::error(
-            409,
-            "Participant credit choices cannot yet be applied to review or publication. Nothing was changed.",
-        ));
-    }
-    Ok(())
-}
-
 /// Everything the gate reads, loaded in the request's transaction.
 struct GateInputs {
     drafts: DraftSet,
@@ -13498,6 +13486,8 @@ struct GateInputs {
     outcome: crate::shared_publications::StoredOutcome,
     active: Vec<String>,
     participants: Vec<String>,
+    choices: Option<openblog_core::shared_credit::CreditChoices>,
+    credit_binding: Option<String>,
 }
 
 fn gate_inputs(
@@ -13525,6 +13515,17 @@ fn gate_inputs(
         .map_err(|error| publish_failed(&error))?;
     let outcome = crate::shared_publications::load_outcome(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
+    let stored_choices = crate::shared_publications::load_credit_choices(&state.root, id)
+        .map_err(|error| publish_failed(&error))?;
+    let choices = (stored_choices.choices.revision() != 0).then_some(stored_choices.choices);
+    let credit_binding = choices
+        .as_ref()
+        .map(|choices| {
+            choices
+                .binding()
+                .map_err(|_| publish_failed("invalid credit choices"))
+        })
+        .transpose()?;
     Ok(GateInputs {
         drafts,
         structure,
@@ -13534,7 +13535,31 @@ fn gate_inputs(
         outcome,
         active: active_drafters(transaction, record),
         participants: policy_participants(transaction, record),
+        choices,
+        credit_binding,
     })
+}
+
+fn with_gate_subject<R>(
+    record: &SharedPublication,
+    inputs: &GateInputs,
+    participants: &[&str],
+    ask: impl FnOnce(&openblog_core::approval::ApprovalSubject<'_>) -> R,
+) -> R {
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    openblog_core::assembly::with_subject_for_participants(
+        record,
+        inputs.structure.structure.as_ref(),
+        &inputs.drafts,
+        &inputs.synthesis,
+        &inputs.moments,
+        &active,
+        participants,
+        |subject| match &inputs.credit_binding {
+            Some(binding) => openblog_core::assembly::with_credit_binding(subject, binding, ask),
+            None => ask(subject),
+        },
+    )
 }
 
 /// The grant check, always through the single entry point. A requester without the grant, or
@@ -13588,7 +13613,6 @@ fn prepare_post(
     date: DateTime,
 ) -> Result<Prepared, Response> {
     use openblog_core::assembly::{assemble_for_participants, AssemblyError};
-    require_credit_publication_support(state, &record.publication_id)?;
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
     let participants = inputs
         .participants
@@ -13596,6 +13620,20 @@ fn prepare_post(
         .map(String::as_str)
         .collect::<Vec<_>>();
     let build = |date: &str| {
+        if let Some(choices) = &inputs.choices {
+            return openblog_core::assembly::assemble_for_participants_with_credits(
+                record,
+                inputs.structure.structure.as_ref(),
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &active,
+                &participants,
+                date,
+                choices,
+            );
+        }
         assemble_for_participants(
             record,
             inputs.structure.structure.as_ref(),
@@ -14011,11 +14049,6 @@ fn change_approval(
     ) {
         return published_already();
     }
-    if approving.is_some() {
-        if let Err(response) = require_credit_publication_support(state, publication_id) {
-            return response;
-        }
-    }
     if approving.is_some() && !record.allows_approval_scope(inputs.approvals.set.policy().scope) {
         return Response::error(409, "This reflection needs a whole-piece approval rule before it can be approved. Ask a coordinator to propose that rule and agree to it; nothing was changed.");
     }
@@ -14038,7 +14071,23 @@ fn change_approval(
         };
         let show_synthesis =
             synthesis_visible(&transaction, &record, session, &inputs.synthesis, &own);
-        let preview = if active.contains(&own.as_str()) {
+        let preview = if let Some(choices) = &inputs.choices {
+            openblog_core::preview::build_with_credit_choices(
+                &record,
+                inputs.structure.structure.as_ref(),
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &own,
+                &active,
+                &participants,
+                !active.contains(&own.as_str()),
+                show_synthesis,
+                config.render_options(),
+                choices,
+            )
+        } else if active.contains(&own.as_str()) {
             openblog_core::preview::build_with_participants(
                 &record,
                 inputs.structure.structure.as_ref(),
@@ -14076,19 +14125,10 @@ fn change_approval(
     }
     let mut next = inputs.approvals.set.clone();
     let result = match approving {
-        Some((seen, affirmed)) => openblog_core::assembly::with_subject_for_participants(
-            &record,
-            inputs.structure.structure.as_ref(),
-            &inputs.drafts,
-            &inputs.synthesis,
-            &inputs.moments,
-            &active,
-            &participants,
-            |subject| {
-                next.approve(&own, &own, subject, seen, affirmed, clock::now().unix())
-                    .map(|()| true)
-            },
-        ),
+        Some((seen, affirmed)) => with_gate_subject(&record, &inputs, &participants, |subject| {
+            next.approve(&own, &own, subject, seen, affirmed, clock::now().unix())
+                .map(|()| true)
+        }),
         None => next.withdraw(&own, &own),
     };
     match result {
@@ -15103,6 +15143,16 @@ fn reconcile_approvals(
         let participants = participants.iter().map(String::as_str).collect::<Vec<_>>();
         let structure = crate::shared_publications::load_structure(&state.root, id)?;
         let mut next = stored.set.clone();
+        let choices = crate::shared_publications::load_credit_choices(&state.root, id)?.choices;
+        let binding = if choices.revision() != 0 {
+            Some(
+                choices
+                    .binding()
+                    .map_err(|_| "credit choices are not usable")?,
+            )
+        } else {
+            None
+        };
         let dropped = openblog_core::assembly::with_subject_for_participants(
             record,
             structure.structure.as_ref(),
@@ -15111,7 +15161,14 @@ fn reconcile_approvals(
             &moments.set,
             &active,
             &participants,
-            |subject| next.reconcile(subject),
+            |subject| match &binding {
+                Some(binding) => {
+                    openblog_core::assembly::with_credit_binding(subject, binding, |subject| {
+                        next.reconcile(subject)
+                    })
+                }
+                None => next.reconcile(subject),
+            },
         );
         if matches!(dropped, Ok(count) if count > 0) {
             crate::shared_publications::replace_approvals(&state.root, id, &stored, &next)
@@ -15396,9 +15453,6 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     let Some(own) = policy_participant(&transaction, record, &session.user) else {
         return draft_not_found();
     };
-    if let Err(response) = require_credit_publication_support(state, publication_id) {
-        return response;
-    }
     let stored = match load_reveal_drafts(state, publication_id) {
         Ok(stored) => stored,
         Err(response) => return response,
@@ -15450,7 +15504,28 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
             return Response::error(500, "The preview could not be built. Nothing was changed.");
         }
     };
-    let preview = if active.contains(&own.as_str()) {
+    let choices = match crate::shared_publications::load_credit_choices(&state.root, publication_id)
+    {
+        Ok(stored) => stored.choices,
+        Err(error) => return credit_choice_failed(&error),
+    };
+    let preview = if choices.revision() != 0 {
+        openblog_core::preview::build_with_credit_choices(
+            record,
+            structure.structure.as_ref(),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &own,
+            &active,
+            &recipients,
+            !active.contains(&own.as_str()),
+            show_synthesis,
+            config.render_options(),
+            &choices,
+        )
+    } else if active.contains(&own.as_str()) {
         openblog_core::preview::build_with_participants(
             record,
             structure.structure.as_ref(),
@@ -15479,8 +15554,13 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
             config.render_options(),
         )
     };
-    let Ok(preview) = preview else {
-        return draft_not_found();
+    let preview = match preview {
+        Ok(preview) => preview,
+        Err(openblog_core::preview::PreviewError::Denied) => return draft_not_found(),
+        Err(openblog_core::preview::PreviewError::CreditChoices) => return Response::error(
+            409,
+            "Each person whose work appears must choose their public credit before the complete piece can be reviewed. Nothing was changed.",
+        ),
     };
     drop(transaction);
     // The document is served from its own address with its own policy, so a sandboxed frame can
@@ -15704,8 +15784,8 @@ fn credit_choice_json(choices: &openblog_core::shared_credit::CreditChoices, own
     json!({
         "revision": choices.revision(),
         "choice": choices.choice(own),
-        "publicationSupported": false,
-        "notice": "Credit choices are not yet available for publication."
+        "publicationSupported": true,
+        "notice": "Changing a credit choice requires everyone to review and approve the piece again."
     })
 }
 
@@ -15841,6 +15921,7 @@ fn change_credit_choice(state: &AppState, req: &Request, session: &auth::Session
                         }
                     };
                 }
+                reconcile_approvals(state, &transaction, record);
             }
             Response::json(200, &credit_choice_json(&next, &own))
         }
@@ -15877,35 +15958,25 @@ fn approval_policy_json(
     set: &openblog_core::approval::ApprovalSet,
     approvers: &[String],
 ) -> Json {
-    use openblog_core::assembly::{display_names, with_subject_for_participants};
-    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    use openblog_core::assembly::display_names;
     let participants = inputs
         .participants
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let (rule, required, missing) = with_subject_for_participants(
-        record,
-        inputs.structure.structure.as_ref(),
-        &inputs.drafts,
-        &inputs.synthesis,
-        &inputs.moments,
-        &active,
-        &participants,
-        |subject| {
-            let required = set.required(subject);
-            let missing = required
-                .iter()
-                .filter(|id| !set.is_approved(subject, id))
-                .cloned()
-                .collect::<Vec<_>>();
-            (
-                openblog_core::preview::rule_for(record, set, subject),
-                required,
-                missing,
-            )
-        },
-    );
+    let (rule, required, missing) = with_gate_subject(record, inputs, &participants, |subject| {
+        let required = set.required(subject);
+        let missing = required
+            .iter()
+            .filter(|id| !set.is_approved(subject, id))
+            .cloned()
+            .collect::<Vec<_>>();
+        (
+            openblog_core::preview::rule_for(record, set, subject),
+            required,
+            missing,
+        )
+    });
     let people = record
         .collaboration
         .participants
@@ -16074,32 +16145,22 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
         active_approvers(&transaction, &record, &inputs.active)
     };
     let approver_ids = approvers.iter().map(String::as_str).collect::<Vec<_>>();
-    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
     let voters = policy_participants(&transaction, &record);
     let voters: Vec<_> = voters.iter().map(String::as_str).collect();
     if body.expected_proposal_id != inputs.approvals.set.proposal().map(|proposal| proposal.id) {
         return Response::error(409, "The rule proposal changed since you loaded it. Reload before proposing another rule; nothing was changed.");
     }
     let mut next = inputs.approvals.set.clone();
-    let result = openblog_core::assembly::with_subject_for_participants(
-        &record,
-        inputs.structure.structure.as_ref(),
-        &inputs.drafts,
-        &inputs.synthesis,
-        &inputs.moments,
-        &active,
-        &voters,
-        |subject| {
-            next.change_policy(
-                body.policy.clone(),
-                body.expected_revision,
-                body.confirmed,
-                authority,
-                subject,
-                &approver_ids,
-            )
-        },
-    );
+    let result = with_gate_subject(&record, &inputs, &voters, |subject| {
+        next.change_policy(
+            body.policy.clone(),
+            body.expected_revision,
+            body.confirmed,
+            authority,
+            subject,
+            &approver_ids,
+        )
+    });
     let cleared = match result {
         Ok(PolicyChange::Unchanged) => None,
         Ok(PolicyChange::Changed { cleared }) => Some(cleared),
@@ -16242,7 +16303,6 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
     ) {
         return published_already();
     }
-    let active: Vec<_> = inputs.active.iter().map(String::as_str).collect();
     let voters = policy_participants(&transaction, record);
     let voters: Vec<_> = voters.iter().map(String::as_str).collect();
     let approvers = if inputs
@@ -16286,25 +16346,16 @@ fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Sess
     };
     let mut cleared = 0;
     if unanimous {
-        let applied = openblog_core::assembly::with_subject_for_participants(
-            record,
-            inputs.structure.structure.as_ref(),
-            &inputs.drafts,
-            &inputs.synthesis,
-            &inputs.moments,
-            &active,
-            &voters,
-            |subject| {
-                next.apply_consented_policy(
-                    body.proposal_id,
-                    record.collaboration.revision,
-                    record.authorization.revision,
-                    &voters,
-                    subject,
-                    &approver_ids,
-                )
-            },
-        );
+        let applied = with_gate_subject(record, &inputs, &voters, |subject| {
+            next.apply_consented_policy(
+                body.proposal_id,
+                record.collaboration.revision,
+                record.authorization.revision,
+                &voters,
+                subject,
+                &approver_ids,
+            )
+        });
         match applied {
             Ok(openblog_core::approval::PolicyChange::Changed { cleared: count }) => cleared = count,
             _ => return Response::error(409, "The proposed rule no longer fits the reflection. Ask a coordinator to propose it again; nothing was changed."),
@@ -37974,7 +38025,7 @@ series: letters
     }
 
     #[test]
-    fn credit_choices_are_self_only_private_and_block_unsupported_publication() {
+    fn credit_choices_are_self_only_private_and_revision_checked() {
         let (f, mikey, id) = invitation_fixture("credit-choice");
         let grace = login_as(&f, "grace", "another correct horse");
         let url = format!("/admin/api/collaboration/credit-choice?publicationId={id}");
@@ -37996,7 +38047,7 @@ series: letters
         let initial = body_json(&get(&mikey));
         assert_eq!(initial["revision"], 0);
         assert!(initial["choice"].is_null());
-        assert_eq!(initial["publicationSupported"], false);
+        assert_eq!(initial["publicationSupported"], true);
         let profile = put(
             &mikey,
             json!({
@@ -38069,56 +38120,6 @@ series: letters
         assert_eq!(body_json(&repeated)["choice"]["publicId"], random_id);
         assert_eq!(body_json(&get(&mikey))["choice"]["kind"], "profile");
         assert!(!body_json(&get(&mikey)).to_string().contains("Pen Name"));
-        let preview = handle(
-            &f.state,
-            &authed(
-                req(
-                    "GET",
-                    &format!("/admin/api/collaboration/preview?publicationId={id}"),
-                ),
-                &mikey,
-                false,
-            ),
-        );
-        assert_eq!(preview.status, 409);
-        let approval = post_api(
-            &f,
-            &mikey,
-            "approve",
-            json!({"publicationId": id, "seen": "old-token", "affirmed": true}),
-        );
-        assert_eq!(approval.status, 409);
-        assert!(body_json(&approval)["error"]
-            .as_str()
-            .unwrap()
-            .contains("cannot yet"));
-        let blocked = post_api(&f, &mikey, "publish", json!({"publicationId":id}));
-        assert_eq!(
-            blocked.status,
-            409,
-            "{}",
-            String::from_utf8_lossy(&blocked.body)
-        );
-        assert!(body_json(&blocked)["error"]
-            .as_str()
-            .unwrap()
-            .contains("cannot yet"));
-        let scheduled = post_api(
-            &f,
-            &mikey,
-            "schedule",
-            json!({"publicationId": id, "publishAt": "2099-01-01T00:00:00Z"}),
-        );
-        assert_eq!(scheduled.status, 409);
-        assert!(body_json(&scheduled)["error"]
-            .as_str()
-            .unwrap()
-            .contains("cannot yet"));
-        assert!(!f
-            .dir
-            .join("content/posts")
-            .join(format!("{id}.md"))
-            .exists());
     }
 
     #[test]
@@ -40332,6 +40333,78 @@ series: letters
 
     fn published_post(f: &Fixture, id: &str) -> Option<String> {
         fs::read_to_string(f.dir.join(format!("content/posts/{id}.md"))).ok()
+    }
+
+    #[test]
+    fn credit_choices_bind_review_and_publication_to_current_consent() {
+        let (f, mikey, grace, ada, id) = approval_fixture("credit-consent");
+        let select = |who: &Session, revision: u64, choice: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        "/admin/api/collaboration/credit-choice",
+                        json!({"publicationId": id, "expectedRevision": revision, "choice": choice}),
+                    ),
+                    who,
+                    true,
+                ),
+            )
+        };
+        assert_eq!(select(&mikey, 0, json!({"kind": "profile"})).status, 200);
+        assert_eq!(preview_call(&f, &mikey, &id).status, 409);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(
+            schedule_as(&f, &ada, &id, json!("2099-01-01T00:00:00Z")).status,
+            409
+        );
+        assert_eq!(
+            select(
+                &grace,
+                1,
+                json!({"kind": "displayName", "name": "Pen Name"})
+            )
+            .status,
+            200
+        );
+        let old = approval_body(&f, &mikey, &id);
+        assert!(old["seen"].is_string());
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(select(&grace, 2, json!({"kind": "uncredited"})).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(
+            select(
+                &grace,
+                3,
+                json!({"kind": "displayName", "name": "Pen Name"})
+            )
+            .status,
+            200
+        );
+        assert_eq!(post_api(&f, &mikey, "approve", old).status, 409);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        let published = publish_as(&f, &ada, &id);
+        assert_eq!(
+            published.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&published.body)
+        );
+        let path = openblog_core::contributor::sidecar_path(&format!("posts/{id}.md")).unwrap();
+        let credits = fs::read_to_string(f.dir.join("content").join(path)).unwrap();
+        assert!(
+            credits.contains("Mikey") && credits.contains("Pen Name"),
+            "{credits}"
+        );
+        assert!(!credits.contains("grace"), "{credits}");
+        let receipt: Json =
+            serde_json::from_str(&fs::read_to_string(outcome_file(&f, &id)).unwrap()).unwrap();
+        assert_eq!(receipt["state"], "published");
+        assert!(receipt["revision"]["creditsDigest"].is_string());
     }
 
     fn outcome_file(f: &Fixture, id: &str) -> PathBuf {

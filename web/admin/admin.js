@@ -18799,7 +18799,7 @@ export class ObAdmin extends AdminElement {
             { class: "oba-member" },
             h("strong", {}, invitation.adminUser),
             h("span", { class: "oba-badge" }, invitation.state),
-            h("div", { class: "oba-small" }, `Would be credited as ${invitation.contributorId}. Roles: ${memberRolesLabel(invitation.roles)}.`),
+            h("div", { class: "oba-small" }, `Contributor profile: ${invitation.contributorId}. Roles: ${memberRolesLabel(invitation.roles)}.`),
             h("div", {}, invitationStatusText(invitation)),
             h("div", { class: "oba-toolbar" }, pending ? revoke : null, invitation.state !== "accepted" ? reissue : null),
             slot,
@@ -18818,7 +18818,7 @@ export class ObAdmin extends AdminElement {
       h("h4", {}, "Invite someone"),
       h("p", { class: "oba-small" }, "Invitations make a private link. Nothing is emailed; you pass the link on yourself, and it works once for the account you name."),
       h("div", { class: "oba-field" }, h("label", { for: `${prefix}-user` }, "Their sign-in name"), user),
-      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-profile` }, "They will be credited as"), profile),
+      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-profile` }, "Their contributor profile"), profile),
       h("fieldset", {}, h("legend", {}, "Sign-in roles"), roleBoxes),
       h("div", { class: "oba-field" }, h("label", { for: `${prefix}-days` }, "Valid for (days, 1 to 30)"), days),
       h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Create invitation link"),
@@ -19625,16 +19625,14 @@ export class ObAdmin extends AdminElement {
           });
           approvalHolder.append(
             h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-approve-confirm` },
-              roles.includes("contributor")
-                ? "I approve publishing exactly the piece I reviewed and being publicly credited as an author under my contributor profile."
-                : "I approve publishing exactly the piece I reviewed.")),
+              "I approve publishing exactly the piece I reviewed, including its public credits.")),
             approve,
           );
         }
-      } catch {
+      } catch (error) {
         previewList.hidden = true;
         previewHolder.replaceChildren();
-        previewStatus.textContent = "The preview could not be loaded, or you cannot preview this reflection. Nothing was changed.";
+        previewStatus.textContent = error?.data?.error || "The preview could not be loaded, or you cannot preview this reflection. Nothing was changed.";
       } finally {
         previewButton.disabled = false;
         if (restoreFocus && document.activeElement === document.body) previewButton.focus();
