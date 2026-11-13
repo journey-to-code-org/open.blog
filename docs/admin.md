@@ -885,7 +885,9 @@ New reflections start with mutual reveal: each active writer offers a saved revi
 group can read the offered perspectives. An author can continue editing privately after an
 offer; the sharing panel identifies the offered revision and warns when it is older than the
 latest draft. A coordinator can instead select named-recipient sharing, where an author
-confirms which active writers receive a particular revision.
+confirms which active participants receive a particular revision. Participants without draft
+access can open **Revisions shared with you** to read only the revisions named for them; source
+moments are not yet shown there. Later edits remain private.
 
 Authors can review the combined preview and explicitly approve it or withdraw an approval.
 For new reflections, approvals cover the whole piece, so changes invalidate earlier approvals.

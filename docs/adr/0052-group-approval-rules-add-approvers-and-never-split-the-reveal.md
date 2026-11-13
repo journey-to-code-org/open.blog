@@ -37,8 +37,8 @@ stored groups.
   containing a proposal or proposal sequence; rolling back requires handling these private files.
   Active participants are those whose bound Admin account and contributor identity are current
   and authorized to view the publication. Reader-only participants see the rule and proposal,
-  not draft text or the piece's approval status. Existing pending proposals with a different
-  voter set become stale and must be replaced.
+  and draft revisions explicitly released to them, but not the piece's approval status. Existing
+  pending proposals with a different voter set become stale and must be replaced.
   New reflections require whole-piece scope under every policy. A previously saved section-only
   rule on such a reflection blocks approval, scheduling and publication until the participants
   unanimously replace it with a whole-piece rule; the replacement clears standing approvals.

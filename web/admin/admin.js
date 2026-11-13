@@ -18275,6 +18275,7 @@ export class ObAdmin extends AdminElement {
           }),
         ),
         this.draftPanel(publication, index),
+        this.sharedReadingPanel(publication, index),
         this.readerPolicyPanel(publication, index),
         this.seriesPanel(publication, index),
         this.invitationPanel(publication, index),
@@ -18828,6 +18829,35 @@ export class ObAdmin extends AdminElement {
   }
 
   // ---- shared reflection series
+
+  sharedReadingPanel(publication, index) {
+    const roles = publication.roles || [];
+    if (roles.some((role) => ["contributor", "editor"].includes(role))) return null;
+    const id = publication.publicationId;
+    const heading = h("h3", { tabindex: "-1" }, "Revisions shared with you");
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const body = h("div", {});
+    const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Revisions shared with you"), heading,
+      h("p", { class: "oba-small" }, "Only revisions explicitly shared with you appear here. Later edits and source moments are not shown."),
+      problem, body);
+    details.addEventListener("toggle", async () => {
+      if (!details.open) return;
+      problem.hidden = true;
+      try {
+        const reveal = await this.api.call("GET", `collaboration/reveal?publicationId=${encodeURIComponent(id)}`);
+        const slots = reveal.slots || [];
+        body.replaceChildren(...(slots.length ? [h("ul", { class: "oba-member-list", "aria-label": "Shared revisions" }, slots.map((slot) =>
+          h("li", {}, h("span", {}, revealSlotText(slot)),
+            h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || "")),
+        ))] : [h("p", { class: "oba-small" }, "No revisions have been shared with you.")]));
+      } catch (error) {
+        problem.textContent = draftFailure(error).message;
+        problem.hidden = false;
+        problem.focus();
+      }
+    });
+    return details;
+  }
 
   readerPolicyPanel(publication, index) {
     const roles = publication.roles || [];
@@ -19877,7 +19907,7 @@ export class ObAdmin extends AdminElement {
             );
           });
           parts.push(
-            h("fieldset", { class: "oba-fieldset" }, h("legend", {}, "Who may read this revision?"), choices.length ? choices.map(({ element }) => element) : h("p", { class: "oba-small" }, "No other active writers are available.")),
+            h("fieldset", { class: "oba-fieldset" }, h("legend", {}, "Who may read this revision?"), choices.length ? choices.map(({ element }) => element) : h("p", { class: "oba-small" }, "No other active participants are available.")),
             release,
             holder,
           );
@@ -19938,8 +19968,8 @@ export class ObAdmin extends AdminElement {
         );
       }
       parts.push(ruleBlock);
-      if (reveal.slots?.length) parts.push(slots);
-      if (reveal.slots?.length) parts.push(previewSection);
+      if (reveal.canDraft !== false && reveal.slots?.length) parts.push(slots);
+      if (reveal.canDraft !== false && reveal.slots?.length) parts.push(previewSection);
       parts.push(arrangement);
       const focused = arrangement.contains(document.activeElement) ? document.activeElement : null;
       sharing.replaceChildren(...parts);

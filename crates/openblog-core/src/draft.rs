@@ -490,6 +490,44 @@ impl DraftSet {
         })
     }
 
+    /// Read only a revision explicitly released to this recipient. The caller must supply
+    /// currently authorized recipients and active draft owners in `active`.
+    pub fn view_named(
+        &self,
+        requester: &str,
+        contribution_id: &str,
+        active: &[&str],
+    ) -> Result<DraftView, DraftError> {
+        if !self.is_member(requester) || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        let draft = self
+            .draft(contribution_id)
+            .filter(|draft| !draft.withdrawn && active.contains(&draft.owner.as_str()))
+            .ok_or(DraftError::Denied)?;
+        let number = self
+            .named_releases
+            .iter()
+            .filter(|release| {
+                release
+                    .contribution_id
+                    .eq_ignore_ascii_case(contribution_id)
+                    && release.recipients.iter().any(|id| id == requester)
+            })
+            .map(|release| release.revision)
+            .max()
+            .ok_or(DraftError::Denied)?;
+        let revision = draft
+            .revisions
+            .iter()
+            .find(|revision| revision.number == number)
+            .ok_or(DraftError::Denied)?;
+        Ok(DraftView {
+            stamp: Self::stamp(draft, revision),
+            markdown: revision.markdown.clone(),
+        })
+    }
+
     /// The stamp of a draft's latest revision, or none for an unknown or withdrawn draft. It is
     /// prose-free and says nothing about who may read the revision.
     pub fn current_stamp(&self, contribution_id: &str) -> Option<RevisionStamp> {

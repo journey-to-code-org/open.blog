@@ -21,8 +21,9 @@ All notable changes to open.blog are recorded here. Releases follow
   approvals must be reviewed again, including for older reflections.
 - The sharing panel names the revision an author offered, and warns when it is older than their
   latest saved draft.
-- Coordinators can choose named-recipient sharing. Authors confirm exactly which active writers
-  receive their current revision; later edits stay private.
+- Coordinators can choose named-recipient sharing. Authors confirm exactly which active participants
+  receive their current revision; later edits stay private. Non-drafters can read explicitly shared
+  draft revisions, but cannot yet see associated source moments or approve the combined piece.
 - Approval rule changes now require each active, bound participant, including readers and
   coordinators, to agree to the exact proposed rule. Existing approvals remain in force until
   the group agrees, then are cleared.

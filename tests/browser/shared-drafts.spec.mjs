@@ -338,6 +338,33 @@ test("a named release confirms the selected recipients and revision at 400px", a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
+test("a reader can open an explicitly shared revision at 400px", async ({ page, context }) => {
+  await install(context);
+  await context.route("**/admin/api/collaboration/publications", (route) => json(route, 200, {
+    publications: [{ publicationId: PUBLICATION, roles: ["reader"], title: "A shared reflection", sources: [] }],
+  }));
+  await context.route("**/admin/api/collaboration/reveal?**", (route) => json(route, 200, {
+    policy: "namedRecipients", canDraft: false, slots: [
+      { participantId: "p-other", displayName: "Another writer", kind: "revealed", stamp: stamp(1), markdown: "Shared words." },
+    ],
+  }));
+  await page.setViewportSize({ width: 400, height: 800 });
+  await page.goto(`${origin}/admin/`);
+  await page.getByLabel("Username", { exact: true }).fill("writer");
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.goto(`${origin}/admin/#/shared`);
+  await page.locator("summary", { hasText: "Revisions shared with you" }).press("Enter");
+  await expect(page.getByRole("group", { name: "Text from Another writer" })).toHaveText("Shared words.");
+  await expect(page.getByText("Later edits and source moments are not shown.", { exact: false })).toBeVisible();
+  await page.evaluate(axe.source);
+  const result = await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(result.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 test("going offline keeps the text and says so, and saving works again afterwards", async ({ page, context }) => {
   await install(context);
   await openPanel(page);

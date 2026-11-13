@@ -15011,7 +15011,7 @@ fn may_set_policy(
 
 /// The comparison for the signed-in participant: one slot per contract participant, in contract
 /// order, each their own latest revision, a revision revealed to them, or a placeholder. A
-/// coordinator who is not a drafter gets the policy only.
+/// Non-drafters see only revisions explicitly released to them, without offer state.
 fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let Some(publication_id) = req.query.get("publicationId") else {
         return draft_not_found();
@@ -15024,7 +15024,8 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
     };
     let own = draft_owner(&transaction, record, session);
     let coordinator = may_set_policy(&transaction, record, session);
-    if own.is_none() && !coordinator {
+    let reader = policy_participant(&transaction, record, &session.user);
+    if own.is_none() && reader.is_none() && !coordinator {
         return draft_not_found();
     }
     let stored = match load_reveal_drafts(state, publication_id) {
@@ -15047,6 +15048,7 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
             .collect::<Vec<_>>();
         let active = active_drafters(&transaction, record);
         let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let recipients = policy_participants(&transaction, record);
         let Ok(compared) = set.compare(own, &order, &active) else {
             return draft_not_found();
         };
@@ -15059,17 +15061,32 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
             slots.push(json!({
                 "participantId": participant.id,
                 "displayName": participant.display_name,
-                "mayReceive": participant.id != *own && active.contains(&participant.id.as_str()),
+                "mayReceive": participant.id != *own && recipients.contains(&participant.id),
                 "kind": kind,
                 "ready": offered,
                 "stamp": view.map(|v| &v.stamp),
                 "markdown": view.map(|v| &v.markdown),
             }));
         }
+    } else if let Some(reader) = &reader {
+        let mut active = active_drafters(&transaction, record);
+        active.push(reader.clone());
+        let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        for participant in &record.collaboration.participants {
+            if let Ok(view) = set.view_named(reader, &participant.id, &active) {
+                slots.push(json!({
+                    "participantId": participant.id,
+                    "displayName": participant.display_name,
+                    "kind": "revealed",
+                    "stamp": view.stamp,
+                    "markdown": view.markdown,
+                }));
+            }
+        }
     }
     Response::json(
         200,
-        &json!({ "policy": set.policy(), "ready": ready, "readyRevision": ready_revision, "slots": slots, "canSetPolicy": coordinator }),
+        &json!({ "policy": set.policy(), "ready": ready, "readyRevision": ready_revision, "slots": slots, "canSetPolicy": coordinator, "canDraft": own.is_some() }),
     )
 }
 
@@ -15092,7 +15109,7 @@ fn release_named_draft(state: &AppState, req: &Request, session: &auth::Session)
     let Ok(mut set) = draft_set_for(stored.set.as_ref(), record) else {
         return Response::error(500, "Sharing could not be changed. Nothing was changed.");
     };
-    let active = active_drafters(&transaction, record);
+    let active = policy_participants(&transaction, record);
     let active: Vec<_> = active.iter().map(String::as_str).collect();
     let recipients: Vec<_> = body.recipients.iter().map(String::as_str).collect();
     let now = clock::now().unix();
@@ -38634,6 +38651,177 @@ series: letters
             reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2))).status,
             422
         );
+    }
+
+    #[test]
+    fn named_release_can_reach_a_reader_without_revealing_other_drafts() {
+        let (f, mikey, id) = invitation_fixture("named-reader");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
+        let reader2 = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "ada",
+            "a fourth correct horse",
+            json!(["reader"]),
+        );
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "MIKEY-SECRET").status, 200);
+        assert_eq!(draft_call(&f, &grace, &id, 0, "GRACE-SECRET").status, 200);
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "allReady", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        let record = stored_record(&f, &id);
+        let reader = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "linus")
+            .unwrap()
+            .participant_id
+            .clone();
+        let before = body_json(&reveal_state(&f, &linus, &id)).to_string();
+        assert!(!before.contains("MIKEY-SECRET"));
+        assert!(!before.contains("\"ready\":true"));
+        let writer_view = body_json(&reveal_state(&f, &mikey, &id));
+        assert!(writer_view["slots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|slot| { slot["participantId"] == reader && slot["mayReceive"] == true }));
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [reader],
+                })
+            )
+            .status,
+            200
+        );
+        let shared = body_json(&reveal_state(&f, &linus, &id)).to_string();
+        assert!(shared.contains("MIKEY-SECRET"));
+        assert!(!shared.contains("GRACE-SECRET"));
+        assert!(!body_json(&reveal_state(&f, &reader2, &id))
+            .to_string()
+            .contains("MIKEY-SECRET"));
+        assert_eq!(draft_call(&f, &mikey, &id, 1, "NEW-SECRET").status, 200);
+        let shared = body_json(&reveal_state(&f, &linus, &id)).to_string();
+        assert!(shared.contains("MIKEY-SECRET"));
+        assert!(!shared.contains("NEW-SECRET"));
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [reader],
+                })
+            )
+            .status,
+            200
+        );
+        assert!(body_json(&reveal_state(&f, &linus, &id))
+            .to_string()
+            .contains("GRACE-SECRET"));
+        let revision = body_json(&members_of(&f, &mikey, &id))["revision"]
+            .as_u64()
+            .unwrap();
+        let grace_id = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id
+            .clone();
+        assert_eq!(post_api(&f, &mikey, "members/roles", json!({
+            "publicationId": id, "participantId": grace_id, "roles": ["reader"], "expectedRevision": revision,
+        })).status, 200);
+        assert!(!body_json(&reveal_state(&f, &linus, &id))
+            .to_string()
+            .contains("GRACE-SECRET"));
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "members/remove",
+                json!({
+                    "publicationId": id, "participantId": reader, "expectedRevision": revision + 1,
+                })
+            )
+            .status,
+            200
+        );
+        assert_eq!(reveal_state(&f, &linus, &id).status, 404);
+    }
+
+    #[test]
+    fn demoted_reader_does_not_inherit_mutual_reveals_or_offer_state() {
+        let (f, mikey, id) = invitation_fixture("reader-mutual-isolation");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "MUTUAL-SECRET").status, 200);
+        assert_eq!(draft_call(&f, &grace, &id, 0, "GRACE-DRAFT").status, 200);
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(1))).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))).status,
+            200
+        );
+        assert!(body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("MUTUAL-SECRET"));
+        let record = stored_record(&f, &id);
+        let grace_id = &record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id;
+        let revision = body_json(&members_of(&f, &mikey, &id))["revision"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(post_api(&f, &mikey, "members/roles", json!({
+            "publicationId": id, "participantId": grace_id, "roles": ["reader"], "expectedRevision": revision,
+        })).status, 200);
+        let reader = body_json(&reveal_state(&f, &grace, &id));
+        assert_eq!(reader["slots"], json!([]));
+        assert_eq!(reader["ready"], false);
+        assert!(!reader.to_string().contains("MUTUAL-SECRET"));
+        assert!(!reader.to_string().contains("GRACE-DRAFT"));
     }
 
     #[test]

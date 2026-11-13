@@ -21,10 +21,12 @@ each draft would allow.
   New shared reflection records now select `allReady` when their first draft set is created;
   legacy records and existing draft sets keep their previous behavior (see ADR 0016).
 - The optional `namedRecipients` policy lets each author release their current exact draft
-  revision to explicitly selected active authors without waiting for reciprocal releases. The
+  revision to explicitly selected active participants without waiting for reciprocal releases. The
   private draft set records its contribution, revision, recipient IDs and release time. Later
   edits remain private; releasing to a different person does not extend an earlier release.
-  Readers and authors must both retain active draft access to read a named release. As with other
+  The author must retain draft access and the recipient must retain publication access to read a
+  named release. Non-drafters see only explicitly named releases, never private offer state or
+  mutual releases; source moments are not yet available to them. As with other
   committed reveals, a copy already read cannot be recalled, and restoring the same participant's
   access makes their previously named releases readable again. Proposed source moments may be
   sealed and shown with the released revision under ADR 0063. Changing policy does not undo a
