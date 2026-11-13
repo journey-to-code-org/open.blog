@@ -7,14 +7,13 @@ import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { accountLabel, captionWords, providerName, sentWords, shareTrouble } from "../parts/share-words.js";
 import { sayWhen } from "../parts/dates.js";
+import * as M from "../parts/announcements-rules.js";
 
-const MODEL = "/admin/announcements.js";
 const SOON_MS = 5 * 60 * 1000;
 const CHOSEN = "studio:share:accounts";
 
 export async function createShareNew({ api, go }, route) {
   await use("action-button", "alert-banner", "date-field", "select-field", "skeleton-block", "text-field", "toggle-switch");
-  const M = await import(MODEL);
   const zone = M.browserZone();
   let destinations = [];
   let posts = [];

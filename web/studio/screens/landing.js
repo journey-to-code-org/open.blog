@@ -1,8 +1,8 @@
 // Front page: the sections of her home page in order, each said in a line. Change one (its fields
-// in a side sheet, drawn from the same section catalog the old Admin uses), move it, hide it,
+// in a side sheet, drawn from the section catalog in parts/landing-rules.js), move it, hide it,
 // remove it (Undo puts it back where it was), add one (built-in sections and her theme's own
 // things, like the Christmas tree), see it, save it. Earlier versions can be brought back.
-// Studio slice 6. The rules are the old Admin's landing model (/admin/landing.js, pure data and
+// Studio slice 6. The rules are parts/landing-rules.js (moved from the old Admin; pure data and
 // functions); the server owns every rule and the saved form.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
@@ -12,14 +12,12 @@ import { showPreview } from "../parts/preview.js";
 import { sendOut, wentOutWords } from "../parts/publish.js";
 import { choosePicture } from "../parts/picture-picker.js";
 import { landingVersions } from "../parts/landing-versions.js";
+import * as L from "../parts/landing-rules.js";
 
-// Served by the old Admin at /admin/landing.js; Studio lives at /admin/studio/.
-const MODEL = "/admin/landing.js";
 
 export async function createLanding(context) {
   const { api, meta, posts } = context;
   await use("action-button", "dropdown-menu", "side-sheet", "alert-banner", "status-badge", "empty-state", "skeleton-block", "content-card", "auto-grid", "text-field", "select-field", "toggle-switch", "date-field");
-  const L = await import(MODEL);
   let revision = null;
   let saved = null; // the page as on the server
   let draft = null; // what she's changing
@@ -230,8 +228,10 @@ export async function createLanding(context) {
     draft = keep || structuredClone(saved);
     if (!quiet) banner.replaceChildren();
     if (reply.valid === false) {
-      banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Your front page needs fixing first" }, "Something in it can't be read here. Open it in the old Admin.",
-        h("a", { href: "/admin/#/landing", target: "_blank", rel: "noopener", text: "Open the old Admin" })));
+      banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Your front page needs fixing first" },
+        "Something in its settings can't be read here. Tell the person who set up your site.",
+        h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+          h("p", { class: "studio-mono", text: `openblog.json "landing": ${(reply.problems || []).map((p) => p.message || p).join("; ") || reply.error || "not valid"}` }))));
     }
     delete saved.unsaved;
     paint();

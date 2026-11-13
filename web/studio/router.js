@@ -20,6 +20,43 @@ export function parseRoute(hash) {
   return { name: name || "home", arg, query };
 }
 
+// The old Admin's addresses (bookmarks, links in notifications and invitations), and the Studio
+// screen each now opens. A route Studio doesn't have yet opens "not-yet" with the old name, never a
+// blank Home. Retirement plan R0; each later slice moves its names out of NOT_YET.
+const OLD_RENAMED = {
+  overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations",
+  moderation: "comments", feedback: "comments", analytics: "visitors", social: "sharing",
+  announcements: "sharing", share: "sharing", greetings: "cards",
+};
+const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
+const NOT_YET = new Set(["capture", "comparisons", "contributors", "design", "distribution", "notifications", "paths", "research", "shared", "voice"]);
+
+/**
+ * The Studio address for an old Admin address, or null when it is already Studio's own.
+ * "#/edit/posts/x.md" → "#/write/posts%2Fx.md"; "#/overview" → "#/"; "#/research" → "#/not-yet/research".
+ */
+export function legacyRoute(hash) {
+  const raw = String(hash || "").replace(/^#\/?/, "");
+  const [path, search = ""] = raw.split("?");
+  const [name, ...rest] = path.split("/");
+  const tail = search ? `?${search}` : "";
+  if (name === "edit" && rest.length) {
+    let file = rest.join("/");
+    try { file = decodeURIComponent(file); } catch { /* as typed */ }
+    const screen = OLD_FOLDERS[file.split("/")[0]] || "write";
+    return `#/${screen}/${encodeURIComponent(file)}`;
+  }
+  if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
+  // The old inbox named the server's states; Studio's Comments names its own views.
+  if ((name === "moderation" || name === "feedback") && rest.length) {
+    const view = { pending: "", approved: "shown", rejected: "not-shown", removed: "taken-down" }[rest[0]] ?? "";
+    return `#/comments${view ? `/${view}` : ""}${tail}`;
+  }
+    if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
+  if (NOT_YET.has(name)) return `#/not-yet/${name}`;
+  return null;
+}
+
 /** The address for a route; empty query values are left out. */
 export function routeHash(name, arg = "", query = {}) {
   const search = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== "" && value != null)).toString();
@@ -36,6 +73,12 @@ export function createRouter({ screens, onShow }) {
   // (Back, a link) isn't mistaken for "no change"; only the newest screen to finish is shown.
   let showing = 0;
   async function show(hash) {
+    // An old Admin address opens its Studio screen, and the address bar says so.
+    const studio = legacyRoute(hash);
+    if (studio) {
+      history.replaceState(null, "", studio);
+      hash = studio;
+    }
     const turn = ++showing;
     currentHash = hash;
     const route = parseRoute(hash);

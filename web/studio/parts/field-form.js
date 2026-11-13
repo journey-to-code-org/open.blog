@@ -1,6 +1,6 @@
 // A form drawn from a field spec: the landing sections' and theme components' settings, business
 // facts, anything described as `{ kind, name, label, hint, required, options, fields, ... }`
-// (the spec shape of web/admin/landing.js). Every field is a labelled Zubra field; nothing typed is
+// (the spec shape of parts/landing-rules.js). Every field is a labelled Zubra field; nothing typed is
 // ever markup. `value()` returns the data in the spec's shape; `onChange()` after every edit.
 // Studio slice 6.
 import { h } from "./dom.js";

@@ -272,7 +272,6 @@ export async function createWrite(context, arg) {
     if (value === "preview") preview(look.querySelector("button"));
     if (value === "details") showDetails();
     if (value === "view" && doc.url) open(link(), "_blank", "noopener");
-    if (value === "old" && doc.path) location.href = `/admin#/edit/${encodeURIComponent(doc.path)}`;
     if (value === "draft") saveNow("draft");
     if (value === "about") numbers?.openAbout();
     if (value === "takeoff" && doc.state === "published") takeOff();
@@ -334,7 +333,12 @@ export async function createWrite(context, arg) {
         return;
       }
       if (reply.raw !== undefined && !reply.fields) {
-        banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "This post can't be changed here" }, "Something in it needs fixing first. Open it in the old Admin."));
+        // The file's settings at the top can't be read: show what's there and where, so it can be fixed.
+        banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "This post can't be changed here" },
+          "Something at the top of its file needs fixing first. Tell the person who set up your site.",
+          h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+            h("p", { class: "studio-mono", text: `content/${doc.path || path || ""}${reply.error ? `: ${reply.error}` : ""}` }),
+            h("text-field", { label: "The file as it is", rows: 12, readonly: true, value: String(reply.raw || "") }))));
         element.querySelector(".studio-write-grid").hidden = true;
         primary.hidden = true;
         save.hidden = true;

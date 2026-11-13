@@ -29,7 +29,10 @@ test("Studio's own code never writes markup or inline styles", () => {
     const code = readFileSync(file, "utf8");
     const name = relative(repo, file);
     assert.doesNotMatch(code, /\.(innerHTML|outerHTML)\s*=|insertAdjacentHTML|document\.write\(/, `${name} writes markup`);
-    assert.doesNotMatch(code, /\.style\.|style:\s*["'{]|setAttribute\(\s*["']style["']/, `${name} sets an inline style`);
+    // Rules files are data and pure functions (a button's `style: "primary"` is data, not CSS):
+    // they must not touch the page at all, which is the stronger promise.
+    if (/-rules\.js$/.test(name)) assert.doesNotMatch(code, /\bdocument\.[a-z]|\bwindow\.[a-z]|createElement|\bh\(/, `${name} is rules, yet touches the page`);
+    else assert.doesNotMatch(code, /\.style\.|style:\s*["'{]|setAttribute\(\s*["']style["']/, `${name} sets an inline style`);
     assert.doesNotMatch(code, /\beval\(|new Function\(/, `${name} evaluates code`);
   }
 });

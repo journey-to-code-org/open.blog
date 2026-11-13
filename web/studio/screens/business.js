@@ -7,8 +7,8 @@ import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { askWhichToKeep } from "../parts/conflict.js";
 import { sendOut, wentOutWords } from "../parts/publish.js";
+import * as M from "../parts/business-rules.js";
 
-const MODEL = "/admin/business.js";
 const WEEKDAYS_AFTER_MONDAY = ["tuesday", "wednesday", "thursday", "friday"];
 
 /** "7 AM", "5:30 PM" from "07:00", "17:30". */
@@ -21,7 +21,6 @@ const clock = (hhmm) => {
 export async function createBusiness(context) {
   const { api, meta } = context;
   await use("text-field", "select-field", "toggle-switch", "action-button", "alert-banner", "skeleton-block");
-  const M = await import(MODEL);
   let reply = null; // GET business
   let saved = null; // the form as stored
   let form = null; // the form as she has it

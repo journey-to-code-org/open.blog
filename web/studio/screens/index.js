@@ -23,6 +23,7 @@ import { createQuotes } from "./quotes.js";
 import { createReminders } from "./reminders.js";
 import { createSharing } from "./sharing.js";
 import { createShareNew } from "./share-new.js";
+import { createNotYet } from "./not-yet.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 
@@ -54,6 +55,8 @@ export const SCREENS = [
   { name: "reminders", nav: "Reminders", area: "reminders", when: (meta) => meta.siteUses?.reminders === true, create: (context) => createReminders(context) },
   // #/sharing/new is the composer.
   { name: "sharing", nav: "Sharing", area: "sharing", when: (meta) => meta.social === true, create: (context, route) => (route.arg === "new" ? createShareNew(context, route) : createSharing(context)) },
+  // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
+  { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
   { name: "look", nav: "Look", area: "look", create: (context) => createLook(context) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },

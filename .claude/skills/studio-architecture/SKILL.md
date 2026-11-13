@@ -5,7 +5,7 @@ description: How open.blog Studio (the new Admin on Zubra UI) is built: folders,
 
 # Studio architecture
 
-Studio is a new face on the existing Admin server. The server, its sessions and its `/admin/api/*` routes stay; Studio replaces only what runs in the browser. The old Admin (`web/admin/`, served at `/admin`) keeps working beside it until Studio reaches parity, so the two can be compared feature by feature.
+Studio is a new face on the existing Admin server. The server, its sessions and its `/admin/api/*` routes stay; Studio replaces only what runs in the browser. The old Admin (`web/admin/`) is being retired (docs/specs/studio/retirement-plan.md): Studio must do everything it did, and at the end `/admin/` opens Studio and `web/admin/` is deleted. Studio never loads anything from `/admin/*.js`; an old Admin address opens its Studio screen through `legacyRoute()` in `router.js`.
 
 ## Where things live
 
@@ -27,6 +27,7 @@ Served at `/admin/studio/` (under the `/admin` cookie path, so the Admin session
 ## Rules
 
 - **Plain modules, no build step, no framework.** ES modules the browser loads as they are. Zubra UI elements are the components; Studio code composes them.
+- **Rules live in `parts/*-rules.js`.** Pure data and functions (no DOM, no `document.`/`window.`; a test enforces it), imported statically by screens and tested in `tests/web/studio-*-rules.test.mjs`. Rules moved from the old Admin keep their behaviour and their tests.
 - **The API is the contract.** Screens call `api.js`, which calls the existing `/admin/api/*` routes with the CSRF header. A screen that needs something the API lacks gets a new route in Rust, with route tests, agreed by the architect. Studio never reads or writes files any other way.
 - **Security policy stays strict.** Studio runs under Admin's policy: `script-src 'self'`, `style-src 'self'`. No inline scripts, no `style` attributes, no `innerHTML` with data. Set styles through classes, custom properties set from script (`element.style.setProperty`) or Zubra UI's constructed stylesheets, which the policy allows.
 - **Text is text.** Everything from the server or the owner is placed with `textContent` or as element properties.

@@ -79,6 +79,5 @@ export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narr
     { id: "plain", label: "Write it all in one box", when: recipe && boxes },
     { id: "boxes", label: "Use the recipe boxes", when: recipe && !boxes },
     { id: "details", label: "Show details" },
-    { id: "old", label: "Open in the old Admin", when: Boolean(path) },
   ].filter((command) => command.when !== false);
 }

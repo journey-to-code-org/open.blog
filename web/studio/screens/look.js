@@ -1,20 +1,19 @@
 // Look: how every page looks, whatever the season: a ready-made look, the main color, the lettering,
 // the size of the writing, corners, spacing, page width, headings, and whether readers can switch to
 // dark. Each choice can go back to the theme's own. See it, then Save. Studio slice 7. The words and
-// rules are the old Admin's look model (/admin/look.js); the server owns every rule (it may soften a
+// rules are parts/look-rules.js (moved from the old Admin); the server owns every rule (it may soften a
 // color so writing stays easy to read, and says so).
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { showPreview } from "../parts/preview.js";
 import { sendOut, wentOutWords } from "../parts/publish.js";
+import * as M from "../parts/look-rules.js";
 
-const MODEL = "/admin/look.js";
 const OWN = "";
 
 export async function createLook({ api, meta }) {
   await use("select-field", "action-button", "alert-banner", "skeleton-block");
-  const M = await import(MODEL);
   let reply = null; // GET look
   let saved = {};
   let draft = {};

@@ -7,8 +7,8 @@ import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { sayDay } from "../parts/dates.js";
 import { postHref } from "../parts/post-list.js";
+import * as M from "../parts/seasonal-rules.js";
 
-const MODEL = "/admin/seasonal.js";
 const DAY = 24 * 60 * 60 * 1000;
 
 /** Days from `today` to `day` (both YYYY-MM-DD). */
@@ -16,7 +16,6 @@ const daysTo = (day, today) => Math.round((Date.parse(`${day}T00:00:00Z`) - Date
 
 export async function createReminders({ api, go }) {
   await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "skeleton-block", "status-badge");
-  const M = await import(MODEL);
   let data = null;
 
   const heading = h("h2", { id: "studio-reminders-h", class: "studio-question", tabindex: "-1", text: "What's worth writing about now?" });
