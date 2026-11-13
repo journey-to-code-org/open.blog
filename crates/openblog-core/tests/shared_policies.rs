@@ -329,6 +329,81 @@ fn whole_piece_rules_cannot_revive_consent_after_membership_or_access_changes() 
 }
 
 #[test]
+fn credit_selection_and_reversion_invalidate_whole_piece_approvals() {
+    use openblog_core::assembly::with_credit_subject_for_participants;
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let mut choices = CreditChoices::default();
+    choices
+        .select("ann", "ann", "ann", 0, CreditChoice::Uncredited)
+        .unwrap();
+    choices
+        .select("bo", "bo", "bo", 1, CreditChoice::Uncredited)
+        .unwrap();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let first_token = with_credit_subject_for_participants(
+        &record,
+        None,
+        &drafts,
+        &synthesis,
+        &moments,
+        &active,
+        &active,
+        &choices,
+        |subject| {
+            let token = approvals.binding_for(subject, "ann").unwrap();
+            for who in active {
+                let seen = approvals.binding_for(subject, who).unwrap();
+                approvals
+                    .approve(who, who, subject, &seen, true, T)
+                    .unwrap();
+            }
+            assert_eq!(approvals.evaluate(subject), Ok(Readiness::Ready));
+            token
+        },
+    )
+    .unwrap();
+    choices
+        .select(
+            "bo",
+            "bo",
+            "bo",
+            2,
+            CreditChoice::DisplayName { name: "B".into() },
+        )
+        .unwrap();
+    choices
+        .select("bo", "bo", "bo", 3, CreditChoice::Uncredited)
+        .unwrap();
+    with_credit_subject_for_participants(
+        &record,
+        None,
+        &drafts,
+        &synthesis,
+        &moments,
+        &active,
+        &active,
+        &choices,
+        |subject| {
+            assert_ne!(approvals.binding_for(subject, "ann").unwrap(), first_token);
+            assert!(matches!(
+                approvals.evaluate(subject),
+                Ok(Readiness::Blocked { .. })
+            ));
+            assert!(approvals
+                .approve("ann", "ann", subject, &first_token, true, T)
+                .is_err());
+        },
+    )
+    .unwrap();
+}
+
+#[test]
 fn participant_rules_require_readers_and_never_waive_writer_consent() {
     let record = record();
     let drafts = drafts(&["ann", "bo"]);

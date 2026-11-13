@@ -251,6 +251,41 @@ pub fn with_subject_for_participants<R>(
     })
 }
 
+/// Build the same approval subject with the exact private credit choices and their revision bound
+/// to it. Callers must also present the corresponding public credit projection in the preview.
+#[allow(clippy::too_many_arguments)]
+pub fn with_credit_subject_for_participants<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> Result<R, crate::shared_credit::CreditChoiceError> {
+    let binding = choices.binding()?;
+    Ok(with_subject_for_participants(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        participants,
+        |subject| {
+            let mut metadata = subject.metadata.to_vec();
+            metadata.push("participant-credit-choices-v1");
+            metadata.push(&binding);
+            ask(&ApprovalSubject {
+                metadata: &metadata,
+                ..*subject
+            })
+        },
+    ))
+}
+
 /// Display names for participant ids, in the order given; unknown ids are skipped.
 pub fn display_names<'a>(
     record: &SharedPublication,
