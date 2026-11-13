@@ -120,6 +120,7 @@ pub struct PreviewRule {
     pub unmet_named: Vec<String>,
     /// Roles the rule lists that no current author holds.
     pub unmet_roles: Vec<AuthorizationRole>,
+    pub quorum: Option<crate::approval::QuorumProgress>,
 }
 
 /// The rule in words, for the preview and for the people who choose it.
@@ -141,6 +142,7 @@ pub fn rule_for(
         revision: approvals.policy_revision(),
         unmet_named: display_names(record, gaps.named.iter().map(String::as_str)),
         unmet_roles: gaps.roles,
+        quorum: approvals.quorum_progress(subject),
         policy,
     }
 }
@@ -578,6 +580,12 @@ fn document(
         "<p class=\"ob-preview-rule\">Approval rule: {}</p>\n",
         escape::text(&rule.summary)
     ));
+    if let Some(quorum) = &rule.quorum {
+        html.push_str(&format!(
+            "<p class=\"ob-preview-status\">Quorum: {} of {} approvals; {} current authors.</p>\n",
+            quorum.approved, quorum.required, quorum.current_authors
+        ));
+    }
     if !rule.unmet_named.is_empty() || !rule.unmet_roles.is_empty() {
         let mut problems = Vec::new();
         if !rule.unmet_named.is_empty() {

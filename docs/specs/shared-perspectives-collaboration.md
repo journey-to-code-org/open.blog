@@ -480,8 +480,14 @@ changes stale the proposal. Rule consent does not approve the piece; applying th
 piece approvals. New reflections require whole-piece approval under every rule, so an edit
 invalidates all approvals. If an earlier version saved a section-only rule for a new reflection,
 participants must unanimously replace it with a whole-piece rule before approving, scheduling or
-publishing. Legacy reflections retain their existing scope. Numeric quorum remains open in epic
-#592.
+publishing. Legacy reflections retain their existing scope unless they select a numeric quorum,
+which always requires whole-piece approval. A fixed quorum counts standing approvals from current
+authors who hold the contributor role; every writer and attributed author must separately approve.
+It is not reduced when authors leave. A proposal exceeding the current eligible author count is
+refused, and only a site owner may propose weakening an existing quorum. The normal unanimous
+proposal process still applies. Reader and coordinator-only participants cannot yet approve the
+piece, so full all-participant quorum remains open in epic #592. Older releases cannot read an
+approval set that contains a numeric quorum.
 
 Publishing stores a private receipt identifying the approved section revisions and hashing the
 exact resulting Post and credit sidecar. The receipt contains no draft prose and is not public

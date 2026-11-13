@@ -13567,6 +13567,12 @@ fn prepare_post(
                 }),
             ))
         }
+        Err(AssemblyError::QuorumBlocked { approved, required }) => {
+            return Err(Response::json(409, &json!({
+                "error": format!("The approval quorum needs {required} approvals; {approved} currently count. Nothing was changed."),
+                "quorum": { "approved": approved, "required": required },
+            })))
+        }
         Err(AssemblyError::UnsafeMarkup) => {
             return Err(shared_problem(
                 "",
@@ -15481,6 +15487,7 @@ fn approval_policy_json(
         "summary": rule.summary,
         "unmetNamed": rule.unmet_named,
         "unmetRoles": rule.unmet_roles,
+        "quorum": rule.quorum,
         "required": display_names(record, required.iter().map(String::as_str)),
         "missing": display_names(record, missing.iter().map(String::as_str)),
         "approvers": people,
@@ -15649,6 +15656,17 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
                 "confirmed",
                 "Confirm that changing the rule clears every approval, so every required author approves again. Nothing was changed.",
             )
+        }
+        Err(PolicyError::QuorumUnavailable { required, available }) => {
+            return shared_problem("policy", &format!(
+                "This quorum needs {required} eligible authors, but only {available} can approve. Nothing was changed."
+            ))
+        }
+        Err(PolicyError::QuorumProtection) => {
+            return Response::json(403, &json!({
+                "error": "Only a site owner can propose lowering the current quorum. Nothing was changed.",
+                "field": "policy",
+            }))
         }
         Err(PolicyError::DropsApprovers(dropped)) => {
             let names = openblog_core::assembly::display_names(
@@ -40023,6 +40041,52 @@ series: letters
             .unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn numeric_quorum_requires_unanimous_rule_consent_and_exact_writer_approvals() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-quorum");
+        let invalid = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(&id, 0, json!({ "requirement": { "quorum": 3 } }), true),
+            true,
+        );
+        assert_eq!(invalid.status, 422);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        let proposal = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(&id, 0, json!({ "requirement": { "quorum": 2 } }), true),
+            true,
+        );
+        assert_eq!(proposal.status, 200);
+        assert_eq!(body_json(&proposal)["proposed"], true);
+        let proposal = body_json(&approval_policy_read(&f, &mikey, &id))["proposal"]["id"]
+            .as_u64()
+            .unwrap();
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(
+            body_json(&consent_rule(&f, &ada, &id, proposal))["changed"],
+            true
+        );
+        assert!(approvals_file(&f, &id)["approvals"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        let read = body_json(&approval_policy_read(&f, &mikey, &id));
+        assert_eq!(read["policy"]["requirement"], json!({ "quorum": 2 }));
+        assert_eq!(read["quorum"]["required"], 2);
+        assert_eq!(read["quorum"]["approved"], 0);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
     }
 
     #[test]

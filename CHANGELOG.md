@@ -26,6 +26,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Approval rule changes now require each active, bound participant, including readers and
   coordinators, to agree to the exact proposed rule. Existing approvals remain in force until
   the group agrees, then are cleared.
+- Groups can propose a fixed numeric author quorum; every writer and attributed author must
+  still approve the whole piece, and the threshold does not fall when participants leave.
 - Shared publication outcomes retain a private receipt for the approved section revisions and
   the exact published Post and credit sidecar, without storing draft prose in the receipt.
 - The Admin publishing setup status has stronger text contrast on the workspace bar.

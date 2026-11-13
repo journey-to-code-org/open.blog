@@ -125,6 +125,153 @@ fn policy(requirement: ApprovalRequirement) -> ApprovalPolicy {
 }
 
 #[test]
+fn numeric_quorum_never_replaces_writers_or_shrinks_when_members_leave() {
+    let record = record();
+    let mut drafts = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(3),
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ["ann", "cy", "di"] {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    assert!(matches!(
+        gate(&record, &drafts, &approvals, &ALL),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    approve(&record, &drafts, &mut approvals, &ALL, "bo");
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+    let mut threshold = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(threshold.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(3),
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ["ann", "bo"] {
+        approve(&record, &drafts, &mut threshold, &ALL, who);
+    }
+    assert_eq!(
+        gate(&record, &drafts, &threshold, &ALL),
+        Err(AssemblyError::QuorumBlocked {
+            approved: 2,
+            required: 3,
+        })
+    );
+    approve(&record, &drafts, &mut threshold, &ALL, "cy");
+    assert_eq!(gate(&record, &drafts, &threshold, &ALL), Ok(()));
+    let remaining = ["ann", "bo"];
+    assert!(gate(&record, &drafts, &approvals, &remaining).is_err());
+    drafts.save("bo", "bo", 1, "changed", T + 1).unwrap();
+    assert!(gate(&record, &drafts, &approvals, &ALL).is_err());
+}
+
+#[test]
+fn numeric_quorum_rejects_bad_thresholds_and_unconsented_lowering() {
+    let record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    for (count, scope) in [
+        (0, ApprovalScope::WholePiece),
+        (101, ApprovalScope::WholePiece),
+        (2, ApprovalScope::OwnSections),
+    ] {
+        assert!(ApprovalPolicy {
+            requirement: ApprovalRequirement::Quorum(count),
+            scope
+        }
+        .normalized()
+        .is_err());
+    }
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let q = |count| ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(count),
+        scope: ApprovalScope::WholePiece,
+    };
+    assert!(approvals.set_policy(q(3)));
+    let restored = ApprovalSet::from_json(&approvals.to_json()).unwrap();
+    assert_eq!(restored, approvals);
+    with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| {
+            assert_eq!(
+                approvals.change_policy(q(2), 1, true, RuleAuthority::Coordinator, subject, &ALL),
+                Err(PolicyError::QuorumProtection)
+            );
+            assert_eq!(
+                approvals.change_policy(
+                    q(4),
+                    1,
+                    true,
+                    RuleAuthority::SiteOwner,
+                    subject,
+                    &ALL[..3]
+                ),
+                Err(PolicyError::QuorumUnavailable {
+                    required: 4,
+                    available: 3
+                })
+            );
+            assert_eq!(
+                approvals.change_policy(q(2), 1, true, RuleAuthority::SiteOwner, subject, &ALL),
+                Ok(PolicyChange::Changed { cleared: 0 })
+            );
+        },
+    );
+}
+
+#[test]
+fn losing_and_regaining_a_quorum_approval_grant_does_not_revive_consent() {
+    let mut record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(3),
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ["ann", "bo", "cy"] {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+    let cy = record
+        .authorization
+        .bindings
+        .iter_mut()
+        .find(|binding| binding.participant_id == "cy")
+        .unwrap();
+    cy.roles = vec![AuthorizationRole::Coordinator, AuthorizationRole::Editor];
+    with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| {
+            assert_eq!(approvals.reconcile(subject), Ok(1));
+        },
+    );
+    record
+        .authorization
+        .bindings
+        .iter_mut()
+        .find(|binding| binding.participant_id == "cy")
+        .unwrap()
+        .roles
+        .push(AuthorizationRole::Contributor);
+    assert_eq!(
+        gate(&record, &drafts, &approvals, &ALL),
+        Err(AssemblyError::QuorumBlocked {
+            approved: 2,
+            required: 3
+        })
+    );
+}
+
+#[test]
 fn new_reflections_cannot_publish_section_only_approvals() {
     let mut record = record();
     record.initial_approval_scope = Some(ApprovalScope::WholePiece);
@@ -536,6 +683,9 @@ fn under_membership_churn_no_rule_publishes_without_every_writers_own_approval()
                         .collect();
                     assert_eq!(gaps.named, gone);
                 }
+            }
+            Readiness::QuorumBlocked { .. } => {
+                assert!(gate(&base, &set, &approvals, &active).is_err());
             }
         }
         // The stored set never holds an approval for someone who did not give one.

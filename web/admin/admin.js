@@ -7706,11 +7706,11 @@ export function revealSlotText(slot) {
 }
 
 /** One author's line in the combined preview: what is shown and where their approval stands. */
-export function previewSectionText(section) {
+export function previewSectionText(section, quorum = false) {
   const name = section?.displayName || "A participant";
   const where = section?.shown ? `revision ${section.revision}` : "not shared with you at its current revision";
   const approval = section?.approval === "approved" ? "approved" : section?.approval === "stale" ? "approval out of date" : "awaiting approval";
-  return `${name}: ${where}; ${approval}${section?.required === false ? " (approval not required)" : ""}.`;
+  return `${name}: ${where}; ${approval}${section?.required === false ? (quorum ? " (can count toward quorum)" : " (approval not required)") : ""}.`;
 }
 
 /** One synthesis item's line in the combined preview: who it speaks for and who has approved it. */
@@ -7732,6 +7732,7 @@ export const APPROVAL_REQUIREMENTS = Object.freeze([
   { value: "contributingAuthors", label: "Everyone who wrote", help: "Only authors who wrote a section, or are named on a conversation item, approve." },
   { value: "namedAuthors", label: "Writers and named people", help: "Everyone who wrote approves, and so do the people you choose below, even if they later leave." },
   { value: "authorsWithRoles", label: "Writers and people with a role", help: "Everyone who wrote approves, and so does every author with a role you choose below." },
+  { value: "quorum", label: "Writers and a fixed number of authors", help: "Every writer must approve, and the total must reach the chosen number. It does not decrease if someone leaves." },
 ]);
 
 /** The roles a role-based rule can list. Readers and editors cannot approve, so they are not offered. */
@@ -7750,6 +7751,7 @@ export function approvalPolicyChoice(policy) {
   if (typeof requirement === "string") choice.kind = APPROVAL_REQUIREMENTS.some((item) => item.value === requirement) ? requirement : "allAuthors";
   else if (Array.isArray(requirement?.namedAuthors)) Object.assign(choice, { kind: "namedAuthors", named: [...requirement.namedAuthors] });
   else if (Array.isArray(requirement?.authorsWithRoles)) Object.assign(choice, { kind: "authorsWithRoles", roles: [...requirement.authorsWithRoles] });
+  else if (Number.isInteger(requirement?.quorum)) Object.assign(choice, { kind: "quorum", quorum: requirement.quorum });
   return choice;
 }
 
@@ -7779,6 +7781,12 @@ export function approvalPolicyPayload(choice) {
     if (!roles.length) return { error: "Choose at least one role whose authors must approve." };
     return { policy: { requirement: { authorsWithRoles: roles }, scope } };
   }
+  if (choice?.kind === "quorum") {
+    const count = Number(choice.quorum);
+    if (!Number.isInteger(count) || count < 1 || count > 100) return { error: "Choose a whole number of authors between 1 and 100." };
+    if (scope !== "wholePiece") return { error: "A quorum requires whole-piece approval." };
+    return { policy: { requirement: { quorum: count }, scope } };
+  }
   const kind = choice?.kind === "contributingAuthors" ? "contributingAuthors" : "allAuthors";
   return { policy: { requirement: kind, scope } };
 }
@@ -7795,6 +7803,7 @@ export function approvalRuleText(rule) {
     if (rule.unmetNamed?.length) parts.push("A site owner can take them off the rule, or restore their access.");
     if (rule.unmetRoles?.length) parts.push("A coordinator can change the rule, or give an author that role.");
   }
+  if (rule?.quorum) parts.push(`Quorum: ${rule.quorum.approved} of ${rule.quorum.required} approvals; ${rule.quorum.currentAuthors} current authors.`);
   return parts.join(" ");
 }
 
@@ -19354,7 +19363,7 @@ export class ObAdmin extends AdminElement {
         const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
         previewList.replaceChildren(
           ...(preview.rule ? [h("li", {}, `Approval rule: ${approvalRuleText(preview.rule)}`)] : []),
-          ...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section))),
+          ...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section, !!preview.rule?.quorum))),
           ...(preview.items || []).map((item) => h("li", {}, previewItemText(item))),
         );
         previewList.hidden = false;
@@ -19732,6 +19741,9 @@ export class ObAdmin extends AdminElement {
           return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-rule-role-${role.value}` }, role.label));
         }),
       );
+      const quorum = h("input", { type: "number", id: `${prefix}-rule-quorum-count`, min: "1", max: "100", step: "1", value: choice.quorum ?? "" });
+      quorum.addEventListener("input", () => { choice.quorum = quorum.value; });
+      const quorumField = h("div", { class: "oba-field" }, h("label", { for: `${prefix}-rule-quorum-count` }, "Number of authors needed (with fixed-number rule)"), quorum);
       const scopes = h(
         "fieldset",
         { class: "oba-fieldset" },
@@ -19782,6 +19794,7 @@ export class ObAdmin extends AdminElement {
         kinds,
         people,
         roles,
+        quorumField,
         scopes,
         h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-rule-confirm` }, "I understand that changing the rule clears every approval, and every required author approves again.")),
         h("div", { class: "oba-toolbar" }, change),

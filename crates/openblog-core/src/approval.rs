@@ -76,6 +76,8 @@ pub enum ApprovalRequirement {
     /// (declaration) order. A listed role that no current author holds blocks the piece, so
     /// losing the person who held it never lowers the bar.
     AuthorsWithRoles(Vec<AuthorizationRole>),
+    /// At least this many current authors, including every writer and attributed author.
+    Quorum(u16),
 }
 
 /// What an approval covers, which decides which edits invalidate it.
@@ -116,6 +118,14 @@ impl ApprovalPolicy {
     pub fn normalized(mut self) -> Result<Self, ApprovalError> {
         match &mut self.requirement {
             ApprovalRequirement::AllAuthors | ApprovalRequirement::ContributingAuthors => {}
+            ApprovalRequirement::Quorum(count) => {
+                if *count == 0
+                    || usize::from(*count) > MAX_PARTICIPANTS
+                    || self.scope != ApprovalScope::WholePiece
+                {
+                    return Err(ApprovalError::Invalid);
+                }
+            }
             ApprovalRequirement::NamedAuthors(named) => {
                 named.sort_unstable();
                 let mut seen = HashSet::new();
@@ -189,6 +199,9 @@ pub fn describe_policy(policy: &ApprovalPolicy, names: &[String]) -> String {
                 "{WRITERS} must approve, and so must every author with the {} role.",
                 roles.join(" or ")
             )
+        }
+        ApprovalRequirement::Quorum(count) => {
+            format!("{WRITERS} must approve, and at least {count} authors in total must approve.")
         }
     };
     let scope = match policy.scope {
@@ -299,6 +312,10 @@ pub enum PolicyError {
     /// A coordinator asked for a change that drops these currently required participants (ids,
     /// in the order the current rule lists them). Only a site owner may make it.
     DropsApprovers(Vec<String>),
+    /// The fixed threshold exceeds the current eligible approver count.
+    QuorumUnavailable { required: usize, available: usize },
+    /// Only a site owner may propose weakening an existing numeric quorum.
+    QuorumProtection,
 }
 
 /// Where one author's approval stands against the content as it is now.
@@ -323,6 +340,19 @@ pub enum Readiness {
         missing: Vec<String>,
         gaps: RuleGaps,
     },
+    /// All mandatory authors approved, but the fixed threshold has not been reached.
+    QuorumBlocked {
+        approved: usize,
+        required: usize,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuorumProgress {
+    pub approved: usize,
+    pub required: usize,
+    pub current_authors: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -439,6 +469,7 @@ impl ApprovalSubject<'_> {
             .filter(|author| match requirement {
                 ApprovalRequirement::AllAuthors => true,
                 ApprovalRequirement::ContributingAuthors => self.writes_or_is_attributed(author),
+                ApprovalRequirement::Quorum(_) => self.writes_or_is_attributed(author),
                 ApprovalRequirement::NamedAuthors(named) => {
                     self.writes_or_is_attributed(author) || named.iter().any(|n| n == author)
                 }
@@ -487,6 +518,11 @@ impl ApprovalSubject<'_> {
         put(&mut hasher, format!("{policy:?}").as_bytes());
         hasher.update(policy_revision.to_be_bytes());
         put(&mut hasher, participant.as_bytes());
+        if matches!(policy.requirement, ApprovalRequirement::Quorum(_)) {
+            hasher.update([u8::from(
+                self.holds_role(participant, &[AuthorizationRole::Contributor]),
+            )]);
+        }
         let mut authors = self.authors.to_vec();
         authors.sort_unstable();
         hasher.update((authors.len() as u64).to_be_bytes());
@@ -841,6 +877,21 @@ impl ApprovalSet {
             return Err(PolicyError::Unconfirmed);
         }
         if authority == RuleAuthority::Coordinator {
+            if let ApprovalRequirement::Quorum(before) = self.policy.requirement {
+                let protects = match policy.requirement {
+                    ApprovalRequirement::Quorum(after) => after >= before,
+                    _ => {
+                        subject.authors.len() >= usize::from(before)
+                            && subject.required(&policy.requirement).len() >= subject.authors.len()
+                            && subject.authors.iter().all(|author| {
+                                subject.required(&policy.requirement).contains(author)
+                            })
+                    }
+                };
+                if !protects {
+                    return Err(PolicyError::QuorumProtection);
+                }
+            }
             let after = subject.required(&policy.requirement);
             let dropped = subject
                 .required(&self.policy.requirement)
@@ -850,6 +901,19 @@ impl ApprovalSet {
                 .collect::<Vec<_>>();
             if !dropped.is_empty() {
                 return Err(PolicyError::DropsApprovers(dropped));
+            }
+        }
+        if let ApprovalRequirement::Quorum(required) = policy.requirement {
+            let available = subject
+                .authors
+                .iter()
+                .filter(|author| approvers.contains(author))
+                .count();
+            if available < usize::from(required) {
+                return Err(PolicyError::QuorumUnavailable {
+                    required: usize::from(required),
+                    available,
+                });
             }
         }
         let mut gaps = subject.gaps(&policy.requirement);
@@ -940,6 +1004,28 @@ impl ApprovalSet {
         subject.is_valid() && self.holds(subject, participant)
     }
 
+    pub fn quorum_progress(&self, subject: &ApprovalSubject<'_>) -> Option<QuorumProgress> {
+        let ApprovalRequirement::Quorum(required) = self.policy.requirement else {
+            return None;
+        };
+        Some(QuorumProgress {
+            approved: if subject.is_valid() {
+                subject
+                    .authors
+                    .iter()
+                    .filter(|author| {
+                        subject.holds_role(author, &[AuthorizationRole::Contributor])
+                            && self.holds(subject, author)
+                    })
+                    .count()
+            } else {
+                0
+            },
+            required: usize::from(required),
+            current_authors: subject.authors.len(),
+        })
+    }
+
     /// Drop every approval that no longer matches the content, including those of people who
     /// are no longer authors. Routes call it in the same write as any change to prose, order,
     /// metadata, or the author set. An invalid subject changes nothing. Returns how many dropped.
@@ -972,11 +1058,18 @@ impl ApprovalSet {
             .map(str::to_string)
             .collect();
         let gaps = subject.gaps(&self.policy.requirement);
-        Ok(if missing.is_empty() && gaps.is_empty() {
-            Readiness::Ready
-        } else {
-            Readiness::Blocked { missing, gaps }
-        })
+        if !missing.is_empty() || !gaps.is_empty() {
+            return Ok(Readiness::Blocked { missing, gaps });
+        }
+        if let Some(progress) = self.quorum_progress(subject) {
+            if progress.approved < progress.required {
+                return Ok(Readiness::QuorumBlocked {
+                    approved: progress.approved,
+                    required: progress.required,
+                });
+            }
+        }
+        Ok(Readiness::Ready)
     }
 }
 
@@ -1037,7 +1130,7 @@ mod tests {
     fn missing(set: &ApprovalSet, piece: &Piece) -> Vec<String> {
         piece.with(|s| match set.evaluate(s).unwrap() {
             Readiness::Blocked { missing, .. } => missing,
-            Readiness::Ready => Vec::new(),
+            Readiness::Ready | Readiness::QuorumBlocked { .. } => Vec::new(),
         })
     }
 

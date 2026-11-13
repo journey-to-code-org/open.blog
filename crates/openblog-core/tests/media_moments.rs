@@ -1109,7 +1109,9 @@ fn whoever_proposes_a_moment_must_approve_the_piece_under_every_policy() {
         Readiness::Blocked { missing, .. } => {
             assert_eq!(missing, vec!["ann", "bo", "cy"]);
         }
-        Readiness::Ready => panic!("a proposed moment must block until its owner approves"),
+        Readiness::Ready | Readiness::QuorumBlocked { .. } => {
+            panic!("a proposed moment must block until its owner approves")
+        }
     }
     for who in ALL {
         approve(&record, &drafts, &moments, &mut approvals, who);

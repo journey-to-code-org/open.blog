@@ -142,7 +142,8 @@ test("all participants unanimously change the approval rule through the real Adm
     await openDraft(grace, "grace", "another correct horse");
     await expect(page.getByText("A new approval rule takes effect only after every active participant agrees", { exact: false })).toBeVisible();
     await expect(page.getByRole("radio", { name: "The approver's own sections" })).toBeDisabled();
-    await page.getByRole("radio", { name: "Everyone who wrote" }).check();
+    await page.getByRole("radio", { name: "Writers and a fixed number of authors" }).check();
+    await page.getByLabel("Number of authors needed (with fixed-number rule)").fill("2");
     await page.getByLabel(/changing the rule clears every approval/).check();
     await page.getByRole("button", { name: "Propose approval rule" }).click();
     await expect(page.getByText("The proposed rule is waiting", { exact: false })).toBeVisible();
@@ -202,6 +203,9 @@ test("all participants unanimously change the approval rule through the real Adm
     await reader.locator("summary", { hasText: "Approval rule" }).click();
     await expect(reader.getByRole("alert")).toBeHidden();
     await expect(reader.getByRole("heading", { name: "Proposed approval rule" })).toHaveCount(0);
+    await page.reload();
+    await page.locator("summary", { hasText: "Your draft" }).click();
+    await expect(page.getByText("Quorum: 0 of 2 approvals; 2 current authors.", { exact: false })).toBeVisible();
   } finally {
     await graceContext.close();
     await coordinatorContext.close();

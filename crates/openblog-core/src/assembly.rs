@@ -40,6 +40,8 @@ pub enum AssemblyError {
     /// Required approvals are missing or no longer match the content. Holds display names, for a
     /// requester who already holds the publish grant.
     Blocked { missing: Vec<String> },
+    /// The fixed numeric quorum has not yet been reached.
+    QuorumBlocked { approved: usize, required: usize },
     /// The approval rule cannot be met by the authors as they are now, whatever anyone approves:
     /// a named participant (display names here) is no longer an author, or no author holds a
     /// listed role. Someone with the policy grant changes the rule, or the maintainer restores the
@@ -408,6 +410,9 @@ pub fn assemble(
             return Err(AssemblyError::Blocked {
                 missing: display_names(record, missing.iter().map(String::as_str)),
             })
+        }
+        Ok(Readiness::QuorumBlocked { approved, required }) => {
+            return Err(AssemblyError::QuorumBlocked { approved, required })
         }
         Err(_) => return Err(AssemblyError::Invalid),
     }

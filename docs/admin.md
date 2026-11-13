@@ -891,10 +891,14 @@ Authors can review the combined preview and explicitly approve it or withdraw an
 For new reflections, approvals cover the whole piece, so changes invalidate earlier approvals.
 A rule change takes effect only after every active, bound participant agrees to that proposal;
 agreeing to a rule does not approve the piece.
+The fixed-number rule requires that many active authors' whole-piece approvals, including every
+writer and attributed author. The threshold does not decrease if someone leaves. Only current
+contributors can approve a piece; reader and coordinator-only participants vote on rule changes
+but cannot yet approve the piece.
 
 This workflow is still incomplete: the approval confirmation describes the current contributor
-profile credit, but separate display-name-only and uncredited choices are not available. Numeric
-quorum, multiple contribution authoring, and a shared-reflection publish control in Admin are
+profile credit, but separate display-name-only and uncredited choices are not available.
+All-participant piece approval, multiple contribution authoring, and a shared-reflection publish control in Admin are
 also not yet available. See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
 and [epic #592](https://github.com/journey-to-code-org/open.blog/issues/592) before relying on
 the workflow for publication.

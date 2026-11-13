@@ -1170,7 +1170,7 @@ const RULE = {
 };
 
 test("approval rule choices round-trip and never send an empty list", () => {
-  assert.deepEqual(APPROVAL_REQUIREMENTS.map((item) => item.value), ["allAuthors", "contributingAuthors", "namedAuthors", "authorsWithRoles"]);
+  assert.deepEqual(APPROVAL_REQUIREMENTS.map((item) => item.value), ["allAuthors", "contributingAuthors", "namedAuthors", "authorsWithRoles", "quorum"]);
   assert.deepEqual(APPROVAL_ROLE_CHOICES.map((item) => item.value), ["siteOwner", "coordinator", "contributor"]);
   assert.deepEqual(approvalPolicyChoice({ requirement: { namedAuthors: ["p2"] }, scope: "wholePiece" }), { kind: "namedAuthors", named: ["p2"], roles: [], scope: "wholePiece" });
   assert.deepEqual(approvalPolicyChoice({ requirement: { authorsWithRoles: ["coordinator"] } }).roles, ["coordinator"]);
@@ -1179,6 +1179,11 @@ test("approval rule choices round-trip and never send an empty list", () => {
   assert.match(approvalPolicyPayload({ kind: "namedAuthors", named: [] }).error, /at least one person/);
   assert.match(approvalPolicyPayload({ kind: "authorsWithRoles", roles: [] }).error, /at least one role/);
   assert.deepEqual(approvalPolicyPayload({ kind: "contributingAuthors", scope: "wholePiece" }), { policy: { requirement: "contributingAuthors", scope: "wholePiece" } });
+  assert.deepEqual(approvalPolicyChoice({ requirement: { quorum: 3 }, scope: "wholePiece" }).quorum, 3);
+  assert.deepEqual(approvalPolicyPayload({ kind: "quorum", quorum: "3", scope: "wholePiece" }), { policy: { requirement: { quorum: 3 }, scope: "wholePiece" } });
+  for (const quorum of ["", "0", "1.5", "101", "-1"]) assert.match(approvalPolicyPayload({ kind: "quorum", quorum, scope: "wholePiece" }).error, /whole number/);
+  assert.match(approvalPolicyPayload({ kind: "quorum", quorum: 2, scope: "ownSections" }).error, /whole-piece/);
+  assert.match(approvalRuleText({ summary: "S.", quorum: { approved: 1, required: 3, currentAuthors: 2 } }), /1 of 3 approvals; 2 current authors/);
   assert.match(approvalRuleText({ summary: "S.", unmetNamed: ["Grace"], unmetRoles: ["editor"] }), /^S\. It cannot be met as things stand: Grace can no longer approve; no author is an editor\./);
   // Only a site owner can take a named person off the rule; a coordinator can change a role.
   const namedOnly = approvalRuleText({ summary: "S.", unmetNamed: ["Grace"] });

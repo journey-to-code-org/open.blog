@@ -43,7 +43,15 @@ stored groups.
   rule on such a reflection blocks approval, scheduling and publication until the participants
   unanimously replace it with a whole-piece rule; the replacement clears standing approvals.
   Legacy reflections without this initial-scope marker retain their existing scope. The policy
-  has no numeric threshold; quorum remains open.
+  now supports the fixed numeric quorum described below.
+- **Numeric quorum (amendment).** A fixed number of current contributors must approve the whole
+  piece, including every section writer and attributed author. A missing writer is never replaced
+  by another person's approval. The threshold remains fixed when membership changes; proposals
+  with fewer eligible authors than the threshold are refused, and coordinators cannot propose
+  weakening a quorum. Every active bound participant must consent before a proposal applies.
+  Reader- and coordinator-only participants can consent to the rule but cannot yet approve the
+  piece; extending piece approval to all participants remains open. Numeric rules cannot be read
+  by older releases.
 - **Approval rules.** `ApprovalRequirement` gains `namedAuthors` (participant ids) and
   `authorsWithRoles` (publication roles), next to `allAuthors` (all participants, the default) and
   `contributingAuthors`. Under every rule, each author who owns a section and each author named on
@@ -51,9 +59,11 @@ stored groups.
   adds approvers on top of that floor. So a quorum can never stand in for a writer, and a named or
   role rule cannot leave anyone out.
 - **No fabricated approvals.** Each required person counts only through their own standing
-  approval, recomputed against the content (ADR 0020). There is no count, vote or threshold. A
-  rule change never records, keeps or moves an approval. Someone a rule does not require stays
-  "awaiting, not required" and is never shown or counted as approving.
+  approval, recomputed against the content (ADR 0020). Numeric quorum counts only standing
+  approvals of currently eligible authors. A
+  rule change never records, keeps or moves an approval. Under non-numeric rules, someone the
+  rule does not require remains optional; under a numeric rule their own approval may count
+  toward the threshold.
 - **Fail closed on churn.** A named participant who is no longer an author (removed, or lost the
   draft grant), and a listed role that no current author holds (for example, the only coordinator
   left), keep the piece blocked. `Readiness::Blocked` carries these as `gaps`, and the gate refuses
