@@ -478,7 +478,7 @@ site from the repository:
 - **Postgres**, Railway's own.
 - **The hosted functions** ([`service/`](../service/)): one container that runs the very same code
   as the Netlify functions (notes, views and moderation; greeting cards and their hourly sender;
-  gifts under the tree) over that Postgres through PostgREST, the pair Supabase is made of. It
+  [gifts under the tree](gifts.md)) over that Postgres through PostgREST, the pair Supabase is made of. It
   needs `DATABASE_URL` and `PGRST_JWT_SECRET` (32 or more random characters, never shared: the
   service key is minted from it inside the container), plus each function's own settings
   (`OPENBLOG_SITE_ID`, `OPENBLOG_SITE_ORIGIN`, `OPENBLOG_ADMIN_API_KEY`, `OPENBLOG_GREETINGS_*`,
