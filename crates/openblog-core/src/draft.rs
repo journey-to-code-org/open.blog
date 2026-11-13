@@ -219,6 +219,8 @@ pub struct DraftSet {
     ready: Vec<Readiness>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     named_releases: Vec<NamedRelease>,
+    #[serde(default, skip_serializing_if = "crate::shared_series::is_zero")]
+    order_revision: u64,
 }
 
 fn digest(owner: &str, contribution_id: &str, number: u64, markdown: &str) -> String {
@@ -252,6 +254,7 @@ impl DraftSet {
             policy: RevealPolicy::Independent,
             ready: Vec::new(),
             named_releases: Vec::new(),
+            order_revision: 0,
         };
         if set.is_valid() {
             Ok(set)
@@ -543,6 +546,90 @@ impl DraftSet {
             .revisions
             .last()
             .map(|revision| Self::stamp(draft, revision))
+    }
+
+    /// The requester's live contributions in their saved order. This never lists another
+    /// participant's drafts, regardless of reveal state.
+    pub fn owned_views(&self, requester: &str) -> Result<Vec<DraftView>, DraftError> {
+        if !self.is_member(requester) {
+            return Err(DraftError::Denied);
+        }
+        Ok(self
+            .drafts
+            .iter()
+            .filter(|draft| draft.owner == requester && !draft.withdrawn)
+            .map(|draft| {
+                let revision = draft.revisions.last().expect("valid drafts have revisions");
+                DraftView {
+                    stamp: Self::stamp(draft, revision),
+                    markdown: revision.markdown.clone(),
+                }
+            })
+            .collect())
+    }
+
+    /// Monotonic ordering revision, retained even if a participant restores an earlier order.
+    pub fn order_revision(&self) -> u64 {
+        self.order_revision
+    }
+
+    /// Reorder only the requester's live contributions, checking the order they last saw.
+    /// Callers must also compare-and-swap the persisted draft set and invalidate approvals.
+    pub fn reorder_owned(
+        &mut self,
+        requester: &str,
+        expected: &[&str],
+        order: &[&str],
+    ) -> Result<bool, DraftError> {
+        if !self.is_member(requester) {
+            return Err(DraftError::Denied);
+        }
+        let owned: Vec<_> = self
+            .drafts
+            .iter()
+            .filter(|draft| draft.owner == requester && !draft.withdrawn)
+            .collect();
+        let current: Vec<_> = owned.iter().map(|draft| draft.id.as_str()).collect();
+        if current != expected {
+            return Err(DraftError::Stale);
+        }
+        let requested: HashSet<_> = order.iter().copied().collect();
+        if order.len() != current.len()
+            || requested.len() != order.len()
+            || current.iter().any(|id| !requested.contains(id))
+        {
+            return Err(DraftError::Invalid);
+        }
+        if current == order {
+            return Ok(false);
+        }
+        let revision = self
+            .order_revision
+            .checked_add(1)
+            .ok_or(DraftError::LimitReached)?;
+        let sorted: Vec<_> = order
+            .iter()
+            .map(|id| {
+                (*owned
+                    .iter()
+                    .find(|draft| draft.id == *id)
+                    .expect("validated owned contribution"))
+                .clone()
+            })
+            .collect();
+        let mut sorted = sorted.into_iter();
+        let mut next = self.clone();
+        for draft in &mut next.drafts {
+            if draft.owner == requester && !draft.withdrawn {
+                *draft = sorted.next().expect("validated contribution count");
+            }
+        }
+        next.order_revision = revision;
+        if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
+            return Err(DraftError::LimitReached);
+        }
+        *self = next;
+        Ok(true)
     }
 
     /// The latest revision with its prose, or none for an unknown or withdrawn draft. This
@@ -1070,6 +1157,73 @@ mod tests {
 
     fn set(ids: &[&str]) -> DraftSet {
         DraftSet::new(ids).unwrap()
+    }
+
+    #[test]
+    fn own_contributions_are_private_revision_checked_and_reorderable() {
+        let active = ["ada", "bo"];
+        let mut drafts = set(&active);
+        drafts.save("ada", "first", 0, "private first", T).unwrap();
+        drafts.save("bo", "other", 0, "private other", T).unwrap();
+        drafts
+            .save("ada", "second", 0, "private second", T)
+            .unwrap();
+        assert_eq!(drafts.view("bo", "first", &active), Err(DraftError::Denied));
+        assert_eq!(
+            drafts.save("bo", "first", 1, "overwrite", T),
+            Err(DraftError::Stale)
+        );
+        assert_eq!(
+            drafts.save("ada", "first", 0, "overwrite", T),
+            Err(DraftError::Stale)
+        );
+        let before = drafts.to_json();
+        assert_eq!(
+            drafts.reorder_owned("ada", &["first", "second"], &["other", "first"]),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.reorder_owned("ada", &["first", "second"], &["first", "first"]),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.reorder_owned("unknown", &[], &[]),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            drafts.reorder_owned("ada", &["second", "first"], &["first", "second"]),
+            Err(DraftError::Stale)
+        );
+        assert_eq!(drafts.to_json(), before);
+        assert_eq!(
+            drafts.reorder_owned("ada", &["first", "second"], &["second", "first"]),
+            Ok(true)
+        );
+        assert_eq!(drafts.order_revision(), 1);
+        assert_eq!(
+            drafts.reorder_owned("ada", &["second", "first"], &["second", "first"]),
+            Ok(false)
+        );
+        let drafts = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(drafts.order_revision(), 1);
+        let own = drafts.owned_views("ada").unwrap();
+        assert_eq!(
+            own.iter()
+                .map(|view| view.stamp.contribution_id.as_str())
+                .collect::<Vec<_>>(),
+            ["second", "first"]
+        );
+        assert_eq!(
+            own.iter()
+                .map(|view| view.markdown.as_str())
+                .collect::<Vec<_>>(),
+            ["private second", "private first"]
+        );
+        assert_eq!(
+            drafts.owned_views("bo").unwrap()[0].markdown,
+            "private other"
+        );
+        assert_eq!(drafts.owned_views("unknown"), Err(DraftError::Denied));
     }
 
     #[test]

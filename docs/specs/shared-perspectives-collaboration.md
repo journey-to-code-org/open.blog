@@ -475,6 +475,12 @@ Older reflections without any saved choices still use the legacy contributor-pro
 path. Older releases cannot read newly created records carrying the explicit-choice requirement.
 Remaining collaboration work is tracked in epic #592.
 
+The draft set can list and reorder a participant's own live contributions with an expected
+order. A monotonic order revision is bound into approval, including after an order is restored.
+The Admin route, reveal, preview and publication paths still support one draft per participant;
+the core ordering operation is not exposed until those paths can safely handle every contribution.
+Older releases cannot read draft sets after this ordering operation changes their order.
+
 When an approver submits an approval, the server checks again that the current combined preview is
 complete for them. If sharing changed after the preview was opened, the earlier review token
 cannot be used while any current material is hidden; they must reload after it is shared.

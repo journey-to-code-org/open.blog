@@ -192,6 +192,10 @@ pub fn with_subject_for_participants<R>(
         })
         .collect();
     let mut metadata = public_metadata(record);
+    if drafts.order_revision() != 0 {
+        metadata.push("contribution-order-revision-v1".to_string());
+        metadata.push(drafts.order_revision().to_string());
+    }
     metadata.push("participant-attribution-v1".to_string());
     for author in &authors {
         let participant = record

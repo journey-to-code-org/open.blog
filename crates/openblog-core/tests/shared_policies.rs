@@ -118,6 +118,50 @@ fn gate(
     .map(|_| ())
 }
 
+#[test]
+fn contribution_reordering_and_reversion_do_not_revive_approval() {
+    let record = record();
+    let mut drafts = drafts(&["ann", "bo"]);
+    drafts
+        .save("ann", "ann-second", 0, "another perspective", T)
+        .unwrap();
+    let mut approvals = ApprovalSet::with_initial_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::AllAuthors,
+        scope: ApprovalScope::WholePiece,
+    })
+    .unwrap();
+    for who in ["ann", "bo", "cy", "di"] {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    let token = with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    );
+    drafts
+        .reorder_owned("ann", &["ann", "ann-second"], &["ann-second", "ann"])
+        .unwrap();
+    drafts
+        .reorder_owned("ann", &["ann-second", "ann"], &["ann", "ann-second"])
+        .unwrap();
+    with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| {
+            assert_ne!(approvals.binding_for(subject, "ann").unwrap(), token);
+            assert!(!approvals.is_approved(subject, "ann"));
+        },
+    );
+}
+
 fn policy(requirement: ApprovalRequirement) -> ApprovalPolicy {
     ApprovalPolicy {
         requirement,
