@@ -184,7 +184,7 @@ class FakeApiError extends Error {
 }
 
 const PUBLICATION = "shared-0a1b2c3d4e5f";
-const stampOf = (number) => ({ number, contributionId: "participant-1", digest: "d" });
+const stampOf = (number) => ({ number, contributionId: "participant-1", authorParticipantId: "participant-1", digest: "d" });
 
 const ME = { id: "p-me", displayName: "Mikey" };
 const OTHER = { id: "p-grace", displayName: "Grace" };
@@ -301,6 +301,10 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
       switch (key) {
         case "GET collaboration/draft":
           return { draft: state.number ? { stamp: stampOf(state.number), markdown: state.markdown } : null };
+        case "GET collaboration/contributions":
+          return { contributions: state.number ? [{ stamp: stampOf(state.number), markdown: state.markdown }] : [], orderRevision: state.number };
+        case "GET collaboration/contributions/shared":
+          return { contributions: [] };
         case "PUT collaboration/draft":
           if (options.json.expectedRevision !== state.number) {
             throw new FakeApiError("Your draft changed since you last read it.", 409, { error: "Your draft changed since you last read it.", current: { stamp: stampOf(state.number), markdown: state.markdown } });
@@ -327,8 +331,8 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
         case "GET collaboration/preview":
           if (state.previewFails) throw new FakeApiError("not found", 404, null);
           return { preview: state.preview };
-        case "PUT collaboration/reveal/ready":
-          state.reveal = { ...state.reveal, ready: options.json.revision !== null };
+        case "PUT collaboration/contributions/ready":
+          state.reveal = { ...state.reveal, ready: options.json.contributions !== null };
           return { ready: state.reveal.ready, revealed: false, ...(state.momentsShared === undefined ? {} : { momentsShared: state.momentsShared }), ...(state.momentsNote === undefined ? {} : { momentsNote: state.momentsNote }) };
         case "PUT collaboration/reveal/policy":
           if (options.json.expectedPolicy !== state.reveal.policy) throw new FakeApiError("changed", 409, { error: "The sharing rule changed since you loaded it. Reload to see the current rule; nothing was changed." });
@@ -433,7 +437,7 @@ test("the draft panel is for writers and coordinators and loads only when opened
   await panel.dispatch("toggle");
   await settle();
   assert.equal(textarea(panel).value, "mine");
-  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal", "GET collaboration/reflection", "GET collaboration/approval-policy", "GET collaboration/synthesis", "GET collaboration/moments"]);
+  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/contributions", "GET collaboration/reveal", "GET collaboration/contributions/shared", "GET collaboration/reflection", "GET collaboration/approval-policy", "GET collaboration/synthesis", "GET collaboration/moments"]);
 }));
 
 test("prompts can be added, edited, deleted, hidden, and are never required to save", withDom(async () => {
@@ -612,11 +616,11 @@ test("offering a revision asks first, names the revision, and Escape or Cancel c
   await box.dispatch("keydown", { key: "Escape" });
   assert.equal(panel.querySelector(".oba-confirm"), null);
   assert.equal(dom.document.activeElement, offer);
-  assert.equal(api.state.calls.some((call) => call.key === "PUT collaboration/reveal/ready"), false);
+  assert.equal(api.state.calls.some((call) => call.key === "PUT collaboration/contributions/ready"), false);
   await offer.click();
   await button(panel.querySelector(".oba-confirm"), "Share revision 2").click();
   await settle();
-  assert.deepEqual(api.state.calls.find((call) => call.key === "PUT collaboration/reveal/ready").body, { publicationId: PUBLICATION, revision: 2 });
+  assert.deepEqual(api.state.calls.find((call) => call.key === "PUT collaboration/contributions/ready").body, { publicationId: PUBLICATION, contributions: [{ contributionId: "participant-1", revision: 2 }] });
   await button(panel, "Take back my offer").click();
   await settle();
   assert.equal(api.state.reveal.ready, false);
@@ -638,8 +642,8 @@ test("the offer box can never send a revision the writer did not confirm", withD
   // A detached button cannot be clicked in a browser; if it were, it still carries revision 3.
   await stale.click();
   await settle();
-  const sent = api.state.calls.filter((call) => call.key === "PUT collaboration/reveal/ready");
-  assert.ok(sent.every((call) => call.body.revision === 3), "only the confirmed revision may be sent");
+  const sent = api.state.calls.filter((call) => call.key === "PUT collaboration/contributions/ready");
+  assert.ok(sent.every((call) => call.body.contributions?.[0]?.revision === 3), "only the confirmed revision may be sent");
   api.state.reveal = { ...api.state.reveal, ready: false };
   await button(panel, "Take back my offer")?.click();
   await settle();
