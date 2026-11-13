@@ -153,6 +153,7 @@ pub(crate) struct PortableContext<'a> {
 pub(crate) struct FenceInfo {
     pub(crate) lang: String,
     pub(crate) title: Option<String>,
+    pub(crate) title_count: usize,
     /// `runnable`: let readers edit and run this Rust example.
     pub(crate) runnable: bool,
     /// `playgroundLink=false`: omit the external Playground fallback link.
@@ -242,6 +243,7 @@ pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
             continue;
         }
         if let Some(value) = rest.strip_prefix("title=") {
+            out.title_count += 1;
             let (title, after) = match value.chars().next() {
                 Some(q @ ('"' | '\'')) => {
                     let inner = &value[1..];
@@ -350,6 +352,8 @@ pub(crate) fn capability_source_ranges(
                 "knowledge-check"
             } else if info.trim() == crate::compare::FENCE {
                 crate::compare::CAPABILITY_ID
+            } else if crate::text_compare::is_fence(&info) {
+                crate::text_compare::CAPABILITY_ID
             } else if fence.lang == "demo" {
                 "interactive-demo"
             } else if fence.runnable && fence.lang.eq_ignore_ascii_case("web") {
@@ -1096,6 +1100,8 @@ fn transform_blocks<'a>(
     // Only while quote requests are on is a `quote` fence a form (ADR 0382); off, it is the
     // ordinary code block it was before the feature existed.
     let forms_on = quote.is_some() || portable.is_some_and(|context| context.quote_forms);
+    // An open `text-compare` fence: its info string and its source.
+    let mut text_compare: Option<(String, String)> = None;
     // An open `piece` fence: the kind it names and its `field: value` lines.
     let mut piece: Option<(String, String)> = None;
     // The section a deeper heading switched away from ("### Ingredients for the
@@ -1171,6 +1177,12 @@ fn transform_blocks<'a>(
         {
             compare = Some(String::new());
             continue;
+        }
+        if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = &event {
+            if crate::text_compare::is_fence(info) {
+                text_compare = Some((info.to_string(), String::new()));
+                continue;
+            }
         }
         if let Some(source) = compare.as_mut() {
             match event {
@@ -1260,6 +1272,54 @@ fn transform_blocks<'a>(
                                 "a `quote` fence is not valid: {}",
                                 problems.join("; ")
                             ));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if let Some((info, source)) = text_compare.as_mut() {
+            match event {
+                Event::Text(text) => source.push_str(text),
+                Event::End(TagEnd::CodeBlock) => {
+                    let fence = parse_fence_info(info);
+                    let source = std::mem::take(source);
+                    text_compare = None;
+                    data.capabilities.push(CapabilityDescriptor::describe(
+                        crate::text_compare::CAPABILITY_ID,
+                        Some(crate::text_compare::ELEMENT),
+                    ));
+                    let parsed = crate::text_compare::parse_fence(
+                        &source,
+                        fence.title.as_deref(),
+                        fence.title_count,
+                    );
+                    match parsed {
+                        Ok(points) => {
+                            let title = points[0].title.clone();
+                            out.push(Event::Html(CowStr::from(if portable.is_some() {
+                                crate::text_compare::portable_html(&title, &points)
+                            } else {
+                                crate::text_compare::page_html(&title, &points)
+                            })));
+                        }
+                        Err(problems) => {
+                            let error = format!(
+                                "a `text-compare` fence is not valid: {}",
+                                problems.join("; ")
+                            );
+                            data.errors.push(error.clone());
+                            if let Some(capability) = data.capabilities.last_mut() {
+                                capability.add_diagnostic(
+                                    CapabilityDiagnosticCode::MalformedContent,
+                                    "Malformed textual comparison; see the source-scoped Markdown error.",
+                                );
+                            }
+                            out.push(Event::Html(CowStr::from(format!(
+                                "<aside class=\"ob-text-compare-error\" role=\"alert\">Invalid textual comparison: {}</aside>\n",
+                                escape::text(&error)
+                            ))));
                         }
                     }
                 }
@@ -2745,6 +2805,25 @@ pub(crate) fn portable_semantic_facts(
                     // A form is a page feature: a portable copy carries no part of it.
                     continue;
                 }
+                if crate::text_compare::is_fence(&info) {
+                    // Every title, heading, label and perspective must survive export.
+                    let fence = parse_fence_info(&info);
+                    if let Ok(points) = crate::text_compare::parse_fence(
+                        &source,
+                        fence.title.as_deref(),
+                        fence.title_count,
+                    ) {
+                        let title = points[0].title.clone();
+                        for text in crate::text_compare::visible_text(&title, &points) {
+                            facts.push(SemanticFact::new(
+                                crate::text_compare::CAPABILITY_ID,
+                                "text",
+                                text,
+                            ));
+                        }
+                    }
+                    continue;
+                }
                 let fence = parse_fence_info(&info);
                 if info.trim() == "quiz" {
                     let quiz = parse_quiz(&source)?;
@@ -3012,6 +3091,7 @@ fn render_events<'a>(
                     if !lang.is_empty()
                         && info.trim() != "quiz"
                         && info.trim() != crate::compare::FENCE
+                        && !crate::text_compare::is_fence(info)
                         && !code_languages.contains(&lang)
                     {
                         code_languages.push(lang);
