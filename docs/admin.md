@@ -871,9 +871,33 @@ it under **Shared reflections**; signing in to Admin Studio or being in the cont
 is not enough. You are its site owner. Removing your account with `openblog user remove` removes
 you from every shared reflection, and so does adding a new account under a name that was used
 before. A contributor who takes part in one cannot be removed from the registry; the Contributors
-message names each entry that is in use. Writing contributions and publishing the result arrive in later releases. The design is recorded in
+message names each entry that is in use. The design is recorded in
 [ADR 0007](adr/0007-private-shared-publication-records.md) and the
 [collaboration contract](specs/shared-perspectives-collaboration.md#shared-publication-record).
+
+### Drafting and reviewing together
+
+Open the reflection and expand **Your draft** to write and save your own perspective. Saving
+creates a private revision; it does not share it. If another session saved a newer revision,
+Admin refuses the stale save and lets you choose between the newer copy and your own text.
+
+New reflections start with mutual reveal: each active writer offers a saved revision before the
+group can read the offered perspectives. An author can continue editing privately after an
+offer; the sharing panel identifies the offered revision and warns when it is older than the
+latest draft. A coordinator can instead select named-recipient sharing, where an author
+confirms which active writers receive a particular revision.
+
+Authors can review the combined preview and explicitly approve it or withdraw an approval.
+For new reflections, approvals cover the whole piece, so changes invalidate earlier approvals.
+A rule change takes effect only after every active, bound participant agrees to that proposal;
+agreeing to a rule does not approve the piece.
+
+This workflow is still incomplete: the approval confirmation describes the current contributor
+profile credit, but separate display-name-only and uncredited choices are not available. Numeric
+quorum, multiple contribution authoring, and a shared-reflection publish control in Admin are
+also not yet available. See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
+and [epic #592](https://github.com/journey-to-code-org/open.blog/issues/592) before relying on
+the workflow for publication.
 
 ### Inviting other writers
 
