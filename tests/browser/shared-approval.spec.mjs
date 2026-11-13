@@ -128,6 +128,61 @@ test("a named release reaches its recipient through the real Admin API", async (
   }
 });
 
+test("a named reader receives only the explicitly released revision through the real API", async ({ browser, page }) => {
+  const readerContext = await browser.newContext({ viewport: { width: 400, height: 800 } });
+  const reader = await readerContext.newPage();
+  try {
+    await page.setViewportSize({ width: 400, height: 800 });
+    await openDraft(page, "mikey", "correct horse battery");
+    const policy = page.getByLabel("Sharing rule (coordinators)");
+    if (await policy.inputValue() !== "namedRecipients") {
+      await policy.selectOption("namedRecipients");
+      await page.getByLabel(/changing the sharing rule clears every standing offer/).check();
+      await page.getByRole("button", { name: "Change sharing rule" }).click();
+      await expect(page.getByText("The sharing rule changed.", { exact: false })).toBeVisible();
+    }
+    const choose = page.getByRole("button", { name: /Choose who receives revision \d+/ });
+    const previousRevision = Number((await choose.textContent()).match(/\d+/)[0]);
+    const text = page.getByLabel("Your reflection (Markdown)");
+    await text.fill("READER-EXPLICIT-FIRST");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    const revision = previousRevision + 1;
+    await expect(choose).toHaveText(`Choose who receives revision ${revision}`);
+    await reader.goto(`${origin}/admin/`);
+    await reader.getByLabel("Username", { exact: true }).fill("linus");
+    await reader.getByLabel("Password", { exact: true }).fill("yet another horse");
+    await reader.getByRole("button", { name: "Sign in", exact: true }).click();
+    await reader.goto(`${origin}/admin/#/shared`);
+    const reading = reader.locator("summary", { hasText: "Revisions shared with you" });
+    await reading.click();
+    await expect(reader.getByText("No revisions have been shared with you.")).toBeVisible();
+    await page.getByRole("checkbox", { name: "Linus (can read without draft access)" }).check();
+    await choose.click();
+    const confirm = page.getByRole("group", { name: `Share revision ${revision}?` });
+    await expect(confirm).toContainText("Linus (can read without draft access)");
+    await confirm.getByRole("button", { name: `Share revision ${revision}` }).click();
+    await expect(page.getByText(`Revision ${revision} was shared with the selected people.`, { exact: false })).toBeVisible();
+    await reading.click();
+    await reading.click();
+    await expect(reader.getByRole("group", { name: "Text from Mikey" })).toHaveText("READER-EXPLICIT-FIRST");
+    await text.fill("READER-PRIVATE-LATER");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText(`Saved as revision ${revision + 1}.`, { exact: false }).first()).toBeVisible();
+    await reading.click();
+    await reading.click();
+    await expect(reader.getByRole("group", { name: "Text from Mikey" })).toHaveText("READER-EXPLICIT-FIRST");
+    await expect(reader.locator("body")).not.toContainText("READER-PRIVATE-LATER");
+    await reader.evaluate(axe.source);
+    const audit = await reader.evaluate(() => window.axe.run(document, {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+    }));
+    expect(audit.violations).toEqual([]);
+    expect(await reader.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  } finally {
+    await readerContext.close();
+  }
+});
+
 test("all participants unanimously change the approval rule through the real Admin API", async ({ browser, page }) => {
   const graceContext = await browser.newContext();
   const grace = await graceContext.newPage();
