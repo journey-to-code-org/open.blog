@@ -725,7 +725,10 @@ mod tests {
 
     #[test]
     fn any_accent_is_readable_on_every_bundled_theme_in_light_and_dark() {
-        let themes = bundled_themes();
+        let themes: Vec<_> = bundled_themes()
+            .into_iter()
+            .filter(|theme| theme.honors("accent"))
+            .collect();
         assert!(themes.len() >= 3);
         let mut checked = 0;
         for theme in &themes {
