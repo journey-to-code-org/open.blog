@@ -124,9 +124,12 @@ export async function startShell(root, api, meta) {
       { id: "notifications-test", label: "Send a test notification", group: "Do", href: "#/notifications" },
     ] : []),
     { id: "rebuild-all", label: "Rebuild the site now", group: "Do" },
-    { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin" },
+    // "#/", not a bare /admin: the old Admin's bridge (G25) sends an installed app's bare launch back here.
+    { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin/#/" },
     { id: "signout", label: "Sign out", group: "Do" },
   ];
+  // The screen's own items first; a shell item with the same words isn't listed twice.
+  const withBase = (screenItems) => [...screenItems, ...BASE.filter((b) => !screenItems.some((s) => s.label === b.label)), ...installItem()];
   async function refreshPalette() {
     let items = [];
     try {
@@ -136,9 +139,7 @@ export async function startShell(root, api, meta) {
     }
     palette.items = [
       ...(context.undo?.has() ? [{ id: "undo", label: "Undo the delete", group: "Do" }] : []),
-      ...(router.current()?.palette || paletteScreen),
-      ...BASE,
-      ...installItem(),
+      ...withBase(router.current()?.palette || paletteScreen),
       ...items.filter((p) => p.status !== "error").map((p) => ({
         id: `post:${p.path}`, label: p.title || p.path, group: "Posts", href: `#/write/${encodeURIComponent(p.path)}`,
         hint: p.status === "draft" ? "Draft" : p.status === "scheduled" ? `Scheduled ${sayListDate(p.date)}` : "Published",
@@ -185,7 +186,7 @@ export async function startShell(root, api, meta) {
       screenHost.replaceChildren(screen.element);
       actions.replaceChildren(...(screen.actions || []));
       paletteScreen = screen.palette || [];
-      palette.items = [...paletteScreen, ...BASE, ...installItem()];
+      palette.items = withBase(paletteScreen);
       await screen.load?.();
       if (context.undo?.takeFocus()) return;
       if (screen.focus) screen.focus();

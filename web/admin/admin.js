@@ -26550,7 +26550,7 @@ export class Editor {
  */
 export function studioBridge(hash, standalone) {
   const raw = String(hash || "");
-  if (/^#\/?notifications(?:[/?]|$)/.test(raw)) return "/admin/studio/#/notifications";
+  if (/^#\/?notifications(?:[/?]|$)/.test(raw)) return `/admin/studio/#/notifications${raw.includes("?") ? raw.slice(raw.indexOf("?")) : ""}`;
   if (standalone && (raw === "" || raw === "#")) return "/admin/studio/";
   return null;
 }

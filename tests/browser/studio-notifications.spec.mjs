@@ -358,18 +358,35 @@ test("the account menu, the palette, the quiet link on Comments, and a tapped no
   await page.evaluate(() => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "open", hash: "javascript:alert(1)" } })));
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/notifications");
 
-  // Find.
+  // Find, with each thing to do listed once.
   await page.keyboard.press("Control+k");
   await page.keyboard.type("Notifications");
   await expect(page.getByRole("option", { name: /^Notifications/ }).first()).toBeVisible();
+  for (let i = 0; i < "Notifications".length; i++) await page.keyboard.press("Backspace");
+  await page.keyboard.type("Send a test");
+  await expect(page.getByRole("option", { name: /^Send a test notification/ })).toHaveCount(1);
   await page.keyboard.press("Escape");
 });
 
-test("the old Admin's Notifications opens Studio's", async ({ page }) => {
+test("Find's Open the old Admin stays there in the installed app", async ({ page }) => {
+  await open(page, configured, "#/");
+  await page.evaluate(() => localStorage.setItem("test:standalone", "1"));
+  await page.reload();
+  await expect(page.locator("h1")).toBeVisible();
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("Open the old Admin");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => Boolean(customElements.get("ob-admin")));
+  await expect(page).toHaveURL(`${configured.origin}/admin/#/`);
+});
+
+test("the old Admin's Notifications opens Studio's, keeping the Home Screen sheet", async ({ page }) => {
   await open(page, configured, "#/");
   await page.goto(`${configured.origin}/admin/#/notifications`);
   await expect(page).toHaveURL(`${configured.origin}/admin/studio/#/notifications`);
   await expect(page.locator("h1")).toHaveText("Notifications");
+  await page.goto(`${configured.origin}/admin/#/notifications?sheet=home-screen`);
+  await expect(page.getByRole("heading", { name: "Install your blog as an app" })).toBeFocused();
 });
 
 test("Notifications and Add to Home Screen pass axe at 320 px without sideways scrolling", async ({ page }) => {
