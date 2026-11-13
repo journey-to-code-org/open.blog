@@ -21,7 +21,7 @@ test.beforeAll(async ({}, testInfo) => {
   testInfo.setTimeout(360000);
   root = mkdtempSync(join(tmpdir(), "openblog-roundtable-browser-"));
   execFileSync("cargo", [
-    "test", "--locked", "-p", "openblog-cli", "generate_roundtable_browser_fixtures",
+    "test", "--locked", "-p", "openblog-cli", "--bin", "openblog", "generate_roundtable_browser_fixtures",
     "--", "--ignored",
   ], {
     cwd: repository,

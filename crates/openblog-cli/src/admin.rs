@@ -13517,7 +13517,8 @@ fn gate_inputs(
         .map_err(|error| publish_failed(&error))?;
     let stored_choices = crate::shared_publications::load_credit_choices(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
-    let choices = (stored_choices.choices.revision() != 0).then_some(stored_choices.choices);
+    let choices = (record.credit_choices_required || stored_choices.choices.revision() != 0)
+        .then_some(stored_choices.choices);
     let credit_binding = choices
         .as_ref()
         .map(|choices| {
@@ -15144,7 +15145,7 @@ fn reconcile_approvals(
         let structure = crate::shared_publications::load_structure(&state.root, id)?;
         let mut next = stored.set.clone();
         let choices = crate::shared_publications::load_credit_choices(&state.root, id)?.choices;
-        let binding = if choices.revision() != 0 {
+        let binding = if record.credit_choices_required || choices.revision() != 0 {
             Some(
                 choices
                     .binding()
@@ -15509,7 +15510,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         Ok(stored) => stored.choices,
         Err(error) => return credit_choice_failed(&error),
     };
-    let preview = if choices.revision() != 0 {
+    let preview = if record.credit_choices_required || choices.revision() != 0 {
         openblog_core::preview::build_with_credit_choices(
             record,
             structure.structure.as_ref(),
@@ -37660,6 +37661,7 @@ series: letters
                     draft_call(&f, &session, &id, 0, "A perspective").status,
                     200
                 );
+                assert_eq!(select_profile_credit(&f, &session, &id, 0).status, 200);
                 assert_eq!(approve_as(&f, &session, &id).status, 200);
                 assert_eq!(publish_as(&f, &session, &id).status, 409);
             }
@@ -38008,6 +38010,7 @@ series: letters
             .join(format!("{id}.json"));
         let mut record = stored_record(&f, &id);
         record.initial_approval_requirement = None;
+        record.credit_choices_required = false;
         fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
         (f, mikey, id)
     }
@@ -40233,6 +40236,21 @@ series: letters
     /// have written and offered revision 1, so each can read the whole piece.
     type Session = (String, String);
 
+    fn select_profile_credit(f: &Fixture, who: &Session, id: &str, revision: u64) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/collaboration/credit-choice",
+                    json!({"publicationId": id, "expectedRevision": revision, "choice": {"kind": "profile"}}),
+                ),
+                who,
+                true,
+            ),
+        )
+    }
+
     fn approval_fixture(tag: &str) -> (Fixture, Session, Session, Session, String) {
         let (f, mikey, id) = invitation_fixture(tag);
         let grace = join_via_api(
@@ -40333,6 +40351,47 @@ series: letters
 
     fn published_post(f: &Fixture, id: &str) -> Option<String> {
         fs::read_to_string(f.dir.join(format!("content/posts/{id}.md"))).ok()
+    }
+
+    #[test]
+    fn new_reflections_require_explicit_credit_before_review_and_publication() {
+        let (f, mikey, grace, ada, id) = approval_fixture("required-credit");
+        let path = f
+            .dir
+            .join(crate::shared_publications::DIRECTORY)
+            .join(format!("{id}.json"));
+        let mut record = stored_record(&f, &id);
+        record.credit_choices_required = true;
+        fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+
+        assert_eq!(preview_call(&f, &mikey, &id).status, 409);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(
+            schedule_as(&f, &ada, &id, json!("2099-01-01T00:00:00Z")).status,
+            409
+        );
+        for (who, revision) in [(&mikey, 0), (&grace, 1)] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        "/admin/api/collaboration/credit-choice",
+                        json!({"publicationId": id, "expectedRevision": revision, "choice": {"kind": "uncredited"}}),
+                    ),
+                    who,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 200);
+        }
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        let path = openblog_core::contributor::sidecar_path(&format!("posts/{id}.md")).unwrap();
+        let credits: Json =
+            serde_json::from_slice(&fs::read(f.dir.join("content").join(path)).unwrap()).unwrap();
+        assert_eq!(credits["credits"], json!([]));
     }
 
     #[test]
@@ -43845,6 +43904,12 @@ series: letters
             sessions.push(session);
             tokens.push(token);
         }
+        for (revision, session) in std::iter::once(&mikey).chain(&sessions).enumerate() {
+            assert_eq!(
+                select_profile_credit(&f, session, &id, revision as u64).status,
+                200
+            );
+        }
         (f, mikey, id, sessions, tokens)
     }
 
@@ -44042,6 +44107,10 @@ series: letters
         // the arrangement is updated to include them and everyone approves again.
         let (returned, token) = join_writer(&f, &mikey, &id, r);
         tokens.push(token);
+        assert_eq!(
+            select_profile_credit(&f, &returned, &id, (others + 1) as u64).status,
+            200
+        );
         let fresh = body_json(&draft_read(&f, &returned, &id)).to_string();
         assert!(!fresh.contains(&format!("W-{r:02}-OPEN")));
         assert_eq!(

@@ -764,6 +764,9 @@ pub struct SharedPublication {
     /// Requirement selected at creation; absent on records created before participant rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initial_approval_requirement: Option<InitialApprovalRequirement>,
+    /// Require explicit public credit choices for newly created reflections.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub credit_choices_required: bool,
     /// Publication-scoped invitations. They live in the record so accepting one adds the
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1089,6 +1092,7 @@ impl SharedPublication {
             initial_reveal_policy: crate::draft::RevealPolicy::AllReady,
             initial_approval_scope: Some(crate::approval::ApprovalScope::WholePiece),
             initial_approval_requirement: Some(requirement),
+            credit_choices_required: true,
             audit: Vec::new(),
             series: None,
             series_revision: 0,

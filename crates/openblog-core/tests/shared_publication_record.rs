@@ -97,6 +97,26 @@ fn record_json(record: &SharedPublication) -> Value {
 }
 
 #[test]
+fn new_reflections_require_credit_choices_but_legacy_records_do_not() {
+    let record = create(vec![video()]).unwrap();
+    assert!(record.credit_choices_required);
+    let mut stored = record_json(&record);
+    assert_eq!(stored["creditChoicesRequired"], true);
+    assert!(
+        SharedPublication::from_json(&stored.to_string())
+            .unwrap()
+            .credit_choices_required
+    );
+    stored
+        .as_object_mut()
+        .unwrap()
+        .remove("creditChoicesRequired");
+    let legacy = SharedPublication::from_json(&stored.to_string()).unwrap();
+    assert!(!legacy.credit_choices_required);
+    assert!(record_json(&legacy).get("creditChoicesRequired").is_none());
+}
+
+#[test]
 fn new_reflections_default_to_mutual_reveal_without_changing_legacy_records() {
     let record = create(vec![video()]).unwrap();
     assert_eq!(record.initial_reveal_policy, RevealPolicy::AllReady);

@@ -462,17 +462,18 @@ approval of that exact preview, including its public credits. An author may with
 and an out-of-date preview must be reloaded before it can be approved.
 
 The private credit-choice API lets participants save only their own choice; profile details
-are taken from the server's registry. Once any choice is saved, complete review, approval,
-scheduling and publication require choices for everyone whose work appears. Display-name
+are taken from the server's registry. New reflections require choices for everyone whose work
+appears before complete review, approval, scheduling and publication; legacy reflections
+switch to that behavior when any choice is saved. Display-name
 choices receive a separately generated public identifier, never the participant ID. Missing
 choices and older display-name choices without such an identifier block complete review and
 publication; the participant must select the name again. Choice revisions bind the complete
 preview, approval and publication, so changing and reverting a choice does not revive consent.
 The preview shows the exact frozen credits only after the requester can read the entire piece.
 
-Reflections without any saved choices still use the legacy contributor-profile publication
-path. Admin provides individual choice controls but does not yet require explicit choices for
-new reflections; the remaining consent work is tracked in epic #592.
+Older reflections without any saved choices still use the legacy contributor-profile publication
+path. Older releases cannot read newly created records carrying the explicit-choice requirement.
+Remaining collaboration work is tracked in epic #592.
 
 When an approver submits an approval, the server checks again that the current combined preview is
 complete for them. If sharing changed after the preview was opened, the earlier review token

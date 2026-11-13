@@ -909,13 +909,13 @@ legacy section-only approval bindings are unchanged.
 
 Open **My public credit** to choose your contributor profile, a display name without a profile
 link, or uncredited work. Profile details are frozen when you choose them. Changing a choice
-invalidates earlier approvals. Once anyone chooses, everyone whose work appears must choose
-before the group can review and publish the complete piece. A reflection with no saved choices
-still uses the legacy contributor-profile publication path.
+invalidates earlier approvals. Everyone whose work appears in a new reflection must choose
+before the group can review and publish the complete piece. Older reflections with no saved
+choices retain the legacy contributor-profile publication path; once anyone chooses, all
+participants whose work appears must choose.
 
-This workflow is still incomplete: explicit choices are not required for new reflections,
-multiple contribution authoring and a shared-reflection publish control in Admin are not yet
-available. See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
+This workflow is still incomplete: multiple contribution authoring and a shared-reflection
+publish control in Admin are not yet available. See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
 and [epic #592](https://github.com/journey-to-code-org/open.blog/issues/592) before relying on
 the workflow for publication.
 
