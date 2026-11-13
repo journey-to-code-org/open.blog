@@ -227,6 +227,96 @@ fn multi_contribution_subject_binds_each_live_revision_and_owner() {
     assert_ne!(token(&drafts), original);
 }
 
+#[test]
+fn multi_contribution_credits_cover_distinct_draft_ids_and_bind_both_revisions() {
+    use openblog_core::assembly::{
+        public_credit_projection_for_all_contributions, with_credit_subject_for_all_contributions,
+        with_credit_subject_for_participants,
+    };
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let record = record();
+    let mut drafts = drafts(&["bo"]);
+    drafts.save("ann", "first", 0, "Ann writes", T).unwrap();
+    let active = ["ann", "bo"];
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let mut choices = CreditChoices::default();
+    choices
+        .select("bo", "bo", "bo", 0, CreditChoice::Uncredited)
+        .unwrap();
+    assert!(public_credit_projection_for_all_contributions(
+        &record, &drafts, &synthesis, &moments, &active, &choices
+    )
+    .is_err());
+    choices
+        .select("ann", "ann", "ann", 1, CreditChoice::Uncredited)
+        .unwrap();
+    let (projected, _) = public_credit_projection_for_all_contributions(
+        &record, &drafts, &synthesis, &moments, &active, &choices,
+    )
+    .unwrap();
+    assert_eq!(
+        projected.collaboration.participants[0].display_name,
+        "Uncredited participant"
+    );
+    let approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let token = |drafts: &DraftSet, choices: &CreditChoices| {
+        with_credit_subject_for_all_contributions(
+            &record,
+            None,
+            drafts,
+            &synthesis,
+            &moments,
+            &active,
+            &active,
+            choices,
+            |subject| approvals.binding_for(subject, "ann").unwrap(),
+        )
+        .unwrap()
+    };
+    let original = token(&drafts, &choices);
+    drafts.save("ann", "first", 1, "Changed", T + 1).unwrap();
+    assert_ne!(token(&drafts, &choices), original);
+    drafts.save("ann", "first", 2, "Ann writes", T + 2).unwrap();
+    assert_ne!(token(&drafts, &choices), original);
+    let before_credit_change = token(&drafts, &choices);
+    choices
+        .select(
+            "ann",
+            "ann",
+            "ann",
+            2,
+            CreditChoice::DisplayName {
+                name: "A".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+    choices
+        .select("ann", "ann", "ann", 3, CreditChoice::Uncredited)
+        .unwrap();
+    assert_ne!(token(&drafts, &choices), before_credit_change);
+
+    let mut single = DraftSet::new(&ALL).unwrap();
+    for who in active {
+        single.save(who, who, 0, "words", T).unwrap();
+    }
+    let legacy = with_credit_subject_for_participants(
+        &record,
+        None,
+        &single,
+        &synthesis,
+        &moments,
+        &active,
+        &active,
+        &choices,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(token(&single, &choices), legacy);
+}
+
 fn policy(requirement: ApprovalRequirement) -> ApprovalPolicy {
     ApprovalPolicy {
         requirement,

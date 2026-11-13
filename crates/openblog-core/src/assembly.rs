@@ -336,6 +336,33 @@ pub fn with_credit_subject_for_participants<R>(
     ))
 }
 
+/// Bind credit choices to every live contribution. As with
+/// [`with_subject_for_all_contributions`], callers must show and publish every contribution.
+#[allow(clippy::too_many_arguments)]
+pub fn with_credit_subject_for_all_contributions<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> Result<R, crate::shared_credit::CreditChoiceError> {
+    let binding = choices.binding()?;
+    Ok(with_subject_for_all_contributions(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        participants,
+        |subject| with_credit_binding(subject, &binding, ask),
+    ))
+}
+
 /// Extend an existing subject with a previously validated credit-choice binding.
 pub fn with_credit_binding<R>(
     subject: &ApprovalSubject<'_>,
@@ -361,6 +388,31 @@ pub fn public_credit_projection(
     active: &[&str],
     choices: &crate::shared_credit::CreditChoices,
 ) -> Result<(SharedPublication, crate::shared_credit::PublicCredits), AssemblyError> {
+    public_credit_projection_mode(record, drafts, synthesis, moments, active, choices, false)
+}
+
+/// Project public identities for all live contributions, including drafts whose IDs differ from
+/// their owners. Use only with a preview and assembly that both include every contribution.
+pub fn public_credit_projection_for_all_contributions(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<(SharedPublication, crate::shared_credit::PublicCredits), AssemblyError> {
+    public_credit_projection_mode(record, drafts, synthesis, moments, active, choices, true)
+}
+
+fn public_credit_projection_mode(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+    all_contributions: bool,
+) -> Result<(SharedPublication, crate::shared_credit::PublicCredits), AssemblyError> {
     let attributed = synthesis.attributed_authors();
     let noted = moments.attributed_participants();
     if attributed
@@ -377,8 +429,11 @@ pub fn public_credit_projection(
         .map(|participant| participant.id.as_str())
         .filter(|id| {
             active.contains(id)
-                && (drafts.current_stamp(id).is_some()
-                    || attributed.contains(id)
+                && ((if all_contributions {
+                    !drafts.stamps_for_owner(id).is_empty()
+                } else {
+                    drafts.current_stamp(id).is_some()
+                }) || attributed.contains(id)
                     || noted.contains(id))
         })
         .collect();

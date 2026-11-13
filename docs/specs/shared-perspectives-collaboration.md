@@ -479,7 +479,9 @@ The draft set can list and reorder a participant's own live contributions with a
 order and ordering revision. A monotonic order revision is bound into approval, including after
 an order is restored.
 The opt-in multi-contribution approval subject covers every live contribution's owner, ID and
-revision; it is not issued by Admin until complete multi-contribution previews are available.
+revision; a credit-aware variant also binds participant credit choices and projects credit for
+authors whose contribution IDs differ from their participant IDs. These subjects are not issued
+by Admin until complete multi-contribution previews are available.
 The draft set also supports atomic offers of all of an author's current contributions: mutual
 reveal waits for each active author, and each committed revision remains distinct. Voluntary
 offers can be taken back, while named releases remain specific to a contribution and recipients.
