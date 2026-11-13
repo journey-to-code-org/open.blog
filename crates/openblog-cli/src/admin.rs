@@ -1046,6 +1046,7 @@ fn authenticated_api(
         }
         ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
+        ("POST", "document/restore") => restore_document(state, req),
         ("POST", "upload") => upload(state, req),
         ("GET", "images") => list_images(state),
         ("POST", "capture-audio") => upload_capture_audio(state, req),
@@ -16902,6 +16903,35 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         }
     }
 
+    // Studio asks for the file to be kept as written: only the values that
+    // changed move, and everything else keeps its bytes (Studio slice 2). A
+    // file the splice can't read back exactly is written the usual way.
+    let mut layout = "rewritten";
+    let mut layout_reason: Option<String> = None;
+    if !created && body["frontMatter"].as_str() == Some("keep") {
+        if let Ok(current) = fs::read_to_string(&path) {
+            // In keep mode a key the request leaves out entirely stays as it is;
+            // only `null` (or an empty value) removes one. A client that forgets
+            // a field can't delete it by accident.
+            if let (Ok(document), Some(sent)) = (frontmatter::parse(&current), body["fields"].as_object()) {
+                for (key, value) in &document.front_matter.fields {
+                    let top = key.split('.').next().unwrap_or(key);
+                    if !sent.contains_key(key) && !sent.contains_key(top) && !fields.contains_key(key) {
+                        fields.insert(key.clone(), value.clone());
+                    }
+                }
+                source = frontmatter::compose(&fields, text_body);
+            }
+            match frontmatter::splice_explained(&current, &fields, text_body) {
+                Ok(kept) => {
+                    source = kept;
+                    layout = "kept";
+                }
+                Err(reason) => layout_reason = Some(reason),
+            }
+        }
+    }
+
     if !matches!(credit_edit, CreditEdit::Unchanged) {
         let sidecar = credit_path.as_ref().expect("post credit path");
         let current = match read_optional_bytes(sidecar) {
@@ -17026,7 +17056,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     };
     Response::json(
         if created { 201 } else { 200 },
-        &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json, "trackUrl": track_upload.as_ref().map(|track| &track.url) }),
+        &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json, "trackUrl": track_upload.as_ref().map(|track| &track.url), "layout": layout, "layoutReason": layout_reason }),
     )
 }
 
@@ -17309,6 +17339,13 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     if !path.is_file() {
         return Response::error(404, "No such document");
     }
+    // Studio sends the etag it last saw, so it never deletes a version it hasn't shown.
+    if let Some(sent) = req.query.get("etag") {
+        let current = fs::read_to_string(&path).unwrap_or_default();
+        if *sent != etag(&current) {
+            return Response::error(409, "This post changed since you opened it, so it wasn't deleted.");
+        }
+    }
     if rel.starts_with("proof/") {
         if let Some(problem) = review_shown_by_published_job(&state.root, &config, &path) {
             return Response::error(422, &problem);
@@ -17399,6 +17436,7 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     }
     eprintln!("admin: deleted {rel} (kept in .openblog/trash)");
     let build = state.rebuild_locked(&mut status);
+    state_arc(state).auto_publish(format!("Delete {rel}"));
     let build_json = match &build {
         Ok(r) => json!({ "ok": true, "posts": r.posts }),
         Err(e) => json!({ "ok": false, "error": e }),
@@ -17413,6 +17451,129 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
             "trashedContextTo": context_moves.into_iter().filter_map(|(_, path)| path.file_name().map(|name| name.to_string_lossy().into_owned())).collect::<Vec<_>>(),
             "build": build_json
         }),
+    )
+}
+
+/// Undo a delete: put back exactly the files `DELETE document` moved to the
+/// trash, by the names it replied with (Studio slice 2). Only while the trash
+/// files are still there and nothing has taken the post's place.
+fn restore_document(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid restore request"),
+    };
+    let Some(rel) = body["path"].as_str() else {
+        return Response::error(400, "Missing path");
+    };
+    let Some(trashed) = body["trashedTo"].as_str() else {
+        return Response::error(400, "Missing trashedTo");
+    };
+    if body.get("trashedTrackTo").is_some_and(|track| !track.is_null()) {
+        return Response::error(
+            422,
+            "This post had a map track, so it can't be put back from here. Its files are still in the site's trash folder.",
+        );
+    }
+    let mut status = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(c) => c,
+        Err(e) => return Response::error(500, &e),
+    };
+    let path = match resolve_content_path(&state.root, &config, rel) {
+        Ok(p) => p,
+        Err(e) => return Response::error(400, &e),
+    };
+    let trash = state.root.join(".openblog").join("trash");
+    // A trash name is a bare file name that ends with what delete named it after.
+    let belongs = |name: &str, ends: &str| {
+        !name.is_empty()
+            && !name.starts_with('.')
+            && !name.contains(['/', '\\', '\0'])
+            && name.ends_with(&format!("-{ends}"))
+    };
+    if !belongs(trashed, &rel.replace('/', "_")) {
+        return Response::error(422, "That isn't this post's place in the trash.");
+    }
+    let mut moves = vec![(trash.join(trashed), path.clone())];
+    if let Some(name) = body["trashedCreditsTo"].as_str() {
+        let expected = openblog_core::contributor::sidecar_path(rel)
+            .unwrap_or_else(|| format!("{rel}.credits.json"))
+            .replace('/', "_");
+        if !belongs(name, &expected) {
+            return Response::error(422, "That isn't this post's credits in the trash.");
+        }
+        let sidecar = match resolve_credit_path(&state.root, &config, rel) {
+            Ok(path) => path,
+            Err(error) => return Response::error(400, &error),
+        };
+        moves.push((trash.join(name), sidecar));
+    }
+    if let Some(names) = body["trashedContextTo"].as_array() {
+        for name in names {
+            let Some(name) = name.as_str() else {
+                return Response::error(422, "Each trashed context is a file name.");
+            };
+            let mut target = None;
+            for visibility in ["portable", "private"] {
+                let (context, _, _) =
+                    match assistant_context_target(&state.root, "post", visibility, Some(rel)) {
+                        Ok(found) => found,
+                        Err(response) => return response,
+                    };
+                let file = context
+                    .file_name()
+                    .and_then(|file| file.to_str())
+                    .unwrap_or("post.md")
+                    .to_string();
+                if belongs(name, &format!("{visibility}-{file}")) {
+                    target = Some(context);
+                }
+            }
+            let Some(target) = target else {
+                return Response::error(422, "That isn't this post's context in the trash.");
+            };
+            moves.push((trash.join("context").join(name), target));
+        }
+    }
+    for (from, to) in &moves {
+        if !from.is_file() {
+            return Response::error(404, "This post is no longer in the trash, so it can't come back from here.");
+        }
+        if to.exists() {
+            return Response::error(
+                409,
+                "There's a post with that name again. Delete or rename that one first, then put this one back.",
+            );
+        }
+        if let Some(parent) = to.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                return Response::error(500, &format!("cannot make {}: {error}", parent.display()));
+            }
+        }
+    }
+    if let Err(error) = move_files_transactionally(&moves) {
+        return Response::error(500, &format!("cannot put the post back: {error}"));
+    }
+    eprintln!("admin: restored {rel} from .openblog/trash");
+    let source = fs::read_to_string(&path).unwrap_or_default();
+    let now = clock::now();
+    let build = state.rebuild_locked(&mut status);
+    let build_json = match &build {
+        Ok(r) => json!({ "ok": true, "posts": r.posts }),
+        Err(e) => json!({ "ok": false, "error": e }),
+    };
+    let (post_status, url) = describe(rel, &source, &config, now);
+    state_arc(state).auto_publish(format!("Restore {rel}"));
+    Response::json(
+        200,
+        &json!({ "path": rel, "etag": etag(&source), "status": post_status, "url": url, "build": build_json }),
     )
 }
 
@@ -18361,7 +18522,8 @@ fn preview_csp(config: &SiteConfig) -> String {
     format!(
         "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
          img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
-         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'; \
+         sandbox allow-scripts"
     )
 }
 
@@ -18911,6 +19073,7 @@ mod tests {
     mod capture_transcribe_routes;
     mod comparison_routes;
     mod distribution_routes;
+    mod document_keep_routes;
     mod greeting_routes;
     mod job_draft_routes;
     mod job_share_routes;
@@ -26263,6 +26426,9 @@ What I read:
         assert_eq!(profiles[1]["fields"][2]["aliases"], json!([]));
         assert_eq!(profiles[1]["fields"][2]["suggestions"][0], "American");
         assert_eq!(profiles[1]["fields"][0]["suggestions"], json!([]));
+        assert_eq!(profiles[1]["fields"][0]["aliases"], json!(["serves"]));
+        let prep = profiles[1]["fields"].as_array().unwrap().iter().find(|f| f["key"] == "prepTime").unwrap();
+        assert_eq!(prep["aliases"], json!(["prep", "prep_time"]));
         assert_eq!(profiles[2]["id"], "research");
         assert_eq!(profiles[2]["fields"][0]["key"], "doi");
         assert_eq!(profiles[2]["fields"][1]["key"], "license");
