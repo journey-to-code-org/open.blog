@@ -206,6 +206,20 @@ mentions OPTIONS
                                webmention.receive.retentionDays (approved ones are kept)
     --json                     Print list or pull as JSON
 
+diagram git OPTIONS
+    --repo <path>          Read local Git history from this repository (default: current directory)
+    --from <ref> --to <ref>
+                           Exclude commits reachable from --from and include those reachable
+                           from --to; print a draft only, without writing or publishing
+    The draft omits author metadata and commit hashes, and makes a best-effort attempt
+    to redact email addresses and full hashes. Subjects and ref names can still contain
+    sensitive information: review the entire draft before sharing it.
+    Add a meaningful accTitle and accDescr before publishing. The draft shows at most 30
+    commits and reports omitted history, out-of-range parents and additional merge
+    parents. Branch names and all tags are listed as review notes.
+    Diagram rendering is experimental and requires the diagram-rendering feature;
+    default builds show source as code. The draft is not publication-ready.
+
 card OPTIONS
     --format a,b               pinterest-pin, facebook-link, linkedin-link (default: all)
     --json                     Print the card plan with every check and the chosen images

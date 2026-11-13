@@ -166,6 +166,23 @@ prune [--write]            Delete closed and stale mentions older than
 --json                     Print list or pull as JSON
 ```
 
+## `diagram git` options
+
+```text
+--repo <path>          Read local Git history from this repository (default: current directory)
+--from <ref> --to <ref>
+                       Exclude commits reachable from --from and include those reachable
+                       from --to; print a draft only, without writing or publishing
+The draft omits author metadata and commit hashes, and makes a best-effort attempt
+to redact email addresses and full hashes. Subjects and ref names can still contain
+sensitive information: review the entire draft before sharing it.
+Add a meaningful accTitle and accDescr before publishing. The draft shows at most 30
+commits and reports omitted history, out-of-range parents and additional merge
+parents. Branch names and all tags are listed as review notes.
+Diagram rendering is experimental and requires the diagram-rendering feature;
+default builds show source as code. The draft is not publication-ready.
+```
+
 ## `card` options
 
 ```text
@@ -174,27 +191,6 @@ prune [--write]            Delete closed and stale mentions older than
 --preview <new folder>     Write cards.json, an SVG layout preview per card and an
                            accessible index.html; reads only the site's own image files
 ```
-
-## `diagram git` options
-
-`openblog diagram git --from <ref> --to <ref>` reads local Git history in the current
-directory, or in `--repo <path>`, and prints a draft Mermaid `gitGraph` to standard
-output. The range excludes `--from` and includes commits reachable from `--to` that are
-not reachable from `--from`. It does not write or publish anything.
-
-The draft omits author metadata and commit hashes, and makes a best-effort attempt to
-redact email addresses and full hashes in labels. Commit subjects and local ref names
-can still contain sensitive information: review the entire draft before sharing it.
-Add a meaningful `accTitle` and `accDescr` before publishing: the draft intentionally
-omits both so the diagram accessibility gate cannot accept it unchanged. The output
-shows at most 30 commits and reports omitted history, out-of-range parents and
-additional merge parents; branch names are listed as review notes rather than used as
-graph identifiers. A commit with multiple tags displays one in the diagram; its refs
-are listed in the notes.
-
-Mermaid diagram rendering is experimental and requires the `diagram-rendering` feature;
-default builds show the source as code. The generated source is a draft, not a
-publication-ready diagram.
 
 ## `job-share` options
 
