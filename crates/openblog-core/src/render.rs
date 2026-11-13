@@ -3725,7 +3725,12 @@ impl<'a> Renderer<'a> {
             );
         }
         body.push_str("</section>\n</div>");
-        let mut meta = self.meta_simple(theme, "Search", "Search every post.", "/search/");
+        let description = if self.site.config.docs.enabled {
+            "Search the documentation and every post."
+        } else {
+            "Search every post."
+        };
+        let mut meta = self.meta_simple(theme, "Search", description, "/search/");
         meta.noindex = true;
         self.document(&meta, &body)
     }

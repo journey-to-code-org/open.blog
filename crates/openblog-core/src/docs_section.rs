@@ -464,7 +464,7 @@ pub fn sidebar(pages: &[Page], current: usize, heading: &str) -> String {
         .map(|doc| doc.path.clone())
         .unwrap_or_default();
     let mut out = format!(
-        "<ob-docs-nav>\n<details class=\"ob-docs-nav\" open>\n<summary>{}</summary>\n<nav aria-label=\"{}\">\n",
+        "<ob-docs-nav>\n<form class=\"ob-docs-search\" role=\"search\" action=\"/search/\" method=\"get\">\n<label class=\"ob-visually-hidden\" for=\"ob-docs-q\">Search the documentation</label>\n<input id=\"ob-docs-q\" type=\"search\" name=\"q\" placeholder=\"Search the docs\" autocomplete=\"off\">\n</form>\n<details class=\"ob-docs-nav\" open>\n<summary>{}</summary>\n<nav aria-label=\"{}\">\n",
         text(heading),
         attr(heading)
     );
@@ -578,6 +578,119 @@ pub fn pager(pages: &[Page], order: &[usize], current: usize) -> String {
     out
 }
 
+/// One searchable part of a documentation page: its opening (before the first `<h2>`), or one
+/// `<h2>` section with what follows it up to the next.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchPart {
+    pub title: String,
+    pub url: String,
+    /// Lower-cased plain text, at most [`SEARCH_PART_CHARS`] characters.
+    pub text: String,
+    pub is_page: bool,
+}
+
+/// How much of each part's text goes into the search index. Sections are short, so this keeps
+/// almost every word of a page searchable while bounding the index (ADR 0408).
+pub const SEARCH_PART_CHARS: usize = 1500;
+
+/// The parts of a documentation page for the search index (ADR 0408). The opening keeps the
+/// page's title and address; each `<h2 id>` section is "Page › Section" at `page#id`.
+pub fn search_parts(page: &Page) -> Vec<SearchPart> {
+    let mut parts = Vec::new();
+    let mut rest = page.html.as_str();
+    let opening_end = rest.find("<h2 id=\"").unwrap_or(rest.len());
+    parts.push(SearchPart {
+        title: page.title.clone(),
+        url: page.url.clone(),
+        text: plain(&format!("{} {}", page.title, &rest[..opening_end])),
+        is_page: true,
+    });
+    rest = &rest[opening_end..];
+    while let Some(start) = rest.strip_prefix("<h2 id=\"") {
+        let Some(id_end) = start.find('"') else { break };
+        let id = &start[..id_end];
+        let Some(close) = start.find("</h2>") else {
+            break;
+        };
+        let inner = start[id_end..close]
+            .find('>')
+            .map(|at| id_end + at + 1)
+            .unwrap_or(close);
+        let heading = plain(&start[inner..close]);
+        let body_start = close + "</h2>".len();
+        let next = start[body_start..]
+            .find("<h2 id=\"")
+            .map(|at| body_start + at)
+            .unwrap_or(start.len());
+        let heading_title = plain_case(&start[inner..close]);
+        parts.push(SearchPart {
+            title: format!("{} › {}", page.title, heading_title),
+            url: format!("{}#{}", page.url, id),
+            text: plain(&format!("{heading} {}", &start[body_start..next])),
+            is_page: false,
+        });
+        rest = &start[next..];
+    }
+    parts
+}
+
+/// The label a search result shows under a documentation page's title: the folder it is in,
+/// by that folder's own title, such as "Decision records"; nothing for a page at the top.
+pub fn search_label(pages: &[Page], page: &Page) -> Option<String> {
+    let folder = page.doc.as_ref()?.parent()?;
+    if folder.is_empty() {
+        return None;
+    }
+    Some(
+        pages
+            .iter()
+            .find(|p| p.doc.as_ref().is_some_and(|doc| doc.path == folder))
+            .map(|p| p.title.clone())
+            .unwrap_or_else(|| folder_title(folder)),
+    )
+}
+
+/// Lower-cased plain text of an HTML fragment, collapsed and cut to [`SEARCH_PART_CHARS`].
+fn plain(html: &str) -> String {
+    plain_case(html)
+        .to_lowercase()
+        .chars()
+        .take(SEARCH_PART_CHARS)
+        .collect()
+}
+
+/// Plain text of an HTML fragment with its case kept: tags dropped (a heading's `#` anchor
+/// with them), the common entities decoded, whitespace collapsed.
+fn plain_case(html: &str) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut skip_anchor = false;
+    for (at, c) in html.char_indices() {
+        match c {
+            '<' => {
+                in_tag = true;
+                if html[at..].starts_with("<a class=\"ob-heading-anchor\"") {
+                    skip_anchor = true;
+                } else if skip_anchor && html[at..].starts_with("</a>") {
+                    skip_anchor = false;
+                }
+                text.push(' ');
+            }
+            '>' => in_tag = false,
+            _ if in_tag || skip_anchor => {}
+            _ => text.push(c),
+        }
+    }
+    let decoded = text
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'");
+    decoded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -623,6 +736,32 @@ mod tests {
         assert_eq!(warnings.len(), 2, "{warnings:?}");
         assert!(warnings[0].contains("missing.md"));
         assert!(warnings[1].contains("../../README.md"));
+    }
+
+    #[test]
+    fn a_page_is_searchable_by_its_opening_and_each_section() {
+        let page = Page {
+            title: "Configuration".into(),
+            url: "/docs/configuration/".into(),
+            html: concat!(
+                "<p>Every setting &amp; its default.</p>\n",
+                "<h2 id=\"site\">Site<a class=\"ob-heading-anchor\" href=\"#site\" aria-label=\"Link to this section\">#</a></h2>\n",
+                "<p>The <code>title</code> key.</p>\n",
+                "<h2 id=\"feeds\">Feeds &amp; maps<a class=\"ob-heading-anchor\" href=\"#feeds\">#</a></h2>\n<p>RSS.</p>"
+            )
+            .into(),
+            ..Page::default()
+        };
+        let parts = search_parts(&page);
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        assert_eq!(parts[0].url, "/docs/configuration/");
+        assert_eq!(parts[0].text, "configuration every setting & its default.");
+        assert!(parts[0].is_page);
+        assert_eq!(parts[1].title, "Configuration › Site");
+        assert_eq!(parts[1].url, "/docs/configuration/#site");
+        assert_eq!(parts[1].text, "site the title key.");
+        assert_eq!(parts[2].title, "Configuration › Feeds & maps");
+        assert_eq!(parts[2].text, "feeds & maps rss.");
     }
 
     #[test]
