@@ -238,7 +238,7 @@ impl Group {
             synthesis: SynthesisSet::new(),
             approvals: ApprovalSet::new(),
         };
-        // One agreement, written by the first three together; nobody speaks for anyone else.
+        // One agreement, written by up to the first three together.
         let active = group.members.clone();
         let active = active.iter().map(String::as_str).collect::<Vec<_>>();
         let item = group
@@ -250,11 +250,11 @@ impl Group {
                 NewSynthesisItem {
                     kind: SynthesisKind::Agreement,
                     markdown: "SYNTH-AGREEMENT: we all slowed down.",
-                    others: &[&id(1), &id(2)],
+                    others: &active[1..active.len().min(3)],
                 },
             )
             .unwrap();
-        let mut approvers = vec![id(0), id(1), id(2)];
+        let mut approvers = group.members.iter().take(3).cloned().collect::<Vec<_>>();
         if reverse {
             approvers.reverse();
         }
@@ -531,8 +531,8 @@ fn check_every_representation(made: &Assembly, ids: &[usize], label: &str) {
 }
 
 #[test]
-fn roundtables_of_three_ten_and_the_cap_publish_every_contribution_in_reading_order() {
-    for n in [3, 10, MAX_PARTICIPANTS] {
+fn roundtables_of_two_three_six_ten_and_the_cap_publish_every_contribution_in_reading_order() {
+    for n in [2, 3, 6, 10, MAX_PARTICIPANTS] {
         let group = Group::new(n, false);
         let made = group.assemble().unwrap();
         let ids = (0..n).collect::<Vec<_>>();
