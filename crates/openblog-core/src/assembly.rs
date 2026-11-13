@@ -167,6 +167,57 @@ pub fn with_subject_for_participants<R>(
     participants: &[&str],
     ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
 ) -> R {
+    with_subject_mode(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        participants,
+        false,
+        ask,
+    )
+}
+
+/// Build a subject covering every live contribution of each active author. Callers must also
+/// show and publish every such contribution before issuing or accepting this subject's token.
+#[allow(clippy::too_many_arguments)]
+pub fn with_subject_for_all_contributions<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
+    with_subject_mode(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        participants,
+        true,
+        ask,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn with_subject_mode<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    all_contributions: bool,
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
     let authors: Vec<&str> = record
         .collaboration
         .participants
@@ -176,19 +227,22 @@ pub fn with_subject_for_participants<R>(
         .collect();
     let stamps: Vec<_> = authors
         .iter()
-        .map(|author| drafts.current_stamp(author))
+        .flat_map(|author| {
+            let stamps = if all_contributions {
+                drafts.stamps_for_owner(author)
+            } else {
+                drafts.current_stamp(author).into_iter().collect()
+            };
+            stamps.into_iter().map(move |stamp| (*author, stamp))
+        })
         .collect();
-    let sections: Vec<Section<'_>> = authors
+    let sections: Vec<Section<'_>> = stamps
         .iter()
-        .zip(&stamps)
-        .filter_map(|(author, stamp)| {
-            let stamp = stamp.as_ref()?;
-            Some(Section {
-                contribution_id: &stamp.contribution_id,
-                owner: author,
-                revision: stamp.number,
-                digest: &stamp.digest,
-            })
+        .map(|(author, stamp)| Section {
+            contribution_id: &stamp.contribution_id,
+            owner: author,
+            revision: stamp.number,
+            digest: &stamp.digest,
         })
         .collect();
     let mut metadata = public_metadata(record);

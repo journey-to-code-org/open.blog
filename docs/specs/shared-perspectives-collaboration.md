@@ -478,6 +478,8 @@ Remaining collaboration work is tracked in epic #592.
 The draft set can list and reorder a participant's own live contributions with an expected
 order and ordering revision. A monotonic order revision is bound into approval, including after
 an order is restored.
+The opt-in multi-contribution approval subject covers every live contribution's owner, ID and
+revision; it is not issued by Admin until complete multi-contribution previews are available.
 The Admin route, reveal, preview and publication paths still support one draft per participant;
 the core ordering operation is not exposed until those paths can safely handle every contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.

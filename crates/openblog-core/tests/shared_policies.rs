@@ -6,7 +6,9 @@ use openblog_core::approval::{
     public_metadata, ApprovalPolicy, ApprovalRequirement, ApprovalScope, ApprovalSet,
     ApprovalSubject, PolicyChange, PolicyError, Readiness, RuleAuthority, RuleGaps,
 };
-use openblog_core::assembly::{assemble, with_subject, AssemblyError};
+use openblog_core::assembly::{
+    assemble, with_subject, with_subject_for_all_contributions, AssemblyError,
+};
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
     Participant, SharedPublication, SourceKind,
@@ -164,6 +166,65 @@ fn contribution_reordering_and_reversion_do_not_revive_approval() {
             assert!(!approvals.is_approved(subject, "ann"));
         },
     );
+}
+
+#[test]
+fn multi_contribution_subject_binds_each_live_revision_and_owner() {
+    let record = record();
+    let mut drafts = drafts(&["ann", "bo"]);
+    let approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let legacy = with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    );
+    let multiple = with_subject_for_all_contributions(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        &ALL,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    );
+    assert_eq!(legacy, multiple);
+    drafts
+        .save("ann", "second", 0, "another perspective", T)
+        .unwrap();
+    let token = |drafts: &DraftSet| {
+        with_subject_for_all_contributions(
+            &record,
+            None,
+            drafts,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            &ALL,
+            |subject| {
+                assert_eq!(
+                    subject
+                        .sections
+                        .iter()
+                        .map(|section| (section.owner, section.contribution_id))
+                        .collect::<Vec<_>>(),
+                    [("ann", "ann"), ("ann", "second"), ("bo", "bo")]
+                );
+                approvals.binding_for(subject, "ann").unwrap()
+            },
+        )
+    };
+    let original = token(&drafts);
+    drafts.save("ann", "second", 1, "edited", T + 1).unwrap();
+    assert_ne!(token(&drafts), original);
+    drafts
+        .save("ann", "second", 2, "another perspective", T + 2)
+        .unwrap();
+    assert_ne!(token(&drafts), original);
 }
 
 fn policy(requirement: ApprovalRequirement) -> ApprovalPolicy {

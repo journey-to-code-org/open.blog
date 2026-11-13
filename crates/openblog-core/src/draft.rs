@@ -573,6 +573,19 @@ impl DraftSet {
         self.order_revision
     }
 
+    pub(crate) fn stamps_for_owner(&self, owner: &str) -> Vec<RevisionStamp> {
+        self.drafts
+            .iter()
+            .filter(|draft| draft.owner == owner && !draft.withdrawn)
+            .map(|draft| {
+                Self::stamp(
+                    draft,
+                    draft.revisions.last().expect("valid drafts have revisions"),
+                )
+            })
+            .collect()
+    }
+
     /// Reorder only the requester's live contributions, checking the revision and order they saw.
     /// Callers must also compare-and-swap the persisted draft set and invalidate approvals.
     pub fn reorder_owned(
