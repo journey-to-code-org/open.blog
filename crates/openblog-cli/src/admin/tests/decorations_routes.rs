@@ -198,3 +198,53 @@ fn the_preview_shows_unsaved_choices_and_writes_nothing() {
     assert!(String::from_utf8_lossy(&page.body).contains("url(toys.svg)"));
     assert_eq!(on_disk(&f), before);
 }
+
+#[test]
+fn a_stale_saved_choice_never_blocks_another_change() {
+    let (f, s) = festive("decor-stale");
+    let config = f.dir.join(site::CONFIG_FILE);
+    let text = fs::read_to_string(&config).unwrap();
+    let close = text.rfind('}').unwrap();
+    fs::write(
+        &config,
+        format!(
+            "{},\n  \"decorations\": {{ \"gone\": {{ \"garland\": false }} }}\n}}\n",
+            text[..close].trim_end()
+        ),
+    )
+    .unwrap();
+    let got = get(&f, &s);
+    let response = put(
+        &f,
+        &s,
+        json!({ "etag": got["etag"], "decorations": { "gone": { "garland": false }, "festive": { "snow": false } } }),
+    );
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    assert!(on_disk(&f).contains("\"snow\": false"));
+}
+
+#[test]
+fn a_piece_with_nothing_to_take_down_cant_be_switched_off() {
+    let (f, s) = festive("decor-always");
+    let path = f.dir.join("themes").join("festive").join("theme.json");
+    let theme = fs::read_to_string(&path).unwrap();
+    let changed = theme.replace(
+        r#""snow": { "label": "Snow", "tokens": ["ghSnow"], "off": { "ghSnow": "none" } }"#,
+        r#""snow": { "label": "Snow", "tokens": ["ghSnow"] }"#,
+    );
+    assert_ne!(changed, theme);
+    fs::write(&path, changed).unwrap();
+    let got = get(&f, &s);
+    assert_eq!(got["looks"][0]["pieces"][1]["canTakeDown"], false);
+    let response = put(
+        &f,
+        &s,
+        json!({ "etag": got["etag"], "decorations": { "festive": { "snow": false } } }),
+    );
+    assert_eq!(response.status, 422);
+}

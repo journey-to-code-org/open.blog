@@ -61,16 +61,19 @@ function readBody(request, limit) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let over = false;
     request.on("data", (chunk) => {
+      if (over) return; // read and dropped, so the 413 reaches the sender
       size += chunk.length;
       if (size > limit) {
+        over = true;
+        chunks.length = 0;
         reject(Object.assign(new Error("too-large"), { status: 413 }));
-        request.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    request.on("end", () => { if (!over) resolve(Buffer.concat(chunks).toString("utf8")); });
     request.on("error", reject);
   });
 }

@@ -296,3 +296,4 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-gift-note { margin: 0; padding: var(--space-3) var(--space-4); border-left: 4px solid var(--studio-linen); white-space: pre-wrap; font-size: var(--text-lg); max-width: 40rem; }
 .studio-gift-card { width: 100%; max-width: 36rem; height: auto; }
 @media (max-width: 40rem) { .studio-gift { grid-template-columns: 2.5rem 1fr; padding: var(--space-3); } .studio-gift-box { width: 2.5rem; } }
+.studio-deco-fixed { margin: 0; display: grid; gap: 0.15rem; }

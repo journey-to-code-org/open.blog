@@ -147,6 +147,10 @@ pub fn problems(
         for (id, choice) in picks {
             match (pieces.get(id), choice) {
                 (None, _) => out.push(format!("`{theme}` has no decoration called `{id}`")),
+                (Some(piece), DecorChoice::Off) if piece.off.is_empty() => out.push(format!(
+                    "`{theme}`'s {} always stays up",
+                    piece.label.to_lowercase()
+                )),
                 (Some(piece), DecorChoice::Variant(v)) if !piece.variants.contains_key(v) => out
                     .push(format!(
                         "`{theme}`'s {} has no version called `{v}`",
@@ -252,5 +256,14 @@ mod tests {
         .unwrap();
         let found = problems(&choices, |name| (name == "christmas").then(garland));
         assert_eq!(found.len(), 3, "{found:?}");
+        let mut fixed = garland();
+        fixed.get_mut("garland").unwrap().off.clear();
+        let off: DecorChoices =
+            serde_json::from_str(r#"{"christmas": {"garland": false}}"#).unwrap();
+        assert_eq!(
+            problems(&off, |_| Some(fixed.clone())).len(),
+            1,
+            "nothing to take down"
+        );
     }
 }

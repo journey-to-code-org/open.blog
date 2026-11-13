@@ -34,6 +34,6 @@ for name in $files; do
   fi
   run -c "insert into public.openblog_service_migrations (file, sha256) values ('$name', '$sum') on conflict (file) do update set sha256 = excluded.sha256, applied_at = now()"
 done
-# Tables made since the last start are the service role's too (the SQL grants its own; this is a net).
+# PostgREST reloads its view of the tables, so new ones are reachable at once.
 run -c "notify pgrst, 'reload schema'"
 echo "[migrate] database is ready"

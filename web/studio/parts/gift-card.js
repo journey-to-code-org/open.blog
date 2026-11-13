@@ -57,11 +57,16 @@ export function drawCard(card, { label = "A card" } = {}) {
   title.textContent = label;
   svg.append(title, el("rect", { width: W, height: H, rx: 18, fill: design.bg, stroke: design.edge, "stroke-width": 6 }));
   for (const [name, attributes] of design.shapes) svg.append(el(name, attributes));
-  const lines = wrapLines(card?.message);
-  const top = H / 2 - (lines.length * 30) / 2 + 10;
-  const text = el("text", { x: W / 2, y: top, "text-anchor": "middle", fill: design.ink, "font-size": 26, "font-family": "Georgia, serif" });
+  // A long message gets smaller writing rather than being cut short.
+  let lines = wrapLines(card?.message);
+  const small = lines.length > 6 || lines.some((line) => line.endsWith("…"));
+  if (small) lines = wrapLines(card?.message, 50, 12);
+  const size = small ? 19 : 26;
+  const step = small ? 23 : 32;
+  const top = H / 2 - ((lines.length - 1) * step) / 2;
+  const text = el("text", { x: W / 2, y: top, "text-anchor": "middle", "dominant-baseline": "middle", fill: design.ink, "font-size": size, "font-family": "Georgia, serif" });
   lines.forEach((line, index) => {
-    const span = el("tspan", { x: W / 2, dy: index === 0 ? 0 : 32 });
+    const span = el("tspan", { x: W / 2, dy: index === 0 ? 0 : step });
     span.textContent = line;
     text.append(span);
   });

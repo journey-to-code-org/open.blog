@@ -11,7 +11,7 @@ import { CardError, oneLine, zonedInstant } from "./greeting-card.mjs";
 
 export { CardError };
 
-export const LIMITS = Object.freeze({ from: 40, note: 1000, message: 300, signOff: 40, stickers: 8, perVisitorPerHour: 5, perSeason: 200 });
+export const LIMITS = Object.freeze({ from: 40, note: 1000, message: 300, signOff: 40, stickers: 8, perVisitorPerHour: 5, triesPerHour: 10, perSeason: 200 });
 export const WRAPS = Object.freeze(["red", "green", "gold", "blue", "plaid", "stripes"]);
 export const DESIGNS = Object.freeze(["snowy-night", "candy-stripe", "holly", "gingerbread", "starry"]);
 export const STICKERS = Object.freeze(["star", "heart", "snowflake", "candy-cane", "bell", "mitten", "cookie", "ornament", "holly", "gift"]);
@@ -69,19 +69,32 @@ export function checkGift(input) {
   throw new CardError(422, "kind", "kind");
 }
 
+/** Days after the opening day that a gift left then opens at once (December 25 to January 6). */
+export const LATE_DAYS = 13;
+
 /**
  * When a gift left at `now` opens: the next opening day (December 25 unless `monthDay` says
- * otherwise, for a rehearsal) at midnight in `zone`. A gift left on Christmas Day itself opens at
- * once; one left after it waits for next year's.
+ * otherwise, for a rehearsal) at midnight in `zone`. One left from that day through January 6 opens
+ * at once: nobody should wait a year for a late present.
  */
 export function opensAt(now, zone, monthDay = "12-25") {
   const [month, day] = monthDay.split("-").map(Number);
   const nowDate = new Date(now);
   const year = Number(new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric" }).format(nowDate));
-  const thisYear = zonedInstant({ year, month, day }, 0, zone);
-  const dayAfter = zonedInstant({ year, month, day: day + 1 }, 0, zone);
-  if (nowDate < dayAfter) return thisYear;
+  for (const y of [year - 1, year]) {
+    const opening = zonedInstant({ year: y, month, day }, 0, zone);
+    const lateEnd = zonedInstant({ year: y, month, day: day + LATE_DAYS }, 0, zone);
+    if (nowDate >= opening && nowDate < lateEnd) return nowDate;
+    if (nowDate < opening) return opening;
+  }
   return zonedInstant({ year: year + 1, month, day }, 0, zone);
+}
+
+/** The family password as the family types it: at least 6 letters or digits once tidied. */
+export function checkFamilyCode(value) {
+  const code = text(value).trim().replace(/\s+/g, " ");
+  if (normalizeCode(code).length < 6 || code.length > 80) throw new CardError(422, "family-code-length", "familyCode");
+  return code;
 }
 
 /**

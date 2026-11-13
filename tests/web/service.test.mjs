@@ -56,8 +56,8 @@ test("too large is 413, unknown is 404, and a throwing function is a plain 500",
   const server = createService({ maxBytes: 10, handlers: { greetings: async () => { throw new Error("secret detail"); } } });
   const base = await listen(server);
   assert.equal((await fetch(`${base}/api/comments`, { method: "POST", body: "x".repeat(50) })).status, 404);
-  const big = await fetch(`${base}/api/greetings/x`, { method: "POST", body: "x".repeat(50) }).catch(() => null);
-  assert.ok(!big || big.status === 413);
+  const big = await fetch(`${base}/api/greetings/x`, { method: "POST", body: "x".repeat(50) });
+  assert.equal(big.status, 413, "a reply, not a dropped connection");
   const failed = await fetch(`${base}/api/greetings/status`);
   assert.equal(failed.status, 500);
   assert.doesNotMatch(await failed.text(), /secret detail/);

@@ -75,9 +75,9 @@ fn process_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
-/// Whether Admin has any gifts settings, valid or not. Only then does Studio show Gifts.
+/// Whether gifts are set up and valid here. Only then does Studio show Gifts (status says what is wrong).
 pub(super) fn is_configured() -> bool {
-    !matches!(configuration(&process_env), Configured::Off)
+    matches!(configuration(&process_env), Configured::On(_))
 }
 
 fn bad_reply() -> Response {
@@ -100,6 +100,10 @@ fn refusal(status: u16, body: &Json) -> Response {
         ),
         (404, _) => (404, "That gift is no longer there; reload"),
         (423, _) => (423, "It's still wrapped: gifts open on Christmas morning"),
+        (422, Some("family-code-length")) => (
+            400,
+            "The family password needs at least 6 letters or numbers",
+        ),
         (422, _) | (400, _) => (400, "The gifts service refused the request"),
         _ => (502, "The gifts service failed; try again"),
     };
@@ -175,6 +179,17 @@ fn instant(value: &Json) -> Option<Json> {
     ok.then(|| Json::String(s.to_string()))
 }
 
+/// What a family member wrote: paragraphs kept (line breaks and tabs), other control characters
+/// refused, at most `max` characters.
+fn words(value: &Json, max: usize) -> Option<String> {
+    let value = value.as_str()?;
+    (value.chars().count() <= max
+        && !value
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t'))
+    .then(|| value.to_string())
+}
+
 fn one_of(value: Option<&Json>, list: &[&str]) -> Option<Json> {
     let s = value?.as_str()?;
     list.contains(&s).then(|| Json::String(s.to_string()))
@@ -199,7 +214,7 @@ fn project_card(value: &Json) -> Option<Json> {
         .collect();
     Some(json!({
         "design": one_of(value.get("design"), &DESIGNS)?,
-        "message": text(value.get("message")?, 300)?,
+        "message": words(value.get("message")?, 300)?,
         "signOff": value.get("signOff").and_then(|s| text(s, 40)).unwrap_or_default(),
         "stickers": stickers?,
     }))
@@ -225,8 +240,15 @@ fn project_gift(value: &Json) -> Option<Json> {
     });
     if opened {
         match kind.as_str() {
-            Some("note") => gift["note"] = Json::String(text(value.get("note")?, 1000)?),
-            _ => gift["card"] = project_card(value.get("card")?)?,
+            // Something Admin can't show is said so, never dropped: the gift itself is still there.
+            Some("note") => match value.get("note").and_then(|n| words(n, 1000)) {
+                Some(note) => gift["note"] = Json::String(note),
+                None => gift["unreadable"] = Json::Bool(true),
+            },
+            _ => match value.get("card").and_then(project_card) {
+                Some(card) => gift["card"] = card,
+                None => gift["unreadable"] = Json::Bool(true),
+            },
         }
     }
     Some(gift)
@@ -246,6 +268,35 @@ fn empty_body(req: &Request) -> Result<(), Response> {
             "The request has a field this route does not take",
         )),
     }
+}
+
+/// `{ showNames?, familyCode? }` and nothing else: a boolean and a short line of words.
+fn settings_body(req: &Request) -> Result<Json, Response> {
+    let refused = || {
+        Response::error(
+            400,
+            "Send showNames (true or false) and/or familyCode (words)",
+        )
+    };
+    let body: Json = serde_json::from_slice(&req.body).map_err(|_| refused())?;
+    let object = body.as_object().ok_or_else(refused)?;
+    if object.is_empty() || object.keys().any(|k| k != "showNames" && k != "familyCode") {
+        return Err(refused());
+    }
+    let mut out = serde_json::Map::new();
+    if let Some(show) = object.get("showNames") {
+        out.insert(
+            "showNames".into(),
+            Json::Bool(show.as_bool().ok_or_else(refused)?),
+        );
+    }
+    if let Some(code) = object.get("familyCode") {
+        out.insert(
+            "familyCode".into(),
+            Json::String(text(code, 80).ok_or_else(refused)?),
+        );
+    }
+    Ok(Json::Object(out))
 }
 
 fn gift_reply(reply: Json) -> Result<Json, Response> {
@@ -294,23 +345,18 @@ pub(super) fn route_with(
             Ok(json!({
                 "gifts": list.iter().filter_map(project_gift).collect::<Vec<_>>(),
                 "showNames": reply.get("showNames").and_then(Json::as_bool).unwrap_or(true),
+                "familyCode": reply.get("familyCode").and_then(|c| text(c, 80)),
                 "opensAt": reply.get("opensAt").and_then(instant).ok_or_else(bad_reply)?,
             }))
         }),
-        ("POST", ["settings"]) => {
-            let body: Result<bool, Response> = serde_json::from_slice::<Json>(&req.body)
-                .ok()
-                .and_then(|b| {
-                    let object = b.as_object()?;
-                    (object.len() == 1).then(|| object.get("showNames")?.as_bool())?
-                })
-                .ok_or_else(|| Response::error(400, "Send only showNames, true or false"));
-            body.and_then(|show| {
-                let reply = hosted(&config, "POST", "settings", Some(&json!({ "showNames": show })))?;
-                Ok(json!({ "showNames": reply.get("showNames").and_then(Json::as_bool).ok_or_else(bad_reply)? }))
-            })
-        }
-        ("POST", [id, action @ ("open" | "hide")]) if is_uuid(id) => empty_body(req)
+        ("POST", ["settings"]) => settings_body(req).and_then(|body| {
+            let reply = hosted(&config, "POST", "settings", Some(&body))?;
+            Ok(json!({
+                "showNames": reply.get("showNames").and_then(Json::as_bool).ok_or_else(bad_reply)?,
+                "familyCode": reply.get("familyCode").and_then(|c| text(c, 80)),
+            }))
+        }),
+        ("POST", [id, action @ ("open" | "hide" | "show")]) if is_uuid(id) => empty_body(req)
             .and_then(|_| hosted(&config, "POST", &format!("{id}/{action}"), Some(&json!({}))))
             .and_then(gift_reply),
         _ => return Response::error(404, "Unknown API route"),
@@ -381,8 +427,17 @@ mod tests {
         assert!(out.get("senderDigest").is_none());
         let mut opened = wrapped.clone();
         opened["opened"] = json!(true);
-        opened["note"] = json!("Merry Christmas");
-        assert_eq!(project_gift(&opened).unwrap()["note"], "Merry Christmas");
+        opened["note"] = json!("Merry Christmas\n\nLove, Ava");
+        assert_eq!(
+            project_gift(&opened).unwrap()["note"],
+            "Merry Christmas\n\nLove, Ava"
+        );
+        opened["note"] = json!("bell\u{7}");
+        assert_eq!(
+            project_gift(&opened).unwrap()["unreadable"],
+            true,
+            "kept, flagged, never dropped"
+        );
         let card = json!({ "design": "<svg onload=x>", "message": "hi", "stickers": [] });
         assert!(project_card(&card).is_none());
         let card = json!({ "design": "holly", "message": "hi", "stickers": [{ "kind": "star", "x": 200, "y": 1 }] });

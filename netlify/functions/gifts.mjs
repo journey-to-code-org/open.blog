@@ -10,8 +10,9 @@
 // Owner routes (Bearer OPENBLOG_GIFTS_ADMIN_KEY), for Admin's proxy:
 //   GET  admin/list            every gift: who, wrapped or opened; contents only once opened
 //   POST admin/<id>/open       423 until the gift's opening time; then its contents
-//   POST admin/<id>/hide       take it off the tree (kept, never deleted)
-//   GET  admin/settings, POST admin/settings { showNames }
+//   POST admin/<id>/hide       take it off the tree (kept, never deleted); admin/<id>/show puts it back
+//   GET  admin/settings, POST admin/settings { showNames?, familyCode? }  (the password she set
+//                              wins over OPENBLOG_GIFTS_FAMILY_CODE, which is only the first one)
 //
 // Settings: OPENBLOG_GIFTS_ENABLED=true, OPENBLOG_GIFTS_ADMIN_KEY (32+), OPENBLOG_GIFTS_FAMILY_CODE,
 // SUPABASE_URL / SUPABASE_SECRET_KEY, OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ANALYTICS_SALT,
@@ -19,7 +20,7 @@
 // 12-25; set another day only to rehearse). Replies are rebuilt from known fields; errors are codes.
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import { CardError, LIMITS, WRAPS, checkFormToken, checkGift, makeFormToken, opensAt, sameCode } from "../lib/gift-card.mjs";
+import { CardError, LATE_DAYS, LIMITS, WRAPS, checkFamilyCode, checkFormToken, checkGift, makeFormToken, opensAt, sameCode } from "../lib/gift-card.mjs";
 import { isTimeZone, isUuid } from "../lib/greeting-card.mjs";
 import { LOOPBACK } from "../lib/greeting-store.mjs";
 
@@ -83,27 +84,40 @@ function createGiftStore({ settings, fetchImpl }) {
     const rows = await call(`${TABLE}?select=id&${site}&${filter}&limit=${LIMITS.perSeason + 1}`, { headers: headers() });
     return rows.length;
   };
-  return {
+  const store = {
     onTree: () => call(`${TABLE}?select=id,wrap,from_name,show_name,opens_at,created_at&${site}&hidden_at=is.null&order=created_at.asc&limit=${LIMITS.perSeason}`, { headers: headers() }),
     all: () => call(`${TABLE}?select=*&${site}&order=created_at.asc&limit=1000`, { headers: headers() }),
     one: async (id) => (await call(`${TABLE}?select=*&${site}&id=eq.${id}`, { headers: headers() }))[0] || null,
     add: async (row) => (await call(TABLE, { method: "POST", headers: write(), body: JSON.stringify({ ...row, site_id: settings.siteId }) }))[0],
     update: async (id, row, guard = "") => (await call(`${TABLE}?${site}&id=eq.${id}${guard}`, { method: "PATCH", headers: write(), body: JSON.stringify(row) }))[0] || null,
+    /** One attempt counted for this visitor this hour (and for the site); false when over. */
+    attempt: async (bucket, hour, digest, perVisitor, perSite) => {
+      const reply = await call("rpc/openblog_consume_rate_limit", {
+        method: "POST",
+        headers: write("return=representation"),
+        body: JSON.stringify({ p_site_id: settings.siteId, p_bucket: bucket, p_window_start: hour, p_subject_hash: digest, p_subject_limit: perVisitor, p_site_limit: perSite }),
+      });
+      return Boolean(reply?.allowed ?? reply);
+    },
     fromSender: (digest, since) => count(`sender_digest=eq.${digest}&created_at=gte.${encodeURIComponent(since)}`),
     forSeason: (opens) => count(`opens_at=eq.${encodeURIComponent(opens)}`),
-    showNames: async () => {
-      const row = (await call(`${SETTINGS}?select=show_names&${site}`, { headers: headers() }))[0];
-      return row ? row.show_names === true : true;
+    /** The owner's settings: whether the tree shows names, and the family password she set. */
+    settings: async () => {
+      const row = (await call(`${SETTINGS}?select=show_names,family_code&${site}`, { headers: headers() }))[0];
+      return { showNames: row ? row.show_names === true : true, familyCode: row?.family_code || settings.code };
     },
-    setShowNames: async (value) => {
+    saveSettings: async (change) => {
+      const now = await store.settings();
+      const next = { ...now, ...change };
       await call(`${SETTINGS}?on_conflict=site_id`, {
         method: "POST",
         headers: write("resolution=merge-duplicates,return=minimal"),
-        body: JSON.stringify({ site_id: settings.siteId, show_names: value, updated_at: new Date().toISOString() }),
+        body: JSON.stringify({ site_id: settings.siteId, show_names: next.showNames, family_code: next.familyCode, updated_at: new Date().toISOString() }),
       });
-      return value;
+      return next;
     },
   };
+  return store;
 }
 
 /** A gift as the owner sees it in Studio: contents only once it's open. */
@@ -162,19 +176,27 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         const [, second, third] = parts;
         if (method === "GET" && second === "list" && parts.length === 2) {
           const at = now();
+          const owner = await store.settings();
           return json(200, {
             gifts: (await store.all()).map((row) => giftOut(row, at)),
-            showNames: await store.showNames(),
+            showNames: owner.showNames,
+            familyCode: owner.familyCode,
             opensAt: opensAt(at, settings.zone, settings.opensOn).toISOString(),
             limits: LIMITS,
           });
         }
         if (second === "settings" && parts.length === 2) {
-          if (method === "GET") return json(200, { showNames: await store.showNames() });
+          if (method === "GET") return json(200, await store.settings());
           if (method === "POST") {
-            const value = input().showNames;
-            if (typeof value !== "boolean") throw new CardError(422, "show-names", "showNames");
-            return json(200, { showNames: await store.setShowNames(value) });
+            const body = input();
+            const change = {};
+            if ("showNames" in body) {
+              if (typeof body.showNames !== "boolean") throw new CardError(422, "show-names", "showNames");
+              change.showNames = body.showNames;
+            }
+            if ("familyCode" in body) change.familyCode = checkFamilyCode(body.familyCode);
+            if (!Object.keys(change).length) throw new CardError(400, "malformed");
+            return json(200, await store.saveSettings(change));
           }
         }
         if (method === "POST" && parts.length === 3 && isUuid(second)) {
@@ -186,9 +208,9 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
             const opened = row.opened_at ? row : await store.update(second, { opened_at: new Date(at).toISOString() }, "&opened_at=is.null") || await store.one(second);
             return json(200, { gift: giftOut(opened, at) });
           }
-          if (third === "hide") {
-            const hidden = await store.update(second, { hidden_at: new Date(at).toISOString() });
-            return json(200, { gift: giftOut(hidden || row, at) });
+          if (third === "hide" || third === "show") {
+            const changed = await store.update(second, { hidden_at: third === "hide" ? new Date(at).toISOString() : null });
+            return json(200, { gift: giftOut(changed || row, at) });
           }
         }
         return json(404, { error: "not-found" });
@@ -196,11 +218,12 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
 
       // ---- the public side
       if (method === "GET" && parts[0] === "tree" && parts.length === 1) {
-        const showNames = await store.showNames();
+        const { showNames } = await store.settings();
         const at = now();
         const opens = opensAt(at, settings.zone, settings.opensOn);
+        // This season's gifts: still to open, or opened within the late days (until January 6).
         const gifts = (await store.onTree())
-          .filter((row) => Date.parse(row.opens_at) >= opens.getTime() || at < Date.parse(row.opens_at) + 13 * 24 * 60 * 60 * 1000)
+          .filter((row) => Date.parse(row.opens_at) > at - (LATE_DAYS + 1) * 24 * 60 * 60 * 1000)
           .map((row) => ({ id: row.id, wrap: WRAPS.includes(row.wrap) ? row.wrap : "red", from: showNames && row.show_name ? row.from_name : null }));
         return json(200, { gifts, opensAt: opens.toISOString(), showNames }, { "cache-control": "public, max-age=60" });
       }
@@ -213,12 +236,18 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         // A robot fills every field it finds; a person never sees this one.
         if (text(body.website).trim()) return json(200, { ok: true });
         if (!checkFormToken(body.token, settings.adminKey, now())) throw new CardError(400, "token", "token");
-        if (!sameCode(body.code, settings.code)) throw new CardError(403, "family-code", "code");
-        const gift = checkGift(body);
         const at = now();
         const client = text(headers["x-nf-client-connection-ip"]) || "unknown";
-        const day = new Date(at).toISOString().slice(0, 10);
-        const digest = createHash("sha256").update(`${settings.salt}\0gifts\0${day}\0${client}`).digest("hex");
+        // Every try counts, right or wrong, before the password is even compared: guessing the
+        // family's word stops after a few tries an hour.
+        const hour = new Date(at).toISOString().slice(0, 13) + ":00:00Z";
+        const tryDigest = createHash("sha256").update(`${settings.salt}\0gift-tries\0${hour}\0${client}`).digest("hex");
+        if (!(await store.attempt("gift-tries", hour, tryDigest, LIMITS.triesPerHour, LIMITS.perSeason * 4))) {
+          return json(429, { error: "slow-down" }, { "retry-after": "3600" });
+        }
+        if (!sameCode(body.code, (await store.settings()).familyCode)) throw new CardError(403, "family-code", "code");
+        const gift = checkGift(body);
+        const digest = createHash("sha256").update(`${settings.salt}\0gifts\0${client}`).digest("hex");
         if (await store.fromSender(digest, new Date(at - 60 * 60 * 1000).toISOString()) >= LIMITS.perVisitorPerHour) {
           return json(429, { error: "slow-down" }, { "retry-after": "3600" });
         }

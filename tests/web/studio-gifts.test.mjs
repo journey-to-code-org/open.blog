@@ -9,16 +9,16 @@ const gift = (over = {}) => ({ id: "x", from: "Ava", opened: false, canOpen: fal
 
 test("the headline says how many are waiting and when they open, in her words", () => {
   assert.equal(giftsHeadline([], opens, now), "No gifts under your tree yet");
-  assert.equal(giftsHeadline([gift()], opens, now), "1 gift waiting under your tree. You can open it Christmas morning, in 42 days.");
-  assert.equal(giftsHeadline([gift(), gift()], opens, Date.parse("2026-12-24T12:00:00Z")), "2 gifts waiting under your tree. You can open them Christmas morning, tomorrow morning.");
+  assert.equal(giftsHeadline([gift()], opens, now), "1 gift waiting under your tree. You can open it from midnight on Christmas morning, in 42 days.");
+  assert.equal(giftsHeadline([gift(), gift()], opens, Date.parse("2026-12-24T12:00:00Z")), "2 gifts waiting under your tree. You can open them from midnight on Christmas morning, tomorrow morning.");
   assert.equal(giftsHeadline([gift({ canOpen: true }), gift({ opened: true })], opens, now), "Merry Christmas! 1 gift to open");
   assert.equal(giftsHeadline([gift({ opened: true }), gift({ opened: true })], opens, now), "You've opened all 2 gifts");
 });
 
 test("who sees the giver's name is said plainly", () => {
-  assert.equal(fromWords(gift({ showName: false }), true), "Only you see this name");
+  assert.equal(fromWords(gift({ showName: false }), true), "This name is hidden on your tree");
   assert.equal(fromWords(gift(), true), "Their name shows on your tree");
-  assert.match(fromWords(gift(), false), /names are off/);
+  assert.equal(fromWords(gift(), false), "Names are turned off on your tree");
 });
 
 test("a card's message wraps at spaces, keeps its paragraphs, and stops at nine lines", () => {

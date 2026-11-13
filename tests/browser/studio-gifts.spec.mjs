@@ -34,15 +34,21 @@ test.beforeAll(async () => {
   ];
   const contents = { "22222222-2222-4222-8222-222222222222": { card: { design: "holly", message: "Save me some pie", signOff: "Jim", stickers: [{ kind: "star", x: 20, y: 30 }] } } };
   let showNames = true;
+  let familyCode = "Pumpkin Pie";
   fake = createHttpServer((req, res) => {
     const reply = (status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
     if (req.headers.authorization !== `Bearer ${giftsKey}`) return reply(401, { error: "unauthorized" });
     const path = req.url.replace("/api/gifts/admin/", "");
-    if (path === "list") return reply(200, { gifts, showNames, opensAt: "2026-12-25T05:00:00Z" });
+    if (path === "list") return reply(200, { gifts, showNames, familyCode, opensAt: "2026-12-25T05:00:00Z" });
     let body = "";
     req.on("data", (c) => { body += c; });
     req.on("end", () => {
-      if (path === "settings") { showNames = JSON.parse(body).showNames; return reply(200, { showNames }); }
+      if (path === "settings") {
+        const change = JSON.parse(body);
+        if ("showNames" in change) showNames = change.showNames;
+        if ("familyCode" in change) familyCode = change.familyCode;
+        return reply(200, { showNames, familyCode });
+      }
       const [id, action] = path.split("/");
       const gift = gifts.find((g) => g.id === id);
       if (!gift) return reply(404, { error: "not-found" });
@@ -51,7 +57,7 @@ test.beforeAll(async () => {
         Object.assign(gift, { opened: true, openedAt: "2026-11-13T09:00:00Z" }, contents[id]);
         return reply(200, { gift });
       }
-      if (action === "hide") { gift.onTree = false; return reply(200, { gift }); }
+      if (action === "hide" || action === "show") { gift.onTree = action === "show"; return reply(200, { gift }); }
       return reply(404, { error: "not-found" });
     });
   });
@@ -108,10 +114,12 @@ test("Gifts says what's waiting, keeps a wrapped gift wrapped, and opens one tha
   await expect(page.getByRole("link", { name: "Gifts" }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: /Merry Christmas! 1 gift to open/ })).toBeVisible();
   await expect(page.getByText("Wrapped until Christmas")).toBeVisible();
-  await expect(page.getByText(/Only you see this name/)).toBeVisible();
+  await expect(page.getByText(/This name is hidden on your tree/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Ava's gift" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Open Uncle Jim's gift" }).click();
+  await page.getByRole("button", { name: "Open the next gift (from Uncle Jim)" }).click();
   await expect(page.getByRole("img", { name: /A card from Uncle Jim: Save me some pie, signed Jim/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Uncle Jim" })).toBeFocused();
+  await expect(page.getByRole("button", { name: /Open the next gift/ })).toBeHidden();
 });
 
 test("taking a gift off the tree asks first and keeps it; names can be turned off", async ({ page }) => {
@@ -120,11 +128,29 @@ test("taking a gift off the tree asks first and keeps it; names can be turned of
   await ava.getByRole("button", { name: "Take it off the tree" }).click();
   await page.getByRole("button", { name: "Take it off the tree" }).last().click();
   await expect(ava.getByText("Not on your tree. It's kept here.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ava" })).toBeFocused();
+  await ava.getByRole("button", { name: "Put it back on the tree" }).click();
+  await expect(ava.getByRole("button", { name: "Take it off the tree" })).toBeVisible();
   const toggle = page.getByRole("switch", { name: "Show who each gift is from on your tree" });
   await expect(toggle).toBeChecked();
   await toggle.click();
   await expect(toggle).not.toBeChecked();
-  await expect(ava.getByText(/names are off/)).toBeVisible();
+  await expect(ava.getByText("Names are turned off on your tree", { exact: false })).toBeVisible();
+});
+
+test("the family password shows on Gifts and can be changed", async ({ page }) => {
+  await signIn(page);
+  await expect(page.getByText("Pumpkin Pie")).toBeVisible();
+  await page.getByRole("button", { name: "Change it" }).click();
+  const field = page.getByRole("textbox", { name: "New family password" });
+  await expect(field).toBeFocused();
+  await field.fill("abc");
+  await page.getByRole("button", { name: "Save the new password" }).click();
+  await expect(page.getByText("Use at least 6 letters or numbers.")).toBeVisible();
+  await field.fill("Snowy Owl 2026");
+  await page.getByRole("button", { name: "Save the new password" }).click();
+  await expect(page.getByText("Snowy Owl 2026")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Change it" })).toBeFocused();
 });
 
 test("Gifts passes axe at 320 px", async ({ page }) => {

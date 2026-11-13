@@ -41,7 +41,7 @@ export async function createDecorations({ api, meta }) {
     h("section", { class: "studio-section", "aria-labelledby": "studio-cal-h" },
       h("h3", { id: "studio-cal-h", text: "Your calendar" }),
       toggle,
-      h("p", { id: "studio-season-help", class: "studio-help", text: "If two seasons share a day, the one higher up wins." }),
+      h("p", { id: "studio-season-help", class: "studio-help", text: "If two seasons share a day, the one higher up wins. Changes here wait until you press Save." }),
       rows, live, add, between),
     bar, details);
 
@@ -251,7 +251,7 @@ export async function createDecorations({ api, meta }) {
   async function announce(reply, lead, { toast: say = true } = {}) {
     lastBuildError = reply.buildError || "";
     if (reply.changed === false) { toast("Nothing's changed. Your site already has this."); return null; }
-    if (reply.buildError) { toast("Saved, but your site couldn't be put together yet. The person who set up your site can see why in Details.", { variant: "warning", duration: 0 }); return null; }
+    if (reply.buildError) { toast("Saved, but your site couldn't be updated yet. Nothing is lost. Let the person who set up your site know.", { variant: "warning", duration: 0 }); return null; }
     const result = await sendOut(api, "Change the decorations");
     lastPublish = result;
     if (!say) return result;

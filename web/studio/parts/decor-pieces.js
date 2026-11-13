@@ -7,11 +7,11 @@
 // only says what's there in her words.
 import { h, toast } from "./dom.js";
 import { use } from "../zubra.js";
-import { showPreview } from "./preview.js";
 import { sendOut, wentOutWords } from "./publish.js";
 
 // Version names are lowercase letters, digits and "-", so "_usual" can never be one.
 const USUAL = "_usual";
+const lower = (words) => words.charAt(0).toLowerCase() + words.slice(1);
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 
 /** The words for one change, so the status line and "Put it back" agree. Exported for tests. */
@@ -40,13 +40,12 @@ export async function createDecorPieces({ api, meta }) {
   let look = ""; // the look whose pieces are shown
   let busy = false;
   const status = h("div", { class: "studio-deco-status", role: "status", "aria-live": "polite" });
-  const picker = h("select-field", { label: "Decorations for", onValuechange: (e) => { look = e.detail; draw(); } });
+  const picker = h("select-field", { label: "Which look", onValuechange: (e) => { look = e.detail; status.replaceChildren(); draw(); } });
   const list = h("ul", { class: "studio-deco-pieces", "aria-labelledby": "studio-pieces-h" });
-  const see = h("action-button", { variant: "secondary", onClick: (e) => preview(e.currentTarget) }, "See how it looks");
   const element = h("section", { class: "studio-section studio-deco-hanging", "aria-labelledby": "studio-pieces-h", hidden: true },
     h("h3", { id: "studio-pieces-h", text: "What's hanging" }),
-    h("p", { class: "studio-help", text: "Take one decoration down, or choose a different one. Each change goes on your site straight away." }),
-    picker, list, see, status);
+    h("p", { class: "studio-help", text: "Take one decoration down, or choose a different one. Each change goes on your site straight away, and stays that way every year until you change it back." }),
+    picker, list, status);
 
   const current = () => saved.looks.find((l) => l.name === look);
   const choiceOf = (piece) => saved.decorations?.[look]?.[piece.id] ?? null;
@@ -58,20 +57,18 @@ export async function createDecorPieces({ api, meta }) {
     picker.options = saved.looks.map((l) => ({ value: l.name, label: l.label || l.name }));
     picker.value = look;
     picker.hidden = saved.looks.length < 2;
-    see.textContent = `See how ${shown.label || shown.name} looks`;
+    picker.description = look === saved.wearing ? `${shown.label || shown.name} is up on your site now.` : `${shown.label || shown.name} isn't up right now. These changes show when it is.`;
     list.replaceChildren(...shown.pieces.map((piece) => {
       const choice = choiceOf(piece);
       const up = choice !== false;
-      const row = h("li", { class: "studio-deco-piece" },
-        h("toggle-switch", {
-          label: piece.label, checked: up, disabled: !piece.canTakeDown || busy,
-          description: piece.canTakeDown ? (up ? "Up" : "Down") : "This one always stays up.",
-          onCheckedchange: (e) => change(piece, e.detail ? null : false),
-        }));
+      const row = h("li", { class: "studio-deco-piece", "data-piece": piece.id },
+        piece.canTakeDown
+          ? h("toggle-switch", { label: piece.label, checked: up, description: up ? "Up" : "Down", onCheckedchange: (e) => change(piece, e.detail ? null : false) })
+          : h("p", { class: "studio-deco-fixed" }, h("strong", { text: piece.label }), h("span", { class: "studio-help", text: "This one always stays up." })));
       if (piece.variants.length) {
         row.append(h("select-field", {
-          label: `Which ${piece.label.toLowerCase()}`, disabled: !up || busy,
-          options: [{ value: USUAL, label: `The usual ${piece.label.toLowerCase()}` }, ...piece.variants.map((v) => ({ value: v.id, label: v.label }))],
+          label: `Which ${lower(piece.label)}`, disabled: !up,
+          options: [{ value: USUAL, label: `The ${lower(piece.label)} it came with` }, ...piece.variants.map((v) => ({ value: v.id, label: v.label }))],
           value: up && choice ? choice : USUAL,
           onValuechange: (e) => change(piece, e.detail === USUAL ? null : e.detail),
         }));
@@ -80,15 +77,16 @@ export async function createDecorPieces({ api, meta }) {
     }));
   }
 
-  async function change(piece, choice, { putBack = false } = {}) {
-    if (busy) return;
-    const before = choiceOf(piece);
-    if (before === choice) return;
+  // The look is fixed when she makes the change, so "Put it back" undoes it there even if she has
+  // since switched to another look.
+  async function change(piece, choice, { putBack = false, on = look } = {}) {
+    const before = saved.decorations?.[on]?.[piece.id] ?? null;
+    // One change at a time: a tap while one is saving puts the switch back as it was.
+    if (busy || before === choice) { draw(); return; }
     busy = true;
-    draw();
     let reply;
     try {
-      reply = await api.put("decorations", { etag: saved.etag, decorations: withChoice(saved.decorations, look, piece.id, choice) });
+      reply = await api.put("decorations", { etag: saved.etag, decorations: withChoice(saved.decorations, on, piece.id, choice) });
     } catch (error) {
       busy = false;
       if (error.status === 409 && error.data?.etag) {
@@ -102,34 +100,27 @@ export async function createDecorPieces({ api, meta }) {
       const words = error.status === 422 ? "That decoration isn't in this look anymore. Reload the page to see what's there now."
         : error.status ? "Something went wrong on your site. Nothing changed; try again in a moment." : "Check your connection and try again. Nothing changed.";
       status.replaceChildren(h("alert-banner", { variant: "danger", heading: `${piece.label} wasn't changed` }, words));
+      focusPiece(piece);
       return;
     }
     busy = false;
     adopt(reply);
     const said = changeWords(piece, choice);
     if (reply.buildError) {
-      status.replaceChildren(h("alert-banner", { variant: "warning", heading: said }, "Saved, but your site couldn't be put together yet. The person who set up your site can see why in Details."));
+      status.replaceChildren(h("alert-banner", { variant: "warning", heading: said }, "Saved, but your site couldn't be updated yet. Nothing is lost. Let the person who set up your site know."));
       return;
     }
     const result = await sendOut(api, "Change the decorations");
     const out = wentOutWords(result, { meta, action: "saved" });
-    const back = putBack ? null : h("action-button", { variant: "secondary", size: "sm", onClick: () => change(piece, before, { putBack: true }) }, "Put it back");
+    const back = putBack ? null : h("action-button", { variant: "secondary", size: "sm", onClick: () => change(piece, before, { putBack: true, on }) }, "Put it back");
     status.replaceChildren(h("p", { class: "studio-help", text: `${said} ${out.words}` }), ...(back ? [back] : []));
     if (result.sent === "failed") toast(out.words, { variant: out.variant, duration: 0 });
-    // Keep focus where she was: on the same piece's switch.
-    requestAnimationFrame(() => {
-      const index = current()?.pieces.findIndex((p) => p.id === piece.id) ?? -1;
-      (putBack ? list.children[index]?.querySelector("input, button") : back?.querySelector("button"))?.focus();
-    });
+    // Keep focus where she was: on "Put it back", or after putting back, on the same piece.
+    requestAnimationFrame(() => (putBack || !back ? focusPiece(piece) : back.querySelector("button")?.focus()));
   }
 
-  function preview(opener) {
-    const shown = current();
-    return showPreview(api, {
-      opener, request: () => api.post("decorations/preview", { look, pieces: saved.decorations?.[look] || {} }),
-      heading: `How ${shown.label || shown.name} looks`, backLabel: "Back to decorations",
-      note: "Only you can see this. It shows the decorations as they're set here.", frameTitle: `Your front page decorated for ${shown.label || shown.name}`,
-    });
+  function focusPiece(piece) {
+    requestAnimationFrame(() => list.querySelector(`[data-piece="${piece.id}"]`)?.querySelector("input, button, select")?.focus());
   }
 
   function adopt(state) {
@@ -166,7 +157,7 @@ export async function createDecorPieces({ api, meta }) {
       if (!shown) return [];
       return shown.pieces.filter((p) => p.canTakeDown).map((piece) => {
         const up = choiceOf(piece) !== false;
-        return { id: `piece:${piece.id}`, label: `${up ? "Take down" : "Put up"} the ${piece.label.toLowerCase()}`, group: "What's hanging" };
+        return { id: `piece:${piece.id}`, label: up ? `Turn off the ${lower(piece.label)} (take it down)` : `Turn on the ${lower(piece.label)} (put it back up)`, group: "What's hanging" };
       });
     },
     command(id) {

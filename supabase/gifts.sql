@@ -46,6 +46,12 @@ create table if not exists public.openblog_gift_settings (
   updated_at timestamptz not null default now()
 );
 
+-- The family password, once the owner sets one in Studio (until then the service's
+-- OPENBLOG_GIFTS_FAMILY_CODE is used). The owner may see and change it; it's a shared family word,
+-- not a secret of hers.
+alter table public.openblog_gift_settings add column if not exists family_code text
+  check (family_code is null or char_length(family_code) between 6 and 80);
+
 alter table public.openblog_gifts enable row level security;
 alter table public.openblog_gift_settings enable row level security;
 revoke all on public.openblog_gifts, public.openblog_gift_settings from public, anon, authenticated;

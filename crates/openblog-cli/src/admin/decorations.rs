@@ -149,7 +149,21 @@ pub(super) fn save_decorations(state: &AppState, req: &Request) -> Response {
         Ok(config) => config,
         Err(error) => return Response::error(500, &error),
     };
-    match pieces_problems(&state.root, &site_config, &submitted) {
+    // Only what this save changes is checked: a choice saved long ago for a look or piece that has
+    // since gone is skipped at build time, and must not block every other change.
+    let changed: DecorChoices = submitted
+        .iter()
+        .filter_map(|(theme, picks)| {
+            let saved = site_config.decorations.get(theme);
+            let new: BTreeMap<String, DecorChoice> = picks
+                .iter()
+                .filter(|(id, choice)| saved.and_then(|s| s.get(*id)) != Some(*choice))
+                .map(|(id, choice)| (id.clone(), choice.clone()))
+                .collect();
+            (!new.is_empty()).then(|| (theme.clone(), new))
+        })
+        .collect();
+    match pieces_problems(&state.root, &site_config, &changed) {
         Ok(problems) if problems.is_empty() => {}
         Ok(problems) => return Response::error(422, &problems.join("; ")),
         Err(error) => return Response::error(500, &error),

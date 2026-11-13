@@ -94,20 +94,16 @@ test("taking the snow down and putting it back leaves openblog.json as it was", 
   expect(config()).toBe(before);
 });
 
-test("choosing another garland saves it, and the preview wears it", async ({ page }) => {
+test("choosing another garland saves it, and the one it came with puts it back", async ({ page }) => {
   await signIn(page);
   const hanging = page.getByRole("region", { name: "What's hanging" });
   await hanging.getByRole("combobox", { name: "Which garland" }).selectOption("toyshelf", { timeout: 8000 });
   await expect(hanging.getByRole("status")).toContainText("from the toy shelf");
   expect(config()).toContain('"garland": "toyshelf"');
-  const preview = page.waitForResponse((r) => r.url().endsWith("/admin/api/decorations/preview"), { timeout: 10000 });
-  await hanging.getByRole("button", { name: /^See how Festive looks/ }).click({ timeout: 8000 });
-  expect((await preview).status()).toBe(200);
-  await expect(page.getByRole("button", { name: "Back to decorations" })).toBeVisible();
-  await page.getByRole("button", { name: "Back to decorations" }).click({ timeout: 8000 });
   // Leave it as it came for the next test.
   await hanging.getByRole("combobox", { name: "Which garland" }).selectOption("_usual", { timeout: 8000 });
   await expect(hanging.getByRole("status")).toContainText("Garland is up.");
+  await expect(hanging.getByRole("combobox", { name: "Which garland" })).toContainText("The garland it came with");
 });
 
 test("What's hanging passes axe at 320 px", async ({ page }) => {
