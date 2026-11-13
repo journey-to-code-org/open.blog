@@ -11,6 +11,7 @@ import { createDocuments } from "./documents.js";
 import { createPageEdit } from "./page-edit.js";
 import { createTools } from "./tools.js";
 import { createLanding } from "./landing.js";
+import { createLook } from "./look.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 
@@ -23,6 +24,7 @@ export const SCREENS = [
   { name: "collection", area: "collections", create: (context, route) => createPageEdit(context, KINDS.series, route.arg) },
   { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
+  { name: "look", nav: "Look", area: "look", create: (context) => createLook(context) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },
   // Only when gifts are set up where Admin runs (OPENBLOG_GIFTS_*).
   { name: "gifts", nav: "Gifts", area: "gifts", when: (meta) => meta.gifts === true, create: (context) => createGifts(context) },

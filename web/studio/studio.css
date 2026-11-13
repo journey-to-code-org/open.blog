@@ -328,3 +328,14 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-tool-list a:hover { background: var(--studio-flour-lift); }
 .studio-tool-list a strong { text-decoration: underline; text-underline-offset: 0.15em; }
 .studio-tool-list a .studio-help { display: block; }
+
+/* Look (slice 7): one choice per row; the main color as swatches plus her own. */
+.studio-look-controls { display: grid; gap: var(--space-4); max-width: 40rem; }
+.studio-look-accent { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-look-accent > legend { font-weight: 600; padding: 0; }
+.studio-swatches { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.studio-swatch { inline-size: 2.75rem; block-size: 2.75rem; border-radius: 50%; border: 2px solid var(--studio-linen); background: var(--swatch); cursor: pointer; }
+.studio-swatch[aria-pressed="true"] { outline: 3px solid var(--studio-ink, currentColor); outline-offset: 2px; }
+.studio-swatch:focus-visible { outline: 3px solid var(--studio-focus, currentColor); outline-offset: 3px; }
+.studio-swatch-own { display: inline-flex; gap: var(--space-2); align-items: center; min-height: 2.75rem; cursor: pointer; }
+.studio-swatch-own input { inline-size: 2.75rem; block-size: 2.75rem; padding: 0; border: 0; background: none; }

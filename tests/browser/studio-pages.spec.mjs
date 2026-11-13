@@ -146,7 +146,9 @@ test("More tools opens from the account menu, and Pages passes axe at 320 px", a
   await page.setViewportSize({ width: 320, height: 800 });
   await signIn(page, "#/tools");
   await expect(page.locator("#studio-tools-h")).toHaveText("More tools");
-  await expect(page.getByRole("link", { name: /Customize look/ })).toHaveAttribute("href", "/admin/#/look");
+  await expect(page.getByRole("link", { name: /Design a theme/ })).toHaveAttribute("href", "/admin/#/design");
+  // Look and Front page live in Studio now, so they are not in the old-Admin list.
+  await expect(page.getByRole("link", { name: /Customize look/ })).toHaveCount(0);
   for (const hash of ["#/pages", "#/page/new"]) {
     await page.goto(`${origin}/admin/studio/${hash}`);
     await expect(page.locator(".studio-page").first()).toBeVisible();

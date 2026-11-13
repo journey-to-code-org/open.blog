@@ -7,11 +7,9 @@ import { use } from "../zubra.js";
 /** Every tool, by group: what it is in a few words and its old Admin address. Exported for tests. */
 export const TOOLS = [
   { group: "Your site", items: [
-    ["Customize look", "Colours, writing and spacing", "#/look"],
     ["Comments", "Approve or remove notes from readers", "#/moderation"],
     ["Visitors", "How many people read what", "#/analytics"],
     ["Greeting cards", "Cards sent by email on the day", "#/greetings"],
-    ["Dark mode button", "Whether readers can switch to dark", "#/appearance"],
   ] },
   { group: "Business", items: [
     ["Business facts", "Name, hours, where you work", "#/business"],

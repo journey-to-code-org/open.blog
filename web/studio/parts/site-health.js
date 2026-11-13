@@ -77,7 +77,8 @@ export function siteHealth({ api, meta }) {
   }
 
   async function load() {
-    [status, publish] = await Promise.all([api.get("status").catch(() => null), api.get("publish").catch(() => null)]);
+    status = await api.get("status").catch(() => null);
+    publish = await api.get("publish").catch(() => null);
     draw();
   }
 

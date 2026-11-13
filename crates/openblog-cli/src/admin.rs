@@ -4989,16 +4989,21 @@ fn save_appearance_settings(state: &AppState, req: &Request) -> Response {
     if body["etag"].as_str() != Some(etag_bytes(&current).as_str()) {
         return Response::error(409, "Site settings changed on disk; reload before saving");
     }
-    let mut config: Json = match serde_json::from_slice(&current) {
-        Ok(Json::Object(object)) => Json::Object(object),
-        _ => return Response::error(500, "openblog.json must contain a valid JSON object"),
+    let Ok(current_text) = String::from_utf8(current.clone()) else {
+        return Response::error(500, "openblog.json must be UTF-8 text");
     };
-    config["colorSchemeToggle"] = choice;
-    let candidate = match serde_json::to_string_pretty(&config) {
-        Ok(json) => format!("{json}\n"),
-        Err(error) => {
-            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
-        }
+    // Only `colorSchemeToggle` changes, in the file's own layout. "The theme decides" (null) keeps a
+    // key the owner wrote (as null) and adds none.
+    let written = serde_json::from_str::<Json>(&current_text)
+        .ok()
+        .is_some_and(|config| config.get("colorSchemeToggle").is_some());
+    let candidate = match crate::config_text::set_member(
+        &current_text,
+        "colorSchemeToggle",
+        (!choice.is_null() || written).then_some(&choice),
+    ) {
+        Ok(text) => text,
+        Err(error) => return Response::error(500, &error),
     };
     let mut settings = match appearance_json(&state.root, candidate.as_bytes()) {
         Ok(settings) => settings,
@@ -26698,6 +26703,7 @@ What I read:
             .status,
             409
         );
+        let as_written = fs::read_to_string(&config_path).unwrap();
         let mut settings = body_json(&handle(
             &f.state,
             &authed(req("GET", path), &session, false),
@@ -26736,6 +26742,8 @@ What I read:
                 choice != false
             );
         }
+        // Off, on and back to "the theme decides" leaves the file exactly as it was written.
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), as_written);
         // Report that the setting was saved even if unrelated content prevents rebuilding.
         fs::write(
             f.dir.join("content/posts/broken.md"),

@@ -55,6 +55,7 @@ pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("screens/home.js", include_bytes!("../../../web/studio/screens/home.js")),
     ("screens/index.js", include_bytes!("../../../web/studio/screens/index.js")),
     ("screens/landing.js", include_bytes!("../../../web/studio/screens/landing.js")),
+    ("screens/look.js", include_bytes!("../../../web/studio/screens/look.js")),
     ("screens/new-post.js", include_bytes!("../../../web/studio/screens/new-post.js")),
     ("screens/page-edit.js", include_bytes!("../../../web/studio/screens/page-edit.js")),
     ("screens/pictures.js", include_bytes!("../../../web/studio/screens/pictures.js")),
