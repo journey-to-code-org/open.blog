@@ -24,6 +24,7 @@ import { createReviews } from "./proof.js";
 import { createSocialAccounts } from "./social.js";
 import { createQuoteRequests } from "./quotes.js";
 import { createGreetingCards } from "./greetings.js";
+import { createNotifications, registerServiceWorker } from "./notifications.js";
 import { createVoiceSession } from "./voice-session.js";
 import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
@@ -11813,6 +11814,10 @@ export class ObAdmin extends AdminElement {
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "social"
         ? { title: "Social accounts", detail: "Connect the social accounts your site offers, choose where posts may go, and reconnect or disconnect without ever seeing a token." }
+      : active === "notifications"
+        ? { title: "Notifications", detail: "Get a buzz on your phone or computer when a comment, feedback, a request or news from your other apps arrives." }
+      : active === "greetings"
+        ? { title: "Greeting cards", detail: "Write a card, pick its day, and it goes out by email on that day, once or every year." }
       : active === "quotes"
         ? { title: "Quote requests", detail: "Read new requests, mark them handled, export them, and erase them. Your customers' details stay yours." }
       : active === "voice"
@@ -11878,6 +11883,8 @@ export class ObAdmin extends AdminElement {
         this.meta?.quote || active === "quotes" ? h("div", { class: "oba-progressive-tools", "data-quote-nav": "true" }, toolGroup("Customers", h("a", { class: "oba-tab", "aria-current": active === "quotes" ? "page" : null, href: "#/quotes" }, "Quote requests"))) : null,
         // Optional greeting cards (ADR 0411): no navigation entry unless the server has greetings settings.
         this.meta?.greetings || active === "greetings" ? h("div", { class: "oba-progressive-tools", "data-greetings-nav": "true" }, toolGroup("Family", h("a", { class: "oba-tab", "aria-current": active === "greetings" ? "page" : null, href: "#/greetings" }, "Greeting cards"))) : null,
+        // Optional push notifications (ADR 0412): no navigation entry unless the server has push settings.
+        this.meta?.push || active === "notifications" ? h("div", { class: "oba-progressive-tools", "data-push-nav": "true" }, toolGroup("Notifications", h("a", { class: "oba-tab", "aria-current": active === "notifications" ? "page" : null, href: "#/notifications" }, "Notifications"))) : null,
       ),
       h(
         "section",
@@ -12099,6 +12106,7 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      ...(this.meta.push ? [{ label: "Notifications", category: "Site", keywords: "push notify buzz phone alerts install app devices", run: () => go("#/notifications") }] : []),
       ...(this.meta.quote ? [{ label: "Quote requests", category: "Site", keywords: "customers leads requests quotes enquiries inbox export erase", run: () => go("#/quotes") }] : []),
       ...(this.meta.social ? [{ label: "Social accounts", category: "Site", keywords: "linkedin facebook bluesky mastodon connect accounts share announce oauth", run: () => go("#/social") }] : []),
       { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
@@ -12349,6 +12357,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "social") await this.showSocial();
       else if (head === "quotes") await this.showQuotes();
       else if (head === "greetings") await this.showGreetings();
+      else if (head === "notifications") await this.showNotifications();
       else if (head === "capture") await this.showCapture();
       else if (head === "landing") await this.showLanding();
       else if (head === "announcements") await this.showAnnouncements();
@@ -14639,6 +14648,19 @@ export class ObAdmin extends AdminElement {
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
     await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
+  }
+
+  /**
+   * `#/notifications`: push notifications to the owner's devices (ADR 0412). Optional: with no push
+   * settings the page says so. It holds no draft.
+   */
+  async showNotifications() {
+    const view = createNotifications({ api: this.api });
+    this.mount(this.shell("notifications", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
   }
 
   /**
@@ -26536,3 +26558,5 @@ export class Editor {
 }
 
 if (globalThis.customElements && !customElements.get("ob-admin")) customElements.define("ob-admin", ObAdmin);
+// Admin as an installed app (ADR 0412): the worker only shows notifications, so it is safe to register at once.
+if (globalThis.document) registerServiceWorker();

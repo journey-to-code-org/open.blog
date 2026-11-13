@@ -74,6 +74,8 @@ Then read these in order; each one stands alone otherwise.
 28. [Greeting cards](greeting-cards.md): cards written in Admin that go out by email on their day, once or every
     year, from an address book kept in your private Supabase workspace. Off by default; it needs the Netlify
     functions and a free Brevo account.
+29. [Notifications](notifications.md): Admin installed on your phone, buzzing when a comment, reader feedback,
+    a quote request or news from your other apps arrives. Off by default; it needs the Netlify functions.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
