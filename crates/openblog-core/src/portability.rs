@@ -898,7 +898,11 @@ impl<'a> PortableProjection<'a> {
                             }
                         })
                         .collect();
-                    let url = format!("{}/{}", self.base_url.trim_end_matches('/'), asset.path);
+                    let url = format!(
+                        "{}/{}",
+                        self.base_url.trim_end_matches('/'),
+                        portable_image_path(asset)
+                    );
                     let alt = format!("{}: {}", diagram.title, diagram.description);
                     let mut replacement =
                         format!("![{}]({})", markdown_text(&alt), markdown_destination(&url));
@@ -1410,18 +1414,18 @@ impl<'a> PortableProjection<'a> {
         let mut edits = Vec::new();
         let mut assets = std::collections::BTreeMap::new();
         for asset in self.diagrams {
-            let filename = asset
-                .path
+            let image = portable_image_path(asset);
+            let filename = image
                 .strip_prefix("assets/diagrams/")
                 .ok_or_else(|| format!("{}: invalid diagram asset path", self.source_path))?;
             if filename.len() != 68
-                || !filename.ends_with(".svg")
+                || !(filename.ends_with(".svg") || filename.ends_with(".png"))
                 || !filename.as_bytes()[..64].iter().all(u8::is_ascii_hexdigit)
             {
                 return Err(format!("{}: invalid diagram asset name", self.source_path));
             }
             assets.insert(
-                format!("{}/{}", self.base_url.trim_end_matches('/'), asset.path),
+                format!("{}/{}", self.base_url.trim_end_matches('/'), image),
                 (format!("{directory}/{filename}"), asset.clone()),
             );
         }
@@ -5826,5 +5830,15 @@ A[^a b].
             "{html}"
         );
         assert!(html.trim_end().ends_with("<p>Enjoy.</p>"), "{html}");
+    }
+}
+
+/// The diagram image a portable copy points at: the PNG copy where one is built (ADR 0419), since
+/// destinations and feed readers that re-host images often refuse SVG; otherwise the SVG.
+fn portable_image_path(asset: &crate::diagram::Asset) -> String {
+    if cfg!(feature = "diagram-png") {
+        asset.png_path()
+    } else {
+        asset.path.clone()
     }
 }

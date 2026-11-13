@@ -34,6 +34,16 @@ pub struct Asset {
     pub svg: String,
 }
 
+impl Asset {
+    /// Where the PNG copy of this diagram is published (ADR 0419): beside the SVG.
+    pub fn png_path(&self) -> String {
+        match self.path.strip_suffix(".svg") {
+            Some(stem) => format!("{stem}.png"),
+            None => format!("{}.png", self.path),
+        }
+    }
+}
+
 /// An editable, accessible example for a common technical diagram.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Template {

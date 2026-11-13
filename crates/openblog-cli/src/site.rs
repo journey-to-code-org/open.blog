@@ -1308,6 +1308,34 @@ fn unstored_comparisons_warning() -> String {
 
 /// Everything a full build or `check` generates, after the guards that keep
 /// private research out of public inputs and generated output.
+/// The PNG copy of every published diagram, by its site path: the SVG's path with `.png`.
+#[cfg(feature = "diagram-rendering")]
+pub(crate) fn diagram_pngs(site: &Site) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    let assets = site
+        .posts
+        .iter()
+        .flat_map(|post| post.diagram_assets())
+        .chain(site.pages.iter().flat_map(|page| page.diagram_assets()))
+        .chain(
+            site.series
+                .iter()
+                .filter(|series| !series.posts.is_empty())
+                .flat_map(|series| series.diagram_assets()),
+        );
+    for asset in assets {
+        let path = asset.png_path();
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let png = openblog_core::diagram_svg::render_png(&asset.diagram)
+            .map_err(|error| format!("{}: diagram PNG: {error}", asset.path))?;
+        out.push((path, png));
+    }
+    Ok(out)
+}
+
 pub fn generate_site(
     root: &Path,
     site: &mut Site,
@@ -1520,6 +1548,12 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         } else {
             put(f.path, f.contents.as_bytes())?;
         }
+    }
+
+    // 5. A PNG copy of each diagram beside its SVG (ADR 0419), for cross-posting and link previews.
+    #[cfg(feature = "diagram-rendering")]
+    for (path, png) in diagram_pngs(&site)? {
+        put(path, &png)?;
     }
 
     fsutil::remove_stale(&out_dir, &written);

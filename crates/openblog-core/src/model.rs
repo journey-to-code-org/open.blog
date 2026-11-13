@@ -374,6 +374,11 @@ pub struct Post {
 }
 
 impl Post {
+    /// The diagrams this post draws (ADR 0416), for writing their files.
+    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
+        &self.diagrams
+    }
+
     /// The post's own share image, the one its page declares as `og:image` before the site's
     /// `ogImage`: the cover, else a video post's thumbnail. The page renderer and visual cards
     /// both use this, so a card always checks the image the page really declares.
@@ -3672,5 +3677,19 @@ docs: Vec::new(),
             .warnings
             .iter()
             .any(|warning| warning.contains("coverAlt")));
+    }
+}
+
+impl Page {
+    /// The diagrams this page draws (ADR 0416), for writing their files.
+    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
+        &self.diagrams
+    }
+}
+
+impl Series {
+    /// The diagrams in this series' description (ADR 0416), for writing their files.
+    pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
+        &self.diagrams
     }
 }

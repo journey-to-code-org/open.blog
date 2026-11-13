@@ -30,9 +30,9 @@ use crate::social_schedule::{self, MAX_HORIZON_SECONDS, MIN_LEAD_SECONDS};
 pub const MANIFEST_VERSION: u32 = 1;
 
 /// The day the built-in manifests were checked against the providers' own documentation.
-pub const BUILTIN_POLICY_VERSION: &str = "2026-10-29";
-pub const PODCAST_POLICY_VERSION: &str = "2026-11-12";
-pub const SOCIAL_MEDIA_POLICY_VERSION: &str = "2026-11-12";
+pub const BUILTIN_POLICY_VERSION: &str = "2026-11-13";
+pub const PODCAST_POLICY_VERSION: &str = "2026-11-13";
+pub const SOCIAL_MEDIA_POLICY_VERSION: &str = "2026-11-13";
 
 /// The largest manifest text read, in bytes.
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -198,10 +198,13 @@ pub enum Capability {
     Draft,
     /// Delivery at a chosen later time.
     Schedule,
+    /// A Mermaid diagram drawn by the destination itself from the fence (ADR 0419). Where it is
+    /// not `adapter`, a diagram reaches the destination as its PNG copy with alt text.
+    Diagram,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 7] = [
+    pub const ALL: [Capability; 8] = [
         Self::Link,
         Self::Text,
         Self::Article,
@@ -209,6 +212,7 @@ impl Capability {
         Self::Video,
         Self::Draft,
         Self::Schedule,
+        Self::Diagram,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -227,6 +231,7 @@ impl Capability {
             Self::Video => "video",
             Self::Draft => "draft",
             Self::Schedule => "schedule",
+            Self::Diagram => "diagram",
         }
     }
 
@@ -883,7 +888,11 @@ impl Ineligibility {
 pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
     use Capability::*;
     use Support::*;
-    let support = |pairs: [(Capability, Support); 7]| pairs.into_iter().collect();
+    // No destination is yet verified to draw a Mermaid fence as published, so every one gets
+    // the diagram as a picture (ADR 0419); `diagram` is added to each list here.
+    let support = |pairs: [(Capability, Support); 7]| {
+        pairs.into_iter().chain([(Diagram, Unsupported)]).collect()
+    };
     let sources = |list: &[&str]| list.iter().map(|s| (*s).to_string()).collect();
     match provider.family() {
         Family::Syndication => {
@@ -1280,7 +1289,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
 }
 
 /// The YouTube API policy checked for video, thumbnail and optional caption uploads.
-pub const YOUTUBE_POLICY_VERSION: &str = "2026-11-12";
+pub const YOUTUBE_POLICY_VERSION: &str = "2026-11-13.1";
 
 /// YouTube as an uploading adapter (epic #386, stories #399 and #400): open.blog uploads the video
 /// private through a resumable session, sets the thumbnail and can schedule `publishAt`, after the
@@ -1305,6 +1314,7 @@ fn youtube_manifest() -> ProviderManifest {
             (Video, Adapter),
             (Draft, Adapter),
             (Schedule, Adapter),
+            (Diagram, Unsupported),
         ]
         .into_iter()
         .collect(),
@@ -1336,7 +1346,7 @@ fn youtube_manifest() -> ProviderManifest {
 
 /// The day Google Business Profile and Nextdoor were checked against their own documentation
 /// (ADRs 0393 and 0394).
-pub const JOB_DESTINATIONS_POLICY_VERSION: &str = "2026-11-08";
+pub const JOB_DESTINATIONS_POLICY_VERSION: &str = "2026-11-13";
 
 /// Google Business Profile as an adapter for finished jobs (story #488, ADR 0393): one `STANDARD`
 /// local post through `accounts.locations.localPosts.create` (API v4), its words in `summary`, the
@@ -1361,6 +1371,7 @@ fn google_business_profile_manifest() -> ProviderManifest {
             (Video, Unsupported),
             (Draft, Unsupported),
             (Schedule, Unsupported),
+            (Diagram, Unsupported),
         ]
         .into_iter()
         .collect(),

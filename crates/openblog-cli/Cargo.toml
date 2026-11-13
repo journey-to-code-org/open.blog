@@ -11,7 +11,7 @@ repository.workspace = true
 # Mermaid diagrams are rendered at build time (ADR 0416). On by default; build with
 # `--no-default-features` for a binary without the renderer, where fences stay code.
 default = ["diagram-rendering"]
-diagram-rendering = ["openblog-core/diagram-rendering"]
+diagram-rendering = ["openblog-core/diagram-rendering", "openblog-core/diagram-png"]
 
 [[bin]]
 name = "openblog"

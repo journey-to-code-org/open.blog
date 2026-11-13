@@ -245,13 +245,20 @@ fn write_markdown_export(
     let mut created = Vec::new();
     let result = (|| {
         for asset in diagrams {
-            let name = asset
-                .path
+            // The projection points at the PNG copy (ADR 0419), so the bundle carries it.
+            let image = asset.png_path();
+            let name = image
                 .rsplit('/')
                 .next()
                 .ok_or("invalid diagram asset path")?;
             let path = directory.join(name);
-            fsutil::write_new_atomic(&path, asset.svg.as_bytes())?;
+            #[cfg(feature = "diagram-rendering")]
+            let bytes = openblog_core::diagram_svg::render_png(&asset.diagram)
+                .map_err(|error| format!("{}: diagram PNG: {error}", asset.path))?;
+            // Without the renderer no post has diagrams; this keeps the build honest anyway.
+            #[cfg(not(feature = "diagram-rendering"))]
+            let bytes = asset.svg.clone().into_bytes();
+            fsutil::write_new_atomic(&path, &bytes)?;
             created.push(path);
         }
         fsutil::write_new_atomic(destination, markdown.as_bytes())
@@ -650,7 +657,14 @@ mod tests {
             "{}/{name}",
             bundle.file_name().unwrap().to_str().unwrap()
         )));
-        assert!(std::fs::read_to_string(&files[0]).unwrap().contains("<svg"));
+        let bytes = std::fs::read(&files[0]).unwrap();
+        if cfg!(feature = "diagram-rendering") {
+            // The bundle carries the PNG copy, which every destination can show (ADR 0419).
+            assert!(name.ends_with(".png"), "{name}");
+            assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        } else {
+            assert!(String::from_utf8(bytes).unwrap().contains("<svg"));
+        }
         assert!(run(
             &root,
             "lesson",

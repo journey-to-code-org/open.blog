@@ -422,10 +422,12 @@ fn feeds_and_portable_copies_use_real_digest_named_images_with_alternatives() {
     let json: serde_json::Value = serde_json::from_str(&feeds::json_feed(&site).unwrap()).unwrap();
     let json_html = json["items"][0]["content_html"].as_str().unwrap();
     for image in &images {
-        let url = format!("https://example.test/{}", image.path);
+        // Portable copies and feeds point at the PNG copy beside the SVG (ADR 0419).
+        let png = image.path.replace(".svg", ".png");
+        let url = format!("https://example.test/{png}");
         assert!(portable.html.contains(&url), "{}", portable.html);
         assert!(markdown.contains(&url), "{markdown}");
-        let filename = image.path.rsplit('/').next().unwrap();
+        let filename = png.rsplit('/').next().unwrap();
         assert!(bundled.contains(&format!("openblog-diagrams-test/{filename}")));
         assert!(!bundled.contains(&url));
         assert!(rss.contains(&url), "{rss}");

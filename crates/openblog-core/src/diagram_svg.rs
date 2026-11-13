@@ -198,6 +198,66 @@ fn render_within(
     }
 }
 
+/// A PNG copy of a diagram (ADR 0419), for places that cannot show SVG or style it: the
+/// destinations a post is cross-posted to, and link previews. Drawn by the same renderer from
+/// the same source, in its own light colours on white, with the renderer's bundled font so the
+/// bytes are the same on every machine. At most 1600 pixels on a side.
+#[cfg(all(feature = "diagram-png", not(target_arch = "wasm32")))]
+pub fn render_png(diagram: &Diagram) -> Result<Vec<u8>, String> {
+    use merman::svg::export::{NativeFontContext, NativeFontLimits, RasterFitBox, RasterOptions};
+    if diagram.source.len() > MAX_SOURCE_BYTES {
+        return Err(format!("diagram source exceeds {MAX_SOURCE_BYTES} bytes"));
+    }
+    let source = crate::diagram::without_links(&diagram.source);
+    let control = merman::OperationControl::new().with_deadline(std::time::Duration::from_secs(4));
+    let fonts = NativeFontContext::from_font_bytes(
+        merman::svg::export::bundled_font_data(),
+        NativeFontLimits::default(),
+        &control,
+    )
+    .map_err(|error| format!("diagram font: {error}"))?;
+    let mut policy = merman::svg::RenderResourcePolicy::constrained();
+    for (name, value) in [
+        ("max_source_bytes", MAX_SOURCE_BYTES),
+        ("max_model_items", 200),
+        ("max_svg_bytes", MAX_SVG_BYTES),
+    ] {
+        policy
+            .apply_override(name, value)
+            .map_err(|error| error.to_string())?;
+    }
+    let config =
+        merman::SourcePresentationConfig::from_value(serde_json::json!({"htmlLabels": false}));
+    let renderer = merman::Renderer::new()
+        .with_resource_policy(*policy.input_policy())
+        .with_parse_options(merman::ParseOptions::strict())
+        .with_presentation_engine(merman::MermaidEngine::new().with_site_config(config));
+    let raster = RasterOptions::default()
+        .with_fit_to(RasterFitBox::contain(800, 800))
+        .with_scale(2.0)
+        .with_matte("white")
+        .with_font_context(fonts);
+    let output = renderer
+        .render(merman::RenderRequest::png(
+            &source,
+            control,
+            merman::PngRequest {
+                svg: merman::SvgRequest {
+                    environment: merman::SvgEnvironment::deterministic()
+                        .with_resource_policy(policy),
+                    pipeline: Some(merman::svg::SvgPipeline::resvg_safe()),
+                    ..merman::SvgRequest::default()
+                },
+                options: raster,
+            },
+        ))
+        .map_err(|error| error.to_string())?;
+    let merman::RenderOutput::Png(Some(png)) = output else {
+        return Err("diagram renderer produced no PNG".into());
+    };
+    Ok(png.bytes().to_vec())
+}
+
 /// Render inside a host-controlled Web Worker. The host must terminate it on timeout.
 #[cfg(target_arch = "wasm32")]
 pub fn render_in_worker(diagram: &Diagram, ordinal: usize) -> Result<String, String> {
@@ -593,6 +653,21 @@ mod tests {
         let sequence =
             render(&diagram("sequenceDiagram\nA->>B: hi\nclick A \"/x/\""), 1).unwrap_err();
         assert!(sequence.contains("flowchart nodes only"), "{sequence}");
+    }
+
+    #[cfg(feature = "diagram-png")]
+    #[test]
+    fn a_png_copy_is_a_bounded_deterministic_image() {
+        let d = diagram("flowchart LR\nA[Client] --> B[API]\nclick B \"/x/\"");
+        let one = render_png(&d).unwrap();
+        assert_eq!(&one[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(one, render_png(&d).unwrap(), "the same bytes every time");
+        let width = u32::from_be_bytes(one[16..20].try_into().unwrap());
+        let height = u32::from_be_bytes(one[20..24].try_into().unwrap());
+        assert!(
+            width > 100 && width <= 1600 && height <= 1600,
+            "{width}x{height}"
+        );
     }
 
     #[test]
