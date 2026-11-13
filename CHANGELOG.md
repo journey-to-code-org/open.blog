@@ -19,6 +19,8 @@ All notable changes to open.blog are recorded here. Releases follow
   choices, with individual Admin controls. New reflections require each person whose work
   appears to choose a credit before complete review or publication. Older records preserve their
   prior behavior until someone selects a credit; older releases cannot read the new requirement.
+- Site owners and coordinators can explicitly publish an approved shared piece in Admin. The
+  server rechecks current credit and approvals before creating the public post.
 - The combined-preview control restores keyboard focus after loading unless the user moved it.
 - Revealed drafts, conversation items and observations use valid accessible labels in Admin.
 - Approval requests now recheck that the complete current piece remains visible to the author;

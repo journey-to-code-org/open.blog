@@ -914,8 +914,12 @@ before the group can review and publish the complete piece. Older reflections wi
 choices retain the legacy contributor-profile publication path; once anyone chooses, all
 participants whose work appears must choose.
 
-This workflow is still incomplete: multiple contribution authoring and a shared-reflection
-publish control in Admin are not yet available. See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
+Site owners and coordinators can expand **Publish shared reflection**, confirm their intent
+and publish. The server checks the current credits and required approvals again before writing
+the public post; a stale approval or missing choice blocks publication.
+
+This workflow is still incomplete: multiple contribution authoring is not yet available.
+See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin)
 and [epic #592](https://github.com/journey-to-code-org/open.blog/issues/592) before relying on
 the workflow for publication.
 

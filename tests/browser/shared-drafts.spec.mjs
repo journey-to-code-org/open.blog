@@ -573,6 +573,41 @@ test("approval requires a complete preview and explicit credit consent; stale re
   await expect(page.getByText("Your approval was withdrawn.", { exact: false })).toBeVisible();
 });
 
+test("publishing requires confirmation and reports the server approval gate at phone width", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  let ready = false;
+  let calls = 0;
+  await context.route("**/admin/api/collaboration/publish", (route) => {
+    calls += 1;
+    expect(route.request().postDataJSON()).toEqual({ publicationId: PUBLICATION });
+    return ready ? json(route, 200, { state: "published", alreadyPublished: false })
+      : json(route, 409, { error: "Approvals are missing.", missing: ["Another writer"] });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.locator("summary", { hasText: "Publish shared reflection" }).click();
+  const submit = page.getByRole("button", { name: "Publish approved piece" });
+  const confirm = page.getByLabel("I intend to publish the current approved piece publicly.");
+  await expect(submit).toBeDisabled();
+  expect(calls).toBe(0);
+  await page.evaluate(axe.source);
+  const audit = await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(audit.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await confirm.check();
+  await submit.click();
+  await expect(page.getByText("Approvals are missing. Still needed: Another writer.")).toBeFocused();
+  await expect(confirm).not.toBeChecked();
+  await expect(submit).toBeDisabled();
+  ready = true;
+  await confirm.check();
+  await submit.click();
+  await expect(page.getByText("The approved piece was published.")).toBeVisible();
+  expect(calls).toBe(2);
+});
+
 test("participants choose public credit and recover from a stale choice at phone width", async ({ page, context }) => {
   await install(context);
   let credit = null;

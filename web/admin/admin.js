@@ -18320,6 +18320,7 @@ export class ObAdmin extends AdminElement {
         this.sharedConversationReadingPanel(publication, index),
         this.readerPolicyPanel(publication, index),
         this.seriesPanel(publication, index),
+        this.sharedPublishPanel(publication, index),
         this.invitationPanel(publication, index),
       );
     });
@@ -18330,7 +18331,7 @@ export class ObAdmin extends AdminElement {
           "section",
           { class: "oba-contributor-intro" },
           h("p", {}, "A shared reflection starts from something you watched, read, or heard. Each writer will answer in their own words before anything is combined."),
-          h("p", { class: "oba-small" }, "Shared reflections are kept in private server files, never in your posts. Nothing is published from here, and only the people taking part can see each one."),
+          h("p", { class: "oba-small" }, "Shared reflections are kept in private server files until a coordinator publishes an approved piece. Only the people taking part can see the private work."),
         ),
         h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: "#/shared/new" }, "Start a shared reflection")),
         status,
@@ -19112,7 +19113,7 @@ export class ObAdmin extends AdminElement {
     const prefix = `oba-credit-${index}`;
     const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
-    const choice = h("select", { id: `${prefix}-choice` },
+    const choice = h("select", { id: `${prefix}-choice`, disabled: true },
       h("option", { value: "" }, "Choose a credit"),
       h("option", { value: "profile" }, "My contributor profile"),
       h("option", { value: "displayName" }, "Display name only"),
@@ -19136,12 +19137,14 @@ export class ObAdmin extends AdminElement {
         choice.value = result.choice?.kind || "";
         name.value = result.choice?.name || "";
         sync();
+        choice.disabled = false;
         save.disabled = false;
         reload.hidden = true;
         problem.hidden = true;
         status.textContent = result.choice ? "Your saved choice is shown." : "You have not chosen your public credit.";
       } catch (error) {
         revision = null;
+        choice.disabled = true;
         save.disabled = true;
         reload.hidden = false;
         problem.textContent = error?.data?.error || "Your credit choice could not be loaded.";
@@ -19179,6 +19182,40 @@ export class ObAdmin extends AdminElement {
     let loaded = false;
     details.addEventListener("toggle", () => { if (details.open && !loaded) { loaded = true; load(); } });
     return details;
+  }
+
+  sharedPublishPanel(publication, index) {
+    if (!(publication.roles || []).some((role) => role === "siteOwner" || role === "coordinator")) return null;
+    const prefix = `oba-publish-${index}`;
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const confirm = h("input", { id: `${prefix}-confirm`, type: "checkbox" });
+    const publish = h("button", { class: "oba-btn oba-btn-primary", type: "submit", disabled: true }, "Publish approved piece");
+    confirm.addEventListener("change", () => { publish.disabled = !confirm.checked; });
+    const form = h("form", { class: "oba-shared-form" },
+      h("p", { class: "oba-small" }, "Publishing creates a public post. The server checks the current piece, public credits and required approvals again; an outdated approval cannot be used."),
+      h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: confirm.id }, "I intend to publish the current approved piece publicly.")),
+      publish);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!confirm.checked) return;
+      publish.disabled = true;
+      problem.hidden = true;
+      try {
+        const result = await this.api.call("POST", "collaboration/publish", { json: { publicationId: publication.publicationId } });
+        status.textContent = result.alreadyPublished ? "This reflection was already published." : "The approved piece was published.";
+        form.hidden = true;
+      } catch (error) {
+        const missing = error?.data?.missing;
+        problem.textContent = `${error?.data?.error || "The piece could not be published. Nothing was changed."}${Array.isArray(missing) && missing.length ? ` Still needed: ${missing.join(", ")}.` : ""}`;
+        problem.hidden = false;
+        problem.focus();
+        confirm.checked = false;
+      } finally {
+        publish.disabled = !confirm.checked;
+      }
+    });
+    return h("details", { class: "oba-invitations" }, h("summary", {}, "Publish shared reflection"), status, problem, form);
   }
 
   /**
