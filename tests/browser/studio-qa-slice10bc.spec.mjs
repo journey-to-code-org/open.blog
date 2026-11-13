@@ -162,7 +162,7 @@ test("regression: handling the last New request keeps focus off the page body", 
   expect(await activeText(page)).not.toMatch(/^body/);
 });
 
-test("after Undo the Undo button is gone and focus falls to the page body", async ({ page }) => {
+test("after Undo, focus goes back to the request, never to the page body", async ({ page }) => {
   await mockQuotes(page);
   await signIn(page, "#/quotes");
   await page.locator(".studio-comment", { hasText: "Sam Lee" }).getByRole("button", { name: "Mark handled" }).click();

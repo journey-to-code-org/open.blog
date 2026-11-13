@@ -44,9 +44,10 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
       }
       const data = await response.json().catch(() => null);
       if (response.ok) return data;
-      // A read that found the site busy (another request holds its lock for a moment) changes
-      // nothing, so it's asked again shortly, a few times, before saying so.
-      if (response.status === 409 && method === "GET" && (busyTries ?? 0) < 4) {
+      // A read that found the site busy (another request holds its lock for a moment), or any
+      // request refused as `busy` (the lock was taken before anything happened), changes nothing,
+      // so it's asked again shortly, a few times, before saying so.
+      if (response.status === 409 && (method === "GET" || data?.code === "busy") && (busyTries ?? 0) < 4) {
         await new Promise((resolve) => setTimeout(resolve, 120 * ((busyTries ?? 0) + 1)));
         return api.call(method, path, { json, body, headers, retry, busyTries: (busyTries ?? 0) + 1 });
       }

@@ -21,3 +21,10 @@ test("a read that stays busy says so after a few tries", async () => {
   await assert.rejects(api.get("look"), (error) => error.status === 409);
   assert.equal(calls, 5);
 });
+
+test("a write refused as busy (the lock was taken, nothing happened) is asked again", async () => {
+  let calls = 0;
+  const api = createApi({ fetchImpl: async () => (++calls < 3 ? reply(409, { error: "another content write is active", code: "busy" }) : reply(200, { saved: true })) });
+  assert.deepEqual(await api.put("appearance", { etag: "e" }), { saved: true });
+  assert.equal(calls, 3);
+});

@@ -149,9 +149,10 @@ export async function createQuotes({ api }) {
         if (button.loading) return;
         button.loading = true;
         if (await setStatus(r, was, { quiet: true })) {
+          // Focus moves in the same moment the Undo button goes, so it never falls to the page.
+          (cards.querySelector(`[data-id="${r.id}"] .studio-comment-who`) || heading).focus();
           undoSlot.replaceChildren();
           status.textContent = `Undone. ${r.name}'s request is back.`;
-          requestAnimationFrame(() => (cards.querySelector(`[data-id="${r.id}"] .studio-comment-who`) || heading).focus());
         } else {
           button.loading = false;
         }

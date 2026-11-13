@@ -120,6 +120,9 @@ use crate::source_store::{self, StoreError};
 
 pub const SESSION_COOKIE: &str = "ob_session";
 pub(crate) const CODE_RUNNER_LANGUAGE_PATH: &str = "/components/ob-code-runner-language.js";
+/// How long a write waits for the content lock (held by a send-out or another save) before it is
+/// refused as `busy`.
+const CONTENT_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const CODE_RUNNER_LANGUAGE_ASSET: &str = "components/ob-code-runner-language.js";
 /// The largest request to `pieces`: one piece's form values, never a page (ADR 0263).
 const MAX_PIECE_REQUEST_BYTES: usize = 64 * 1024;
@@ -752,9 +755,15 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         && !name.starts_with("gifts/")
         && !name.starts_with("push/");
     let _filesystem_transaction = if workspace.is_some() && local_write {
-        match crate::transaction::ContentTransactionLock::acquire(&state.root) {
+        // Wait a moment for a send-out or another save to finish, rather than refusing at once.
+        // A refusal here happens before anything is read or written, so it is marked `busy`:
+        // trying again is always safe, unlike a 409 for a change made elsewhere.
+        match crate::transaction::ContentTransactionLock::acquire_with_wait(
+            &state.root,
+            CONTENT_LOCK_WAIT,
+        ) {
             Ok(transaction) => Some(transaction),
-            Err(error) => return Response::error(409, &error),
+            Err(error) => return Response::json(409, &json!({ "error": error, "code": "busy" })),
         }
     } else {
         None
