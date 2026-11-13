@@ -256,6 +256,9 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
     if root.tag_name().name() != "svg" || root.tag_name().namespace() != Some(SVG_NAMESPACE) {
         return Err("diagram renderer returned a non-SVG document".into());
     }
+    if doc.descendants().any(|node| node.is_pi()) {
+        return Err("diagram SVG contains a processing instruction".into());
+    }
     let title_id = format!("{prefix}-accessible-title");
     let desc_id = format!("{prefix}-accessible-description");
     let mut ids = std::collections::BTreeSet::new();
@@ -271,6 +274,12 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
         }
         for attr in node.attributes() {
             let name = attr.name();
+            if !matches!(
+                attr.namespace(),
+                None | Some(XML_NAMESPACE) | Some(XLINK_NAMESPACE)
+            ) {
+                return Err(format!("diagram SVG contains a foreign attribute `{name}`"));
+            }
             if name.eq_ignore_ascii_case("id") {
                 if attr.value() == title_id || attr.value() == desc_id {
                     return Err("diagram SVG collides with its accessible text IDs".into());
@@ -487,6 +496,8 @@ mod tests {
             "<use href=\"javascript:alert(1)\"/>",
             "<use href=\"data:image/svg+xml,x\"/>",
             "<g xmlns=\"http://www.w3.org/1999/xhtml\"/>",
+            "<g xmlns:evil=\"urn:evil\" evil:attribute=\"value\"/>",
+            "<?xml-stylesheet href=\"https://example.test/evil.css\"?>",
         ] {
             let svg = format!("<svg xmlns=\"{SVG_NAMESPACE}\">{element}</svg>");
             assert!(accessible_svg(&svg, &d, "test").is_err(), "{element}");
@@ -494,6 +505,10 @@ mod tests {
         let svg =
             format!("<svg xmlns=\"{SVG_NAMESPACE}\"><g id=\"local\"/><use href=\"#local\"/></svg>");
         assert!(accessible_svg(&svg, &d, "test").is_ok());
+        let trailing = format!(
+            "<svg xmlns=\"{SVG_NAMESPACE}\"><g/></svg><?xml-stylesheet href=\"https://example.test/evil.css\"?>"
+        );
+        assert!(accessible_svg(&trailing, &d, "test").is_err());
     }
 
     #[test]
@@ -619,5 +634,30 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn hostile_style_urls_never_reach_rendered_svg() {
+        for directive in [
+            "style A fill:url(https://attacker.example/evil.svg)",
+            "classDef hostile fill:url(https://attacker.example/evil.svg)\nclass A hostile",
+            "style A fill:url(//attacker.example/evil.svg)",
+            "style A fill:url(data:image/svg+xml,evil)",
+            "style A fill:url(javascript:alert(1))",
+        ] {
+            let source = format!("flowchart LR\nA --> B\n{directive}\n");
+            if let Ok(svg) = render(&diagram(&source), 1) {
+                assert!(!svg.contains("attacker.example"), "{directive}");
+                assert!(!svg.contains("data:image"), "{directive}");
+                assert!(!svg.contains("javascript:"), "{directive}");
+            }
+        }
+        let safe = render(
+            &diagram("flowchart LR\nA --> B\nstyle A fill:#123456,stroke:#654321"),
+            1,
+        )
+        .unwrap();
+        assert!(safe.contains("#123456"));
+        assert!(safe.contains("#654321"));
     }
 }

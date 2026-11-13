@@ -14,7 +14,9 @@ gate described below.
 
 An experimental `openblog-core` feature, `diagram-rendering`, now wraps that
 pipeline with accessible title and description markup and stricter rejection
-of links, images and interaction/configuration directives. The experimental
+of links, images, processing instructions, foreign attribute namespaces and
+interaction/configuration directives. Tests exercise hostile CSS URL values
+through the renderer without claiming a complete CSS security audit. The experimental
 `markdown::render_diagrams` entry point adds figure markup, caption, source
 disclosure, collision-checked IDs and source-scoped findings; invalid diagrams
 remain escaped code. Native builds explicitly compiled with the feature use it
