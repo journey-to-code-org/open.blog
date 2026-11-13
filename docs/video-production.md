@@ -135,8 +135,10 @@ Before anything can go to YouTube, the preview also checks the files and answers
   50 MB. A thumbnail that is not 16:9, an `https` thumbnail open.blog cannot check, or no thumbnail
   at all is noted rather than blocked.
 
-open.blog reads only each file's size and first bytes, never follows a symbolic link, and never
-reads outside your project.
+open.blog reads each file's size and first bytes to validate it. For a release without blocking
+problems, it also reads each caption file in full to bind its contents to the preview. It never
+follows a symbolic link or reads outside your project. A JSON preview includes each caption's
+byte count and BLAKE2b-512 digest, so the file can be identified without including its text.
 
 ## Upload an approved release
 
@@ -154,6 +156,11 @@ once for each release. Until then everything above works exactly as before and n
    viewing the channel (`youtube.readonly`, used only to look for an upload whose outcome was
    lost). open.blog stores nothing unless you allow both.
 
+`openblog youtube connect-captions` additionally requests Google's `youtube.force-ssl`
+permission to manage captions. This broader permission is optional; the ordinary `connect`
+command does not request it. With that permission, an approved release's caption files are
+uploaded after its video; without it, add them in YouTube Studio.
+
 The refresh token is kept in `.openblog/private/youtube/credential`, encrypted for your Windows
 account (or readable only by you elsewhere), and is never in your site, a log or an error.
 `openblog youtube status` shows whether a channel is connected and sends nothing;
@@ -170,14 +177,18 @@ openblog video zhalendor-episode-1 --upload
 ```
 
 - `--approve <digest>` approves exactly the release you previewed and the video file as it is now.
-  It sends nothing. If you later change the release, the post's address or the file, the upload is
-  refused until you preview and approve again.
+  The preview digest also covers the full contents of each caption file. It sends nothing. If you
+  later change the release, a caption file, the post's address or the video file, the upload is
+  refused until you preview and approve again. The updated YouTube policy also requires older
+  approvals to be reviewed and approved again before upload.
 - `--publish-at` is optional. With it, YouTube makes the video public at that time, which must name
   its zone, be in the future, and be no earlier than the article's date. Without it, the video
   stays private until you publish it in YouTube Studio. The upload itself is always private.
 - `--upload` sends the video in pieces, so an interrupted upload resumes where it stopped the next
-  time you run it, then sets the thumbnail. A draft post is not uploaded.
-- open.blog does not upload caption files: add them in YouTube Studio after the upload.
+  time you run it, then sets the thumbnail and, if caption permission was granted, uploads each
+  approved caption file. A draft post is not uploaded.
+- Each caption upload consumes 400 YouTube API quota units. YouTube accepts the upload for
+  processing; check YouTube Studio to confirm it is usable. Caption failures do not undo a video.
 
 When it is done, open.blog prints the video's address. Add it to the post as `videoUrl:` to embed
 the video on your page.
@@ -195,6 +206,9 @@ Every failure says what happened, with a code, and whether anything was sent:
   comes after the whole file was sent makes the release unknown instead, as below.)
 - A thumbnail YouTube refuses (custom thumbnails need a verified channel) leaves the video uploaded;
   `--upload` retries only the thumbnail.
+- Caption outcomes are listed per file by `--status`. A definite refusal can be retried by running
+  `--upload` again. A lost response or conflicting existing caption is **unknown** and never
+  automatically retried; check and resolve it in YouTube Studio.
 
 If the whole file was sent but YouTube's reply was lost, open.blog cannot know whether the video
 exists, so the release becomes **unknown** and nothing more is sent. That holds even if you change

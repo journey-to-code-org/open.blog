@@ -93,7 +93,7 @@ fn a_complete_release_writes_the_youtube_preview_folder_and_uploads_nothing() {
     assert!(codes(&preview, "problems").is_empty());
     assert_eq!(
         codes(&preview, "notes"),
-        ["captions-by-hand"],
+        ["captions-conditional"],
         "{preview:#}"
     );
     assert_eq!(preview["privacy"], "private");
@@ -155,7 +155,7 @@ fn a_draft_is_previewed_with_a_note_and_youtubes_refusals_block_it() {
     assert_eq!(codes(&preview, "problems"), ["title-angle-brackets"]);
     assert_eq!(
         codes(&preview, "notes"),
-        ["article-not-public", "captions-by-hand"]
+        ["article-not-public", "captions-conditional"]
     );
     let out = run(&root, &["video", "episode"]);
     assert!(out.status.success());

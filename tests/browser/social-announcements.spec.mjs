@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import axe from "axe-core";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -8,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 
 // The Social screen in Admin (ADR 0310, #369), from the real binary and the real Admin Studio, with
 // the real hosted routes (netlify/lib/social-announcements.mjs) behind a local HTTP server over an
@@ -30,6 +32,8 @@ let storage;
 let on;
 let off;
 let sawKey = [];
+let oversizedCover;
+let useOversizedCover = false;
 
 test.use({ timezoneId: ZONE, locale: "en-US" });
 
@@ -67,9 +71,12 @@ async function stop(server) {
 test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "openblog-social-"));
   mkdirSync(join(root, "content", "posts"), { recursive: true });
+  mkdirSync(join(root, "static", "images"), { recursive: true });
   writeFileSync(join(root, "openblog.json"), JSON.stringify({ title: "Lantern", url: "https://blog.example.org", author: { name: "Site Author" } }));
   writeFileSync(join(root, "content", "posts", "2026-01-02-hello.md"), "---\ntitle: Hello lanterns\ndate: 2026-01-02\n---\nA post.\n");
   writeFileSync(join(root, "content", "posts", "2026-01-03-secret.md"), "---\ntitle: Secret unfinished idea\ndate: 2026-01-03\ndraft: true\n---\nHidden.\n");
+  writeFileSync(join(root, "content", "posts", "floor.md"), "---\ntitle: Finished floor\ndate: 2026-01-02\ndescription: A new floor\nprofile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Maple Falls\n    region: WA\n  started: 2025-12-01\n  finished: 2025-12-02\n  media:\n    after:\n      - /images/floor.png\n---\nDone.\n");
+  writeFileSync(join(root, "static", "images", "floor.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aN8AAAAASUVORK5CYII=", "base64"));
   execFileSync(binary, ["user", "add", "writer", "--root", root], { env: { ...process.env, OPENBLOG_PASSWORD: password }, stdio: "pipe" });
 
   // The hosted routes, exactly as deployed, over a fake Supabase, on a loopback port.
@@ -77,6 +84,8 @@ test.beforeAll(async () => {
   const { socialSettings } = await load("netlify/lib/social-scope.mjs");
   const { fakeStorage } = await load("tests/web/social-fake-storage.mjs");
   storage = fakeStorage();
+  const sharp = createRequire(pathToFileURL(join(repository, "netlify", "package.json")))("sharp");
+  oversizedCover = await sharp(randomBytes(1100 * 1100 * 3), { raw: { width: 1100, height: 1100, channels: 3 } }).png().toBuffer();
   // A Bluesky account and a Mastodon account, so the composer is driven for both (#391, #392).
   storage.accounts.push(
     { id: "77777777-7777-4777-8777-777777777777", site_id: "lantern-studios", provider: "bluesky", kind: "account", display_name: "@lantern.bsky.social", status: "connected" },
@@ -91,7 +100,12 @@ test.beforeAll(async () => {
     OPENBLOG_SOCIAL_WORKER_KEY: WORKER_KEY,
     OPENBLOG_SOCIAL_TOKEN_KEYS: `k1:${Buffer.alloc(32, 9).toString("base64")}`,
   });
-  const handle = createAnnouncements({ settings, fetchImpl: storage.fetchImpl });
+  const fetchImpl = (url, init) => {
+    if (url === "https://blog.example.org/posts/hello/") return Promise.resolve(new Response('<meta property="og:image" content="/cover.png"><meta property="og:image:alt" content="A lantern">', { headers: { "content-type": "text/html" } }));
+    if (url === "https://blog.example.org/cover.png") return Promise.resolve(new Response(useOversizedCover ? oversizedCover : Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aN8AAAAASUVORK5CYII=", "base64"), { headers: { "content-type": "image/png" } }));
+    return storage.fetchImpl(url, init);
+  };
+  const handle = createAnnouncements({ settings, fetchImpl });
   hosted = createHttpServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -216,6 +230,110 @@ test("an announcement is composed, previewed in the author's zone, scheduled, ed
   await expect(page.locator("[data-announcement]").first().locator("[data-status-badge]")).toContainText("Canceled");
   await expect(page.locator("[data-announcement]").first().getByRole("button", { name: /Edit the announcement/ })).toHaveCount(0);
   expect(storage.posts[0].status).toBe("canceled");
+});
+
+test("a cover is previewed and explicitly approved before scheduling on a narrow screen", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openSocial(page);
+  await compose(page);
+  await page.getByLabel("Destination", { exact: true }).selectOption("77777777-7777-4777-8777-777777777777");
+  await page.getByRole("button", { name: "Preview cover image" }).click();
+  const image = page.getByRole("img", { name: "A lantern" });
+  await expect(image).toBeVisible();
+  await expect(image).toHaveJSProperty("naturalWidth", 1);
+  const approve = page.getByLabel("Include this previewed image");
+  await expect(approve).not.toBeChecked();
+  await approve.focus();
+  await page.keyboard.press("Space");
+  await expect(approve).toBeChecked();
+  await page.evaluate(axe.source);
+  const accessibility = await page.evaluate(async () => window.axe.run(document.querySelector("[data-social-composer]"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }));
+  expect(accessibility.violations).toEqual([]);
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+  expect(storage.posts).toHaveLength(1);
+  expect(storage.posts[0].media.snapshot.description).toBe("A lantern");
+  expect(storage.posts[0].media.approvalDigest).toMatch(/^[a-f0-9]{64}$/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("an oversized Bluesky cover is previewed as the exact resized thumbnail", async ({ page }) => {
+  useOversizedCover = true;
+  try {
+    await page.setViewportSize({ width: 400, height: 800 });
+    await openSocial(page);
+    await compose(page);
+    await page.getByLabel("Destination", { exact: true }).selectOption("77777777-7777-4777-8777-777777777777");
+    await page.getByRole("button", { name: "Preview cover image" }).click();
+    await expect(page.getByRole("img", { name: "A lantern" })).toBeVisible();
+    await expect(page.locator("[data-social-media-result]")).toContainText("resized JPEG");
+    await page.getByLabel("Include this previewed image").check();
+    await page.getByRole("button", { name: "Schedule announcement" }).click();
+    await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+    expect(storage.posts[0].media.snapshot.version).toBe(2);
+    expect(storage.posts[0].media.snapshot.sourceSize).toBeGreaterThan(1_000_000);
+    expect(storage.posts[0].media.snapshot.size).toBeLessThanOrEqual(1_000_000);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally {
+    useOversizedCover = false;
+  }
+});
+
+test("LinkedIn cover approval preserves the chosen failure behavior", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openSocial(page);
+  await compose(page);
+  await page.getByLabel("If the image cannot be uploaded").selectOption("stop");
+  await page.getByRole("button", { name: "Preview cover image" }).click();
+  await expect(page.getByRole("img", { name: "A lantern" })).toBeVisible();
+  await expect(page.locator("[data-social-media-result]")).toContainText("will not be posted");
+  await page.getByLabel("Include this previewed image").check();
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+  expect(storage.posts[0].media.snapshot.fallback).toBe("stop");
+  expect(storage.posts[0].media.snapshot.description).toBe("A lantern");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("Facebook cover approval carries its description and stop choice", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openSocial(page);
+  await compose(page);
+  await page.getByLabel("Destination", { exact: true }).selectOption("22222222-2222-4222-8222-222222222222");
+  await page.getByLabel("If the image cannot be uploaded").selectOption("stop");
+  await page.getByRole("button", { name: "Preview cover image" }).click();
+  await expect(page.getByRole("img", { name: "A lantern" })).toBeVisible();
+  await expect(page.locator("[data-social-media-result]")).toContainText("check the Page");
+  await page.getByLabel("Include this previewed image").check();
+  await page.getByRole("button", { name: "Schedule announcement" }).click();
+  await expect(page.locator("[data-social-status]")).toContainText("Scheduled for");
+  expect(storage.posts[0].media.snapshot.fallback).toBe("stop");
+  expect(storage.posts[0].media.snapshot.description).toBe("A lantern");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("a Facebook job photo is previewed, described and explicitly approved", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await signIn(page, on.origin);
+  await page.goto(`${on.origin}/admin/#/share/${encodeURIComponent("posts/floor.md")}`);
+  const facebook = page.locator('[data-destination="facebook"]');
+  await expect(facebook).toBeVisible();
+  const post = facebook.getByRole("button", { name: "Post to Lantern Page" });
+  await expect(post).toBeDisabled();
+  await facebook.getByLabel("Photo description for Facebook").fill("A refinished floor");
+  await facebook.getByRole("button", { name: "Preview photo for Facebook" }).click();
+  await expect(facebook.getByRole("img", { name: "A refinished floor" })).toBeVisible();
+  await expect(post).toBeDisabled();
+  await facebook.getByLabel("Approve this photo and description").check();
+  await page.evaluate(axe.source);
+  const accessibility = await page.evaluate(async () => window.axe.run(document.querySelector('[data-destination="facebook"]'), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }));
+  expect(accessibility.violations).toEqual([]);
+  await post.click();
+  await expect(page.locator("[data-job-share-status]")).toContainText("Scheduled");
+  expect(storage.posts).toHaveLength(1);
+  expect(storage.posts[0].media.snapshot.description).toBe("A refinished floor");
+  expect(storage.posts[0].media.snapshot.fallback).toBe("stop");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("composing for Bluesky shows the post's own card, and for Mastodon a link already in the caption is not added again", async ({ page }) => {

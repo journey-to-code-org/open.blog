@@ -55,6 +55,14 @@ and scheduling, and every external action must be opt-in, authorized and report 
 - **The thumbnail follows the video.** After the video exists, a local JPEG or PNG thumbnail (ADR 0377) is set with
   `thumbnails.set`; setting it again replaces it, so it is retried freely. A refusal (custom thumbnails need a
   verified channel) leaves the video uploaded and the thumbnail `failed`; the next `--upload` retries only it.
+- **Caption uploads are separately opted in.** Amended for #623: after the video exists, a connection with the
+  explicit caption-management grant sends each approved caption with its language via `captions.insert`. Each file's
+  full digest is checked immediately before sending. The private record is marked unknown before the request;
+  lost replies and conflicts are never automatically retried, while definite refusals can be retried alone.
+  YouTube's acceptance is not proof that processing succeeded. Caption errors do not undo the video. The
+  [caption insert reference](https://developers.google.com/youtube/v3/docs/captions/insert) and
+  [API discovery document](https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest), checked 2026-11-12,
+  specify multipart media uploads, `youtube.force-ssl` and 400 quota units per insert.
 
 ## Considered options
 

@@ -331,6 +331,8 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
   let keyFor = "";
   let previewTicket = 0;
   let previewTimer = null;
+  let mediaTicket = 0;
+  let mediaApproval = null;
   let filter = "";
 
   const status = el("p", { class: "oba-announce-status", role: "status", "aria-live": "polite", tabindex: "-1", "data-social-status": "true" });
@@ -348,6 +350,21 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
   const submit = el("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-action": "social-schedule" }, "Schedule announcement");
   const clear = el("button", { class: "oba-btn", type: "button", "data-action": "social-clear" }, "Clear");
   const previewBox = el("section", { class: "oba-announce-preview", "aria-labelledby": `${ids}-preview-title`, "data-social-preview": "true" });
+  const mediaPreview = el("button", { class: "oba-btn", type: "button", "data-action": "social-media-preview" }, "Preview cover image");
+  const mediaAccept = el("input", { id: `${ids}-media-accept`, type: "checkbox", disabled: true, "data-social-media-accept": "true" });
+  const mediaFallback = el("select", { id: `${ids}-media-fallback`, "data-social-media-fallback": "true" },
+    el("option", { value: "text" }, "Post the link without the image"),
+    el("option", { value: "stop" }, "Do not post"));
+  const fallbackField = el("div", { class: "oba-field", hidden: true },
+    el("label", { for: mediaFallback.id }, "If the image cannot be uploaded"),
+    mediaFallback);
+  const mediaResult = el("div", { class: "oba-announce-media-result", "data-social-media-result": "true" });
+  const mediaMessage = el("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  const mediaPanel = el("fieldset", { class: "oba-field oba-fieldset oba-announce-media", hidden: true },
+    el("legend", {}, "Cover image (optional)"),
+    el("p", { class: "oba-small" }, "Preview the public cover before choosing to include it."),
+    fallbackField, mediaPreview, mediaMessage, mediaResult,
+    el("div", { class: "oba-announce-choice" }, mediaAccept, el("label", { for: mediaAccept.id }, "Include this previewed image")));
   const form = el("form", { class: "oba-announce-composer", novalidate: true, "aria-labelledby": `${ids}-compose-title`, "data-social-composer": "true" });
 
   const controls = { destination, post, caption, time: when };
@@ -387,6 +404,50 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
 
   const selectedDestination = () => destinations.find((item) => item.id === destination.value) || null;
   const selectedPost = () => posts.find((item) => item.work === post.value) || null;
+
+  function clearMedia() {
+    mediaTicket += 1;
+    mediaApproval = null;
+    mediaAccept.checked = false;
+    mediaAccept.disabled = true;
+    mediaPreview.disabled = false;
+    mediaResult.replaceChildren();
+    mediaMessage.textContent = "";
+    const provider = selectedDestination()?.provider;
+    mediaPanel.hidden = !["bluesky", "linkedin", "facebook"].includes(provider);
+    fallbackField.hidden = provider === "bluesky";
+  }
+
+  mediaPreview.addEventListener("click", async () => {
+    clearMedia();
+    const chosen = selectedDestination();
+    const picked = selectedPost();
+    if (!chosen || !["bluesky", "linkedin", "facebook"].includes(chosen.provider) || !picked) {
+      mediaMessage.textContent = "Choose a supported destination and a published post first.";
+      return;
+    }
+    const ticket = mediaTicket;
+    mediaPreview.disabled = true;
+    mediaMessage.textContent = "Reading the public cover...";
+    try {
+      const answer = await api.call("POST", "social/announcements/media-preview", { json: { accountId: chosen.id, work: picked.work, ...(chosen.provider !== "bluesky" ? { fallback: mediaFallback.value } : {}) } });
+      if (ticket !== mediaTicket) return;
+      mediaApproval = answer.media;
+      mediaResult.replaceChildren(
+        el("img", { src: answer.imageDataUrl, alt: answer.media.snapshot.description }),
+        el("p", { class: "oba-small" }, `Image description: ${answer.media.snapshot.description}`),
+        el("p", { class: "oba-small" }, chosen.provider === "bluesky"
+          ? `If the image changes or cannot be uploaded, the card will be posted without it. Bluesky link cards do not carry a separate image description.${answer.media.snapshot.version === 2 ? " This resized JPEG is the image that will be uploaded; transparency is shown on white." : ""}`
+          : `The description will be sent as image alt text. If the image changes or cannot be uploaded, ${mediaFallback.value === "stop" ? "the announcement will not be posted" : "the link will be posted without it"}.${chosen.provider === "facebook" ? " If Facebook cannot confirm whether the photo posted, check the Page before trying again." : ""}`),
+      );
+      mediaAccept.disabled = false;
+      mediaMessage.textContent = "Review the image, then choose whether to include it.";
+    } catch (error) {
+      if (ticket === mediaTicket) mediaMessage.textContent = errorText(error);
+    } finally {
+      if (ticket === mediaTicket) mediaPreview.disabled = false;
+    }
+  });
 
   function fillDestinations() {
     destination.replaceChildren(
@@ -475,7 +536,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
   }
 
   // ---- create
-  const draftSignature = () => JSON.stringify([destination.value, post.value, caption.value.trim(), when.value]);
+  const draftSignature = () => JSON.stringify([destination.value, post.value, caption.value.trim(), when.value, mediaAccept.checked ? mediaApproval?.approvalDigest : null]);
 
   async function onSubmit(event) {
     event.preventDefault?.();
@@ -504,7 +565,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     status.textContent = "Scheduling...";
     try {
       const answer = await api.call("POST", "social/announcements", {
-        json: { accountId: chosen.id, work: picked.work, caption: caption.value, scheduledFor: converted.iso, timeZone: zone, idempotencyKey: key },
+        json: { accountId: chosen.id, work: picked.work, caption: caption.value, scheduledFor: converted.iso, timeZone: zone, idempotencyKey: key, ...(mediaAccept.checked && mediaApproval ? { media: mediaApproval } : {}) },
       });
       const made = answer.announcement;
       status.textContent = `${answer.replayed ? "Already scheduled" : "Scheduled"} for ${formatWhen(made.scheduledFor, zone)} on ${destinationLabel(chosen)}.`;
@@ -538,6 +599,8 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     caption.value = "";
     when.value = "";
     post.value = "";
+    mediaFallback.value = "text";
+    clearMedia();
     clearErrors();
     updateCount();
     renderPreview(null);
@@ -552,6 +615,11 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
     control.addEventListener("input", schedulePreview);
     control.addEventListener("change", schedulePreview);
   }
+  for (const control of [destination, post]) {
+    control.addEventListener("input", clearMedia);
+    control.addEventListener("change", clearMedia);
+  }
+  mediaFallback.addEventListener("change", clearMedia);
 
   form.append(
     el("h2", { id: `${ids}-compose-title` }, "Announce a post"),
@@ -579,6 +647,7 @@ export function createAnnouncementsPanel({ api, zone = browserZone(), timers = g
       hint: el("p", { class: "oba-small oba-landing-hint", id: `${ids}-when-hint` }, `In your time zone, ${zone}. It must be at least a minute from now and within a year.`),
       error: errorNode("time"),
     }),
+    mediaPanel,
     previewBox,
     el("div", { class: "oba-landing-actions oba-announce-actions" }, submit, clear),
   );
