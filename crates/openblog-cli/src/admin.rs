@@ -40346,6 +40346,52 @@ series: letters
         assert_eq!(state_trees(&f), before);
     }
 
+    #[test]
+    fn restored_approval_file_cannot_revive_consent_after_access_changes() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-access-churn");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let approvals_path = f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        ));
+        let standing = fs::read(&approvals_path).unwrap();
+        let record = stored_record(&f, &id);
+        let ada_id = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "ada")
+            .unwrap()
+            .participant_id
+            .clone();
+        for roles in [json!(["reader"]), json!(["coordinator"])] {
+            let revision = stored_record(&f, &id).authorization.revision;
+            assert_eq!(
+                post_api(
+                    &f,
+                    &mikey,
+                    "members/roles",
+                    json!({
+                        "publicationId": id, "participantId": ada_id, "roles": roles,
+                        "expectedRevision": revision,
+                    })
+                )
+                .status,
+                200
+            );
+        }
+        fs::write(&approvals_path, standing).unwrap();
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey", "Grace"]));
+        assert!(published_post(&f, &id).is_none());
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
     fn approval_policy_read(f: &Fixture, who: &Session, id: &str) -> Response {
         handle(
             &f.state,
