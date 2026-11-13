@@ -156,6 +156,33 @@ struct AuthoredCredit {
     roles: Vec<CreditRole>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SnapshotCreditFile {
+    version: u32,
+    credits: Vec<SnapshotCredit>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SnapshotCredit {
+    identity: SnapshotIdentity,
+    roles: Vec<CreditRole>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+enum SnapshotIdentity {
+    Profile {
+        contributor: String,
+        profile: Contributor,
+    },
+    DisplayName {
+        id: String,
+        name: String,
+    },
+}
+
 pub fn normalize_registry(contributors: &mut BTreeMap<String, Contributor>) -> Result<(), String> {
     for (id, contributor) in contributors {
         if !valid_registry_key(id) {
@@ -219,11 +246,18 @@ pub fn resolve(
         ));
     };
 
+    let version = serde_json::from_str::<serde_json::Value>(sidecar)
+        .map_err(|error| format!("invalid credit JSON: {error}"))?
+        .get("version")
+        .and_then(serde_json::Value::as_u64);
+    if version == Some(2) {
+        return resolve_snapshots(sidecar);
+    }
     let authored: CreditFile =
         serde_json::from_str(sidecar).map_err(|error| format!("invalid credit JSON: {error}"))?;
     if authored.version != 1 {
         return Err(format!(
-            "unsupported credit file version {}; expected version 1",
+            "unsupported credit file version {}; expected version 1 or 2",
             authored.version
         ));
     }
@@ -243,35 +277,7 @@ pub fn resolve(
                 credit.contributor
             )
         })?;
-        if credit.roles.is_empty() {
-            return Err(format!(
-                "contributor `{}` must have at least one role",
-                credit.contributor
-            ));
-        }
-        let mut seen_roles = HashSet::new();
-        for role in &credit.roles {
-            let known = match role.vocabulary {
-                RoleVocabulary::Crossref => CROSSREF_ROLES.contains(&role.role.as_str()),
-                RoleVocabulary::Credit => CREDIT_ROLES.contains(&role.role.as_str()),
-            };
-            if !known {
-                return Err(format!(
-                    "unknown {} role `{}` for contributor `{}`",
-                    role.vocabulary.as_str(),
-                    role.role,
-                    credit.contributor
-                ));
-            }
-            if !seen_roles.insert((role.vocabulary, role.role.as_str())) {
-                return Err(format!(
-                    "duplicate role `{}:{}` for contributor `{}`",
-                    role.vocabulary.as_str(),
-                    role.role,
-                    credit.contributor
-                ));
-            }
-        }
+        validate_roles(&credit.contributor, &credit.roles)?;
         resolved.push(ResolvedCredit {
             contributor_id: credit.contributor,
             contributor: contributor.clone(),
@@ -281,10 +287,119 @@ pub fn resolve(
     Ok((resolved, CreditProvenance::ExplicitSidecar))
 }
 
+fn validate_roles(contributor: &str, roles: &[CreditRole]) -> Result<(), String> {
+    if roles.is_empty() {
+        return Err(format!(
+            "contributor `{}` must have at least one role",
+            contributor
+        ));
+    }
+    let mut seen_roles = HashSet::new();
+    for role in roles {
+        let known = match role.vocabulary {
+            RoleVocabulary::Crossref => CROSSREF_ROLES.contains(&role.role.as_str()),
+            RoleVocabulary::Credit => CREDIT_ROLES.contains(&role.role.as_str()),
+        };
+        if !known {
+            return Err(format!(
+                "unknown {} role `{}` for contributor `{}`",
+                role.vocabulary.as_str(),
+                role.role,
+                contributor
+            ));
+        }
+        if !seen_roles.insert((role.vocabulary, role.role.as_str())) {
+            return Err(format!(
+                "duplicate role `{}:{}` for contributor `{}`",
+                role.vocabulary.as_str(),
+                role.role,
+                contributor
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn resolve_snapshots(sidecar: &str) -> Result<(Vec<ResolvedCredit>, CreditProvenance), String> {
+    let file: SnapshotCreditFile =
+        serde_json::from_str(sidecar).map_err(|error| format!("invalid credit JSON: {error}"))?;
+    if file.version != 2 {
+        return Err("unsupported snapshot credit version".into());
+    }
+    let mut ids = HashSet::new();
+    let mut resolved = Vec::with_capacity(file.credits.len());
+    for credit in file.credits {
+        let (id, contributor) = match credit.identity {
+            SnapshotIdentity::Profile {
+                contributor,
+                profile,
+            } => {
+                if !crate::collaboration::valid_contributor_id(&contributor)
+                    || !crate::collaboration::valid_text(
+                        &profile.name,
+                        crate::collaboration::MAX_DISPLAY_NAME_BYTES,
+                    )
+                {
+                    return Err("invalid snapshot contributor".into());
+                }
+                let mut registry = BTreeMap::from([(contributor.clone(), profile.clone())]);
+                normalize_registry(&mut registry)?;
+                if registry.get(&contributor) != Some(&profile) {
+                    return Err("snapshot contributor is not canonical".into());
+                }
+                (contributor, profile)
+            }
+            SnapshotIdentity::DisplayName { id, name } => {
+                if id.len() != 32
+                    || !id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                    || !crate::collaboration::valid_text(
+                        &name,
+                        crate::collaboration::MAX_DISPLAY_NAME_BYTES,
+                    )
+                {
+                    return Err("invalid display-name credit".into());
+                }
+                (
+                    format!("~display-{id}"),
+                    Contributor {
+                        name,
+                        ..Contributor::default()
+                    },
+                )
+            }
+        };
+        if !ids.insert(id.clone()) {
+            return Err("duplicate snapshot credit".into());
+        }
+        validate_roles(&id, &credit.roles)?;
+        resolved.push(ResolvedCredit {
+            contributor_id: id,
+            contributor,
+            roles: credit.roles,
+        });
+    }
+    Ok((resolved, CreditProvenance::ExplicitSidecar))
+}
+
 /// The contributor registry keys of a credits sidecar, in the order it lists
-/// them, or `None` when it is not a readable version 1 sidecar. A sidecar is
-/// committed with the post, so this needs no private record and no registry.
+/// them, or `None` when it is not a readable supported sidecar. Display-name-only
+/// identities have no registry key and are omitted. No private record or registry is read.
 pub fn credited_ids(sidecar: &str) -> Option<Vec<String>> {
+    if let Ok(file) = serde_json::from_str::<SnapshotCreditFile>(sidecar) {
+        if file.version == 2 {
+            return Some(
+                file.credits
+                    .into_iter()
+                    .filter_map(|credit| match credit.identity {
+                        SnapshotIdentity::Profile { contributor, .. } => Some(contributor),
+                        SnapshotIdentity::DisplayName { .. } => None,
+                    })
+                    .collect(),
+            );
+        }
+    }
     let file: CreditFile = serde_json::from_str(sidecar).ok()?;
     (file.version == 1).then(|| {
         file.credits
@@ -544,6 +659,56 @@ mod tests {
                 !safe_profile_url(rejected),
                 "expected {rejected} to be rejected"
             );
+        }
+    }
+
+    #[test]
+    fn snapshot_credits_freeze_public_details_and_do_not_need_the_registry() {
+        let sidecar = r#"{"version":2,"credits":[
+          {"identity":{"kind":"profile","contributor":"ann","profile":{"name":"Ann","url":"https://example.org/ann","sameAs":[],"orcid":""}},"roles":[{"vocabulary":"crossref","role":"author"}]},
+          {"identity":{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"A. Writer"},"roles":[{"vocabulary":"crossref","role":"author"}]}
+        ]}"#;
+        let mut registry = BTreeMap::new();
+        registry.insert(
+            "ann".into(),
+            Contributor {
+                name: "Changed".into(),
+                ..Contributor::default()
+            },
+        );
+        let (credits, provenance) = resolve(&Author::default(), &registry, Some(sidecar)).unwrap();
+        assert_eq!(provenance, CreditProvenance::ExplicitSidecar);
+        assert_eq!(credits[0].contributor.name, "Ann");
+        assert_eq!(credits[0].contributor.url, "https://example.org/ann");
+        assert_eq!(credits[1].contributor.name, "A. Writer");
+        assert!(credits[1].contributor.url.is_empty());
+        assert_eq!(credited_ids(sidecar), Some(vec!["ann".into()]));
+        registry.clear();
+        assert_eq!(
+            resolve(&Author::default(), &registry, Some(sidecar))
+                .unwrap()
+                .0,
+            credits
+        );
+        let (empty, provenance) = resolve(
+            &Author::default(),
+            &registry,
+            Some(r#"{"version":2,"credits":[]}"#),
+        )
+        .unwrap();
+        assert!(empty.is_empty());
+        assert_eq!(provenance, CreditProvenance::ExplicitSidecar);
+    }
+
+    #[test]
+    fn snapshot_credits_refuse_unsafe_profiles_duplicate_ids_and_bad_roles() {
+        for sidecar in [
+            r#"{"version":2,"credits":[{"identity":{"kind":"profile","contributor":"ann","profile":{"name":"Ann","url":"javascript:alert(1)"}},"roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+            r#"{"version":2,"credits":[{"identity":{"kind":"displayName","id":"short","name":"Ann"},"roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+            r#"{"version":2,"credits":[{"identity":{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"Ann"},"roles":[]}]}"#,
+            r#"{"version":2,"credits":[{"identity":{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"Ann"},"roles":[{"vocabulary":"crossref","role":"author"}]},{"identity":{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"Bo"},"roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+        ] {
+            assert!(resolve(&Author::default(), &BTreeMap::new(), Some(sidecar)).is_err());
         }
     }
 }

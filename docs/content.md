@@ -209,6 +209,16 @@ schemes are rejected during configuration load. Admin Studio's **Site → Contri
 workspace manages this registry with conflict-aware saves, stable IDs, and deletion guards;
 editing `openblog.json` directly remains supported.
 
+Version 2 sidecars can freeze an approved public profile or give only a display name, independent
+of later registry changes. Their `identity` is either
+`{"kind":"profile","contributor":"ada-lovelace","profile":{"name":"Ada","url":"https://example.com/ada","sameAs":[],"orcid":""}}`
+or `{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"Ada"}`.
+The display-name ID is a unique, public, randomly generated 32-character lowercase hexadecimal
+value, not a private participant ID. Each entry still has a `roles` array. The ordinary Admin
+credit editor cannot edit these frozen credits in place; saving without changing credits preserves
+the sidecar, while choosing a different authorship source replaces it. Older releases do not
+support version 2.
+
 Accepted Crossref roles are `author`, `corresponding-author`, `editor`, `chair`, `other`,
 `reviewer`, `review-assistant`, `reviewer-external`, `stats-reviewer`, `reader`, and
 `translator`. Accepted CRediT roles are `conceptualization`, `data-curation`,

@@ -12203,6 +12203,18 @@ fn document_credits(sidecar: &Path, config: &SiteConfig) -> (Json, Json, Json) {
             );
         }
     };
+    if value.get("version").and_then(Json::as_u64) == Some(2) {
+        let error = openblog_core::contributor::resolve(
+            &config.author,
+            &config.contributors,
+            Some(text),
+        )
+        .err()
+        .unwrap_or_else(|| {
+            "This post has frozen publication credits. The ordinary credit editor cannot edit them; saving without changing credits preserves the sidecar.".into()
+        });
+        return (Json::Null, credit_etag, Json::String(error));
+    }
     if value.get("version").and_then(Json::as_u64) != Some(1) {
         return (
             Json::Null,
@@ -34474,6 +34486,57 @@ What I read:
             .unwrap()
             .contains("after picture is missing"));
         assert_ne!(build(json!([]), false).status, 200);
+    }
+
+    #[test]
+    fn frozen_credit_sidecars_are_preserved_by_the_ordinary_editor() {
+        let f = fixture("frozen-credit-editor");
+        let config = site::load_config(&f.dir).unwrap();
+        let sidecar = f.dir.join("content/posts/frozen.credits.json");
+        let path = f.dir.join("content/posts/frozen.md");
+        let original = r#"{"version":2,"credits":[{"identity":{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"Pen Name"},"roles":[{"vocabulary":"crossref","role":"author"}]}]}"#;
+        fs::write(&path, "---\ntitle: Frozen\ndate: 2026-01-01\n---\nBody").unwrap();
+        fs::write(&sidecar, original).unwrap();
+        let (credits, etag, error) = document_credits(&sidecar, &config);
+        assert!(credits.is_null());
+        assert!(etag.is_string());
+        assert!(error
+            .as_str()
+            .unwrap()
+            .contains("frozen publication credits"));
+        let session = login_ok(&f);
+        let url = "/admin/api/document?path=posts/frozen.md";
+        assert_eq!(handle(&f.state, &req("GET", url)).status, 401);
+        let fetched = handle(&f.state, &authed(req("GET", url), &session, false));
+        assert_eq!(fetched.status, 200);
+        let fetched = body_json(&fetched);
+        assert!(fetched["credits"].is_null());
+        assert!(fetched["creditError"]
+            .as_str()
+            .unwrap()
+            .contains("frozen publication credits"));
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    url,
+                    json!({"fields": fetched["fields"], "body": "Edited", "etag": fetched["etag"]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), original);
+        fs::write(&sidecar, r#"{"version":2,"credits":"invalid"}"#).unwrap();
+        let (_, _, error) = document_credits(&sidecar, &config);
+        assert!(error.as_str().unwrap().contains("invalid credit JSON"));
     }
 
     #[test]

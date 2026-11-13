@@ -181,9 +181,8 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
                         Ok(author)
                     })
                     .collect::<Result<Vec<_>, String>>()?;
-                if !authors.is_empty() {
-                    item["authors"] = serde_json::Value::Array(authors);
-                }
+                // An explicit empty list must not inherit the feed's site author.
+                item["authors"] = serde_json::Value::Array(authors);
             }
             // A part of a collaborative series carries its series as a JSON Feed extension
             // object, which readers that do not know it ignore (ADR 0041). `about` points to its
@@ -760,6 +759,36 @@ mod tests {
         assert_eq!(feed["items"][0]["authors"][0]["url"], "https://ada.example");
         assert_eq!(feed["items"][0]["authors"][1]["name"], "Grace");
         assert_eq!(feed["items"][0]["authors"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn explicitly_uncredited_items_do_not_inherit_the_feed_author() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"Journey","url":"https://j.io","author":{"name":"Site Owner"}}"#,
+        )
+        .unwrap();
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/anonymous.md".into(),
+                    contents: "---\ntitle: Anonymous\ndate: 2026-10-23\n---\nBody".into(),
+                }],
+                credits: vec![SourceFile {
+                    path: "posts/anonymous.credits.json".into(),
+                    contents: r#"{"version":2,"credits":[]}"#.into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let feed: serde_json::Value = serde_json::from_str(&json_feed(&site).unwrap()).unwrap();
+        assert_eq!(feed["authors"][0]["name"], "Site Owner");
+        assert_eq!(feed["items"][0]["authors"], serde_json::json!([]));
+        assert!(!rss(&site)
+            .unwrap()
+            .contains("<dc:creator>Site Owner</dc:creator>"));
     }
 
     #[test]
