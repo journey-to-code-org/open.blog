@@ -384,6 +384,11 @@ pub struct CaptionPreview {
     pub language: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<CaptionFormat>,
+    /// Full-file digest, when the caller has read the caption bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_bytes: Option<u64>,
 }
 
 /// The YouTube-ready preview of one video release: exactly the metadata the author would enter in
@@ -657,10 +662,9 @@ pub fn youtube_preview(
         ));
     }
     if !release.captions.is_empty() {
-        // The adapter asks for no permission to manage captions (ADR 0378).
         notes.push(problem(
-            "captions-by-hand",
-            "open.blog does not upload caption files; add them in YouTube Studio after the upload.",
+            "captions-conditional",
+            "Caption files are uploaded after the video only when the channel has explicitly granted caption management permission; otherwise add them in YouTube Studio. Each upload costs 400 YouTube API quota units.",
         ));
     }
     notes.extend(asset_notes);
@@ -678,6 +682,8 @@ pub fn youtube_preview(
             path: t.path.clone(),
             language: t.language.clone(),
             format: t.format,
+            content_digest: None,
+            content_bytes: None,
         })
         .collect();
     let title = release.title.trim().to_string();
@@ -1555,9 +1561,9 @@ mod tests {
             preview.manual.is_empty(),
             "link, text, image and video go through the adapter"
         );
-        assert_eq!(codes(&preview.notes), ["captions-by-hand"]);
+        assert_eq!(codes(&preview.notes), ["captions-conditional"]);
         assert_eq!(preview.privacy, "private");
-        assert_eq!(preview.policy_version, "2026-10-29.2");
+        assert_eq!(preview.policy_version, "2026-11-12");
         assert!(preview
             .description
             .contains("Read the article: https://blog.example.org/posts/episode-1/"));
@@ -1586,7 +1592,7 @@ mod tests {
         );
         assert_eq!(
             codes(&preview.notes),
-            ["article-not-public", "captions-by-hand"]
+            ["article-not-public", "captions-conditional"]
         );
         let brackets = youtube_preview(&release(), source(true), &good);
         assert_eq!(codes(&brackets.problems), ["title-angle-brackets"]);

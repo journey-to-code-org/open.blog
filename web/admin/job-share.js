@@ -142,14 +142,16 @@ export function createJobShare({ api, path, clipboard = globalThis.navigator?.cl
     say(`Noted: you posted it on ${destination.label}.`, "ok");
   }
 
-  async function postToPage(destination) {
+  async function postToPage(destination, photoApproval = null) {
     const page = pages[0];
-    const signature = `${data.work}\n${destination.digest}`;
-    if (!keys.has(signature)) keys.set(signature, random());
+    const signature = `${data.work}\n${destination.digest}\n${photoApproval?.approvalDigest || ""}`;
+    if (!keys.has(signature)) keys.set(signature, { key: random(), scheduledFor: soon(now()) });
     say("Scheduling it on your Facebook Page…");
-    const answer = await api.call("POST", "social/announcements", {
-      json: { accountId: page.id, work: data.work, caption: destination.text, scheduledFor: soon(now()), idempotencyKey: keys.get(signature) },
-    });
+    const request = keys.get(signature);
+    const common = { accountId: page.id, scheduledFor: request.scheduledFor, idempotencyKey: request.key };
+    const answer = photoApproval
+      ? await api.call("POST", "social/job-photo-schedule", { json: { ...common, path: data.path, digest: destination.digest, ...photoApproval } })
+      : await api.call("POST", "social/announcements", { json: { ...common, work: data.work, caption: destination.text } });
     if (destroyed) return;
     await loadQueue();
     render();
@@ -181,8 +183,48 @@ export function createJobShare({ api, path, clipboard = globalThis.navigator?.cl
     const announcement = destination.destination === "facebook" ? facebookAnnouncement(queue, data.work) : null;
     const way = wayFor(destination, { pages, announcements: data.announcements });
     const actions = [];
+    let photoConsent = null;
     if (ready && way === "facebook-page" && pageOpen(announcement) && destination.record?.status !== "posted-by-hand") {
-      actions.push(el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "job-share-facebook", onClick: () => run(() => postToPage(destination)) }, `Post to ${pages[0].displayName}`));
+      if (destination.photo) {
+        let approval = null;
+        let ticket = 0;
+        const description = el("input", { id: `${id}-facebook-alt`, type: "text", maxlength: "1500", "data-job-photo-alt": "true" });
+        const accept = el("input", { id: `${id}-facebook-accept`, type: "checkbox", disabled: true });
+        const result = el("div", { "data-job-photo-preview": "true" });
+        const post = el("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: true, "data-action": "job-share-facebook", onClick: () => run(() => postToPage(destination, approval)) }, `Post to ${pages[0].displayName}`);
+        const clear = () => {
+          ticket += 1;
+          approval = null;
+          accept.checked = false;
+          accept.disabled = true;
+          post.disabled = true;
+          result.replaceChildren();
+        };
+        description.addEventListener("input", clear);
+        accept.addEventListener("change", () => { post.disabled = !accept.checked || !approval; });
+        const preview = el("button", { class: "oba-btn", type: "button", onClick: () => run(async () => {
+          clear();
+          const current = ticket;
+          const text = description.value.trim();
+          if (!text) throw new Error("Describe the photo before previewing it.");
+          say("Checking the photo...");
+          const answer = await api.call("POST", "social/job-photo-preview", { json: { path: data.path, digest: destination.digest, description: text } });
+          if (destroyed || current !== ticket) return;
+          approval = { approvalDigest: answer.approvalDigest, description: text };
+          result.replaceChildren(el("img", { src: answer.imageDataUrl, alt: text }), el("p", {}, text));
+          accept.disabled = false;
+          say("Check the photo and description before approving them.");
+        }) }, "Preview photo for Facebook");
+        photoConsent = el("div", { class: "oba-field" },
+          el("label", { for: description.id }, "Photo description for Facebook"),
+          description,
+          el("p", { class: "oba-small" }, "This description is sent as alt text. If the photo cannot be uploaded, nothing is posted."),
+          preview, result,
+          el("div", { class: "oba-announce-choice" }, accept, el("label", { for: accept.id }, "Approve this photo and description")));
+        actions.push(post);
+      } else {
+        actions.push(el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "job-share-facebook", onClick: () => run(() => postToPage(destination)) }, `Post to ${pages[0].displayName}`));
+      }
     }
     if (ready) {
       actions.push(
@@ -209,6 +251,7 @@ export function createJobShare({ api, path, clipboard = globalThis.navigator?.cl
       el("pre", { tabindex: "0", "aria-label": `Words for ${destination.label}`, "data-job-share-words": destination.destination }, destination.text),
       destination.destination === "google-business-profile" ? el("p", { class: "oba-small" }, `Learn more link: ${destination.link}`) : null,
       photo(destination),
+      photoConsent,
       el("div", { class: "oba-seasonal-actions" }, ...actions),
     );
   };

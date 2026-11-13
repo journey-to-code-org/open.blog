@@ -11,14 +11,17 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use openblog_core::image_facts::{self, ImageFacts};
 use openblog_core::job_destination::{
     self, JobDestination, JobProjection, JobSource, Photo, Route,
 };
 use openblog_core::DateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as Json};
+use sha2::{Digest, Sha256};
 
 use crate::syndication::{NetworkTransport, Request, Response, Transport};
 use crate::{card, fsutil, site, syndication};
@@ -163,7 +166,7 @@ pub(crate) struct Job {
     pub source_path: String,
     pub projections: Vec<JobProjection>,
     /// The first after-photo's file, when it is one of the site's.
-    photo_file: Option<PathBuf>,
+    pub(crate) photo_file: Option<PathBuf>,
     language: String,
 }
 
@@ -171,6 +174,21 @@ pub(crate) struct Job {
 pub(crate) enum Which<'a> {
     Slug(&'a str),
     Source(&'a str),
+}
+
+fn inspected_photo(file: &Path) -> Option<(ImageFacts, String)> {
+    let total = fs::metadata(file).ok()?.len();
+    let mut bytes = Vec::new();
+    fs::File::open(file)
+        .ok()?
+        .take(image_facts::INSPECT_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let mut facts = image_facts::read(&bytes, total)?;
+    if bytes.len() > image_facts::INSPECT_BYTES || bytes.len() as u64 != total {
+        facts.metadata_unread = true;
+    }
+    Some((facts, format!("{:x}", Sha256::digest(&bytes))))
 }
 
 fn destinations(to: Option<&str>) -> Result<Vec<JobDestination>, String> {
@@ -235,6 +253,7 @@ pub(crate) fn load_job(
     let lower = first.map(str::to_ascii_lowercase).unwrap_or_default();
     let mut photo_file = None;
     let photo_url;
+    let photo_hash;
     let photo = match first {
         None => Photo::None,
         Some(reference) if lower.starts_with("http://") || lower.starts_with("https://") => {
@@ -244,15 +263,17 @@ pub(crate) fn load_job(
             let relative = reference.trim_start_matches('/');
             match card::static_file(&static_dir, relative, &private) {
                 None => Photo::Missing(reference),
-                Some(file) => match card::facts(&file) {
+                Some(file) => match inspected_photo(&file) {
                     None => Photo::Unreadable(reference),
-                    Some(facts) => {
+                    Some((facts, hash)) => {
                         photo_file = Some(file);
                         photo_url = config.absolute(reference);
+                        photo_hash = hash;
                         Photo::Measured {
                             site_path: reference,
                             url: &photo_url,
                             facts,
+                            sha256: &photo_hash,
                         }
                     }
                 },
@@ -855,6 +876,34 @@ mod tests {
         dir
     }
 
+    #[test]
+    fn a_same_size_photo_change_invalidates_the_job_projection() {
+        let dir = site(OFF);
+        let first = load_job(
+            dir.path(),
+            Which::Slug("floor"),
+            &[JobDestination::Facebook],
+        )
+        .unwrap();
+        let first_projection = &first.projections[0];
+        let first_photo = first_projection.photo.as_ref().unwrap();
+        let path = dir.path().join("static/images/floor-after.png");
+        let mut bytes = fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 1;
+        fs::write(&path, bytes).unwrap();
+        let second = load_job(
+            dir.path(),
+            Which::Slug("floor"),
+            &[JobDestination::Facebook],
+        )
+        .unwrap();
+        let second_projection = &second.projections[0];
+        let second_photo = second_projection.photo.as_ref().unwrap();
+        assert_eq!(first_photo.bytes, second_photo.bytes);
+        assert_ne!(first_photo.sha256, second_photo.sha256);
+        assert_ne!(first_projection.digest, second_projection.digest);
+    }
+
     const ON: &str = r#"{"enabled":true,"account":"111","location":"222"}"#;
     const OFF: &str = r#"{"enabled":false}"#;
 
@@ -1233,7 +1282,7 @@ mod tests {
         );
         assert!(result.unwrap_err().contains("from Admin"));
         assert!(transport.calls.borrow().is_empty());
-        // With a photo, which the Page adapter cannot carry, Facebook is by hand.
+        // With a photo, Admin can also use the Page adapter after approval.
         let with_photo = site(OFF);
         let (result, out) = run(
             with_photo.path(),
@@ -1247,7 +1296,7 @@ mod tests {
         );
         result.unwrap();
         let value: Json = serde_json::from_str(&out).unwrap();
-        assert_eq!(value["destinations"][0]["route"], "by-hand");
+        assert_eq!(value["destinations"][0]["route"], "adapter");
     }
 
     #[test]

@@ -26,8 +26,9 @@
 
 import { checkCaption, ScheduleError } from "./social-schedule.mjs";
 import { DeliveryError, kindOfStatus, parseRetryAfter } from "./social-delivery.mjs";
-import { DID, POST_COLLECTION, announcementKey, cardTitle, facetsFor, withinPostLimits, xrpcError } from "./social-atproto.mjs";
+import { DID, POST_COLLECTION, announcementKey, blobCid, cardTitle, facetsFor, withinPostLimits, xrpcError } from "./social-atproto.mjs";
 import { ACCOUNT_ID, COVER_TYPES, DEFAULT_LIMITS, MAX_COVER_BYTES, STATUS_ID, coverOf, idempotencyHeader, instanceLimits, metaTags, rateLimitWaitMs, statusLength, statusText } from "./social-mastodon.mjs";
+import { fetchApprovedMedia, MediaError, verifyMediaApproval } from "./social-media.mjs";
 
 // Only used when a caller gives no signal; the worker always gives its own provider timeout.
 export const PUBLISH_TIMEOUT_MS = 15_000;
@@ -121,6 +122,34 @@ function statusError(status, response, now) {
   return new DeliveryError(kind, { status });
 }
 
+async function approvedMedia(post, url) {
+  if (post.media === undefined || post.media === null) return null;
+  if (typeof post.media !== "object" || Array.isArray(post.media) ||
+      Object.keys(post.media).some((key) => !["snapshot", "approvalDigest"].includes(key))) throw new DeliveryError("rejected");
+  try {
+    return await verifyMediaApproval(post.media.snapshot, url, post.media.approvalDigest);
+  } catch (error) {
+    if (error instanceof MediaError) throw new DeliveryError("rejected");
+    throw error;
+  }
+}
+
+// LinkedIn's documented upload host and path (checked 2026-11-12); never send a token to an
+// arbitrary URL in a reply. See https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api
+function linkedinUploadUrl(value, image, expiresAt, nowMs) {
+  const id = /^urn:li:image:([A-Za-z0-9_-]{1,200})$/.exec(image)?.[1];
+  if (!id || typeof value !== "string" || value.length > 4096 ||
+      !Number.isSafeInteger(expiresAt) || expiresAt <= nowMs) return null;
+  try {
+    const url = new URL(value);
+    if (url.origin !== "https://www.linkedin.com" || url.username || url.password || url.hash ||
+        !url.pathname.startsWith(`/dms-uploads/${id}/`)) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
 export function linkedinAdapter(settings, { fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
   return Object.freeze({
     provider: "linkedin",
@@ -130,6 +159,7 @@ export function linkedinAdapter(settings, { fetchImpl = globalThis.fetch, now = 
       const kind = author.startsWith("urn:li:person:") ? "member" : "organization";
       if (account.kind && account.kind !== kind) throw new DeliveryError("rejected");
       const { caption, url } = prepare("linkedin", { post, accessToken });
+      const media = await approvedMedia(post, url);
       const body = {
         author,
         commentary: escapeLinkedInCommentary(caption),
@@ -139,6 +169,37 @@ export function linkedinAdapter(settings, { fetchImpl = globalThis.fetch, now = 
         lifecycleState: "PUBLISHED",
         isReshareDisabledByAuthor: false,
       };
+      if (media) {
+        try {
+          if (!["image/jpeg", "image/png"].includes(media.mimeType)) throw new MediaError("unavailable");
+          const text = statusText(caption, url);
+          try {
+            checkCaption("linkedin", text);
+          } catch (error) {
+            if (error instanceof ScheduleError) throw new MediaError("unavailable");
+            throw error;
+          }
+          const bytes = await fetchApprovedMedia(fetchImpl, media, url, signal);
+          const initialized = await send(fetchImpl, `${settings.apiBase}/rest/images?action=initializeUpload`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${accessToken}`, accept: "application/json", "content-type": "application/json", "linkedin-version": settings.version, "x-restli-protocol-version": "2.0.0" },
+            body: JSON.stringify({ initializeUploadRequest: { owner: author } }),
+          }, signal);
+          if (Number(initialized?.status) !== 200) throw new MediaError("unavailable");
+          const value = (await readJson(initialized))?.value;
+          const uploadUrl = linkedinUploadUrl(value?.uploadUrl, value?.image, value?.uploadUrlExpiresAt, now());
+          if (!uploadUrl) throw new MediaError("unavailable");
+          const uploaded = await send(fetchImpl, uploadUrl, {
+            method: "PUT", headers: { authorization: `Bearer ${accessToken}`, "content-type": media.mimeType }, body: bytes,
+          }, signal);
+          if (![200, 201].includes(Number(uploaded?.status))) throw new MediaError("unavailable");
+          body.commentary = escapeLinkedInCommentary(text);
+          body.content = { media: { id: value.image, altText: media.description } };
+        } catch (error) {
+          if (!(error instanceof MediaError) && !(error instanceof DeliveryError)) throw error;
+          if (media.fallback !== "text") throw new DeliveryError("rejected");
+        }
+      }
       const response = await send(
         fetchImpl,
         `${settings.apiBase}/rest/posts`,
@@ -209,6 +270,39 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
     async publish({ post, account, accessToken, signal } = {}) {
       const page = pageOf(account);
       const { caption, url } = prepare("facebook", { post, accessToken });
+      const media = await approvedMedia(post, url);
+      if (media) {
+        if (!["image/jpeg", "image/png"].includes(media.mimeType) || media.size > 1_000_000) throw new DeliveryError("rejected");
+        let bytes = null;
+        try {
+          bytes = await fetchApprovedMedia(fetchImpl, media, url, signal);
+        } catch (error) {
+          if (!(error instanceof MediaError)) throw error;
+          if (media.fallback !== "text") throw new DeliveryError("rejected");
+        }
+        if (bytes) {
+          const form = new FormData();
+          form.set("source", new Blob([bytes], { type: media.mimeType }), media.mimeType === "image/png" ? "cover.png" : "cover.jpg");
+          form.set("caption", statusText(caption, url));
+          form.set("alt_text_custom", media.description);
+          form.set("published", "true");
+          const photo = await send(fetchImpl, `${settings.apiBase}/${page}/photos`,
+            { method: "POST", headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" }, body: form }, signal);
+          const status = Number(photo?.status) || 0;
+          const answer = await readJson(photo);
+          if (status === 200) {
+            const postId = answer?.post_id;
+            if (typeof postId === "string" && FACEBOOK_POST_ID.test(postId) && postId.startsWith(`${page}_`)) return { providerPostId: postId };
+            if (postId != null) throw new DeliveryError("uncertain", { status });
+            const photoId = answer?.id;
+            if (typeof photoId === "string" && FACEBOOK_PAGE.test(photoId)) return { providerPostId: photoId };
+            throw new DeliveryError("uncertain", { status });
+          }
+          if (status >= 200 && status < 300) throw new DeliveryError("uncertain", { status });
+          const error = facebookError(status, answer, photo, now);
+          if (media.fallback !== "text" || error.kind !== "rejected" || ![400, 403, 404, 410, 422].includes(status)) throw error;
+        }
+      }
       // The Page token goes in the header, never in the URL or body, so no access log can keep it.
       const response = await send(
         fetchImpl,
@@ -239,6 +333,7 @@ export function facebookAdapter(settings, { fetchImpl = globalThis.fetch, now = 
     // permission included, is "unknown": the worker keeps looking, then asks a person.
     async reconcile({ post, account, accessToken, attemptedAt, finishedAt, signal } = {}) {
       try {
+        if (post?.media != null) return { state: "unknown" };
         const page = pageOf(account);
         const { caption, url } = prepare("facebook", { post, accessToken });
         const started = Date.parse(attemptedAt ?? "");
@@ -302,6 +397,9 @@ const BLUESKY_THROTTLE = new Set(["RateLimitExceeded"]);
 // The share of a delivery the post's page may use, at most, so the record itself always has time left.
 export const BLUESKY_PAGE_BUDGET_MS = 3_000;
 const BLUESKY_MAX_PAGE_CHARS = 1024 * 1024;
+// app.bsky.embed.external#external permits image blobs up to 1,000,000 bytes (checked 2026-11-12):
+// https://github.com/bluesky-social/social-app/blob/main/lexicons/app/bsky/embed/external.json
+const BLUESKY_MAX_THUMB_BYTES = 1_000_000;
 const BLUESKY_CARD_TEXT = 300;
 const CARD_UNSAFE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/gu;
 const cardText = (value) => Array.from(String(value ?? "").replace(CARD_UNSAFE, " ").replace(/\s+/g, " ").trim()).slice(0, BLUESKY_CARD_TEXT).join("");
@@ -355,17 +453,37 @@ export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = (
     if (!withinPostLimits(caption)) throw new DeliveryError("rejected");
     const rkey = await announcementKey(post ?? {});
     if (!rkey) throw new DeliveryError("rejected");
-    return { repo, caption, url, rkey, uri: `at://${repo}/${POST_COLLECTION}/${rkey}` };
+    const media = await approvedMedia(post, url);
+    return { repo, caption, url, rkey, uri: `at://${repo}/${POST_COLLECTION}/${rkey}`, media };
   };
   const headers = (accessToken, extra = {}) => ({ authorization: `Bearer ${accessToken}`, accept: "application/json", ...extra });
+  const thumb = async (media, url, accessToken, signal) => {
+    if (media.size > BLUESKY_MAX_THUMB_BYTES) throw new MediaError("unavailable");
+    const bytes = await fetchApprovedMedia(fetchImpl, media, url, signal);
+    const response = await send(fetchImpl, `${settings.apiBase}/xrpc/com.atproto.repo.uploadBlob`,
+      { method: "POST", headers: headers(accessToken, { "content-type": media.mimeType }), body: bytes }, signal);
+    if (Number(response?.status) !== 200) throw new MediaError("unavailable");
+    const blob = (await readJson(response))?.blob;
+    if (blob?.$type !== "blob" || blob?.ref?.$link !== blobCid(media.sha256) ||
+        blob?.mimeType !== media.mimeType || blob?.size !== media.size) throw new MediaError("unavailable");
+    return { $type: "blob", ref: { $link: blob.ref.$link }, mimeType: media.mimeType, size: media.size };
+  };
   const adapter = Object.freeze({
     provider: "bluesky",
     async publish({ post, account, accessToken, signal } = {}) {
-      const { repo, caption, url, rkey, uri } = await plan({ post, account, accessToken });
+      const { repo, caption, url, rkey, uri, media } = await plan({ post, account, accessToken });
       const record = { $type: POST_COLLECTION, text: caption, createdAt: new Date(now()).toISOString() };
       const facets = facetsFor(caption);
       if (facets.length) record.facets = facets;
       record.embed = { $type: "app.bsky.embed.external", external: await blueskyCard(fetchImpl, url, caption, signal) };
+      if (media) {
+        try {
+          record.embed.external.thumb = await thumb(media, url, accessToken, signal);
+        } catch (error) {
+          if (!(error instanceof MediaError) && !(error instanceof DeliveryError)) throw error;
+          if (media.fallback !== "text") throw new DeliveryError("rejected");
+        }
+      }
       const response = await send(
         fetchImpl,
         `${settings.apiBase}/xrpc/com.atproto.repo.createRecord`,
@@ -395,14 +513,19 @@ export function blueskyAdapter(settings, { fetchImpl = globalThis.fetch, now = (
     // record that differs included, is "unknown" and goes to a person.
     async reconcile({ post, account, accessToken, signal } = {}) {
       try {
-        const { repo, caption, url, rkey, uri } = await plan({ post, account, accessToken });
+        const { repo, caption, url, rkey, uri, media } = await plan({ post, account, accessToken });
         const query = new URLSearchParams({ repo, collection: POST_COLLECTION, rkey });
         const response = await send(fetchImpl, `${settings.apiBase}/xrpc/com.atproto.repo.getRecord?${query}`, { method: "GET", headers: headers(accessToken) }, signal);
         const status = Number(response?.status) || 0;
         const body = await readJson(response);
         if (status === 200) {
           const value = body?.value;
-          const same = body?.uri === uri && value?.$type === POST_COLLECTION && value.text === caption && value.embed?.external?.uri === url;
+          const actualThumb = value?.embed?.external?.thumb;
+          const mediaMatches = !media ? true : actualThumb
+            ? actualThumb?.$type === "blob" && actualThumb?.ref?.$link === blobCid(media.sha256) &&
+              actualThumb?.mimeType === media.mimeType && actualThumb?.size === media.size
+            : media.fallback === "text";
+          const same = body?.uri === uri && value?.$type === POST_COLLECTION && value.text === caption && value.embed?.external?.uri === url && mediaMatches;
           return same ? { state: "published", providerPostId: uri } : { state: "unknown" };
         }
         if (status === 400 && xrpcError(body) === "RecordNotFound") return { state: "absent", conclusive: true };

@@ -32,6 +32,7 @@ pub const MANIFEST_VERSION: u32 = 1;
 /// The day the built-in manifests were checked against the providers' own documentation.
 pub const BUILTIN_POLICY_VERSION: &str = "2026-10-29";
 pub const PODCAST_POLICY_VERSION: &str = "2026-11-12";
+pub const SOCIAL_MEDIA_POLICY_VERSION: &str = "2026-11-12";
 
 /// The largest manifest text read, in bytes.
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -1053,7 +1054,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 schedule_max_horizon_seconds: Some(MAX_HORIZON_SECONDS as u32),
                 ..Constraints::default()
             };
-            let social = support([
+            let mut social = support([
                 (Link, Adapter),
                 (Text, Adapter),
                 (Article, Unsupported),
@@ -1062,6 +1063,12 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 (Draft, Unsupported),
                 (Schedule, Adapter),
             ]);
+            if matches!(
+                provider,
+                ProviderId::Linkedin | ProviderId::Facebook | ProviderId::Bluesky
+            ) {
+                social.insert(Image, Adapter);
+            }
             let (label, method, scopes, constraints, docs): (_, _, &[&str], _, &[&str]) =
                 match provider {
                     ProviderId::Linkedin => (
@@ -1075,6 +1082,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                         &[
                             "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api",
                             "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema",
+                            "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api",
                         ],
                     ),
                     // app.bsky.feed.post: at most 300 graphemes of text; the link travels as an
@@ -1092,6 +1100,8 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                             "https://docs.bsky.app/docs/advanced-guides/rate-limits",
                             "https://atproto.com/specs/xrpc",
                             "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+                            "https://github.com/bluesky-social/atproto/blob/main/lexicons-overrides/app/bsky/embed/external.json",
+                            "https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/uploadBlob.json",
                         ],
                     ),
                     // A status of at most 500 characters on a default instance, the link written
@@ -1120,6 +1130,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                         &[
                             "https://developers.facebook.com/docs/pages-api/posts",
                             "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+                            "https://developers.facebook.com/docs/graph-api/reference/page/photos/",
                         ],
                     ),
                 };
@@ -1128,7 +1139,15 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 provider,
                 family: Family::Social,
                 label: label.to_string(),
-                policy_version: BUILTIN_POLICY_VERSION.to_string(),
+                policy_version: if matches!(
+                    provider,
+                    ProviderId::Linkedin | ProviderId::Facebook | ProviderId::Bluesky
+                ) {
+                    SOCIAL_MEDIA_POLICY_VERSION
+                } else {
+                    BUILTIN_POLICY_VERSION
+                }
+                .to_string(),
                 capabilities: social,
                 login: Login {
                     method,
@@ -1260,15 +1279,13 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
     }
 }
 
-/// YouTube's policy version: raised above [`BUILTIN_POLICY_VERSION`] when story #400 moved it from
-/// a guided workflow to an uploading adapter (ADR 0378), so nothing approved under the guided
-/// workflow is carried over silently (ADR 0327).
-pub const YOUTUBE_POLICY_VERSION: &str = "2026-10-29.2";
+/// The YouTube API policy checked for video, thumbnail and optional caption uploads.
+pub const YOUTUBE_POLICY_VERSION: &str = "2026-11-12";
 
 /// YouTube as an uploading adapter (epic #386, stories #399 and #400): open.blog uploads the video
 /// private through a resumable session, sets the thumbnail and can schedule `publishAt`, after the
-/// author connects a Google account and approves the previewed release. Captions stay in YouTube
-/// Studio (ADR 0378). Every limit lives in [`crate::video_release`], because none of them is one
+/// author connects a Google account and approves the previewed release. Caption uploads also
+/// require the optional caption-management grant. Every limit lives in [`crate::video_release`], because none of them is one
 /// of the manifest's generic constraints (a title, a description in bytes, tags in total
 /// characters).
 fn youtube_manifest() -> ProviderManifest {

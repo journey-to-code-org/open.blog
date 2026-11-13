@@ -537,6 +537,7 @@ If both sides edited the same file, Git stops with a conflict.
 | `audio-lab` | A real, quiet Web Audio synth: oscillator, low-pass filter, live signal trace. Sound plays only after Start. |
 | `native-lab` | View Transitions, Web Animations, the popover attribute and the Intersection/Resize observers, each reporting browser support. |
 | `server-lab` | An in-memory multiplayer server simulator. Add `lesson="connections"`, `lesson="world"`, `lesson="async"` or `lesson="select"` to focus on connection handling, shared state, waiting tasks or `select!`. |
+| `cloud-lab` | A guided cloud practice lab: a pretend laptop terminal and EC2 instance terminal, a goal checklist, and a request path that shows which layer (name, door, process, padlock, app) each `curl` reached. Readers type real commands (`curl`, `ssh`, `systemctl`, `nslookup`); any command that does the job completes a goal. Add `lesson="<id>"`: `localhost`, `ec2-first-run`, `systemd` or `ladder` (defined in `web/components/ob-cloud-model.js`). |
 
 Everything the demo does runs in the reader's browser against pretend data; nothing is sent or
 stored. The body is plain Markdown, and the same text is used everywhere the demo cannot run:

@@ -230,8 +230,7 @@ fn citation_syntax_is_inert_in_the_existing_renderer() {
 
 #[test]
 fn legacy_research_posts_have_no_citations() {
-    let post =
-        include_str!("../../../content/posts/2026-02-16-research-and-contributor-credits.md");
+    let post = include_str!("fixtures/legacy-research-post.md");
     let scan = scan_citations(post);
     assert!(scan.mentions.is_empty());
     assert!(scan.diagnostics.is_empty(), "{:?}", scan.diagnostics);

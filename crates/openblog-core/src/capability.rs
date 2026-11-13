@@ -11,6 +11,7 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "web-sandbox",
     "interactive-demo",
     "before-after",
+    "textual-comparison",
     "comments",
     "raw-html",
     "citations",
@@ -138,6 +139,11 @@ impl CapabilityDescriptor {
             "before-after" => (
                 "Two pictures of the same thing, one before and one after, each with a description and an optional caption.",
                 Some("figure-pair"),
+                PortabilityLevel::FullyPortable,
+            ),
+            "textual-comparison" => (
+                "Two opposing written perspectives side by side, each point under its own heading with labelled sides.",
+                Some("labeled-text-pair"),
                 PortabilityLevel::FullyPortable,
             ),
             "comments" => (

@@ -177,6 +177,7 @@ pub mod source_library;
 pub mod source_review;
 pub mod subscription;
 pub mod synthesis;
+pub mod text_compare;
 pub mod theme;
 pub mod third_perspective;
 pub mod video;

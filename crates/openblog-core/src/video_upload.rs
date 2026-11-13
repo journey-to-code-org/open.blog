@@ -21,6 +21,8 @@ pub const SCOPE_UPLOAD: &str = "https://www.googleapis.com/auth/youtube.upload";
 /// Lets a lookup list the channel's own uploads after an uncertain upload
 /// (<https://developers.google.com/youtube/v3/docs/channels/list>).
 pub const SCOPE_READONLY: &str = "https://www.googleapis.com/auth/youtube.readonly";
+/// Lets an explicitly opted-in connection upload and manage captions.
+pub const SCOPE_CAPTIONS: &str = "https://www.googleapis.com/auth/youtube.force-ssl";
 /// The scopes every connection asks for, and must be granted in full.
 pub const SCOPES: [&str; 2] = [SCOPE_UPLOAD, SCOPE_READONLY];
 
@@ -467,6 +469,41 @@ pub enum ThumbnailState {
     Failed,
 }
 
+/// One caption's outcome. Unknown is never retried automatically.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptionState {
+    #[default]
+    Pending,
+    Uploaded,
+    Failed,
+    Unknown,
+}
+
+impl CaptionState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Uploaded => "uploaded",
+            Self::Failed => "failed",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionRecord {
+    pub path: String,
+    pub language: String,
+    pub digest: String,
+    pub state: CaptionState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
 /// One dated entry of a release's history: an event and, for a failure, its fixed code.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -500,6 +537,8 @@ pub struct UploadRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     pub thumbnail: ThumbnailState,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub captions: Vec<CaptionRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<String>,
     pub history: Vec<HistoryEntry>,
