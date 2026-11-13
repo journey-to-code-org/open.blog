@@ -82,7 +82,7 @@ class ObCloudLab extends ObLab {
   }
 
   choose(name, focus) {
-    this.current = name;
+    this.activeMachine = name;
     for (const [machine, button] of Object.entries(this.tabButtons)) button.setAttribute("aria-pressed", String(machine === name));
     this.dataset.machine = name;
     this.promptLabel.textContent = `Command on ${MACHINE_LABELS[name].toLowerCase()}`;
@@ -95,13 +95,13 @@ class ObCloudLab extends ObLab {
     const log = this.logs[machine];
     log.push(...lines);
     if (log.length > 200) log.splice(0, log.length - 200);
-    if (machine !== this.current) return;
+    if (machine !== this.activeMachine) return;
     for (const entry of lines) this.log.append(html("p", { class: `ob-cloud-line is-${entry.kind}` }, entry.text));
     this.log.scrollTop = this.log.scrollHeight;
   }
 
   submitLine(raw) {
-    const from = this.current;
+    const from = this.activeMachine;
     this.recalls[from] = recallPush(this.recalls[from], raw);
     this.input.value = "";
     const result = run(this.lessonState.world, raw, from);
@@ -127,10 +127,11 @@ class ObCloudLab extends ObLab {
 
   recallKeys(event) {
     if (event.isComposing || event.altKey || event.metaKey || event.shiftKey) return;
-    const result = recallKey(this.recalls[this.current], event.key, this.input.value, event.ctrlKey);
+    const machine = this.activeMachine;
+    const result = recallKey(this.recalls[machine], event.key, this.input.value, event.ctrlKey);
     if (!result.handled) return;
     event.preventDefault();
-    this.recalls[this.current] = result.recall;
+    this.recalls[machine] = result.recall;
     this.input.value = result.value;
   }
 
