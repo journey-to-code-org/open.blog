@@ -6,6 +6,7 @@ import { postList, postHref, sayListDate } from "../parts/post-list.js";
 import { siteHealth } from "../parts/site-health.js";
 import { waitingLine } from "../parts/comment-words.js";
 import { homeCardLine } from "../parts/card-words.js";
+import { homeQuoteLine } from "../parts/quote-words.js";
 
 export async function createHome({ api, meta, posts }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
@@ -30,6 +31,22 @@ export async function createHome({ api, meta, posts }) {
         const cards = await api.get("greetings/cards");
         const line = homeCardLine(cards.cards || [], contacts.contacts || []);
         if (line) rows.push(h("content-card", { heading: line, href: "#/cards" }));
+      } catch {
+        // Nor here.
+      }
+    }
+    if (meta.quote === true) {
+      try {
+        const line = homeQuoteLine((await api.get("quote/requests")).requests);
+        if (line) rows.push(h("content-card", { heading: line, href: "#/quotes" }));
+      } catch {
+        // Nor here.
+      }
+    }
+    if (meta.siteUses?.reminders === true) {
+      try {
+        const due = ((await api.get("seasonal")).reminders || []).find((r) => r.status === "due");
+        if (due) rows.push(h("content-card", { heading: `Time to write: ${due.topic}`, href: "#/reminders" }));
       } catch {
         // Nor here.
       }

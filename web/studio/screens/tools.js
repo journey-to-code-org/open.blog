@@ -13,10 +13,9 @@ export const TOOLS = [
   ] },
   { group: "Business", items: [
     ["Business facts", "Name, phone, hours and license, for a trade site", "#/business", "studio"],
-    ["Quote requests", "Requests from your quote form", "#/quotes"],
-    ["Reminders", "Seasonal reminders for customers", "#/reminders"],
-    ["Social accounts", "Accounts posts are shared to", "#/social"],
-    ["Announcements", "Share a post to your accounts", "#/announcements"],
+    ["Quote requests", "Requests from your quote form", "#/quotes", "studio"],
+    ["Reminders", "What to write about, by season", "#/reminders", "studio"],
+    ["Sharing", "Share a post to your accounts, and the accounts", "#/sharing", "studio"],
   ] },
   { group: "Research and writing tools", items: [
     ["Research", "Sources, notes and the atlas", "#/research/overview"],

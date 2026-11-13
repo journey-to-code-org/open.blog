@@ -19,6 +19,10 @@ import { createVisitors } from "./visitors.js";
 import { createBusiness } from "./business.js";
 import { createRecordEdit } from "./record-edit.js";
 import { RECORDS, tradeSite } from "../parts/record-kinds.js";
+import { createQuotes } from "./quotes.js";
+import { createReminders } from "./reminders.js";
+import { createSharing } from "./sharing.js";
+import { createShareNew } from "./share-new.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 
@@ -45,6 +49,11 @@ export const SCREENS = [
   // Business facts open on any site (More tools and Find), so a trade site can be started; the nav
   // shows them only on a trade site.
   { name: "business", nav: "Business", area: "business", navWhen: tradeSite, create: (context) => createBusiness(context) },
+  // Each only when it applies: the quote form is set up, reminders are for this trade, sharing is set up.
+  { name: "quotes", nav: "Requests", area: "quotes", when: (meta) => meta.quote === true, create: (context) => createQuotes(context) },
+  { name: "reminders", nav: "Reminders", area: "reminders", when: (meta) => meta.siteUses?.reminders === true, create: (context) => createReminders(context) },
+  // #/sharing/new is the composer.
+  { name: "sharing", nav: "Sharing", area: "sharing", when: (meta) => meta.social === true, create: (context, route) => (route.arg === "new" ? createShareNew(context, route) : createSharing(context)) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
   { name: "look", nav: "Look", area: "look", create: (context) => createLook(context) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },

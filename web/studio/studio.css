@@ -405,3 +405,12 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-business-pays { display: grid; gap: var(--space-2); }
 @media (min-width: 46rem) { .studio-business-pays { grid-template-columns: 1fr 1fr; } }
 .studio-business-footer { margin: 0; padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); overflow-wrap: anywhere; }
+
+/* Requests (slice 10b) */
+.studio-quote-pickers { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+.studio-quote-words { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.studio-quote-photos { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.studio-quote-photo img { display: block; width: 6rem; height: 6rem; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--studio-linen); }
+
+/* Small buttons still meet the 44 px target (QA, slices 9 and 10a). */
+.studio-page action-button[size="sm"] .action-button { min-height: 2.75rem; }
