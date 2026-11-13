@@ -412,6 +412,34 @@ fn diagram_alternatives_are_escaped_in_valid_full_content_feeds() {
 }
 
 #[test]
+fn diagrams_inside_reading_supplements_remain_portable() {
+    let body = concat!(
+        "Main text.\n\n",
+        "> [!supplement kind=context level=guided] Context\n",
+        "> ```mermaid title=\"Supplement\" description=\"A calls B\"\n",
+        "> flowchart LR\n",
+        "> A --> B\n",
+        "> ```\n"
+    );
+    let site = load(
+        Sources {
+            posts: vec![post(body, "readingModes: true\n")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    assert!(site.posts[0].html.contains("<figure class=\"ob-diagram\">"));
+    let projection = PortableProjection::for_site(&site, &site.posts[0]).unwrap();
+    let html = projection.portable_html().unwrap().html;
+    let markdown = projection.portable_markdown().unwrap();
+    for portable in [&html, &markdown] {
+        assert!(portable.contains("Supplement: A calls B"), "{portable}");
+        assert!(portable.contains("assets/diagrams/"), "{portable}");
+    }
+}
+
+#[test]
 fn each_technical_template_builds_with_its_accessible_example() {
     let mut ids = std::collections::BTreeSet::new();
     for template in openblog_core::diagram::TEMPLATES {
