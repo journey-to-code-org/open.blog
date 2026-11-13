@@ -332,13 +332,22 @@ you shared by hand, another announcement of the same post, a caption you edited 
 the announcement comes to you as **Needs checking** instead of being guessed at. This needs
 `pages_read_engagement` (requested by default); without it the lookup cannot tell and you settle it. LinkedIn: there
 is no lookup, because reading a member's or organization's posts needs permissions LinkedIn gives only to approved
-partners, so an unclear LinkedIn outcome comes straight to you as **Needs checking**.
+partners, so an unclear LinkedIn outcome comes straight to you as **Needs checking**. Facebook photo announcements
+also require a person to check: the feed lookup cannot verify the approved image and its alt text.
 
 ### LinkedIn
 
 Posts as the connected member or organization through the versioned REST Posts API (`POST /rest/posts`), with the
 post link as an article whose title is the caption's first line. The caption is sent as typed: LinkedIn formatting characters (`( ) [ ] { } < > @ | ~ _ * #`
 and the backslash) are escaped, so a caption cannot mention people or format text.
+
+After installing `supabase/social-media.sql`, an author can preview and select the public JPEG or PNG cover, with its
+description as alt text. The image post includes the canonical link in the commentary. If the approved image changes
+or cannot be uploaded, the author chooses whether to post the link without the image or stop. Preview currently
+accepts covers up to 1,000,000 bytes. Upload uses LinkedIn's [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api)
+and [Posts API media schema](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema)
+(checked 2026-11-12). An upload that succeeded but whose post result is unknown still requires a person to check;
+the post is never retried automatically.
 
 Verify at setup, because LinkedIn changes them: the API version (`OPENBLOG_SOCIAL_LINKEDIN_API_VERSION`, a dated
 `YYYYMM` value that LinkedIn retires after about a year; the default is only a starting point), that your app has the
@@ -353,6 +362,12 @@ expired token or a removed app asks you to reconnect, a missing permission or Pa
 limit (including Meta's Page-level limit, code `80001`, and the other business-use-case codes `80000`-`80014`) pauses
 that Page and is tried again later, and an "unknown error" is `unknown` because the post may exist.
 
+After installing `supabase/social-media.sql`, an author can preview and approve a public JPEG or PNG cover up to
+1,000,000 bytes. Facebook receives the approved bytes, caption and link as a Page photo, with the description as alt
+text ([Page photos](https://developers.facebook.com/docs/graph-api/reference/page/photos/), checked 2026-11-12).
+If the image changes or a photo request is definitively refused, the author chooses whether to post the link without
+the image or stop. A photo request with an uncertain outcome never falls back to a second post: check the Page first.
+
 Verify at setup, because Meta changes them: the Graph version (`OPENBLOG_SOCIAL_FACEBOOK_API_VERSION`, for example
 `v23.0`; old versions are retired), that your app has `pages_manage_posts` (and `pages_show_list`), and App Review:
 until the app has Advanced access, only people with a role on the app can post to Pages.
@@ -364,8 +379,14 @@ Writes one post record to your own repository (`com.atproto.repo.createRecord` o
 the caption as the text, full `https://` links and `#hashtags` in it as clickable facets, and the post link as a link
 card with the post's own title and description, read from its public page just before posting
 ([ADR 0386](adr/0386-a-bluesky-card-shows-the-posts-own-title-and-a-link-already-in-a-caption-is-read-as-a-reader-sees-it.md)).
-If that page cannot be read in a few seconds, the card is titled with the caption's first line instead. The card
-has no picture yet. `@mentions` stay plain text, so nobody is notified by
+If that page cannot be read in a few seconds, the card is titled with the caption's first line instead. After installing
+`supabase/social-media.sql`, you may preview and explicitly select the public cover for the card. The cover must be a
+same-origin JPEG, PNG or WebP of at most 8 MiB with a description. Images over 1,000,000 bytes are resized to a
+JPEG thumbnail of at most 1,000,000 bytes (transparent areas become white). Admin shows the exact thumbnail for
+approval; delivery verifies the original bytes, recreates the thumbnail and verifies its bytes again. If either
+differs or the upload fails, the card goes without a picture. Bluesky's external-card schema does not offer a separate image
+description; the description is shown in Admin but is not included in the card.
+`@mentions` stay plain text, so nobody is notified by
 mistake. A Bluesky caption is at most 300 characters; Admin counts against that as soon as you choose a Bluesky
 destination, and the preview says how the card and the links will look.
 
@@ -373,7 +394,7 @@ Every try of one announcement writes the same record key, made from its schedule
 after a try that did land is refused by Bluesky instead of posting twice; that refusal is checked by reading the
 record, and when it is this announcement it counts as posted. The post's `at://` address is kept as the
 provider post id. An unclear outcome is looked up by reading exactly that record: found with the same caption and
-link, it is published; Bluesky saying it does not exist is a sure "not there"; anything else comes to you as **Needs
+link and, when selected, the approved image or permitted image-free fallback, it is published; Bluesky saying it does not exist is a sure "not there"; anything else comes to you as **Needs
 checking**. An expired or revoked session asks you to reconnect, and a rate limit is tried again after the time
 Bluesky gives.
 
@@ -434,6 +455,14 @@ It is additive and re-runnable: five columns, one index and four functions, no e
 - Only `service_role` may execute the functions; the browser and the public keys cannot.
 
 Without this file announcements wait in the queue exactly as before.
+
+The optional `supabase/social-media.sql` adds storage for approved Bluesky, LinkedIn and Facebook media snapshots after the queue is installed.
+Run it before scheduling an announcement with a cover. Existing announcements remain unchanged.
+
+The social functions use the pinned `sharp` image library. When bundling them yourself, run `npm ci --prefix netlify`
+on the deployment platform before building the functions; the supplied GitHub publishing workflows do this. Install
+on Linux for a Linux Netlify deployment so the native module matches the function runtime.
+`supabase/social-media-rollback.sql` refuses to remove the column while any media-bearing announcement remains.
 
 ## The delivery worker
 
@@ -534,6 +563,7 @@ working, and readers, builds, feeds, exports and cross-posting never change. The
 | 4. Providers | Create the LinkedIn and Meta apps, register the redirect addresses and add the products and permissions in [Connecting LinkedIn and Facebook](#connecting-linkedin-and-facebook-oauth); set the client id, secret and `OPENBLOG_SOCIAL_CALLBACK_BASE`; redeploy. | **Connect** an account you own and choose a destination. | **Disconnect** it in Admin, remove the client settings, and remove the app in the provider's settings. |
 | 5. Scheduling | Nothing to install. | Schedule an announcement in the **Announcements** tab. It stays **Scheduled**: nothing sends it yet. | Cancel it. |
 | 6. Delivery | Run `supabase/social-queue.sql`, and `supabase/social-history.sql` if you want the exact history. | Call the worker once by hand: `curl -s -X POST -H "Authorization: Bearer $OPENBLOG_SOCIAL_WORKER_KEY" https://YOUR-SITE/api/social-worker` answers with counts, and a due announcement to an account you own is published. | `supabase/social-history-rollback.sql`, then `supabase/social-queue-rollback.sql` |
+| 6a. Images (optional) | After the queue, run `supabase/social-media.sql`. | Preview and approve an image in Admin. | Resolve media-bearing announcements, then run `supabase/social-media-rollback.sql` before undoing the queue. |
 | 7. Schedule | Store the two Vault secrets, then run `supabase/social-cron.sql` (see [The delivery worker](#the-delivery-worker)). | `select status, start_time from cron.job_run_details order by start_time desc limit 3;` shows a successful run each minute. | `supabase/social-cron-rollback.sql` |
 | 8. Operations (optional) | Run `supabase/social-ops.sql`, set `OPENBLOG_SOCIAL_OPS=true`, redeploy. Add `OPENBLOG_SOCIAL_RETENTION_DAYS` only if you want old history deleted. | Admin shows **Delivery health**; the log has `openblog-social-ops` lines. | Remove `OPENBLOG_SOCIAL_OPS`, then `supabase/social-ops-rollback.sql` |
 
@@ -542,8 +572,8 @@ watch it go from Scheduled to Published. Delete the test post on the network by 
 deletes anything it posted.
 
 The hosted function runs as a Netlify function (`netlify/functions/social.mjs` and `social-worker.mjs`, routed by
-`netlify.toml`). It is not a Supabase Edge Function: the modules use only Web APIs so they could be hosted there
-later, but this release builds, deploys and tests them on Netlify only.
+`netlify.toml`). It is not a Supabase Edge Function: the hosted media preview uses the native `sharp` dependency,
+and this release builds, deploys and tests these functions on Netlify only.
 
 ## Rolling it back
 
@@ -557,7 +587,7 @@ To turn the whole feature off and remove it, in this order. Each step is safe to
    `supabase/social-rollback.sql`).
 4. **Remove the data.** Run `supabase/social-rollback.sql`. It stops the `openblog-social-worker` cron job first (when
    `pg_cron` is installed), then drops every `openblog_social_*` function, trigger and table that `social.sql`,
-   `social-queue.sql`, `social-history.sql`, `social-ops.sql` and `social-cron.sql` made. It touches no other table,
+   `social-queue.sql`, `social-history.sql`, `social-media.sql`, `social-ops.sql` and `social-cron.sql` made. It touches no other table,
    job or extension, and running it twice is harmless.
 5. **Remove the Vault secrets.**
    `delete from vault.secrets where name in ('openblog_social_worker_url', 'openblog_social_worker_key');`
@@ -577,7 +607,8 @@ Check: `select count(*) from pg_tables where tablename like 'openblog_social%';`
 Facebook, Bluesky or Mastodon stay there; delete them on the network if you want them gone.
 
 To undo only part of it, use the rollback file of that gate (table above), newest gate first: operations, schedule,
-history, then queue. Each one leaves the gates before it working.
+media and history, then queue. Media rollback refuses while media-bearing announcements remain; resolve them first.
+Each one leaves the gates before it working.
 
 ## Rotating secrets
 

@@ -23,8 +23,8 @@ use base64::Engine;
 use blake2::{Blake2b512, Digest};
 use openblog_core::social_schedule::parse_schedule_with;
 use openblog_core::video_upload::{
-    self, ApprovalError, Failure, FileFingerprint, LookupOutcome, Settlement, ThumbnailState,
-    Upload, UploadRecord, UploadState, VideoApproval,
+    self, ApprovalError, CaptionRecord, CaptionState, Failure, FileFingerprint, LookupOutcome,
+    Settlement, ThumbnailState, Upload, UploadRecord, UploadState, VideoApproval,
 };
 use openblog_core::DateTime;
 use serde::{Deserialize, Serialize};
@@ -48,6 +48,8 @@ const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
 const UPLOAD_URL: &str =
     "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status";
 const THUMBNAIL_URL: &str = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
+const CAPTIONS_URL: &str =
+    "https://www.googleapis.com/upload/youtube/v3/captions?part=snippet&uploadType=multipart";
 const CHANNELS_URL: &str =
     "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true";
 const PLAYLIST_ITEMS_URL: &str = "https://www.googleapis.com/youtube/v3/playlistItems";
@@ -341,31 +343,48 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 // ---------------------------------------------------------------------------------------------
-// `openblog youtube connect|disconnect|status`
+// `openblog youtube connect|connect-captions|disconnect|status`
 
 pub fn command(root: &Path, action: &str) -> Result<(), String> {
     match action {
-        "connect" => network_env(|env| {
+        "connect" | "connect-captions" => network_env(|env| {
+            let captions = action == "connect-captions";
             let listener = TcpListener::bind("127.0.0.1:0")
                 .map_err(|_| "cannot listen on 127.0.0.1 for Google's reply".to_string())?;
-            connect(root, env, listener, CONNECT_TIMEOUT, &mut |url| {
-                println!("Open this address in a browser signed in to the Google account of your YouTube channel, and allow open.blog to upload videos:\n\n{url}\n\nWaiting for Google's reply on this computer (5 minutes)...");
+            connect_with_scopes(root, env, listener, CONNECT_TIMEOUT, captions, &mut |url| {
+                let permission = if captions {
+                    "upload videos and manage captions"
+                } else {
+                    "upload videos"
+                };
+                println!("Open this address in a browser signed in to the Google account of your YouTube channel, and allow open.blog to {permission}:\n\n{url}\n\nWaiting for Google's reply on this computer (5 minutes)...");
             })
         }),
         "disconnect" => network_env(|env| disconnect(root, env)),
         "status" => connection_status(root, Client::from_environment().as_ref()),
-        _ => Err("usage: openblog youtube connect|disconnect|status".into()),
+        _ => Err("usage: openblog youtube connect|connect-captions|disconnect|status".into()),
     }
 }
 
 /// The authorization address for one connection attempt (PKCE S256, a random `state`).
+#[cfg(test)]
 fn authorization_url(client: &Client, redirect: &str, challenge: &str, state: &str) -> String {
+    authorization_url_for(client, redirect, challenge, state, &video_upload::SCOPES)
+}
+
+fn authorization_url_for(
+    client: &Client,
+    redirect: &str,
+    challenge: &str,
+    state: &str,
+    scopes: &[&str],
+) -> String {
     let mut url = url::Url::parse(AUTHORIZE_URL).expect("a fixed address");
     url.query_pairs_mut()
         .append_pair("client_id", &client.id)
         .append_pair("redirect_uri", redirect)
         .append_pair("response_type", "code")
-        .append_pair("scope", &video_upload::SCOPES.join(" "))
+        .append_pair("scope", &scopes.join(" "))
         .append_pair("code_challenge", challenge)
         .append_pair("code_challenge_method", "S256")
         .append_pair("state", state);
@@ -489,11 +508,23 @@ fn wait_for_callback(
 /// Connects a YouTube channel: an installed-app authorization with PKCE and a loopback redirect
 /// (<https://developers.google.com/identity/protocols/oauth2/native-app>), storing the refresh
 /// token only when every scope was granted.
+#[cfg(test)]
 pub(crate) fn connect(
     root: &Path,
     env: &Env<'_>,
     listener: TcpListener,
     timeout: Duration,
+    show: &mut dyn FnMut(&str),
+) -> Result<(), String> {
+    connect_with_scopes(root, env, listener, timeout, false, show)
+}
+
+fn connect_with_scopes(
+    root: &Path,
+    env: &Env<'_>,
+    listener: TcpListener,
+    timeout: Duration,
+    captions: bool,
     show: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
     let client = env.client.as_ref().ok_or_else(not_configured)?;
@@ -504,11 +535,16 @@ pub(crate) fn connect(
     let redirect = format!("http://127.0.0.1:{port}");
     let verifier = auth::random_token()?;
     let state = auth::random_token()?;
-    show(&authorization_url(
+    let mut scopes = video_upload::SCOPES.to_vec();
+    if captions {
+        scopes.push(video_upload::SCOPE_CAPTIONS);
+    }
+    show(&authorization_url_for(
         client,
         &redirect,
         &pkce_challenge(&verifier),
         &state,
+        &scopes,
     ));
     let code = wait_for_callback(&listener, &state, timeout)?;
     let request = Request {
@@ -538,8 +574,9 @@ pub(crate) fn connect(
         .split(' ')
         .filter(|s| !s.is_empty())
         .collect();
-    let missing: Vec<&str> = video_upload::SCOPES
-        .into_iter()
+    let missing: Vec<&str> = scopes
+        .iter()
+        .copied()
         .filter(|scope| !granted.contains(scope))
         .collect();
     if refresh.is_empty() || !missing.is_empty() {
@@ -558,10 +595,7 @@ pub(crate) fn connect(
     let grant = Grant {
         version: 1,
         refresh_token: refresh.to_string(),
-        scopes: video_upload::SCOPES
-            .iter()
-            .map(|s| (*s).to_string())
-            .collect(),
+        scopes: scopes.iter().map(|s| (*s).to_string()).collect(),
         client: client.fingerprint(),
         connected_at: (env.now)().rfc3339(),
     };
@@ -863,14 +897,47 @@ pub(crate) fn upload_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Re
     let mut record = load_record(root, slug)?;
     match record.state {
         UploadState::Uploaded => {
+            let captions_needed = !prepared.preview.captions.is_empty()
+                && record.preview_digest == prepared.preview.digest
+                && prepared.preview.captions.iter().any(|caption| {
+                    record
+                        .captions
+                        .iter()
+                        .find(|saved| saved.path == caption.path)
+                        .is_none_or(|saved| {
+                            matches!(saved.state, CaptionState::Pending | CaptionState::Failed)
+                        })
+                });
+            let captions_pending = captions_needed
+                && load_grant(root)?.is_some_and(|grant| {
+                    grant
+                        .scopes
+                        .iter()
+                        .any(|scope| scope == video_upload::SCOPE_CAPTIONS)
+                });
+            if captions_needed && !captions_pending {
+                eprintln!("warning: Captions were not uploaded; connect with `openblog youtube connect-captions` or add them in YouTube Studio.");
+            } else if !prepared.preview.captions.is_empty()
+                && record.preview_digest != prepared.preview.digest
+            {
+                eprintln!("warning: The release no longer matches the uploaded video's approval; captions were not sent. Add them in YouTube Studio.");
+            }
             if matches!(
                 record.thumbnail,
                 ThumbnailState::Pending | ThumbnailState::Failed
             ) && prepared.thumbnail.is_some()
+                || captions_pending
             {
                 let _lock = Lock::take(root)?;
                 let token = access_token(root, env)?;
-                set_thumbnail(root, prepared, env, &token, &mut record)?;
+                if matches!(
+                    record.thumbnail,
+                    ThumbnailState::Pending | ThumbnailState::Failed
+                ) && prepared.thumbnail.is_some()
+                {
+                    set_thumbnail(root, prepared, env, &token, &mut record)?;
+                }
+                upload_captions(root, prepared, env, &token, &mut record)?;
             }
             report_uploaded(&record);
             return Ok(());
@@ -1021,6 +1088,7 @@ pub(crate) fn upload_with(root: &Path, prepared: &Prepared, env: &Env<'_>) -> Re
     if prepared.thumbnail.is_some() {
         set_thumbnail(root, prepared, env, &token, &mut record)?;
     }
+    upload_captions(root, prepared, env, &token, &mut record)?;
     report_uploaded(&record);
     Ok(())
 }
@@ -1240,6 +1308,149 @@ fn send_next_chunk(
     }
 }
 
+fn upload_captions(
+    root: &Path,
+    prepared: &Prepared,
+    env: &Env<'_>,
+    token: &str,
+    record: &mut UploadRecord,
+) -> Result<(), String> {
+    if prepared.preview.captions.is_empty() || record.preview_digest != prepared.preview.digest {
+        return Ok(());
+    }
+    if !load_grant(root)?.is_some_and(|grant| {
+        grant
+            .scopes
+            .iter()
+            .any(|scope| scope == video_upload::SCOPE_CAPTIONS)
+    }) {
+        eprintln!("warning: Captions were not uploaded; connect with `openblog youtube connect-captions` or add them in YouTube Studio.");
+        return Ok(());
+    }
+    let Some(video_id) = record.video_id.clone() else {
+        return Err("[caption-video-missing] The uploaded video has no recorded id.".into());
+    };
+    for caption in &prepared.preview.captions {
+        let (Some(language), Some(digest), Some(expected_bytes)) = (
+            caption.language.as_deref(),
+            caption.content_digest.as_deref(),
+            caption.content_bytes,
+        ) else {
+            return Err("[caption-preview-invalid] Caption fingerprints are missing; review the release again.".into());
+        };
+        let index = match record
+            .captions
+            .iter()
+            .position(|saved| saved.path == caption.path)
+        {
+            Some(index) => index,
+            None => {
+                record.captions.push(CaptionRecord {
+                    path: caption.path.clone(),
+                    language: language.to_string(),
+                    digest: digest.to_string(),
+                    state: CaptionState::Pending,
+                    remote_id: None,
+                    failure: None,
+                });
+                record.captions.len() - 1
+            }
+        };
+        let saved = &record.captions[index];
+        if saved.language != language || saved.digest != digest {
+            return Err(
+                "[caption-preview-changed] Caption details changed; nothing was uploaded.".into(),
+            );
+        }
+        if matches!(saved.state, CaptionState::Uploaded | CaptionState::Unknown) {
+            continue;
+        }
+        let path = openblog_core::video_release::project_path(&caption.path).and_then(|path| {
+            crate::video_release::resolve(
+                root,
+                "",
+                &openblog_core::video_release::AssetRef::Project(path),
+            )
+        });
+        let bytes = path
+            .and_then(|path| fs::File::open(path).ok())
+            .and_then(|file| {
+                let mut bytes = Vec::new();
+                file.take(openblog_core::video_release::YOUTUBE_CAPTION_MAX_BYTES + 1)
+                    .read_to_end(&mut bytes)
+                    .ok()?;
+                Some(bytes)
+            });
+        let Some(bytes) = bytes.filter(|bytes| {
+            bytes.len() as u64 == expected_bytes && hex(&Blake2b512::digest(bytes)) == digest
+        }) else {
+            record.captions[index].state = CaptionState::Failed;
+            record.captions[index].failure = Some("caption-changed".into());
+            save_record(root, &prepared.slug, record)?;
+            eprintln!("warning: [caption-changed] Caption `{}` could not be read as approved; nothing was sent for it.", caption.path);
+            continue;
+        };
+        let boundary = format!("openblog-{}", auth::random_token()?);
+        if bytes
+            .windows(boundary.len())
+            .any(|window| window == boundary.as_bytes())
+        {
+            return Err("[caption-boundary] Cannot safely encode the caption request.".into());
+        }
+        let metadata =
+            json!({"snippet": {"videoId": video_id, "language": language, "name": "open.blog"}});
+        let mut body = format!("--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n").into_bytes();
+        body.extend_from_slice(&bytes);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        let request = Request {
+            method: "POST",
+            url: CAPTIONS_URL.into(),
+            headers: vec![
+                bearer(token),
+                (
+                    "Content-Type",
+                    format!("multipart/related; boundary={boundary}"),
+                ),
+            ],
+            body,
+            timeout: CHUNK_TIMEOUT,
+        };
+        record.captions[index].state = CaptionState::Unknown;
+        record.captions[index].failure = Some("caption-unknown".into());
+        save_record(root, &prepared.slug, record)?;
+        let result = env.transport.send(&request);
+        match result {
+            Ok(reply) if matches!(reply.status, 200 | 201) => {
+                let body = reply.json();
+                if let Some(id) = body["id"].as_str().filter(|id| {
+                    !id.is_empty()
+                        && id.len() <= 256
+                        && id
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+                }) {
+                    record.captions[index].state = CaptionState::Uploaded;
+                    record.captions[index].remote_id = Some(id.to_string());
+                    record.captions[index].failure = None;
+                }
+            }
+            Ok(reply)
+                if (400..500).contains(&reply.status) && !matches!(reply.status, 408 | 409) =>
+            {
+                record.captions[index].state = CaptionState::Failed;
+                record.captions[index].failure =
+                    Some(video_upload::classify(reply.status, &reply.body).1.into());
+            }
+            _ => {}
+        }
+        save_record(root, &prepared.slug, record)?;
+        if record.captions[index].state != CaptionState::Uploaded {
+            eprintln!("warning: Caption `{}` was not confirmed. Check `openblog video {} --status` and YouTube Studio; the video remains uploaded.", caption.path, prepared.slug);
+        }
+    }
+    Ok(())
+}
+
 fn set_thumbnail(
     root: &Path,
     prepared: &Prepared,
@@ -1313,7 +1524,7 @@ fn report_uploaded(record: &UploadRecord) {
         Some(at) => println!("YouTube makes it public at {at}."),
         None => println!("It stays private until you publish it in YouTube Studio."),
     }
-    println!("Add captions in YouTube Studio, then set `videoUrl: {url}` on the post to embed it.");
+    println!("Check caption outcomes with `openblog video <slug> --status`, then set `videoUrl: {url}` on the post to embed it.");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1512,6 +1723,19 @@ pub fn print_status(root: &Path, slug: &str, as_json: bool) -> Result<(), String
     }
     if let Some(code) = &record.failure {
         println!("  last failure: {code}");
+    }
+    for caption in &record.captions {
+        let detail = caption
+            .failure
+            .as_deref()
+            .map(|code| format!(" ({code})"))
+            .unwrap_or_default();
+        println!(
+            "  caption {} [{}]: {}{detail}",
+            caption.path,
+            caption.language,
+            caption.state.as_str()
+        );
     }
     for entry in &record.history {
         let code = entry

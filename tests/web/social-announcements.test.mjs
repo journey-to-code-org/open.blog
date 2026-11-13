@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createAnnouncements, MAX_BODY_BYTES } from "../../netlify/lib/social-announcements.mjs";
+import { captureMedia, mediaApprovalDigest } from "../../netlify/lib/social-media.mjs";
 import { socialSettings } from "../../netlify/lib/social-scope.mjs";
 import { createHandler } from "../../netlify/functions/social.mjs";
 import { FACEBOOK, FUTURE, GONE, LINKEDIN, OTHER_SITE, REAUTH, SITE, fakeStorage } from "./social-fake-storage.mjs";
@@ -26,11 +27,16 @@ const NOW = Date.parse("2026-11-01T12:00:00Z");
 const KEY = "request-key-0000001";
 const WORK = "/posts/hello/";
 const URL_OK = "https://blog.example.org/posts/hello/";
+const BLUESKY = "77777777-7777-4777-8777-777777777777";
+const MASTODON = "88888888-8888-4888-8888-888888888888";
 
 function setup(options = {}) {
   const storage = fakeStorage(options);
   const settings = socialSettings(env());
-  const handle = createAnnouncements({ settings, fetchImpl: storage.fetchImpl, now: () => options.now ?? NOW });
+  const fetchImpl = options.siteFetch
+    ? (url, init) => String(url).startsWith("https://blog.example.org/") ? options.siteFetch(url, init) : storage.fetchImpl(url, init)
+    : storage.fetchImpl;
+  const handle = createAnnouncements({ settings, fetchImpl, now: () => options.now ?? NOW });
   const call = (request) =>
     handle({ headers: { authorization: `Bearer ${ADMIN_KEY}`, "x-openblog-actor": "mikey" }, ...request });
   return { ...storage, handle, call };
@@ -122,6 +128,59 @@ test("a valid announcement is stored for this site, in UTC, as the named actor",
   // What comes back has no lease owner, no idempotency key and no credential.
   const text = JSON.stringify(announcement);
   for (const secret of [KEY, SERVICE_KEY, ADMIN_KEY, WORKER_KEY, "claimed_by", "idempotency"]) assert.ok(!text.includes(secret), secret);
+});
+
+test("an approved Bluesky image is stored and participates in idempotent scheduling", async () => {
+  const t = setup();
+  t.accounts.push({ id: BLUESKY, site_id: SITE, provider: "bluesky", kind: "account", display_name: "@ada", status: "connected" });
+  t.accounts.push({ id: MASTODON, site_id: SITE, provider: "mastodon", kind: "account", display_name: "@ada", status: "connected" });
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const snapshot = await captureMedia({ url: "https://blog.example.org/images/c.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, URL_OK);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, URL_OK) };
+  const body = draft({ accountId: BLUESKY, media });
+  const result = await t.call(post(body));
+  assert.equal(result.status, 201);
+  assert.deepEqual(t.posts[0].media, media);
+  assert.deepEqual(result.body.announcement.media, media);
+  assert.equal((await t.call(post(body))).status, 200);
+  const changed = { ...snapshot, description: "Another lantern" };
+  const changedMedia = { snapshot: changed, approvalDigest: await mediaApprovalDigest(changed, URL_OK) };
+  assert.equal((await t.call(post({ ...body, media: changedMedia }))).status, 409);
+  assert.equal((await t.call(post({ ...body, media: { ...media, snapshot: changed } }))).body.code, "invalid-media");
+  assert.equal((await t.call(post(draft({ accountId: MASTODON, media })))).body.code, "invalid-media");
+  assert.equal(t.posts.length, 1);
+});
+
+test("the authorized preview returns a bound public image for supported connected accounts", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const calls = [];
+  const t = setup({ siteFetch: async (url, init) => {
+    calls.push({ url, init });
+    if (url === URL_OK) return new Response('<meta property="og:image" content="/images/c.png"><meta property="og:image:alt" content="A lantern">', { headers: { "content-type": "text/html" } });
+    return new Response(png, { headers: { "content-type": "image/png" } });
+  } });
+  t.accounts.push({ id: BLUESKY, site_id: SITE, provider: "bluesky", kind: "account", display_name: "@ada", status: "connected" });
+  t.accounts.push({ id: MASTODON, site_id: SITE, provider: "mastodon", kind: "account", display_name: "@ada", status: "connected" });
+  const body = { accountId: BLUESKY, work: WORK, canonicalUrl: URL_OK };
+  const result = await t.call(post(body, "announcements/media-preview"));
+  assert.equal(result.status, 200);
+  assert.equal(result.body.media.snapshot.description, "A lantern");
+  assert.match(result.body.media.approvalDigest, /^[a-f0-9]{64}$/);
+  assert.equal(calls.length, 2);
+  assert.equal((await t.call(post({ ...body, accountId: MASTODON }, "announcements/media-preview"))).body.code, "invalid-media");
+  const linkedin = await t.call(post({ ...body, accountId: LINKEDIN, fallback: "stop" }, "announcements/media-preview"));
+  assert.equal(linkedin.status, 200);
+  assert.equal(linkedin.body.media.snapshot.fallback, "stop");
+  const facebook = await t.call(post({ ...body, accountId: FACEBOOK, fallback: "stop" }, "announcements/media-preview"));
+  assert.equal(facebook.status, 200);
+  assert.equal(facebook.body.media.snapshot.fallback, "stop");
+  const scheduled = await t.call(post(draft({ accountId: FACEBOOK, media: facebook.body.media })));
+  assert.equal(scheduled.status, 201);
+  assert.deepEqual(t.posts[0].media, facebook.body.media);
+  assert.equal((await t.call(post(draft({ accountId: LINKEDIN, expectedProvider: "facebook", media: facebook.body.media })))).body.code, "invalid-destination");
+  assert.equal((await t.call(post({ ...body, fallback: "stop" }, "announcements/media-preview"))).body.code, "invalid-media");
+  assert.equal((await t.call(post({ ...body, work: "/posts/elsewhere/" }, "announcements/media-preview"))).status, 422);
+  assert.equal(calls.length, 6);
 });
 
 test("destination ownership: another site's, unknown, disconnected, stale and unsupported accounts are refused", async () => {

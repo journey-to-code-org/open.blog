@@ -15,6 +15,7 @@
 import { ACTOR_HEADER, SocialScopeError, authorizeSocial, ensureOwned, refuseClientScope, scopedQuery } from "./social-scope.mjs";
 import { validProviderPostId } from "./social-delivery.mjs";
 import { NEXT_STEPS, deliveryState, derivedTimeline, timelineFromEvents } from "./social-status.mjs";
+import { MediaError, previewMedia, verifyMediaApproval } from "./social-media.mjs";
 import { OpsError, createOps, opsPolicy } from "./social-ops.mjs";
 import {
   ScheduleError,
@@ -40,7 +41,7 @@ const EVENTS = "openblog_social_post_events";
 const MAX_EVENTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const CREATE_FIELDS = ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "timeZone", "idempotencyKey"];
+const CREATE_FIELDS = ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "timeZone", "idempotencyKey", "media", "expectedProvider"];
 const EDIT_FIELDS = ["version", "caption", "scheduledFor", "timeZone"];
 const RESCHEDULE_FIELDS = ["version", "scheduledFor", "timeZone"];
 const CANCEL_FIELDS = ["version"];
@@ -83,6 +84,7 @@ const postView = (row, account) => ({
   work: row.work,
   canonicalUrl: row.canonical_url,
   caption: row.body,
+  media: row.media ?? null,
   scheduledFor: instant(row.scheduled_for),
   status: row.status,
   // The author's delivery state and what they may do about it (ADR 0323).
@@ -228,7 +230,32 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
   };
 
   const sameRequest = (row, wanted) =>
-    row.work === wanted.work && row.canonical_url === wanted.canonicalUrl && row.body === wanted.caption && instant(row.scheduled_for) === wanted.scheduledFor;
+    row.work === wanted.work && row.canonical_url === wanted.canonicalUrl && row.body === wanted.caption &&
+    instant(row.scheduled_for) === wanted.scheduledFor && (row.media?.approvalDigest ?? null) === (wanted.media?.approvalDigest ?? null);
+
+  const previewImage = async (rawBody) => {
+    const body = readBody(rawBody, ["accountId", "work", "canonicalUrl", "fallback"], ["accountId", "work", "canonicalUrl"]);
+    if (typeof body.accountId !== "string" || !UUID.test(body.accountId)) throw new RouteError(400, "invalid-account", "That is not a destination id.");
+    if (typeof body.work !== "string" || typeof body.canonicalUrl !== "string") throw new RouteError(400, "invalid-request", "The request has a field of the wrong type.");
+    checkCanonicalUrl(body.canonicalUrl, body.work);
+    const account = await usable(body.accountId);
+    if (!["bluesky", "linkedin", "facebook"].includes(account.provider)) throw new RouteError(422, "invalid-media", "That destination cannot preview an image yet.");
+    const fallback = body.fallback ?? "text";
+    if (!["text", "stop"].includes(fallback) || (account.provider === "bluesky" && fallback !== "text")) {
+      throw new RouteError(422, "invalid-media", "Choose how an unavailable image is handled.");
+    }
+    try {
+      const preview = await previewMedia(fetchImpl, body.canonicalUrl, body.work, AbortSignal.timeout(10_000), fallback, account.provider === "bluesky");
+      if (account.provider !== "bluesky" && preview.media.snapshot.mimeType === "image/webp") {
+        throw new RouteError(422, "invalid-media", "This destination needs a JPEG or PNG cover.");
+      }
+      return reply(200, preview);
+    } catch (error) {
+      if (error instanceof MediaError && error.code === "too-large") throw new RouteError(422, "media-too-large", "The cover is too large to prepare.");
+      if (error instanceof MediaError) throw new RouteError(422, "invalid-media", "The public cover and its description could not be previewed.");
+      throw error;
+    }
+  };
 
   const create = async (identity, rawBody) => {
     const body = readBody(rawBody, CREATE_FIELDS, ["accountId", "work", "canonicalUrl", "caption", "scheduledFor", "idempotencyKey"]);
@@ -242,16 +269,36 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     // answered as it was, even if the destination needs to be connected again since.
     const account = await accountById(body.accountId);
     if (!account) throw new RouteError(404, "destination-not-found", "That destination is not connected to this site.");
+    if (body.expectedProvider !== undefined && (body.expectedProvider !== "facebook" || account.provider !== body.expectedProvider || account.kind !== "page")) {
+      throw new RouteError(422, "invalid-destination", "Choose a connected Facebook Page.");
+    }
     providerOf(account.provider);
     const caption = checkCaption(account.provider, body.caption);
     checkCanonicalUrl(body.canonicalUrl, body.work);
+    let media = null;
+    if (body.media !== undefined && body.media !== null) {
+      if (!["bluesky", "linkedin", "facebook"].includes(account.provider) || !isPlainObject(body.media) ||
+          Object.keys(body.media).some((key) => !["snapshot", "approvalDigest"].includes(key))) {
+        throw new RouteError(422, "invalid-media", "That image selection cannot be used for this destination.");
+      }
+      try {
+        const snapshot = await verifyMediaApproval(body.media.snapshot, body.canonicalUrl, body.media.approvalDigest);
+        if (snapshot.size > 1_000_000 ||
+            (account.provider === "bluesky" && snapshot.fallback !== "text") ||
+            (account.provider !== "bluesky" && (snapshot.mimeType === "image/webp" || snapshot.version !== 1))) throw new MediaError("invalid");
+        media = { snapshot, approvalDigest: body.media.approvalDigest };
+      } catch (error) {
+        if (error instanceof MediaError) throw new RouteError(422, "invalid-media", "Preview and approve the image again.");
+        throw error;
+      }
+    }
 
     // The same key means the same request: a retry of a timed-out submit gets the original row
     // back, even if time has since passed, and never a second post.
     const existing = await rest("GET", POSTS, scopedQuery(settings, { account_id: `eq.${account.id}`, idempotency_key: `eq.${body.idempotencyKey}`, select: "*" }).toString());
     const replay = (rows) => {
       ensureOwned(settings, rows);
-      const wanted = { work: body.work, canonicalUrl: body.canonicalUrl, caption, scheduledFor: utcInstant(parseSchedule(body.scheduledFor, 0, { bounds: false })) };
+      const wanted = { work: body.work, canonicalUrl: body.canonicalUrl, caption, scheduledFor: utcInstant(parseSchedule(body.scheduledFor, 0, { bounds: false })), media };
       if (!sameRequest(rows[0], wanted)) throw new RouteError(409, "idempotency-conflict", "That request key was already used for a different announcement.");
       return reply(200, { announcement: postView(rows[0], account), replayed: true });
     };
@@ -260,7 +307,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     await usable(account.id);
     const at = parseSchedule(body.scheduledFor, now());
     const stamp = iso(now());
-    const inserted = await rest("POST", POSTS, "select=*", {
+    const newRow = {
       site_id: settings.siteId,
       account_id: account.id,
       work: body.work,
@@ -272,7 +319,9 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
       created_by: identity.actor,
       created_at: stamp,
       updated_at: stamp,
-    });
+    };
+    if (media) newRow.media = media;
+    const inserted = await rest("POST", POSTS, "select=*", newRow);
     if (inserted.conflict) {
       // Two submits with one key raced: the one that lost reads the winner.
       const winner = await rest("GET", POSTS, scopedQuery(settings, { account_id: `eq.${account.id}`, idempotency_key: `eq.${body.idempotencyKey}`, select: "*" }).toString());
@@ -454,6 +503,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
         "GET destinations": () => destinations(),
         "GET announcements": () => list(params),
         "POST announcements": (parsed) => create(identity, parsed),
+        "POST announcements/media-preview": (parsed) => previewImage(parsed),
         "PATCH announcements": (parsed) => edit(params, parsed),
         "POST announcements/reschedule": (parsed) => reschedule(params, parsed),
         "POST announcements/cancel": (parsed) => cancel(params, parsed),

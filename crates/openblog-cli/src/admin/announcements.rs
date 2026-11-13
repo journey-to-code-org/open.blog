@@ -12,11 +12,15 @@
 //! pair, one seam. Until they are set every route here answers 404 and reads no social state; the
 //! hosted function itself stays off unless `OPENBLOG_SOCIAL_ENABLED=true` there.
 
+use base64::Engine;
+use openblog_core::job_destination::JobDestination;
 use openblog_core::social_schedule::{
     announceable, check_canonical_url, check_caption, check_caption_for_any, check_idempotency_key,
     check_time_zone, parse_schedule, parse_schedule_with, utc_instant, Provider, ScheduleError,
 };
 use openblog_core::LoadOptions;
+use sha2::{Digest, Sha256};
+use std::io::Read;
 
 use super::social;
 use super::*;
@@ -26,7 +30,7 @@ pub(super) const MAX_REQUEST_BYTES: usize = 32 * 1024;
 /// The most posts the composer's picker lists.
 const MAX_POSTS: usize = 100;
 /// The largest answer read from the hosted function.
-const MAX_ANSWER_BYTES: usize = 1024 * 1024;
+const MAX_ANSWER_BYTES: usize = 2 * 1024 * 1024;
 
 /// Where the hosted function is and the key that proves this Admin may call it.
 pub(super) struct Hosted {
@@ -149,6 +153,9 @@ pub(super) fn owns(name: &str) -> bool {
             | "preview"
             | "destinations"
             | "announcements"
+            | "announcements/media-preview"
+            | "job-photo-preview"
+            | "job-photo-schedule"
             | "announcements/reschedule"
             | "announcements/cancel"
             | "announcements/retry"
@@ -209,6 +216,9 @@ pub(super) fn route(
         ("GET", "destinations") => relay(transport, user, "GET", "destinations", Vec::new(), None),
         ("GET", "announcements") => list(transport, user, req),
         ("POST", "announcements") => create(state, transport, user, req),
+        ("POST", "announcements/media-preview") => media_preview(state, transport, user, req),
+        ("POST", "job-photo-preview") => job_photo_preview(state, req),
+        ("POST", "job-photo-schedule") => job_photo_schedule(state, transport, user, req),
         ("PATCH", "announcements") => edit(transport, user, req),
         ("POST", "announcements/reschedule") => reschedule(transport, user, req),
         ("POST", "announcements/cancel") => cancel(transport, user, req),
@@ -430,6 +440,255 @@ struct CreateBody {
     scheduled_for: String,
     time_zone: Option<String>,
     idempotency_key: String,
+    media: Option<MediaApproval>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MediaApproval {
+    snapshot: MediaSnapshot,
+    approval_digest: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MediaSnapshot {
+    version: u64,
+    url: String,
+    description: String,
+    mime_type: String,
+    size: u64,
+    sha256: String,
+    fallback: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transform: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MediaPreviewBody {
+    account_id: String,
+    work: String,
+    fallback: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct JobPhotoPreviewBody {
+    path: String,
+    digest: String,
+    description: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct JobPhotoScheduleBody {
+    path: String,
+    digest: String,
+    description: String,
+    approval_digest: String,
+    account_id: String,
+    scheduled_for: String,
+    idempotency_key: String,
+}
+
+struct JobPhotoApproval {
+    work: String,
+    canonical_url: String,
+    caption: String,
+    media: Json,
+    digest: String,
+    image_data_url: String,
+}
+
+fn job_photo_approval(
+    state: &AppState,
+    path: &str,
+    digest: &str,
+    description: &str,
+) -> Result<JobPhotoApproval, Response> {
+    if description.trim() != description
+        || description.is_empty()
+        || description.chars().count() > 1500
+        || description.chars().any(|c| {
+            c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+    {
+        return Err(Response::error(422, "Describe the photo in one line."));
+    }
+    let job = crate::job_share::load_job(
+        &state.root,
+        crate::job_share::Which::Source(path),
+        &[JobDestination::Facebook],
+    )
+    .map_err(|error| Response::error(422, &error))?;
+    let projection = &job.projections[0];
+    if !projection.ready || projection.digest != digest {
+        return Err(Response::error(
+            409,
+            "The job changed or is not ready. Open it again.",
+        ));
+    }
+    let photo = projection
+        .photo
+        .as_ref()
+        .ok_or_else(|| Response::error(422, "There is no safe after photo to send."))?;
+    if !matches!(photo.media_type.mime(), "image/png" | "image/jpeg") || photo.bytes > 1_000_000 {
+        return Err(Response::error(
+            422,
+            "Facebook needs a JPEG or PNG photo of at most 1,000,000 bytes.",
+        ));
+    }
+    let file = job
+        .photo_file
+        .as_ref()
+        .ok_or_else(|| Response::error(422, "The after photo cannot be read."))?;
+    let mut bytes = Vec::new();
+    fs::File::open(file)
+        .and_then(|file| file.take(1_000_001).read_to_end(&mut bytes))
+        .map_err(|_| Response::error(422, "The after photo cannot be read."))?;
+    if bytes.len() as u64 != photo.bytes || format!("{:x}", Sha256::digest(&bytes)) != photo.sha256
+    {
+        return Err(Response::error(
+            409,
+            "The after photo changed. Open the job again.",
+        ));
+    }
+    let canonical_url = canonical_for(state, &job.work, clock::now()).map_err(problem)?;
+    let snapshot = json!({
+        "version": 1,
+        "url": photo.url,
+        "description": description,
+        "mimeType": photo.media_type.mime(),
+        "size": photo.bytes,
+        "sha256": photo.sha256,
+        "fallback": "stop"
+    });
+    let approval = json!([
+        "openblog-social-media-v1",
+        canonical_url,
+        photo.url,
+        description,
+        photo.media_type.mime(),
+        photo.bytes,
+        photo.sha256,
+        "stop"
+    ]);
+    let media_digest = format!("{:x}", Sha256::digest(approval.to_string().as_bytes()));
+    let bound = json!([
+        "openblog-job-photo-approval/1",
+        projection.digest,
+        media_digest
+    ]);
+    let approval_digest = format!("{:x}", Sha256::digest(bound.to_string().as_bytes()));
+    Ok(JobPhotoApproval {
+        work: job.work,
+        canonical_url,
+        caption: projection.text.clone(),
+        media: json!({ "snapshot": snapshot, "approvalDigest": media_digest }),
+        digest: approval_digest,
+        image_data_url: format!(
+            "data:{};base64,{}",
+            photo.media_type.mime(),
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ),
+    })
+}
+
+fn job_photo_preview(state: &AppState, req: &Request) -> Response {
+    let body: JobPhotoPreviewBody = match body_of(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    match job_photo_approval(state, &body.path, &body.digest, &body.description) {
+        Ok(approval) => Response::json(
+            200,
+            &json!({
+                "approvalDigest": approval.digest,
+                "imageDataUrl": approval.image_data_url,
+                "description": body.description,
+            }),
+        ),
+        Err(response) => response,
+    }
+}
+
+fn job_photo_schedule(
+    state: &AppState,
+    transport: &dyn Transport,
+    user: &str,
+    req: &Request,
+) -> Response {
+    let body: JobPhotoScheduleBody = match body_of(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let approval = match job_photo_approval(state, &body.path, &body.digest, &body.description) {
+        Ok(approval) if approval.digest == body.approval_digest => approval,
+        Ok(_) => {
+            return Response::error(409, "The photo or description changed. Preview it again.")
+        }
+        Err(response) => return response,
+    };
+    if let Err(error) = check_idempotency_key(&body.idempotency_key) {
+        return problem(error);
+    }
+    let at = match parse_schedule_with(&body.scheduled_for, clock::now(), false) {
+        Ok(at) => utc_instant(at),
+        Err(error) => return problem(error),
+    };
+    relay(
+        transport,
+        user,
+        "POST",
+        "announcements",
+        Vec::new(),
+        Some(json!({
+            "accountId": body.account_id,
+            "expectedProvider": "facebook",
+            "work": approval.work,
+            "canonicalUrl": approval.canonical_url,
+            "caption": approval.caption,
+            "scheduledFor": at,
+            "idempotencyKey": body.idempotency_key,
+            "media": approval.media,
+        })),
+    )
+}
+
+fn media_preview(
+    state: &AppState,
+    transport: &dyn Transport,
+    user: &str,
+    req: &Request,
+) -> Response {
+    let body: MediaPreviewBody = match body_of(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let url = match canonical_for(state, &body.work, clock::now()) {
+        Ok(url) => url,
+        Err(error) => return problem(error),
+    };
+    let mut payload =
+        json!({ "accountId": body.account_id, "work": body.work, "canonicalUrl": url });
+    if let Some(fallback) = body.fallback {
+        payload["fallback"] = Json::String(fallback);
+    }
+    relay(
+        transport,
+        user,
+        "POST",
+        "announcements/media-preview",
+        Vec::new(),
+        Some(payload),
+    )
 }
 
 fn create(state: &AppState, transport: &dyn Transport, user: &str, req: &Request) -> Response {
@@ -465,6 +724,9 @@ fn create(state: &AppState, transport: &dyn Transport, user: &str, req: &Request
     });
     if let Some(zone) = body.time_zone {
         payload["timeZone"] = Json::String(zone);
+    }
+    if let Some(media) = body.media {
+        payload["media"] = json!(media);
     }
     relay(
         transport,
@@ -732,6 +994,37 @@ fn relay(
         Err(message) => return Response::error(502, message),
     };
     if (200..300).contains(&status) {
+        if route == "announcements/media-preview" {
+            let checked = (|| {
+                let media: MediaApproval =
+                    serde_json::from_value(value.get("media")?.clone()).ok()?;
+                let data = value.get("imageDataUrl")?.as_str()?;
+                if !matches!(
+                    media.snapshot.mime_type.as_str(),
+                    "image/jpeg" | "image/png" | "image/webp"
+                ) {
+                    return None;
+                }
+                let prefix = format!("data:{};base64,", media.snapshot.mime_type);
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data.strip_prefix(&prefix)?)
+                    .ok()?;
+                if bytes.len() > 1_000_000
+                    || u64::try_from(bytes.len()).ok()? != media.snapshot.size
+                    || format!("{:x}", Sha256::digest(&bytes)) != media.snapshot.sha256
+                {
+                    return None;
+                }
+                Some(json!({ "media": media, "imageDataUrl": data }))
+            })();
+            return match checked {
+                Some(preview) => Response::json(status, &preview),
+                None => Response::error(
+                    502,
+                    "The hosted social function sent an unexpected image preview.",
+                ),
+            };
+        }
         let mut kept = Map::new();
         for name in [
             "announcement",

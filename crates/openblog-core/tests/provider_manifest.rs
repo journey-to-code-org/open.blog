@@ -213,6 +213,9 @@ fn the_builtin_policy_version_is_a_valid_one() {
             ProviderId::ApplePodcasts | ProviderId::Spotify | ProviderId::PodcastIndex => {
                 PODCAST_POLICY_VERSION
             }
+            ProviderId::Linkedin | ProviderId::Facebook | ProviderId::Bluesky => {
+                SOCIAL_MEDIA_POLICY_VERSION
+            }
             _ => BUILTIN_POLICY_VERSION,
         };
         assert_eq!(manifest.policy_version, expected);

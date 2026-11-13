@@ -30,10 +30,10 @@ scopes asked for.
   2026-10-29: loopback redirect, PKCE, refresh tokens are always returned for installed apps, the `scope` field says
   what was granted, `invalid_grant` means the grant is gone, and `https://oauth2.googleapis.com/revoke` revokes it.
 - **Two scopes, all or nothing.** `youtube.upload` (create the video and set its thumbnail) and `youtube.readonly`
-  (list the channel's own uploads when an outcome is unknown, ADR 0380). Uploading captions needs
-  `youtube.force-ssl`, which also manages the whole account, so open.blog does not ask for it and captions stay a
-  step in YouTube Studio (the preview says so with the note `captions-by-hand`). If the reply lacks either scope or a
-  refresh token, the token is revoked and nothing is stored (`scope-missing`).
+  (list the channel's own uploads when an outcome is unknown, ADR 0380). Amended for #623: the separate
+  `connect-captions` command additionally requests `youtube.force-ssl`, which can manage the whole account. Ordinary
+  `connect` still does not request it. All requested scopes and a refresh token are required; otherwise the token is
+  revoked and nothing is stored (`scope-missing`).
 - **Protected refresh token on the author's machine.** The grant (refresh token, scopes, a fingerprint of the
   client id, the time) is written to `.openblog/private/youtube/credential` the way the Assistant's key is: Windows
   DPAPI for the signed-in user, owner-only permissions elsewhere, under the Git-ignored `.openblog/` folder. The
@@ -53,8 +53,8 @@ scopes asked for.
 - **Upload from the hosted function with the grant in the hosted database.** Rejected: the file is on the author's
   machine, a video is far beyond a function's request size and time, and the scheduled queue is not needed because
   YouTube schedules publication itself (ADR 0379).
-- **Ask for `youtube` or `youtube.force-ssl` to upload captions too.** Rejected: either lets open.blog manage the
-  whole channel, which is far more than publishing one release needs.
+- **Ask for caption management on every connection.** Rejected: `youtube.force-ssl` grants far more than video
+  upload needs, so it is available only through the separate opt-in.
 - **A plain-text token file.** Rejected: it is the one secret that can publish under the author's name.
 
 ## Consequences

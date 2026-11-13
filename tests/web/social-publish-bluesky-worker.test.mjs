@@ -6,7 +6,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { socialAdapters } from "../../netlify/lib/social-adapters.mjs";
-import { announcementKey } from "../../netlify/lib/social-atproto.mjs";
+import { announcementKey, blobCid } from "../../netlify/lib/social-atproto.mjs";
+import { captureMedia, mediaApprovalDigest } from "../../netlify/lib/social-media.mjs";
 import { SITE, workerSetup } from "./social-queue-fakes.mjs";
 import { allProviders, scripted } from "./social-publish-fakes.mjs";
 
@@ -24,7 +25,7 @@ async function setup(reply, { accessLeftMs = 2 * 3600_000 } = {}) {
   await s.credentials.save(BLUESKY, { accessToken: tokens.access, refreshToken: tokens.refresh, expiresIn: Math.floor(accessLeftMs / 1000), refreshExpiresIn: 90 * 86400 });
   const service = scripted(reply);
   // The worker's one fetch: the service for bsky.social, the database fake for everything else.
-  const fetchImpl = (url, init) => (String(url).startsWith("https://bsky.social/") ? service.fetchImpl(url, init) : s.fetchImpl(url, init));
+  const fetchImpl = (url, init) => (String(url).startsWith("https://bsky.social/") || String(url) === "https://blog.example.org/cover.png" ? service.fetchImpl(url, init) : s.fetchImpl(url, init));
   const providers = allProviders();
   const adapters = socialAdapters({ providers, fetchImpl, now: s.now });
   const worker = s.build({ adapters, providers, fetchImpl });
@@ -34,6 +35,35 @@ async function setup(reply, { accessLeftMs = 2 * 3600_000 } = {}) {
 const calls = (s, method) => s.service.calls.filter((call) => call.url.includes(`/xrpc/${method}`));
 const uriOf = async (post) => `at://${DID}/app.bsky.feed.post/${await announcementKey({ scheduledFor: post.scheduled_for, idempotencyKey: post.idempotency_key })}`;
 const created = async (post) => ({ status: 200, body: { uri: await uriOf(post), cid: "bafyrei" } });
+
+test("the worker passes approved media through to the real adapter", async () => {
+  let post;
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  let blob;
+  const s = await setup(async (n, url) => {
+    if (url === "https://blog.example.org/cover.png") return { status: 200, headers: { "content-type": "image/png" }, body: png };
+    if (url.endsWith(".uploadBlob")) return { status: 200, body: { blob } };
+    return created(post);
+  });
+  post = s.addPost();
+  const snapshot = await captureMedia({ url: "https://blog.example.org/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, post.canonical_url);
+  post.media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, post.canonical_url) };
+  blob = { $type: "blob", ref: { $link: blobCid(snapshot.sha256) }, mimeType: "image/png", size: png.length };
+  assert.equal((await s.worker.run()).published, 1);
+  assert.deepEqual(JSON.parse(calls(s, "com.atproto.repo.createRecord")[0].body).record.embed.external.thumb, blob);
+  assert.equal(s.service.calls.find((call) => call.url === snapshot.url).headers.authorization, undefined);
+});
+
+test("the worker refuses a changed media approval without a provider request", async () => {
+  const s = await setup({ status: 500 });
+  const post = s.addPost();
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const snapshot = await captureMedia({ url: "https://blog.example.org/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, post.canonical_url);
+  post.media = { snapshot: { ...snapshot, description: "Different" }, approvalDigest: await mediaApprovalDigest(snapshot, post.canonical_url) };
+  assert.equal((await s.worker.run()).failed, 1);
+  assert.equal(post.status, "failed");
+  assert.equal(s.service.calls.length, 0);
+});
 
 test("a claimed announcement is written once under its record key and settled with the at:// URI", async () => {
   let post;

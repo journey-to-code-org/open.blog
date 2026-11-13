@@ -16,6 +16,8 @@ const strip = (sql) => sql.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").toLower
 const queue = strip(read("social-queue.sql"));
 const undo = strip(read("social-queue-rollback.sql"));
 const fullUndo = strip(read("social-rollback.sql"));
+const media = strip(read("social-media.sql"));
+const mediaUndo = strip(read("social-media-rollback.sql"));
 const functions = [...queue.matchAll(/create or replace function public\.(\w+)\(/g)].map((m) => m[1]);
 
 test("the queue schema is additive, re-runnable and drops nothing", () => {
@@ -71,6 +73,15 @@ test("the rollbacks remove exactly what the queue added, functions before tables
   assert.doesNotMatch(undo, /drop table|drop extension/);
 });
 
+test("media storage is additive and rollback refuses to discard snapshots", () => {
+  assert.match(media, /add column if not exists media jsonb/);
+  assert.match(media, /jsonb_typeof\(media\) = 'object'/);
+  assert.match(media, /octet_length\(media::text\) <= 8192/);
+  assert.doesNotMatch(media, /\bdrop\b|\btruncate\b|\bdelete\s+from\b/);
+  assert.match(mediaUndo, /if exists \(select 1 from public\.openblog_social_posts where media is not null\)/);
+  assert.ok(mediaUndo.indexOf("raise exception") < mediaUndo.indexOf("drop column if exists media"));
+});
+
 // ---- The real SQL, against a real Postgres, when one is supplied. ----
 
 const url = process.env.OPENBLOG_TEST_PG_URL;
@@ -95,6 +106,13 @@ live("against a real Postgres: claim, concurrency, leases, settle and the rollba
       select 's','11111111-1111-4111-8111-111111111111','/p'||i||'/','https://x.example/p'||i||'/','b', now() - interval '1 hour' - i * interval '1 minute', 'key-0000000000000'||lpad(i::text,3,'0'), 'm' from generate_series(1,6) i;
       insert into openblog_social_posts (site_id, account_id, work, canonical_url, body, scheduled_for, idempotency_key, created_by)
       values ('s','22222222-2222-4222-8222-222222222222','/f/','https://x.example/f/','b', now() - interval '1 hour', 'key-0000000000000f01', 'm');`);
+    psql(["-f", path("social-media.sql")]);
+    psql(["-f", path("social-media.sql")]);
+    sql("update openblog_social_posts set media = '{}'::jsonb where work = '/f/'");
+    assert.throws(() => psql(["-f", path("social-media-rollback.sql")]), /Resolve all media-bearing announcements/);
+    assert.equal(sql("select media::text from openblog_social_posts where work = '/f/'"), "{}");
+    sql("update openblog_social_posts set media = null where work = '/f/'");
+    psql(["-f", path("social-media-rollback.sql")]);
     const as = (text) => sql(`set role service_role; ${text}`).split("\n").filter((line) => line && line !== "SET");
 
     // Skipped providers wait; a wrong site claims nothing; anon may not call.

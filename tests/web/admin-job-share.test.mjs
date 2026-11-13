@@ -40,7 +40,8 @@ function server({ destinations, announcements = true, pages = [{ id: "acct-1", p
       if (path.startsWith("job-share?")) return { title: "New oak floor", path: "posts/floor.md", work: "/posts/floor/", googleSending: false, announcements, destinations: structuredClone(destinations) };
       if (path === "social/destinations") return { destinations: pages };
       if (path.startsWith("social/announcements?")) return { announcements: queue };
-      if (path === "social/announcements") {
+      if (path === "social/job-photo-preview") return { approvalDigest: "approved-photo", imageDataUrl: "data:image/png;base64,abc", description: options.json.description };
+      if (path === "social/announcements" || path === "social/job-photo-schedule") {
         queue = [{ id: "a1", work: "/posts/floor/", destination: { provider: "facebook" }, status: "scheduled", delivery: "pending", createdAt: "2026-11-08T12:00:00Z" }];
         return { announcement: queue[0], replayed: false };
       }
@@ -95,6 +96,32 @@ test("the screen schedules the job on the connected Facebook Page as previewed a
   // Google is never sent from this screen.
   assert.equal(action(card(root, "google-business-profile"), "job-share-facebook"), undefined);
   assert.ok(!api.calls.some((call) => call.path.includes("google")));
+}));
+
+test("a Facebook job photo needs a description, exact preview and explicit approval", withDom(async () => {
+  const api = server({ destinations: [place("facebook", { photo: PHOTO })] });
+  const root = await mount(api);
+  const facebook = card(root, "facebook");
+  const post = action(facebook, "job-share-facebook");
+  const input = facebook.querySelector("[data-job-photo-alt]");
+  const checkbox = facebook.querySelectorAll("input").find((item) => item.getAttribute("type") === "checkbox");
+  const preview = facebook.querySelectorAll("button").find((item) => text(item) === "Preview photo for Facebook");
+  assert.equal(post.disabled, true);
+  input.value = "A refinished floor";
+  await input.dispatch("input");
+  await preview.click();
+  await tick();
+  assert.equal(post.disabled, true);
+  assert.equal(checkbox.disabled, false);
+  checkbox.checked = true;
+  await checkbox.dispatch("change");
+  assert.equal(post.disabled, false);
+  await post.click();
+  await tick();
+  const sent = api.calls.find((call) => call.path === "social/job-photo-schedule");
+  assert.equal(sent.body.description, "A refinished floor");
+  assert.equal(sent.body.approvalDigest, "approved-photo");
+  assert.equal(sent.body.digest, "digest-facebook");
 }));
 
 test("a job already on its way to the Facebook Page is not offered again from a reopened screen", withDom(async () => {

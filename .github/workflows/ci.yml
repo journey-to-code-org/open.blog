@@ -32,7 +32,9 @@ jobs:
           CARGO_PROFILE_TEST_DEBUG: 0
         run: cargo test --workspace -j 2
       - name: Test front-end components
-        run: node --test tests/web/*.test.mjs tests/portability-contracts.test.mjs
+        run: |
+          npm ci --prefix netlify --no-audit --no-fund
+          node --test tests/web/*.test.mjs tests/portability-contracts.test.mjs
       - name: Test container startup
         run: sh tests/docker-entrypoint.sh
       - name: Check documentation links
@@ -96,4 +98,6 @@ jobs:
         env:
           OPENBLOG_TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/postgres
         # One file at a time: each creates and removes the same tables in the one database.
-        run: node --test --test-concurrency=1 tests/web/social-queue-sql.test.mjs tests/web/social-history-sql.test.mjs tests/web/social-ops-sql.test.mjs tests/web/social-release-gates.test.mjs tests/web/webmention-sql.test.mjs
+        run: |
+          npm ci --prefix netlify --no-audit --no-fund
+          node --test --test-concurrency=1 tests/web/social-queue-sql.test.mjs tests/web/social-history-sql.test.mjs tests/web/social-ops-sql.test.mjs tests/web/social-release-gates.test.mjs tests/web/webmention-sql.test.mjs
