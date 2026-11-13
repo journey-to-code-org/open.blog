@@ -4203,6 +4203,9 @@ fn meta(state: &AppState) -> Response {
     if !config.code_runner.endpoint.is_empty() {
         code_runner_languages.extend(config.code_runner.languages.iter().cloned());
     }
+    let engagement_ready = config.engagement.enabled
+        && engagement_credential_summary(&state.root, &config.engagement.endpoint)
+            .is_ok_and(|summary| summary["configured"] == json!(true));
     Response::json(
         200,
         &json!({
@@ -4247,9 +4250,16 @@ fn meta(state: &AppState) -> Response {
             "greetings": greetings::is_configured(),
             "gifts": gifts::is_configured(),
             // Comments are moderated in Studio once they are on and the hosted key is in place.
-            "engagement": config.engagement.enabled
-                && engagement_credential_summary(&state.root, &config.engagement.endpoint)
-                    .is_ok_and(|summary| summary["configured"] == json!(true)),
+            "engagement": engagement_ready,
+            // Where visitor numbers come from, as the old Admin's Analytics chooses: the hosted
+            // counter, the built-in one, or none.
+            "visitors": if engagement_ready && config.engagement.analytics {
+                json!("hosted")
+            } else if state.analytics_enabled {
+                json!("counter")
+            } else {
+                json!(false)
+            },
             "now": clock::now().rfc3339(),
         }),
     )
@@ -26816,10 +26826,12 @@ What I read:
             body_json(&handle(
                 &f.state,
                 &authed(req("GET", "/admin/api/meta"), session, false),
-            ))["engagement"]
-                .clone()
+            ))
         };
-        assert_eq!(meta(&session), false);
+        assert_eq!(meta(&session)["engagement"], false);
+        // The built-in counter until the hosted one is set up.
+        let counted = if f.state.analytics_enabled { json!("counter") } else { json!(false) };
+        assert_eq!(meta(&session)["visitors"], counted);
         let loaded = body_json(&handle(
             &f.state,
             &authed(
@@ -26864,7 +26876,8 @@ What I read:
         };
         assert_eq!(outside(&after), outside(&before));
         assert!(after.contains("\n        \"endpoint\": \"https://blog.example/api\""));
-        assert_eq!(meta(&session), true);
+        assert_eq!(meta(&session)["engagement"], true);
+        assert_eq!(meta(&session)["visitors"], "hosted");
     }
 
     #[test]

@@ -360,3 +360,12 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-comment-after { width: 100%; }
 .studio-link-button { background: none; border: 0; padding: 0; color: var(--studio-damson); text-decoration: underline; font: inherit; cursor: pointer; min-height: 2.75rem; }
 .studio-waiting:empty { display: none; }
+
+/* Cards (slice 9) */
+.studio-card-form { display: grid; gap: var(--space-3); width: 100%; }
+.studio-card-sections { display: grid; gap: var(--space-4); width: 100%; }
+.studio-card-preview { display: grid; gap: var(--space-2); }
+.studio-card-frame { width: 100%; min-height: 28rem; border: 1px solid var(--studio-linen); border-radius: var(--radius); background: #fff; }
+.studio-card-stale-note { display: none; }
+.studio-card-stale .studio-card-frame { opacity: 0.55; }
+.studio-card-stale .studio-card-stale-note { display: block; }

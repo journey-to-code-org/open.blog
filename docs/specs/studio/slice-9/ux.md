@@ -182,7 +182,7 @@ Desktop: the two lists sit side by side at 70rem. The picker is a `segmented-con
 
 ## Gaps
 
-- **G1.** `greetings/preview` returns `html`, not `previewUrl`; the old Admin's preview frame loads nothing. Studio uses `srcdoc`; fix the old Admin.
+- **G1.** (Withdrawn when built: the Admin keeps the function's `html` and returns `previewUrl`, as the old Admin expects. Studio frames `previewUrl`.)
 - **G2.** No un-cancel route; Undo re-creates the card with a new id. A `cards/<id>/restore` would keep the id and history.
 - **G3.** Birthdays need a year; "I don't know what year" can't be said, and `{age}` then lies. Allow `--MM-DD` or a separate "year unknown".
 - **G4.** `meta.visitors` doesn't exist (see above). A static host with `analytics.endpoint` elsewhere makes the built-in counter show only what reaches Admin; say so in details until meta knows.

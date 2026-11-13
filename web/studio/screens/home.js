@@ -5,6 +5,7 @@ import { use } from "../zubra.js";
 import { postList, postHref, sayListDate } from "../parts/post-list.js";
 import { siteHealth } from "../parts/site-health.js";
 import { waitingLine } from "../parts/comment-words.js";
+import { homeCardLine } from "../parts/card-words.js";
 
 export async function createHome({ api, meta, posts }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
@@ -12,14 +13,28 @@ export async function createHome({ api, meta, posts }) {
   const health = siteHealth({ api, meta });
   // "3 comments are waiting for you", when there are: never a failure, never a nag.
   const waiting = h("div", { class: "studio-waiting" });
+  // and "Ricky's birthday card goes out Sunday", when one does this week.
   async function loadWaiting() {
-    if (meta.engagement !== true) return;
-    try {
-      const line = waitingLine(await api.get("engagement/moderation?state=pending"));
-      waiting.replaceChildren(...(line ? [h("content-card", { heading: line, href: "#/comments" })] : []));
-    } catch {
-      waiting.replaceChildren();
+    const rows = [];
+    if (meta.engagement === true) {
+      try {
+        const line = waitingLine(await api.get("engagement/moderation?state=pending"));
+        if (line) rows.push(h("content-card", { heading: line, href: "#/comments" }));
+      } catch {
+        // Home never shows a failure here.
+      }
     }
+    if (meta.greetings === true) {
+      try {
+        const contacts = await api.get("greetings/contacts");
+        const cards = await api.get("greetings/cards");
+        const line = homeCardLine(cards.cards || [], contacts.contacts || []);
+        if (line) rows.push(h("content-card", { heading: line, href: "#/cards" }));
+      } catch {
+        // Nor here.
+      }
+    }
+    waiting.replaceChildren(...rows);
   }
   const write = () => h("action-button", { href: "#/write", size: "lg", class: "studio-primary" }, "Write something new");
   const element = h("section", { class: "studio-page", "aria-labelledby": "studio-home-q" },
