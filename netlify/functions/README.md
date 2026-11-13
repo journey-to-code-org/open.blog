@@ -410,3 +410,13 @@ in the inbox, where they can still be rejected or removed but not approved.
 first answers 404, unless `OPENBLOG_GREETINGS_ENABLED=true` and its settings are complete; run
 [`supabase/greetings.sql`](../../supabase/greetings.sql) first. The settings and the steps are in
 [Greeting cards](../../docs/greeting-cards.md); the design is ADR 0411.
+
+## Push notifications (optional)
+
+`push.mjs` keeps the devices the owner turned notifications on for (Admin's **Notifications**) and takes
+notices from her other apps with a separate key. `engagement.mjs` and `quote.mjs` tell those devices after a
+comment, feedback item or quote request is stored, within a few seconds and without ever failing what was
+stored. All of it is off, and `push.mjs` answers 404, unless `OPENBLOG_PUSH_ENABLED=true` and its settings
+are complete; run [`supabase/push.sql`](../../supabase/push.sql) first. Web Push is implemented on
+`node:crypto` in `netlify/lib/web-push.mjs`, so the functions take no dependency. The settings and the steps
+are in [Notifications](../../docs/notifications.md); the design is ADR 0412.
