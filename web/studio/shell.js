@@ -11,7 +11,7 @@ import { createUndo } from "./parts/undo.js";
 import { ApiError } from "./api.js";
 import { sayListDate } from "./parts/post-list.js";
 
-const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
+const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 

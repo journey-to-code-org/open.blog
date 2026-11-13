@@ -12,9 +12,7 @@ export const TOOLS = [
     ["Greeting cards", "Cards sent by email on the day", "#/greetings"],
   ] },
   { group: "Business", items: [
-    ["Business facts", "Name, hours, where you work", "#/business"],
-    ["Services", "What you offer", "#/services"],
-    ["Reviews", "What customers say", "#/reviews"],
+    ["Business facts", "Name, phone, hours and license, for a trade site", "#/business", "studio"],
     ["Quote requests", "Requests from your quote form", "#/quotes"],
     ["Reminders", "Seasonal reminders for customers", "#/reminders"],
     ["Social accounts", "Accounts posts are shared to", "#/social"],
@@ -39,18 +37,20 @@ export async function createTools() {
     h("p", { class: "studio-lede", text: "These are in the old Admin for now. Each opens in a new tab; you stay signed in." }),
     ...TOOLS.map(({ group, items }) => h("section", { class: "studio-section", "aria-label": group },
       h("h3", { text: group }),
-      h("ul", { class: "studio-tool-list" }, items.map(([name, what, hash]) => h("li", {},
-        h("a", { href: `/admin/${hash}`, target: "_blank", rel: "noopener" }, h("strong", { text: name }), " ", h("span", { class: "studio-help", text: what }))))))));
+      h("ul", { class: "studio-tool-list" }, items.map(([name, what, hash, where]) => h("li", {},
+        // A Studio screen opens here; the old Admin's open in a new tab.
+        h("a", where === "studio" ? { href: hash } : { href: `/admin/${hash}`, target: "_blank", rel: "noopener" }, h("strong", { text: name }), " ", h("span", { class: "studio-help", text: what }))))))));
   return {
     title: "More tools",
     element,
     load: async () => {},
     focus: () => heading.focus(),
     get palette() {
-      return TOOLS.flatMap(({ items }) => items.map(([name, , hash]) => ({ id: `tool:${hash}`, label: `${name} (old Admin)`, group: "More tools" })));
+      return TOOLS.flatMap(({ items }) => items.map(([name, , hash, where]) => ({ id: `${where === "studio" ? "go" : "tool"}:${hash}`, label: where === "studio" ? name : `${name} (old Admin)`, group: "More tools" })));
     },
     command(id) {
       if (id.startsWith("tool:")) open(`/admin/${id.slice(5)}`, "_blank", "noopener");
+      if (id.startsWith("go:")) location.hash = id.slice(3);
     },
   };
 }

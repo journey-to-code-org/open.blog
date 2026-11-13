@@ -16,6 +16,9 @@ import { createComments } from "./comments.js";
 import { createCards } from "./cards.js";
 import { createCardEdit } from "./card-edit.js";
 import { createVisitors } from "./visitors.js";
+import { createBusiness } from "./business.js";
+import { createRecordEdit } from "./record-edit.js";
+import { RECORDS, tradeSite } from "../parts/record-kinds.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 
@@ -34,6 +37,14 @@ export const SCREENS = [
   { name: "cards", nav: "Cards", area: "cards", when: (meta) => meta.greetings === true, create: (context, route) => (route.arg ? createCardEdit(context, route) : createCards(context)) },
   // Only when there are visitor numbers to show (meta.visitors: the hosted or the built-in counter).
   { name: "visitors", nav: "Visitors", area: "visitors", when: (meta) => Boolean(meta.visitors), create: (context, route) => createVisitors(context, route) },
+  // A trade site's own (meta.siteUses.trade): services, reviews and the business facts.
+  { name: "services", nav: "Services", area: "services", when: tradeSite, create: (context) => createDocuments(context, RECORDS.services) },
+  { name: "service", area: "services", when: tradeSite, create: (context, route) => createRecordEdit(context, RECORDS.services, route.arg) },
+  { name: "reviews", nav: "Reviews", area: "reviews", when: tradeSite, create: (context) => createDocuments(context, RECORDS.proof) },
+  { name: "review", area: "reviews", when: tradeSite, create: (context, route) => createRecordEdit(context, RECORDS.proof, route.arg) },
+  // Business facts open on any site (More tools and Find), so a trade site can be started; the nav
+  // shows them only on a trade site.
+  { name: "business", nav: "Business", area: "business", navWhen: tradeSite, create: (context) => createBusiness(context) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
   { name: "look", nav: "Look", area: "look", create: (context) => createLook(context) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },

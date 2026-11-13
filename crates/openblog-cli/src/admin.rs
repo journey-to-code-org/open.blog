@@ -4203,6 +4203,15 @@ fn meta(state: &AppState) -> Response {
     if !config.code_runner.endpoint.is_empty() {
         code_runner_languages.extend(config.code_runner.languages.iter().cloned());
     }
+    let trade_site = config.business != openblog_core::business::BusinessConfig::default()
+        || !sources.services.is_empty()
+        || !sources.proof.is_empty()
+        || !config.business.trade.is_empty()
+        || config.seasonal_prompts.enabled
+        || sources.posts.iter().any(|file| {
+            frontmatter::parse(&file.contents)
+                .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
+        });
     let engagement_ready = config.engagement.enabled
         && engagement_credential_summary(&state.root, &config.engagement.endpoint)
             .is_ok_and(|summary| summary["configured"] == json!(true));
@@ -4230,6 +4239,8 @@ fn meta(state: &AppState) -> Response {
                 "business": config.business != openblog_core::business::BusinessConfig::default(),
                 // Reminders are for a trade site: shown once a trade is named or they are on.
                 "reminders": !config.business.trade.is_empty() || config.seasonal_prompts.enabled,
+                // A trade site: Studio's Business, Services and Reviews show for it, and only for it.
+                "trade": trade_site,
             },
             "job": job_form,
             "capture": openblog_core::capture::limits_json(

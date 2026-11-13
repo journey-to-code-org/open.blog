@@ -26,7 +26,8 @@ export async function createDocuments({ api, undo, go }, k) {
     return h("li", { class: "studio-post-row" },
       h("a", { class: "studio-post-link", href: editHref(k, item.path) },
         h("span", { class: "studio-post-title", text: item.title || "Untitled" }),
-        item.status === "error" ? h("span", { class: "studio-post-when", text: `Something's wrong with this ${k.one}. Ask the person who set up your site.` }) : null),
+        item.status === "error" ? h("span", { class: "studio-post-when", text: `Something's wrong with this ${k.one}. Ask the person who set up your site.` })
+          : k.row?.(item) ? h("span", { class: "studio-post-when", text: k.row(item) }) : null),
       menu);
   }
 
@@ -49,7 +50,9 @@ export async function createDocuments({ api, undo, go }, k) {
   async function load() {
     try {
       const reply = await api.get(`documents?kind=${k.kind}`);
-      items = (reply?.items || []).slice().sort((a, b) => String(a.title).localeCompare(String(b.title)));
+      // By name, unless the kind keeps the server's order (reviews: newest first).
+      items = (reply?.items || []).slice();
+      if (k.sort !== "server") items.sort((a, b) => String(a.title).localeCompare(String(b.title)));
       draw();
     } catch (error) {
       list.removeAttribute("aria-busy");
