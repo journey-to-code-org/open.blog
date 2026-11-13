@@ -526,3 +526,60 @@ fn each_technical_template_builds_with_its_accessible_example() {
             .unwrap_or_else(|error| panic!("{}: {error}", template.id));
     }
 }
+
+#[test]
+fn node_links_lead_to_pages_and_a_broken_one_stops_a_published_post() {
+    let linked = |target: &str| {
+        format!("```mermaid title=\"Request\" description=\"A calls B\"\nflowchart LR\nA[Client] --> B[About]\nclick B \"{target}\"\n```\n")
+    };
+    let site = load(
+        Sources {
+            posts: vec![post(&linked("/about/"), "")],
+            pages: vec![page("About.\n")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    let files = generate(&site, &ThemeSet::new()).unwrap();
+    let html = &files
+        .iter()
+        .find(|file| file.path == "posts/example/index.html")
+        .unwrap()
+        .contents;
+    assert!(html.contains("<a href=\"/about/\" tabindex=\"-1\" class=\"ob-diagram-link\">"));
+    assert!(html.contains("<nav class=\"ob-diagram-links\" aria-label=\"Links in this diagram\"><ul><li><a href=\"/about/\">About</a></li></ul></nav>"));
+
+    let Err(errors) = load(
+        Sources {
+            posts: vec![post(&linked("/nowhere/"), "")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    ) else {
+        panic!("a broken diagram link stops a published post");
+    };
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("/nowhere/") && e.contains("not a page on this site")),
+        "{errors:?}"
+    );
+
+    let draft = load(
+        Sources {
+            posts: vec![post(&linked("/nowhere/"), "draft: true\n")],
+            ..Default::default()
+        },
+        LoadOptions {
+            include_drafts: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        draft.warnings.iter().any(|w| w.contains("/nowhere/")),
+        "{:?}",
+        draft.warnings
+    );
+}

@@ -267,9 +267,154 @@ fn alternative(source: &str, key: &str) -> Result<Option<String>, String> {
     Ok(found)
 }
 
+/// A link from a flowchart node to a page on this site (ADR 0418), written in the diagram as
+/// `click Node "/posts/example/"` or `click Node href "/posts/example/"`, optionally followed by a
+/// quoted tooltip.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NodeLink {
+    pub node: String,
+    pub href: String,
+    /// The line within the diagram source, from 1.
+    pub line: usize,
+}
+
+/// Whether `href` is a path on this site: it starts with one `/`, has no scheme, spaces, quotes
+/// or angle brackets, and may end with a `#fragment`.
+pub fn is_site_path(href: &str) -> bool {
+    href.starts_with('/')
+        && !href.starts_with("//")
+        && !href.contains('\\')
+        && !href.chars().any(|c| {
+            c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '<' | '>' | '`')
+        })
+        && !href.split(['#', '?']).next().unwrap_or("").contains(':')
+}
+
+fn quoted_words(text: &str) -> Option<Vec<(String, bool)>> {
+    let mut words = Vec::new();
+    let mut rest = text.trim();
+    while !rest.is_empty() {
+        if let Some(inner) = rest.strip_prefix('"') {
+            let end = inner.find('"')?;
+            words.push((inner[..end].to_string(), true));
+            rest = inner[end + 1..].trim_start();
+        } else {
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            words.push((rest[..end].to_string(), false));
+            rest = rest[end..].trim_start();
+        }
+    }
+    Some(words)
+}
+
+/// The node links of a diagram. A `click` line must link a node to a path on this site; a
+/// callback, an outside address or a new-window target is refused with the line it is on.
+pub fn node_links(source: &str) -> Result<Vec<NodeLink>, String> {
+    let mut links = Vec::new();
+    for (index, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("click") else {
+            continue;
+        };
+        if !rest.starts_with(char::is_whitespace) {
+            continue;
+        }
+        let line_number = index + 1;
+        let refuse = |why: &str| {
+            Err(format!(
+                "diagram line {line_number}: {why}; a node can only link to a page on this site, as `click Node \"/posts/example/\"`"
+            ))
+        };
+        let Some(words) = quoted_words(rest) else {
+            return refuse("a quote is not closed");
+        };
+        let mut words = words.into_iter();
+        let Some((node, false)) = words.next() else {
+            return refuse("the node is missing");
+        };
+        let mut next = words.next();
+        if matches!(&next, Some((word, false)) if word == "href") {
+            next = words.next();
+        }
+        let Some((href, true)) = next else {
+            return refuse("callbacks are not allowed");
+        };
+        if !is_site_path(&href) {
+            return refuse(&format!("`{href}` is not a path on this site"));
+        }
+        match words.next() {
+            None | Some((_, true)) => {}
+            Some((word, false)) => {
+                return refuse(&format!("`{word}` is not allowed"));
+            }
+        }
+        if words.next().is_some() {
+            return refuse("only a tooltip may follow the link");
+        }
+        links.push(NodeLink {
+            node,
+            href,
+            line: line_number,
+        });
+    }
+    Ok(links)
+}
+
+/// The source with its `click` lines blanked (kept as empty lines, so line numbers in the
+/// renderer's messages still match).
+pub fn without_links(source: &str) -> String {
+    source
+        .split('\n')
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed
+                .strip_prefix("click")
+                .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+            {
+                ""
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_links_accept_only_paths_on_the_site() {
+        let source = "flowchart LR\n  A --> B\n  click A \"/posts/a/\" \"Read about A\"\n  click B href \"/docs/b/#part\"\n";
+        let links = node_links(source).unwrap();
+        assert_eq!(links.len(), 2);
+        assert_eq!(
+            (
+                links[0].node.as_str(),
+                links[0].href.as_str(),
+                links[0].line
+            ),
+            ("A", "/posts/a/", 3)
+        );
+        assert_eq!(links[1].href, "/docs/b/#part");
+        for bad in [
+            "click A \"https://example.test\"",
+            "click A \"//example.test/x\"",
+            "click A \"javascript:alert(1)\"",
+            "click A \"/x/\" \"tip\" _blank",
+            "click A callback",
+            "click A call doThing()",
+            "click A \"/x/ y\"",
+            "click A \"/x:y/\"",
+        ] {
+            assert!(
+                node_links(&format!("flowchart LR\n{bad}")).is_err(),
+                "{bad}"
+            );
+        }
+        assert_eq!(without_links(source), "flowchart LR\n  A --> B\n\n\n");
+    }
 
     #[test]
     fn reads_options_alternatives_and_locations() {

@@ -1341,6 +1341,11 @@ impl Site {
             }
         }
 
+        check_diagram_links(&posts, &pages, &series, &tags, &mut warnings, &mut errors);
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+
         scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
         let landing = load_landing(&sources, &posts, &mut warnings);
         if landing.is_some() && config.docs.enabled && config.docs.home {
@@ -2990,6 +2995,58 @@ fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, Stri
         diagrams: rendered.diagrams,
         capabilities: rendered.capabilities,
     })
+}
+
+/// Every diagram node link (ADR 0418) must lead to a page this build writes: a post, a page, a
+/// series, a tag, or one of the site's own index pages. A broken one stops a published post, as a
+/// diagram that does not draw does, and is a warning on a draft.
+fn check_diagram_links(
+    posts: &[Post],
+    pages: &[Page],
+    series: &[Series],
+    tags: &[Tag],
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) {
+    let mut known: std::collections::BTreeSet<&str> =
+        ["/", "/archive/", "/search/", "/series/", "/tags/"]
+            .into_iter()
+            .collect();
+    known.extend(posts.iter().map(|post| post.url.as_str()));
+    known.extend(pages.iter().map(|page| page.url.as_str()));
+    known.extend(series.iter().map(|s| s.url.as_str()));
+    known.extend(tags.iter().map(|tag| tag.url.as_str()));
+    let documents = posts
+        .iter()
+        .map(|post| (&post.source, post.draft, &post.diagrams))
+        .chain(
+            pages
+                .iter()
+                .map(|page| (&page.source, false, &page.diagrams)),
+        );
+    for (source, draft, diagrams) in documents {
+        for asset in diagrams {
+            let Ok(links) = crate::diagram::node_links(&asset.diagram.source) else {
+                continue;
+            };
+            for link in links {
+                let path = link.href.split(['#', '?']).next().unwrap_or("");
+                let with_slash = format!("{}/", path.trim_end_matches('/'));
+                if known.contains(path) || known.contains(with_slash.as_str()) {
+                    continue;
+                }
+                let message = format!(
+                    "{source}: the diagram at line {} links `{}` to {}, which is not a page on this site",
+                    asset.diagram.line, link.node, link.href
+                );
+                if draft {
+                    warnings.push(message);
+                } else {
+                    errors.push(message);
+                }
+            }
+        }
+    }
 }
 
 /// Load `content/docs/` as documentation pages (ADR 0405): each file's address comes from its

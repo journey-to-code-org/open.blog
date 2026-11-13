@@ -3428,8 +3428,9 @@ fn render_diagram_events<'a>(events: Vec<Event<'a>>, work: &mut DiagramWork<'_>)
                 let attribution = diagram.options.source.as_ref().map_or_else(String::new, |url| {
                     format!("<p><a href=\"{}\">Diagram source</a></p>", escape::attr(url))
                 });
+                let links = crate::diagram_svg::links_list(&svg);
                 return Ok(format!(
-                    "<figure class=\"ob-diagram\">{svg}{caption}{attribution}<details><summary>Show diagram source</summary><pre><code class=\"language-mermaid\">{}</code></pre></details></figure>\n",
+                    "<figure class=\"ob-diagram\">{svg}{caption}{links}{attribution}<details><summary>Show diagram source</summary><pre><code class=\"language-mermaid\">{}</code></pre></details></figure>\n",
                     escape::text(&source)
                 ));
             }

@@ -5341,3 +5341,24 @@ ob-docs-nav {
     forced-color-adjust: none;
   }
 }
+
+/* Diagram node links (ADR 0418): the nodes are links for a pointer; the list under the figure is
+   where a keyboard or screen reader finds them. */
+.ob-diagram .ob-diagram-link {
+  cursor: pointer;
+}
+
+.ob-diagram .ob-diagram-link:hover {
+  opacity: 0.8;
+}
+
+.ob-diagram-links ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  justify-content: center;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+}

@@ -1,4 +1,4 @@
-//! Opt-in static diagram rendering for Markdown publication and editor previews.
+//! Static diagram rendering for Markdown publication and editor previews (ADRs 0416, 0417).
 
 use crate::{diagram::Diagram, escape};
 
@@ -60,7 +60,7 @@ fn cache_key(diagram: &Diagram, ordinal: usize) -> [u8; 32] {
     use blake2::{Blake2s256, Digest};
     let mut digest = Blake2s256::new();
     for value in [
-        "merman-0.10.0-static-inline-v1",
+        "merman-0.10.0-static-inline-themed-v2",
         &diagram.source,
         &diagram.title,
         &diagram.description,
@@ -124,7 +124,7 @@ pub fn render_diagnostic(diagram: &Diagram, ordinal: usize) -> Result<String, Re
                 .is_some_and(|text| text.len() > MAX_ALT_BYTES)
         })
     {
-        return render_with_control(diagram, ordinal, control);
+        return render_bounded(diagram, ordinal, control);
     }
     let cache = CACHE.get_or_init(|| std::sync::Mutex::new(RenderCache::default()));
     let key = cache_key(diagram, ordinal);
@@ -135,12 +135,67 @@ pub fn render_diagnostic(diagram: &Diagram, ordinal: usize) -> Result<String, Re
     {
         return Ok(svg);
     }
-    let svg = render_with_control(diagram, ordinal, control)?;
+    let svg = render_bounded(diagram, ordinal, control)?;
     cache
         .lock()
         .map_err(|_| RenderFailure::from("diagram render cache lock is poisoned"))?
         .insert(key, svg.clone());
     Ok(svg)
+}
+
+/// The longest one diagram may take, however the renderer's own deadline behaves.
+#[cfg(not(target_arch = "wasm32"))]
+const HARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Render on a worker thread and stop waiting at [`HARD_DEADLINE`]. The renderer's deadline is
+/// cooperative (it is checked between steps), so a pathological input could otherwise hold a
+/// build; past the hard deadline the diagram fails as too slow and the build moves on, while
+/// the renderer is cancelled at its next checkpoint and its result is dropped.
+#[cfg(not(target_arch = "wasm32"))]
+fn render_bounded(
+    diagram: &Diagram,
+    ordinal: usize,
+    control: merman::OperationControl,
+) -> Result<String, RenderFailure> {
+    render_within(diagram, ordinal, control, HARD_DEADLINE)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn render_within(
+    diagram: &Diagram,
+    ordinal: usize,
+    control: merman::OperationControl,
+    limit: std::time::Duration,
+) -> Result<String, RenderFailure> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let owned = diagram.clone();
+    let stop = control.clone();
+    let spawned = std::thread::Builder::new()
+        .name("openblog-diagram".into())
+        .spawn(move || {
+            let _ = sender.send(
+                render_with_control(&owned, ordinal, control)
+                    .map_err(|failure| (failure.message, failure.position)),
+            );
+        });
+    if spawned.is_err() {
+        return Err("diagram renderer could not start".into());
+    }
+    match receiver.recv_timeout(limit) {
+        Ok(result) => result.map_err(|(message, position)| RenderFailure { message, position }),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            // Ask the renderer to stop at its next checkpoint, so the thread ends soon.
+            stop.cancel();
+            Err(format!(
+                "diagram took longer than {} ms to draw; simplify it",
+                limit.as_millis()
+            )
+            .into())
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("diagram renderer stopped unexpectedly".into())
+        }
+    }
 }
 
 /// Render inside a host-controlled Web Worker. The host must terminate it on timeout.
@@ -186,16 +241,28 @@ fn render_with_control(
     if !colours.is_empty() {
         return Err(colours.join("; ").into());
     }
-    if diagram.source.trim_start().starts_with("---")
-        || diagram.source.contains("%%{")
-        || diagram.source.lines().any(|line| {
-            line.trim_start()
-                .strip_prefix("click")
-                .is_some_and(|rest| rest.starts_with(char::is_whitespace))
-        })
-    {
-        return Err("diagram interaction and configuration directives are not supported".into());
+    if diagram.source.trim_start().starts_with("---") || diagram.source.contains("%%{") {
+        return Err("diagram configuration directives are not supported".into());
     }
+    // Node links (ADR 0418): only to pages on this site, only on flowchart nodes. The renderer
+    // never sees them; they are added to the drawn nodes afterwards.
+    let links = crate::diagram::node_links(&diagram.source)?;
+    let family = diagram
+        .source
+        .lines()
+        .map(str::trim)
+        .find(|line| {
+            !line.is_empty()
+                && !line.starts_with("%%")
+                && !line.starts_with("accTitle")
+                && !line.starts_with("accDescr")
+        })
+        .unwrap_or("");
+    if !links.is_empty() && !(family.starts_with("flowchart") || family.starts_with("graph")) {
+        return Err("diagram links are supported on flowchart nodes only".into());
+    }
+    let source = crate::diagram::without_links(&diagram.source);
+    let source = source.as_str();
     let mut policy = merman::svg::RenderResourcePolicy::constrained();
     for (name, value) in [
         ("max_source_bytes", MAX_SOURCE_BYTES),
@@ -210,8 +277,8 @@ fn render_with_control(
         .with_resource_policy(*policy.input_policy())
         .with_parse_options(merman::ParseOptions::strict());
     let parsed = renderer
-        .parse_semantic(&diagram.source, control.clone())
-        .map_err(|error| render_error(error, &diagram.source))?
+        .parse_semantic(source, control.clone())
+        .map_err(|error| render_error(error, source))?
         .ok_or("diagram renderer found no diagram")?;
     let (title, description) = match parsed.model() {
         merman::model::semantic::SemanticDiagramModel::Flowchart(model) => {
@@ -269,17 +336,14 @@ fn render_with_control(
     };
     let output = renderer
         .with_presentation_engine(merman::MermaidEngine::new().with_site_config(config))
-        .render(merman::RenderRequest::svg(
-            &diagram.source,
-            control,
-            request,
-        ))
-        .map_err(|error| render_error(error, &diagram.source))?;
+        .render(merman::RenderRequest::svg(source, control, request))
+        .map_err(|error| render_error(error, source))?;
     let merman::RenderOutput::Svg(Some(svg)) = output else {
         return Err("diagram renderer produced no SVG".into());
     };
     let themed = crate::diagram_theme::apply(svg.svg(), &diagram.source);
-    accessible_svg(&themed, diagram, &prefix).map_err(Into::into)
+    let linked = link_nodes(&themed, &links)?;
+    accessible_svg(&linked, diagram, &prefix).map_err(Into::into)
 }
 
 fn render_error(error: merman::RenderError, source: &str) -> RenderFailure {
@@ -303,6 +367,89 @@ fn source_position(source: &str, offset: usize) -> Option<(usize, usize)> {
     Some((line, column))
 }
 
+/// Wrap each linked flowchart node (`<g class="node ..." data-id="A">`) in a link to its page.
+/// The link is skipped by the keyboard (`tabindex="-1"`): the same links are listed under the
+/// figure, where a keyboard or screen reader reaches them (see [`links_list`]).
+fn link_nodes(svg: &str, links: &[crate::diagram::NodeLink]) -> Result<String, String> {
+    if links.is_empty() {
+        return Ok(svg.to_string());
+    }
+    let doc =
+        roxmltree::Document::parse(svg).map_err(|error| format!("invalid diagram SVG: {error}"))?;
+    let mut inserts: Vec<(usize, String)> = Vec::new();
+    for link in links {
+        let node = doc
+            .descendants()
+            .find(|node| {
+                node.has_tag_name((SVG_NAMESPACE, "g"))
+                    && node.attribute("data-id") == Some(link.node.as_str())
+                    && node
+                        .attribute("class")
+                        .is_some_and(|class| class.split_whitespace().any(|c| c == "node"))
+            })
+            .ok_or_else(|| {
+                format!(
+                    "diagram line {}: `click {}` names a node the diagram does not have",
+                    link.line, link.node
+                )
+            })?;
+        let range = node.range();
+        inserts.push((
+            range.start,
+            format!(
+                "<a href=\"{}\" tabindex=\"-1\" class=\"ob-diagram-link\">",
+                escape::xml(&link.href)
+            ),
+        ));
+        inserts.push((range.end, "</a>".to_string()));
+    }
+    inserts.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.len().cmp(&b.1.len())));
+    let mut out = svg.to_string();
+    for (at, text) in inserts {
+        out.insert_str(at, &text);
+    }
+    Ok(out)
+}
+
+/// The links a diagram's nodes carry, as a list for under the figure: each node's own text and
+/// its page. Empty when the diagram has no links.
+pub fn links_list(svg: &str) -> String {
+    let Ok(doc) = roxmltree::Document::parse(svg) else {
+        return String::new();
+    };
+    let mut items = String::new();
+    for link in doc
+        .descendants()
+        .filter(|node| node.has_tag_name((SVG_NAMESPACE, "a")))
+    {
+        let Some(href) = link.attribute("href") else {
+            continue;
+        };
+        let label: Vec<&str> = link
+            .descendants()
+            .filter(|node| node.is_text())
+            .filter_map(|node| node.text())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .collect();
+        let label = if label.is_empty() {
+            href.to_string()
+        } else {
+            label.join(" ")
+        };
+        items.push_str(&format!(
+            "<li><a href=\"{}\">{}</a></li>",
+            escape::attr(href),
+            escape::text(&label)
+        ));
+    }
+    if items.is_empty() {
+        String::new()
+    } else {
+        format!("<nav class=\"ob-diagram-links\" aria-label=\"Links in this diagram\"><ul>{items}</ul></nav>")
+    }
+}
+
 /// The renderer's static-inline pipeline validates the XML, SVG/CSS allowlists and local
 /// references. This additional boundary forbids its otherwise allowed links and raster images.
 fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, String> {
@@ -323,11 +470,21 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
     let mut ids = std::collections::BTreeSet::new();
     for node in doc.descendants().filter(|node| node.is_element()) {
         let name = node.tag_name().name();
+        // A link is allowed only as a node link (ADR 0418): to a path on this site, with no
+        // other attributes than the ones `link_nodes` writes.
+        let site_link = name == "a"
+            && node
+                .attribute("href")
+                .is_some_and(crate::diagram::is_site_path)
+            && node.attributes().all(|attr| {
+                matches!(attr.name(), "href" | "tabindex" | "class") && attr.namespace().is_none()
+            });
         if node.tag_name().namespace() != Some(SVG_NAMESPACE)
-            || matches!(
-                name.to_ascii_lowercase().as_str(),
-                "a" | "image" | "foreignobject" | "script"
-            )
+            || (!site_link
+                && matches!(
+                    name.to_ascii_lowercase().as_str(),
+                    "a" | "image" | "foreignobject" | "script"
+                ))
         {
             return Err(format!("diagram SVG contains forbidden element `{name}`"));
         }
@@ -349,7 +506,9 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
             }
             if name.to_ascii_lowercase().starts_with("on")
                 || name.eq_ignore_ascii_case("base")
-                || (name.eq_ignore_ascii_case("href") && !attr.value().starts_with('#'))
+                || (name.eq_ignore_ascii_case("href")
+                    && !attr.value().starts_with('#')
+                    && !(site_link && crate::diagram::is_site_path(attr.value())))
             {
                 return Err(format!("diagram SVG contains forbidden attribute `{name}`"));
             }
@@ -414,6 +573,52 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flowchart_nodes_link_to_pages_on_the_site_and_are_listed() {
+        let svg = render(
+            &diagram("flowchart LR\nA[Client] --> B[API]\nclick B \"/posts/the-api/\" \"Read about the API\""),
+            1,
+        )
+        .unwrap();
+        assert!(svg.contains("<a href=\"/posts/the-api/\" tabindex=\"-1\" class=\"ob-diagram-link\"><g class=\"node"), "{svg}");
+        assert_eq!(svg.matches("<a ").count(), 1);
+        let list = links_list(&svg);
+        assert_eq!(
+            list,
+            "<nav class=\"ob-diagram-links\" aria-label=\"Links in this diagram\"><ul><li><a href=\"/posts/the-api/\">API</a></li></ul></nav>"
+        );
+        let missing = render(&diagram("flowchart LR\nA --> B\nclick C \"/x/\""), 1).unwrap_err();
+        assert!(missing.contains("does not have"), "{missing}");
+        let sequence =
+            render(&diagram("sequenceDiagram\nA->>B: hi\nclick A \"/x/\""), 1).unwrap_err();
+        assert!(sequence.contains("flowchart nodes only"), "{sequence}");
+    }
+
+    #[test]
+    fn a_render_past_the_hard_deadline_fails_and_is_cancelled() {
+        let control = merman::OperationControl::new();
+        let error = render_within(
+            &diagram("flowchart LR\nA --> B"),
+            1,
+            control.clone(),
+            std::time::Duration::ZERO,
+        )
+        .unwrap_err();
+        assert!(
+            error.message.contains("took longer than 0 ms"),
+            "{}",
+            error.message
+        );
+        assert!(control.is_cancelled());
+        assert!(render_within(
+            &diagram("flowchart LR\nA --> B"),
+            1,
+            merman::OperationControl::new(),
+            HARD_DEADLINE
+        )
+        .is_ok());
+    }
 
     #[test]
     fn cache_keys_include_source_options_renderer_and_svg_scope() {
@@ -523,14 +728,15 @@ mod tests {
 
     #[test]
     fn rejects_interaction_directives_and_bad_svg() {
-        for source in [
-            "flowchart LR\nA --> B\nclick A \"https://example.test\"",
-            "%%{init: {}}%%\nflowchart LR\nA --> B",
-        ] {
-            assert!(render(&diagram(source), 1)
-                .unwrap_err()
-                .contains("directives"));
-        }
+        assert!(render(&diagram("%%{init: {}}%%\nflowchart LR\nA --> B"), 1)
+            .unwrap_err()
+            .contains("directives"));
+        assert!(render(
+            &diagram("flowchart LR\nA --> B\nclick A \"https://example.test\""),
+            1
+        )
+        .unwrap_err()
+        .contains("not a path on this site"));
         let d = diagram("flowchart LR\nA --> B");
         for element in [
             "<script/>",
