@@ -667,8 +667,7 @@ fn splice_inner(
     let has_front_matter = lines.first().is_some_and(|line| line.trim_end() == "---");
 
     let mut out = String::from(bom);
-    let body_start;
-    if has_front_matter {
+    let body_start = if has_front_matter {
         let close = (1..lines.len())
             .find(|&at| matches!(lines[at].trim_end(), "---" | "..."))
             .ok_or("its front matter is never closed")?;
@@ -757,15 +756,15 @@ fn splice_inner(
         if !lines[close].ends_with('\n') {
             out.push_str(eol);
         }
-        body_start = close + 1;
+        close + 1
     } else {
         if !wanted.is_empty() {
             let ordered = ordered_fields(&wanted);
             out.push_str(&serialize(&ordered).replace('\n', eol));
             out.push_str(eol);
         }
-        body_start = 0;
-    }
+        0
+    };
 
     let original_body: String = lines[body_start.min(lines.len())..].concat();
     if trim_newlines(&original_body) == trim_newlines(body)
