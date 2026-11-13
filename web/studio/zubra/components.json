@@ -16,12 +16,14 @@
     "loading-spinner",
     "modal-dialog",
     "segmented-control",
+    "select-field",
     "side-sheet",
     "skeleton-block",
     "status-badge",
     "tag-input",
     "text-field",
-    "toast-region"
+    "toast-region",
+    "toggle-switch"
   ],
   "source": {
     "repository": "https://github.com/journey-to-code-org/zubra-ui",

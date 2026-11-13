@@ -56,7 +56,7 @@ export function servedHere(meta, origin = globalThis.location?.origin || "") {
 
 /** What to tell her after a publish, an update or taking a post off, in her words. */
 export function wentOutWords(result, { meta, action = "published", origin } = {}) {
-  const verb = { published: "Published", updated: "Updated", takenOff: "Taken off your site. It's a draft again" }[action];
+  const verb = { published: "Published", updated: "Updated", saved: "Saved", takenOff: "Taken off your site. It's a draft again" }[action];
   if (result.sent === "failed") return { words: action === "takenOff" ? "It's a draft again here, but your site hasn't caught up yet, so readers may still see it." : `${verb} here, but it hasn't reached your readers yet.`, variant: "warning" };
   if (result.sent === "none" && !servedHere(meta, origin)) {
     return { words: action === "takenOff" ? "It's a draft again here. Your public site doesn't update from Studio yet, so ask the person who set it up." : `${verb} here. Your public site doesn't update from Studio yet, so ask the person who set it up.`, variant: "warning" };

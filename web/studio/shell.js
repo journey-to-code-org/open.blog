@@ -114,7 +114,7 @@ export async function startShell(root, api, meta) {
     const screen = router.current();
     const id = key === "s" ? "save" : "publish";
     if (key === "s") event.preventDefault();
-    if (!screen?.palette?.some((item) => item.id === id) || palette.open || document.querySelector("modal-dialog[open]")) return;
+    if (!(screen?.palette?.some((item) => item.id === id) || screen?.keys?.includes(id)) || palette.open || document.querySelector("modal-dialog[open]")) return;
     event.preventDefault();
     screen.command(id);
   });

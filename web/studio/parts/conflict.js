@@ -6,13 +6,13 @@ import { ask } from "./dialogs.js";
 const STATE_WORDS = { draft: "a draft", scheduled: "scheduled", published: "published" };
 
 /** "mine", "theirs", or null (she closed it, or went back from "Use your words?"). */
-export async function askWhichToKeep({ name, theirState, myState }) {
-  const text = [`${name} was changed on another device or by someone else while you had it open.`];
-  if (theirState !== myState && STATE_WORDS[theirState]) text.push(`The other version is ${STATE_WORDS[theirState]}. Using your words keeps it ${STATE_WORDS[theirState]}.`);
-  text.push("Your words are still here. Which do you want to keep?");
-  const choice = await ask({ heading: "Changed somewhere else", text, choices: [{ label: "Use my words", value: "mine" }, { label: "Show the other version", value: "theirs", variant: "secondary" }] });
+export async function askWhichToKeep({ name, theirState, myState, what = "words", them = "it" }) {
+  const text = [`${name} was changed on another device or by someone else while you had ${them} open.`];
+  if (theirState !== myState && STATE_WORDS[theirState]) text.push(`The other version is ${STATE_WORDS[theirState]}. Using your ${what} keeps it ${STATE_WORDS[theirState]}.`);
+  text.push(`Your ${what} are still here. Which do you want to keep?`);
+  const choice = await ask({ heading: "Changed somewhere else", text, choices: [{ label: `Use my ${what}`, value: "mine" }, { label: "Show the other version", value: "theirs", variant: "secondary" }] });
   if (choice !== "mine") return choice;
-  const sure = await ask({ heading: "Use your words?", text: `This replaces the other changes to ${name} with what you have here.`, choices: [{ label: "Yes, use my words", value: "yes" }, { label: "Go back", value: "no", variant: "secondary" }] });
+  const sure = await ask({ heading: `Use your ${what}?`, text: `This replaces the other changes to ${name} with what you have here.`, choices: [{ label: `Yes, use my ${what}`, value: "yes" }, { label: "Go back", value: "no", variant: "secondary" }] });
   return sure === "yes" ? "mine" : null;
 }
 

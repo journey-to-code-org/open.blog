@@ -926,9 +926,9 @@ pub fn load_site_from_sources_listing(
 /// Put up the season's theme (ADR 0407): while `seasons` is on and a window holds `now`'s day, that
 /// window's theme replaces the site theme for this load. The stored `theme` is untouched on disk and
 /// is the look between seasons. Loads without a clock (`now: None`) stay deterministic and unchanged.
+/// A look put up now (`seasons.upNow`) wins while it lasts, even with the calendar off.
 pub fn wear_the_season(config: &mut SiteConfig, now: DateTime) {
-    let day = openblog_core::seasons::month_day(now);
-    if let Some(theme) = config.seasons.theme_on(day) {
+    if let Some(theme) = config.seasons.theme_at(now) {
         config.theme = theme.to_string();
     }
 }

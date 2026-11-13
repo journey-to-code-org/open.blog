@@ -8,7 +8,8 @@ import { ask } from "../parts/dialogs.js";
 import { coverPicker } from "../parts/cover-picker.js";
 import { createKept } from "../parts/kept.js";
 import { joinInstant, splitInstant } from "../parts/dates.js";
-import { fieldsToSend, formFromDocument, onlyChanges, postState, primaryAction, statusLine } from "../parts/post-fields.js";
+import { formFromDocument, postState, primaryAction, statusLine } from "../parts/post-fields.js";
+import { afterSave, fieldsForSave, layoutOf, nothingToSave, sendPost } from "../parts/post-session.js";
 import { howItGoesOut, sendOut, siteLink, wentOutWords } from "../parts/publish.js";
 import { keptBanner, mineAside, postDetails } from "../parts/post-details.js";
 import { isRecipe } from "../parts/recipe-fields.js";
@@ -95,18 +96,7 @@ export async function createWrite(context, arg) {
   const link = () => siteLink(meta, doc.url, { local: !goesOut || goesOut.kind === "none" });
   const isRecipePost = () => isRecipe(doc.fields);
 
-  /** What a save sends: the received fields, Studio's own keys, and the recipe's numbers. */
-  function fieldsFor(values, intent) {
-    const fields = fieldsToSend(doc.fields, { ...values, cover: form.cover, coverAlt: form.coverAlt }, intent, { now: now() });
-    for (const [key, value] of Object.entries(values.extra || {})) {
-      const had = doc.fields[key];
-      const shown = Array.isArray(had) ? had.join(", ") : had == null ? "" : String(had);
-      if (value === shown) continue; // unchanged: the file keeps its own form (a list stays a list)
-      if (value) fields[key] = value;
-      else if (key in doc.fields) fields[key] = null;
-    }
-    return fields;
-  }
+  const fieldsFor = (values, intent) => fieldsForSave(doc.fields, form, values, intent, { now: now() });
 
   function paint() {
     const current = read();
@@ -218,7 +208,7 @@ export async function createWrite(context, arg) {
     timer = 0;
     if (saving) await saving.catch(() => {});
     // Nothing changed: nothing to send. Publishing a draft, or unscheduling, is still a change.
-    if (!force && !dirty && doc.path && !(intent === "publish" && doc.state === "draft") && !(intent === "draft" && doc.state === "scheduled")) {
+    if (nothingToSave({ dirty, path: doc.path, state: doc.state, intent, force })) {
       pending = false;
       paint();
       if (!quiet) toast(doc.state === "published" ? "Nothing's changed. Your site already has this." : "Everything's already saved.");
@@ -238,22 +228,15 @@ export async function createWrite(context, arg) {
     const wasLive = doc.state === "published";
     if (!quiet) button.loading = true;
     saving = (async () => {
-      const reply = doc.path
-        ? await api.call("PUT", `document?path=${encodeURIComponent(doc.path)}`, { json: { fields: onlyChanges(doc.fields, fields), body: values.body, etag: doc.etag, frontMatter: "keep" } })
-        : await api.call("POST", "document", { json: { kind: "posts", fields, body: values.body } });
+      const reply = await sendPost(api, doc, fields, values.body);
       if (!doc.path) {
         context.replaceRoute(`#/write/${encodeURIComponent(reply.path)}`);
         kept.clear(keptKey);
       }
-      doc.path = reply.path;
-      doc.etag = reply.etag;
-      doc.fields = { ...fields };
-      for (const key of Object.keys(doc.fields)) if (doc.fields[key] === null) delete doc.fields[key];
-      doc.url = reply.url || doc.url;
-      doc.state = reply.status === "scheduled" ? "scheduled" : reply.status === "published" ? "published" : "draft";
+      Object.assign(doc, afterSave(doc, reply, fields));
       form = { ...values, cover: form.cover, coverAlt: form.coverAlt, date: fields.date || "" };
       savedAt = now();
-      lastLayout = reply.layout ? { kept: reply.layout === "kept", reason: reply.layoutReason || "" } : null;
+      lastLayout = layoutOf(reply);
       kept.clear(doc.path);
       context.posts?.stale();
       return reply;

@@ -1,6 +1,6 @@
 // Pictures: every photo on her site, newest first, and a place to add more. Tapping one shows it
 // large with its address (for whoever set up the site).
-import { h, toast } from "../parts/dom.js";
+import { fill, h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { photoProblem, pictureName, pictureTile, sitePictures, uploadPhoto } from "../parts/picture-picker.js";
 
@@ -33,7 +33,7 @@ export async function createPictures({ api, meta }) {
     }
     element.querySelector(".studio-pictures-add").hidden = false;
     grid.replaceChildren(...images.map((img) => pictureTile(img, show)));
-    list.replaceChildren(grid, more ? h("p", { class: "studio-help", text: "Older photos are still on your site and in your posts." }) : null);
+    fill(list, grid, more ? h("p", { class: "studio-help", text: "Older photos are still on your site and in your posts." }) : null);
   }
 
   function show(img) {
