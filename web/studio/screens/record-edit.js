@@ -117,6 +117,20 @@ export async function createRecordEdit(context, k, arg) {
   function draw() {
     fields = fieldForm(S.specs, S.toData(form), { onChange: () => { banner.replaceChildren(); paint(); } });
     host.replaceChildren(fields.element);
+    // A copied review keeps the link Studio read: it's read-only, and a different one starts over.
+    if (k.kind === "proof" && form.provenance === "snapshot") {
+      const link = [...host.querySelectorAll("text-field")].find((f) => f.label === "Link to the review");
+      if (link) {
+        link.readonly = true;
+        link.after(h("action-button", { variant: "ghost", size: "sm", onClick: () => {
+          form = { ...current(), provenance: "entered", retrievedAt: "", sourceUrl: "" };
+          draw();
+          drawCopy();
+          status.textContent = "The copy is gone. Paste a different link above, or type the review in.";
+          copyBox.querySelector("input")?.focus();
+        } }, "Paste a different link"));
+      }
+    }
     paint();
   }
 
@@ -157,12 +171,15 @@ export async function createRecordEdit(context, k, arg) {
         return h("li", { text: `${name ? `${name}${p.index !== undefined ? ` (number ${p.index + 1})` : ""}: ` : ""}${p.message}` });
       }))));
     banner.scrollIntoView?.({ block: "nearest" });
+    banner.setAttribute("tabindex", "-1");
+    banner.focus({ preventScroll: true });
   }
 
   async function saveNow({ force = false } = {}) {
     if (busy) return false;
     form = current();
-    if (!path && !form.id) form.id = S.newId(form);
+    // The address is made from the name at the save that works, so a rename before then counts.
+    if (!path) form = { ...form, id: S.newId(form) };
     // The address is Studio's to make; only say so when it couldn't make one.
     const problems = M.validateForm(form).map((p) => (p.field === "id" ? { ...p, message: k.kind === "services" ? "Give it a name with some letters or numbers, so it can have an address." : "Add the reviewer's name and the day first, so it can have an address." } : p));
     if (problems.length) { problemsBanner(problems); return false; }
@@ -190,7 +207,7 @@ export async function createRecordEdit(context, k, arg) {
     } catch (error) {
       if (error.status === 401) throw error;
       if (error.status === 409 && path) return conflict();
-      if (error.status === 409) { banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Not saved" }, S.taken)); form.id = ""; return false; }
+      if (error.status === 409) { banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Not saved" }, S.taken)); return false; }
       const server = M.problemsFromServer(error.data?.problems || [], k.kind === "services" ? M.faqSlots(form) : undefined);
       if (error.status === 422 && server.length) { problemsBanner(server); return false; }
       banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" },

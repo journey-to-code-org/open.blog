@@ -55,6 +55,13 @@ export async function createCards({ api, go }) {
       }
       banner.replaceChildren();
       draw();
+      // Back from the editor: say what was scheduled and put her on that card.
+      let said = null;
+      try { said = JSON.parse(sessionStorage.getItem("studio:cards:said") || "null"); sessionStorage.removeItem("studio:cards:said"); } catch { /* nothing to say */ }
+      if (said) {
+        status.textContent = said.words;
+        requestAnimationFrame(() => list.querySelector(`[data-id="${said.id}"] .studio-comment-who`)?.focus());
+      }
     } catch (error) {
       if (error.status === 401) throw error;
       list.removeAttribute("aria-busy");
@@ -219,6 +226,8 @@ export async function createCards({ api, go }) {
       try {
         const body = { name: form.name, email: form.email, birthday: form.birthday || null };
         const reply = await api.post(contact ? `greetings/contacts/${contact.id}` : "greetings/contacts", body);
+        saving = true;
+        sheet.removeEventListener("openchange", guard);
         sheet.open = false;
         await load();
         const said = `${contact ? "Saved" : "Added"} ${reply.contact.name}.`;
@@ -236,10 +245,20 @@ export async function createCards({ api, go }) {
         save.loading = false;
       }
     } }, contact ? "Save" : "Add to your people");
+    const typed = () => form.name !== (contact?.name || "") || form.email !== (contact?.email || "") || form.birthday !== (contact?.birthday || "");
+    sheet.onopenchange = null;
+    const guard = async (event) => {
+      if (event.detail || !typed() || saving) return;
+      sheet.open = true;
+      const choice = await ask({ heading: "Leave without saving?", text: "What you typed here goes.", choices: [{ label: "Keep typing", value: "stay" }, { label: "Leave without saving", value: "go", variant: "secondary" }] });
+      if (choice === "go") { sheet.removeEventListener("openchange", guard); sheet.open = false; } else requestAnimationFrame(() => name.querySelector("input")?.focus());
+    };
+    let saving = false;
+    sheet.addEventListener("openchange", guard);
     sheet.label = contact ? `Change ${contact.name}` : "Add someone";
     sheet.replaceChildren(h("span", { slot: "heading", text: contact ? `Change ${contact.name}` : "Add someone" }),
       name, email, birthday, problem,
-      h("div", { class: "studio-sheet-actions" }, save, h("action-button", { variant: "secondary", onClick: () => { sheet.open = false; } }, "Cancel")));
+      h("div", { class: "studio-sheet-actions" }, save, h("action-button", { variant: "secondary", onClick: () => { sheet.removeEventListener("openchange", guard); sheet.open = false; } }, "Cancel")));
     sheet.open = true;
     requestAnimationFrame(() => name.querySelector("input")?.focus());
   }

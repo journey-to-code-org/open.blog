@@ -119,7 +119,7 @@ async function signIn(page, hash = "#/cards") {
 
 test("Cards lists what didn't go out first, and Home says what goes out this week", async ({ page }) => {
   await signIn(page, "#/");
-  await expect(page.getByRole("link", { name: /Jimmy's christmas card didn't go out/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Jimmy's Christmas card didn't go out/ })).toBeVisible();
   await page.getByRole("link", { name: "Cards" }).first().click();
   await expect(page.getByRole("heading", { name: "Who gets a card?" })).toBeVisible();
   await expect(page.locator(".studio-card-sections h3")).toHaveText(["Didn't go out", "Coming up"]);

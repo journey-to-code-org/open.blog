@@ -95,7 +95,8 @@ export async function createCardEdit({ api, go }, route) {
         text: `You were writing a card${who ? ` to ${who}` : ""}.`,
         choices: [{ label: "Pick up", value: "pick" }, { label: "Start fresh", value: "fresh", variant: "secondary" }],
       });
-      if (choice === "pick") { form = { ...start, ...waiting.form }; dirty = true; } else kept.clear(keptKey);
+      // Only "Start fresh" throws it away; closing the question keeps it, picked up.
+      if (choice === "fresh") kept.clear(keptKey); else { form = { ...start, ...waiting.form }; dirty = true; }
     }
     if (card) heading.textContent = card.status === "failed" ? `Try ${person(card.contactId)?.name || "this"}'s card again` : `Change ${person(card.contactId)?.name || "this"}'s card`;
     draw();
@@ -183,8 +184,9 @@ export async function createCardEdit({ api, go }, route) {
   function fieldTrouble(fields, error) {
     const words = cardTrouble(error);
     const field = fields[error.data?.field];
-    if (field && "error" in field) {
-      field.error = words;
+    if (field) {
+      // date-field has no error slot yet (a Zubra gap): its description carries the problem instead.
+      if ("error" in field) field.error = words; else field.description = words;
       (field.querySelector("input, textarea, select, button") || field).focus?.();
     }
     status.textContent = words;
@@ -202,6 +204,7 @@ export async function createCardEdit({ api, go }, route) {
       dirty = false;
       const words = `Scheduled. ${cardTitle(reply.card, person(reply.card.contactId), designs())}: ${cardLine(reply.card, (iso) => sayWhen(iso, { timeZone: zone() }))}`;
       toast(words);
+      try { sessionStorage.setItem("studio:cards:said", JSON.stringify({ id: reply.card.id, words })); } catch { /* the toast says it */ }
       go("#/cards");
     } catch (error) {
       if (error.status === 401) throw error;

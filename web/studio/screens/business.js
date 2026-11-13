@@ -18,7 +18,8 @@ const clock = (hhmm) => {
   return `${hour % 12 || 12}${minute ? `:${String(minute).padStart(2, "0")}` : ""} ${hour < 12 ? "AM" : "PM"}`;
 };
 
-export async function createBusiness({ api, meta }) {
+export async function createBusiness(context) {
+  const { api, meta } = context;
   await use("text-field", "select-field", "toggle-switch", "action-button", "alert-banner", "skeleton-block");
   const M = await import(MODEL);
   let reply = null; // GET business
@@ -181,7 +182,9 @@ export async function createBusiness({ api, meta }) {
     const sent = JSON.stringify(form);
     try {
       const result = await api.put("business", { etag: reply.etag, business: M.businessFromForm(form) });
+      const tradeWas = reply.business?.trade || "";
       reply = result;
+      if ((result.business?.trade || "") !== tradeWas) context.refreshMeta?.();
       saved = M.formFromBusiness(result.business);
       if (saved.phone) saved.phone = M.formatPhone(saved.phone);
       if (JSON.stringify(form) === sent) form = { ...saved, hours: structuredClone(saved.hours), paymentMethods: [...saved.paymentMethods] };
@@ -202,15 +205,25 @@ export async function createBusiness({ api, meta }) {
         const theirs = await api.get("business").catch(() => null);
         const choice = theirs && await askWhichToKeep({ name: "Your business facts", what: "changes", them: "them", were: true });
         if (choice === "mine") { reply = { ...reply, etag: theirs.etag }; busy = false; save.loading = false; return saveNow({ force: true }); }
-        if (choice === "theirs") { reply = theirs; saved = M.formFromBusiness(theirs.business); form = M.formFromBusiness(theirs.business); draw(); status.textContent = "Here are the facts from the other device."; }
+        if (choice === "theirs") {
+          reply = theirs;
+          saved = M.formFromBusiness(theirs.business);
+          if (saved.phone) saved.phone = M.formatPhone(saved.phone);
+          form = { ...saved, hours: structuredClone(saved.hours), paymentMethods: [...saved.paymentMethods] };
+          draw();
+          status.textContent = "Here are the facts from the other device.";
+        }
         return false;
       }
       if (error.status === 422 && Array.isArray(error.data?.problems)) {
         showProblems(error.data.problems.map((p) => ({ field: p.field || "", message: plainProblem(p), day: p.day })), { serverText: error.message });
         return false;
       }
-      banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" },
-        error.status ? M.businessErrorText(error).replace(/^The facts were not saved\. .*$/, "The facts were not saved. Your changes are still here; try again in a moment.") : "Studio couldn't reach your site's server. Your changes are still here."));
+      const words = error.status ? M.businessErrorText(error).replace(/^The facts were not saved\. .*$/, "The facts were not saved. Your changes are still here; try again in a moment.") : "Studio couldn't reach your site's server. Your changes are still here.";
+      banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" }, words));
+      // Said beside Save too, where she is.
+      barWords.textContent = "Not saved. Your changes are still here.";
+      status.textContent = words;
       return false;
     } finally {
       busy = false;

@@ -22,6 +22,15 @@ export async function startShell(root, api, meta) {
   rememberSiteName(siteName);
   const posts = createPostsStore(api);
   const context = { api, meta, siteName, posts, go: (hash) => router.go(hash) };
+  // A change that alters what the site uses (naming a trade, say) shows its screens without a reload.
+  context.refreshMeta = async () => {
+    try {
+      Object.assign(meta, await api.get("meta"));
+      shell.nav = navFor(meta);
+    } catch {
+      // The next start reads it again.
+    }
+  };
 
   const undoSlot = h("div", { class: "studio-undo", "aria-live": "polite" });
   const screenHost = h("div");
@@ -129,7 +138,8 @@ export async function startShell(root, api, meta) {
   }
 
   const router = createRouter({
-    screens: Object.fromEntries(SCREENS.filter((s) => !s.when || s.when(meta)).map((s) => [s.name, (route) => s.create(context, route)])),
+    // Whether a screen applies is asked as it opens, so a refreshed meta counts at once.
+    screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => (!s.when || s.when(meta) ? s.create(context, route) : SCREENS[0].create(context, { name: "home", arg: "", query: {} }))])),
     async onShow(screen, route) {
       shell.current = AREA[route.name] || "home";
       shell.heading = screen.title;

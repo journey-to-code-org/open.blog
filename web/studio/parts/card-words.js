@@ -26,7 +26,8 @@ export function designLabel(id, designs = []) {
 /** "Ricky's birthday card", the way Cards and Home both say it. */
 export function cardTitle(card, person, designs = []) {
   const who = person?.name ? `${person.name}'s` : "A";
-  return `${who} ${designLabel(card.design, designs).toLowerCase()} card`;
+  const label = designLabel(card.design, designs).toLowerCase().replace(/\b(christmas|easter|thanksgiving|valentine|hanukkah|mother|father)\b/g, (w) => w[0].toUpperCase() + w.slice(1));
+  return `${who} ${label} card`;
 }
 
 /** The list's sections, in order, each only when it has cards. Cancelled cards never show. */

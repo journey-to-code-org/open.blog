@@ -57,7 +57,7 @@ export async function createVisitors({ api, meta, posts, go }, route) {
     const most = Math.max(1, ...(summary.series || []).map((d) => d.views || 0));
     const readRow = (r) => h("li", {}, h("a", { href: siteLink(meta, r.url), target: "_blank", rel: "noopener", text: r.title }), " ", h("span", { class: "studio-help", text: peopleWords(r.people) }));
     const moreList = h("ol", { class: "studio-visitor-list", start: String(reads.top.length + 1), hidden: true }, ...reads.more.map(readRow));
-    const showMore = reads.more.length ? h("action-button", { variant: "ghost", size: "sm", onClick: (e) => { moreList.hidden = false; e.currentTarget.hidden = true; } }, "Show more") : null;
+    const showMore = reads.more.length ? h("action-button", { variant: "ghost", size: "sm", onClick: (e) => { moreList.hidden = false; e.currentTarget.hidden = true; moreList.querySelector("a")?.focus(); } }, "Show more") : null;
     const referrers = (summary.referrers || []).slice(0, 5);
     body.replaceChildren(
       h("p", { class: "studio-visitor-number", text: headline(summary) }),
