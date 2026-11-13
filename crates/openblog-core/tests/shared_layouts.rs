@@ -406,6 +406,30 @@ fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
         )
     };
     let result = assemble(&set, &choices).unwrap();
+    let receipt = openblog_core::assembly::PublishedRevision::capture_all_contributions(
+        &record,
+        &arrangement,
+        &set,
+        &synthesis,
+        &moments,
+        &approvals,
+        &active,
+        &result,
+    );
+    assert_eq!(
+        receipt
+            .sections
+            .iter()
+            .map(|section| (
+                section.participant_id.as_str(),
+                section.contribution_id.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [("ann", "first"), ("ann", "second"), ("bo", "third")]
+    );
+    assert!(receipt.matches_files(&result.source, &result.credits));
+    let outcome = openblog_core::assembly::Outcome::published_with_revision(T, receipt);
+    assert!(openblog_core::assembly::Outcome::from_json(&outcome.to_json()).is_some());
     assert!(in_order(
         body(&result.source),
         &["FIRST", "THIRD", "SECOND"]

@@ -1330,13 +1330,57 @@ impl PublishedRevision {
         active: &[&str],
         assembly: &Assembly,
     ) -> Self {
-        let sections = with_subject(
+        Self::capture_mode(
+            record, structure, drafts, synthesis, moments, approvals, active, assembly, false,
+        )
+    }
+
+    /// Capture every live contribution included by multi-contribution assembly.
+    #[allow(clippy::too_many_arguments)]
+    pub fn capture_all_contributions(
+        record: &SharedPublication,
+        structure: &ReflectionStructure,
+        drafts: &DraftSet,
+        synthesis: &SynthesisSet,
+        moments: &MomentSet,
+        approvals: &ApprovalSet,
+        active: &[&str],
+        assembly: &Assembly,
+    ) -> Self {
+        Self::capture_mode(
+            record,
+            Some(structure),
+            drafts,
+            synthesis,
+            moments,
+            approvals,
+            active,
+            assembly,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn capture_mode(
+        record: &SharedPublication,
+        structure: Option<&ReflectionStructure>,
+        drafts: &DraftSet,
+        synthesis: &SynthesisSet,
+        moments: &MomentSet,
+        approvals: &ApprovalSet,
+        active: &[&str],
+        assembly: &Assembly,
+        all_contributions: bool,
+    ) -> Self {
+        let sections = with_subject_mode(
             record,
             structure,
             drafts,
             synthesis,
             moments,
             active,
+            active,
+            all_contributions,
             |subject| {
                 subject
                     .sections
