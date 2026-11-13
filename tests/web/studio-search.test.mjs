@@ -48,3 +48,10 @@ test("summary words", () => {
   assert.equal(summary({ all: 1, draft: 1, scheduled: 0, published: 0 }), "1 post, 1 waiting as a draft");
   assert.equal(summary(countByStatus(items)), "6 posts, 2 waiting as drafts, 1 scheduled");
 });
+
+test("matchPosts also finds tags, and ignores apostrophes", async () => {
+  const { matchPosts } = await import("../../web/studio/parts/search.js");
+  const items = [{ title: "Grammi's Stuffing", tags: ["thanksgiving"] }, { title: "Pumpkin bread", tags: ["fall"] }];
+  assert.deepEqual(matchPosts(items, { query: "thanksgiving" }).map((i) => i.title), ["Grammi's Stuffing"]);
+  assert.deepEqual(matchPosts(items, { query: "grammis" }).map((i) => i.title), ["Grammi's Stuffing"]);
+});

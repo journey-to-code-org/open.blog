@@ -27,7 +27,7 @@ export function formFromDocument(doc) {
     cover: text(fields.cover),
     coverAlt: text(fields.coverAlt),
     draft: text(fields.draft).trim().toLowerCase() === "true",
-    body: typeof doc?.body === "string" ? doc.body : "",
+    body: typeof doc?.body === "string" ? doc.body.replace(/^(?:[ \t]*\r?\n)+/, "") : "",
   };
 }
 
@@ -77,6 +77,13 @@ function nowInstant(now, timeZone) {
  * @param {"draft"|"publish"} intent
  * @param {{ now?: Date, timeZone?: string }} [options]
  */
+/** Empty stays as it arrived ("" stays "", missing stays missing); otherwise orNull. */
+function keepEmpty(received, key, value) {
+  const text = String(value ?? "").trim();
+  if (!text && received && received[key] === "") return "";
+  return orNull(value);
+}
+
 export function fieldsToSend(received, form, intent, { now = new Date(), timeZone } = {}) {
   if (intent !== "draft" && intent !== "publish") throw new TypeError(`Unknown intent: ${intent}`);
   const fields = {};
@@ -87,9 +94,9 @@ export function fieldsToSend(received, form, intent, { now = new Date(), timeZon
   fields.title = orNull(form?.title);
   const tags = cleanTags(form?.tags);
   fields.tags = tags.length ? tags : null;
-  fields.cover = orNull(form?.cover);
-  fields.coverAlt = orNull(form?.coverAlt);
-  fields.draft = intent === "draft" ? "true" : null;
+  fields.cover = keepEmpty(received, "cover", form?.cover);
+  fields.coverAlt = keepEmpty(received, "coverAlt", form?.coverAlt);
+  fields.draft = intent === "draft" ? true : null;
 
   const had = received?.date;
   const picked = String(form?.date ?? "").trim();

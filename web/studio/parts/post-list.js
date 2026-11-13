@@ -10,13 +10,19 @@ const BADGE = {
   error: { variant: "danger", text: "Needs fixing" },
 };
 
+/** The posts list sends a date-only post as "YYYY-MM-DDT00:00:00Z": that's a day, not a moment. */
+export function sayListDate(date) {
+  const plain = /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.0+)?Z$/.exec(String(date || ""));
+  return sayWhen(plain ? plain[1] : date);
+}
+
 export function postHref(path) {
   return `#/write/${encodeURIComponent(path)}`;
 }
 
 export function postRow(post) {
   const badge = BADGE[post.status] || BADGE.draft;
-  const when = post.status === "error" ? "This file can't be read; open it in the old Admin." : post.date ? sayWhen(post.date) : "No date yet";
+  const when = post.status === "error" ? "This file can't be read; open it in the old Admin." : post.date ? sayListDate(post.date) : "No date yet";
   return h("li", { class: "studio-post-row", "data-status": post.status },
     h("a", { class: "studio-post-link", href: postHref(post.path) },
       h("span", { class: "studio-post-title", text: post.title || "Untitled" }),

@@ -20,5 +20,7 @@ export async function ask({ heading, text, choices }) {
     });
     document.body.append(dialog);
     dialog.open = true;
+    // Start on the first answer, not the ×.
+    requestAnimationFrame(() => dialog.querySelector("action-button .action-button")?.focus());
   });
 }

@@ -8,7 +8,8 @@ import { signInForm } from "./screens/signin.js";
 import { createHome } from "./screens/home.js";
 import { createPosts } from "./screens/posts.js";
 import { createWrite } from "./screens/write.js";
-import { sayWhen } from "./parts/dates.js";
+import { ApiError } from "./api.js";
+import { sayListDate } from "./parts/post-list.js";
 
 const NAV = [
   { id: "home", label: "Home", href: "#/" },
@@ -20,9 +21,10 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export async function startShell(root, api, meta) {
   await use("dashboard-shell", "command-palette", "action-button", "modal-dialog", "toast-region");
   const siteName = meta.siteTitle || "Your site";
+  rememberSiteName(siteName);
   const context = { api, meta, siteName, go: (hash) => router.go(hash) };
 
-  const content = h("div", { class: "studio-screen" });
+  const content = h("main", { class: "studio-screen", id: "studio-main" });
   const actions = h("div", { class: "studio-actions", slot: "actions" });
   const find = h("action-button", { variant: "ghost", "aria-keyshortcuts": isMac ? "Meta+K" : "Control+K", onClick: () => openPalette() },
     "Find", h("span", { class: "studio-key", "aria-hidden": "true", text: isMac ? "⌘K" : "Ctrl K" }));
@@ -44,14 +46,16 @@ export async function startShell(root, api, meta) {
   // Signing in again: a dialog over the screen, so her words stay where they are.
   api.onSignedOut = () => new Promise((resolve, reject) => {
     let dialog = null;
+    const was = document.activeElement;
+    const back = () => setTimeout(() => was?.isConnected && was.focus?.(), 0);
     signInForm(api, {
-      heading: "Sign in again",
+      heading: "",
       intro: "You were signed out. Your words are safe; sign in and Studio will finish what it was doing.",
-      onDone: () => { dialog.open = false; dialog.remove(); resolve(); },
+      onDone: () => { dialog.open = false; dialog.remove(); back(); resolve(); },
     }).then((form) => {
-      dialog = h("modal-dialog", { label: "Sign in again", class: "studio-signin-dialog" }, form);
+      dialog = h("modal-dialog", { label: "Sign in again", class: "studio-signin-dialog" }, h("span", { slot: "heading", text: "Sign in again" }), form);
       dialog.addEventListener("openchange", (event) => {
-        if (!event.detail && dialog.isConnected) { dialog.remove(); reject(new Error("Not saved: you're signed out.")); }
+        if (!event.detail && dialog.isConnected) { dialog.remove(); back(); reject(new ApiError("Not saved: you're signed out. Your words are still here.", 401, { signedOut: true })); }
       });
       document.body.append(dialog);
       dialog.open = true;
@@ -91,14 +95,27 @@ export async function startShell(root, api, meta) {
       ...BASE,
       ...posts.filter((p) => p.status !== "error").map((p) => ({
         id: `post:${p.path}`, label: p.title || p.path, group: "Posts", href: `#/write/${encodeURIComponent(p.path)}`,
-        hint: p.status === "draft" ? "Draft" : p.status === "scheduled" ? `Scheduled ${sayWhen(p.date)}` : "Published",
+        hint: p.status === "draft" ? "Draft" : p.status === "scheduled" ? `Scheduled ${sayListDate(p.date)}` : "Published",
       })),
     ];
   }
   function openPalette() {
-    refreshPalette();
-    palette.open = true;
+    palette.open = true; // openchange refreshes the posts
   }
+
+  // Keys that work anywhere in Studio (command-palette handles Ctrl/⌘ K itself): Save, Publish. Save never falls through to the
+  // browser's "Save page", even when nothing on this screen can be saved.
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key !== "s" && key !== "enter") return;
+    const screen = router.current();
+    const id = key === "s" ? "save" : "publish";
+    if (key === "s") event.preventDefault();
+    if (!screen?.palette?.some((item) => item.id === id) || palette.open || document.querySelector("modal-dialog[open]")) return;
+    event.preventDefault();
+    screen.command(id);
+  });
   function runCommand(id) {
     if (id === "site") account("site");
     else if (id === "signout") signOut();
@@ -120,12 +137,22 @@ export async function startShell(root, api, meta) {
       paletteScreen = screen.palette || [];
       palette.items = [...paletteScreen, ...BASE];
       await screen.load?.();
-      screen.focus?.() ?? content.querySelector("h1, h2")?.focus?.();
+      if (screen.focus) screen.focus();
+      else content.querySelector("h1, h2")?.focus?.();
     },
   });
+  context.replaceRoute = (hash) => router.replace(hash);
   context.setTitle = (title) => { shell.heading = title; document.title = `${title} · ${siteName}`; };
   context.setActions = (nodes) => actions.replaceChildren(...nodes);
   context.toast = toast;
   context.route = () => parseRoute(location.hash);
   await router.start();
+}
+
+function rememberSiteName(name) {
+  try {
+    localStorage.setItem("studio:site-name", name);
+  } catch {
+    // Only the sign-in page's heading uses it.
+  }
 }

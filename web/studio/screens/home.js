@@ -2,8 +2,7 @@
 // of, and what went up lately.
 import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
-import { postList, postHref } from "../parts/post-list.js";
-import { sayWhen } from "../parts/dates.js";
+import { postList, postHref, sayListDate } from "../parts/post-list.js";
 
 export async function createHome({ api }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
@@ -23,7 +22,8 @@ export async function createHome({ api }) {
       return;
     }
     const drafts = items.filter((p) => p.status === "draft").slice(0, 3);
-    const published = items.filter((p) => p.status === "published" || p.status === "scheduled").slice(0, 3);
+    const published = items.filter((p) => p.status === "published").slice(0, 3);
+    const coming = items.filter((p) => p.status === "scheduled").sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 3);
     body.removeAttribute("aria-busy");
     if (!items.length) {
       body.replaceChildren(h("empty-state", { heading: "Nothing written yet" },
@@ -36,7 +36,10 @@ export async function createHome({ api }) {
       drafts.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-keep" },
         h("h3", { id: "studio-keep", text: "Keep going" }),
         h("auto-grid", { min: "15rem" }, drafts.map((p) => h("content-card", { heading: p.title || "Untitled", href: postHref(p.path) },
-          h("p", { class: "studio-meta", text: p.date ? `Draft for ${sayWhen(p.date)}` : "A draft" }))))) : null,
+          h("p", { class: "studio-meta", text: p.date ? `Draft for ${sayListDate(p.date)}` : "A draft" }))))) : null,
+      coming.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-coming" },
+        h("h3", { id: "studio-coming", text: "Coming up" }),
+        postList(coming, "Coming up")) : null,
       published.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-recent" },
         h("h3", { id: "studio-recent", text: "Recently published" }),
         postList(published, "Recently published"),

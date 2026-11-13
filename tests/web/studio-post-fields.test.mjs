@@ -94,11 +94,21 @@ test("fieldsToSend: empty Studio fields become null so the server removes them",
   const form = { ...formFromDocument(doc), title: "  ", cover: "", coverAlt: " ", tags: [" ", ""], date: "" };
   const sent = fieldsToSend(doc.fields, form, "draft", opts);
   assert.equal(sent.title, null);
-  assert.equal(sent.cover, null);
-  assert.equal(sent.coverAlt, null);
+  assert.equal(sent.cover, doc.fields.cover === "" ? "" : null);
+  assert.equal(sent.coverAlt, doc.fields.coverAlt === "" ? "" : null);
   assert.equal(sent.tags, null);
   assert.equal(sent.date, null);
-  assert.equal(sent.draft, "true");
+  assert.equal(sent.draft, true);
+});
+
+test("fieldsToSend: an empty cover keeps the shape it arrived in", () => {
+  assert.equal(fieldsToSend({ title: "A", cover: "" }, { title: "A", cover: "" }, "draft", opts).cover, "");
+  assert.equal(fieldsToSend({ title: "A" }, { title: "A", cover: "" }, "draft", opts).cover, null);
+  assert.equal(fieldsToSend({ title: "A", cover: "x.jpg" }, { title: "A", cover: "" }, "draft", opts).cover, null);
+});
+
+test("formFromDocument drops blank lines at the top of the words", () => {
+  assert.equal(formFromDocument({ fields: { title: "A" }, body: "\n\n  \nHello\n" }).body, "Hello\n");
 });
 
 test("fieldsToSend trims tags and drops empties and case-insensitive duplicates, in order", () => {
@@ -108,9 +118,9 @@ test("fieldsToSend trims tags and drops empties and case-insensitive duplicates,
   assert.equal(sent.title, "Pumpkin bread");
 });
 
-test("fieldsToSend: draft sets draft \"true\", publish sets null", () => {
+test("fieldsToSend: draft sets draft true, publish sets null", () => {
   const doc = meatloaf();
-  assert.equal(fieldsToSend(doc.fields, formFromDocument(doc), "draft", opts).draft, "true");
+  assert.equal(fieldsToSend(doc.fields, formFromDocument(doc), "draft", opts).draft, true);
   const published = fieldsToSend({ ...doc.fields, draft: "true" }, formFromDocument(doc), "publish", opts);
   assert.equal(published.draft, null);
   assert.throws(() => fieldsToSend({}, {}, "schedule", opts), TypeError);

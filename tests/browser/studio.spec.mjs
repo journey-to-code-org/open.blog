@@ -124,6 +124,51 @@ test("a change made elsewhere never loses her words", async ({ page }) => {
   expect(existsSync(file)).toBe(true);
 });
 
+test("after a new post saves, Write something new opens a blank post", async ({ page }) => {
+  await signIn(page, "#/write");
+  await page.getByRole("textbox", { name: "Title", exact: true }).fill("First of two");
+  await page.getByRole("textbox", { name: "Words", exact: true }).fill("One.");
+  await expect(page).toHaveURL(/#\/write\/.*first-of-two/, { timeout: 10000 });
+  await page.getByRole("link", { name: "Home" }).first().click();
+  await page.getByRole("link", { name: "Write something new" }).first().click();
+  await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeFocused();
+});
+
+test("looking at a post without changing it saves nothing", async ({ page }) => {
+  await signIn(page, "#/posts");
+  await page.getByRole("link", { name: /Pumpkin bread/ }).click();
+  await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue(/.+/);
+  const writes = [];
+  page.on("request", (request) => { if (request.method() !== "GET" && request.url().includes("/admin/api/")) writes.push(request.url()); });
+  await page.getByRole("textbox", { name: "Title", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Control+s");
+  await page.waitForTimeout(800);
+  expect(writes).toEqual([]);
+  await expect(page.getByText("not on your site yet")).toHaveCount(0);
+  await page.getByRole("link", { name: "Posts" }).first().click();
+  await expect(page).toHaveURL(/#\/posts$/);
+});
+
+test("words with no title wait for her, and the question fits a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 860 });
+  await signIn(page, "#/write");
+  await page.getByRole("textbox", { name: "Words", exact: true }).fill("Deviled eggs, the way Mom made them.");
+  await page.goto(`${origin}/admin/studio/#/posts`);
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  for (const button of await dialog.getByRole("button").all()) {
+    const box = await button.boundingBox();
+    expect(box.x + box.width).toBeLessThanOrEqual(400);
+  }
+  await dialog.getByRole("button", { name: "Leave for now" }).click();
+  await page.goto(`${origin}/admin/studio/#/write`);
+  await page.getByRole("button", { name: "Put them back" }).click();
+  await expect(page.getByRole("textbox", { name: "Words", exact: true })).toHaveValue("Deviled eggs, the way Mom made them.");
+});
+
 for (const [name, hash] of [["Home", ""], ["Posts", "#/posts"], ["Write", "#/write"]]) {
   test(`${name} passes axe and fits 320 px`, async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });

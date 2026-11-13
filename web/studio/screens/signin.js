@@ -16,8 +16,8 @@ export async function signInForm(api, { onDone, heading = "Sign in", intro = "" 
   const name = h("text-field", { label: "Your name", name: "username", autocomplete: "username", required: true });
   const password = h("text-field", { label: "Password", name: "password", type: "password", autocomplete: "current-password", required: true });
   const button = h("action-button", { type: "submit", size: "lg" }, "Sign in");
-  const form = h("form", { class: "studio-signin-form", "aria-labelledby": "studio-signin-heading", novalidate: true },
-    h("h1", { id: "studio-signin-heading", class: "studio-title", text: heading }),
+  const form = h("form", { class: "studio-signin-form", "aria-label": heading || "Sign in", novalidate: true },
+    heading ? h("h1", { class: "studio-title", text: heading }) : null,
     intro ? h("p", { class: "studio-lede", text: intro }) : null,
     problem, name, password, button,
     h("p", { class: "studio-help", text: "Forgot it? Ask the person who set up your site." }),
@@ -51,11 +51,20 @@ export async function signInForm(api, { onDone, heading = "Sign in", intro = "" 
 export function showSignIn(root, api, options = {}) {
   return new Promise((resolve) => {
     signInForm(api, { ...options, onDone: resolve }).then((form) => {
-      document.title = "Sign in · Studio";
+      const site = rememberedSiteName();
+      document.title = site ? `Sign in · ${site}` : "Sign in";
       root.replaceChildren(h("main", { class: "studio-signin" },
-        h("p", { class: "studio-brand", text: "Studio" }),
+        h("p", { class: "studio-brand", text: site || "Your site" }),
         form));
       form.querySelector("input")?.focus();
     });
   });
+}
+
+function rememberedSiteName() {
+  try {
+    return localStorage.getItem("studio:site-name") || "";
+  } catch {
+    return "";
+  }
 }

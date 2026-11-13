@@ -4,11 +4,11 @@ const STATUSES = ["draft", "scheduled", "published"];
 
 /** Lower case with accents removed, so "creme brulee" finds "Crème Brûlée". */
 function fold(text) {
-  return String(text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  return String(text ?? "").normalize("NFD").replace(/\p{M}/gu, "").replace(/['’]/g, "").toLowerCase();
 }
 
 /**
- * The items whose title contains every word of the query (case- and accent-insensitive) and
+ * The items whose title or tags contain every word of the query (case- and accent-insensitive) and
  * whose status matches, in their original order.
  * @template {{ title?: string, status?: string }} T
  * @param {T[]} items posts-list items
@@ -19,8 +19,8 @@ export function matchPosts(items, { query = "", status = "all" } = {}) {
   const words = fold(query).split(/\s+/).filter(Boolean);
   return (items || []).filter((item) => {
     if (status !== "all" && item?.status !== status) return false;
-    const title = fold(item?.title);
-    return words.every((word) => title.includes(word));
+    const text = fold([item?.title, ...(Array.isArray(item?.tags) ? item.tags : [])].join(" "));
+    return words.every((word) => text.includes(word));
   });
 }
 

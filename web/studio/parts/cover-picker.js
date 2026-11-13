@@ -24,7 +24,7 @@ export async function coverPicker({ api, cover = "", coverAlt = "", maxBytes = 0
         h("img", { class: "studio-cover-img", src: state.cover, alt: state.coverAlt || "The cover photo" }),
         alt,
         h("div", { class: "studio-row" },
-          h("action-button", { variant: "secondary", onClick: () => { state.cover = ""; draw(); changed(); } }, "Change the photo"),
+          h("action-button", { variant: "secondary", onClick: () => { state.cover = ""; state.coverAlt = ""; draw(); changed(); body.querySelector("input[type=file]")?.focus(); } }, "Change the photo"),
           h("action-button", { variant: "ghost", onClick: () => { state.cover = ""; state.coverAlt = ""; draw(); changed(); } }, "Remove it")));
     } else {
       const drop = h("file-drop", { label: "Add a photo", hint: "From your phone or computer.", accept: "image/*", multiple: false, "max-size": maxBytes ? Math.floor(maxBytes / 1048576) : 0 });
@@ -66,7 +66,7 @@ export async function coverPicker({ api, cover = "", coverAlt = "", maxBytes = 0
         return;
       }
       grid.replaceChildren(...usable.map((img) => h("li", {},
-        h("button", { type: "button", class: "studio-picture", onClick: () => { state.cover = img.url; dialog.open = false; draw(); changed(); } },
+        h("button", { type: "button", class: "studio-picture", onClick: () => { state.cover = img.url; state.coverAlt = ""; dialog.open = false; draw(); changed(); setTimeout(() => root.querySelector("text-field input")?.focus(), 0); } },
           h("img", { src: img.url, alt: "", loading: "lazy" }),
           h("span", { text: img.name || img.url.split("/").pop() })))));
     } catch (error) {
