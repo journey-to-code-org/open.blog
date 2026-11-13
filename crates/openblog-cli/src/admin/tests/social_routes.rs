@@ -637,11 +637,11 @@ fn a_mastodon_sign_in_address_is_passed_on_only_at_the_instance_the_function_nam
     let connection = json!({ "id": ID, "provider": "mastodon", "status": "pending", "expiresAt": "2026-10-29T12:10:00Z", "requestedScopes": ["read:accounts"], "grantedScopes": [], "createdBy": "mikey", "createdAt": "2026-10-29T12:00:00Z", "reauthAccountId": null, "errorCode": null, "message": null, "destinations": [], "notes": [] });
     let good = "https://social.example.org/oauth/authorize?client_id=1&state=abc";
     let (endpoint, server) = hosted(vec![
+        (200, mastodon_status("https://social.example.org")),
         (
             201,
             json!({ "connection": connection, "authorizeUrl": good }).to_string(),
         ),
-        (200, mastodon_status("https://social.example.org")),
     ]);
     let ok = route_with(
         &env_for(&endpoint),
@@ -652,7 +652,7 @@ fn a_mastodon_sign_in_address_is_passed_on_only_at_the_instance_the_function_nam
     assert_eq!(ok.status, 200);
     assert_eq!(body_json(&ok)["authorizeUrl"], good);
     let seen = server.join().unwrap();
-    assert!(seen[1].starts_with("GET /api/social/status"), "{}", seen[1]);
+    assert!(seen[0].starts_with("GET /api/social/status"), "{}", seen[0]);
 
     for bad in [
         "https://evil.example/oauth/authorize?state=abc",
@@ -661,11 +661,11 @@ fn a_mastodon_sign_in_address_is_passed_on_only_at_the_instance_the_function_nam
         "https://social.example.org.evil.example/oauth/authorize",
     ] {
         let (endpoint, server) = hosted(vec![
+            (200, mastodon_status("https://social.example.org")),
             (
                 201,
                 json!({ "connection": connection, "authorizeUrl": bad }).to_string(),
             ),
-            (200, mastodon_status("https://social.example.org")),
         ]);
         let r = route_with(
             &env_for(&endpoint),
@@ -676,4 +676,308 @@ fn a_mastodon_sign_in_address_is_passed_on_only_at_the_instance_the_function_nam
         assert_eq!(r.status, 502, "{bad}");
         server.join().unwrap();
     }
+}
+
+// ---- Studio R2: the way back to Studio (G6) and refusals with codes (G18) ----------------------
+
+fn facebook_pending() -> Json {
+    json!({ "id": ID, "provider": "facebook", "status": "pending", "expiresAt": "2026-10-29T12:10:00Z", "requestedScopes": ["pages_show_list"], "grantedScopes": [], "createdBy": "mikey", "createdAt": "2026-10-29T12:00:00Z", "reauthAccountId": null, "errorCode": null, "message": null, "destinations": [], "notes": [] })
+}
+
+fn status_reply(returns: bool) -> String {
+    json!({ "enabled": true, "returns": returns, "problems": [], "providers": [
+        { "provider": "facebook", "label": "Facebook", "login": "oauth", "redirectUri": "https://blog.example.com/api/social/callback/facebook", "version": "v23.0", "scopes": ["pages_show_list"], "requiredScopes": ["pages_show_list"], "organizations": false, "pkce": false },
+    ] })
+    .to_string()
+}
+
+fn started_reply() -> String {
+    json!({ "connection": facebook_pending(), "authorizeUrl": "https://www.facebook.com/v23.0/dialog/oauth?state=abc" }).to_string()
+}
+
+fn from(origin: Option<&str>, host: &str, body: Json) -> Request {
+    let mut r = json_req("POST", "/x", body);
+    r.headers.insert("host".into(), host.into());
+    if let Some(origin) = origin {
+        r.headers.insert("origin".into(), origin.into());
+    }
+    r
+}
+
+#[test]
+fn the_status_says_whether_the_function_sends_the_browser_back() {
+    for (reply, expected) in [
+        (status_reply(true), true),
+        (status_reply(false), false),
+        (
+            json!({ "enabled": true, "returns": "yes", "providers": [] }).to_string(),
+            false,
+        ),
+        (
+            json!({ "enabled": true, "providers": [] }).to_string(),
+            false,
+        ),
+    ] {
+        let (endpoint, server) = hosted(vec![(200, reply)]);
+        let body = body_json(&route_with(
+            &env_for(&endpoint),
+            &req("GET", "/x"),
+            "mikey",
+            "status",
+        ));
+        assert_eq!(body["returns"], expected);
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn a_connect_names_its_own_studio_as_the_way_back_only_when_the_function_returns() {
+    for (origin, host, expected) in [
+        (
+            "https://blog.example.com",
+            "blog.example.com",
+            "https://blog.example.com/admin/studio/",
+        ),
+        (
+            "https://blog.example.com:8443",
+            "blog.example.com:8443",
+            "https://blog.example.com:8443/admin/studio/",
+        ),
+        (
+            "http://127.0.0.1:4000",
+            "127.0.0.1:4000",
+            "http://127.0.0.1:4000/admin/studio/",
+        ),
+        (
+            "http://localhost:4000",
+            "localhost:4000",
+            "http://localhost:4000/admin/studio/",
+        ),
+    ] {
+        let (endpoint, server) = hosted(vec![(200, status_reply(true)), (201, started_reply())]);
+        let r = route_with(
+            &env_for(&endpoint),
+            &from(Some(origin), host, json!({ "provider": "facebook" })),
+            "mikey",
+            "connections",
+        );
+        assert_eq!(r.status, 200, "{origin}");
+        let seen = server.join().unwrap();
+        assert!(
+            seen[0].starts_with("GET /api/social/status "),
+            "{}",
+            seen[0]
+        );
+        assert!(
+            seen[1].ends_with(&format!(
+                r#"{{"provider":"facebook","returnTo":"{expected}"}}"#
+            )),
+            "{}",
+            seen[1]
+        );
+    }
+    // A function from before G6 (no `returns`) gets no address, and the connect still works.
+    let (endpoint, server) = hosted(vec![(200, status_reply(false)), (201, started_reply())]);
+    let r = route_with(
+        &env_for(&endpoint),
+        &from(
+            Some("https://blog.example.com"),
+            "blog.example.com",
+            json!({ "provider": "facebook" }),
+        ),
+        "mikey",
+        "connections",
+    );
+    assert_eq!(r.status, 200);
+    let seen = server.join().unwrap();
+    assert!(
+        seen[1].ends_with(r#"{"provider":"facebook"}"#),
+        "{}",
+        seen[1]
+    );
+}
+
+#[test]
+fn no_way_back_is_named_from_a_foreign_malformed_or_plain_http_origin_and_none_from_the_browser() {
+    // Each of these sends only the start (the fake would panic on a status call it was not given).
+    for (origin, host) in [
+        (None, "blog.example.com"),
+        (Some("http://blog.example.com"), "blog.example.com"),
+        (Some("https://evil.example"), "blog.example.com"),
+        (
+            Some("https://blog.example.com.evil.example"),
+            "blog.example.com",
+        ),
+        (
+            Some("https://blog.example.com/admin/studio/"),
+            "blog.example.com",
+        ),
+        (Some("https://u:p@blog.example.com"), "blog.example.com"),
+        (Some("HTTPS://BLOG.EXAMPLE.COM"), "BLOG.EXAMPLE.COM"),
+        (Some("null"), "blog.example.com"),
+        (Some("https://[2001:db8::1]"), "[2001:db8::1]"),
+        (Some("javascript://blog.example.com"), "blog.example.com"),
+    ] {
+        let (endpoint, server) = hosted(vec![(201, started_reply())]);
+        let r = route_with(
+            &env_for(&endpoint),
+            &from(origin, host, json!({ "provider": "facebook" })),
+            "mikey",
+            "connections",
+        );
+        assert_eq!(r.status, 200, "{origin:?}");
+        let seen = server.join().unwrap();
+        assert_eq!(seen.len(), 1, "{origin:?}");
+        assert!(
+            seen[0].ends_with(r#"{"provider":"facebook"}"#),
+            "{origin:?}: {}",
+            seen[0]
+        );
+    }
+    // The browser cannot name one: the field is refused before anything is sent.
+    let (endpoint, server) = hosted(vec![]);
+    for body in [
+        json!({ "provider": "facebook", "returnTo": "https://evil.example/admin/studio/" }),
+        json!({ "returnTo": "https://evil.example/admin/studio/" }),
+    ] {
+        let path = if body.get("provider").is_some() {
+            "connections".to_string()
+        } else {
+            format!("accounts/{ID}/reconnect")
+        };
+        let r = route_with(
+            &env_for(&endpoint),
+            &from(Some("https://blog.example.com"), "blog.example.com", body),
+            "mikey",
+            &path,
+        );
+        assert_eq!(r.status, 400, "{path}");
+        assert_eq!(body_json(&r)["code"], "invalid-request");
+    }
+    drop(server);
+}
+
+#[test]
+fn an_oauth_reconnect_names_the_way_back_and_a_bluesky_one_never_does() {
+    let mut pending = facebook_pending();
+    pending["reauthAccountId"] = json!(ID);
+    let reconnecting = json!({ "connection": pending, "authorizeUrl": "https://www.facebook.com/v23.0/dialog/oauth?state=again" });
+    let (endpoint, server) = hosted(vec![
+        (200, status_reply(true)),
+        (201, reconnecting.to_string()),
+    ]);
+    let path = format!("accounts/{ID}/reconnect");
+    let r = route_with(
+        &env_for(&endpoint),
+        &from(
+            Some("https://blog.example.com"),
+            "blog.example.com",
+            json!({}),
+        ),
+        "mikey",
+        &path,
+    );
+    assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    let seen = server.join().unwrap();
+    assert!(seen[1].ends_with(r#"{"returnTo":"https://blog.example.com/admin/studio/"}"#));
+
+    let (endpoint, server) = hosted(vec![(
+        201,
+        json!({ "connection": bluesky_connection("completed", Some(ID)) }).to_string(),
+    )]);
+    let r = route_with(
+        &env_for(&endpoint),
+        &from(
+            Some("https://blog.example.com"),
+            "blog.example.com",
+            json!({ "identifier": "ada.bsky.social", "appPassword": APP_PASSWORD }),
+        ),
+        "mikey",
+        &path,
+    );
+    assert_eq!(r.status, 200);
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 1, "no status call for an app-password sign-in");
+    assert!(!seen[0].contains("returnTo"));
+}
+
+#[test]
+fn every_refusal_carries_a_code_studio_can_word() {
+    // Admin's own refusals, before anything is sent.
+    let (endpoint, server) = hosted(vec![]);
+    let env = env_for(&endpoint);
+    for (body, path, code) in [
+        (json!({}), "connections", "missing-provider"),
+        (
+            json!({ "provider": "bluesky" }),
+            "connections",
+            "app-password-required",
+        ),
+        (
+            json!({ "provider": "facebook", "identifier": "ada.bsky.social", "appPassword": APP_PASSWORD }),
+            "connections",
+            "oauth-required",
+        ),
+        (
+            json!({ "provider": "bluesky", "identifier": "", "appPassword": APP_PASSWORD }),
+            "connections",
+            "invalid-identifier",
+        ),
+        (
+            json!({ "provider": "bluesky", "identifier": "ada.bsky.social", "appPassword": "hunter2" }),
+            "connections",
+            "invalid-app-password",
+        ),
+        (
+            json!({ "provider": "facebook", "x": 1 }),
+            "connections",
+            "invalid-request",
+        ),
+    ] {
+        let r = route_with(&env, &json_req("POST", "/x", body.clone()), "mikey", path);
+        assert_eq!(r.status, 400, "{body}");
+        assert_eq!(body_json(&r)["code"], code, "{body}");
+        assert!(!String::from_utf8_lossy(&r.body).contains("hunter2"));
+    }
+    drop(server);
+    let off = |_: &str| None;
+    let r = route_with(&off, &req("GET", "/x"), "mikey", "accounts");
+    assert_eq!(
+        (r.status, body_json(&r)["code"].clone()),
+        (404, json!("not-set-up"))
+    );
+
+    // The function's answers: its code kept for 429 and 503, fixed codes for the rest.
+    for (status, body, expected, code) in [
+        (429, json!({ "error": "too-many-attempts", "message": "Too many connection attempts are open." }).to_string(), 429, "too-many-attempts"),
+        (503, json!({ "error": "provider-unavailable", "message": format!("leaked {ACCESS}") }).to_string(), 503, "provider-unavailable"),
+        (503, json!({ "message": "x" }).to_string(), 503, "hosted-unavailable"),
+        (409, json!({ "error": "provider-not-configured", "message": "That provider is not set up on the server." }).to_string(), 409, "provider-not-configured"),
+        (401, json!({ "error": "unauthorized" }).to_string(), 502, "hosted-key-rejected"),
+        (500, json!({ "error": "internal" }).to_string(), 502, "hosted-unavailable"),
+        (200, "<html>".to_string(), 502, "bad-reply"),
+        (200, json!({ "nothing": true }).to_string(), 502, "bad-reply"),
+    ] {
+        let (endpoint, server) = hosted(vec![(status, body)]);
+        let r = route_with(
+            &env_for(&endpoint),
+            &json_req("POST", "/x", json!({})),
+            "mikey",
+            &format!("connections/{ID}/cancel"),
+        );
+        server.join().unwrap();
+        assert_eq!(r.status, expected, "{status} {code}");
+        assert_eq!(body_json(&r)["code"], code, "{status}");
+        assert!(!String::from_utf8_lossy(&r.body).contains("leaked"));
+    }
+    let r = route_with(
+        &env_for("http://127.0.0.1:9/api/social"),
+        &req("GET", "/x"),
+        "mikey",
+        "accounts",
+    );
+    assert_eq!(
+        (r.status, body_json(&r)["code"].clone()),
+        (502, json!("hosted-unavailable"))
+    );
 }

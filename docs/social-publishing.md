@@ -51,6 +51,12 @@ row carries your site scope and relations include it, so a row cannot point at a
 Nothing is deleted by the function: cancelling and disconnecting are updates. The only exception is retention, which
 you turn on yourself (see the [operations runbook](#retention-optional-deletes-data)).
 
+Run `supabase/social-return.sql` right after it, and before you deploy a function that writes it. It adds one
+nullable column, `return_to`, to `openblog_social_connections`: the Studio address a sign-in goes back to (see
+[Back to Studio after signing in](#back-to-studio-after-signing-in)), held by a check to
+`https://<host>/admin/studio/` (or `http://` to `localhost`, `127.0.0.1` or `[::1]`). It is additive and can be run
+twice; `supabase/social-return-rollback.sql` takes the column away again.
+
 To undo it, remove `OPENBLOG_SOCIAL_ENABLED`, stop the worker, export what you want to keep (the commands are in
 the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke access at
 each provider you connected as well (LinkedIn, Facebook, Bluesky and Mastodon, as in
@@ -109,8 +115,28 @@ and `<CALLBACK_BASE>/callback/facebook`. Nothing in a request can change the red
   connect a Page that is not their own. Admin cannot read review status from the API and says so.
 
 Each attempt expires after ten minutes, works once, and at most ten may be open. If the author declines a
-permission, the attempt fails with a plain message and nothing is stored. The scopes shown in Admin are the ones
+permission, the attempt fails with a plain message and nothing is stored. The scopes shown in Studio are the ones
 the provider actually granted. Client secrets are sent in the request body to the provider, never in a URL.
+
+### Back to Studio after signing in
+
+The provider always sends the browser to the function's callback (`<CALLBACK_BASE>/callback/<provider>`). From there
+the function sends it on to the Studio it started from, in the same tab, so the owner lands back on **Your accounts**
+and chooses where posts go. How that address is made, so nothing else can choose it:
+
+1. Studio's **Connect** (or **Reconnect**) goes to Admin. Admin reads the function's `GET status`; only when it says
+   `returns: true` does Admin name a return address, built from the request's own `Origin` (which must match the
+   `Host` it reached) plus the fixed path `/admin/studio/`, and only for `https`, or `http` to `localhost`,
+   `127.0.0.1` or `[::1]`. A browser cannot send one; the field is refused.
+2. The function checks it again (that exact shape, at most 300 characters) and stores it on the attempt's row
+   (`return_to`, from `supabase/social-return.sql`).
+3. The callback finds the row by its single-use `state` and answers `303` to
+   `<return_to>#/sharing/accounts?connection=<id>`, whatever the outcome (said yes, said no, ran out, failed). The id is
+   in the fragment, so it never reaches a server log. A state it does not know, or a row without a return address,
+   gets the fixed page, which says what happened and to go back to Studio.
+
+Studio on plain `http` to a public address, or a function from before this change, gets no return address: Studio then
+opens the provider in a new tab and checks again when the owner comes back to it.
 
 ## Connecting Bluesky (app password)
 
@@ -528,7 +554,7 @@ working, and readers, builds, feeds, exports and cross-posting never change. The
 
 | Gate | Do | Check | Undo |
 | --- | --- | --- | --- |
-| 1. Storage | Run `supabase/social.sql` in the Supabase SQL editor. | `select version from openblog_social_schema;` shows `1`. | `supabase/social-rollback.sql` |
+| 1. Storage | Run `supabase/social.sql`, then `supabase/social-return.sql`, in the Supabase SQL editor. | `select version from openblog_social_schema;` shows `1` and `5`. | `supabase/social-return-rollback.sql`, then `supabase/social-rollback.sql` |
 | 2. Hosted function | Set the [settings](#settings-hosted-function-only) on the Netlify site (generate each key as in [Rotating secrets](#rotating-secrets)) and redeploy. | `curl -s -o /dev/null -w '%{http_code}' https://YOUR-SITE/api/social/status` answers `401` (on, and wants a key), not `404` (off). If it is `404`, the function log names the setting at fault. | Remove `OPENBLOG_SOCIAL_ENABLED` and redeploy. |
 | 3. Admin | On the machine that runs `openblog serve --admin`, set `OPENBLOG_SOCIAL_ENDPOINT` and the same `OPENBLOG_SOCIAL_ADMIN_KEY`, then restart Admin. | Admin shows **Social accounts**; it lists no provider yet. | Unset both and restart Admin. |
 | 4. Providers | Create the LinkedIn and Meta apps, register the redirect addresses and add the products and permissions in [Connecting LinkedIn and Facebook](#connecting-linkedin-and-facebook-oauth); set the client id, secret and `OPENBLOG_SOCIAL_CALLBACK_BASE`; redeploy. | **Connect** an account you own and choose a destination. | **Disconnect** it in Admin, remove the client settings, and remove the app in the provider's settings. |

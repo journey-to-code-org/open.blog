@@ -5,7 +5,10 @@
 // Two kinds of caller. The Rust Admin presents OPENBLOG_SOCIAL_ADMIN_KEY and names the signed-in
 // Admin user in X-OpenBlog-Actor (ADR 0293); everything under /connections and /accounts needs it.
 // The author's browser, coming back from LinkedIn or Facebook, reaches only GET /callback/<provider>,
-// which holds no key: the single-use `state` in its query is the proof, and it answers a fixed page.
+// which holds no key: the single-use `state` in its query is the proof. When the row that state finds
+// holds a return address (G6: the Studio the author started from, named by Admin and checked when it
+// was stored and again here), it answers 303 to `<return_to>#/sharing/accounts?connection=<id>`;
+// otherwise, and for a state it doesn't know, a fixed page.
 // Bluesky has no callback: Admin sends the handle and an app password once (ADR 0357), and the
 // password is used for that one sign-in and never stored or echoed.
 //
@@ -16,7 +19,7 @@
 import { opsPolicy } from "../lib/social-ops.mjs";
 import { SocialScopeError, authorizeSocial, refuseClientScope, socialSettings } from "../lib/social-scope.mjs";
 import { SocialCredentialError } from "../lib/social-credentials.mjs";
-import { SocialOAuthError, createConnector, OUTCOMES } from "../lib/social-oauth.mjs";
+import { SocialOAuthError, createConnector, OUTCOMES, validReturnTo } from "../lib/social-oauth.mjs";
 import { createAnnouncements } from "../lib/social-announcements.mjs";
 import { socialAdapters, waitingProviders } from "../lib/social-adapters.mjs";
 import { createAccounts } from "../lib/social-accounts.mjs";
@@ -37,15 +40,24 @@ const failure = (statusCode, code, message) => json(statusCode, { error: code, m
 
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
-// The only page this function ever renders. Its text comes from OUTCOMES, never from the request.
-function resultPage(ok, text) {
-  const heading = ok ? "Authorized" : "Not connected";
-  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${heading}</title><style>body{font:1rem/1.5 system-ui,sans-serif;margin:0;padding:2rem 1rem;background:#fff;color:#1a1a1a}main{max-width:32rem;margin:0 auto}h1{font-size:1.4rem}@media (prefers-color-scheme:dark){body{background:#111;color:#eee}}</style></head><body><main><h1>${heading}</h1><p>${escapeHtml(text)}</p><p>You can close this tab and return to Admin.</p></main></body></html>`;
+// The only page this function ever renders. Its text comes from OUTCOMES and the provider's label
+// from settings, never from the request.
+function resultPage(ok, text, label = "") {
+  const heading = ok ? `${label || "It"} said yes` : "Not connected";
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(heading)}</title><style>body{font:1.125rem/1.5 system-ui,sans-serif;margin:0;padding:2rem 1rem;background:#fff;color:#1a1a1a}main{max-width:32rem;margin:0 auto}h1{font-size:1.5rem}@media (prefers-color-scheme:dark){body{background:#111;color:#eee}}</style></head><body><main><h1>${escapeHtml(heading)}</h1><p>${escapeHtml(text)}</p><p>You can close this tab and go back to Studio.</p></main></body></html>`;
   return {
     statusCode: ok ? 200 : 400,
     headers: { ...SECURITY, "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" },
     body,
   };
+}
+
+// Back to the Studio that started the attempt (G6): only the stored, re-checked address, and only
+// the connection's id after it, in the fragment, so it never reaches a server log.
+function returnTo(outcome) {
+  const base = validReturnTo(outcome.returnTo);
+  if (!base || !UUID.test(String(outcome.connectionId))) return null;
+  return { statusCode: 303, headers: { ...SECURITY, location: `${base}#/sharing/accounts?connection=${outcome.connectionId}` }, body: "" };
 }
 
 const queryOf = (event) => {
@@ -102,7 +114,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       if (segments[0] === "callback") {
         if (method !== "GET" || segments.length !== 2 || !validProvider(segments[1])) return failure(404, "not-found", "Not found.");
         const outcome = await connector.callback({ provider: segments[1], params: query });
-        return resultPage(outcome.ok, outcome.text);
+        return returnTo(outcome) || resultPage(outcome.ok, outcome.text, providers[segments[1]]?.label);
       }
 
       // Scheduled announcements (ADR 0309) have their own, larger body and their own storage; the
@@ -120,7 +132,8 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       const [head, id, action] = segments;
 
       if (method === "GET" && head === "status" && segments.length === 1) {
-        return json(200, { enabled: true, providers: Object.values(providers).map(describeProvider), problems: [...providers.problems] });
+        // `returns`: this function can send the browser back to Studio after a sign-in (G6), so Admin may name where.
+        return json(200, { enabled: true, returns: true, providers: Object.values(providers).map(describeProvider), problems: [...providers.problems] });
       }
       if (head === "connections") {
         if (method === "GET" && segments.length === 1) return json(200, { connections: await connector.list() });
@@ -130,8 +143,8 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
             only(body, ["provider", "identifier", "appPassword"]);
             return json(201, await connector.appPassword({ provider: body.provider, identifier: body.identifier, password: body.appPassword, actor: identity.actor }));
           }
-          only(body, ["provider"]);
-          return json(201, await connector.start({ provider: body.provider, actor: identity.actor }));
+          only(body, ["provider", "returnTo"]);
+          return json(201, await connector.start({ provider: body.provider, actor: identity.actor, returnTo: body.returnTo }));
         }
         if (method === "POST" && action === "cancel" && segments.length === 3 && UUID.test(id)) {
           only(body, []);
@@ -145,9 +158,12 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       if (head === "accounts") {
         if (method === "GET" && segments.length === 1) return json(200, { accounts: await accounts.list() });
         if (method === "POST" && action === "reconnect" && segments.length === 3 && UUID.test(id)) {
-          only(body, ["identifier", "appPassword"]);
-          const signIn = Object.keys(body).length ? { identifier: body.identifier, password: body.appPassword } : null;
-          return json(201, await accounts.reconnect(id, identity.actor, signIn));
+          only(body, ["identifier", "appPassword", "returnTo"]);
+          const signingIn = Object.hasOwn(body, "identifier") || Object.hasOwn(body, "appPassword");
+          // A sign-in with an app password has no redirect, so nothing to return to.
+          if (signingIn && Object.hasOwn(body, "returnTo")) throw new SocialScopeError(400, "invalid-request", "An app-password sign-in has no return address.");
+          const signIn = signingIn ? { identifier: body.identifier, password: body.appPassword } : null;
+          return json(201, await accounts.reconnect(id, identity.actor, signIn, body.returnTo));
         }
         if (method === "POST" && action === "disconnect" && segments.length === 3 && UUID.test(id)) {
           only(body, []);

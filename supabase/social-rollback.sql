@@ -8,7 +8,7 @@
 --   select * from public.openblog_social_posts order by scheduled_for;
 --   select * from public.openblog_social_attempts order by started_at;
 --
--- This drops only what social.sql, social-queue.sql, social-history.sql, social-ops.sql and social-cron.sql
+-- This drops only what social.sql, social-queue.sql, social-history.sql, social-ops.sql, social-return.sql and social-cron.sql
 -- added (the cron job, its ping function, the history trigger and its event table too): the connection, credential, attempt,
 -- queue and account tables (their rows go with them) and the schema version
 -- table. It touches no comment, feedback, subscription or workspace table, and

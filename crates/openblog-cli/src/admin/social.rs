@@ -18,6 +18,13 @@
 //! Bluesky has no authorization address: the author types a handle and an app password, which
 //! this server checks for shape and passes to the function once (ADR 0357). The password is never
 //! logged, stored or sent back.
+//!
+//! The way back (Studio R2, G6): when the function's status says it `returns`, a connect or an OAuth
+//! reconnect names where the provider's callback sends the browser on to: the request's own Origin
+//! (already matched to Host by `check_origin`) plus the fixed path `/admin/studio/`, and only for
+//! `https` or a loopback `http`. Nothing the browser sends can choose it.
+//!
+//! Every refusal carries a `code` (G18) beside its message, so Studio says it in its own words.
 
 use std::time::Duration;
 
@@ -338,18 +345,6 @@ fn authorize_url(value: &Json, instance: Option<&str>) -> Option<String> {
     (clean && (known || mastodon)).then(|| url.to_string())
 }
 
-/// The Mastodon instance the hosted function is set up for, from its status, or `None`.
-fn mastodon_instance(config: &SocialConfig, user: &str) -> Option<String> {
-    let reply = hosted(config, "GET", "status", None, user).ok()?;
-    reply
-        .get("providers")?
-        .as_array()?
-        .iter()
-        .filter_map(project_provider)
-        .find(|provider| provider["provider"].as_str() == Some("mastodon"))
-        .and_then(|provider| provider["instance"].as_str().map(str::to_string))
-}
-
 fn list_of(value: &Json, key: &str, project: fn(&Json) -> Option<Json>) -> Json {
     let list: Vec<Json> = value
         .get(key)
@@ -359,13 +354,23 @@ fn list_of(value: &Json, key: &str, project: fn(&Json) -> Option<Json>) -> Json 
     json!({ key: list })
 }
 
-fn bad_reply() -> Response {
-    Response::error(502, "The social function sent a reply Admin could not use")
+/// A refusal with a short code Studio words for itself, and a message for the person who set it up.
+fn coded(status: u16, code: &str, message: &str) -> Response {
+    Response::json(status, &json!({ "error": message, "code": code }))
 }
 
-/// The function's own refusal, reduced to a status Admin may pass on and a short plain message.
-/// Only a refusal about the request itself is forwarded; anything else (including a failure whose
-/// text could echo something it should not) becomes a fixed message.
+fn bad_reply() -> Response {
+    coded(
+        502,
+        "bad-reply",
+        "The social function sent a reply Admin could not use",
+    )
+}
+
+/// The function's own refusal, reduced to a status Admin may pass on, a code and a short plain
+/// message. Only a refusal about the request itself (including "too many", 429) is forwarded with its
+/// message; a busy store or provider (503) keeps its status and code with a fixed message; anything
+/// else (including a failure whose text could echo something it should not) becomes a fixed message.
 fn refusal(status: u16, body: &Json) -> Response {
     let code = body.get("error").and_then(slug);
     if matches!(status, 400 | 404 | 409 | 413 | 429) {
@@ -375,12 +380,28 @@ fn refusal(status: u16, body: &Json) -> Response {
             .unwrap_or_else(|| "The social function refused the request".to_string());
         return Response::json(status, &json!({ "error": message, "code": code }));
     }
-    let message = if matches!(code.as_deref(), Some("unauthorized" | "forbidden")) {
-        "The social function did not accept Admin's key; check OPENBLOG_SOCIAL_ADMIN_KEY"
-    } else {
-        "The social function failed; try again"
-    };
-    Response::json(502, &json!({ "error": message }))
+    if status == 503 {
+        return Response::json(
+            503,
+            &json!({
+                "error": "The social function or a provider is busy or out of reach; try again shortly",
+                "code": code.as_deref().unwrap_or("hosted-unavailable"),
+            }),
+        );
+    }
+    if matches!(code.as_deref(), Some("unauthorized" | "forbidden")) || matches!(status, 401 | 403)
+    {
+        return coded(
+            502,
+            "hosted-key-rejected",
+            "The social function did not accept Admin's key; check OPENBLOG_SOCIAL_ADMIN_KEY",
+        );
+    }
+    coded(
+        502,
+        "hosted-unavailable",
+        "The social function failed; try again",
+    )
 }
 
 fn hosted(
@@ -417,11 +438,16 @@ fn hosted(
     let mut response = match result {
         Ok(response) => response,
         Err(ureq::Error::Timeout(_)) => {
-            return Err(Response::error(504, "The social function timed out"))
+            return Err(coded(
+                504,
+                "hosted-timeout",
+                "The social function timed out",
+            ))
         }
         Err(_) => {
-            return Err(Response::error(
+            return Err(coded(
                 502,
+                "hosted-unavailable",
                 "The social function could not be reached",
             ))
         }
@@ -445,13 +471,18 @@ fn object_body(req: &Request, allowed: &[&str]) -> Result<Json, Response> {
         return Ok(json!({}));
     }
     let body: Json = serde_json::from_slice(&req.body)
-        .map_err(|_| Response::error(400, "The request is not valid JSON"))?;
+        .map_err(|_| coded(400, "invalid-request", "The request is not valid JSON"))?;
     let Some(object) = body.as_object() else {
-        return Err(Response::error(400, "The request must be a JSON object"));
+        return Err(coded(
+            400,
+            "invalid-request",
+            "The request must be a JSON object",
+        ));
     };
     if object.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err(Response::error(
+        return Err(coded(
             400,
+            "invalid-request",
             "The request has a field this route does not take",
         ));
     }
@@ -474,7 +505,7 @@ pub(super) fn route_with(
         return status(configured, user);
     }
     let Configured::On(config) = configured else {
-        return Response::error(404, "Social publishing is not set up");
+        return coded(404, "not-set-up", "Social publishing is not set up");
     };
     if req.method != "GET" {
         if let Err(response) = require_json(req) {
@@ -506,7 +537,7 @@ pub(super) fn route_with(
             "account",
             project_account,
         ),
-        _ => return Response::error(404, "Unknown API route"),
+        _ => return coded(404, "not-found", "Unknown API route"),
     };
     match result {
         Ok(value) => Response::json(200, &value),
@@ -529,9 +560,11 @@ fn status(configured: Configured, user: &str) -> Response {
                     .map(|list| list.iter().filter_map(project_provider).collect())
                     .unwrap_or_default();
                 let problems = strings(&reply, "problems");
+                // Whether the function can send the browser back to Studio after a sign-in (G6).
+                let returns = returns(&reply);
                 Response::json(
                     200,
-                    &json!({ "enabled": true, "state": "on", "providers": providers, "problems": problems }),
+                    &json!({ "enabled": true, "state": "on", "providers": providers, "problems": problems, "returns": returns }),
                 )
             }
             Err(response) if response.status == 404 => Response::json(
@@ -556,8 +589,9 @@ fn sign_in(body: &Json) -> Result<Option<Json>, Response> {
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
     else {
-        return Err(Response::error(
+        return Err(coded(
             400,
+            "invalid-identifier",
             "Enter your Bluesky handle, such as name.bsky.social",
         ));
     };
@@ -566,8 +600,9 @@ fn sign_in(body: &Json) -> Result<Option<Json>, Response> {
         .map(str::trim)
         .filter(|v| is_app_password(v))
     else {
-        return Err(Response::error(
+        return Err(coded(
             400,
+            "invalid-app-password",
             "Enter an app password (four groups of four letters or digits, made in Bluesky's settings), never your account password",
         ));
     };
@@ -585,14 +620,86 @@ fn is_app_password(value: &str) -> bool {
             .all(|g| g.len() == 4 && g.bytes().all(|b| b.is_ascii_alphanumeric()))
 }
 
-/// What a connection start or reconnect answered: an attempt to continue at the provider, or, for
-/// an app-password provider, an attempt that is already signed in.
-fn started(
-    reply: &Json,
-    signed_in: bool,
+/// Whether the function's status says it sends the browser back to Studio after a sign-in.
+fn returns(status: &Json) -> bool {
+    status.get("returns").and_then(Json::as_bool) == Some(true)
+}
+
+/// Where the provider's callback should send the browser on to: this request's Origin, which
+/// `check_origin` has matched to its Host, plus the fixed `/admin/studio/`. Only `https`, or `http`
+/// to a loopback address; nothing else, and nothing taken from a body or query. `None` means the
+/// browser stays on the function's own page and Studio offers its new-tab way.
+pub(super) fn return_to(req: &Request) -> Option<String> {
+    let origin = req.header("origin")?;
+    let host = req.header("host")?;
+    let url = url::Url::parse(origin).ok()?;
+    let serialized = url.origin().ascii_serialization();
+    // The Origin header is exactly scheme://host[:port]: anything more, or another host, is refused.
+    if serialized != origin || url.path() != "/" || !url.username().is_empty() {
+        return None;
+    }
+    let authority = origin.split_once("://")?.1;
+    if authority != host {
+        return None;
+    }
+    let name = url.host_str()?;
+    let secure = match url.scheme() {
+        "https" => name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-'),
+        "http" => loopback(name),
+        _ => false,
+    };
+    let value = format!("{serialized}/admin/studio/");
+    (secure && value.len() <= 300).then_some(value)
+}
+
+/// The function's status, read once for a start: the Mastodon instance (when that is the provider)
+/// and whether a return address may be named.
+struct StartContext {
+    instance: Option<String>,
+    return_to: Option<String>,
+}
+
+fn start_context(
+    req: &Request,
     config: &SocialConfig,
     user: &str,
-) -> Result<Json, Response> {
+    provider: Option<&str>,
+) -> StartContext {
+    let wanted = return_to(req);
+    let mastodon = provider == Some("mastodon");
+    // Neither is needed: no call (a reconnect learns its provider only from the reply).
+    if wanted.is_none() && !mastodon && provider.is_some() {
+        return StartContext {
+            instance: None,
+            return_to: None,
+        };
+    }
+    let Ok(status) = hosted(config, "GET", "status", None, user) else {
+        return StartContext {
+            instance: None,
+            return_to: None,
+        };
+    };
+    let instance = status
+        .get("providers")
+        .and_then(Json::as_array)
+        .and_then(|list| {
+            list.iter()
+                .filter_map(project_provider)
+                .find(|p| p["provider"].as_str() == Some("mastodon"))
+        })
+        .and_then(|p| p["instance"].as_str().map(str::to_string));
+    StartContext {
+        instance,
+        return_to: wanted.filter(|_| returns(&status)),
+    }
+}
+
+/// What a connection start or reconnect answered: an attempt to continue at the provider, or, for
+/// an app-password provider, an attempt that is already signed in.
+fn started(reply: &Json, signed_in: bool, instance: Option<&str>) -> Result<Json, Response> {
     let connection = reply.get("connection").and_then(project_connection);
     if signed_in {
         return match connection {
@@ -602,12 +709,12 @@ fn started(
     }
     // A Mastodon address is checked against the instance the function is set up for.
     let instance = match connection.as_ref().and_then(|c| c["provider"].as_str()) {
-        Some("mastodon") => mastodon_instance(config, user),
+        Some("mastodon") => instance,
         _ => None,
     };
     let url = reply
         .get("authorizeUrl")
-        .and_then(|url| authorize_url(url, instance.as_deref()));
+        .and_then(|url| authorize_url(url, instance));
     match (connection, url) {
         (Some(connection), Some(url)) => {
             Ok(json!({ "connection": connection, "authorizeUrl": url }))
@@ -619,8 +726,9 @@ fn started(
 fn start(req: &Request, config: &SocialConfig, user: &str) -> Result<Json, Response> {
     let body = object_body(req, &["provider", "identifier", "appPassword"])?;
     let Some(provider) = body.get("provider").and_then(provider_name) else {
-        return Err(Response::error(
+        return Err(coded(
             400,
+            "missing-provider",
             "Choose LinkedIn, Facebook, Bluesky or Mastodon",
         ));
     };
@@ -633,35 +741,61 @@ fn start(req: &Request, config: &SocialConfig, user: &str) -> Result<Json, Respo
             forward["appPassword"] = credentials["appPassword"].clone();
         }
         (true, None) => {
-            return Err(Response::error(
+            return Err(coded(
                 400,
+                "app-password-required",
                 "Bluesky is connected with your handle and an app password",
             ))
         }
         (false, Some(_)) => {
-            return Err(Response::error(
+            return Err(coded(
                 400,
+                "oauth-required",
                 "That provider is connected through its own sign-in page",
             ))
         }
         (false, None) => {}
     }
+    if app_password {
+        let reply = hosted(config, "POST", "connections", Some(&forward), user)?;
+        return started(&reply, true, None);
+    }
+    let context = start_context(req, config, user, Some(&provider));
+    if let Some(back) = &context.return_to {
+        forward["returnTo"] = json!(back);
+    }
     let reply = hosted(config, "POST", "connections", Some(&forward), user)?;
-    started(&reply, app_password, config, user)
+    started(&reply, false, context.instance.as_deref())
 }
 
 fn reconnect(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Result<Json, Response> {
     let body = object_body(req, &["identifier", "appPassword"])?;
     let credentials = sign_in(&body)?;
-    let signed_in = credentials.is_some();
+    if let Some(credentials) = credentials {
+        let reply = hosted(
+            config,
+            "POST",
+            &format!("accounts/{id}/reconnect"),
+            Some(&credentials),
+            user,
+        )?;
+        return started(&reply, true, None);
+    }
+    // Which provider this account is only the reply says, so the status is read whenever a return
+    // address or a Mastodon instance might be needed.
+    let context = start_context(req, config, user, None);
+    let mut forward = json!({});
+    if let Some(back) = &context.return_to {
+        forward["returnTo"] = json!(back);
+    }
     let reply = hosted(
         config,
         "POST",
         &format!("accounts/{id}/reconnect"),
-        Some(&credentials.unwrap_or_else(|| json!({}))),
+        Some(&forward),
         user,
     )?;
-    started(&reply, signed_in, config, user)
+    started(&reply, false, context.instance.as_deref())
 }
 
 fn select(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Result<Json, Response> {
@@ -671,7 +805,11 @@ fn select(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Result<
         .and_then(|d| text(d, 200))
         .filter(|d| !d.is_empty())
     else {
-        return Err(Response::error(400, "Choose a destination from the list"));
+        return Err(coded(
+            400,
+            "invalid-request",
+            "Choose a destination from the list",
+        ));
     };
     let reply = hosted(
         config,
