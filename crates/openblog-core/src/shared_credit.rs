@@ -27,6 +27,8 @@ pub enum CreditChoice {
     },
     DisplayName {
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        public_id: Option<String>,
     },
     Uncredited,
 }
@@ -47,7 +49,15 @@ impl CreditChoice {
                 normalize_registry(&mut registry).is_ok()
                     && registry.get(contributor_id) == Some(profile)
             }
-            Self::DisplayName { name } => valid_text(name, MAX_DISPLAY_NAME_BYTES),
+            Self::DisplayName { name, public_id } => {
+                valid_text(name, MAX_DISPLAY_NAME_BYTES)
+                    && public_id.as_ref().is_none_or(|id| {
+                        id.len() == 32
+                            && id
+                                .bytes()
+                                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                    })
+            }
             Self::Uncredited => true,
         }
     }
@@ -73,6 +83,30 @@ pub enum CreditChoiceError {
     Denied,
     Stale,
     Invalid,
+}
+
+/// A checked public projection; participant IDs remain private lookup keys and are not serialized.
+pub struct PublicCredits {
+    identities: BTreeMap<String, (String, Option<String>)>,
+    sidecar: String,
+}
+
+impl PublicCredits {
+    pub fn display_name(&self, participant: &str) -> Option<&str> {
+        self.identities
+            .get(participant)
+            .map(|(name, _)| name.as_str())
+    }
+
+    pub fn contributor_id(&self, participant: &str) -> Option<&str> {
+        self.identities
+            .get(participant)
+            .and_then(|(_, contributor)| contributor.as_deref())
+    }
+
+    pub fn sidecar(&self) -> &str {
+        &self.sidecar
+    }
 }
 
 impl Default for CreditChoices {
@@ -182,6 +216,68 @@ impl CreditChoices {
             .map(|byte| format!("{byte:02x}"))
             .collect())
     }
+
+    /// Project exactly the participants whose work reaches the post. Missing selections, legacy
+    /// display names without a public random ID, and duplicate identities refuse publication.
+    pub fn project(&self, participants: &[&str]) -> Result<PublicCredits, CreditChoiceError> {
+        let mut identities = BTreeMap::new();
+        let mut public_ids = HashSet::new();
+        let mut participant_ids = HashSet::new();
+        let mut credits = Vec::new();
+        for participant in participants {
+            if !valid_id(participant) || !participant_ids.insert(participant.to_ascii_lowercase()) {
+                return Err(CreditChoiceError::Invalid);
+            }
+            let (name, contributor, identity) = match self.choice(participant) {
+                Some(CreditChoice::Profile {
+                    contributor_id,
+                    profile,
+                }) => (
+                    profile.name.clone(),
+                    Some(contributor_id.clone()),
+                    Some(serde_json::json!({
+                        "kind": "profile", "contributor": contributor_id, "profile": profile
+                    })),
+                ),
+                Some(CreditChoice::DisplayName {
+                    name,
+                    public_id: Some(id),
+                }) => (
+                    name.clone(),
+                    None,
+                    Some(serde_json::json!({"kind":"displayName", "id":id, "name":name})),
+                ),
+                Some(CreditChoice::Uncredited) => ("Uncredited participant".into(), None, None),
+                _ => return Err(CreditChoiceError::Invalid),
+            };
+            if let Some(identity) = identity {
+                let key = if let Some(id) = &contributor {
+                    format!("profile:{id}")
+                } else {
+                    format!(
+                        "display:{}",
+                        identity["id"].as_str().ok_or(CreditChoiceError::Invalid)?
+                    )
+                };
+                if !public_ids.insert(key) {
+                    return Err(CreditChoiceError::Invalid);
+                }
+                credits.push(serde_json::json!({
+                    "identity": identity,
+                    "roles": [{"vocabulary":"crossref", "role":"author"}]
+                }));
+            }
+            identities.insert((*participant).to_string(), (name, contributor));
+        }
+        let sidecar = serde_json::to_string_pretty(&serde_json::json!({
+            "version": 2, "credits": credits
+        }))
+        .map_err(|_| CreditChoiceError::Invalid)?;
+        Ok(PublicCredits {
+            identities,
+            sidecar: format!("{sidecar}\n"),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -198,11 +294,90 @@ mod tests {
     }
 
     #[test]
+    fn public_projection_requires_choices_and_leaks_no_participant_ids() {
+        let mut choices = CreditChoices::default();
+        choices
+            .select(
+                "private-ann",
+                "private-ann",
+                "ann",
+                0,
+                CreditChoice::Profile {
+                    contributor_id: "ann".into(),
+                    profile: Contributor {
+                        name: "Ann".into(),
+                        ..Contributor::default()
+                    },
+                },
+            )
+            .unwrap();
+        choices
+            .select(
+                "private-bo",
+                "private-bo",
+                "bo",
+                1,
+                CreditChoice::DisplayName {
+                    name: "Pen Name".into(),
+                    public_id: Some("0123456789abcdef0123456789abcdef".into()),
+                },
+            )
+            .unwrap();
+        choices
+            .select(
+                "private-cy",
+                "private-cy",
+                "cy",
+                2,
+                CreditChoice::Uncredited,
+            )
+            .unwrap();
+        let people = ["private-ann", "private-bo", "private-cy"];
+        let public = choices.project(&people).unwrap();
+        assert_eq!(public.display_name("private-ann"), Some("Ann"));
+        assert_eq!(public.contributor_id("private-ann"), Some("ann"));
+        assert_eq!(public.display_name("private-bo"), Some("Pen Name"));
+        assert_eq!(public.contributor_id("private-bo"), None);
+        assert_eq!(
+            public.display_name("private-cy"),
+            Some("Uncredited participant")
+        );
+        assert_eq!(public.contributor_id("private-cy"), None);
+        assert!(!public.sidecar().contains("private-"));
+        let (credits, _) = crate::contributor::resolve(
+            &crate::config::Author::default(),
+            &BTreeMap::new(),
+            Some(public.sidecar()),
+        )
+        .unwrap();
+        assert_eq!(credits.len(), 2);
+        assert_eq!(credits[0].contributor.name, "Ann");
+        assert_eq!(credits[1].contributor.name, "Pen Name");
+        assert!(choices.project(&["private-ann", "missing"]).is_err());
+        assert!(choices.project(&["private-ann", "private-ann"]).is_err());
+        let mut legacy = choices.clone();
+        legacy
+            .select(
+                "private-bo",
+                "private-bo",
+                "bo",
+                3,
+                CreditChoice::DisplayName {
+                    name: "Old".into(),
+                    public_id: None,
+                },
+            )
+            .unwrap();
+        assert!(legacy.project(&people).is_err());
+    }
+
+    #[test]
     fn choices_are_explicit_self_selected_and_revision_bound() {
         let mut choices = CreditChoices::default();
         assert_eq!(choices.choice("ann"), None);
         let name = CreditChoice::DisplayName {
             name: "A. Writer".into(),
+            public_id: Some("0123456789abcdef0123456789abcdef".into()),
         };
         assert_eq!(
             choices.select("bo", "ann", "ann", 0, name.clone()),

@@ -882,6 +882,7 @@ mod tests {
             0,
             CreditChoice::DisplayName {
                 name: "Pen Name".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
             },
         )
         .unwrap();

@@ -374,7 +374,10 @@ fn credit_selection_and_reversion_invalidate_whole_piece_approvals() {
             "bo",
             "bo",
             2,
-            CreditChoice::DisplayName { name: "B".into() },
+            CreditChoice::DisplayName {
+                name: "B".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
         )
         .unwrap();
     choices

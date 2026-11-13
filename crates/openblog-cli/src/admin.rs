@@ -15793,7 +15793,22 @@ fn change_credit_choice(state: &AppState, req: &Request, session: &auth::Session
                 profile: profile.clone(),
             }
         }
-        RequestedCreditChoice::DisplayName { name } => CreditChoice::DisplayName { name },
+        RequestedCreditChoice::DisplayName { name } => {
+            let public_id = match stored.choices.choice(&own) {
+                Some(CreditChoice::DisplayName {
+                    name: previous,
+                    public_id: Some(id),
+                }) if previous == &name => id.clone(),
+                _ => match auth::random_bytes::<16>() {
+                    Ok(bytes) => bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+                    Err(error) => return credit_choice_failed(&error),
+                },
+            };
+            CreditChoice::DisplayName {
+                name,
+                public_id: Some(public_id),
+            }
+        }
         RequestedCreditChoice::Uncredited {} => CreditChoice::Uncredited,
     };
     let mut next = stored.choices.clone();
@@ -38036,6 +38051,22 @@ series: letters
             }),
         );
         assert_eq!(own.status, 200);
+        let own = body_json(&own);
+        let random_id = own["choice"]["publicId"].as_str().unwrap();
+        assert_eq!(random_id.len(), 32);
+        assert!(random_id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
+        let repeated = put(
+            &grace,
+            json!({
+                "publicationId": id, "expectedRevision": 2,
+                "choice": {"kind":"displayName", "name":"Pen Name"}
+            }),
+        );
+        assert_eq!(repeated.status, 200);
+        assert_eq!(body_json(&repeated)["revision"], 2);
+        assert_eq!(body_json(&repeated)["choice"]["publicId"], random_id);
         assert_eq!(body_json(&get(&mikey))["choice"]["kind"], "profile");
         assert!(!body_json(&get(&mikey)).to_string().contains("Pen Name"));
         let preview = handle(

@@ -472,6 +472,9 @@ save only their own choice, and profile details are taken from the server's regi
 mark publication support as unavailable. Once any choice is saved, review, new approvals,
 publishing, and scheduling are refused until the choice-aware publication workflow is implemented;
 choices never silently fall back to profile credit. Existing approvals can still be withdrawn.
+Display-name choices receive a separately generated public identifier, never the participant ID.
+The public-credit projection refuses missing choices or older display-name choices without such an
+identifier; the participant must select the name again before that projection can be used.
 
 When an approver submits an approval, the server checks again that the current combined preview is
 complete for them. If sharing changed after the preview was opened, the earlier review token
