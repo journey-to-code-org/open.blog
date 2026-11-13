@@ -339,3 +339,24 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-swatch:focus-visible { outline: 3px solid var(--studio-focus, currentColor); outline-offset: 3px; }
 .studio-swatch-own { display: inline-flex; gap: var(--space-2); align-items: center; min-height: 2.75rem; cursor: pointer; }
 .studio-swatch-own input { inline-size: 2.75rem; block-size: 2.75rem; padding: 0; border: 0; background: none; }
+
+/* Comments (slice 8) */
+.studio-comment-columns { display: grid; gap: var(--space-5); }
+@media (min-width: 70rem) { .studio-comment-columns { grid-template-columns: minmax(0, 46rem) minmax(14rem, 1fr); align-items: start; } }
+.studio-comment-main { display: grid; gap: var(--space-3); justify-items: center; min-width: 0; }
+.studio-comment-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); width: 100%; }
+.studio-comment { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); min-width: 0; overflow-wrap: anywhere; }
+.studio-comment-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio-comment-who { margin: 0; font-size: var(--text-lg); flex: 1 1 10rem; }
+.studio-comment-meta { margin: 0; }
+.studio-comment-body { font-family: var(--font-serif, "Literata", Georgia, serif); }
+.studio-comment-body p { margin: 0 0 var(--space-2); white-space: pre-line; }
+.studio-comment-clamped { display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+.studio-comment-quote { margin: 0; padding: var(--space-2) var(--space-3); border-inline-start: 4px solid var(--studio-sage); }
+.studio-comment-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.studio-comment-actions > * { min-height: 2.75rem; }
+@media (max-width: 30rem) { .studio-comment-actions > * { flex: 1 1 100%; } }
+.studio-comment-trouble { margin: 0; color: var(--studio-beet); font-weight: 600; }
+.studio-comment-after { width: 100%; }
+.studio-link-button { background: none; border: 0; padding: 0; color: var(--studio-damson); text-decoration: underline; font: inherit; cursor: pointer; min-height: 2.75rem; }
+.studio-waiting:empty { display: none; }

@@ -12,6 +12,7 @@ import { createPageEdit } from "./page-edit.js";
 import { createTools } from "./tools.js";
 import { createLanding } from "./landing.js";
 import { createLook } from "./look.js";
+import { createComments } from "./comments.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 
@@ -23,6 +24,8 @@ export const SCREENS = [
   { name: "collections", nav: "Collections", area: "collections", create: (context) => createDocuments(context, KINDS.series) },
   { name: "collection", area: "collections", create: (context, route) => createPageEdit(context, KINDS.series, route.arg) },
   { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
+  // Only when comments are on and the hosted key is in place where Admin runs.
+  { name: "comments", nav: "Comments", area: "comments", when: (meta) => meta.engagement === true, create: (context, route) => createComments(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
   { name: "look", nav: "Look", area: "look", create: (context) => createLook(context) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },

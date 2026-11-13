@@ -61,6 +61,7 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
     get: (path) => api.call("GET", path),
     post: (path, json) => api.call("POST", path, { json }),
     put: (path, json) => api.call("PUT", path, { json }),
+    patch: (path, json) => api.call("PATCH", path, { json }),
 
     async signIn(username, password) {
       const reply = await api.call("POST", "login", { json: { username, password }, retry: false });

@@ -4,11 +4,23 @@ import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { postList, postHref, sayListDate } from "../parts/post-list.js";
 import { siteHealth } from "../parts/site-health.js";
+import { waitingLine } from "../parts/comment-words.js";
 
 export async function createHome({ api, meta, posts }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   const body = h("div", { class: "studio-home", "aria-busy": "true" }, h("skeleton-block", { shape: "card" }), h("skeleton-block", { lines: 3 }));
   const health = siteHealth({ api, meta });
+  // "3 comments are waiting for you", when there are: never a failure, never a nag.
+  const waiting = h("div", { class: "studio-waiting" });
+  async function loadWaiting() {
+    if (meta.engagement !== true) return;
+    try {
+      const line = waitingLine(await api.get("engagement/moderation?state=pending"));
+      waiting.replaceChildren(...(line ? [h("content-card", { heading: line, href: "#/comments" })] : []));
+    } catch {
+      waiting.replaceChildren();
+    }
+  }
   const write = () => h("action-button", { href: "#/write", size: "lg", class: "studio-primary" }, "Write something new");
   const element = h("section", { class: "studio-page", "aria-labelledby": "studio-home-q" },
     h("h2", { id: "studio-home-q", class: "studio-question", tabindex: "-1", text: "What would you like to do?" }),
@@ -24,6 +36,7 @@ export async function createHome({ api, meta, posts }) {
       body.removeAttribute("aria-busy");
       return;
     }
+    loadWaiting();
     const drafts = items.filter((p) => p.status === "draft").slice(0, 3);
     const published = items.filter((p) => p.status === "published").slice(0, 3);
     const coming = items.filter((p) => p.status === "scheduled").sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 3);
@@ -37,6 +50,7 @@ export async function createHome({ api, meta, posts }) {
     fill(body,
       write(),
       health.element,
+      waiting,
       drafts.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-keep" },
         h("h3", { id: "studio-keep", text: "Keep going" }),
         h("auto-grid", { min: "15rem" }, drafts.map((p) => h("content-card", { heading: p.title || "Untitled", href: postHref(p.path) },

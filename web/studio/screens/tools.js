@@ -7,8 +7,8 @@ import { use } from "../zubra.js";
 /** Every tool, by group: what it is in a few words and its old Admin address. Exported for tests. */
 export const TOOLS = [
   { group: "Your site", items: [
-    ["Comments", "Approve or remove notes from readers", "#/moderation"],
-    ["Visitors", "How many people read what", "#/analytics"],
+    ["Every reader note", "The full inbox, for kinds of note Studio doesn't handle", "#/moderation"],
+    ["Visitors and comments setup", "How many people read what, and where comments are kept", "#/analytics"],
     ["Greeting cards", "Cards sent by email on the day", "#/greetings"],
   ] },
   { group: "Business", items: [
