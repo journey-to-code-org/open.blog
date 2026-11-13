@@ -22,6 +22,53 @@ stored groups.
 
 ## Decision
 
+- **Unanimous rule changes (amendment).** A site owner or coordinator now proposes a rule rather
+  than changing it directly. Every active, bound participant independently agrees to that exact
+  proposal, including coordinators and readers without draft access;
+  agreement to the rule is separate from approval of the piece. The proposer does not implicitly
+  consent. Until the last agreement is recorded, the existing rule and piece approvals remain in
+  force. On unanimity, the server revalidates the rule and clears all piece approvals in the same
+  compare-and-swap write. Participants may withdraw their own agreement while the proposal is
+  pending. A proposal records a monotonically increasing ID, the base policy revision, both
+  membership and authorization revisions, and the active participant IDs. A membership or access
+  change stales it, even if a former member is later restored; replacing a proposal requires the
+  previously observed proposal ID. Existing authority and rule-meetability checks still apply.
+  Published reflections cannot change their rule. Older releases cannot read an approval set
+  containing a proposal or proposal sequence; rolling back requires handling these private files.
+  Active participants are those whose bound Admin account and contributor identity are current
+  and authorized to view the publication. Reader-only participants see the rule and proposal,
+  and draft revisions explicitly released to them, but not the piece's approval status. Existing
+  pending proposals with a different voter set become stale and must be replaced.
+  New reflections require whole-piece scope under every policy. A previously saved section-only
+  rule on such a reflection blocks approval, scheduling and publication until the participants
+  unanimously replace it with a whole-piece rule; the replacement clears standing approvals.
+  Legacy reflections without this initial-scope marker retain their existing scope. The policy
+  now supports the fixed numeric quorum described below.
+- **Numeric quorum (amendment).** A fixed number of current contributors must approve the whole
+  piece, including every section writer and attributed author. A missing writer is never replaced
+  by another person's approval. The threshold remains fixed when membership changes; proposals
+  with fewer eligible authors than the threshold are refused, and coordinators cannot propose
+  weakening a quorum. Every active bound participant must consent before a proposal applies.
+  Quorum approvals bind membership and authorization revisions, so restoring prior access cannot
+  resurrect them even if reconciliation failed.
+  All other whole-piece approvals now bind those revisions as well: membership or authorization
+  changes invalidate them even if cleanup failed. Existing non-quorum whole-piece approvals must
+  be reviewed again; legacy section-only bindings remain unchanged.
+  Numeric rules cannot be read by older releases.
+- **Participant approval (amendment).** `allParticipants` requires every current participant;
+  `participantQuorum` requires a fixed number of participants, including every writer and
+  attributed author. Readers and coordinators approve only after their combined preview shows
+  every current revision, its sealed moments, and the conversation explicitly shared with them.
+  The server recomputes that visibility when recording consent. Changes to content, membership,
+  authorization, or the eligible participant set invalidate the approval. Existing `allAuthors`
+  and author-quorum rules keep their prior meaning; new participant rules require unanimous rule
+  consent. Older releases cannot read an approval set using the new rules.
+- **Initial rule (amendment).** A new reflection starts with all participants or a fixed
+  participant quorum chosen at creation, always for the whole piece. A threshold may exceed the
+  current group while people are invited; it never decreases automatically. Subsequent changes
+  require unanimous agreement. Records without the initial-requirement marker keep the former
+  author-only initial rule, and a stored approval set always takes precedence. Older releases
+  cannot read records containing the marker.
 - **Approval rules.** `ApprovalRequirement` gains `namedAuthors` (participant ids) and
   `authorsWithRoles` (publication roles), next to `allAuthors` (all participants, the default) and
   `contributingAuthors`. Under every rule, each author who owns a section and each author named on
@@ -29,9 +76,11 @@ stored groups.
   adds approvers on top of that floor. So a quorum can never stand in for a writer, and a named or
   role rule cannot leave anyone out.
 - **No fabricated approvals.** Each required person counts only through their own standing
-  approval, recomputed against the content (ADR 0020). There is no count, vote or threshold. A
-  rule change never records, keeps or moves an approval. Someone a rule does not require stays
-  "awaiting, not required" and is never shown or counted as approving.
+  approval, recomputed against the content (ADR 0020). Numeric quorum counts only standing
+  approvals of currently eligible authors. A
+  rule change never records, keeps or moves an approval. Under non-numeric rules, someone the
+  rule does not require remains optional; under a numeric rule their own approval may count
+  toward the threshold.
 - **Fail closed on churn.** A named participant who is no longer an author (removed, or lost the
   draft grant), and a listed role that no current author holds (for example, the only coordinator
   left), keep the piece blocked. `Readiness::Blocked` carries these as `gaps`, and the gate refuses
@@ -44,7 +93,7 @@ stored groups.
   approval stale and also clears them. Changing back cannot revive them, because the revision
   moved on. Existing sets load unchanged and their approvals stay valid: the old variants' binding
   input is identical.
-- **Changing a rule.** A new action, `SetApprovalPolicy`, targets the publication and is held by
+- **Changing a rule (superseded by the unanimous-change amendment above).** A new action, `SetApprovalPolicy`, targets the publication and is held by
   site owners and coordinators (a coordinator only within the limit below). `GET/PUT
   /admin/api/collaboration/approval-policy` go through `SharedPublication::authorize`, and every
   refusal to someone without the grant is the same 404. A change needs the policy
@@ -67,7 +116,7 @@ stored groups.
   a person never lowers the bar), is refused with 403 and the names of the people it would drop,
   and only a site owner may make it. The read response says whether the requester may drop
   approvers (`mayDropApprovers`), so Admin can say so before they try.
-- **Shown with the piece.** The combined preview carries the rule (policy, revision, a plain
+- **Shown with the piece (amended by the unanimous-change amendment above).** The combined preview carries the rule (policy, revision, a plain
   sentence, and anything that cannot be met), in its summary and in the document, like everything
   else that binds. The Admin "Approval rule" block, inside the sharing section, is shown only to
   people who may change the rule. It uses labelled radio and checkbox controls and a confirmation

@@ -856,6 +856,10 @@ workspace for it). The form asks, in plain words:
 3. **You will appear as.** Choose your entry from the contributor registry. If you are not in
    it yet, add yourself under **Site → Contributors** first. Admin Studio does not yet check that
    the entry you pick is yours, so choose your own.
+4. **Approval to publish.** Everyone participating must approve by default. Alternatively, choose
+   a fixed number of participants; every writer and attributed author must still approve. The
+   number does not shrink when someone leaves, and can exceed the current group while you invite
+   people. Changing the rule later requires every active participant's agreement.
 
 You don’t need Markdown anywhere in this form. Links must be complete web addresses starting with
 `https://` or `http://` and cannot contain a username or password; a pasted link with non-English
@@ -871,14 +875,68 @@ it under **Shared reflections**; signing in to Admin Studio or being in the cont
 is not enough. You are its site owner. Removing your account with `openblog user remove` removes
 you from every shared reflection, and so does adding a new account under a name that was used
 before. A contributor who takes part in one cannot be removed from the registry; the Contributors
-message names each entry that is in use. Writing contributions and publishing the result arrive in later releases. The design is recorded in
+message names each entry that is in use. The design is recorded in
 [ADR 0007](adr/0007-private-shared-publication-records.md) and the
 [collaboration contract](specs/shared-perspectives-collaboration.md#shared-publication-record).
+
+### Drafting and reviewing together
+
+Open the reflection and expand **Your draft** to write and save your own perspective. Saving
+creates a private revision; it does not share it. If another session saved a newer revision,
+Admin refuses the stale save and lets you choose between the newer copy and your own text.
+Use **Additional contributions** to add and edit separate contributions, change their order, or
+withdraw one after confirming. A stale save keeps your text and shows the newer saved copy.
+Adding a contribution requires a whole-piece approval rule.
+
+New reflections start with mutual reveal: each active writer offers a saved revision before the
+group can read the offered perspectives. An author can continue editing privately after an
+offer; the sharing panel identifies the offered revision and warns when it is older than the
+latest draft. A coordinator can instead select named-recipient sharing, where an author
+confirms which active participants receive a particular revision. Participants without draft
+access can open **Revisions shared with you** to read only the revisions named for them, together
+with source moments sealed to the author's current contribution snapshot. Group offers name
+every current contribution and revision together; a named release selects one contribution.
+Later edits remain private. An already read copy cannot be recalled.
+If a writer becomes a reader, the author must explicitly share the revision with them again.
+Changes to access while choosing recipients require reloading before sharing.
+
+Authors can review the combined preview and explicitly approve it or withdraw an approval.
+For new reflections, approvals cover the whole piece, so changes invalidate earlier approvals.
+A rule change takes effect only after every active, bound participant agrees to that proposal;
+agreeing to a rule does not approve the piece.
+The fixed-number rule requires that many active authors' whole-piece approvals, including every
+writer and attributed author. The threshold does not decrease if someone leaves. Under a
+participant approval rule, readers and coordinators can approve after the whole piece has
+been shared with them.
+Whole-piece approvals become stale when membership or access changes and cannot revive if access
+is restored. Existing non-quorum whole-piece approvals created before this change need review again;
+legacy section-only approval bindings are unchanged.
+
+Open **My public credit** to choose your contributor profile, a display name without a profile
+link, or uncredited work. Profile details are frozen when you choose them. Changing a choice
+invalidates earlier approvals. Everyone whose work appears in a new reflection must choose
+before the group can review and publish the complete piece. Older reflections with no saved
+choices retain the legacy contributor-profile publication path; once anyone chooses, all
+participants whose work appears must choose.
+
+Site owners and coordinators can expand **Publish shared reflection**, confirm their intent
+and publish. The server checks the current credits and required approvals again before writing
+the public post; a stale approval or missing choice blocks publication.
+
+Coordinators can arrange contributions they are entitled to read. After authors share additional
+contributions, use **Reload arrangement and shared contributions** to update the choices;
+reloading discards unsaved arrangement edits. If an earlier saved arrangement omits a new
+contribution or part, add its turns before review. The complete review and publish gate refuses
+missing or duplicate parts. A coordinator without access cannot inspect a hidden contribution.
+If a withdrawn contribution leaves an unavailable arrangement, a coordinator who can read all
+current revisions can confirm replacing it with a new complete arrangement. This clears earlier
+approvals; a stale replacement is refused.
+See the [collaboration contract](specs/shared-perspectives-collaboration.md#reviewing-and-approving-in-admin).
 
 ### Inviting other writers
 
 Site owners and coordinators see an **Invitations** section on each shared reflection. Enter the
-sign-in name of an existing Admin account, choose the contributor profile they will appear as, pick
+sign-in name of an existing Admin account, choose their contributor profile, pick
 their roles, and choose how long the link lasts (1 to 30 days, 7 by default). Admin Studio shows a
 private link once. Copy it and pass it on yourself: open.blog never sends email or contacts
 anyone. The link works once, only for the account you named, and only after that person signs in
@@ -892,7 +950,7 @@ with `openblog user add`. The design is recorded in
 ### Managing members
 
 The same **Members and invitations** section lists everyone who can sign in to the reflection,
-with their sign-in account, the contributor profile they are credited as, and their roles written
+with their sign-in account, their bound contributor profile, and their roles written
 out. These are separate: *sign-in access* decides who can open the reflection and what they can
 do, while *credit* names who is shown for what they wrote. **Change roles** previews what is added
 and removed before it applies. **Remove access** asks first, and ends only sign-in access: the

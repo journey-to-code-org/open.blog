@@ -118,12 +118,22 @@ test("the payload keeps authored order and carries no identity claims", () => {
       ],
     }),
   );
-  assert.deepEqual(Object.keys(payload).sort(), ["contributorId", "guidingQuestion", "sources", "title"]);
+  assert.deepEqual(Object.keys(payload).sort(), ["contributorId", "guidingQuestion", "initialApprovalRequirement", "sources", "title"]);
+  assert.equal(payload.initialApprovalRequirement, "allParticipants");
   assert.equal(payload.title, "Working title");
   assert.equal(payload.guidingQuestion, "What changed?");
   assert.deepEqual(payload.sources.map((source) => source.title), ["Second", "Third"]);
   assert.equal(payload.sources[0].url, "https://example.org/2");
-  assert.doesNotMatch(JSON.stringify(payload), /adminUser|participant|roles|binding/);
+  assert.doesNotMatch(JSON.stringify(payload), /adminUser|participantId|roles|binding/);
+});
+
+test("the initial quorum is fixed and validated before creation", () => {
+  for (const approvalQuorum of ["0", "101", "1.5", ""]) {
+    assert.equal(validateSharedReflectionDraft(draft({ approvalRule: "participantQuorum", approvalQuorum })).field, "initialApprovalRequirement");
+  }
+  const chosen = draft({ approvalRule: "participantQuorum", approvalQuorum: "3" });
+  assert.equal(validateSharedReflectionDraft(chosen), null);
+  assert.deepEqual(sharedReflectionPayload(chosen).initialApprovalRequirement, { participantQuorum: 3 });
 });
 
 test("server field names map to focusable control ids", () => {

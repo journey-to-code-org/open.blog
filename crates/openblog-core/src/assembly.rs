@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
 
 use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, Section};
@@ -26,7 +27,7 @@ use crate::slug;
 use crate::synthesis::{self, ItemRule, SynthesisKind, SynthesisSet};
 
 pub const OUTCOME_VERSION: u8 = 1;
-pub const MAX_OUTCOME_BYTES: usize = 2 * 1024;
+pub const MAX_OUTCOME_BYTES: usize = 512 * 1024;
 /// Between sections. The blank line before `---` matters: without it the rule would turn the
 /// last line of the previous section into a heading.
 const SECTION_BREAK: &str = "\n\n---\n\n";
@@ -34,9 +35,13 @@ const SECTION_BREAK: &str = "\n\n---\n\n";
 /// Why a publication could not be assembled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssemblyError {
+    /// A new reflection has a legacy section-only approval rule and must change it first.
+    ApprovalScope,
     /// Required approvals are missing or no longer match the content. Holds display names, for a
     /// requester who already holds the publish grant.
     Blocked { missing: Vec<String> },
+    /// The fixed numeric quorum has not yet been reached.
+    QuorumBlocked { approved: usize, required: usize },
     /// The approval rule cannot be met by the authors as they are now, whatever anyone approves:
     /// a named participant (display names here) is no longer an author, or no author holds a
     /// listed role. Someone with the policy grant changes the rule, or the maintainer restores the
@@ -126,7 +131,8 @@ pub fn post_path(record: &SharedPublication) -> String {
 /// the one place the subject is built from the record, arrangement, drafts, synthesis and media
 /// moments, so the approval binding a preview hands out, the one the gate checks and the one a
 /// route stores cannot drift apart. The metadata it binds is the public record fields, then the
-/// reflection `structure`'s prose-free binding frame when there is one (layout, turn order, round
+/// public participant attribution, then the reflection `structure`'s prose-free
+/// binding frame when there is one (layout, turn order, round
 /// prompts and labels; ADR 0030), then the synthesis's prose-free binding frame (items, order,
 /// attribution), then the `moments`' prose-free binding frame (one digest per moment proposed for
 /// the piece, covering the source it shows; ADR 0063). A change to any of them makes standing
@@ -144,6 +150,74 @@ pub fn with_subject<R>(
     active: &[&str],
     ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
 ) -> R {
+    with_subject_for_participants(
+        record, structure, drafts, synthesis, moments, active, active, ask,
+    )
+}
+
+/// Build a subject with a distinct set of currently eligible participants.
+#[allow(clippy::too_many_arguments)]
+pub fn with_subject_for_participants<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
+    with_subject_mode(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        participants,
+        false,
+        ask,
+    )
+}
+
+/// Build a subject covering every live contribution of each active author. Callers must also
+/// show and publish every such contribution before issuing or accepting this subject's token.
+#[allow(clippy::too_many_arguments)]
+pub fn with_subject_for_all_contributions<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
+    with_subject_mode(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        participants,
+        true,
+        ask,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn with_subject_mode<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    all_contributions: bool,
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
     let authors: Vec<&str> = record
         .collaboration
         .participants
@@ -153,22 +227,52 @@ pub fn with_subject<R>(
         .collect();
     let stamps: Vec<_> = authors
         .iter()
-        .map(|author| drafts.current_stamp(author))
+        .flat_map(|author| {
+            let stamps = if all_contributions {
+                drafts.stamps_for_owner(author)
+            } else {
+                drafts.current_stamp(author).into_iter().collect()
+            };
+            stamps.into_iter().map(move |stamp| (*author, stamp))
+        })
         .collect();
-    let sections: Vec<Section<'_>> = authors
+    let sections: Vec<Section<'_>> = stamps
         .iter()
-        .zip(&stamps)
-        .filter_map(|(author, stamp)| {
-            let stamp = stamp.as_ref()?;
-            Some(Section {
-                contribution_id: &stamp.contribution_id,
-                owner: author,
-                revision: stamp.number,
-                digest: &stamp.digest,
-            })
+        .map(|(author, stamp)| Section {
+            contribution_id: &stamp.contribution_id,
+            owner: author,
+            revision: stamp.number,
+            digest: &stamp.digest,
         })
         .collect();
     let mut metadata = public_metadata(record);
+    if drafts.order_revision() != 0 {
+        metadata.push("contribution-order-revision-v1".to_string());
+        metadata.push(drafts.order_revision().to_string());
+    }
+    metadata.push("participant-attribution-v1".to_string());
+    for author in &authors {
+        let participant = record
+            .collaboration
+            .participants
+            .iter()
+            .find(|participant| participant.id == *author)
+            .expect("authors come from participants");
+        metadata.push(participant.id.clone());
+        metadata.push(participant.display_name.clone());
+        metadata.push(participant.profile_url.clone().unwrap_or_default());
+        if let Some(binding) = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.participant_id == *author)
+        {
+            metadata.push("profile".to_string());
+            metadata.push(binding.contributor_id.clone());
+        } else {
+            metadata.push("no-profile".to_string());
+        }
+    }
     if let Some(structure) = structure {
         metadata.push(format!("reflection-frame:{}", structure.binding_frame()));
     }
@@ -195,11 +299,222 @@ pub fn with_subject<R>(
         .collect();
     ask(&ApprovalSubject {
         authors: &authors,
+        participants,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
         sections: &sections,
         metadata: &metadata,
         attributed: &attributed,
         roles: &roles,
     })
+}
+
+/// Build the same approval subject with the exact private credit choices and their revision bound
+/// to it. Callers must also present the corresponding public credit projection in the preview.
+#[allow(clippy::too_many_arguments)]
+pub fn with_credit_subject_for_participants<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> Result<R, crate::shared_credit::CreditChoiceError> {
+    let binding = choices.binding()?;
+    Ok(with_subject_for_participants(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        participants,
+        |subject| with_credit_binding(subject, &binding, ask),
+    ))
+}
+
+/// Bind credit choices to every live contribution. As with
+/// [`with_subject_for_all_contributions`], callers must show and publish every contribution.
+#[allow(clippy::too_many_arguments)]
+pub fn with_credit_subject_for_all_contributions<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    participants: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> Result<R, crate::shared_credit::CreditChoiceError> {
+    let binding = choices.binding()?;
+    Ok(with_subject_for_all_contributions(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        participants,
+        |subject| with_credit_binding(subject, &binding, ask),
+    ))
+}
+
+/// Extend an existing subject with a previously validated credit-choice binding.
+pub fn with_credit_binding<R>(
+    subject: &ApprovalSubject<'_>,
+    binding: &str,
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
+    let mut metadata = subject.metadata.to_vec();
+    metadata.push("participant-credit-choices-v1");
+    metadata.push(binding);
+    ask(&ApprovalSubject {
+        metadata: &metadata,
+        ..*subject
+    })
+}
+
+/// Prepare the names used in public rendering without changing the private record. Only active
+/// participants whose draft, conversation attribution, or moment appears need a credit choice.
+pub fn public_credit_projection(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<(SharedPublication, crate::shared_credit::PublicCredits), AssemblyError> {
+    public_credit_projection_mode(record, drafts, synthesis, moments, active, choices, false)
+}
+
+/// Project public identities for all live contributions, including drafts whose IDs differ from
+/// their owners. Use only with a preview and assembly that both include every contribution.
+pub fn public_credit_projection_for_all_contributions(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<(SharedPublication, crate::shared_credit::PublicCredits), AssemblyError> {
+    public_credit_projection_mode(record, drafts, synthesis, moments, active, choices, true)
+}
+
+fn public_credit_projection_mode(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    choices: &crate::shared_credit::CreditChoices,
+    all_contributions: bool,
+) -> Result<(SharedPublication, crate::shared_credit::PublicCredits), AssemblyError> {
+    let attributed = synthesis.attributed_authors();
+    let noted = moments.attributed_participants();
+    if attributed
+        .iter()
+        .chain(&noted)
+        .any(|id| !active.contains(id))
+    {
+        return Err(AssemblyError::Invalid);
+    }
+    let people: Vec<&str> = record
+        .collaboration
+        .participants
+        .iter()
+        .map(|participant| participant.id.as_str())
+        .filter(|id| {
+            active.contains(id)
+                && ((if all_contributions {
+                    !drafts.stamps_for_owner(id).is_empty()
+                } else {
+                    drafts.current_stamp(id).is_some()
+                }) || attributed.contains(id)
+                    || noted.contains(id))
+        })
+        .collect();
+    if attributed
+        .iter()
+        .chain(&noted)
+        .any(|id| !people.contains(id))
+    {
+        return Err(AssemblyError::Invalid);
+    }
+    let credits = choices
+        .project(&people)
+        .map_err(|_| AssemblyError::Invalid)?;
+    let mut public_record = record.clone();
+    for participant in &mut public_record.collaboration.participants {
+        if let Some(name) = credits.display_name(&participant.id) {
+            participant.display_name = name.to_string();
+            participant.profile_url = None;
+        }
+    }
+    Ok((public_record, credits))
+}
+
+/// Public credit order: first appearance in the arranged drafts, then any additional people
+/// whose approved conversation or moments appear.
+pub fn publication_credit_order(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+) -> Result<Vec<String>, AssemblyError> {
+    publication_credit_order_mode(record, structure, drafts, synthesis, moments, active, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn publication_credit_order_mode(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    all_contributions: bool,
+) -> Result<Vec<String>, AssemblyError> {
+    let mut order = Vec::new();
+    if let Some(structure) = structure {
+        let entries = if all_contributions {
+            structure.reading_order_for_publication(&record.collaboration, drafts, active)
+        } else {
+            structure.reading_order(&record.collaboration, drafts)
+        }
+        .map_err(|_| AssemblyError::ArrangementMismatch)?;
+        for entry in entries {
+            if active.contains(&entry.participant_id)
+                && entry.markdown.is_some()
+                && !order.iter().any(|id| id == entry.participant_id)
+            {
+                order.push(entry.participant_id.to_string());
+            }
+        }
+    } else {
+        for participant in &record.collaboration.participants {
+            if active.contains(&participant.id.as_str())
+                && drafts.current_stamp(&participant.id).is_some()
+            {
+                order.push(participant.id.clone());
+            }
+        }
+    }
+    for id in synthesis
+        .attributed_authors()
+        .into_iter()
+        .chain(moments.attributed_participants())
+    {
+        if !order.iter().any(|existing| existing == id) {
+            order.push(id.to_string());
+        }
+    }
+    Ok(order)
 }
 
 /// Display names for participant ids, in the order given; unknown ids are skipped.
@@ -354,19 +669,164 @@ pub fn assemble(
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
-    // The approvals are evaluated before anything reads a draft. Checking the arrangement against
-    // the drafts first would refuse differently depending on whether a draft has a given part, an
-    // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
-    // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
-    match with_subject(
+    assemble_for_participants(
+        record, structure, drafts, synthesis, moments, approvals, active, active, date,
+    )
+}
+
+/// Assemble using the current participants eligible for whole-piece approval.
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_for_participants(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    participants: &[&str],
+    date: &str,
+) -> Result<Assembly, AssemblyError> {
+    assemble_inner(
         record,
         structure,
         drafts,
         synthesis,
         moments,
+        approvals,
         active,
-        |subject| approvals.evaluate(subject),
-    ) {
+        participants,
+        date,
+        None,
+        false,
+    )
+}
+
+/// Assemble with explicit, approval-bound participant credit choices.
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_for_participants_with_credits(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    participants: &[&str],
+    date: &str,
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<Assembly, AssemblyError> {
+    assemble_inner(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        active,
+        participants,
+        date,
+        Some(choices),
+        false,
+    )
+}
+
+/// Assemble an explicitly arranged multi-contribution piece with exact credit-bound approvals.
+/// The caller must only accept approvals from previews that show every current contribution.
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_all_contributions_with_credits(
+    record: &SharedPublication,
+    structure: &ReflectionStructure,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    participants: &[&str],
+    date: &str,
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<Assembly, AssemblyError> {
+    assemble_inner(
+        record,
+        Some(structure),
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        active,
+        participants,
+        date,
+        Some(choices),
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble_inner(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    participants: &[&str],
+    date: &str,
+    choices: Option<&crate::shared_credit::CreditChoices>,
+    all_contributions: bool,
+) -> Result<Assembly, AssemblyError> {
+    if !record.allows_approval_scope(approvals.policy().scope)
+        || (all_contributions
+            && approvals.policy().scope != crate::approval::ApprovalScope::WholePiece)
+    {
+        return Err(AssemblyError::ApprovalScope);
+    }
+    // The approvals are evaluated before anything reads a draft. Checking the arrangement against
+    // the drafts first would refuse differently depending on whether a draft has a given part, an
+    // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
+    // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
+    let readiness = match choices {
+        Some(choices) => {
+            let evaluate = |subject: &ApprovalSubject<'_>| approvals.evaluate(subject);
+            if all_contributions {
+                with_credit_subject_for_all_contributions(
+                    record,
+                    structure,
+                    drafts,
+                    synthesis,
+                    moments,
+                    active,
+                    participants,
+                    choices,
+                    evaluate,
+                )
+            } else {
+                with_credit_subject_for_participants(
+                    record,
+                    structure,
+                    drafts,
+                    synthesis,
+                    moments,
+                    active,
+                    participants,
+                    choices,
+                    evaluate,
+                )
+            }
+            .map_err(|_| AssemblyError::Invalid)?
+        }
+        None => with_subject_for_participants(
+            record,
+            structure,
+            drafts,
+            synthesis,
+            moments,
+            active,
+            participants,
+            |subject| approvals.evaluate(subject),
+        ),
+    };
+    match readiness {
         Ok(Readiness::Ready) => {}
         Ok(Readiness::Blocked { gaps, .. }) if !gaps.is_empty() => {
             return Err(AssemblyError::RuleUnmet {
@@ -379,7 +839,13 @@ pub fn assemble(
                 missing: display_names(record, missing.iter().map(String::as_str)),
             })
         }
+        Ok(Readiness::QuorumBlocked { approved, required }) => {
+            return Err(AssemblyError::QuorumBlocked { approved, required })
+        }
         Err(_) => return Err(AssemblyError::Invalid),
+    }
+    if !all_contributions && drafts.requires_contribution_mode(active) {
+        return Err(AssemblyError::Invalid);
     }
     // Shared prose publishes only with every named author's approval of that exact item.
     let awaited = unapproved_item_authors(synthesis);
@@ -388,9 +854,26 @@ pub fn assemble(
             missing: display_names(record, awaited.iter().map(String::as_str)),
         });
     }
-    if !moments.unresolved(&record.sources).is_empty() {
+    if (all_contributions
+        && moments.attributed_participants().iter().any(|owner| {
+            !active.contains(owner) || !moments.are_contributions_sealed(owner, drafts)
+        }))
+        || !moments.unresolved(&record.sources).is_empty()
+    {
         return Err(AssemblyError::UnresolvedMoment);
     }
+    let projected = choices
+        .map(|choices| {
+            if all_contributions {
+                public_credit_projection_for_all_contributions(
+                    record, drafts, synthesis, moments, active, choices,
+                )
+            } else {
+                public_credit_projection(record, drafts, synthesis, moments, active, choices)
+            }
+        })
+        .transpose()?;
+    let public_record = projected.as_ref().map_or(record, |(record, _)| record);
     let title = record
         .title
         .as_deref()
@@ -417,9 +900,12 @@ pub fn assemble(
         // The same latest revisions the approval's binding covers, in the one reading order. A
         // turn naming a part an author has since removed is a coordinator's fix, so it gets its
         // own error; it is reached only once the approvals are met.
-        let order = structure
-            .reading_order(&record.collaboration, drafts)
-            .map_err(|_| AssemblyError::ArrangementMismatch)?;
+        let order = if all_contributions {
+            structure.reading_order_for_publication(&public_record.collaboration, drafts, active)
+        } else {
+            structure.reading_order(&public_record.collaboration, drafts)
+        }
+        .map_err(|_| AssemblyError::ArrangementMismatch)?;
         let order: Vec<_> = order
             .into_iter()
             .filter(|entry| active.contains(&entry.participant_id) && entry.markdown.is_some())
@@ -435,17 +921,20 @@ pub fn assemble(
             }
             if !credited.contains(&entry.participant_id) {
                 credited.push(entry.participant_id);
-                credits.push(credit_for(entry.participant_id)?);
+                if choices.is_none() {
+                    credits.push(credit_for(entry.participant_id)?);
+                }
             }
             prose.push(text.to_string());
-            bound.push(
-                record
+            bound.push(match &projected {
+                Some((_, projection)) => projection.contributor_id(entry.participant_id),
+                None => record
                     .authorization
                     .bindings
                     .iter()
                     .find(|binding| binding.participant_id == entry.participant_id)
                     .map(|binding| binding.contributor_id.as_str()),
-            );
+            });
             turns.push(ComposedTurn {
                 round: entry.round,
                 round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
@@ -466,7 +955,9 @@ pub fn assemble(
             let Some(view) = drafts.latest_view(&participant.id) else {
                 continue;
             };
-            credits.push(credit_for(&participant.id)?);
+            if choices.is_none() {
+                credits.push(credit_for(&participant.id)?);
+            }
             prose.push(strip_part_markers(&view.markdown).trim().to_string());
         }
     }
@@ -474,7 +965,7 @@ pub fn assemble(
         return Err(AssemblyError::Invalid);
     }
 
-    let conversation = conversation_chunks(record, synthesis);
+    let conversation = conversation_chunks(public_record, synthesis);
     match unsafe_markup(&prose, &conversation) {
         None => {}
         Some(error) => return Err(error),
@@ -482,9 +973,10 @@ pub fn assemble(
     let mut body = arranged.unwrap_or_else(|| prose.join(SECTION_BREAK));
     if !conversation.is_empty() {
         body.push_str(SECTION_BREAK);
-        body.push_str(&conversation_markdown(record, synthesis));
+        body.push_str(&conversation_markdown(public_record, synthesis));
     }
-    let public = published_moment::published(record, moments).ok_or(AssemblyError::Invalid)?;
+    let public =
+        published_moment::published(public_record, moments).ok_or(AssemblyError::Invalid)?;
     if !public.is_empty() {
         let observations: Vec<&str> = public
             .iter()
@@ -554,16 +1046,37 @@ pub fn assemble(
     }
     let path = post_path(record);
     let credits_path = crate::contributor::sidecar_path(&path).ok_or(AssemblyError::Invalid)?;
-    let credits = serde_json::to_string_pretty(&serde_json::json!({
-        "version": 1,
-        "credits": credits,
-    }))
-    .map_err(|_| AssemblyError::Invalid)?;
+    let credits = match choices {
+        Some(choices) => {
+            let credit_order = publication_credit_order_mode(
+                record,
+                structure,
+                drafts,
+                synthesis,
+                moments,
+                active,
+                all_contributions,
+            )?;
+            let ids = credit_order.iter().map(String::as_str).collect::<Vec<_>>();
+            choices
+                .project(&ids)
+                .map_err(|_| AssemblyError::Invalid)?
+                .sidecar()
+                .to_string()
+        }
+        None => {
+            let text = serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1, "credits": credits,
+            }))
+            .map_err(|_| AssemblyError::Invalid)?;
+            format!("{text}\n")
+        }
+    };
     Ok(Assembly {
         path,
         source: frontmatter::compose(&fields, &body),
         credits_path,
-        credits: format!("{credits}\n"),
+        credits,
     })
 }
 
@@ -777,6 +1290,145 @@ fn has_unsafe_markup(
     None
 }
 
+/// The identity of one draft revision included in the approval subject.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PublishedSectionRevision {
+    pub contribution_id: String,
+    pub participant_id: String,
+    pub revision: u64,
+    pub digest: String,
+}
+
+/// Private receipt for the approved section revisions and the canonical files that were published.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PublishedRevision {
+    pub policy_revision: u64,
+    pub sections: Vec<PublishedSectionRevision>,
+    pub source_digest: String,
+    pub credits_digest: String,
+}
+
+fn receipt_digest(bytes: &[u8]) -> String {
+    Blake2s256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn valid_receipt_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+impl PublishedRevision {
+    #[allow(clippy::too_many_arguments)]
+    pub fn capture(
+        record: &SharedPublication,
+        structure: Option<&ReflectionStructure>,
+        drafts: &DraftSet,
+        synthesis: &SynthesisSet,
+        moments: &MomentSet,
+        approvals: &ApprovalSet,
+        active: &[&str],
+        assembly: &Assembly,
+    ) -> Self {
+        Self::capture_mode(
+            record, structure, drafts, synthesis, moments, approvals, active, assembly, false,
+        )
+    }
+
+    /// Capture every live contribution included by multi-contribution assembly.
+    #[allow(clippy::too_many_arguments)]
+    pub fn capture_all_contributions(
+        record: &SharedPublication,
+        structure: &ReflectionStructure,
+        drafts: &DraftSet,
+        synthesis: &SynthesisSet,
+        moments: &MomentSet,
+        approvals: &ApprovalSet,
+        active: &[&str],
+        assembly: &Assembly,
+    ) -> Self {
+        Self::capture_mode(
+            record,
+            Some(structure),
+            drafts,
+            synthesis,
+            moments,
+            approvals,
+            active,
+            assembly,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn capture_mode(
+        record: &SharedPublication,
+        structure: Option<&ReflectionStructure>,
+        drafts: &DraftSet,
+        synthesis: &SynthesisSet,
+        moments: &MomentSet,
+        approvals: &ApprovalSet,
+        active: &[&str],
+        assembly: &Assembly,
+        all_contributions: bool,
+    ) -> Self {
+        let sections = with_subject_mode(
+            record,
+            structure,
+            drafts,
+            synthesis,
+            moments,
+            active,
+            active,
+            all_contributions,
+            |subject| {
+                subject
+                    .sections
+                    .iter()
+                    .map(|section| PublishedSectionRevision {
+                        contribution_id: section.contribution_id.to_string(),
+                        participant_id: section.owner.to_string(),
+                        revision: section.revision,
+                        digest: section.digest.to_string(),
+                    })
+                    .collect()
+            },
+        );
+        Self {
+            policy_revision: approvals.policy_revision(),
+            sections,
+            source_digest: receipt_digest(assembly.source.as_bytes()),
+            credits_digest: receipt_digest(assembly.credits.as_bytes()),
+        }
+    }
+
+    fn is_valid(&self) -> bool {
+        let mut ids = std::collections::HashSet::new();
+        !self.sections.is_empty()
+            && self.sections.len() <= crate::collaboration::MAX_CONTRIBUTIONS
+            && self.sections.iter().all(|section| {
+                crate::collaboration::valid_id(&section.contribution_id)
+                    && crate::collaboration::valid_id(&section.participant_id)
+                    && section.revision > 0
+                    && valid_receipt_digest(&section.digest)
+                    && ids.insert(section.contribution_id.to_ascii_lowercase())
+            })
+            && valid_receipt_digest(&self.source_digest)
+            && valid_receipt_digest(&self.credits_digest)
+    }
+
+    pub fn matches_files(&self, source: &str, credits: &str) -> bool {
+        self.source_digest == receipt_digest(source.as_bytes())
+            && self.credits_digest == receipt_digest(credits.as_bytes())
+    }
+}
+
 /// What happened to a publication after approval. Absent means neither scheduled nor published.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(
@@ -794,7 +1446,12 @@ pub enum Outcome {
         requested_by: String,
     },
     /// The Post and its credits were written. A retry changes nothing.
-    Published { version: u8, published_at: i64 },
+    Published {
+        version: u8,
+        published_at: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        revision: Option<PublishedRevision>,
+    },
 }
 
 impl Outcome {
@@ -810,6 +1467,15 @@ impl Outcome {
         Self::Published {
             version: OUTCOME_VERSION,
             published_at,
+            revision: None,
+        }
+    }
+
+    pub fn published_with_revision(published_at: i64, revision: PublishedRevision) -> Self {
+        Self::Published {
+            version: OUTCOME_VERSION,
+            published_at,
+            revision: Some(revision),
         }
     }
 
@@ -831,7 +1497,12 @@ impl Outcome {
             Self::Published {
                 version,
                 published_at,
-            } => *version == OUTCOME_VERSION && *published_at >= 0,
+                revision,
+            } => {
+                *version == OUTCOME_VERSION
+                    && *published_at >= 0
+                    && revision.as_ref().is_none_or(PublishedRevision::is_valid)
+            }
         };
         valid.then_some(outcome)
     }

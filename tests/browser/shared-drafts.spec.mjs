@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import axe from "axe-core";
 import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio page and sign-in, with the collaboration API replaced by a small in-memory
@@ -14,7 +15,7 @@ import { removeTree } from "./teardown.mjs";
 // draft panel in a browser: keyboard use, a phone viewport, going offline, two tabs, large text.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
+const binary = join(process.env.CARGO_TARGET_DIR || join(repository, "target"), "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
 const password = randomBytes(24).toString("hex");
 const PUBLICATION = "shared-0a1b2c3d4e5f";
 const LIMIT = 100000;
@@ -56,20 +57,27 @@ test.afterAll(async () => {
   removeTree(root);
 });
 
-const stamp = (number) => ({ number, contributionId: "participant-1", digest: "d" });
+const stamp = (number, contributionId = "participant-1") => ({ number, contributionId, authorParticipantId: "participant-1", digest: "d" });
 const json = (route, status, body) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-async function install(context) {
+async function install(context, { coordinator = false } = {}) {
   store = { number: 0, markdown: "" };
   synthesis = { revision: 0, items: [], authors: [{ id: "p-me", displayName: "Writer" }], you: "p-me" };
+  let extras = [];
+  let orderRevision = 0;
   offline = false;
+  if (coordinator) await context.route("**/admin/api/contributors", (route) => json(route, 200, { contributors: { writer: { name: "Writer" } } }));
   await context.route("**/admin/api/collaboration/**", async (route) => {
     const method = route.request().method();
     if (offline && method !== "GET") return route.abort("internetdisconnected");
     const path = new URL(route.request().url()).pathname.replace("/admin/api/collaboration/", "");
     if (path === "publications") {
-      return json(route, 200, { publications: [{ publicationId: PUBLICATION, roles: ["contributor"], title: "A shared reflection", guidingQuestion: "What stayed with you?", sources: [] }] });
+      return json(route, 200, { publications: [{ publicationId: PUBLICATION, roles: coordinator ? ["coordinator", "contributor"] : ["contributor"], title: "A shared reflection", guidingQuestion: "What stayed with you?", sources: [] }] });
     }
+    if (coordinator && path === "members") return json(route, 200, {
+      revision: 0, members: [{ participantId: "p-other", displayName: "Another writer", adminUser: "other", contributorId: "other", roles: ["contributor"], canChangeRoles: true, canRemove: true }],
+    });
+    if (coordinator && path === "invitations") return json(route, 200, { invitations: [] });
     if (path === "draft" && method === "GET") return json(route, 200, { draft: store.number ? { stamp: stamp(store.number), markdown: store.markdown } : null });
     if (path === "draft" && method === "PUT") {
       const body = route.request().postDataJSON();
@@ -79,6 +87,33 @@ async function install(context) {
       }
       store = { number: store.number + 1, markdown: body.markdown };
       return json(route, 200, { stamp: stamp(store.number) });
+    }
+    if (path === "contributions/shared" && method === "GET") return json(route, 200, { contributions: [] });
+    if (path === "contributions" && method === "GET") return json(route, 200, {
+      contributions: [...(store.number ? [{ stamp: stamp(store.number), markdown: store.markdown }] : []), ...extras],
+      orderRevision,
+    });
+    if (path === "contributions" && method === "POST") {
+      const body = route.request().postDataJSON();
+      const item = { stamp: stamp(1, `extra-${orderRevision + 1}`), markdown: body.markdown };
+      extras.push(item);
+      orderRevision += 1;
+      return json(route, 200, { stamp: item.stamp });
+    }
+    if (path === "contributions" && method === "PUT") {
+      const body = route.request().postDataJSON();
+      const item = extras.find((entry) => entry.stamp.contributionId === body.contributionId);
+      if (!item) return json(route, 404, { error: "Not found." });
+      if (item.stamp.number !== body.expectedRevision) return json(route, 409, { error: "Changed elsewhere.", current: item });
+      item.stamp.number += 1;
+      item.markdown = body.markdown;
+      return json(route, 200, { stamp: item.stamp });
+    }
+    if (path === "contributions/withdraw" && method === "POST") {
+      const body = route.request().postDataJSON();
+      extras = extras.filter((entry) => entry.stamp.contributionId !== body.contributionId);
+      orderRevision += 1;
+      return json(route, 200, { withdrawn: true });
     }
     if (path === "synthesis" && method === "GET") return json(route, 200, synthesis);
     if (path === "synthesis" && method === "POST") {
@@ -94,7 +129,22 @@ async function install(context) {
       synthesis = { ...synthesis, revision: synthesis.revision + 1, items };
       return json(route, 200, synthesis);
     }
-    if (path === "reveal") return json(route, 200, { policy: "voluntary", ready: false, canSetPolicy: false, slots: [] });
+    if (coordinator && path === "reflection") return json(route, 200, {
+      structure: null, canArrange: true,
+      participants: [{ id: "p-me", displayName: "Writer" }, { id: "p-other", displayName: "Another writer" }],
+    });
+    if (coordinator && path === "approval-policy") return json(route, 200, {
+      policy: { requirement: "allAuthors", scope: "wholePiece" }, revision: 0,
+      summary: "Every author must approve the whole piece.", required: ["Writer", "Another writer"],
+      missing: ["Writer", "Another writer"], mayDropApprovers: true,
+      approvers: [{ participantId: "p-me", displayName: "Writer" }, { participantId: "p-other", displayName: "Another writer" }],
+    });
+    if (path === "reveal") return json(route, 200, coordinator
+      ? { policy: "allReady", ready: false, canSetPolicy: true, slots: [
+          { participantId: "p-me", displayName: "Writer", kind: "own", markdown: store.markdown },
+          { participantId: "p-other", displayName: "Another writer", kind: "private", ready: false },
+        ] }
+      : { policy: "voluntary", ready: false, canSetPolicy: false, slots: [] });
     return json(route, 404, { error: "not found" });
   });
 }
@@ -114,6 +164,69 @@ async function openPanel(page) {
 
 const editor = (page) => page.getByLabel("Your reflection (Markdown)");
 const saveDraft = (page) => page.getByRole("button", { name: "Save draft" });
+
+test("creating a shared reflection is accessible at 400px, including validation", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByRole("link", { name: "Start a shared reflection" }).click();
+  await expect(page.getByRole("button", { name: "Create shared reflection" })).toBeVisible();
+  await expect(page.getByLabel("Who must approve")).toHaveValue("allParticipants");
+  await page.getByLabel("Who must approve").selectOption("participantQuorum");
+  await expect(page.getByLabel("Number of participants needed")).toBeVisible();
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "Create shared reflection" }).click();
+  await expect(page.getByLabel("Source title")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await page.getByLabel("Source title").fill("A source");
+  await page.getByRole("button", { name: "Create shared reflection" }).click();
+  await expect(page.getByLabel("Working title")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await page.getByLabel("Working title").fill("A reflection");
+  await page.getByLabel("You will appear as").selectOption("writer");
+  await page.getByLabel("Number of participants needed").fill("101");
+  await page.getByRole("button", { name: "Create shared reflection" }).click();
+  await expect(page.getByLabel("Number of participants needed")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+});
+
+test("invitation acceptance and its error are accessible at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  let requests = 0;
+  const token = `invitation.${"a".repeat(64)}`;
+  await context.route("**/admin/api/collaboration/invitations/accept", (route) => {
+    requests += 1;
+    expect(route.request().postDataJSON()).toEqual({ token, contributorId: "writer" });
+    return requests === 1
+      ? json(route, 409, { error: "This invitation could not be accepted." })
+      : json(route, 200, {});
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.goto(`${origin}/admin/#/shared/accept/${token}`);
+  await expect(page.getByRole("heading", { name: "Invitation to a shared reflection" })).toBeVisible();
+  expect(requests).toBe(0);
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "Accept and join" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert")).toBeFocused();
+  await expect(page.getByRole("alert")).toContainText("This invitation could not be accepted.");
+  expect((await audit()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Accept and join" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("You joined the shared reflection.")).toBeVisible();
+  expect(requests).toBe(2);
+});
 
 test("the draft can be written and saved with the keyboard alone", async ({ page, context }) => {
   await install(context);
@@ -136,6 +249,256 @@ test("on a phone-sized screen the draft panel does not scroll sideways", async (
   });
   expect(wide).toEqual([]);
   await expect(editor(page)).toBeVisible();
+});
+
+test("the private draft and conflict recovery are accessible at 400px", async ({ page, context }) => {
+  await install(context);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.evaluate(axe.source);
+  const audit = async () => page.evaluate(async () => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  await editor(page).fill("My unsaved perspective.");
+  store = { number: 1, markdown: "Another saved perspective." };
+  await saveDraft(page).click();
+  await expect(page.getByRole("heading", { name: "Your draft changed elsewhere" })).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await expect(editor(page)).toHaveValue("My unsaved perspective.");
+});
+
+test("restoring after a conflict keeps edits made while deciding", async ({ page, context }) => {
+  await install(context);
+  await openPanel(page);
+  await editor(page).fill("Original unsaved text.");
+  store = { number: 1, markdown: "Newer saved text." };
+  await saveDraft(page).click();
+  await expect(page.getByRole("heading", { name: "Your draft changed elsewhere" })).toBeVisible();
+  await editor(page).fill("Edited while deciding.");
+  await page.getByRole("button", { name: "Use the newer copy instead" }).click();
+  await expect(editor(page)).toHaveValue("Newer saved text.");
+  await page.getByRole("button", { name: "Restore my earlier text" }).click();
+  await expect(editor(page)).toHaveValue("Edited while deciding.");
+});
+
+test("sharing, arrangement and approval controls are accessible at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "My draft." };
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await expect(page.getByRole("heading", { name: "Layout and arrangement" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Approval rule" })).toBeVisible();
+  await page.getByRole("button", { name: "Offer revision 1 to the group" }).click();
+  await expect(page.getByRole("group", { name: "Share revision 1?" })).toBeFocused();
+  await page.evaluate(axe.source);
+  const result = await page.evaluate(async () => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(result.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("members and invitations are accessible by keyboard at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  await context.route("**/admin/api/collaboration/invitations", (route) => json(route, 422, { error: "That account cannot be invited." }));
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  const summary = page.locator("summary", { hasText: "Members and invitations" });
+  await summary.focus();
+  await page.keyboard.press("Enter");
+  const panel = page.locator(".oba-invitations").filter({ has: summary });
+  await expect(panel.getByRole("button", { name: "Change roles for Another writer" })).toBeVisible();
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  await panel.getByRole("button", { name: "Create invitation link" }).press("Enter");
+  await expect(panel.getByRole("alert")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await panel.getByLabel("Their sign-in name").fill("other");
+  await panel.getByRole("button", { name: "Create invitation link" }).press("Enter");
+  await expect(panel.getByRole("alert")).toContainText("That account cannot be invited.");
+  await expect(panel.getByRole("alert")).toBeFocused();
+  const change = panel.getByRole("button", { name: "Change roles for Another writer" });
+  await change.press("Enter");
+  const roles = panel.getByRole("group", { name: "Roles for Another writer" });
+  await roles.locator("input:checked").uncheck();
+  await roles.getByRole("button", { name: "Review change" }).press("Enter");
+  await expect(panel.getByRole("alert")).toContainText("Choose at least one role");
+  await expect(panel.getByRole("alert")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await roles.getByRole("button", { name: "Cancel" }).press("Enter");
+  await expect(change).toBeFocused();
+  const remove = panel.getByRole("button", { name: "Remove access for Another writer" });
+  await remove.press("Enter");
+  await expect(panel.getByRole("group", { name: "Remove Another writer?" })).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(remove).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("a named release confirms the selected recipients and revision at 400px", async ({ page, context }) => {
+  await install(context);
+  store = { number: 1, markdown: "Private words." };
+  let released;
+  await context.route("**/admin/api/collaboration/reveal?**", (route) => json(route, 200, {
+    policy: "namedRecipients", ready: false, canSetPolicy: false, authorizationRevision: 7, slots: [
+      { participantId: "p-me", displayName: "Writer", kind: "own", mayReceive: false, markdown: store.markdown },
+      { participantId: "p-other", displayName: "Another writer", kind: "private", mayReceive: true },
+      { participantId: "p-reader", displayName: "Reader", kind: "private", mayReceive: true, nonDrafter: true },
+      { participantId: "p-absent", displayName: "Former writer", kind: "private", mayReceive: false },
+    ],
+  }));
+  await context.route("**/admin/api/collaboration/reveal/named", (route) => {
+    released = route.request().postDataJSON();
+    return json(route, 200, { released: true });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByRole("button", { name: "Choose who receives revision 1" }).click();
+  await expect(page.getByRole("alert").first()).toContainText("Choose at least one recipient.");
+  await page.getByRole("checkbox", { name: "Another writer" }).check();
+  await page.getByRole("checkbox", { name: "Reader (can read without draft access)" }).check();
+  await page.getByRole("button", { name: "Choose who receives revision 1" }).click();
+  const confirmation = page.getByRole("group", { name: "Share revision 1?" });
+  await expect(confirmation).toBeFocused();
+  await expect(confirmation).toContainText("Another writer");
+  await expect(confirmation).toContainText("Reader (can read without draft access)");
+  await expect(confirmation).not.toContainText("Former writer");
+  await page.evaluate(axe.source);
+  const result = await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(result.violations).toEqual([]);
+  await confirmation.getByRole("button", { name: "Share revision 1" }).click();
+  await expect.poll(() => released).toEqual({ publicationId: PUBLICATION, contributionId: "participant-1", revision: 1, recipients: ["p-other", "p-reader"], expectedAuthorizationRevision: 7 });
+  await expect(page.getByText("Revision 1 was shared with the selected people.")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("additional contributions stay editable and are offered together at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "Main private text." };
+  let offer;
+  await context.route("**/admin/api/collaboration/contributions/ready", (route) => {
+    offer = route.request().postDataJSON();
+    return json(route, 200, { ready: true, revealed: false });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByLabel("New contribution (Markdown)").fill("Extra private text.");
+  await page.getByRole("button", { name: "Add contribution" }).click();
+  await expect(page.getByLabel("Contribution 2 text")).toHaveValue("Extra private text.");
+  await page.getByLabel("Contribution 2 text").fill("Revised extra.");
+  await page.getByRole("button", { name: "Save contribution" }).click();
+  await expect(page.getByRole("heading", { name: "Contribution 2, revision 2" })).toBeVisible();
+  await page.getByRole("button", { name: "Offer all my contributions to the group" }).click();
+  const confirmation = page.getByRole("group", { name: "Share 2 contributions?" });
+  await expect(confirmation).toBeFocused();
+  await expect(confirmation).toContainText("Contribution 2, revision 2");
+  await page.evaluate(axe.source);
+  expect((await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }))).violations).toEqual([]);
+  await confirmation.getByRole("button", { name: "Share these revisions" }).click();
+  await expect.poll(() => offer?.contributions).toEqual([
+    { contributionId: "participant-1", revision: 1 },
+    { contributionId: "extra-1", revision: 2 },
+  ]);
+  await page.getByRole("button", { name: "Withdraw contribution" }).click();
+  const withdrawal = page.getByRole("group", { name: "Confirm withdrawal of contribution 2" });
+  await expect(withdrawal).toBeFocused();
+  await withdrawal.getByRole("button", { name: "Yes, withdraw" }).click();
+  await expect(page.getByLabel("Contribution 2 text")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("a stale additional contribution keeps the writer's text and can be saved on retry", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "Main draft." };
+  await openPanel(page);
+  await page.getByLabel("New contribution (Markdown)").fill("First version.");
+  await page.getByRole("button", { name: "Add contribution" }).click();
+  const second = await context.newPage();
+  try {
+    await openPanel(second);
+    await second.getByLabel("Contribution 2 text").fill("Saved in another tab.");
+    await second.getByRole("button", { name: "Save contribution" }).click();
+    await expect(second.getByRole("heading", { name: "Contribution 2, revision 2" })).toBeVisible();
+    await page.getByLabel("Contribution 2 text").fill("My unsaved version.");
+    await page.getByRole("button", { name: "Save contribution" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "Saved in another tab." })).toBeVisible();
+    await expect(page.getByLabel("Contribution 2 text")).toHaveValue("My unsaved version.");
+    await page.getByRole("button", { name: "Save contribution" }).click();
+    await expect(page.getByRole("heading", { name: "Contribution 2, revision 3" })).toBeVisible();
+    await expect(page.getByLabel("Contribution 2 text")).toHaveValue("My unsaved version.");
+  } finally {
+    await second.close();
+  }
+});
+
+test("an unavailable arrangement can be explicitly replaced at 400px", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "My draft." };
+  let reset;
+  await context.route("**/admin/api/collaboration/reflection?**", (route) =>
+    json(route, 409, { error: "The arrangement is not available to you.", revision: 3 }));
+  await context.route("**/admin/api/collaboration/reflection/reset", (route) => {
+    reset = route.request().postDataJSON();
+    return json(route, 200, { structure: {} });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.getByRole("button", { name: "Replace arrangement with current contributions" }).click();
+  const confirmation = page.getByRole("group", { name: "Confirm replacement of the arrangement" });
+  await expect(confirmation).toBeFocused();
+  await page.evaluate(axe.source);
+  expect((await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }))).violations).toEqual([]);
+  await confirmation.getByRole("button", { name: "Yes, replace arrangement" }).click();
+  await expect.poll(() => reset).toEqual({ publicationId: PUBLICATION, expectedRevision: 3, confirmed: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("a reader can open an explicitly shared revision at 400px", async ({ page, context }) => {
+  await install(context);
+  let sharedRevision = 1;
+  await context.route("**/admin/api/collaboration/moments?**", (route) => json(route, 200, {
+    shared: [{ participant: { id: "p-other", displayName: "Another writer" }, draftRevision: sharedRevision,
+      moments: [{ source: "source-1", location: "at 1:02", observation: "Shared observation." }] }],
+  }));
+  await context.route("**/admin/api/collaboration/publications", (route) => json(route, 200, {
+    publications: [{ publicationId: PUBLICATION, roles: ["reader"], title: "A shared reflection", sources: [] }],
+  }));
+  await context.route("**/admin/api/collaboration/reveal?**", (route) => json(route, 200, {
+    policy: "namedRecipients", canDraft: false, slots: [
+      { participantId: "p-other", displayName: "Another writer", kind: "revealed", stamp: stamp(1), markdown: "Shared words." },
+    ],
+  }));
+  await page.setViewportSize({ width: 400, height: 800 });
+  await page.goto(`${origin}/admin/`);
+  await page.getByLabel("Username", { exact: true }).fill("writer");
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.goto(`${origin}/admin/#/shared`);
+  await page.locator("summary", { hasText: "Revisions shared with you" }).press("Enter");
+  await expect(page.getByRole("group", { name: "Text from Another writer" })).toHaveText("Shared words.");
+  await expect(page.getByRole("group", { name: "Observation" })).toHaveText("Shared observation.");
+  await page.evaluate(axe.source);
+  const result = await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(result.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  sharedRevision = 2;
+  await page.locator("summary", { hasText: "Revisions shared with you" }).click();
+  await page.locator("summary", { hasText: "Revisions shared with you" }).click();
+  await expect(page.getByRole("group", { name: "Text from Another writer" })).toHaveText("Shared words.");
+  await expect(page.getByRole("group", { name: "Observation" })).toHaveCount(0);
 });
 
 test("going offline keeps the text and says so, and saving works again afterwards", async ({ page, context }) => {
@@ -253,6 +616,181 @@ test("the combined preview loads in an empty sandbox, runs and fetches nothing, 
   await expect(page.getByRole("status").filter({ hasText: "Preview, not published." })).toContainText("Incomplete");
   await expect(page.getByRole("list", { name: "Authors in the combined piece" })).toContainText("Bo: not shared with you at its current revision");
   await expect(page.getByRole("list", { name: "Authors in the combined piece" })).not.toContainText("private words");
+  await expect(page.getByRole("button", { name: "Approve this piece" })).toHaveCount(0);
+});
+
+test("approval requires a complete preview and explicit credit consent; stale reviews are refused", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "My draft." };
+  let token = "reviewed-revision";
+  let requests = [];
+  let stale = true;
+  await context.route("**/admin/api/collaboration/preview?**", (route) => json(route, 200, {
+    preview: {
+      complete: true, ready: false, seen: token, previewUrl: "/admin/api/preview/" + "a".repeat(64),
+      sections: [{ participantId: "p-me", displayName: "Writer", shown: true, revision: 1, approval: "awaiting", required: true, errors: [] }],
+    },
+  }));
+  await context.route("**/admin/api/preview/**", (route) => route.fulfill({
+    status: 200, contentType: "text/html", body: previewDocument,
+    headers: { "Content-Security-Policy": previewPolicy },
+  }));
+  await context.route("**/admin/api/collaboration/approve", (route) => {
+    requests.push(route.request().postDataJSON());
+    if (stale) return json(route, 409, { error: "The piece changed after you read it. Reload the combined preview." });
+    return json(route, 200, { approved: true });
+  });
+  let withdrawals = 0;
+  await context.route("**/admin/api/collaboration/approve/withdraw", (route) => {
+    withdrawals += 1;
+    expect(route.request().postDataJSON()).toEqual({ publicationId: PUBLICATION });
+    return json(route, 200, { withdrawn: true });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  const review = page.getByRole("button", { name: "Review the combined piece" });
+  await review.focus();
+  await page.keyboard.press("Enter");
+  const consent = page.getByRole("checkbox", { name: /I approve publishing exactly the piece I reviewed/ });
+  const approve = page.getByRole("button", { name: "Approve this piece" });
+  await expect(approve).toBeDisabled();
+  await expect(review).toBeFocused();
+  for (let i = 0; i < 6 && !(await consent.evaluate((element) => element === document.activeElement)); i += 1) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(consent).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(approve).toBeEnabled();
+  await page.evaluate(axe.source);
+  const audit = await page.evaluate(async () => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(audit.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect(approve).toBeFocused();
+  await page.keyboard.press("Enter");
+  expect(requests[0]).toEqual({ publicationId: PUBLICATION, seen: token, affirmed: true });
+  await expect(page.getByText("The piece changed after you read it. Reload the combined preview.")).toBeVisible();
+  await expect(approve).toHaveCount(0);
+  token = "new-reviewed-revision";
+  stale = false;
+  await page.getByRole("button", { name: "Review the combined piece" }).click();
+  await consent.check();
+  await approve.click();
+  expect(requests[1]).toEqual({ publicationId: PUBLICATION, seen: token, affirmed: true });
+  await expect(page.getByText("Your approval was recorded.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review the combined piece" })).toBeFocused();
+  await page.getByRole("button", { name: "Review the combined piece" }).click();
+  await page.getByRole("button", { name: "Withdraw my approval" }).click();
+  expect(withdrawals).toBe(1);
+  await expect(page.getByText("Your approval was withdrawn.", { exact: false })).toBeVisible();
+});
+
+test("publishing requires confirmation and reports the server approval gate at phone width", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  let ready = false;
+  let calls = 0;
+  await context.route("**/admin/api/collaboration/publish", (route) => {
+    calls += 1;
+    expect(route.request().postDataJSON()).toEqual({ publicationId: PUBLICATION });
+    return ready ? json(route, 200, { state: "published", alreadyPublished: false })
+      : json(route, 409, { error: "Approvals are missing.", missing: ["Another writer"] });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.locator("summary", { hasText: "Publish shared reflection" }).click();
+  const submit = page.getByRole("button", { name: "Publish approved piece" });
+  const confirm = page.getByLabel("I intend to publish the current approved piece publicly.");
+  await expect(submit).toBeDisabled();
+  expect(calls).toBe(0);
+  await page.evaluate(axe.source);
+  const audit = await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(audit.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await confirm.check();
+  await submit.click();
+  await expect(page.getByText("Approvals are missing. Still needed: Another writer.")).toBeFocused();
+  await expect(confirm).not.toBeChecked();
+  await expect(submit).toBeDisabled();
+  ready = true;
+  await confirm.check();
+  await submit.click();
+  await expect(page.getByText("The approved piece was published.")).toBeVisible();
+  expect(calls).toBe(2);
+});
+
+test("participants choose public credit and recover from a stale choice at phone width", async ({ page, context }) => {
+  await install(context);
+  let credit = null;
+  let revision = 0;
+  await context.route("**/admin/api/collaboration/credit-choice?**", (route) =>
+    json(route, 200, { revision, choice: credit }));
+  await context.route("**/admin/api/collaboration/credit-choice", (route) => {
+    const body = route.request().postDataJSON();
+    if (body.expectedRevision !== revision) return json(route, 409, { error: "Credit choices changed. Reload before saving; nothing was changed." });
+    credit = body.choice;
+    revision += 1;
+    return json(route, 200, { revision, choice: credit });
+  });
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.locator("summary", { hasText: "My public credit" }).click();
+  await expect(page.getByText("You have not chosen your public credit.")).toBeVisible();
+  await page.getByLabel("My public credit").selectOption("displayName");
+  await page.getByLabel("Public display name").fill("A pen name");
+  await page.evaluate(axe.source);
+  const audit = await page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect(audit.violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "Save my credit" }).click();
+  await expect(page.getByText("Your credit choice was saved. Review the combined piece again.")).toBeVisible();
+  expect(credit).toEqual({ kind: "displayName", name: "A pen name" });
+  revision += 1;
+  await page.getByLabel("My public credit").selectOption("uncredited");
+  await page.getByRole("button", { name: "Save my credit" }).click();
+  await expect(page.getByText("Credit choices changed. Reload before saving; nothing was changed.")).toBeFocused();
+  await page.getByRole("button", { name: "Reload my credit" }).click();
+  await expect(page.getByLabel("My public credit")).toHaveValue("displayName");
+  await expect(page.getByLabel("Public display name")).toHaveValue("A pen name");
+});
+
+test("preview loading preserves deliberate focus changes and restores focus after an error", async ({ page, context }) => {
+  await install(context, { coordinator: true });
+  store = { number: 1, markdown: "My draft." };
+  let release;
+  const delayed = new Promise((resolve) => { release = resolve; });
+  let fail = false;
+  await context.route("**/admin/api/collaboration/preview?**", async (route) => {
+    if (fail) return json(route, 500, { error: "Preview unavailable." });
+    await delayed;
+    return json(route, 200, {
+      preview: { complete: false, ready: false, seen: null, previewUrl: "/admin/api/preview/" + "a".repeat(64), sections: [] },
+    });
+  });
+  await context.route("**/admin/api/preview/**", (route) => route.fulfill({
+    status: 200, contentType: "text/html", body: previewDocument,
+    headers: { "Content-Security-Policy": previewPolicy },
+  }));
+  await openPanel(page);
+  const review = page.getByRole("button", { name: "Review the combined piece" });
+  await review.focus();
+  await page.keyboard.press("Enter");
+  await expect(review).toBeDisabled();
+  await editor(page).focus();
+  release();
+  await expect(review).toBeEnabled();
+  await expect(editor(page)).toBeFocused();
+
+  fail = true;
+  await review.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Preview unavailable.")).toBeVisible();
+  await expect(review).toBeFocused();
 });
 
 test("the continuing conversation works with the keyboard alone at phone width, and focus is never lost", async ({ page, context }) => {
@@ -285,4 +823,24 @@ test("the continuing conversation works with the keyboard alone at phone width, 
     return [...document.querySelectorAll(".oba-synthesis, .oba-synthesis *")].filter((node) => node.getBoundingClientRect().right > limit + 1).map((node) => node.className || node.tagName);
   });
   expect(wide).toEqual([]);
+});
+
+test("continuing conversation and item editing pass axe at 400px", async ({ page, context }) => {
+  await install(context);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  await page.locator(".oba-synthesis-form textarea").fill("A shared thought.");
+  await page.getByRole("button", { name: "Add item" }).click();
+  await expect(page.getByText(/Item 1 of 1/)).toBeVisible();
+  await expect(page.getByRole("group", { name: "Agreement text" })).toContainText("A shared thought.");
+  expect((await audit()).violations).toEqual([]);
+  await page.locator(".oba-synthesis-item").getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByLabel("Edit item text")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });

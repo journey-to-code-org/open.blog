@@ -65,3 +65,12 @@ numbered revisions in the `DraftSet`; the contract still approves as a whole rev
 - Later routes call `SharedPublication::authorize` first, then this module, inside the same
   revision-checked transaction that stores the set. Storage and routes are separate work.
 - Public output, feeds, exports, and canonical content never read a `DraftSet`.
+
+## New reflection default
+
+New shared reflections record `allReady` as their initial reveal policy. A draft set created for
+one of them waits for every active drafter to offer a revision before revealing any of them.
+Existing draft sets keep their chosen policy; older reflection records without an initial policy
+continue to start in `independent` mode if they do not yet have a draft set. Changing policy
+clears pending offers and does not itself reveal anything. Older open.blog versions that reject
+unknown record fields cannot read newly created records with this field.

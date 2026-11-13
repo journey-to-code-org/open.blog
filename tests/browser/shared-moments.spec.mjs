@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import axe from "axe-core";
 import { removeTree } from "./teardown.mjs";
 
 // The real Admin Studio page and sign-in, with the collaboration API replaced by a small in-memory
@@ -16,7 +17,7 @@ import { removeTree } from "./teardown.mjs";
 // rights guidance and warnings (ADR 0065).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
+const binary = join(process.env.CARGO_TARGET_DIR || join(repository, "target"), "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
 const password = randomBytes(24).toString("hex");
 const PUBLICATION = "shared-0a1b2c3d4e5f";
 const SOURCES = [
@@ -149,6 +150,28 @@ async function openPanel(page) {
 }
 
 const panel = (page) => page.locator(".oba-moments");
+
+test("the moments form and its validation state pass axe at 400px", async ({ page, context }) => {
+  await install(context);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await openPanel(page);
+  await page.evaluate(axe.source);
+  const audit = () => page.evaluate(() => window.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  }));
+  expect((await audit()).violations).toEqual([]);
+  await panel(page).getByLabel("Source", { exact: true }).selectOption("source-1");
+  await panel(page).getByLabel("Location", { exact: true }).fill("1:60");
+  await panel(page).getByRole("button", { name: "Add moment" }).click();
+  await expect(panel(page).getByRole("alert")).toBeFocused();
+  expect((await audit()).violations).toEqual([]);
+  await panel(page).getByLabel("Location", { exact: true }).fill("1:02");
+  await panel(page).getByLabel("Your observation (Markdown, optional)").fill("The pause before the answer.");
+  await panel(page).getByRole("button", { name: "Add moment" }).click();
+  await expect(panel(page).getByRole("group", { name: "Observation" })).toContainText("The pause before the answer.");
+  expect((await audit()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
 
 test("a moment is captured with the keyboard alone at phone width, and a malformed time is caught first", async ({ page, context }) => {
   await install(context);

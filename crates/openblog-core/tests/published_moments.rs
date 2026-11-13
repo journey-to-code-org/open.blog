@@ -73,6 +73,8 @@ fn record() -> SharedPublication {
         },
     })
     .unwrap();
+    record.initial_approval_scope = None;
+    record.initial_approval_requirement = None;
     record.collaboration.participants[0].id = ALL[0].into();
     record.authorization.bindings[0].participant_id = ALL[0].into();
     record.collaboration.participants.push(Participant {
@@ -318,6 +320,113 @@ fn in_order(label: &str, haystack: &str, needles: &[&str]) {
             .find(needle)
             .unwrap_or_else(|| panic!("{label}: `{needle}` missing or out of order\n{haystack}"));
         from += at + needle.len();
+    }
+}
+
+#[test]
+fn selected_credit_applies_to_moments_conversation_and_every_public_copy() {
+    use openblog_core::approval::ApprovalScope;
+    use openblog_core::assembly::{
+        assemble_for_participants_with_credits, with_credit_subject_for_participants,
+    };
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let mut f = Fixture::with_moments();
+    let item = f
+        .synthesis
+        .add(
+            ALL[0],
+            &ALL,
+            0,
+            NewSynthesisItem {
+                kind: SynthesisKind::Agreement,
+                markdown: "A shared thought.",
+                others: &[ALL[1]],
+            },
+        )
+        .unwrap();
+    for who in ALL {
+        f.synthesis
+            .approve_item(who, &ALL, f.synthesis.revision(), &item)
+            .unwrap();
+    }
+    let mut choices = CreditChoices::default();
+    choices
+        .select(ALL[0], ALL[0], "ann", 0, CreditChoice::Uncredited)
+        .unwrap();
+    choices
+        .select(
+            ALL[1],
+            ALL[1],
+            "bo",
+            1,
+            CreditChoice::DisplayName {
+                name: "Pen Name".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+    f.approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    with_credit_subject_for_participants(
+        &f.record,
+        None,
+        &f.drafts,
+        &f.synthesis,
+        &f.moments,
+        &ALL,
+        &ALL,
+        &choices,
+        |subject| {
+            for who in ALL {
+                let seen = f.approvals.binding_for(subject, who).unwrap();
+                f.approvals
+                    .approve(who, who, subject, &seen, true, T)
+                    .unwrap();
+            }
+        },
+    )
+    .unwrap();
+    let made = assemble_for_participants_with_credits(
+        &f.record,
+        None,
+        &f.drafts,
+        &f.synthesis,
+        &f.moments,
+        &f.approvals,
+        &ALL,
+        &ALL,
+        DATE,
+        &choices,
+    )
+    .unwrap();
+    assert!(made
+        .source
+        .contains("Speaking for Uncredited participant, Pen Name"));
+    assert!(made.source.contains("Noted by Uncredited participant"));
+    assert!(made.source.contains("Noted by Pen Name"));
+    let site = site(&made);
+    let projection = PortableProjection::for_site(&site, &site.posts[0]).unwrap();
+    for output in [
+        page_of(&site),
+        projection.portable_html().unwrap().html,
+        projection.portable_markdown().unwrap(),
+        projection.portable_text().unwrap(),
+        feeds::rss(&site).unwrap(),
+        feeds::json_feed(&site).unwrap(),
+    ] {
+        for private in [
+            "Ann Ames",
+            "Bo &lt;Bee&gt;",
+            "Bo <Bee>",
+            ALL[0],
+            ALL[1],
+            "ann-admin",
+            "bo-admin",
+        ] {
+            assert!(!output.contains(private), "leaked {private}");
+        }
+        assert!(output.contains("Pen Name"));
+        assert!(output.contains("Uncredited participant"));
     }
 }
 

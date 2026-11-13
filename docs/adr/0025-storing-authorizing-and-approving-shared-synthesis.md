@@ -69,3 +69,25 @@ could not stale a standing approval and a named author could be left out.
   the synthesis only when the requester also holds EditSynthesis; for anyone else the items, their
   names and the conversation section are left out, while readiness still counts every item.
 - This amends ADR 0024: synthesis authors are Contributors only.
+
+## Recipient-specific delivery
+
+The synthesis route also supports an explicit `delivery` change. Every current synthesis author
+must separately consent to deliver the current conversation to a named participant with publication
+access. The request names the synthesis revision and authorization revision seen when the recipient
+was chosen. Consent covers even an empty conversation, so a denied reader cannot infer whether one
+exists. Removing any consent, changing the conversation, or changing membership or authorization
+prevents delivery; restoring access alone does not restore it. A delivered conversation is read-only
+for recipients without the synthesis author grant. These grants do not enable combined review or
+whole-piece approval for non-authors; that requires further work.
+
+Admin lets each author confirm or withdraw their own agreement for each eligible recipient and
+lets recipients read the delivered conversation. A recipient who is not entitled to read it sees
+the same unavailable message whether the conversation is empty or contains private items.
+Non-drafters can also open a combined preview. It shows only the latest draft revisions explicitly
+released to them, their sealed moments, and the delivered conversation. It issues an approval token
+only under a participant approval rule and only when the entire current piece is visible.
+
+Delivery is stored in the private synthesis file. Older versions that reject unknown synthesis
+fields cannot read files containing delivery consent or its content revision. Rollback requires
+preserving those files and removing the new fields only after accounting for the lost consent.

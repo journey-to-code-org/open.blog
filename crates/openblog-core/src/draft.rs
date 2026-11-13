@@ -5,11 +5,12 @@
 //! binding, timestamp, and a digest of its exact content; that identity ([`RevisionStamp`])
 //! carries no prose. Saving is optimistic: the caller names the revision it last saw.
 //!
-//! Drafts become visible to others only through a mutual reveal: an exchange among two or more
+//! A mutual reveal is an exchange among two or more
 //! participants in which every member commits one exact revision of their own draft. Nothing is
 //! visible until the last member commits, then every member can read every committed revision in
-//! the same mutation, so a reveal that is interrupted or cancelled exposes nothing. A reveal
-//! never approves, publishes, or credits anything and never touches the collaboration contract.
+//! the same mutation, so a reveal that is interrupted or cancelled exposes nothing. A named
+//! release instead gives one exact revision to explicitly selected recipients. Neither approves,
+//! publishes, or credits anything or touches the collaboration contract.
 //!
 //! Every refusal about another participant's draft is the same [`DraftError::Denied`], so a
 //! caller cannot read or probe the content, revisions, or state of a draft or exchange.
@@ -17,13 +18,16 @@
 //! id that is already taken is refused; that collision (never any content) is the only thing a
 //! participant can learn about an id they do not own.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
 
-use crate::collaboration::{valid_id, MAX_CONTRIBUTIONS, MAX_MARKDOWN_BYTES, MAX_PARTICIPANTS};
+use crate::collaboration::{
+    valid_id, CollaborationContract, Contribution, MAX_CONTRIBUTIONS, MAX_MARKDOWN_BYTES,
+    MAX_PARTICIPANTS,
+};
 use crate::date::DateTime;
 
 pub const DRAFT_SET_VERSION: u8 = 1;
@@ -158,6 +162,19 @@ pub enum RevealPolicy {
     Voluntary,
     /// Nothing is revealed until every active participant has marked a revision ready.
     AllReady,
+    /// Each author explicitly releases an exact revision to named recipients.
+    NamedRecipients,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct NamedRelease {
+    contribution_id: String,
+    revision: u64,
+    recipients: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    non_draft_recipients: Vec<String>,
+    released_at: i64,
 }
 
 /// One participant's standing offer to reveal one exact revision of their own draft. It is
@@ -203,6 +220,12 @@ pub struct DraftSet {
     policy: RevealPolicy,
     #[serde(default)]
     ready: Vec<Readiness>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    named_releases: Vec<NamedRelease>,
+    #[serde(default, skip_serializing_if = "crate::shared_series::is_zero")]
+    order_revision: u64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    owner_reorders: BTreeMap<String, u64>,
 }
 
 fn digest(owner: &str, contribution_id: &str, number: u64, markdown: &str) -> String {
@@ -235,6 +258,9 @@ impl DraftSet {
             exchanges: Vec::new(),
             policy: RevealPolicy::Independent,
             ready: Vec::new(),
+            named_releases: Vec::new(),
+            order_revision: 0,
+            owner_reorders: BTreeMap::new(),
         };
         if set.is_valid() {
             Ok(set)
@@ -288,6 +314,10 @@ impl DraftSet {
         self.drafts
             .iter()
             .find(|draft| draft.id.eq_ignore_ascii_case(id))
+    }
+
+    pub(crate) fn draft_owner(&self, id: &str) -> Option<&str> {
+        self.draft(id).map(|draft| draft.owner.as_str())
     }
 
     fn stamp(draft: &Draft, revision: &Revision) -> RevisionStamp {
@@ -349,6 +379,23 @@ impl DraftSet {
         if current as usize >= MAX_REVISIONS_PER_DRAFT {
             return Err(DraftError::LimitReached);
         }
+        self.owner_order_revision(requester)?
+            .checked_add(1)
+            .ok_or(DraftError::LimitReached)?;
+        let next_order =
+            if current == 0 && (contribution_id != requester || self.order_revision != 0) {
+                Some(
+                    self.order_revision
+                        .checked_add(1)
+                        .ok_or(DraftError::LimitReached)?,
+                )
+            } else {
+                None
+            };
+        let previous_order = self.order_revision;
+        if let Some(revision) = next_order {
+            self.order_revision = revision;
+        }
         let number = current + 1;
         let revision = Revision {
             number,
@@ -382,6 +429,7 @@ impl DraftSet {
             if current == 0 {
                 self.drafts.pop();
             }
+            self.order_revision = previous_order;
             return Err(DraftError::LimitReached);
         }
         let draft = self
@@ -396,6 +444,29 @@ impl DraftSet {
     /// owner; copies already read cannot be recalled. A withdrawn draft accepts no new revision
     /// or commitment, and withdrawing never changes the contract or any approval.
     pub fn withdraw(&mut self, requester: &str, contribution_id: &str) -> Result<(), DraftError> {
+        let current = self
+            .drafts
+            .iter()
+            .find(|draft| {
+                draft.id.eq_ignore_ascii_case(contribution_id) && draft.owner == requester
+            })
+            .ok_or(DraftError::Denied)?;
+        if !current.withdrawn {
+            self.owner_order_revision(requester)?
+                .checked_add(1)
+                .ok_or(DraftError::LimitReached)?;
+        }
+        let next_order =
+            if !current.withdrawn && (current.id != current.owner || self.order_revision != 0) {
+                Some(
+                    self.order_revision
+                        .checked_add(1)
+                        .ok_or(DraftError::LimitReached)?,
+                )
+            } else {
+                None
+            };
+        let previous = next_order.map(|_| self.clone());
         let draft = self
             .drafts
             .iter_mut()
@@ -412,6 +483,15 @@ impl DraftSet {
                 exchange
                     .commitments
                     .retain(|c| c.contribution_id != contribution_id);
+            }
+        }
+        if let Some(revision) = next_order {
+            self.order_revision = revision;
+        }
+        if self.to_json().len() >= MAX_DRAFT_SET_BYTES {
+            if let Some(previous) = previous {
+                *self = previous;
+                return Err(DraftError::LimitReached);
             }
         }
         Ok(())
@@ -448,8 +528,63 @@ impl DraftSet {
                 .max();
             exchanged
                 .max(self.offered_revision(requester, contribution_id, active))
+                .max(
+                    self.named_releases
+                        .iter()
+                        .filter(|release| {
+                            active.contains(&requester)
+                                && active.contains(&draft.owner.as_str())
+                                && release
+                                    .contribution_id
+                                    .eq_ignore_ascii_case(contribution_id)
+                                && release.recipients.iter().any(|id| id == requester)
+                        })
+                        .map(|release| release.revision)
+                        .max(),
+                )
                 .ok_or(DraftError::Denied)?
         };
+        let revision = draft
+            .revisions
+            .iter()
+            .find(|revision| revision.number == number)
+            .ok_or(DraftError::Denied)?;
+        Ok(DraftView {
+            stamp: Self::stamp(draft, revision),
+            markdown: revision.markdown.clone(),
+        })
+    }
+
+    /// Read only a revision explicitly released to this recipient without draft access. The
+    /// caller must supply currently authorized recipients and active draft owners in `active`.
+    pub fn view_named(
+        &self,
+        requester: &str,
+        contribution_id: &str,
+        active: &[&str],
+    ) -> Result<DraftView, DraftError> {
+        if !self.is_member(requester) || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        let draft = self
+            .draft(contribution_id)
+            .filter(|draft| !draft.withdrawn && active.contains(&draft.owner.as_str()))
+            .ok_or(DraftError::Denied)?;
+        let number = self
+            .named_releases
+            .iter()
+            .filter(|release| {
+                release
+                    .contribution_id
+                    .eq_ignore_ascii_case(contribution_id)
+                    && release
+                        .non_draft_recipients
+                        .iter()
+                        .any(|id| id == requester)
+            })
+            .map(|release| release.revision)
+            .max()
+            .ok_or(DraftError::Denied)?;
         let revision = draft
             .revisions
             .iter()
@@ -471,6 +606,227 @@ impl DraftSet {
             .revisions
             .last()
             .map(|revision| Self::stamp(draft, revision))
+    }
+
+    /// The requester's live contributions in their saved order. This never lists another
+    /// participant's drafts, regardless of reveal state.
+    pub fn owned_views(&self, requester: &str) -> Result<Vec<DraftView>, DraftError> {
+        if !self.is_member(requester) {
+            return Err(DraftError::Denied);
+        }
+        Ok(self
+            .drafts
+            .iter()
+            .filter(|draft| draft.owner == requester && !draft.withdrawn)
+            .map(|draft| {
+                let revision = draft.revisions.last().expect("valid drafts have revisions");
+                DraftView {
+                    stamp: Self::stamp(draft, revision),
+                    markdown: revision.markdown.clone(),
+                }
+            })
+            .collect())
+    }
+
+    /// Only contributions currently visible to this requester. Hidden contribution IDs and
+    /// counts are omitted. The caller must authorize and classify the requester first.
+    pub fn visible_views(
+        &self,
+        requester: &str,
+        active: &[&str],
+        named_reader: bool,
+    ) -> Result<Vec<DraftView>, DraftError> {
+        if !self.is_member(requester) || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        Ok(self
+            .drafts
+            .iter()
+            .filter(|draft| !draft.withdrawn && active.contains(&draft.owner.as_str()))
+            .filter_map(|draft| {
+                if named_reader {
+                    self.view_named(requester, &draft.id, active).ok()
+                } else {
+                    self.view(requester, &draft.id, active).ok()
+                }
+            })
+            .collect())
+    }
+
+    /// Derive transient, prose-free ownership metadata from this private set. Callers must
+    /// authorize access to every returned contribution ID and must not persist the derived
+    /// contract as a substitute for the private draft store.
+    pub fn contract_for_contributions(
+        &self,
+        contract: &CollaborationContract,
+        active: &[&str],
+    ) -> Result<CollaborationContract, DraftError> {
+        let mut active_ids = HashSet::new();
+        if active.iter().any(|id| {
+            !active_ids.insert(id.to_ascii_lowercase())
+                || !self.is_member(id)
+                || !contract
+                    .participants
+                    .iter()
+                    .any(|participant| participant.id == *id)
+        }) {
+            return Err(DraftError::Invalid);
+        }
+        let mut contributions = Vec::new();
+        for participant in &contract.participants {
+            if !active.contains(&participant.id.as_str()) {
+                continue;
+            }
+            for stamp in self.stamps_for_owner(&participant.id) {
+                let mut existing = contract
+                    .contributions
+                    .iter()
+                    .filter(|item| item.id.eq_ignore_ascii_case(&stamp.contribution_id));
+                if existing
+                    .next()
+                    .is_some_and(|item| item.participant_id != participant.id)
+                    || existing.next().is_some()
+                {
+                    return Err(DraftError::Invalid);
+                }
+                contributions.push(Contribution {
+                    id: stamp.contribution_id,
+                    participant_id: participant.id.clone(),
+                    markdown: String::new(),
+                });
+            }
+        }
+        let mut derived = contract.clone();
+        derived.contributions = contributions;
+        Ok(derived)
+    }
+
+    /// Monotonic ordering revision, retained even if a participant restores an earlier order.
+    pub fn order_revision(&self) -> u64 {
+        self.order_revision
+    }
+
+    /// An owner-scoped order token. Other participants' private activity never changes it.
+    pub fn owner_order_revision(&self, requester: &str) -> Result<u64, DraftError> {
+        if !self.is_member(requester) {
+            return Err(DraftError::Denied);
+        }
+        let revision = self.owner_reorders.get(requester).copied().unwrap_or(0);
+        self.drafts
+            .iter()
+            .filter(|draft| draft.owner == requester)
+            .try_fold(revision, |value, draft| {
+                value
+                    .checked_add(draft.revisions.len() as u64)
+                    .and_then(|value| value.checked_add(u64::from(draft.withdrawn)))
+                    .ok_or(DraftError::LimitReached)
+            })
+    }
+
+    /// Owner-scoped variant that does not reveal other participants' ordering activity.
+    pub fn reorder_owned_scoped(
+        &mut self,
+        requester: &str,
+        expected_revision: u64,
+        expected: &[&str],
+        order: &[&str],
+    ) -> Result<bool, DraftError> {
+        if self.owner_order_revision(requester)? != expected_revision {
+            return Err(DraftError::Stale);
+        }
+        self.reorder_owned(requester, self.order_revision, expected, order)
+    }
+
+    /// Whether active authors have live contributions outside the legacy one-draft-per-owner
+    /// shape. Callers must switch every review, approval and publication gate together.
+    pub fn requires_contribution_mode(&self, active: &[&str]) -> bool {
+        self.drafts.iter().any(|draft| {
+            !draft.withdrawn && active.contains(&draft.owner.as_str()) && draft.id != draft.owner
+        })
+    }
+
+    pub(crate) fn stamps_for_owner(&self, owner: &str) -> Vec<RevisionStamp> {
+        self.drafts
+            .iter()
+            .filter(|draft| draft.owner == owner && !draft.withdrawn)
+            .map(|draft| {
+                Self::stamp(
+                    draft,
+                    draft.revisions.last().expect("valid drafts have revisions"),
+                )
+            })
+            .collect()
+    }
+
+    /// Reorder only the requester's live contributions, checking the revision and order they saw.
+    /// Callers must also compare-and-swap the persisted draft set and invalidate approvals.
+    pub fn reorder_owned(
+        &mut self,
+        requester: &str,
+        expected_revision: u64,
+        expected: &[&str],
+        order: &[&str],
+    ) -> Result<bool, DraftError> {
+        if !self.is_member(requester) {
+            return Err(DraftError::Denied);
+        }
+        if self.order_revision != expected_revision {
+            return Err(DraftError::Stale);
+        }
+        let owned: Vec<_> = self
+            .drafts
+            .iter()
+            .filter(|draft| draft.owner == requester && !draft.withdrawn)
+            .collect();
+        let current: Vec<_> = owned.iter().map(|draft| draft.id.as_str()).collect();
+        if current != expected {
+            return Err(DraftError::Stale);
+        }
+        let requested: HashSet<_> = order.iter().copied().collect();
+        if order.len() != current.len()
+            || requested.len() != order.len()
+            || current.iter().any(|id| !requested.contains(id))
+        {
+            return Err(DraftError::Invalid);
+        }
+        if current == order {
+            return Ok(false);
+        }
+        let revision = self
+            .order_revision
+            .checked_add(1)
+            .ok_or(DraftError::LimitReached)?;
+        let sorted: Vec<_> = order
+            .iter()
+            .map(|id| {
+                (*owned
+                    .iter()
+                    .find(|draft| draft.id == *id)
+                    .expect("validated owned contribution"))
+                .clone()
+            })
+            .collect();
+        let mut sorted = sorted.into_iter();
+        let mut next = self.clone();
+        for draft in &mut next.drafts {
+            if draft.owner == requester && !draft.withdrawn {
+                *draft = sorted.next().expect("validated contribution count");
+            }
+        }
+        next.order_revision = revision;
+        let owner_reorders = next
+            .owner_reorders
+            .entry(requester.to_string())
+            .or_default();
+        *owner_reorders = owner_reorders
+            .checked_add(1)
+            .ok_or(DraftError::LimitReached)?;
+        next.owner_order_revision(requester)?;
+        if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
+            return Err(DraftError::LimitReached);
+        }
+        *self = next;
+        Ok(true)
     }
 
     /// The latest revision with its prose, or none for an unknown or withdrawn draft. This
@@ -629,6 +985,81 @@ impl DraftSet {
         self.policy
     }
 
+    /// Release the current revision of one's own draft to precisely the selected active members.
+    pub fn release_named(
+        &mut self,
+        requester: &str,
+        contribution_id: &str,
+        revision: u64,
+        recipients: &[&str],
+        active: &[&str],
+        now: i64,
+    ) -> Result<(), DraftError> {
+        self.release_named_with_readers(
+            requester,
+            contribution_id,
+            revision,
+            recipients,
+            active,
+            &[],
+            now,
+        )
+    }
+
+    /// Release to active participants, explicitly identifying those allowed to read without
+    /// draft access. The caller must authorize and classify each recipient.
+    #[allow(clippy::too_many_arguments)]
+    pub fn release_named_with_readers(
+        &mut self,
+        requester: &str,
+        contribution_id: &str,
+        revision: u64,
+        recipients: &[&str],
+        active: &[&str],
+        readers: &[&str],
+        now: i64,
+    ) -> Result<(), DraftError> {
+        if self.policy != RevealPolicy::NamedRecipients {
+            return Err(DraftError::Invalid);
+        }
+        let draft = self.draft(contribution_id).ok_or(DraftError::Denied)?;
+        if draft.owner != requester || draft.withdrawn || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        if revision != draft.revisions.len() as u64 {
+            return Err(DraftError::Stale);
+        }
+        let unique: HashSet<_> = recipients.iter().copied().collect();
+        let unique_readers: HashSet<_> = readers.iter().copied().collect();
+        if now < 0
+            || recipients.is_empty()
+            || unique.len() != recipients.len()
+            || unique_readers.len() != readers.len()
+            || readers.iter().any(|id| !unique.contains(id))
+            || recipients
+                .iter()
+                .any(|id| *id == requester || !self.is_member(id) || !active.contains(id))
+        {
+            return Err(DraftError::Invalid);
+        }
+        if self.named_releases.len() >= MAX_EXCHANGES {
+            return Err(DraftError::LimitReached);
+        }
+        let mut next = self.clone();
+        next.named_releases.push(NamedRelease {
+            contribution_id: draft.id.clone(),
+            revision,
+            recipients: recipients.iter().map(|id| (*id).to_string()).collect(),
+            non_draft_recipients: readers.iter().map(|id| (*id).to_string()).collect(),
+            released_at: now,
+        });
+        if next.to_json().len() > MAX_DRAFT_SET_BYTES {
+            return Err(DraftError::LimitReached);
+        }
+        *self = next;
+        Ok(())
+    }
+
     /// Change how drafts may be revealed. Existing offers are cleared, never carried into the new
     /// policy, so changing it cannot reveal prose nobody offered under it, and it never reveals
     /// anything itself. Authorization is the caller's job.
@@ -640,7 +1071,15 @@ impl DraftSet {
     }
 
     pub fn is_ready(&self, participant: &str) -> bool {
-        self.ready.iter().any(|r| r.participant_id == participant)
+        self.ready_revision(participant).is_some()
+    }
+
+    /// The exact revision the participant currently offers, if any.
+    pub fn ready_revision(&self, participant: &str) -> Option<u64> {
+        self.ready
+            .iter()
+            .find(|r| r.participant_id == participant)
+            .map(|r| r.revision)
     }
 
     /// Offer one exact revision of the requester's own draft for reveal. `active` lists the
@@ -659,7 +1098,10 @@ impl DraftSet {
         if !self.is_member(requester) || !active.contains(&requester) {
             return Err(DraftError::Denied);
         }
-        if self.policy == RevealPolicy::Independent {
+        if !matches!(
+            self.policy,
+            RevealPolicy::Voluntary | RevealPolicy::AllReady
+        ) {
             return Err(DraftError::Invalid);
         }
         let contribution_id = self
@@ -673,13 +1115,59 @@ impl DraftSet {
             })
             .map(|d| d.id.clone())
             .ok_or(DraftError::Denied)?;
+        self.offer_contributions(requester, &[(contribution_id.as_str(), revision)], active)
+    }
+
+    /// Atomically offer every live contribution owned by the requester at its current revision.
+    /// Omissions, duplicate identifiers and stale revisions cannot produce a partial offer.
+    pub fn mark_ready_contributions(
+        &mut self,
+        requester: &str,
+        contributions: &[(&str, u64)],
+        active: &[&str],
+    ) -> Result<ReadyOutcome, DraftError> {
+        if !self.is_member(requester) || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        let owned = self.stamps_for_owner(requester);
+        if owned.is_empty() || owned.len() != contributions.len() {
+            return Err(DraftError::Invalid);
+        }
+        let mut ids = HashSet::new();
+        for (id, revision) in contributions {
+            let Some(stamp) = owned.iter().find(|stamp| stamp.contribution_id == *id) else {
+                return Err(DraftError::Invalid);
+            };
+            if !ids.insert(*id) {
+                return Err(DraftError::Invalid);
+            }
+            if stamp.number != *revision {
+                return Err(DraftError::Stale);
+            }
+        }
+        self.offer_contributions(requester, contributions, active)
+    }
+
+    fn offer_contributions(
+        &mut self,
+        requester: &str,
+        contributions: &[(&str, u64)],
+        active: &[&str],
+    ) -> Result<ReadyOutcome, DraftError> {
+        if !matches!(
+            self.policy,
+            RevealPolicy::Voluntary | RevealPolicy::AllReady
+        ) {
+            return Err(DraftError::Invalid);
+        }
         let mut next = self.clone();
         next.ready.retain(|r| r.participant_id != requester);
-        next.ready.push(Readiness {
-            participant_id: requester.to_owned(),
-            contribution_id,
-            revision,
-        });
+        next.ready
+            .extend(contributions.iter().map(|(id, revision)| Readiness {
+                participant_id: requester.to_owned(),
+                contribution_id: (*id).to_string(),
+                revision: *revision,
+            }));
         if next.policy == RevealPolicy::Voluntary {
             // Nothing is stored beyond the offer: who sees what is derived when a draft is read.
             let others = next
@@ -694,6 +1182,9 @@ impl DraftSet {
             if !next.is_valid() {
                 return Err(DraftError::Invalid);
             }
+            if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
+                return Err(DraftError::LimitReached);
+            }
             *self = next;
             return Ok(if others > 0 {
                 ReadyOutcome::Revealed
@@ -707,9 +1198,20 @@ impl DraftSet {
             .filter(|r| active.contains(&r.participant_id.as_str()))
             .cloned()
             .collect();
+        let members: Vec<String> = active
+            .iter()
+            .filter(|id| group.iter().any(|offer| offer.participant_id == **id))
+            .map(|id| (*id).to_string())
+            .collect();
         let needed = active.iter().filter(|a| self.is_member(a)).count().max(2);
-        let waiting_for = needed.saturating_sub(group.len());
+        let waiting_for = needed.saturating_sub(members.len());
         if waiting_for > 0 {
+            if !next.is_valid() {
+                return Err(DraftError::Invalid);
+            }
+            if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
+                return Err(DraftError::LimitReached);
+            }
             *self = next;
             return Ok(ReadyOutcome::Waiting { waiting_for });
         }
@@ -726,7 +1228,7 @@ impl DraftSet {
         }
         next.exchanges.push(Exchange {
             id: format!("reveal-{number}"),
-            members: group.iter().map(|r| r.participant_id.clone()).collect(),
+            members,
             state: ExchangeState::Revealed,
             commitments: group
                 .iter()
@@ -741,6 +1243,9 @@ impl DraftSet {
             .retain(|r| !group.iter().any(|g| g.participant_id == r.participant_id));
         if !next.is_valid() {
             return Err(DraftError::Invalid);
+        }
+        if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
+            return Err(DraftError::LimitReached);
         }
         *self = next;
         Ok(ReadyOutcome::Revealed)
@@ -794,6 +1299,18 @@ impl DraftSet {
             || self.participants.len() > MAX_PARTICIPANTS
             || self.drafts.len() > MAX_CONTRIBUTIONS
             || self.exchanges.len() > MAX_EXCHANGES
+            || self.named_releases.len() > MAX_EXCHANGES
+            || self.owner_reorders.len() > MAX_PARTICIPANTS
+        {
+            return false;
+        }
+        if self.owner_reorders.iter().any(|(owner, count)| {
+            !self.is_member(owner) || *count == 0 || self.owner_order_revision(owner).is_err()
+        }) || self
+            .owner_reorders
+            .values()
+            .try_fold(0_u64, |sum, count| sum.checked_add(*count))
+            .is_none_or(|sum| sum > self.order_revision)
         {
             return false;
         }
@@ -835,8 +1352,31 @@ impl DraftSet {
                     && offer.revision <= d.revisions.len() as u64
             });
             if !owned
-                || self.policy == RevealPolicy::Independent
-                || !offered.insert(offer.participant_id.as_str())
+                || !matches!(
+                    self.policy,
+                    RevealPolicy::Voluntary | RevealPolicy::AllReady
+                )
+                || !offered.insert(offer.contribution_id.to_ascii_lowercase())
+            {
+                return false;
+            }
+        }
+        for release in &self.named_releases {
+            let recipients: HashSet<_> = release.recipients.iter().collect();
+            let readers: HashSet<_> = release.non_draft_recipients.iter().collect();
+            let Some(draft) = self.draft(&release.contribution_id) else {
+                return false;
+            };
+            if release.revision == 0
+                || release.revision > draft.revisions.len() as u64
+                || release.released_at < 0
+                || recipients.is_empty()
+                || recipients.len() != release.recipients.len()
+                || readers.len() != release.non_draft_recipients.len()
+                || !readers.is_subset(&recipients)
+                || recipients
+                    .iter()
+                    .any(|id| **id == draft.owner || !self.is_member(id))
             {
                 return false;
             }
@@ -845,6 +1385,7 @@ impl DraftSet {
         for exchange in &self.exchanges {
             let members: HashSet<&str> = exchange.members.iter().map(String::as_str).collect();
             let mut committed = HashSet::new();
+            let mut committed_members = HashSet::new();
             if !valid_id(&exchange.id)
                 || !exchange_ids.insert(exchange.id.as_str())
                 || exchange.members.len() < 2
@@ -861,12 +1402,13 @@ impl DraftSet {
                 });
                 if !owned
                     || !members.contains(c.participant_id.as_str())
-                    || !committed.insert(c.participant_id.as_str())
+                    || !committed.insert(c.contribution_id.to_ascii_lowercase())
                 {
                     return false;
                 }
+                committed_members.insert(c.participant_id.as_str());
             }
-            let complete = exchange.commitments.len() == exchange.members.len();
+            let complete = committed_members.len() == exchange.members.len();
             let consistent = match exchange.state {
                 ExchangeState::Pending => !complete,
                 ExchangeState::Revealed => complete,
@@ -888,6 +1430,307 @@ mod tests {
 
     fn set(ids: &[&str]) -> DraftSet {
         DraftSet::new(ids).unwrap()
+    }
+
+    #[test]
+    fn own_contributions_are_private_revision_checked_and_reorderable() {
+        let active = ["ada", "bo"];
+        let mut drafts = set(&active);
+        drafts.save("ada", "first", 0, "private first", T).unwrap();
+        drafts.save("bo", "other", 0, "private other", T).unwrap();
+        drafts
+            .save("ada", "second", 0, "private second", T)
+            .unwrap();
+        assert_eq!(drafts.view("bo", "first", &active), Err(DraftError::Denied));
+        assert_eq!(
+            drafts.save("bo", "first", 1, "overwrite", T),
+            Err(DraftError::Stale)
+        );
+        assert_eq!(
+            drafts.save("ada", "first", 0, "overwrite", T),
+            Err(DraftError::Stale)
+        );
+        let before = drafts.to_json();
+        let revision = drafts.order_revision();
+        assert_eq!(
+            drafts.reorder_owned("ada", revision, &["first", "second"], &["other", "first"]),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.reorder_owned("ada", revision, &["first", "second"], &["first", "first"]),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.reorder_owned("unknown", 0, &[], &[]),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            drafts.reorder_owned("ada", revision, &["second", "first"], &["first", "second"]),
+            Err(DraftError::Stale)
+        );
+        assert_eq!(drafts.to_json(), before);
+        assert_eq!(
+            drafts.reorder_owned("ada", revision, &["first", "second"], &["second", "first"]),
+            Ok(true)
+        );
+        assert_eq!(drafts.order_revision(), revision + 1);
+        assert_eq!(
+            drafts.reorder_owned(
+                "ada",
+                revision + 1,
+                &["second", "first"],
+                &["second", "first"]
+            ),
+            Ok(false)
+        );
+        let drafts = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(drafts.order_revision(), revision + 1);
+        let own = drafts.owned_views("ada").unwrap();
+        assert_eq!(
+            own.iter()
+                .map(|view| view.stamp.contribution_id.as_str())
+                .collect::<Vec<_>>(),
+            ["second", "first"]
+        );
+        assert_eq!(
+            own.iter()
+                .map(|view| view.markdown.as_str())
+                .collect::<Vec<_>>(),
+            ["private second", "private first"]
+        );
+        assert_eq!(
+            drafts.owned_views("bo").unwrap()[0].markdown,
+            "private other"
+        );
+        assert_eq!(drafts.owned_views("unknown"), Err(DraftError::Denied));
+    }
+
+    #[test]
+    fn scoped_order_tokens_ignore_other_owners_and_cannot_replay_after_reversion() {
+        let mut drafts = set(&["ada", "bo"]);
+        drafts.save("ada", "ada", 0, "one", T).unwrap();
+        let original = drafts.owner_order_revision("ada").unwrap();
+        drafts.save("bo", "secret", 0, "private", T).unwrap();
+        assert_eq!(drafts.owner_order_revision("ada").unwrap(), original);
+        drafts.save("ada", "extra", 0, "two", T).unwrap();
+        let two = drafts.owner_order_revision("ada").unwrap();
+        assert_ne!(two, original);
+        drafts
+            .reorder_owned_scoped("ada", two, &["ada", "extra"], &["extra", "ada"])
+            .unwrap();
+        let reordered = drafts.owner_order_revision("ada").unwrap();
+        drafts
+            .reorder_owned_scoped("ada", reordered, &["extra", "ada"], &["ada", "extra"])
+            .unwrap();
+        assert_eq!(
+            drafts.reorder_owned_scoped("ada", two, &["ada", "extra"], &["extra", "ada"]),
+            Err(DraftError::Stale)
+        );
+        drafts.withdraw("ada", "extra").unwrap();
+        assert_eq!(
+            drafts.reorder_owned_scoped("ada", original, &["ada"], &["ada"]),
+            Err(DraftError::Stale)
+        );
+        let loaded = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(
+            loaded.owner_order_revision("ada"),
+            drafts.owner_order_revision("ada")
+        );
+    }
+
+    #[test]
+    fn multiple_contributions_reveal_only_after_every_author_offers_exact_revisions() {
+        let active = ["ada", "bo"];
+        let mut drafts = set(&active);
+        drafts.set_policy(RevealPolicy::AllReady);
+        drafts.save("ada", "first", 0, "first private", T).unwrap();
+        drafts
+            .save("ada", "second", 0, "second private", T)
+            .unwrap();
+        drafts.save("bo", "other", 0, "other private", T).unwrap();
+        let before = drafts.to_json();
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1)], &active),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1), ("other", 1)], &active),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1), ("first", 1)], &active),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1), ("second", 0)], &active),
+            Err(DraftError::Stale)
+        );
+        assert_eq!(drafts.to_json(), before);
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("first", 1), ("second", 1)], &active),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(drafts.view("bo", "first", &active), Err(DraftError::Denied));
+        assert_eq!(
+            drafts.view("bo", "second", &active),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("bo", &[("other", 1)], &active),
+            Ok(ReadyOutcome::Revealed)
+        );
+        drafts
+            .save("ada", "second", 1, "new private", T + 1)
+            .unwrap();
+        let drafts = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(
+            drafts.view("bo", "first", &active).unwrap().markdown,
+            "first private"
+        );
+        assert_eq!(
+            drafts.view("bo", "second", &active).unwrap().markdown,
+            "second private"
+        );
+        assert_eq!(
+            drafts.view("ada", "other", &active).unwrap().markdown,
+            "other private"
+        );
+    }
+
+    #[test]
+    fn voluntary_multi_contribution_offers_are_scoped_and_can_be_retracted() {
+        let active = ["ada", "bo", "cy"];
+        let mut drafts = set(&active);
+        drafts.set_policy(RevealPolicy::Voluntary);
+        drafts.save("ada", "one", 0, "one", T).unwrap();
+        drafts.save("ada", "two", 0, "two", T).unwrap();
+        drafts.save("bo", "bo", 0, "bo", T).unwrap();
+        drafts.save("cy", "cy", 0, "cy", T).unwrap();
+        assert_eq!(
+            drafts.mark_ready_contributions("ada", &[("one", 1), ("two", 1)], &active),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(
+            drafts.mark_ready_contributions("bo", &[("bo", 1)], &active),
+            Ok(ReadyOutcome::Revealed)
+        );
+        assert_eq!(drafts.view("bo", "one", &active).unwrap().markdown, "one");
+        assert_eq!(drafts.view("bo", "two", &active).unwrap().markdown, "two");
+        assert_eq!(drafts.view("cy", "two", &active), Err(DraftError::Denied));
+        drafts.unready("ada").unwrap();
+        assert_eq!(drafts.view("bo", "one", &active), Err(DraftError::Denied));
+        assert_eq!(drafts.view("bo", "two", &active), Err(DraftError::Denied));
+        assert!(DraftSet::from_json(&drafts.to_json()).is_ok());
+    }
+
+    #[test]
+    fn named_release_exposes_only_the_selected_exact_revision() {
+        let active = ["ada", "bo", "cy"];
+        let mut drafts = set(&active);
+        drafts.set_policy(RevealPolicy::NamedRecipients);
+        drafts.save("ada", "draft-ada", 0, "first", T).unwrap();
+        assert_eq!(
+            drafts.release_named("ada", "draft-ada", 1, &["bo"], &active, T),
+            Ok(())
+        );
+        drafts.save("ada", "draft-ada", 1, "second", T + 1).unwrap();
+        assert_eq!(
+            drafts.view("bo", "draft-ada", &active).unwrap().markdown,
+            "first"
+        );
+        assert_eq!(
+            drafts.view("cy", "draft-ada", &active),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            drafts.release_named("ada", "draft-ada", 1, &["cy"], &active, T + 2),
+            Err(DraftError::Stale)
+        );
+        assert_eq!(
+            drafts.release_named("bo", "draft-ada", 2, &["cy"], &active, T + 2),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            drafts.release_named("ada", "draft-ada", 2, &["cy", "cy"], &active, T + 2),
+            Err(DraftError::Invalid)
+        );
+        assert_eq!(
+            drafts.release_named("ada", "draft-ada", 2, &["cy"], &active, T + 2),
+            Ok(())
+        );
+        let reloaded = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(
+            reloaded.view("bo", "draft-ada", &active).unwrap().markdown,
+            "first"
+        );
+        assert_eq!(
+            reloaded.view("cy", "draft-ada", &active).unwrap().markdown,
+            "second"
+        );
+        assert_eq!(
+            reloaded.view("cy", "draft-ada", &["ada", "bo"]),
+            Err(DraftError::Denied)
+        );
+        assert_eq!(
+            reloaded.view("bo", "draft-ada", &["bo", "cy"]),
+            Err(DraftError::Denied)
+        );
+        let stored = reloaded.to_json();
+        for bad in [
+            stored.replace("\"releasedAt\":1800000000", "\"releasedAt\":-1"),
+            stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[]"),
+            stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"bo\",\"bo\"]"),
+            stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"unknown\"]"),
+            stored.replace("\"recipients\":[\"bo\"]", "\"recipients\":[\"ada\"]"),
+        ] {
+            assert_eq!(DraftSet::from_json(&bad), Err(DraftError::Invalid));
+        }
+    }
+
+    #[test]
+    fn reader_access_requires_an_explicit_recipient_grant_after_legacy_release() {
+        let active = ["ada", "bo"];
+        let mut drafts = set(&active);
+        drafts.set_policy(RevealPolicy::NamedRecipients);
+        drafts.save("ada", "draft-ada", 0, "private", T).unwrap();
+        drafts
+            .release_named("ada", "draft-ada", 1, &["bo"], &active, T)
+            .unwrap();
+        let legacy = drafts.to_json();
+        assert!(!legacy.contains("nonDraftRecipients"));
+        let mut drafts = DraftSet::from_json(&legacy).unwrap();
+        assert_eq!(
+            drafts.view_named("bo", "draft-ada", &active),
+            Err(DraftError::Denied)
+        );
+        drafts
+            .release_named_with_readers("ada", "draft-ada", 1, &["bo"], &active, &["bo"], T + 1)
+            .unwrap();
+        let reloaded = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(
+            reloaded
+                .view_named("bo", "draft-ada", &active)
+                .unwrap()
+                .markdown,
+            "private"
+        );
+        assert_eq!(
+            reloaded.view_named("bo", "draft-ada", &["bo"]),
+            Err(DraftError::Denied)
+        );
+        let stored = reloaded.to_json();
+        for bad in [
+            stored.replace(
+                "\"nonDraftRecipients\":[\"bo\"]",
+                "\"nonDraftRecipients\":[\"ada\"]",
+            ),
+            stored.replace(
+                "\"nonDraftRecipients\":[\"bo\"]",
+                "\"nonDraftRecipients\":[\"bo\",\"bo\"]",
+            ),
+        ] {
+            assert_eq!(DraftSet::from_json(&bad), Err(DraftError::Invalid));
+        }
     }
 
     #[test]

@@ -22,7 +22,11 @@ set, the participants the maintainer added.
   digests. The binding covers the consent wording version, the approval policy and its revision,
   the participant, the sorted author set, the public metadata (title, guiding question, original
   source title, link and type; private source fields are excluded), the order and ownership of
-  sections, and the prose revisions the scope covers.
+  sections, and the prose revisions the scope covers. It also covers each active participant's
+  display name, profile URL and contributor-profile binding, which can affect public attribution.
+  This attribution frame applies to legacy records too: approvals stored before it was added
+  become stale and must be reviewed again. It does not yet bind mutable contributor-registry
+  profile details or record an individual credit choice.
 - Validity is recomputed, never flagged. An approval counts only while the binding recomputed from
   the content as it is now equals the stored one, so a change no one thought to hook still fails
   closed. `ApprovalSet::reconcile` also drops stale approvals durably; routes call it in the same
@@ -62,3 +66,13 @@ set, the participants the maintainer added.
   assembled draft revisions, calls `reconcile` in each write, and runs `evaluate` in the publish
   transaction. Until then `authorize_publish` keeps its ADR 0014 check.
 - Unapproved prose reaches no public page, feed, export or log: the set carries none.
+
+## Initial scope for new shared reflections
+
+New reflection records specify `wholePiece` as their initial approval scope and require it under
+every subsequent rule. The first approval set starts at policy revision zero, and every author's
+consent is bound to the entire piece. An edit to any section consequently invalidates every
+approval. Legacy records without the initial scope retain `ownSections` and their stored policies.
+If an earlier version saved a section-only rule for a new reflection, approval and publication
+are blocked until all active participants agree to a whole-piece rule. Older releases that reject
+unknown record fields cannot read newly created records.

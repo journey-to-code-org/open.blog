@@ -3333,6 +3333,10 @@ a.oba-btn-primary {
   gap: 0.5rem;
 }
 
+.oba-context-bar .oba-publish > .oba-small {
+  color: var(--ob-color-text);
+}
+
 .oba-publish-risk {
   flex-basis: 100%;
   font-size: 0.85rem;

@@ -57,6 +57,7 @@ use openblog_core::participation::{self, ParticipationKind};
 use openblog_core::passage_target::PassageDocument;
 use openblog_core::perspective_publication;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
+use openblog_core::reflection::ReflectionStructure;
 use openblog_core::research_bundle;
 use openblog_core::research_notes::{
     NoteDiagnostic, NoteDiagnosticCode, Passage, QuestionState, ResearchNote,
@@ -959,13 +960,38 @@ fn authenticated_api(
         ("POST", "collaboration/members/remove") => remove_member(state, req, session),
         ("GET", "collaboration/draft") => read_own_draft(state, req, session),
         ("PUT", "collaboration/draft") => save_own_draft(state, req, session),
+        ("GET", "collaboration/contributions") => read_own_contributions(state, req, session),
+        ("GET", "collaboration/contributions/shared") => {
+            read_visible_contributions(state, req, session)
+        }
+        ("POST", "collaboration/contributions") => create_own_contribution(state, req, session),
+        ("PUT", "collaboration/contributions") => save_own_contribution(state, req, session),
+        ("PUT", "collaboration/contributions/order") => {
+            reorder_own_contributions(state, req, session)
+        }
+        ("POST", "collaboration/contributions/withdraw") => {
+            withdraw_own_contribution(state, req, session)
+        }
+        ("PUT", "collaboration/contributions/ready") => {
+            set_contributions_ready(state, req, session)
+        }
+        ("GET", "collaboration/credit-choice") => read_credit_choice(state, req, session),
+        ("PUT", "collaboration/credit-choice") => change_credit_choice(state, req, session),
         ("GET", "collaboration/reveal") => read_reveal_state(state, req, session),
         ("PUT", "collaboration/reveal/policy") => set_reveal_policy(state, req, session),
         ("GET", "collaboration/approval-policy") => read_approval_policy(state, req, session),
         ("PUT", "collaboration/approval-policy") => set_approval_policy(state, req, session),
+        ("POST", "collaboration/approval-policy/consent") => {
+            consent_approval_policy(state, req, session)
+        }
+        ("POST", "collaboration/approval-policy/withdraw") => {
+            withdraw_policy_consent(state, req, session)
+        }
         ("GET", "collaboration/reflection") => read_arrangement(state, req, session),
         ("PUT", "collaboration/reflection") => save_arrangement(state, req, session),
+        ("POST", "collaboration/reflection/reset") => reset_arrangement(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
+        ("POST", "collaboration/reveal/named") => release_named_draft(state, req, session),
         ("GET", "collaboration/preview") => read_combined_preview(state, req, session),
         ("GET", "collaboration/series") => read_series(state, req, session),
         ("PUT", "collaboration/series") => set_series(state, req, session),
@@ -12218,6 +12244,18 @@ fn document_credits(sidecar: &Path, config: &SiteConfig) -> (Json, Json, Json) {
             );
         }
     };
+    if value.get("version").and_then(Json::as_u64) == Some(2) {
+        let error = openblog_core::contributor::resolve(
+            &config.author,
+            &config.contributors,
+            Some(text),
+        )
+        .err()
+        .unwrap_or_else(|| {
+            "This post has frozen publication credits. Saving without changing credits preserves them; choosing another authorship source replaces them.".into()
+        });
+        return (Json::Null, credit_etag, Json::String(error));
+    }
     if value.get("version").and_then(Json::as_u64) != Some(1) {
         return (
             Json::Null,
@@ -12470,6 +12508,8 @@ struct SharedPublicationRequest {
     guiding_question: String,
     #[serde(default)]
     contributor_id: String,
+    #[serde(default)]
+    initial_approval_requirement: openblog_core::collaboration::InitialApprovalRequirement,
     sources: Vec<SharedSourceRequest>,
 }
 
@@ -12646,6 +12686,12 @@ fn create_shared_publication(state: &AppState, req: &Request, session: &auth::Se
             "This shared reflection request is not valid. Reload Admin Studio and try again.",
         );
     };
+    if !body.initial_approval_requirement.valid() {
+        return shared_problem(
+            "initialApprovalRequirement",
+            "Choose a participant quorum between 1 and 100.",
+        );
+    }
     if !openblog_core::collaboration::valid_admin_username(&session.user) {
         return shared_problem(
             "",
@@ -12690,7 +12736,11 @@ fn create_shared_publication(state: &AppState, req: &Request, session: &auth::Se
             display_name: contributor.name.clone(),
         },
     };
-    match crate::shared_publications::create(&state.root, new) {
+    match crate::shared_publications::create_selected(
+        &state.root,
+        new,
+        body.initial_approval_requirement,
+    ) {
         Ok(record) => {
             eprintln!(
                 "admin: created shared publication {}",
@@ -13246,7 +13296,11 @@ fn draft_set_for(
         .collect::<Vec<_>>();
     let mut set = match stored {
         Some(set) => set.clone(),
-        None => DraftSet::new(&ids)?,
+        None => {
+            let mut set = DraftSet::new(&ids)?;
+            set.set_policy(record.initial_reveal_policy);
+            set
+        }
     };
     for id in ids {
         set.admit(id)?;
@@ -13341,7 +13395,13 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
                         "admin: saved draft revision {} of shared publication {}",
                         stamp.number, body.publication_id
                     );
-                    Response::json(200, &json!({ "stamp": stamp }))
+                    Response::json(
+                        200,
+                        &json!({
+                            "stamp": stamp,
+                            "wholePieceRequired": !record.allows_approval_scope(openblog_core::approval::ApprovalScope::OwnSections),
+                        }),
+                    )
                 }
                 Err(crate::shared_publications::ReplaceError::Conflict) => Response::error(
                     409,
@@ -13376,6 +13436,404 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ContributionSaveRequest {
+    publication_id: String,
+    contribution_id: String,
+    expected_revision: u64,
+    markdown: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ContributionCreateRequest {
+    publication_id: String,
+    markdown: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ContributionOrderRequest {
+    publication_id: String,
+    expected_revision: u64,
+    expected: Vec<String>,
+    order: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ContributionWithdrawRequest {
+    publication_id: String,
+    contribution_id: String,
+    expected_revision: u64,
+    confirmed: bool,
+}
+
+fn read_own_contributions(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(id) = req.query.get("publicationId") else {
+        return draft_not_found();
+    };
+    let (transaction, owner) = match draft_request_target(state, id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let set = match draft_set_for(stored.set.as_ref(), record) {
+        Ok(set) => set,
+        Err(_) => return Response::error(500, "Your contributions could not be read."),
+    };
+    let views = match set.owned_views(&owner) {
+        Ok(views) => views,
+        Err(_) => return draft_not_found(),
+    };
+    let order_revision = match set.owner_order_revision(&owner) {
+        Ok(revision) => revision,
+        Err(_) => return Response::error(500, "Your contribution order could not be read."),
+    };
+    Response::json(
+        200,
+        &json!({
+            "contributions": views.iter().map(draft_json).collect::<Vec<_>>(),
+            "orderRevision": order_revision
+        }),
+    )
+}
+
+fn read_visible_contributions(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+) -> Response {
+    let Some(id) = req.query.get("publicationId") else {
+        return draft_not_found();
+    };
+    let transaction = match invitation_transaction(state, id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return draft_not_found();
+    };
+    let views = match visible_contributions(state, &transaction, record, session) {
+        Ok(views) => views,
+        Err(response) => return response,
+    };
+    Response::json(
+        200,
+        &json!({ "contributions": views.iter().map(draft_json).collect::<Vec<_>>() }),
+    )
+}
+
+fn visible_contributions(
+    state: &AppState,
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+) -> Result<Vec<DraftView>, Response> {
+    let writer = draft_owner(transaction, record, session);
+    let recipient = policy_participant(transaction, record, &session.user);
+    let Some(requester) = writer.as_ref().or(recipient.as_ref()) else {
+        return Err(draft_not_found());
+    };
+    let stored = load_reveal_drafts(state, &record.publication_id)?;
+    let set = match draft_set_for(stored.set.as_ref(), record) {
+        Ok(set) => set,
+        Err(_) => {
+            return Err(Response::error(
+                500,
+                "Shared contributions could not be read.",
+            ))
+        }
+    };
+    let mut active = active_drafters(transaction, record);
+    let named_reader = writer.is_none();
+    if named_reader && !active.contains(requester) {
+        active.push(requester.clone());
+    }
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    set.visible_views(requester, &active, named_reader)
+        .map_err(|_| draft_not_found())
+}
+
+fn create_own_contribution(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ContributionCreateRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This contribution request is not valid. Nothing was saved.",
+        );
+    };
+    let id = match auth::random_bytes::<16>() {
+        Ok(bytes) => format!(
+            "contribution-{}",
+            bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        ),
+        Err(error) => {
+            eprintln!("admin: contribution identifier unavailable: {error}");
+            return Response::error(500, "Your contribution could not be created.");
+        }
+    };
+    write_own_contribution(
+        state,
+        session,
+        &body.publication_id,
+        &id,
+        0,
+        &body.markdown,
+        true,
+    )
+}
+
+fn save_own_contribution(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ContributionSaveRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This contribution request is not valid. Nothing was saved.",
+        );
+    };
+    write_own_contribution(
+        state,
+        session,
+        &body.publication_id,
+        &body.contribution_id,
+        body.expected_revision,
+        &body.markdown,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_own_contribution(
+    state: &AppState,
+    session: &auth::Session,
+    id: &str,
+    contribution_id: &str,
+    expected: u64,
+    markdown: &str,
+    creating: bool,
+) -> Response {
+    let (transaction, owner) = match draft_request_target(state, id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let mut set = match draft_set_for(stored.set.as_ref(), record) {
+        Ok(set) => set,
+        Err(_) => return Response::error(500, "Your contribution could not be saved."),
+    };
+    if !creating {
+        let owned = match set.owned_views(&owner) {
+            Ok(owned) => owned,
+            Err(_) => return draft_not_found(),
+        };
+        if !owned.iter().any(|view| {
+            view.stamp
+                .contribution_id
+                .eq_ignore_ascii_case(contribution_id)
+        }) {
+            return draft_not_found();
+        }
+    }
+    if creating {
+        let approvals = match crate::shared_publications::load_approvals_for_update(
+            &state.root,
+            id,
+            record.initial_approval_policy(),
+        ) {
+            Ok(approvals) => approvals,
+            Err(error) => {
+                eprintln!("admin: approval policy not readable for {id}: {error}");
+                return Response::error(500, "Your contribution could not be created.");
+            }
+        };
+        if approvals.set.policy().scope != openblog_core::approval::ApprovalScope::WholePiece {
+            return Response::error(
+                409,
+                "Choose a whole-piece approval rule before adding a contribution.",
+            );
+        }
+    }
+    match set.save(
+        &owner,
+        contribution_id,
+        expected,
+        markdown,
+        clock::now().unix(),
+    ) {
+        Ok(stamp) => {
+            let response = store_drafts(state, id, &stored, &set, json!({ "stamp": stamp }));
+            if response.status == 200 {
+                reconcile_approvals(state, &transaction, record);
+            }
+            response
+        }
+        Err(DraftError::Stale) => {
+            let current = set
+                .view(&owner, contribution_id, &[owner.as_str()])
+                .ok()
+                .map(|view| draft_json(&view));
+            Response::json(
+                409,
+                &json!({
+                    "error": "Your contribution changed. Your text was not saved; compare it with the newer copy.",
+                    "current": current,
+                }),
+            )
+        }
+        Err(DraftError::Invalid) => shared_problem(
+            "markdown",
+            "That contribution is not valid or is too large.",
+        ),
+        Err(DraftError::LimitReached) => draft_limit_problem(),
+        Err(DraftError::Denied) => draft_not_found(),
+    }
+}
+
+fn reorder_own_contributions(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ContributionOrderRequest>(&req.body) else {
+        return shared_problem("", "This order request is not valid. Nothing was changed.");
+    };
+    let (transaction, owner) = match draft_request_target(state, &body.publication_id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let mut set = match draft_set_for(stored.set.as_ref(), record) {
+        Ok(set) => set,
+        Err(_) => return Response::error(500, "Your contribution order could not be saved."),
+    };
+    let expected = body.expected.iter().map(String::as_str).collect::<Vec<_>>();
+    let order = body.order.iter().map(String::as_str).collect::<Vec<_>>();
+    match set.reorder_owned_scoped(&owner, body.expected_revision, &expected, &order) {
+        Ok(false) => Response::json(200, &json!({ "orderRevision": body.expected_revision })),
+        Ok(true) => {
+            let revision = match set.owner_order_revision(&owner) {
+                Ok(revision) => revision,
+                Err(_) => {
+                    return Response::error(500, "Your contribution order could not be saved.")
+                }
+            };
+            let response = store_drafts(
+                state,
+                &body.publication_id,
+                &stored,
+                &set,
+                json!({ "orderRevision": revision }),
+            );
+            if response.status == 200 {
+                reconcile_approvals(state, &transaction, record);
+            }
+            response
+        }
+        Err(DraftError::Stale) => Response::error(
+            409,
+            "Your contributions changed. Reload their order; nothing was changed.",
+        ),
+        Err(DraftError::Invalid) => shared_problem(
+            "order",
+            "Choose each of your current contributions exactly once.",
+        ),
+        Err(DraftError::LimitReached) => draft_limit_problem(),
+        Err(DraftError::Denied) => draft_not_found(),
+    }
+}
+
+fn withdraw_own_contribution(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ContributionWithdrawRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This withdrawal request is not valid. Nothing was changed.",
+        );
+    };
+    let (transaction, owner) = match draft_request_target(state, &body.publication_id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let mut set = match draft_set_for(stored.set.as_ref(), record) {
+        Ok(set) => set,
+        Err(_) => return Response::error(500, "Your contribution could not be withdrawn."),
+    };
+    let view = match set.owned_views(&owner) {
+        Ok(views) => views.into_iter().find(|view| {
+            view.stamp
+                .contribution_id
+                .eq_ignore_ascii_case(&body.contribution_id)
+        }),
+        Err(_) => return draft_not_found(),
+    };
+    let Some(view) = view else {
+        return draft_not_found();
+    };
+    if view.stamp.number != body.expected_revision {
+        return Response::error(
+            409,
+            "Your contribution changed. Reload it before withdrawing.",
+        );
+    }
+    if !body.confirmed {
+        return shared_problem(
+            "confirmed",
+            "Confirm that you want to withdraw this contribution.",
+        );
+    }
+    match set.withdraw(&owner, &body.contribution_id) {
+        Ok(()) => {
+            let response = store_drafts(
+                state,
+                &body.publication_id,
+                &stored,
+                &set,
+                json!({ "withdrawn": true }),
+            );
+            if response.status == 200 {
+                reconcile_approvals(state, &transaction, record);
+            }
+            response
+        }
+        Err(DraftError::LimitReached) => draft_limit_problem(),
+        Err(DraftError::Denied) => draft_not_found(),
+        Err(DraftError::Invalid | DraftError::Stale) => {
+            eprintln!(
+                "admin: contribution withdrawal failed for {}",
+                body.publication_id
+            );
+            Response::error(500, "Your contribution could not be withdrawn.")
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Approval, scheduling and publication of a shared reflection (ADR 0022)
 // ---------------------------------------------------------------------------
@@ -13387,6 +13845,14 @@ struct ApproveRequest {
     /// The token the approver read with the combined preview.
     seen: String,
     affirmed: bool,
+}
+
+fn participant_approval_rule(policy: &openblog_core::approval::ApprovalPolicy) -> bool {
+    matches!(
+        policy.requirement,
+        openblog_core::approval::ApprovalRequirement::AllParticipants
+            | openblog_core::approval::ApprovalRequirement::ParticipantQuorum(_)
+    )
 }
 
 #[derive(serde::Deserialize)]
@@ -13456,6 +13922,39 @@ struct GateInputs {
     approvals: crate::shared_publications::StoredApprovals,
     outcome: crate::shared_publications::StoredOutcome,
     active: Vec<String>,
+    participants: Vec<String>,
+    choices: Option<openblog_core::shared_credit::CreditChoices>,
+    credit_binding: Option<String>,
+    contributions: Option<ContributionGate>,
+}
+
+struct ContributionGate {
+    record: SharedPublication,
+    structure: ReflectionStructure,
+}
+
+fn contribution_gate(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    structure: Option<&ReflectionStructure>,
+    active: &[&str],
+) -> Result<Option<ContributionGate>, String> {
+    if !drafts.requires_contribution_mode(active) {
+        return Ok(None);
+    }
+    let mut derived = record.clone();
+    derived.collaboration = drafts
+        .contract_for_contributions(&record.collaboration, active)
+        .map_err(|_| "contribution ownership is not usable")?;
+    let structure = match structure {
+        Some(structure) => structure.clone(),
+        None => ReflectionStructure::from_all_contributions(&derived.collaboration, drafts, active)
+            .map_err(|_| "contribution arrangement is not usable")?,
+    };
+    Ok(Some(ContributionGate {
+        record: derived,
+        structure,
+    }))
 }
 
 fn gate_inputs(
@@ -13473,12 +13972,35 @@ fn gate_inputs(
     let moments = crate::shared_publications::load_moments(&state.root, id)
         .map_err(|error| publish_failed(&error))?
         .set;
-    let approvals = crate::shared_publications::load_approvals_for_update(&state.root, id)
-        .map_err(|error| publish_failed(&error))?;
+    let approvals = crate::shared_publications::load_approvals_for_update(
+        &state.root,
+        id,
+        record.initial_approval_policy(),
+    )
+    .map_err(|error| publish_failed(&error))?;
     let structure = crate::shared_publications::load_structure(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
     let outcome = crate::shared_publications::load_outcome(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
+    let stored_choices = crate::shared_publications::load_credit_choices(&state.root, id)
+        .map_err(|error| publish_failed(&error))?;
+    let active = active_drafters(transaction, record);
+    let active_ids = active.iter().map(String::as_str).collect::<Vec<_>>();
+    let contributions =
+        contribution_gate(record, &drafts, structure.structure.as_ref(), &active_ids)
+            .map_err(|_| publish_failed("the current piece is not usable"))?;
+    let choices = (contributions.is_some()
+        || record.credit_choices_required
+        || stored_choices.choices.revision() != 0)
+        .then_some(stored_choices.choices);
+    let credit_binding = choices
+        .as_ref()
+        .map(|choices| {
+            choices
+                .binding()
+                .map_err(|_| publish_failed("invalid credit choices"))
+        })
+        .transpose()?;
     Ok(GateInputs {
         drafts,
         structure,
@@ -13486,8 +14008,49 @@ fn gate_inputs(
         moments,
         approvals,
         outcome,
-        active: active_drafters(transaction, record),
+        active,
+        participants: policy_participants(transaction, record),
+        choices,
+        credit_binding,
+        contributions,
     })
+}
+
+fn with_gate_subject<R>(
+    record: &SharedPublication,
+    inputs: &GateInputs,
+    participants: &[&str],
+    ask: impl FnOnce(&openblog_core::approval::ApprovalSubject<'_>) -> R,
+) -> R {
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let ask = |subject: &openblog_core::approval::ApprovalSubject<'_>| match &inputs.credit_binding
+    {
+        Some(binding) => openblog_core::assembly::with_credit_binding(subject, binding, ask),
+        None => ask(subject),
+    };
+    if let Some(contributions) = &inputs.contributions {
+        openblog_core::assembly::with_subject_for_all_contributions(
+            &contributions.record,
+            Some(&contributions.structure),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &active,
+            participants,
+            ask,
+        )
+    } else {
+        openblog_core::assembly::with_subject_for_participants(
+            record,
+            inputs.structure.structure.as_ref(),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &active,
+            participants,
+            ask,
+        )
+    }
 }
 
 /// The grant check, always through the single entry point. A requester without the grant, or
@@ -13540,10 +14103,46 @@ fn prepare_post(
     inputs: &GateInputs,
     date: DateTime,
 ) -> Result<Prepared, Response> {
-    use openblog_core::assembly::{assemble, AssemblyError};
+    use openblog_core::assembly::{assemble_for_participants, AssemblyError};
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let participants = inputs
+        .participants
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
     let build = |date: &str| {
-        assemble(
+        if let Some(contributions) = &inputs.contributions {
+            let Some(choices) = &inputs.choices else {
+                return Err(AssemblyError::Invalid);
+            };
+            return openblog_core::assembly::assemble_all_contributions_with_credits(
+                &contributions.record,
+                &contributions.structure,
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &active,
+                &participants,
+                date,
+                choices,
+            );
+        }
+        if let Some(choices) = &inputs.choices {
+            return openblog_core::assembly::assemble_for_participants_with_credits(
+                record,
+                inputs.structure.structure.as_ref(),
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &active,
+                &participants,
+                date,
+                choices,
+            );
+        }
+        assemble_for_participants(
             record,
             inputs.structure.structure.as_ref(),
             &inputs.drafts,
@@ -13551,19 +14150,29 @@ fn prepare_post(
             &inputs.moments,
             &inputs.approvals.set,
             &active,
+            &participants,
             date,
         )
     };
     let mut assembly = match build(&date.rfc3339()) {
         Ok(assembly) => assembly,
+        Err(AssemblyError::ApprovalScope) => {
+            return Err(Response::error(409, "This reflection needs a whole-piece approval rule before it can be published. Ask a coordinator to propose that rule and agree to it; nothing was changed."))
+        }
         Err(AssemblyError::Blocked { missing }) => {
             return Err(Response::json(
                 409,
                 &json!({
-                    "error": "Every required author must approve the current piece first. Nothing was changed.",
+                    "error": "Every required participant must approve the current piece first. Nothing was changed.",
                     "missing": missing,
                 }),
             ))
+        }
+        Err(AssemblyError::QuorumBlocked { approved, required }) => {
+            return Err(Response::json(409, &json!({
+                "error": format!("The approval quorum needs {required} approvals; {approved} currently count. Nothing was changed."),
+                "quorum": { "approved": approved, "required": required },
+            })))
         }
         Err(AssemblyError::UnsafeMarkup) => {
             return Err(shared_problem(
@@ -13697,6 +14306,34 @@ fn commit_publication(
         return Ok(json!({ "state": "published", "alreadyPublished": true }));
     }
     let prepared = prepare_post(state, record, &inputs, date)?;
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let revision = if let Some(contributions) = &inputs.contributions {
+        openblog_core::assembly::PublishedRevision::capture_all_contributions(
+            &contributions.record,
+            &contributions.structure,
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &inputs.approvals.set,
+            &active,
+            &prepared.assembly,
+        )
+    } else {
+        openblog_core::assembly::PublishedRevision::capture(
+            record,
+            inputs.structure.structure.as_ref(),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &inputs.approvals.set,
+            &active,
+            &prepared.assembly,
+        )
+    };
+    let published = Outcome::published_with_revision(clock::now().unix(), revision);
+    if Outcome::from_json(&published.to_json()).is_none() {
+        return Err(publish_failed("the publication receipt is not usable"));
+    }
     let id = &record.publication_id;
     let rollback_files = |prepared: &Prepared| {
         let _ = restore_file(&prepared.path, prepared.previous_document.as_deref());
@@ -13712,7 +14349,6 @@ fn commit_publication(
         &CreditEdit::Set(prepared.assembly.credits.clone()),
     )
     .map_err(|error| publish_failed(&error))?;
-    let published = Outcome::published(clock::now().unix());
     let stored = match replace_outcome(&state.root, id, &inputs.outcome, Some(&published)) {
         Ok(stored) => stored,
         Err(error) => {
@@ -13900,11 +14536,15 @@ fn change_approval(
     approving: Option<(&str, bool)>,
 ) -> Response {
     use openblog_core::approval::ApprovalError;
-    let (transaction, own) = match draft_request_target(state, publication_id, session) {
-        Ok(found) => found,
-        Err(_) => return publish_not_found(),
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return publish_not_found();
     };
-    let record = transaction.record.clone().expect("authorized record");
+    let Some(record) = transaction.record.clone() else {
+        return publish_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, &record, &session.user) else {
+        return publish_not_found();
+    };
     let allowed = transaction
         .with_identities(|identities| {
             record.authorize(
@@ -13915,34 +14555,123 @@ fn change_approval(
             )
         })
         .is_ok();
-    if !allowed {
-        return publish_not_found();
-    }
     let inputs = match gate_inputs(state, &transaction, &record) {
         Ok(inputs) => inputs,
         Err(response) => return response,
     };
+    if !participant_approval_rule(inputs.approvals.set.policy())
+        && (!allowed || !inputs.active.contains(&own))
+    {
+        return publish_not_found();
+    }
     if matches!(
         inputs.outcome.outcome,
         Some(openblog_core::assembly::Outcome::Published { .. })
     ) {
         return published_already();
     }
+    if approving.is_some() && !record.allows_approval_scope(inputs.approvals.set.policy().scope) {
+        return Response::error(409, "This reflection needs a whole-piece approval rule before it can be approved. Ask a coordinator to propose that rule and agree to it; nothing was changed.");
+    }
     let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let participants = inputs
+        .participants
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if let Some((seen, _)) = approving {
+        let config = match site::load_config(&state.root) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("admin: approval preview configuration unavailable: {error}");
+                return Response::error(
+                    500,
+                    "The preview could not be checked. Nothing was recorded.",
+                );
+            }
+        };
+        let show_synthesis =
+            synthesis_visible(&transaction, &record, session, &inputs.synthesis, &own);
+        let preview = if let Some(contributions) = &inputs.contributions {
+            let Some(choices) = &inputs.choices else {
+                return Response::error(
+                    409,
+                    "Public credit choices are required. Nothing was recorded.",
+                );
+            };
+            openblog_core::preview::build_all_contributions_with_credit_choices(
+                &contributions.record,
+                &contributions.structure,
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &own,
+                &active,
+                &participants,
+                !active.contains(&own.as_str()),
+                show_synthesis,
+                config.render_options(),
+                choices,
+            )
+        } else if let Some(choices) = &inputs.choices {
+            openblog_core::preview::build_with_credit_choices(
+                &record,
+                inputs.structure.structure.as_ref(),
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &own,
+                &active,
+                &participants,
+                !active.contains(&own.as_str()),
+                show_synthesis,
+                config.render_options(),
+                choices,
+            )
+        } else if active.contains(&own.as_str()) {
+            openblog_core::preview::build_with_participants(
+                &record,
+                inputs.structure.structure.as_ref(),
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &own,
+                &active,
+                &participants,
+                show_synthesis,
+                config.render_options(),
+            )
+        } else {
+            openblog_core::preview::build_for_recipient(
+                &record,
+                inputs.structure.structure.as_ref(),
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                &own,
+                &active,
+                &participants,
+                show_synthesis,
+                config.render_options(),
+            )
+        };
+        if !matches!(preview, Ok(preview) if preview.seen.as_deref() == Some(seen)) {
+            return Response::error(
+                409,
+                "The piece changed after you read it, or you can no longer read all of it. Reload the combined preview and read it again; nothing was recorded.",
+            );
+        }
+    }
     let mut next = inputs.approvals.set.clone();
     let result = match approving {
-        Some((seen, affirmed)) => openblog_core::assembly::with_subject(
-            &record,
-            inputs.structure.structure.as_ref(),
-            &inputs.drafts,
-            &inputs.synthesis,
-            &inputs.moments,
-            &active,
-            |subject| {
-                next.approve(&own, &own, subject, seen, affirmed, clock::now().unix())
-                    .map(|()| true)
-            },
-        ),
+        Some((seen, affirmed)) => with_gate_subject(&record, &inputs, &participants, |subject| {
+            next.approve(&own, &own, subject, seen, affirmed, clock::now().unix())
+                .map(|()| true)
+        }),
         None => next.withdraw(&own, &own),
     };
     match result {
@@ -14024,6 +14753,29 @@ fn synthesis_authors(
     grant_holders(transaction, record, AuthorizationAction::EditSynthesis)
 }
 
+fn synthesis_visible(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+    synthesis: &openblog_core::synthesis::SynthesisSet,
+    own: &str,
+) -> bool {
+    if synthesis_owner(transaction, record, session).is_some() {
+        return true;
+    }
+    let authors = synthesis_authors(transaction, record);
+    let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
+    let recipients = policy_participants(transaction, record);
+    let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+    let context = openblog_core::synthesis::DeliveryContext {
+        authors: &authors,
+        recipients: &recipients,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
+    };
+    synthesis.view_delivered(own, &context).is_ok()
+}
+
 /// The requester's own participant id once `SharedPublication::authorize` allows `action` on it.
 fn own_grant(
     transaction: &InvitationTransaction<'_>,
@@ -14089,15 +14841,14 @@ fn participant_name(record: &SharedPublication, id: &str) -> String {
         .unwrap_or_default()
 }
 
-/// The synthesis as one author sees it. Items carry prose, so this is built only after the
-/// requester was authorized and `SynthesisSet::view` accepted them as an author.
+/// Serialize only items the requester has already been authorized to read.
 fn synthesis_json(
     set: &openblog_core::synthesis::SynthesisSet,
+    items: &[openblog_core::synthesis::SynthesisItem],
     record: &SharedPublication,
     own: &str,
-    authors: &[&str],
-) -> Option<Json> {
-    let items = set.view(own, authors).ok()?;
+    context: &openblog_core::synthesis::DeliveryContext<'_>,
+) -> Json {
     let who = |id: &str| json!({ "id": id, "displayName": participant_name(record, id) });
     let items: Vec<Json> = items
         .iter()
@@ -14115,12 +14866,25 @@ fn synthesis_json(
             })
         })
         .collect();
-    Some(json!({
+    let delivery = context.authors.contains(&own).then(|| {
+        json!({
+            "authorizationRevision": context.authorization_revision,
+            "recipients": context.recipients.iter()
+                .filter(|recipient| !context.authors.contains(recipient))
+                .map(|recipient| json!({
+                    "id": recipient,
+                    "displayName": participant_name(record, recipient),
+                    "consented": set.delivery_consented(own, recipient, context),
+                })).collect::<Vec<_>>(),
+        })
+    });
+    json!({
         "revision": set.revision(),
         "items": items,
-        "authors": authors.iter().map(|id| who(id)).collect::<Vec<_>>(),
+        "authors": context.authors.iter().map(|id| who(id)).collect::<Vec<_>>(),
         "you": own,
-    }))
+        "delivery": delivery,
+    })
 }
 
 fn read_synthesis(state: &AppState, req: &Request, session: &auth::Session) -> Response {
@@ -14133,7 +14897,7 @@ fn read_synthesis(state: &AppState, req: &Request, session: &auth::Session) -> R
     let Some(record) = &transaction.record else {
         return synthesis_not_found();
     };
-    let Some(own) = synthesis_owner(&transaction, record, session) else {
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
         return synthesis_not_found();
     };
     let stored = match crate::shared_publications::load_synthesis(&state.root, publication_id) {
@@ -14145,9 +14909,25 @@ fn read_synthesis(state: &AppState, req: &Request, session: &auth::Session) -> R
     };
     let authors = synthesis_authors(&transaction, record);
     let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
-    match synthesis_json(&stored.set, record, &own, &authors) {
-        Some(json) => Response::json(200, &json),
-        None => synthesis_not_found(),
+    let recipients = policy_participants(&transaction, record);
+    let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+    let context = openblog_core::synthesis::DeliveryContext {
+        authors: &authors,
+        recipients: &recipients,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
+    };
+    let items = if synthesis_owner(&transaction, record, session).is_some() {
+        stored.set.view(&own, &authors)
+    } else {
+        stored.set.view_delivered(&own, &context)
+    };
+    match items {
+        Ok(items) => Response::json(
+            200,
+            &synthesis_json(&stored.set, items, record, &own, &context),
+        ),
+        Err(_) => synthesis_not_found(),
     }
 }
 
@@ -14186,6 +14966,12 @@ enum SynthesisChange {
     },
     Reorder {
         order: Vec<String>,
+    },
+    Delivery {
+        recipient: String,
+        #[serde(rename = "expectedAuthorizationRevision")]
+        expected_authorization_revision: u64,
+        consent: bool,
     },
 }
 
@@ -14286,6 +15072,27 @@ fn change_synthesis(state: &AppState, req: &Request, session: &auth::Session) ->
             let order = order.iter().map(String::as_str).collect::<Vec<_>>();
             next.reorder(&own, &authors, expected, &order)
         }
+        SynthesisChange::Delivery {
+            recipient,
+            expected_authorization_revision,
+            consent,
+        } => {
+            if *expected_authorization_revision != record.authorization.revision {
+                return Response::error(
+                    409,
+                    "Access changed since you chose a recipient. Reload before sharing; nothing was changed.",
+                );
+            }
+            let recipients = policy_participants(&transaction, record);
+            let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+            let context = openblog_core::synthesis::DeliveryContext {
+                authors: &authors,
+                recipients: &recipients,
+                membership_revision: record.collaboration.revision,
+                authorization_revision: record.authorization.revision,
+            };
+            next.consent_delivery(&own, recipient, expected, &context, *consent)
+        }
     };
     match result {
         Ok(()) => {}
@@ -14343,9 +15150,17 @@ fn change_synthesis(state: &AppState, req: &Request, session: &auth::Session) ->
             body.publication_id
         );
     }
-    match synthesis_json(&next, record, &own, &authors) {
-        Some(json) => Response::json(200, &json),
-        None => synthesis_not_found(),
+    let recipients = policy_participants(&transaction, record);
+    let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+    let context = openblog_core::synthesis::DeliveryContext {
+        authors: &authors,
+        recipients: &recipients,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
+    };
+    match next.view(&own, &authors) {
+        Ok(items) => Response::json(200, &synthesis_json(&next, items, record, &own, &context)),
+        Err(_) => synthesis_not_found(),
     }
 }
 
@@ -14432,9 +15247,22 @@ fn moments_json(
             let latest = drafts.current_stamp(owner)?;
             (view.stamp.number == latest.number).then_some(latest.number)
         });
-        let moments = set
-            .revealed(own, authors, owner, readable)
-            .unwrap_or_default();
+        let moments = if let Some((drafts, active)) =
+            drafts.filter(|(drafts, active)| drafts.requires_contribution_mode(active))
+        {
+            if can_read_current_contributions(drafts, own, owner, active, false)
+                && set.are_contributions_sealed(owner, drafts)
+            {
+                set.publication_moments()
+                    .into_iter()
+                    .filter(|moment| moment.participant() == *owner)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            set.revealed(own, authors, owner, readable).ok()?
+        };
         if !moments.is_empty() {
             shared.push(json!({
                 "participant": { "id": owner, "displayName": participant_name(record, owner) },
@@ -14463,6 +15291,27 @@ fn moments_json(
         "you": own,
         "quotationGuide": quotation_guide(),
     }))
+}
+
+fn can_read_current_contributions(
+    drafts: &DraftSet,
+    requester: &str,
+    owner: &str,
+    active: &[&str],
+    named_reader: bool,
+) -> bool {
+    let Ok(owned) = drafts.owned_views(owner) else {
+        return false;
+    };
+    !owned.is_empty()
+        && owned.iter().all(|current| {
+            let seen = if named_reader {
+                drafts.view_named(requester, &current.stamp.contribution_id, active)
+            } else {
+                drafts.view(requester, &current.stamp.contribution_id, active)
+            };
+            seen.is_ok_and(|seen| seen.stamp == current.stamp)
+        })
 }
 
 /// The rights guidance and quotation thresholds, from the core definitions, so the panel's live
@@ -14517,9 +15366,11 @@ fn read_moments(state: &AppState, req: &Request, session: &auth::Session) -> Res
     let Some(record) = &transaction.record else {
         return moments_not_found();
     };
-    let Some(own) = moment_owner(&transaction, record, session) else {
+    let own = moment_owner(&transaction, record, session);
+    let recipient = policy_participant(&transaction, record, &session.user);
+    if own.is_none() && recipient.is_none() {
         return moments_not_found();
-    };
+    }
     let (stored, drafts) = match load_moment_state(state, publication_id, record) {
         Ok(loaded) => loaded,
         Err(error) => {
@@ -14529,12 +15380,66 @@ fn read_moments(state: &AppState, req: &Request, session: &auth::Session) -> Res
     };
     let authors = moment_authors(&transaction, record);
     let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
+    if own.is_none() {
+        let recipient = recipient.expect("authorized recipient");
+        let mut active = active_drafters(&transaction, record);
+        let is_drafter = active.contains(&recipient);
+        active.push(recipient.clone());
+        let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut shared = Vec::new();
+        for owner in &authors {
+            let readable = (if is_drafter {
+                drafts.view(&recipient, owner, &active)
+            } else {
+                drafts.view_named(&recipient, owner, &active)
+            })
+            .ok()
+            .and_then(|view| {
+                let latest = drafts.current_stamp(owner)?;
+                (view.stamp.number == latest.number).then_some(latest.number)
+            });
+            let moments = if drafts.requires_contribution_mode(&active) {
+                if can_read_current_contributions(&drafts, &recipient, owner, &active, !is_drafter)
+                    && stored.set.are_contributions_sealed(owner, &drafts)
+                {
+                    stored
+                        .set
+                        .publication_moments()
+                        .into_iter()
+                        .filter(|moment| moment.participant() == *owner)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                match stored.set.revealed_to_recipient(
+                    &recipient,
+                    &[recipient.as_str()],
+                    &authors,
+                    owner,
+                    readable,
+                ) {
+                    Ok(moments) => moments,
+                    Err(_) => return moments_not_found(),
+                }
+            };
+            if !moments.is_empty() {
+                shared.push(json!({
+                    "participant": { "id": owner, "displayName": participant_name(record, owner) },
+                    "draftRevision": readable,
+                    "contributionSnapshot": drafts.requires_contribution_mode(&active),
+                    "moments": moments.into_iter().map(|moment| moment_json(moment, record)).collect::<Vec<_>>(),
+                }));
+            }
+        }
+        return Response::json(200, &json!({ "shared": shared }));
+    }
     let active = active_drafters(&transaction, record);
     let active = active.iter().map(String::as_str).collect::<Vec<_>>();
     match moments_json(
         &stored.set,
         record,
-        &own,
+        own.as_deref().expect("authorized author"),
         &authors,
         Some((&drafts, &active)),
     ) {
@@ -14784,6 +15689,49 @@ fn seal_offered_moments(
     })
 }
 
+fn seal_contribution_moments(
+    state: &AppState,
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    own: &str,
+    drafts: &DraftSet,
+) -> Option<OfferedMoments> {
+    let id = &record.publication_id;
+    let authors = moment_authors(transaction, record);
+    let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
+    if !authors.contains(&own) {
+        return None;
+    }
+    let stored = match crate::shared_publications::load_moments(&state.root, id) {
+        Ok(stored) => stored,
+        Err(error) => {
+            eprintln!("admin: contribution moments not sealed for {id}: {error}");
+            return Some(OfferedMoments::Failed);
+        }
+    };
+    let mut next = stored.set.clone();
+    let sealed = match next.seal_contributions(own, &authors, drafts) {
+        Ok(sealed) => sealed,
+        Err(error) => {
+            eprintln!("admin: contribution moments not sealed for {id}: {error}");
+            return Some(OfferedMoments::Failed);
+        }
+    };
+    if next != stored.set {
+        if let Err(error) =
+            crate::shared_publications::replace_moments(&state.root, id, &stored, &next)
+        {
+            eprintln!("admin: contribution moments not sealed for {id}: {error:?}");
+            return Some(OfferedMoments::Failed);
+        }
+    }
+    Some(if sealed {
+        OfferedMoments::Shared
+    } else {
+        OfferedMoments::Changed
+    })
+}
+
 /// Drop approvals that no longer match after a change to the author set or the prose, in the
 /// same transaction as that change, so removing and restoring an author or reverting an edit
 /// cannot bring back consent given earlier. Validity is also recomputed on every read, so a
@@ -14795,7 +15743,11 @@ fn reconcile_approvals(
 ) {
     let id = &record.publication_id;
     let result = (|| -> Result<(), String> {
-        let stored = crate::shared_publications::load_approvals_for_update(&state.root, id)?;
+        let stored = crate::shared_publications::load_approvals_for_update(
+            &state.root,
+            id,
+            record.initial_approval_policy(),
+        )?;
         let drafts = load_reveal_drafts(state, id).map_err(|_| "drafts are not usable")?;
         let drafts =
             draft_set_for(drafts.set.as_ref(), record).map_err(|_| "drafts are not usable")?;
@@ -14823,17 +15775,55 @@ fn reconcile_approvals(
         }
         let active = active_drafters(transaction, record);
         let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let participants = policy_participants(transaction, record);
+        let participants = participants.iter().map(String::as_str).collect::<Vec<_>>();
         let structure = crate::shared_publications::load_structure(&state.root, id)?;
+        let contributions =
+            contribution_gate(record, &drafts, structure.structure.as_ref(), &active)?;
         let mut next = stored.set.clone();
-        let dropped = openblog_core::assembly::with_subject(
-            record,
-            structure.structure.as_ref(),
-            &drafts,
-            &synthesis.set,
-            &moments.set,
-            &active,
-            |subject| next.reconcile(subject),
-        );
+        let choices = crate::shared_publications::load_credit_choices(&state.root, id)?.choices;
+        let binding =
+            if contributions.is_some() || record.credit_choices_required || choices.revision() != 0
+            {
+                Some(
+                    choices
+                        .binding()
+                        .map_err(|_| "credit choices are not usable")?,
+                )
+            } else {
+                None
+            };
+        let reconcile = |subject: &openblog_core::approval::ApprovalSubject<'_>| match &binding {
+            Some(binding) => {
+                openblog_core::assembly::with_credit_binding(subject, binding, |subject| {
+                    next.reconcile(subject)
+                })
+            }
+            None => next.reconcile(subject),
+        };
+        let dropped = if let Some(contributions) = &contributions {
+            openblog_core::assembly::with_subject_for_all_contributions(
+                &contributions.record,
+                Some(&contributions.structure),
+                &drafts,
+                &synthesis.set,
+                &moments.set,
+                &active,
+                &participants,
+                reconcile,
+            )
+        } else {
+            openblog_core::assembly::with_subject_for_participants(
+                record,
+                structure.structure.as_ref(),
+                &drafts,
+                &synthesis.set,
+                &moments.set,
+                &active,
+                &participants,
+                reconcile,
+            )
+        };
         if matches!(dropped, Ok(count) if count > 0) {
             crate::shared_publications::replace_approvals(&state.root, id, &stored, &next)
                 .map_err(|_| "approvals not stored".to_string())?;
@@ -14865,6 +15855,32 @@ struct RevealReadyRequest {
     publication_id: String,
     /// The exact revision of the caller's own draft to offer, or null to take the offer back.
     revision: Option<u64>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ContributionOffer {
+    contribution_id: String,
+    revision: u64,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ContributionsReadyRequest {
+    publication_id: String,
+    contributions: Option<Vec<ContributionOffer>>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct NamedRevealRequest {
+    publication_id: String,
+    revision: u64,
+    recipients: Vec<String>,
+    #[serde(default)]
+    contribution_id: Option<String>,
+    #[serde(default)]
+    expected_authorization_revision: Option<u64>,
 }
 
 /// Participants who currently hold the draft grant, decided by the single entry point for each
@@ -14944,7 +15960,7 @@ fn may_set_policy(
 
 /// The comparison for the signed-in participant: one slot per contract participant, in contract
 /// order, each their own latest revision, a revision revealed to them, or a placeholder. A
-/// coordinator who is not a drafter gets the policy only.
+/// Non-drafters see only revisions explicitly released to them, without offer state.
 fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let Some(publication_id) = req.query.get("publicationId") else {
         return draft_not_found();
@@ -14957,7 +15973,8 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
     };
     let own = draft_owner(&transaction, record, session);
     let coordinator = may_set_policy(&transaction, record, session);
-    if own.is_none() && !coordinator {
+    let reader = policy_participant(&transaction, record, &session.user);
+    if own.is_none() && reader.is_none() && !coordinator {
         return draft_not_found();
     }
     let stored = match load_reveal_drafts(state, publication_id) {
@@ -14969,8 +15986,10 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
     };
     let mut slots = Vec::new();
     let mut ready = false;
+    let mut ready_revision = None;
     if let Some(own) = &own {
         ready = set.is_ready(own);
+        ready_revision = set.ready_revision(own);
         let participants = &record.collaboration.participants;
         let order = participants
             .iter()
@@ -14978,6 +15997,7 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
             .collect::<Vec<_>>();
         let active = active_drafters(&transaction, record);
         let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let recipients = policy_participants(&transaction, record);
         let Ok(compared) = set.compare(own, &order, &active) else {
             return draft_not_found();
         };
@@ -14990,32 +16010,126 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
             slots.push(json!({
                 "participantId": participant.id,
                 "displayName": participant.display_name,
+                "mayReceive": participant.id != *own && recipients.contains(&participant.id),
+                "nonDrafter": !active.contains(&participant.id.as_str()),
                 "kind": kind,
                 "ready": offered,
                 "stamp": view.map(|v| &v.stamp),
                 "markdown": view.map(|v| &v.markdown),
             }));
         }
+    } else if let Some(reader) = &reader {
+        let mut active = active_drafters(&transaction, record);
+        active.push(reader.clone());
+        let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        for participant in &record.collaboration.participants {
+            if let Ok(view) = set.view_named(reader, &participant.id, &active) {
+                slots.push(json!({
+                    "participantId": participant.id,
+                    "displayName": participant.display_name,
+                    "kind": "revealed",
+                    "stamp": view.stamp,
+                    "markdown": view.markdown,
+                }));
+            }
+        }
     }
     Response::json(
         200,
-        &json!({ "policy": set.policy(), "ready": ready, "slots": slots, "canSetPolicy": coordinator }),
+        &json!({ "policy": set.policy(), "ready": ready, "readyRevision": ready_revision, "slots": slots, "canSetPolicy": coordinator, "canDraft": own.is_some(), "authorizationRevision": record.authorization.revision }),
     )
 }
 
-/// The combined review preview for an active author: every author's section at its exact current
-/// revision where the signed-in author is entitled to it, with each author's approval state.
+fn release_named_draft(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<NamedRevealRequest>(&req.body) else {
+        return shared_problem("", "This sharing request is not valid. Nothing was shared.");
+    };
+    let (transaction, own) = match draft_request_target(state, &body.publication_id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let Ok(mut set) = draft_set_for(stored.set.as_ref(), record) else {
+        return Response::error(500, "Sharing could not be changed. Nothing was changed.");
+    };
+    let active = policy_participants(&transaction, record);
+    let active: Vec<_> = active.iter().map(String::as_str).collect();
+    let recipients: Vec<_> = body.recipients.iter().map(String::as_str).collect();
+    let drafters = active_drafters(&transaction, record);
+    let readers = recipients
+        .iter()
+        .copied()
+        .filter(|id| active.contains(id) && !drafters.iter().any(|drafter| drafter == id))
+        .collect::<Vec<_>>();
+    if (!readers.is_empty() || body.expected_authorization_revision.is_some())
+        && body.expected_authorization_revision != Some(record.authorization.revision)
+    {
+        return Response::error(409, "Access changed since you chose recipients. Reload sharing and choose again; nothing was shared.");
+    }
+    let now = clock::now().unix();
+    let contribution_id = body.contribution_id.as_deref().unwrap_or(&own);
+    match set.release_named_with_readers(&own, contribution_id, body.revision, &recipients, &active, &readers, now) {
+        Ok(()) => {
+            let response = store_drafts(state, &body.publication_id, &stored, &set, Json::Null);
+            if response.status != 200 {
+                return response;
+            }
+            let mut result = json!({ "released": true, "revision": body.revision, "releasedAt": now });
+            let drafters = drafters.iter().map(String::as_str).collect::<Vec<_>>();
+            let sealed = if set.requires_contribution_mode(&drafters) {
+                seal_contribution_moments(state, &transaction, record, &own, &set)
+            } else {
+                seal_offered_moments(state, &transaction, record, &own, body.revision)
+            };
+            if let Some(sealed) = sealed {
+                let object = result.as_object_mut().expect("release response is an object");
+                match sealed {
+                    OfferedMoments::Shared => object.insert("momentsShared".into(), json!(true)),
+                    OfferedMoments::Changed => object.insert("momentsShared".into(), json!(false)),
+                    OfferedMoments::Failed => {
+                        object.insert("momentsShared".into(), Json::Null);
+                        object.insert("momentsNote".into(), json!(MOMENTS_NOT_SHARED))
+                    }
+                };
+            }
+            Response::json(200, &result)
+        }
+        Err(DraftError::Stale) => Response::error(
+            409,
+            "Your draft changed since you chose a revision. Reload it before sharing; nothing was shared.",
+        ),
+        Err(DraftError::Invalid) => shared_problem(
+            "recipients",
+            "Choose at least one current recipient and use named-recipient sharing. Nothing was shared.",
+        ),
+        Err(DraftError::LimitReached) => draft_limit_problem(),
+        Err(DraftError::Denied) => draft_not_found(),
+    }
+}
+
+/// The combined review preview contains only revisions explicitly visible to the requester.
 /// Read-only: it writes no draft, approval or content, and every refusal is the same not-found as
 /// a missing publication, so it never says whether a publication or a draft exists.
 fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let Some(publication_id) = req.query.get("publicationId") else {
         return draft_not_found();
     };
-    let (transaction, own) = match draft_request_target(state, publication_id, session) {
-        Ok(found) => found,
-        Err(response) => return response,
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return draft_not_found();
     };
-    let record = transaction.record.as_ref().expect("authorized record");
+    let Some(record) = transaction.record.as_ref() else {
+        return draft_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return draft_not_found();
+    };
     let stored = match load_reveal_drafts(state, publication_id) {
         Ok(stored) => stored,
         Err(response) => return response,
@@ -15023,8 +16137,12 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     let Ok(set) = draft_set_for(stored.set.as_ref(), record) else {
         return Response::error(500, "The preview could not be built. Nothing was changed.");
     };
-    let approvals = match crate::shared_publications::load_approvals(&state.root, publication_id) {
-        Ok(approvals) => approvals,
+    let approvals = match crate::shared_publications::load_approvals_for_update(
+        &state.root,
+        publication_id,
+        record.initial_approval_policy(),
+    ) {
+        Ok(approvals) => approvals.set,
         Err(error) => {
             eprintln!("admin: approvals not readable for {publication_id}: {error}");
             return Response::error(500, "The preview could not be built. Nothing was changed.");
@@ -15046,8 +16164,16 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
             return Response::error(500, "The preview could not be built. Nothing was changed.");
         }
     };
-    let show_synthesis = synthesis_owner(&transaction, record, session).is_some();
-    let config = site::load_config(&state.root).unwrap_or_default();
+    let recipients = policy_participants(&transaction, record);
+    let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+    let show_synthesis = synthesis_visible(&transaction, record, session, &synthesis, &own);
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("admin: preview configuration unavailable: {error}");
+            return Response::error(500, "The preview could not be built. Nothing was changed.");
+        }
+    };
     let structure = match crate::shared_publications::load_structure(&state.root, publication_id) {
         Ok(structure) => structure,
         Err(error) => {
@@ -15055,19 +16181,93 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
             return Response::error(500, "The preview could not be built. Nothing was changed.");
         }
     };
-    let Ok(preview) = openblog_core::preview::build(
-        record,
-        structure.structure.as_ref(),
-        &set,
-        &synthesis,
-        &moments,
-        &approvals,
-        &own,
-        &active,
-        show_synthesis,
-        config.render_options(),
-    ) else {
-        return draft_not_found();
+    let choices = match crate::shared_publications::load_credit_choices(&state.root, publication_id)
+    {
+        Ok(stored) => stored.choices,
+        Err(error) => return credit_choice_failed(&error),
+    };
+    let contributions = match contribution_gate(record, &set, structure.structure.as_ref(), &active)
+    {
+        Ok(contributions) => contributions,
+        Err(_) => {
+            return Response::error(
+                409,
+                "The whole piece is not available for review. Nothing was changed.",
+            )
+        }
+    };
+    let preview = if let Some(contributions) = &contributions {
+        openblog_core::preview::build_all_contributions_with_credit_choices(
+            &contributions.record,
+            &contributions.structure,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &own,
+            &active,
+            &recipients,
+            !active.contains(&own.as_str()),
+            show_synthesis,
+            config.render_options(),
+            &choices,
+        )
+    } else if record.credit_choices_required || choices.revision() != 0 {
+        openblog_core::preview::build_with_credit_choices(
+            record,
+            structure.structure.as_ref(),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &own,
+            &active,
+            &recipients,
+            !active.contains(&own.as_str()),
+            show_synthesis,
+            config.render_options(),
+            &choices,
+        )
+    } else if active.contains(&own.as_str()) {
+        openblog_core::preview::build_with_participants(
+            record,
+            structure.structure.as_ref(),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &own,
+            &active,
+            &recipients,
+            show_synthesis,
+            config.render_options(),
+        )
+    } else {
+        openblog_core::preview::build_for_recipient(
+            record,
+            structure.structure.as_ref(),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &own,
+            &active,
+            &recipients,
+            show_synthesis,
+            config.render_options(),
+        )
+    };
+    let preview = match preview {
+        Ok(preview) => preview,
+        Err(openblog_core::preview::PreviewError::Denied) => return draft_not_found(),
+        Err(openblog_core::preview::PreviewError::CreditChoices) => return Response::error(
+            409,
+            "Each person whose work appears must choose their public credit before the complete piece can be reviewed. Nothing was changed.",
+        ),
+        Err(openblog_core::preview::PreviewError::Incomplete) => return Response::error(
+            409,
+            "The whole piece is not available for review. Nothing was changed.",
+        ),
     };
     drop(transaction);
     // The document is served from its own address with its own policy, so a sandboxed frame can
@@ -15167,10 +16367,26 @@ struct ApprovalPolicyRequest {
     publication_id: String,
     /// The policy revision the requester read.
     expected_revision: u64,
+    expected_proposal_id: Option<u64>,
     policy: openblog_core::approval::ApprovalPolicy,
     /// That the requester accepts that a real change clears every standing approval.
     #[serde(default)]
     confirmed: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PolicyConsentRequest {
+    publication_id: String,
+    proposal_id: u64,
+    affirmed: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PolicyWithdrawalRequest {
+    publication_id: String,
+    proposal_id: u64,
 }
 
 /// Every refusal reads the same, so a request cannot confirm that a reflection exists.
@@ -15237,6 +16453,209 @@ fn active_approvers(
         .collect()
 }
 
+fn policy_participant(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    user: &str,
+) -> Option<String> {
+    transaction
+        .with_identities(|identities| {
+            record.authorize(
+                user,
+                identities,
+                AuthorizationAction::ViewPublication,
+                AuthorizationTarget::Publication,
+            )
+        })
+        .ok()
+        .map(|binding| binding.participant_id.clone())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct CreditChoiceRequest {
+    publication_id: String,
+    expected_revision: u64,
+    choice: RequestedCreditChoice,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+enum RequestedCreditChoice {
+    Profile {},
+    DisplayName { name: String },
+    Uncredited {},
+}
+
+fn credit_choice_json(choices: &openblog_core::shared_credit::CreditChoices, own: &str) -> Json {
+    json!({
+        "revision": choices.revision(),
+        "choice": choices.choice(own),
+        "publicationSupported": true,
+        "notice": "Changing a credit choice requires everyone to review and approve the piece again."
+    })
+}
+
+fn credit_choice_failed(error: &str) -> Response {
+    eprintln!("admin: credit choice storage unavailable: {error}");
+    Response::error(
+        500,
+        "Credit choices could not be accessed. Nothing was changed.",
+    )
+}
+
+fn read_credit_choice(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(id) = req.query.get("publicationId") else {
+        return publish_not_found();
+    };
+    let Ok(transaction) = invitation_transaction(state, id) else {
+        return publish_not_found();
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return publish_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return publish_not_found();
+    };
+    match crate::shared_publications::load_credit_choices(&state.root, id) {
+        Ok(stored) => Response::json(200, &credit_choice_json(&stored.choices, &own)),
+        Err(error) => credit_choice_failed(&error),
+    }
+}
+
+fn change_credit_choice(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    use openblog_core::shared_credit::{CreditChoice, CreditChoiceError};
+
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<CreditChoiceRequest>(&req.body) else {
+        return publish_request_problem();
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return publish_not_found();
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return publish_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return publish_not_found();
+    };
+    let Some(binding) = record
+        .authorization
+        .bindings
+        .iter()
+        .find(|binding| binding.admin_user == session.user && binding.participant_id == own)
+    else {
+        return publish_not_found();
+    };
+    match crate::shared_publications::load_outcome(&state.root, &body.publication_id) {
+        Ok(outcome)
+            if matches!(
+                outcome.outcome,
+                Some(openblog_core::assembly::Outcome::Published { .. })
+            ) =>
+        {
+            return published_already()
+        }
+        Ok(_) => {}
+        Err(error) => return credit_choice_failed(&error),
+    }
+    let stored =
+        match crate::shared_publications::load_credit_choices(&state.root, &body.publication_id) {
+            Ok(stored) => stored,
+            Err(error) => return credit_choice_failed(&error),
+        };
+    let choice = match body.choice {
+        RequestedCreditChoice::Profile {} => {
+            let config = match site::load_config(&state.root) {
+                Ok(config) => config,
+                Err(error) => return credit_choice_failed(&error),
+            };
+            let Some(profile) = config.contributors.get(&binding.contributor_id) else {
+                return publish_not_found();
+            };
+            CreditChoice::Profile {
+                contributor_id: binding.contributor_id.clone(),
+                profile: profile.clone(),
+            }
+        }
+        RequestedCreditChoice::DisplayName { name } => {
+            let public_id = match stored.choices.choice(&own) {
+                Some(CreditChoice::DisplayName {
+                    name: previous,
+                    public_id: Some(id),
+                }) if previous == &name => id.clone(),
+                _ => match auth::random_bytes::<16>() {
+                    Ok(bytes) => bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+                    Err(error) => return credit_choice_failed(&error),
+                },
+            };
+            CreditChoice::DisplayName {
+                name,
+                public_id: Some(public_id),
+            }
+        }
+        RequestedCreditChoice::Uncredited {} => CreditChoice::Uncredited,
+    };
+    let mut next = stored.choices.clone();
+    match next.select(
+        &own,
+        &own,
+        &binding.contributor_id,
+        body.expected_revision,
+        choice,
+    ) {
+        Ok(changed) => {
+            if changed {
+                if let Err(error) = crate::shared_publications::replace_credit_choices(
+                    &state.root,
+                    &body.publication_id,
+                    &stored,
+                    &next,
+                ) {
+                    return match error {
+                        crate::shared_publications::ReplaceError::Conflict => Response::error(
+                            409,
+                            "Credit choices changed. Reload before saving; nothing was changed.",
+                        ),
+                        crate::shared_publications::ReplaceError::TooLarge => shared_problem(
+                            "choice",
+                            "Credit choices have reached their size limit. Nothing was changed.",
+                        ),
+                        crate::shared_publications::ReplaceError::Storage(error) => {
+                            credit_choice_failed(&error)
+                        }
+                    };
+                }
+                reconcile_approvals(state, &transaction, record);
+            }
+            Response::json(200, &credit_choice_json(&next, &own))
+        }
+        Err(CreditChoiceError::Denied) => publish_not_found(),
+        Err(CreditChoiceError::Stale) => Response::error(
+            409,
+            "Credit choices changed. Reload before saving; nothing was changed.",
+        ),
+        Err(CreditChoiceError::Invalid) => shared_problem(
+            "choice",
+            "Choose a valid credit option and display name. Nothing was changed.",
+        ),
+    }
+}
+
+fn policy_participants(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+) -> Vec<String> {
+    record
+        .authorization
+        .bindings
+        .iter()
+        .filter_map(|binding| policy_participant(transaction, record, &binding.admin_user))
+        .collect()
+}
+
 /// The rule and where the piece stands under it, for someone who holds the policy grant (who
 /// also holds the publish grant, so may already learn who has not approved, ADR 0022). Display
 /// names and roles only: no prose, revision or digest.
@@ -15246,29 +16665,25 @@ fn approval_policy_json(
     set: &openblog_core::approval::ApprovalSet,
     approvers: &[String],
 ) -> Json {
-    use openblog_core::assembly::{display_names, with_subject};
-    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
-    let (rule, required, missing) = with_subject(
-        record,
-        inputs.structure.structure.as_ref(),
-        &inputs.drafts,
-        &inputs.synthesis,
-        &inputs.moments,
-        &active,
-        |subject| {
-            let required = set.required(subject);
-            let missing = required
-                .iter()
-                .filter(|id| !set.is_approved(subject, id))
-                .cloned()
-                .collect::<Vec<_>>();
-            (
-                openblog_core::preview::rule_for(record, set, subject),
-                required,
-                missing,
-            )
-        },
-    );
+    use openblog_core::assembly::display_names;
+    let participants = inputs
+        .participants
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let (rule, required, missing) = with_gate_subject(record, inputs, &participants, |subject| {
+        let required = set.required(subject);
+        let missing = required
+            .iter()
+            .filter(|id| !set.is_approved(subject, id))
+            .cloned()
+            .collect::<Vec<_>>();
+        (
+            openblog_core::preview::rule_for(record, set, subject),
+            required,
+            missing,
+        )
+    });
     let people = record
         .collaboration
         .participants
@@ -15300,10 +16715,12 @@ fn approval_policy_json(
     };
     json!({
         "policy": rule.policy,
+        "wholePieceRequired": !record.allows_approval_scope(openblog_core::approval::ApprovalScope::OwnSections),
         "revision": rule.revision,
         "summary": rule.summary,
         "unmetNamed": rule.unmet_named,
         "unmetRoles": rule.unmet_roles,
+        "quorum": rule.quorum,
         "required": display_names(record, required.iter().map(String::as_str)),
         "missing": display_names(record, missing.iter().map(String::as_str)),
         "approvers": people,
@@ -15315,8 +16732,8 @@ fn approval_policy_json(
     })
 }
 
-/// The approval rule, for a site owner or coordinator. Everyone else gets the same not-found as
-/// a missing publication; authors see the rule in the combined preview.
+/// The rule proposal is visible to active participants; detailed approval status requires
+/// draft or policy access.
 fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let Some(publication_id) = req.query.get("publicationId") else {
         return approval_policy_not_found();
@@ -15327,20 +16744,66 @@ fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session
     let Some(record) = transaction.record.clone() else {
         return approval_policy_not_found();
     };
-    let Some(authority) = approval_rule_authority(&transaction, &record, session) else {
+    let authority = approval_rule_authority(&transaction, &record, session);
+    let own = policy_participant(&transaction, &record, &session.user);
+    if authority.is_none() && own.is_none() {
         return approval_policy_not_found();
-    };
+    }
     let inputs = match gate_inputs(state, &transaction, &record) {
         Ok(inputs) => inputs,
         Err(response) => return response,
     };
-    let approvers = active_approvers(&transaction, &record, &inputs.active);
-    let mut response = approval_policy_json(&record, &inputs, &inputs.approvals.set, &approvers);
+    let approvers = if participant_approval_rule(inputs.approvals.set.policy()) {
+        inputs.participants.clone()
+    } else {
+        active_approvers(&transaction, &record, &inputs.active)
+    };
+    let mut response = if authority.is_some()
+        || draft_owner(&transaction, &record, session).is_some()
+    {
+        approval_policy_json(&record, &inputs, &inputs.approvals.set, &approvers)
+    } else {
+        let names = match &inputs.approvals.set.policy().requirement {
+            openblog_core::approval::ApprovalRequirement::NamedAuthors(ids) => {
+                openblog_core::assembly::display_names(&record, ids.iter().map(String::as_str))
+            }
+            _ => Vec::new(),
+        };
+        json!({
+            "policy": inputs.approvals.set.policy(),
+            "revision": inputs.approvals.set.policy_revision(),
+            "summary": openblog_core::approval::describe_policy(inputs.approvals.set.policy(), &names),
+            "published": matches!(inputs.outcome.outcome, Some(openblog_core::assembly::Outcome::Published { .. })),
+        })
+    };
     if let Some(object) = response.as_object_mut() {
         object.insert(
             "mayDropApprovers".into(),
-            json!(authority == openblog_core::approval::RuleAuthority::SiteOwner),
+            json!(authority == Some(openblog_core::approval::RuleAuthority::SiteOwner)),
         );
+        object.insert("mayPropose".into(), json!(authority.is_some()));
+        object.insert("you".into(), json!(own));
+        if let Some(proposal) = inputs.approvals.set.proposal() {
+            let valid = proposal.membership_revision == record.collaboration.revision
+                && proposal.authorization_revision == record.authorization.revision
+                && proposal.participants == policy_participants(&transaction, &record)
+                && record.allows_approval_scope(proposal.policy.scope);
+            let named = match &proposal.policy.requirement {
+                openblog_core::approval::ApprovalRequirement::NamedAuthors(ids) => {
+                    openblog_core::assembly::display_names(&record, ids.iter().map(String::as_str))
+                }
+                _ => Vec::new(),
+            };
+            object.insert("proposal".into(), json!({
+                "id": proposal.id,
+                "policy": proposal.policy,
+                "summary": openblog_core::approval::describe_policy(&proposal.policy, &named),
+                "valid": valid,
+                "consenting": openblog_core::assembly::display_names(&record, proposal.consenting.iter().map(String::as_str)),
+                "awaiting": openblog_core::assembly::display_names(&record, proposal.participants.iter().filter(|id| !proposal.consenting.contains(id)).map(String::as_str)),
+                "consentedByYou": own.as_ref().is_some_and(|id| proposal.consenting.contains(id)),
+            }));
+        }
     }
     Response::json(200, &response)
 }
@@ -15380,28 +16843,31 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
     ) {
         return published_already();
     }
-    let approvers = active_approvers(&transaction, &record, &inputs.active);
+    if !record.allows_approval_scope(body.policy.scope) {
+        return shared_problem("policy", "This reflection requires whole-piece approval. Any edit must clear every approval. Nothing was changed.");
+    }
+    let approvers = if participant_approval_rule(&body.policy) {
+        inputs.participants.clone()
+    } else {
+        active_approvers(&transaction, &record, &inputs.active)
+    };
     let approver_ids = approvers.iter().map(String::as_str).collect::<Vec<_>>();
-    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let voters = policy_participants(&transaction, &record);
+    let voters: Vec<_> = voters.iter().map(String::as_str).collect();
+    if body.expected_proposal_id != inputs.approvals.set.proposal().map(|proposal| proposal.id) {
+        return Response::error(409, "The rule proposal changed since you loaded it. Reload before proposing another rule; nothing was changed.");
+    }
     let mut next = inputs.approvals.set.clone();
-    let result = openblog_core::assembly::with_subject(
-        &record,
-        inputs.structure.structure.as_ref(),
-        &inputs.drafts,
-        &inputs.synthesis,
-        &inputs.moments,
-        &active,
-        |subject| {
-            next.change_policy(
-                body.policy.clone(),
-                body.expected_revision,
-                body.confirmed,
-                authority,
-                subject,
-                &approver_ids,
-            )
-        },
-    );
+    let result = with_gate_subject(&record, &inputs, &voters, |subject| {
+        next.change_policy(
+            body.policy.clone(),
+            body.expected_revision,
+            body.confirmed,
+            authority,
+            subject,
+            &approver_ids,
+        )
+    });
     let cleared = match result {
         Ok(PolicyChange::Unchanged) => None,
         Ok(PolicyChange::Changed { cleared }) => Some(cleared),
@@ -15422,6 +16888,17 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
                 "confirmed",
                 "Confirm that changing the rule clears every approval, so every required author approves again. Nothing was changed.",
             )
+        }
+        Err(PolicyError::QuorumUnavailable { required, available }) => {
+            return shared_problem("policy", &format!(
+                "This quorum needs {required} eligible authors, but only {available} can approve. Nothing was changed."
+            ))
+        }
+        Err(PolicyError::QuorumProtection) => {
+            return Response::json(403, &json!({
+                "error": "Only a site owner can propose lowering the current quorum. Nothing was changed.",
+                "field": "policy",
+            }))
         }
         Err(PolicyError::DropsApprovers(dropped)) => {
             let names = openblog_core::assembly::display_names(
@@ -15469,6 +16946,23 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
         }
     };
     if cleared.is_some() {
+        next = inputs.approvals.set.clone();
+        let proposal = match next.propose_policy(
+            body.policy.clone(),
+            body.expected_revision,
+            record.collaboration.revision,
+            record.authorization.revision,
+            authority,
+            &voters,
+        ) {
+            Ok(proposal) => proposal,
+            Err(_) => {
+                return shared_problem(
+                    "policy",
+                    "The rule proposal could not be created. Nothing was changed.",
+                )
+            }
+        };
         if let Err(error) = crate::shared_publications::replace_approvals(
             &state.root,
             &body.publication_id,
@@ -15478,16 +16972,161 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
             return publish_store_problem(error);
         }
         eprintln!(
-            "admin: changed the approval rule of shared publication {}",
+            "admin: proposed approval rule {proposal} of shared publication {}",
             body.publication_id
         );
     }
     let mut response = approval_policy_json(&record, &inputs, &next, &approvers);
     if let Some(object) = response.as_object_mut() {
-        object.insert("changed".into(), json!(cleared.is_some()));
-        object.insert("cleared".into(), json!(cleared.unwrap_or(0)));
+        object.insert("changed".into(), json!(false));
+        object.insert("proposed".into(), json!(cleared.is_some()));
     }
     Response::json(200, &response)
+}
+
+fn consent_approval_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<PolicyConsentRequest>(&req.body) else {
+        return shared_problem("", "This policy consent is not valid. Nothing was changed.");
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return approval_policy_not_found();
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return approval_policy_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return approval_policy_not_found();
+    };
+    let inputs = match gate_inputs(state, &transaction, record) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    if matches!(
+        inputs.outcome.outcome,
+        Some(openblog_core::assembly::Outcome::Published { .. })
+    ) {
+        return published_already();
+    }
+    let voters = policy_participants(&transaction, record);
+    let voters: Vec<_> = voters.iter().map(String::as_str).collect();
+    let approvers = if inputs
+        .approvals
+        .set
+        .proposal()
+        .is_some_and(|p| participant_approval_rule(&p.policy))
+    {
+        inputs.participants.clone()
+    } else {
+        active_approvers(&transaction, record, &inputs.active)
+    };
+    let approver_ids: Vec<_> = approvers.iter().map(String::as_str).collect();
+    let mut next = inputs.approvals.set.clone();
+    if next
+        .proposal()
+        .is_some_and(|proposal| !record.allows_approval_scope(proposal.policy.scope))
+    {
+        return Response::error(409, "This proposal does not require whole-piece approval. Ask a coordinator to propose a whole-piece rule; nothing was changed.");
+    }
+    let unanimous = match next.consent_policy(
+        &own,
+        body.proposal_id,
+        record.collaboration.revision,
+        record.authorization.revision,
+        &voters,
+        body.affirmed,
+    ) {
+        Ok(unanimous) => unanimous,
+        Err(openblog_core::approval::PolicyError::Stale) => return Response::error(
+            409,
+            "The proposal or membership changed. Reload the approval rule; nothing was changed.",
+        ),
+        Err(openblog_core::approval::PolicyError::Unconfirmed) => {
+            return shared_problem(
+                "affirmed",
+                "Confirm that you agree to this exact rule. Nothing was changed.",
+            )
+        }
+        Err(_) => return approval_policy_not_found(),
+    };
+    let mut cleared = 0;
+    if unanimous {
+        let applied = with_gate_subject(record, &inputs, &voters, |subject| {
+            next.apply_consented_policy(
+                body.proposal_id,
+                record.collaboration.revision,
+                record.authorization.revision,
+                &voters,
+                subject,
+                &approver_ids,
+            )
+        });
+        match applied {
+            Ok(openblog_core::approval::PolicyChange::Changed { cleared: count }) => cleared = count,
+            _ => return Response::error(409, "The proposed rule no longer fits the reflection. Ask a coordinator to propose it again; nothing was changed."),
+        }
+    }
+    if let Err(error) = crate::shared_publications::replace_approvals(
+        &state.root,
+        &body.publication_id,
+        &inputs.approvals,
+        &next,
+    ) {
+        return publish_store_problem(error);
+    }
+    Response::json(
+        200,
+        &json!({ "consented": true, "changed": unanimous, "cleared": cleared }),
+    )
+}
+
+fn withdraw_policy_consent(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<PolicyWithdrawalRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This policy consent request is not valid. Nothing was changed.",
+        );
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return approval_policy_not_found();
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return approval_policy_not_found();
+    };
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
+        return approval_policy_not_found();
+    };
+    let inputs = match gate_inputs(state, &transaction, record) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    let mut next = inputs.approvals.set.clone();
+    let withdrawn = match next.withdraw_policy_consent(&own, body.proposal_id) {
+        Ok(withdrawn) => withdrawn,
+        Err(openblog_core::approval::PolicyError::Stale) => {
+            return Response::error(
+                409,
+                "The proposal changed. Reload the approval rule; nothing was changed.",
+            )
+        }
+        Err(_) => return approval_policy_not_found(),
+    };
+    if withdrawn {
+        if let Err(error) = crate::shared_publications::replace_approvals(
+            &state.root,
+            &body.publication_id,
+            &inputs.approvals,
+            &next,
+        ) {
+            return publish_store_problem(error);
+        }
+    }
+    Response::json(200, &json!({ "withdrawn": withdrawn }))
 }
 
 // ---------------------------------------------------------------------------
@@ -15532,9 +17171,7 @@ fn may_arrange(
         .is_ok()
 }
 
-/// The stored arrangement, who is in the piece, and whether the caller may change it. It holds no
-/// prose, no part counts and no draft state, so any member may read it; everyone else gets the
-/// same not-found as a missing publication.
+/// The arrangement and the draft identifiers this member is entitled to see.
 fn read_arrangement(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let Some(publication_id) = req.query.get("publicationId") else {
         return draft_not_found();
@@ -15568,12 +17205,58 @@ fn read_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
             );
         }
     };
-    let participants: Vec<Json> = record
+    let visible = match visible_contributions(state, &transaction, record, session) {
+        Ok(visible) => visible,
+        Err(response) => return response,
+    };
+    let participant_known = |id: &str| {
+        record
+            .collaboration
+            .participants
+            .iter()
+            .any(|participant| participant.id.eq_ignore_ascii_case(id))
+    };
+    let visible_id = |id: &str| {
+        visible
+            .iter()
+            .any(|view| view.stamp.contribution_id.eq_ignore_ascii_case(id))
+    };
+    if stored.structure.as_ref().is_some_and(|structure| {
+        structure
+            .rounds
+            .iter()
+            .flat_map(|round| &round.turns)
+            .any(|turn| !participant_known(&turn.draft) && !visible_id(&turn.draft))
+    }) {
+        return Response::json(
+            409,
+            &json!({
+                "error": "The arrangement is not available to you. Ask the authors to share their contributions.",
+                "revision": stored.structure.as_ref().map_or(0, |structure| structure.revision),
+            }),
+        );
+    }
+    let mut participants: Vec<Json> = record
         .collaboration
         .participants
         .iter()
         .map(|p| json!({ "id": p.id, "displayName": p.display_name }))
         .collect();
+    for (index, view) in visible
+        .iter()
+        .filter(|view| !participant_known(&view.stamp.contribution_id))
+        .enumerate()
+    {
+        let name = record
+            .collaboration
+            .participants
+            .iter()
+            .find(|participant| participant.id == view.stamp.author_participant_id)
+            .map_or("A participant", |participant| {
+                participant.display_name.as_str()
+            });
+        participants.push(json!({ "id": view.stamp.contribution_id, "displayName": format!("{name}: shared contribution {}", index + 1) }));
+    }
     Response::json(
         200,
         &json!({
@@ -15586,9 +17269,8 @@ fn read_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
 }
 
 /// A coordinator stores the layout and arrangement. The write names the revision it was built on
-/// and is refused if another write got there first. It does not read a draft, so it cannot tell
-/// the coordinator whether a part exists; a stale reference is caught by the combined preview and
-/// the publish gate. Standing approvals that no longer match are dropped in the same request.
+/// and is refused if another write got there first. Non-legacy IDs must be visible to the caller;
+/// complete part coverage is checked by the combined preview and publish gate.
 fn save_arrangement(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     use openblog_core::reflection::{ReflectionError, ReflectionStructure};
     if let Err(response) = require_json(req) {
@@ -15659,13 +17341,29 @@ fn save_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
     let Ok(next) = next else {
         return invalid();
     };
+    let visible = match visible_contributions(state, &transaction, &record, session) {
+        Ok(visible) => visible,
+        Err(response) => return response,
+    };
     let known = |id: &str| {
         record
             .collaboration
             .participants
             .iter()
             .any(|p| p.id.eq_ignore_ascii_case(id))
+            || visible
+                .iter()
+                .any(|view| view.stamp.contribution_id.eq_ignore_ascii_case(id))
     };
+    if stored.structure.as_ref().is_some_and(|structure| {
+        structure
+            .rounds
+            .iter()
+            .flat_map(|round| &round.turns)
+            .any(|turn| !known(&turn.draft))
+    }) {
+        return Response::error(409, "The arrangement is not available to you. Ask the authors to share their contributions.");
+    }
     if !next
         .rounds
         .iter()
@@ -15699,6 +17397,230 @@ fn save_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
         body.publication_id, next.revision
     );
     Response::json(200, &json!({ "structure": next }))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ResetArrangementRequest {
+    publication_id: String,
+    expected_revision: u64,
+    confirmed: bool,
+}
+
+fn reset_arrangement(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ResetArrangementRequest>(&req.body) else {
+        return shared_problem("", "This arrangement request is not valid.");
+    };
+    if !body.confirmed {
+        return shared_problem(
+            "confirmed",
+            "Confirm that you want to replace the arrangement.",
+        );
+    }
+    let transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = transaction.record.as_ref() else {
+        return draft_not_found();
+    };
+    if !may_arrange(&transaction, record, session) {
+        return draft_not_found();
+    }
+    match crate::shared_publications::load_outcome(&state.root, &body.publication_id) {
+        Ok(outcome)
+            if matches!(
+                outcome.outcome,
+                Some(openblog_core::assembly::Outcome::Published { .. })
+            ) =>
+        {
+            return published_already()
+        }
+        Ok(_) => {}
+        Err(error) => {
+            eprintln!(
+                "admin: publication outcome not readable for {}: {error}",
+                body.publication_id
+            );
+            return Response::error(500, "The arrangement could not be replaced.");
+        }
+    }
+    let stored = match crate::shared_publications::load_structure(&state.root, &body.publication_id)
+    {
+        Ok(stored) => stored,
+        Err(error) => {
+            eprintln!(
+                "admin: arrangement not readable for {}: {error}",
+                body.publication_id
+            );
+            return Response::error(500, "The arrangement could not be replaced.");
+        }
+    };
+    if stored
+        .structure
+        .as_ref()
+        .map_or(0, |structure| structure.revision)
+        != body.expected_revision
+    {
+        return Response::error(409, "The arrangement changed. Reload before replacing it.");
+    }
+    let visible = match visible_contributions(state, &transaction, record, session) {
+        Ok(visible) => visible,
+        Err(response) => return response,
+    };
+    let stored_drafts = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let drafts = match draft_set_for(stored_drafts.set.as_ref(), record) {
+        Ok(drafts) => drafts,
+        Err(_) => return Response::error(500, "The arrangement could not be replaced."),
+    };
+    let active = active_drafters(&transaction, record);
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    for owner in &active {
+        let owned = match drafts.owned_views(owner) {
+            Ok(owned) => owned,
+            Err(_) => return Response::error(500, "The arrangement could not be replaced."),
+        };
+        if owned
+            .iter()
+            .any(|current| !visible.iter().any(|seen| seen.stamp == current.stamp))
+        {
+            return Response::error(409, "The current contributions are not all available to you. Ask the authors to share them.");
+        }
+    }
+    let contract = match drafts.contract_for_contributions(&record.collaboration, &active) {
+        Ok(contract) => contract,
+        Err(_) => return Response::error(500, "The arrangement could not be replaced."),
+    };
+    let mut next = match ReflectionStructure::from_all_contributions(&contract, &drafts, &active) {
+        Ok(next) => next,
+        Err(_) => {
+            return shared_problem(
+                "structure",
+                "The current contributions cannot be arranged. Nothing was changed.",
+            )
+        }
+    };
+    let Some(revision) = body.expected_revision.checked_add(1) else {
+        return Response::error(409, "The arrangement has reached its revision limit.");
+    };
+    next.revision = revision;
+    match crate::shared_publications::replace_structure(
+        &state.root,
+        &body.publication_id,
+        &stored,
+        &next,
+    ) {
+        Ok(()) => {}
+        Err(crate::shared_publications::ReplaceError::Conflict) => {
+            return Response::error(409, "The arrangement changed. Reload before replacing it.")
+        }
+        Err(crate::shared_publications::ReplaceError::TooLarge) => {
+            return shared_problem(
+                "structure",
+                "The current contributions cannot be arranged. Nothing was changed.",
+            )
+        }
+        Err(crate::shared_publications::ReplaceError::Storage(error)) => {
+            eprintln!("admin: arrangement not replaced: {error}");
+            return Response::error(500, "The arrangement could not be replaced.");
+        }
+    }
+    reconcile_approvals(state, &transaction, record);
+    Response::json(200, &json!({ "structure": next }))
+}
+
+fn set_contributions_ready(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ContributionsReadyRequest>(&req.body) else {
+        return shared_problem("", "This sharing request is not valid. Nothing was shared.");
+    };
+    let (transaction, owner) = match draft_request_target(state, &body.publication_id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let mut set = match draft_set_for(stored.set.as_ref(), record) {
+        Ok(set) => set,
+        Err(_) => return Response::error(500, "Sharing could not be changed."),
+    };
+    let active = active_drafters(&transaction, record);
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    let outcome = match &body.contributions {
+        Some(offers) => {
+            let offers = offers
+                .iter()
+                .map(|offer| (offer.contribution_id.as_str(), offer.revision))
+                .collect::<Vec<_>>();
+            set.mark_ready_contributions(&owner, &offers, &active)
+        }
+        None => set
+            .unready(&owner)
+            .map(|()| ReadyOutcome::Waiting { waiting_for: 0 }),
+    };
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
+        Err(DraftError::Stale) => {
+            return Response::error(
+                409,
+                "Your contributions changed. Reload them before sharing; nothing was shared.",
+            )
+        }
+        Err(DraftError::Invalid) => {
+            return shared_problem(
+                "contributions",
+                "Offer every current contribution under a group sharing rule.",
+            )
+        }
+        Err(DraftError::LimitReached) => return draft_limit_problem(),
+        Err(DraftError::Denied) => return draft_not_found(),
+    };
+    let response = store_drafts(state, &body.publication_id, &stored, &set, Json::Null);
+    if response.status != 200 {
+        return response;
+    }
+    let mut result = match outcome {
+        ReadyOutcome::Revealed => json!({ "ready": false, "revealed": true }),
+        ReadyOutcome::Waiting { waiting_for } => json!({
+            "ready": body.contributions.is_some(),
+            "revealed": false,
+            "waitingFor": body.contributions.as_ref().map(|_| waiting_for),
+        }),
+    };
+    if let Some(offers) = &body.contributions {
+        let sealed = if set.requires_contribution_mode(&active) {
+            seal_contribution_moments(state, &transaction, record, &owner, &set)
+        } else {
+            offers.first().and_then(|offer| {
+                seal_offered_moments(state, &transaction, record, &owner, offer.revision)
+            })
+        };
+        if let Some(sealed) = sealed {
+            let object = result
+                .as_object_mut()
+                .expect("sharing response is an object");
+            match sealed {
+                OfferedMoments::Shared => object.insert("momentsShared".into(), json!(true)),
+                OfferedMoments::Changed => object.insert("momentsShared".into(), json!(false)),
+                OfferedMoments::Failed => {
+                    object.insert("momentsShared".into(), Json::Null);
+                    object.insert("momentsNote".into(), json!(MOMENTS_NOT_SHARED))
+                }
+            };
+        }
+    }
+    Response::json(200, &result)
 }
 
 /// A drafter offers one exact revision of their own draft, or takes the offer back. When the
@@ -15743,7 +17665,7 @@ fn set_reveal_ready(state: &AppState, req: &Request, session: &auth::Session) ->
         Err(DraftError::Invalid) => {
             return shared_problem(
                 "revision",
-                "Sharing is off for this reflection. Ask a coordinator to turn it on first.",
+                "The current sharing rule does not accept group offers. Reload sharing to choose the right action.",
             )
         }
         Err(DraftError::LimitReached) => return draft_limit_problem(),
@@ -33842,6 +35764,61 @@ What I read:
     }
 
     #[test]
+    fn frozen_credit_sidecars_are_preserved_by_the_ordinary_editor() {
+        let f = fixture("frozen-credit-editor");
+        let config = site::load_config(&f.dir).unwrap();
+        let sidecar = f.dir.join("content/posts/frozen.credits.json");
+        let path = f.dir.join("content/posts/frozen.md");
+        let original = r#"{"version":2,"credits":[{"identity":{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"Pen Name"},"roles":[{"vocabulary":"crossref","role":"author"}]}]}"#;
+        fs::write(&path, "---\ntitle: Frozen\ndate: 2026-01-01\n---\nBody").unwrap();
+        fs::write(&sidecar, original).unwrap();
+        let (credits, etag, error) = document_credits(&sidecar, &config);
+        assert!(credits.is_null());
+        assert!(etag.is_string());
+        assert!(error
+            .as_str()
+            .unwrap()
+            .contains("frozen publication credits"));
+        let session = login_ok(&f);
+        let url = "/admin/api/document?path=posts/frozen.md";
+        assert_eq!(handle(&f.state, &req("GET", url)).status, 401);
+        let fetched = handle(&f.state, &authed(req("GET", url), &session, false));
+        assert_eq!(fetched.status, 200);
+        let fetched = body_json(&fetched);
+        assert!(fetched["credits"].is_null());
+        assert!(fetched["creditError"]
+            .as_str()
+            .unwrap()
+            .contains("frozen publication credits"));
+        assert!(fetched["creditError"]
+            .as_str()
+            .unwrap()
+            .contains("choosing another authorship source replaces them"));
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    url,
+                    json!({"fields": fetched["fields"], "body": "Edited", "etag": fetched["etag"]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), original);
+        fs::write(&sidecar, r#"{"version":2,"credits":"invalid"}"#).unwrap();
+        let (_, _, error) = document_credits(&sidecar, &config);
+        assert!(error.as_str().unwrap().contains("invalid credit JSON"));
+    }
+
+    #[test]
     fn credit_sidecars_round_trip_preview_and_follow_post_lifecycle() {
         let f = fixture("credit-lifecycle");
         let config_path = f.dir.join("openblog.json");
@@ -36676,6 +38653,59 @@ series: letters
     }
 
     #[test]
+    fn creation_persists_the_initial_participant_rule_without_reducing_quorum() {
+        let f = fixture("initial-participant-rule");
+        register_contributors(&f, json!({ "mikey-writer": { "name": "Mikey" } }));
+        let session = login_ok(&f);
+        for (requirement, expected) in [
+            (None, json!("allParticipants")),
+            (
+                Some(json!({ "participantQuorum": 3 })),
+                json!({ "participantQuorum": 3 }),
+            ),
+        ] {
+            let mut request = reflection_request();
+            if let Some(requirement) = requirement {
+                request["initialApprovalRequirement"] = requirement;
+            }
+            let response = create_shared(&f, &session, request);
+            assert_eq!(response.status, 201);
+            let id = body_json(&response)["publication"]["publicationId"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let record = stored_record(&f, &id);
+            assert_eq!(
+                serde_json::to_value(record.initial_approval_policy().requirement).unwrap(),
+                expected
+            );
+            let policy = body_json(&approval_policy_read(&f, &session, &id));
+            assert_eq!(policy["policy"]["requirement"], expected);
+            assert_eq!(policy["revision"], 0);
+            if expected.is_object() {
+                assert_eq!(policy["quorum"]["required"], 3);
+                assert_eq!(policy["quorum"]["currentAuthors"], 1);
+                assert_eq!(
+                    draft_call(&f, &session, &id, 0, "A perspective").status,
+                    200
+                );
+                assert_eq!(select_profile_credit(&f, &session, &id, 0).status, 200);
+                assert_eq!(approve_as(&f, &session, &id).status, 200);
+                assert_eq!(publish_as(&f, &session, &id).status, 409);
+            }
+        }
+        let before = shared_records(&f);
+        for count in [0, 101] {
+            let mut request = reflection_request();
+            request["initialApprovalRequirement"] = json!({ "participantQuorum": count });
+            let response = create_shared(&f, &session, request);
+            assert_eq!(response.status, 422);
+            assert_eq!(body_json(&response)["field"], "initialApprovalRequirement");
+            assert_eq!(shared_records(&f), before);
+        }
+    }
+
+    #[test]
     fn shared_reflection_creation_is_private_and_leaves_canonical_content_unchanged() {
         let f = fixture("shared-create");
         register_contributors(
@@ -37001,6 +39031,15 @@ series: letters
             .as_str()
             .unwrap()
             .to_string();
+        // Most invitation and approval regressions exercise pre-participant-rule records.
+        let path = f
+            .dir
+            .join(crate::shared_publications::DIRECTORY)
+            .join(format!("{id}.json"));
+        let mut record = stored_record(&f, &id);
+        record.initial_approval_requirement = None;
+        record.credit_choices_required = false;
+        fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
         (f, mikey, id)
     }
 
@@ -37014,6 +39053,104 @@ series: letters
             .join(crate::shared_publications::DIRECTORY)
             .join(format!("{id}.json"));
         SharedPublication::from_json(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn credit_choices_are_self_only_private_and_revision_checked() {
+        let (f, mikey, id) = invitation_fixture("credit-choice");
+        let grace = login_as(&f, "grace", "another correct horse");
+        let url = format!("/admin/api/collaboration/credit-choice?publicationId={id}");
+        let get = |session: &(String, String)| {
+            handle(&f.state, &authed(req("GET", &url), session, false))
+        };
+        let put = |session: &(String, String), body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/collaboration/credit-choice", body),
+                    session,
+                    true,
+                ),
+            )
+        };
+        assert_eq!(handle(&f.state, &req("GET", &url)).status, 401);
+        assert_eq!(get(&grace).status, 404);
+        let initial = body_json(&get(&mikey));
+        assert_eq!(initial["revision"], 0);
+        assert!(initial["choice"].is_null());
+        assert_eq!(initial["publicationSupported"], true);
+        let profile = put(
+            &mikey,
+            json!({
+                "publicationId": id, "expectedRevision": 0, "choice": {"kind":"profile"}
+            }),
+        );
+        assert_eq!(profile.status, 200);
+        let profile = body_json(&profile);
+        assert_eq!(profile["choice"]["profile"]["name"], "Mikey");
+        assert_eq!(profile["choice"]["contributorId"], "mikey-writer");
+        let forged = put(
+            &mikey,
+            json!({
+                "publicationId": id, "expectedRevision": 1,
+                "choice": {"kind":"profile", "profile":{"name":"Forged"}}
+            }),
+        );
+        assert_eq!(forged.status, 422);
+        assert_eq!(
+            put(
+                &mikey,
+                json!({
+                    "publicationId": id, "expectedRevision": 0, "choice": {"kind":"uncredited"}
+                })
+            )
+            .status,
+            409
+        );
+
+        let issued = body_json(&post_api(
+            &f,
+            &mikey,
+            "invitations",
+            invite_body(&id, "grace", "grace", json!(["contributor"])),
+        ));
+        let accepted = post_api(
+            &f,
+            &grace,
+            "invitations/accept",
+            json!({"token": issued["token"], "contributorId":"grace"}),
+        );
+        assert_eq!(accepted.status, 200);
+        let other = body_json(&get(&grace));
+        assert_eq!(other["revision"], 1);
+        assert!(other["choice"].is_null());
+        assert!(!other.to_string().contains("Mikey"));
+        let own = put(
+            &grace,
+            json!({
+                "publicationId": id, "expectedRevision": 1,
+                "choice": {"kind":"displayName", "name":"Pen Name"}
+            }),
+        );
+        assert_eq!(own.status, 200);
+        let own = body_json(&own);
+        let random_id = own["choice"]["publicId"].as_str().unwrap();
+        assert_eq!(random_id.len(), 32);
+        assert!(random_id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
+        let repeated = put(
+            &grace,
+            json!({
+                "publicationId": id, "expectedRevision": 2,
+                "choice": {"kind":"displayName", "name":"Pen Name"}
+            }),
+        );
+        assert_eq!(repeated.status, 200);
+        assert_eq!(body_json(&repeated)["revision"], 2);
+        assert_eq!(body_json(&repeated)["choice"]["publicId"], random_id);
+        assert_eq!(body_json(&get(&mikey))["choice"]["kind"], "profile");
+        assert!(!body_json(&get(&mikey)).to_string().contains("Pen Name"));
     }
 
     #[test]
@@ -38161,6 +40298,446 @@ series: letters
     }
 
     #[test]
+    fn named_releases_are_authorized_and_show_only_the_selected_revision() {
+        let (f, mikey, id) = invitation_fixture("named-release");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["contributor"]),
+        );
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "FIRST-SECRET").status, 200);
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "NAMED-MOMENT", "publication"),
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "allReady", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        let listed = body_json(&members_of(&f, &mikey, &id));
+        let grace_id = listed["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|member| member["adminUser"] == "grace")
+            .unwrap()["participantId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let release = |revision, recipients: Json| {
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({ "publicationId": id, "revision": revision, "recipients": recipients }),
+            )
+        };
+        assert_eq!(release(1, json!([])).status, 422);
+        assert_eq!(release(1, json!([grace_id, grace_id])).status, 422);
+        assert_eq!(release(1, json!(["unknown"])).status, 422);
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "reveal/named",
+                json!({ "publicationId": id, "revision": 1, "recipients": [grace_id] }),
+            )
+            .status,
+            404
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "reveal/named",
+                json!({ "publicationId": id, "revision": 1, "recipients": [grace_id], "author": "mikey" }),
+            )
+            .status,
+            422
+        );
+        let result = body_json(&release(1, json!([grace_id])));
+        assert_eq!(result["released"], true);
+        assert_eq!(result["momentsShared"], true);
+        assert!(result["releasedAt"].as_i64().unwrap() > 0);
+        assert!(body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("FIRST-SECRET"));
+        assert!(!body_json(&reveal_state(&f, &linus, &id))
+            .to_string()
+            .contains("FIRST-SECRET"));
+        assert!(body_json(&moments_read(&f, &grace, &id))
+            .to_string()
+            .contains("NAMED-MOMENT"));
+        assert!(!body_json(&moments_read(&f, &linus, &id))
+            .to_string()
+            .contains("NAMED-MOMENT"));
+        assert_eq!(draft_call(&f, &mikey, &id, 1, "SECOND-SECRET").status, 200);
+        assert_eq!(release(1, json!([grace_id])).status, 409);
+        let view = body_json(&reveal_state(&f, &grace, &id)).to_string();
+        assert!(view.contains("FIRST-SECRET"));
+        assert!(!view.contains("SECOND-SECRET"));
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2))).status,
+            422
+        );
+    }
+
+    #[test]
+    fn named_release_can_reach_a_reader_without_revealing_other_drafts() {
+        let (f, mikey, id) = invitation_fixture("named-reader");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
+        let reader2 = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "ada",
+            "a fourth correct horse",
+            json!(["reader"]),
+        );
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "MIKEY-SECRET").status, 200);
+        assert_eq!(draft_call(&f, &grace, &id, 0, "GRACE-SECRET").status, 200);
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "SHARED-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:03", "PRIVATE-MOMENT", "private")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "allReady", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        let record = stored_record(&f, &id);
+        let reader = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "linus")
+            .unwrap()
+            .participant_id
+            .clone();
+        let before = body_json(&reveal_state(&f, &linus, &id)).to_string();
+        assert!(!before.contains("MIKEY-SECRET"));
+        assert!(!before.contains("\"ready\":true"));
+        let reader_moments = moments_read(&f, &linus, &id);
+        assert_eq!(reader_moments.status, 200);
+        assert!(!body_json(&reader_moments).to_string().contains("MOMENT"));
+        let writer_view = body_json(&reveal_state(&f, &mikey, &id));
+        assert!(writer_view["slots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|slot| { slot["participantId"] == reader && slot["mayReceive"] == true }));
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [reader],
+                })
+            )
+            .status,
+            409
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [reader],
+                    "expectedAuthorizationRevision": record.authorization.revision,
+                })
+            )
+            .status,
+            200
+        );
+        let shared = body_json(&reveal_state(&f, &linus, &id)).to_string();
+        assert!(shared.contains("MIKEY-SECRET"));
+        assert!(!shared.contains("GRACE-SECRET"));
+        let reader_moments = body_json(&moments_read(&f, &linus, &id));
+        assert_eq!(reader_moments["shared"][0]["draftRevision"], 1);
+        assert!(reader_moments.to_string().contains("SHARED-MOMENT"));
+        assert!(!reader_moments.to_string().contains("PRIVATE-MOMENT"));
+        assert!(!body_json(&moments_read(&f, &reader2, &id))
+            .to_string()
+            .contains("SHARED-MOMENT"));
+        assert!(!body_json(&reveal_state(&f, &reader2, &id))
+            .to_string()
+            .contains("MIKEY-SECRET"));
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:04", "NEW-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        let changed_moments = body_json(&moments_read(&f, &linus, &id)).to_string();
+        assert!(!changed_moments.contains("NEW-MOMENT"));
+        assert!(!changed_moments.contains("SHARED-MOMENT"));
+        assert_eq!(draft_call(&f, &mikey, &id, 1, "NEW-SECRET").status, 200);
+        let shared = body_json(&reveal_state(&f, &linus, &id)).to_string();
+        assert!(shared.contains("MIKEY-SECRET"));
+        assert!(!shared.contains("NEW-SECRET"));
+        assert!(!body_json(&moments_read(&f, &linus, &id))
+            .to_string()
+            .contains("SHARED-MOMENT"));
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [reader],
+                    "expectedAuthorizationRevision": record.authorization.revision,
+                })
+            )
+            .status,
+            200
+        );
+        assert!(body_json(&reveal_state(&f, &linus, &id))
+            .to_string()
+            .contains("GRACE-SECRET"));
+        let revision = body_json(&members_of(&f, &mikey, &id))["revision"]
+            .as_u64()
+            .unwrap();
+        let grace_id = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id
+            .clone();
+        assert_eq!(post_api(&f, &mikey, "members/roles", json!({
+            "publicationId": id, "participantId": grace_id, "roles": ["reader"], "expectedRevision": revision,
+        })).status, 200);
+        assert!(!body_json(&reveal_state(&f, &linus, &id))
+            .to_string()
+            .contains("GRACE-SECRET"));
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "members/remove",
+                json!({
+                    "publicationId": id, "participantId": reader, "expectedRevision": revision + 1,
+                })
+            )
+            .status,
+            200
+        );
+        assert_eq!(reveal_state(&f, &linus, &id).status, 404);
+        assert_eq!(moments_read(&f, &linus, &id).status, 404);
+    }
+
+    #[test]
+    fn demoted_reader_does_not_inherit_mutual_reveals_or_offer_state() {
+        let (f, mikey, id) = invitation_fixture("reader-mutual-isolation");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "MUTUAL-SECRET").status, 200);
+        assert_eq!(draft_call(&f, &grace, &id, 0, "GRACE-DRAFT").status, 200);
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(1))).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))).status,
+            200
+        );
+        assert!(body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("MUTUAL-SECRET"));
+        let record = stored_record(&f, &id);
+        let grace_id = &record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id;
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "allReady", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [grace_id],
+                })
+            )
+            .status,
+            200
+        );
+        let revision = body_json(&members_of(&f, &mikey, &id))["revision"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(post_api(&f, &mikey, "members/roles", json!({
+            "publicationId": id, "participantId": grace_id, "roles": ["reader"], "expectedRevision": revision,
+        })).status, 200);
+        let reader = body_json(&reveal_state(&f, &grace, &id));
+        assert_eq!(reader["slots"], json!([]));
+        assert_eq!(reader["ready"], false);
+        assert!(!reader.to_string().contains("MUTUAL-SECRET"));
+        assert!(!reader.to_string().contains("GRACE-DRAFT"));
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [grace_id],
+                    "expectedAuthorizationRevision": revision,
+                })
+            )
+            .status,
+            409
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "reveal/named",
+                json!({
+                    "publicationId": id, "revision": 1, "recipients": [grace_id],
+                    "expectedAuthorizationRevision": revision + 1,
+                })
+            )
+            .status,
+            200
+        );
+        assert!(body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("MUTUAL-SECRET"));
+    }
+
+    #[test]
+    fn new_reflections_reveal_only_after_all_authors_offer_and_legacy_sets_stay_private() {
+        let (f, mikey, id) = invitation_fixture("default-reveal");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let record = stored_record(&f, &id);
+        let mut legacy_json = serde_json::to_value(&record).unwrap();
+        legacy_json
+            .as_object_mut()
+            .unwrap()
+            .remove("initialRevealPolicy");
+        let legacy = SharedPublication::from_json(&legacy_json.to_string()).unwrap();
+        assert_eq!(
+            draft_set_for(None, &legacy).unwrap().policy(),
+            RevealPolicy::Independent
+        );
+        let legacy_set = draft_set_for(None, &legacy).unwrap();
+        assert_eq!(
+            draft_set_for(Some(&legacy_set), &record).unwrap().policy(),
+            RevealPolicy::Independent
+        );
+
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "MIKEY-SECRET").status, 200);
+        assert_eq!(draft_call(&f, &grace, &id, 0, "GRACE-SECRET").status, 200);
+        assert_eq!(
+            body_json(&reveal_state(&f, &mikey, &id))["policy"],
+            "allReady"
+        );
+        let first = body_json(&reveal_call(&f, &mikey, "ready", ready_body(&id, json!(1))));
+        assert_eq!(first["revealed"], false);
+        assert!(!body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("MIKEY-SECRET"));
+        let last = body_json(&reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))));
+        assert_eq!(last["revealed"], true);
+        assert!(body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("MIKEY-SECRET"));
+        assert!(body_json(&reveal_state(&f, &mikey, &id))
+            .to_string()
+            .contains("GRACE-SECRET"));
+    }
+
+    #[test]
     fn mutual_reveal_obeys_the_policy_and_never_exposes_an_unrevealed_draft() {
         let (f, mikey, id) = invitation_fixture("reveal-policy");
         let grace = join_via_api(
@@ -38199,7 +40776,25 @@ series: letters
         let contract_before = stored_record(&f, &id).collaboration;
         let participants = contract_before.participants.clone();
 
-        // Sharing starts off: nothing can be offered and every other slot is a placeholder.
+        // New reflections wait for all active authors; one offer reveals nothing.
+        let initial = body_json(&reveal_state(&f, &grace, &id));
+        assert_eq!(initial["policy"], "allReady");
+        let offered = body_json(&reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))));
+        assert_eq!(offered["revealed"], false);
+        assert!(!body_json(&reveal_state(&f, &mikey, &id))
+            .to_string()
+            .contains("GRACE-SECRET"));
+        assert_eq!(
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "allReady", "independent")
+            )
+            .status,
+            200
+        );
+        // Independent mode cannot offer drafts.
         let off = reveal_call(&f, &grace, "ready", ready_body(&id, json!(1)));
         assert_eq!(off.status, 422);
         let state = body_json(&reveal_state(&f, &grace, &id));
@@ -38273,7 +40868,12 @@ series: letters
         let waiting = body_json(&reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))));
         assert_eq!(waiting["ready"], true);
         assert_eq!(waiting["revealed"], false);
+        assert_eq!(
+            body_json(&reveal_state(&f, &grace, &id))["readyRevision"],
+            1
+        );
         let seen = body_json(&reveal_state(&f, &mikey, &id));
+        assert!(seen["readyRevision"].is_null());
         assert_eq!(slot(&seen, "Grace")["ready"], true);
         assert!(!seen.to_string().contains("GRACE-SECRET"));
         let back = body_json(&reveal_call(
@@ -38386,13 +40986,13 @@ series: letters
         for (who, text) in [(&mikey, "MIKEY-SECRET"), (&grace, "GRACE-SECRET")] {
             assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
         }
-        // Mikey turns on allReady and offers; Grace's offer would complete the reveal.
+        // Mikey offers under the default; Grace's offer would complete the reveal.
         assert_eq!(
             reveal_call(
                 &f,
                 &mikey,
                 "policy",
-                policy_body(&id, "independent", "allReady")
+                policy_body(&id, "allReady", "allReady")
             )
             .status,
             200
@@ -38532,14 +41132,16 @@ series: letters
         assert!(document.contains("MIKEY-SECRET") && !document.contains("GRACE-SECRET"));
         assert!(!text.contains("grace-admin") && !text.contains("invitation"));
 
-        // A reader or a coordinator who is not a drafter, a stranger and an anonymous caller get
-        // the same not-found as an unknown publication, and learn nothing.
+        // A reader or coordinator sees placeholders, never private content or an approval token.
         let unknown = preview_call(&f, &mikey, "shared-ffffffffffff");
         assert_eq!(unknown.status, 404);
         for who in [&reader, &ada] {
-            let denied = preview_call(&f, who, &id);
-            assert_eq!(denied.status, 404);
-            assert_eq!(denied.body, unknown.body);
+            let response = preview_call(&f, who, &id);
+            assert_eq!(response.status, 200);
+            let preview = body_json(&response);
+            assert!(preview["preview"]["seen"].is_null());
+            let text = preview_document_text(&f, who, &preview);
+            assert!(!text.contains("MIKEY-SECRET") && !text.contains("GRACE-SECRET"));
         }
         let anonymous = handle(
             &f.state,
@@ -38557,7 +41159,7 @@ series: letters
                 &f,
                 &ada,
                 "policy",
-                policy_body(&id, "independent", "voluntary")
+                policy_body(&id, "allReady", "voluntary")
             )
             .status,
             200
@@ -38662,6 +41264,21 @@ series: letters
     /// have written and offered revision 1, so each can read the whole piece.
     type Session = (String, String);
 
+    fn select_profile_credit(f: &Fixture, who: &Session, id: &str, revision: u64) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/collaboration/credit-choice",
+                    json!({"publicationId": id, "expectedRevision": revision, "choice": {"kind": "profile"}}),
+                ),
+                who,
+                true,
+            ),
+        )
+    }
+
     fn approval_fixture(tag: &str) -> (Fixture, Session, Session, Session, String) {
         let (f, mikey, id) = invitation_fixture(tag);
         let grace = join_via_api(
@@ -38688,7 +41305,7 @@ series: letters
                 &f,
                 &ada,
                 "policy",
-                policy_body(&id, "independent", "voluntary")
+                policy_body(&id, "allReady", "voluntary")
             )
             .status,
             200
@@ -38700,6 +41317,29 @@ series: letters
             );
         }
         (f, mikey, grace, ada, id)
+    }
+
+    #[test]
+    #[ignore = "generates a private test site for the browser approval suite"]
+    fn generate_approval_browser_fixture() {
+        let destination = PathBuf::from(
+            std::env::var_os("OPENBLOG_APPROVAL_FIXTURE")
+                .expect("OPENBLOG_APPROVAL_FIXTURE is required"),
+        );
+        let (f, owner, _, _, id) = approval_fixture("browser-approval");
+        join_via_api(
+            &f,
+            &owner,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
+        for (path, bytes) in tree_snapshot(&f.dir) {
+            let file = destination.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, bytes).unwrap();
+        }
     }
 
     fn approval_body(f: &Fixture, who: &(String, String), id: &str) -> Json {
@@ -38741,6 +41381,692 @@ series: letters
         fs::read_to_string(f.dir.join(format!("content/posts/{id}.md"))).ok()
     }
 
+    #[test]
+    fn named_reader_lists_only_explicitly_released_contributions() {
+        let (f, mikey, id) = invitation_fixture("named-reader-contributions");
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "BASE-SECRET").status, 200);
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "allReady", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        let created = post_api(
+            &f,
+            &mikey,
+            "contributions",
+            json!({ "publicationId": id, "markdown": "EXTRA-SECRET" }),
+        );
+        assert_eq!(created.status, 200);
+        let extra = body_json(&created)["stamp"]["contributionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "MULTI-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        let record = stored_record(&f, &id);
+        let reader = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "linus")
+            .unwrap()
+            .participant_id
+            .clone();
+        let list = || {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "GET",
+                        &format!(
+                            "/admin/api/collaboration/contributions/shared?publicationId={id}"
+                        ),
+                        Json::Null,
+                    ),
+                    &linus,
+                    true,
+                ),
+            )
+        };
+        let before = list();
+        assert_eq!(before.status, 200);
+        let hidden = String::from_utf8_lossy(&before.body);
+        assert!(!hidden.contains("SECRET"));
+        assert!(!hidden.contains(&extra));
+        let release = post_api(
+            &f,
+            &mikey,
+            "reveal/named",
+            json!({
+                "publicationId": id, "contributionId": extra, "revision": 1,
+                "recipients": [reader],
+                "expectedAuthorizationRevision": record.authorization.revision,
+            }),
+        );
+        assert_eq!(
+            release.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&release.body)
+        );
+        let after = list();
+        assert_eq!(after.status, 200);
+        let shared = String::from_utf8_lossy(&after.body);
+        assert!(shared.contains("EXTRA-SECRET"));
+        assert!(!shared.contains("BASE-SECRET"));
+        assert!(!body_json(&moments_read(&f, &linus, &id))
+            .to_string()
+            .contains("MULTI-MOMENT"));
+        let base = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "mikey")
+            .unwrap()
+            .participant_id
+            .clone();
+        let release_base = post_api(
+            &f,
+            &mikey,
+            "reveal/named",
+            json!({
+                "publicationId": id, "contributionId": base, "revision": 1,
+                "recipients": [reader], "expectedAuthorizationRevision": record.authorization.revision,
+            }),
+        );
+        assert_eq!(release_base.status, 200);
+        assert!(body_json(&moments_read(&f, &linus, &id))
+            .to_string()
+            .contains("MULTI-MOMENT"));
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:03", "LATER-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        let changed = body_json(&moments_read(&f, &linus, &id)).to_string();
+        assert!(!changed.contains("MULTI-MOMENT"));
+        assert!(!changed.contains("LATER-MOMENT"));
+    }
+
+    #[test]
+    fn withdrawn_contribution_arrangement_can_be_replaced_without_disclosure() {
+        let (f, mikey, grace, ada, id) = approval_fixture("multi-arrangement-reset");
+        let created = post_api(
+            &f,
+            &mikey,
+            "contributions",
+            json!({
+                "publicationId": id, "markdown": "PRIVATE-RESET-TEXT"
+            }),
+        );
+        assert_eq!(created.status, 200);
+        let extra = body_json(&created)["stamp"]["contributionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let record = stored_record(&f, &id);
+        let owner = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "mikey")
+            .unwrap()
+            .participant_id
+            .clone();
+        let other = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id
+            .clone();
+        let call = |who: &Session, method: &str, path: &str, body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, &format!("/admin/api/collaboration/{path}"), body),
+                    who,
+                    true,
+                ),
+            )
+        };
+        assert_eq!(call(&mikey, "PUT", "contributions/ready", json!({
+            "publicationId": id, "contributions": [
+                { "contributionId": owner, "revision": 1 }, { "contributionId": extra, "revision": 1 }
+            ]
+        })).status, 200);
+        assert_eq!(call(&mikey, "PUT", "reflection", json!({
+            "publicationId": id, "expectedRevision": 0, "structure": {
+                "version": 1, "revision": 1, "layout": "sequential",
+                "rounds": [{ "id": "round-1", "turns": [
+                    { "draft": owner, "part": 0 }, { "draft": extra, "part": 0 }, { "draft": other, "part": 0 }
+                ] }]
+            }
+        })).status, 200);
+        let reset = |revision, confirmed| json!({ "publicationId": id, "expectedRevision": revision, "confirmed": confirmed });
+        assert_eq!(
+            call(&grace, "POST", "reflection/reset", reset(1, true)).status,
+            404
+        );
+        assert_eq!(
+            call(&ada, "POST", "reflection/reset", reset(1, true)).status,
+            409
+        );
+        assert_eq!(
+            call(&mikey, "POST", "reflection/reset", reset(1, false)).status,
+            422
+        );
+        assert_eq!(
+            call(&mikey, "POST", "reflection/reset", reset(0, true)).status,
+            409
+        );
+        assert_eq!(call(&mikey, "POST", "contributions/withdraw", json!({
+            "publicationId": id, "contributionId": extra, "expectedRevision": 1, "confirmed": true
+        })).status, 200);
+        let unavailable = call(
+            &mikey,
+            "GET",
+            &format!("reflection?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(unavailable.status, 409);
+        assert_eq!(body_json(&unavailable)["revision"], 1);
+        assert!(!String::from_utf8_lossy(&unavailable.body).contains(&extra));
+        let replaced = call(&mikey, "POST", "reflection/reset", reset(1, true));
+        assert_eq!(
+            replaced.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&replaced.body)
+        );
+        let result = String::from_utf8_lossy(&replaced.body);
+        assert!(!result.contains(&extra));
+        assert!(!result.contains("PRIVATE-RESET-TEXT"));
+        assert_eq!(body_json(&replaced)["structure"]["revision"], 2);
+    }
+
+    #[test]
+    fn multi_contribution_gate_reviews_and_publishes_all_revisions() {
+        let (f, mikey, grace, ada, id) = approval_fixture("multi-gate");
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "MULTI-GATE-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        let record = stored_record(&f, &id);
+        let owner = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "mikey")
+            .unwrap()
+            .participant_id
+            .clone();
+        let foreign_before = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "GET",
+                    &format!("/admin/api/collaboration/contributions?publicationId={id}"),
+                    Json::Null,
+                ),
+                &grace,
+                true,
+            ),
+        );
+        let foreign_revision = body_json(&foreign_before)["orderRevision"].clone();
+        let created = post_api(
+            &f,
+            &mikey,
+            "contributions",
+            json!({ "publicationId": id, "markdown": "EXTRA-SECRET" }),
+        );
+        assert_eq!(
+            created.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let extra = body_json(&created)["stamp"]["contributionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let call = |who: &Session, method: &str, path: &str, body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, &format!("/admin/api/collaboration/{path}"), body),
+                    who,
+                    true,
+                ),
+            )
+        };
+        let temporary = post_api(
+            &f,
+            &mikey,
+            "contributions",
+            json!({ "publicationId": id, "markdown": "WITHDRAW-SECRET" }),
+        );
+        assert_eq!(temporary.status, 200);
+        let temporary = body_json(&temporary)["stamp"]["contributionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let withdrawal = |revision, confirmed| {
+            json!({
+                "publicationId": id, "contributionId": temporary,
+                "expectedRevision": revision, "confirmed": confirmed
+            })
+        };
+        let denied_withdrawal = call(
+            &grace,
+            "POST",
+            "contributions/withdraw",
+            withdrawal(1, true),
+        );
+        assert_eq!(denied_withdrawal.status, 404);
+        assert!(!String::from_utf8_lossy(&denied_withdrawal.body).contains("WITHDRAW-SECRET"));
+        assert_eq!(
+            call(
+                &mikey,
+                "POST",
+                "contributions/withdraw",
+                withdrawal(2, true)
+            )
+            .status,
+            409
+        );
+        assert_eq!(
+            call(
+                &mikey,
+                "POST",
+                "contributions/withdraw",
+                withdrawal(1, false)
+            )
+            .status,
+            422
+        );
+        assert_eq!(
+            call(
+                &mikey,
+                "POST",
+                "contributions/withdraw",
+                withdrawal(1, true)
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            call(
+                &mikey,
+                "POST",
+                "contributions/withdraw",
+                withdrawal(1, true)
+            )
+            .status,
+            404
+        );
+        let denied = call(
+            &grace,
+            "PUT",
+            "contributions",
+            json!({
+                "publicationId": id, "contributionId": extra, "expectedRevision": 1, "markdown": "forged"
+            }),
+        );
+        assert_eq!(denied.status, 404);
+        assert!(!String::from_utf8_lossy(&denied.body).contains("EXTRA-SECRET"));
+        let stale = call(
+            &mikey,
+            "PUT",
+            "contributions",
+            json!({
+                "publicationId": id, "contributionId": extra, "expectedRevision": 2, "markdown": "stale"
+            }),
+        );
+        assert_eq!(stale.status, 409);
+        assert_eq!(body_json(&stale)["current"]["markdown"], "EXTRA-SECRET");
+        let own_list = call(
+            &mikey,
+            "GET",
+            &format!("contributions?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(own_list.status, 200);
+        let list = body_json(&own_list);
+        assert_eq!(list["contributions"].as_array().unwrap().len(), 2);
+        let order_revision = list["orderRevision"].as_u64().unwrap();
+        let foreign_list = call(
+            &grace,
+            "GET",
+            &format!("contributions?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(foreign_list.status, 200);
+        assert!(!String::from_utf8_lossy(&foreign_list.body).contains("EXTRA-SECRET"));
+        assert_eq!(body_json(&foreign_list)["orderRevision"], foreign_revision);
+        let hidden_shared = call(
+            &grace,
+            "GET",
+            &format!("contributions/shared?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(hidden_shared.status, 200);
+        let hidden_text = String::from_utf8_lossy(&hidden_shared.body);
+        assert!(!hidden_text.contains("EXTRA-SECRET"));
+        assert!(!hidden_text.contains(&extra));
+        let hidden_arrangement = call(
+            &ada,
+            "GET",
+            &format!("reflection?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(hidden_arrangement.status, 200);
+        assert!(!String::from_utf8_lossy(&hidden_arrangement.body).contains(&extra));
+        let order = json!({
+            "publicationId": id, "expectedRevision": order_revision,
+            "expected": [owner, extra], "order": [extra, owner]
+        });
+        assert_eq!(
+            call(&mikey, "PUT", "contributions/order", order.clone()).status,
+            200
+        );
+        assert_eq!(
+            call(&mikey, "PUT", "contributions/order", order).status,
+            409
+        );
+        let foreign_after_order = call(
+            &grace,
+            "GET",
+            &format!("contributions?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(
+            body_json(&foreign_after_order)["orderRevision"],
+            foreign_revision
+        );
+        let incomplete = call(
+            &mikey,
+            "PUT",
+            "contributions/ready",
+            json!({
+                "publicationId": id, "contributions": [{ "contributionId": owner, "revision": 1 }]
+            }),
+        );
+        assert_eq!(incomplete.status, 422);
+        assert_eq!(select_profile_credit(&f, &mikey, &id, 0).status, 200);
+        assert_eq!(select_profile_credit(&f, &grace, &id, 1).status, 200);
+        let hidden = preview_call(&f, &grace, &id);
+        assert_eq!(hidden.status, 409);
+        assert!(!String::from_utf8_lossy(&hidden.body).contains("EXTRA-SECRET"));
+        assert!(!body_json(&moments_read(&f, &grace, &id))
+            .to_string()
+            .contains("MULTI-GATE-MOMENT"));
+        let offer = call(
+            &mikey,
+            "PUT",
+            "contributions/ready",
+            json!({
+                "publicationId": id,
+                "contributions": [
+                    { "contributionId": owner, "revision": 1 },
+                    { "contributionId": extra, "revision": 1 }
+                ]
+            }),
+        );
+        assert_eq!(
+            offer.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&offer.body)
+        );
+        let shared = call(
+            &grace,
+            "GET",
+            &format!("contributions/shared?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(shared.status, 200);
+        assert!(String::from_utf8_lossy(&shared.body).contains("EXTRA-SECRET"));
+        assert!(body_json(&moments_read(&f, &grace, &id))
+            .to_string()
+            .contains("MULTI-GATE-MOMENT"));
+        let arrangement = call(
+            &mikey,
+            "GET",
+            &format!("reflection?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(arrangement.status, 200);
+        assert!(body_json(&arrangement)["participants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == extra));
+        let grace_id = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "grace")
+            .unwrap()
+            .participant_id
+            .clone();
+        let arranged = call(
+            &mikey,
+            "PUT",
+            "reflection",
+            json!({
+                "publicationId": id, "expectedRevision": 0,
+                "structure": {
+                    "version": 1, "revision": 1, "layout": "sequential",
+                    "rounds": [{ "id": "round-1", "turns": [
+                        { "draft": owner, "part": 0 },
+                        { "draft": extra, "part": 0 },
+                        { "draft": grace_id, "part": 0 }
+                    ] }]
+                }
+            }),
+        );
+        assert_eq!(
+            arranged.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&arranged.body)
+        );
+        let hidden_arrangement = call(
+            &ada,
+            "GET",
+            &format!("reflection?publicationId={id}"),
+            Json::Null,
+        );
+        assert_eq!(hidden_arrangement.status, 409);
+        assert!(!String::from_utf8_lossy(&hidden_arrangement.body).contains(&extra));
+        for who in [&mikey, &grace] {
+            let response = preview_call(&f, who, &id);
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let body = body_json(&response);
+            assert!(preview_document_text(&f, who, &body).contains("EXTRA-SECRET"));
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let response = publish_as(&f, &ada, &id);
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert!(published_post(&f, &id).unwrap().contains("EXTRA-SECRET"));
+        assert!(published_post(&f, &id)
+            .unwrap()
+            .contains("MULTI-GATE-MOMENT"));
+        let outcome = crate::shared_publications::load_outcome(&f.dir, &id)
+            .unwrap()
+            .outcome
+            .unwrap();
+        let openblog_core::assembly::Outcome::Published {
+            revision: Some(revision),
+            ..
+        } = outcome
+        else {
+            panic!("published outcome lacks receipt");
+        };
+        assert_eq!(revision.sections.len(), 3);
+        assert!(revision
+            .sections
+            .iter()
+            .any(|section| section.contribution_id == extra));
+    }
+
+    #[test]
+    fn new_reflections_require_explicit_credit_before_review_and_publication() {
+        let (f, mikey, grace, ada, id) = approval_fixture("required-credit");
+        let path = f
+            .dir
+            .join(crate::shared_publications::DIRECTORY)
+            .join(format!("{id}.json"));
+        let mut record = stored_record(&f, &id);
+        record.credit_choices_required = true;
+        fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+
+        assert_eq!(preview_call(&f, &mikey, &id).status, 409);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(
+            schedule_as(&f, &ada, &id, json!("2099-01-01T00:00:00Z")).status,
+            409
+        );
+        for (who, revision) in [(&mikey, 0), (&grace, 1)] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        "/admin/api/collaboration/credit-choice",
+                        json!({"publicationId": id, "expectedRevision": revision, "choice": {"kind": "uncredited"}}),
+                    ),
+                    who,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 200);
+        }
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        let path = openblog_core::contributor::sidecar_path(&format!("posts/{id}.md")).unwrap();
+        let credits: Json =
+            serde_json::from_slice(&fs::read(f.dir.join("content").join(path)).unwrap()).unwrap();
+        assert_eq!(credits["credits"], json!([]));
+    }
+
+    #[test]
+    fn credit_choices_bind_review_and_publication_to_current_consent() {
+        let (f, mikey, grace, ada, id) = approval_fixture("credit-consent");
+        let select = |who: &Session, revision: u64, choice: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        "/admin/api/collaboration/credit-choice",
+                        json!({"publicationId": id, "expectedRevision": revision, "choice": choice}),
+                    ),
+                    who,
+                    true,
+                ),
+            )
+        };
+        assert_eq!(select(&mikey, 0, json!({"kind": "profile"})).status, 200);
+        assert_eq!(preview_call(&f, &mikey, &id).status, 409);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(
+            schedule_as(&f, &ada, &id, json!("2099-01-01T00:00:00Z")).status,
+            409
+        );
+        assert_eq!(
+            select(
+                &grace,
+                1,
+                json!({"kind": "displayName", "name": "Pen Name"})
+            )
+            .status,
+            200
+        );
+        let old = approval_body(&f, &mikey, &id);
+        assert!(old["seen"].is_string());
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(select(&grace, 2, json!({"kind": "uncredited"})).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(
+            select(
+                &grace,
+                3,
+                json!({"kind": "displayName", "name": "Pen Name"})
+            )
+            .status,
+            200
+        );
+        assert_eq!(post_api(&f, &mikey, "approve", old).status, 409);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        let published = publish_as(&f, &ada, &id);
+        assert_eq!(
+            published.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&published.body)
+        );
+        let path = openblog_core::contributor::sidecar_path(&format!("posts/{id}.md")).unwrap();
+        let credits = fs::read_to_string(f.dir.join("content").join(path)).unwrap();
+        assert!(
+            credits.contains("Mikey") && credits.contains("Pen Name"),
+            "{credits}"
+        );
+        assert!(!credits.contains("grace"), "{credits}");
+        let receipt: Json =
+            serde_json::from_str(&fs::read_to_string(outcome_file(&f, &id)).unwrap()).unwrap();
+        assert_eq!(receipt["state"], "published");
+        assert!(receipt["revision"]["creditsDigest"].is_string());
+    }
+
     fn outcome_file(f: &Fixture, id: &str) -> PathBuf {
         f.dir.join(format!(
             "{}/{id}.json",
@@ -38754,6 +42080,29 @@ series: letters
             !text.contains("SECRET") && !text.contains("NEWER"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn new_reflections_default_to_whole_piece_approval_and_clear_both_authors_on_edit() {
+        let (f, mikey, grace, ada, id) = approval_fixture("whole-piece-default");
+        let rule = body_json(&approval_policy_read(&f, &ada, &id));
+        assert_eq!(rule["policy"]["scope"], "wholePiece");
+        assert_eq!(rule["revision"], 0);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(
+            draft_call(&f, &grace, &id, 1, "GRACE-SECRET v2").status,
+            200
+        );
+        let approval = body_json(&preview_call(&f, &mikey, &id));
+        let states = approval["preview"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|section| section["approval"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(states, ["awaiting", "awaiting"]);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
     }
 
     #[test]
@@ -38829,6 +42178,40 @@ series: letters
     }
 
     #[test]
+    fn approval_requires_the_piece_to_remain_visible_to_the_author() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-after-reveal-change");
+        let seen = approval_body(&f, &mikey, &id);
+        assert!(seen["seen"].is_string());
+        assert_eq!(
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "voluntary", "allReady"),
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            body_json(&preview_call(&f, &mikey, &id))["preview"]["complete"],
+            false
+        );
+        let before = state_trees(&f);
+        let response = post_api(&f, &mikey, "approve", seen);
+        assert_eq!(response.status, 409);
+        assert!(String::from_utf8_lossy(&response.body).contains("piece changed after you read it"));
+        assert_no_prose(&response);
+        assert_eq!(state_trees(&f), before);
+        for author in [&mikey, &grace] {
+            assert_eq!(
+                reveal_call(&f, author, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+    }
+
+    #[test]
     fn publishing_needs_the_grant_and_every_exact_approval_and_a_retry_changes_nothing() {
         let (f, mikey, grace, ada, id) = approval_fixture("publish-gate");
         let before = state_trees(&f);
@@ -38884,10 +42267,31 @@ series: letters
         let credits =
             fs::read_to_string(f.dir.join(format!("content/posts/{id}.credits.json"))).unwrap();
         assert!(credits.contains("mikey-writer") && credits.contains("grace"));
+        let receipt_text = fs::read_to_string(outcome_file(&f, &id)).unwrap();
+        let receipt = openblog_core::assembly::Outcome::from_json(&receipt_text).unwrap();
+        let openblog_core::assembly::Outcome::Published {
+            revision: Some(revision),
+            ..
+        } = receipt
+        else {
+            panic!("published outcome must retain its revision receipt");
+        };
+        assert_eq!(revision.sections.len(), 2);
+        assert!(revision
+            .sections
+            .iter()
+            .all(|section| section.revision == 1));
+        assert!(revision.matches_files(&post, &credits));
+        assert!(!revision.matches_files(&(post.clone() + "changed"), &credits));
+        assert!(!revision.matches_files(&post, &(credits.clone() + "changed")));
+        assert!(!receipt_text.contains("MIKEY-SECRET") && !receipt_text.contains("GRACE-SECRET"));
         // No collaboration metadata rides along in content or in any public file.
         for text in [&post, &credits] {
             assert!(!text.contains(&id) && !text.contains("token") && !text.contains("invitation"));
             assert!(!text.contains("grace-admin") && !text.contains("approvedAt"));
+            assert!(
+                !text.contains(&revision.source_digest) && !text.contains(&revision.credits_digest)
+            );
         }
         let public = state_trees(&f)[1].clone();
         assert!(public
@@ -38991,19 +42395,19 @@ series: letters
         for who in [&mikey, &grace] {
             assert_eq!(approve_as(&f, who, &id).status, 200);
         }
-        // Mikey edits after both approved: his approval no longer matches and is dropped.
+        // Mikey edits after both approved: both approvals are dropped.
         assert_eq!(draft_call(&f, &mikey, &id, 1, "MIKEY-NEWER").status, 200);
         let approvals = f.dir.join(format!(
             ".openblog/private/collaboration/approvals/{id}.json"
         ));
         let stored: Json = serde_json::from_str(&fs::read_to_string(&approvals).unwrap()).unwrap();
-        assert_eq!(stored["approvals"].as_array().unwrap().len(), 1);
+        assert_eq!(stored["approvals"].as_array().unwrap().len(), 0);
         let before = state_trees(&f);
         for who in [&ada, &mikey] {
             let refused = publish_as(&f, who, &id);
             assert_eq!(refused.status, 409);
             assert_no_prose(&refused);
-            assert_eq!(body_json(&refused)["missing"], json!(["Mikey"]));
+            assert_eq!(body_json(&refused)["missing"], json!(["Mikey", "Grace"]));
         }
         assert_eq!(state_trees(&f), before);
         assert!(published_post(&f, &id).is_none());
@@ -39012,13 +42416,28 @@ series: letters
         assert_eq!(draft_call(&f, &mikey, &id, 2, "MIKEY-SECRET").status, 200);
         assert_eq!(publish_as(&f, &ada, &id).status, 409);
 
-        // He reads the piece again and approves exactly what is there now.
+        // Both read the piece again and approve exactly what is there now.
         assert_eq!(draft_call(&f, &mikey, &id, 3, "MIKEY-NEWER").status, 200);
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(4))).status,
+            200
+        );
         assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
         let post = published_post(&f, &id).unwrap();
         assert!(post.contains("MIKEY-NEWER") && post.contains("GRACE-SECRET"));
         assert!(!post.contains("MIKEY-SECRET"));
+        let receipt: Json =
+            serde_json::from_str(&fs::read_to_string(outcome_file(&f, &id)).unwrap()).unwrap();
+        let mikey_id = participant_of(&f, &id, "mikey");
+        let section = receipt["revision"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|section| section["participantId"] == mikey_id)
+            .unwrap();
+        assert_eq!(section["revision"], 4);
     }
 
     // ---- Layout and arrangement (ADR 0031) ----
@@ -39328,6 +42747,52 @@ series: letters
         assert_eq!(state_trees(&f), before);
     }
 
+    #[test]
+    fn restored_approval_file_cannot_revive_consent_after_access_changes() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-access-churn");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let approvals_path = f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        ));
+        let standing = fs::read(&approvals_path).unwrap();
+        let record = stored_record(&f, &id);
+        let ada_id = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "ada")
+            .unwrap()
+            .participant_id
+            .clone();
+        for roles in [json!(["reader"]), json!(["coordinator"])] {
+            let revision = stored_record(&f, &id).authorization.revision;
+            assert_eq!(
+                post_api(
+                    &f,
+                    &mikey,
+                    "members/roles",
+                    json!({
+                        "publicationId": id, "participantId": ada_id, "roles": roles,
+                        "expectedRevision": revision,
+                    })
+                )
+                .status,
+                200
+            );
+        }
+        fs::write(&approvals_path, standing).unwrap();
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey", "Grace"]));
+        assert!(published_post(&f, &id).is_none());
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
     fn approval_policy_read(f: &Fixture, who: &Session, id: &str) -> Response {
         handle(
             &f.state,
@@ -39353,8 +42818,20 @@ series: letters
         )
     }
 
-    fn rule_body(id: &str, revision: u64, policy: Json, confirmed: bool) -> Json {
+    fn rule_body(id: &str, revision: u64, mut policy: Json, confirmed: bool) -> Json {
+        if let Some(fields) = policy.as_object_mut() {
+            fields.entry("scope").or_insert(json!("wholePiece"));
+        }
         json!({ "publicationId": id, "expectedRevision": revision, "policy": policy, "confirmed": confirmed })
+    }
+
+    fn consent_rule(f: &Fixture, who: &Session, id: &str, proposal: u64) -> Response {
+        post_api(
+            f,
+            who,
+            "approval-policy/consent",
+            json!({ "publicationId": id, "proposalId": proposal, "affirmed": true }),
+        )
     }
 
     fn approvals_file(f: &Fixture, id: &str) -> Json {
@@ -39365,6 +42842,319 @@ series: letters
             .unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn every_participant_can_approve_only_the_complete_released_piece() {
+        for requirement in [json!("allParticipants"), json!({"participantQuorum": 3})] {
+            let (f, mikey, grace, ada, id) = approval_fixture("all-participant-piece");
+            let ada_id = participant_of(&f, &id, "ada");
+            let mikey_id = participant_of(&f, &id, "mikey");
+            let grace_id = participant_of(&f, &id, "grace");
+            assert_eq!(
+                approval_policy_write(
+                    &f,
+                    &mikey,
+                    rule_body(&id, 0, json!({"requirement": requirement}), true),
+                    true
+                )
+                .status,
+                200
+            );
+            let proposal = body_json(&approval_policy_read(&f, &mikey, &id))["proposal"]["id"]
+                .as_u64()
+                .unwrap();
+            for who in [&mikey, &grace, &ada] {
+                assert_eq!(consent_rule(&f, who, &id, proposal).status, 200);
+            }
+            assert_eq!(
+                reveal_call(
+                    &f,
+                    &ada,
+                    "policy",
+                    policy_body(&id, "voluntary", "namedRecipients")
+                )
+                .status,
+                200
+            );
+            let auth_revision = stored_record(&f, &id).authorization.revision;
+            for (author, other) in [(&mikey, &grace_id), (&grace, &mikey_id)] {
+                assert_eq!(
+                    post_api(
+                        &f,
+                        author,
+                        "reveal/named",
+                        json!({
+                            "publicationId": id, "revision": 1, "recipients": [ada_id, other],
+                            "expectedAuthorizationRevision": auth_revision,
+                        })
+                    )
+                    .status,
+                    200
+                );
+            }
+            let before = body_json(&preview_call(&f, &ada, &id));
+            assert_eq!(before["preview"]["seen"], Json::Null);
+            assert_eq!(
+                post_api(
+                    &f,
+                    &ada,
+                    "approve",
+                    json!({
+                        "publicationId": id, "seen": "not-a-token", "affirmed": true
+                    })
+                )
+                .status,
+                409
+            );
+            for author in [&mikey, &grace] {
+                let revision = synthesis_revision(&f, author, &id);
+                assert_eq!(
+                    synthesis_change(
+                        &f,
+                        author,
+                        &id,
+                        revision,
+                        json!({
+                            "action": "delivery", "recipient": ada_id,
+                            "expectedAuthorizationRevision": auth_revision, "consent": true
+                        })
+                    )
+                    .status,
+                    200
+                );
+            }
+            let seen = body_json(&preview_call(&f, &ada, &id))["preview"]["seen"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let revision = synthesis_revision(&f, &mikey, &id);
+            assert_eq!(
+                synthesis_change(
+                    &f,
+                    &mikey,
+                    &id,
+                    revision,
+                    json!({
+                        "action": "delivery", "recipient": ada_id,
+                        "expectedAuthorizationRevision": auth_revision, "consent": false
+                    })
+                )
+                .status,
+                200
+            );
+            assert!(body_json(&preview_call(&f, &ada, &id))["preview"]["seen"].is_null());
+            assert_eq!(
+                post_api(
+                    &f,
+                    &ada,
+                    "approve",
+                    json!({ "publicationId": id, "seen": seen, "affirmed": true })
+                )
+                .status,
+                409
+            );
+            let revision = synthesis_revision(&f, &mikey, &id);
+            assert_eq!(
+                synthesis_change(
+                    &f,
+                    &mikey,
+                    &id,
+                    revision,
+                    json!({
+                        "action": "delivery", "recipient": ada_id,
+                        "expectedAuthorizationRevision": auth_revision, "consent": true
+                    })
+                )
+                .status,
+                200
+            );
+            for who in [&mikey, &grace] {
+                assert_eq!(approve_as(&f, who, &id).status, 200);
+            }
+            assert_eq!(publish_as(&f, &ada, &id).status, 409);
+            assert_eq!(approve_as(&f, &ada, &id).status, 200);
+            assert_eq!(draft_call(&f, &grace, &id, 1, "GRACE-EDITED").status, 200);
+            assert!(body_json(&preview_call(&f, &ada, &id))["preview"]["seen"].is_null());
+            assert_eq!(
+                post_api(
+                    &f,
+                    &ada,
+                    "approve",
+                    json!({ "publicationId": id, "seen": seen, "affirmed": true })
+                )
+                .status,
+                409
+            );
+            assert_eq!(publish_as(&f, &ada, &id).status, 409);
+            assert_eq!(
+                post_api(
+                    &f,
+                    &grace,
+                    "reveal/named",
+                    json!({
+                        "publicationId": id, "revision": 2, "recipients": [ada_id, mikey_id],
+                        "expectedAuthorizationRevision": auth_revision,
+                    })
+                )
+                .status,
+                200
+            );
+            for who in [&mikey, &grace, &ada] {
+                assert_eq!(approve_as(&f, who, &id).status, 200);
+            }
+            assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        }
+    }
+
+    #[test]
+    fn numeric_quorum_requires_unanimous_rule_consent_and_exact_writer_approvals() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-quorum");
+        let invalid = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(&id, 0, json!({ "requirement": { "quorum": 3 } }), true),
+            true,
+        );
+        assert_eq!(invalid.status, 422);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        let proposal = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(&id, 0, json!({ "requirement": { "quorum": 2 } }), true),
+            true,
+        );
+        assert_eq!(proposal.status, 200);
+        assert_eq!(body_json(&proposal)["proposed"], true);
+        let proposal = body_json(&approval_policy_read(&f, &mikey, &id))["proposal"]["id"]
+            .as_u64()
+            .unwrap();
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(
+            body_json(&consent_rule(&f, &ada, &id, proposal))["changed"],
+            true
+        );
+        assert!(approvals_file(&f, &id)["approvals"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        let read = body_json(&approval_policy_read(&f, &mikey, &id));
+        assert_eq!(read["policy"]["requirement"], json!({ "quorum": 2 }));
+        assert_eq!(read["quorum"]["required"], 2);
+        assert_eq!(read["quorum"]["approved"], 0);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
+    #[test]
+    fn new_reflections_require_a_whole_piece_rule_even_after_a_section_only_policy_was_saved() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-whole-scope");
+        let refused = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "contributingAuthors", "scope": "ownSections" }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(refused.status, 422);
+        assert_eq!(body_json(&refused)["field"], "policy");
+        assert_eq!(
+            body_json(&approval_policy_read(&f, &mikey, &id))["wholePieceRequired"],
+            true
+        );
+
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        let path = f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        ));
+        let mut stored = approvals_file(&f, &id);
+        stored["policy"]["scope"] = json!("ownSections");
+        fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        let refused = approve_as(&f, &grace, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+        assert_eq!(
+            schedule_as(&f, &ada, &id, json!("2099-01-01T00:00:00Z")).status,
+            409
+        );
+
+        let replacement = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "allAuthors", "scope": "wholePiece" }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(replacement.status, 200);
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(
+            body_json(&consent_rule(&f, &ada, &id, proposal))["changed"],
+            true
+        );
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
+    #[test]
+    fn legacy_reflections_can_still_choose_section_only_approval() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-legacy-scope");
+        let mut record = stored_record(&f, &id);
+        record.initial_approval_scope = None;
+        let path = f
+            .dir
+            .join(crate::shared_publications::DIRECTORY)
+            .join(format!("{id}.json"));
+        fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert_eq!(
+            body_json(&approval_policy_read(&f, &mikey, &id))["wholePieceRequired"],
+            false
+        );
+        let proposed = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "contributingAuthors", "scope": "ownSections" }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(proposed.status, 200);
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(
+            body_json(&consent_rule(&f, &ada, &id, proposal))["changed"],
+            true
+        );
+        assert_eq!(approvals_file(&f, &id)["policy"]["scope"], "ownSections");
     }
 
     #[test]
@@ -39388,14 +43178,13 @@ series: letters
             json!(["Linus"])
         );
 
-        // Reading and changing the rule: site owners and coordinators only; everyone else gets
-        // the same not-found as an unknown publication, and nothing changes.
+        // Authors can review a proposal but only site owners and coordinators may propose it.
         let unknown = approval_policy_read(&f, &ada, "shared-ffffffffffff");
         assert_eq!(unknown.status, 404);
         for who in [&grace, &linus] {
-            let denied = approval_policy_read(&f, who, &id);
-            assert_eq!(denied.status, 404);
-            assert_eq!(denied.body, unknown.body);
+            let read = approval_policy_read(&f, who, &id);
+            assert_eq!(read.status, 200);
+            assert_eq!(body_json(&read)["mayPropose"], false);
         }
         let read = approval_policy_read(&f, &ada, &id);
         assert_eq!(read.status, 200);
@@ -39459,7 +43248,12 @@ series: letters
         let same = approval_policy_write(
             &f,
             &ada,
-            rule_body(&id, 0, json!({ "requirement": "allAuthors" }), false),
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "allAuthors", "scope": "wholePiece" }),
+                false,
+            ),
             true,
         );
         assert_eq!(same.status, 200);
@@ -39481,7 +43275,7 @@ series: letters
         assert!(message.contains("Only a site owner") && message.contains("Linus"));
         assert_eq!(state_trees(&f), before);
 
-        // A confirmed change clears every approval, advances the revision once and re-evaluates.
+        // A proposal does not change the rule or clear approvals without every author's consent.
         let changed = approval_policy_write(
             &f,
             &mikey,
@@ -39490,8 +43284,26 @@ series: letters
         );
         assert_eq!(changed.status, 200);
         let changed = body_json(&changed);
-        assert_eq!(changed["changed"], true);
-        assert_eq!(changed["cleared"], 2);
+        assert_eq!(changed["proposed"], true);
+        assert_eq!(changed["revision"], 0);
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        for who in [&mikey, &grace, &ada] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(
+            approvals_file(&f, &id)["approvals"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        let final_consent = body_json(&consent_rule(&f, &linus, &id, proposal));
+        assert_eq!(final_consent["changed"], true);
+        assert_eq!(final_consent["cleared"], 2);
+        let changed = body_json(&approval_policy_read(&f, &mikey, &id));
         assert_eq!(changed["revision"], 1);
         assert_eq!(changed["required"], json!(["Mikey", "Grace"]));
         assert_eq!(changed["missing"], json!(["Mikey", "Grace"]));
@@ -39553,6 +43365,149 @@ series: letters
     }
 
     #[test]
+    fn policy_proposal_consent_is_bound_to_membership_and_can_be_withdrawn() {
+        let (f, mikey, grace, ada, id) = approval_fixture("policy-consent");
+        let proposed = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": "contributingAuthors" }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(proposed.status, 200);
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 200);
+        assert_eq!(
+            body_json(&approval_policy_read(&f, &mikey, &id))["proposal"]["consentedByYou"],
+            true
+        );
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "approval-policy/withdraw",
+                json!({ "publicationId": id, "proposalId": proposal })
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            body_json(&approval_policy_read(&f, &mikey, &id))["proposal"]["consentedByYou"],
+            false
+        );
+        assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 200);
+        let before = stored_record(&f, &id);
+        let grace_id = participant_of(&f, &id, "grace");
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "members/remove",
+                json!({
+                    "publicationId": id, "participantId": grace_id,
+                    "expectedRevision": before.authorization.revision,
+                })
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            body_json(&approval_policy_read(&f, &mikey, &id))["proposal"]["valid"],
+            false
+        );
+        assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 409);
+        assert_eq!(consent_rule(&f, &grace, &id, proposal).status, 404);
+        assert_eq!(approvals_file(&f, &id)["policyRevision"], 0);
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &mikey,
+                rule_body(
+                    &id,
+                    0,
+                    json!({ "requirement": "contributingAuthors" }),
+                    true
+                ),
+                true
+            )
+            .status,
+            409
+        );
+        let replacement = json!({
+            "publicationId": id, "expectedRevision": 0, "expectedProposalId": proposal,
+            "policy": { "requirement": "contributingAuthors", "scope": "wholePiece" }, "confirmed": true,
+        });
+        assert_eq!(
+            approval_policy_write(&f, &mikey, replacement, true).status,
+            200
+        );
+        let next = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        assert!(next > proposal);
+        assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 409);
+        assert_eq!(
+            body_json(&consent_rule(&f, &mikey, &id, next))["changed"],
+            false
+        );
+        assert_eq!(
+            body_json(&consent_rule(&f, &ada, &id, next))["changed"],
+            true
+        );
+    }
+
+    #[test]
+    fn policy_consent_includes_readers_and_coordinators_without_revealing_drafts() {
+        let (f, mikey, grace, ada, id) = approval_fixture("policy-consent-reader");
+        let reader = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &ada,
+                rule_body(
+                    &id,
+                    0,
+                    json!({ "requirement": "contributingAuthors" }),
+                    true
+                ),
+                true
+            )
+            .status,
+            200
+        );
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        let read = body_json(&approval_policy_read(&f, &reader, &id));
+        assert_eq!(read["proposal"]["valid"], true);
+        for field in ["required", "missing", "approvers", "formerApprovers"] {
+            assert!(read.get(field).is_none(), "{field} must stay private");
+        }
+        assert!(!read.to_string().contains("MIKEY-SECRET"));
+        assert!(!read.to_string().contains("GRACE-SECRET"));
+        assert_eq!(draft_call(&f, &reader, &id, 0, "not permitted").status, 404);
+        for who in [&mikey, &grace, &ada] {
+            assert_eq!(
+                body_json(&consent_rule(&f, who, &id, proposal))["changed"],
+                false
+            );
+        }
+        assert_eq!(approvals_file(&f, &id)["policyRevision"], 0);
+        assert_eq!(
+            body_json(&consent_rule(&f, &reader, &id, proposal))["changed"],
+            true
+        );
+        assert_eq!(approvals_file(&f, &id)["policyRevision"], 1);
+    }
+
+    #[test]
     fn a_named_approver_who_leaves_blocks_publishing_until_the_rule_changes() {
         let (f, mikey, grace, ada, id) = approval_fixture("approval-rule-churn");
         let record = stored_record(&f, &id);
@@ -39598,6 +43553,12 @@ series: letters
             String::from_utf8_lossy(&named.body)
         );
         let named = body_json(&named);
+        assert_eq!(named["proposed"], true);
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 200);
+        assert_eq!(consent_rule(&f, &grace, &id, proposal).status, 200);
+        assert_eq!(consent_rule(&f, &ada, &id, proposal).status, 200);
+        let named = body_json(&approval_policy_read(&f, &ada, &id));
         assert!(named["summary"]
             .as_str()
             .unwrap()
@@ -39648,7 +43609,13 @@ series: letters
         // The resolution: a site owner changes the rule, and the remaining author approves again.
         let resolved = approval_policy_write(&f, &mikey, rule_body(&id, 1, unnamed, true), true);
         assert_eq!(resolved.status, 200);
-        assert_eq!(body_json(&resolved)["unmetNamed"], json!([]));
+        let proposal = approvals_file(&f, &id)["proposal"]["id"].as_u64().unwrap();
+        assert_eq!(consent_rule(&f, &mikey, &id, proposal).status, 200);
+        assert_eq!(consent_rule(&f, &ada, &id, proposal).status, 200);
+        assert_eq!(
+            body_json(&approval_policy_read(&f, &mikey, &id))["unmetNamed"],
+            json!([])
+        );
         assert_eq!(approve_as(&f, &mikey, &id).status, 200);
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
     }
@@ -39747,7 +43714,12 @@ series: letters
             .contains("scheduled"));
 
         // Approved again, the next tick publishes it, dated at its scheduled time.
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2))).status,
+            200
+        );
         assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
         f.state.tick_scheduler();
         let post = published_post(&f, &id).expect("published when due and approved");
         assert!(post.contains("MIKEY-NEWER") && post.contains("GRACE-SECRET"));
@@ -40051,13 +44023,13 @@ series: letters
         assert_eq!(seen["shared"], json!([]));
         assert!(!seen.to_string().contains("MOMENT-SECRET"));
 
-        // A coordinator who is not a contributor, an unknown publication and no session are all
-        // refused alike, for reads and writes.
+        // A coordinator without a named release reads no moments and cannot edit them.
         let unknown = moments_read(&f, &mikey, "shared-ffffffffffff");
         assert_eq!(unknown.status, 404);
         let denied = moments_read(&f, &ada, &id);
-        assert_eq!(denied.status, 404);
-        assert_eq!(denied.body, unknown.body);
+        assert_eq!(denied.status, 200);
+        assert_eq!(body_json(&denied)["shared"], json!([]));
+        assert!(!body_json(&denied).to_string().contains("MOMENT-SECRET"));
         let write = moments_change(
             &f,
             &ada,
@@ -40327,7 +44299,29 @@ series: letters
             draft_call(&f, &mikey, &id, 1, "MIKEY-SECRET v2").status,
             200
         );
-        let offered = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        let owner = stored_record(&f, &id)
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == "mikey")
+            .unwrap()
+            .participant_id
+            .clone();
+        let offered = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/collaboration/contributions/ready",
+                    json!({
+                        "publicationId": id, "contributions": [{ "contributionId": owner, "revision": 2 }]
+                    }),
+                ),
+                &mikey,
+                true,
+            ),
+        );
+        assert_eq!(offered.status, 200);
         assert_eq!(body_json(&offered)["momentsShared"], true);
         let grace_view = body_json(&moments_read(&f, &grace, &id));
         assert_eq!(
@@ -40635,6 +44629,171 @@ series: letters
     }
 
     #[test]
+    fn synthesis_delivery_needs_each_author_and_current_recipient_access() {
+        let (f, mikey, grace, ada, id) = approval_fixture("synthesis-delivery");
+        let ada_id = participant_of(&f, &id, "ada");
+        let added = add_item(&f, &mikey, &id, "PRIVATE-CONVERSATION", &[]);
+        assert_eq!(added.status, 200);
+        assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
+        let auth_revision = stored_record(&f, &id).authorization.revision;
+        let author_view = body_json(&synthesis_read(&f, &mikey, &id));
+        let recipients = author_view["delivery"]["recipients"].as_array().unwrap();
+        let ada_entry = recipients
+            .iter()
+            .find(|entry| entry["id"] == ada_id)
+            .unwrap();
+        assert_eq!(ada_entry["consented"], false);
+        assert_eq!(
+            author_view["delivery"]["authorizationRevision"],
+            auth_revision
+        );
+        let change = |revision, consent| {
+            json!({
+                "action": "delivery",
+                "recipient": ada_id,
+                "expectedAuthorizationRevision": revision,
+                "consent": consent,
+            })
+        };
+        assert_eq!(
+            synthesis_change(&f, &mikey, &id, 1, change(auth_revision + 1, true)).status,
+            409
+        );
+        assert_eq!(
+            synthesis_change(&f, &mikey, &id, 1, change(auth_revision, true)).status,
+            200
+        );
+        let author_view = body_json(&synthesis_read(&f, &mikey, &id));
+        let recipients = author_view["delivery"]["recipients"].as_array().unwrap();
+        assert_eq!(
+            recipients
+                .iter()
+                .find(|entry| entry["id"] == ada_id)
+                .unwrap()["consented"],
+            true
+        );
+        assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
+        assert_eq!(
+            synthesis_change(&f, &grace, &id, 2, change(auth_revision, true)).status,
+            200
+        );
+        let delivered = synthesis_read(&f, &ada, &id);
+        assert_eq!(delivered.status, 200);
+        assert_eq!(body_json(&delivered)["delivery"], Json::Null);
+        assert_eq!(
+            body_json(&delivered)["items"][0]["markdown"],
+            "PRIVATE-CONVERSATION"
+        );
+        assert_eq!(
+            synthesis_change(&f, &ada, &id, 3, change(auth_revision, true)).status,
+            404
+        );
+        let synthesis_path = f.dir.join(format!(
+            ".openblog/private/collaboration/synthesis/{id}.json"
+        ));
+        let standing = fs::read(&synthesis_path).unwrap();
+        for roles in [json!(["reader"]), json!(["coordinator"])] {
+            let revision = stored_record(&f, &id).authorization.revision;
+            assert_eq!(
+                post_api(
+                    &f,
+                    &mikey,
+                    "members/roles",
+                    json!({
+                        "publicationId": id, "participantId": ada_id, "roles": roles,
+                        "expectedRevision": revision
+                    })
+                )
+                .status,
+                200
+            );
+        }
+        fs::write(&synthesis_path, standing).unwrap();
+        assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
+        assert_eq!(
+            add_item(&f, &mikey, &id, "NEW-CONVERSATION", &[]).status,
+            200
+        );
+        assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
+    }
+
+    #[test]
+    fn recipient_preview_only_shows_current_explicitly_delivered_material() {
+        let (f, mikey, grace, ada, id) = approval_fixture("recipient-preview");
+        let ada_id = participant_of(&f, &id, "ada");
+        let grace_id = participant_of(&f, &id, "grace");
+        let mikey_id = participant_of(&f, &id, "mikey");
+        let order = [mikey_id.as_str(), grace_id.as_str()];
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 0, arrangement("sideBySide", 1, &order)).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "voluntary", "namedRecipients")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            add_item(&f, &mikey, &id, "CONVERSATION-SECRET", &[]).status,
+            200
+        );
+        let auth_revision = stored_record(&f, &id).authorization.revision;
+        let release = |author: &Session| {
+            post_api(
+                &f,
+                author,
+                "reveal/named",
+                json!({"publicationId": id, "revision": 1, "recipients": [ada_id],
+                "expectedAuthorizationRevision": auth_revision}),
+            )
+        };
+        assert_eq!(release(&mikey).status, 200);
+        let first = body_json(&preview_call(&f, &ada, &id));
+        let doc = preview_document_text(&f, &ada, &first);
+        assert!(doc.contains("MIKEY-SECRET"));
+        assert!(!doc.contains("GRACE-SECRET"));
+        assert!(!doc.contains("CONVERSATION-SECRET"));
+        assert_eq!(first["preview"]["seen"], Json::Null);
+        assert_eq!(first["preview"]["complete"], false);
+        assert_eq!(release(&grace).status, 200);
+        for author in [&mikey, &grace] {
+            let revision = synthesis_revision(&f, author, &id);
+            assert_eq!(
+                synthesis_change(
+                    &f,
+                    author,
+                    &id,
+                    revision,
+                    json!({
+                        "action": "delivery", "recipient": ada_id,
+                        "expectedAuthorizationRevision": auth_revision, "consent": true
+                    })
+                )
+                .status,
+                200
+            );
+        }
+        let shown = body_json(&preview_call(&f, &ada, &id));
+        let doc = preview_document_text(&f, &ada, &shown);
+        assert!(doc.contains("MIKEY-SECRET") && doc.contains("GRACE-SECRET"));
+        assert!(doc.contains("CONVERSATION-SECRET"));
+        assert_eq!(shown["preview"]["seen"], Json::Null);
+        assert_eq!(
+            draft_call(&f, &grace, &id, 1, "GRACE-LATER-PRIVATE").status,
+            200
+        );
+        let later = body_json(&preview_call(&f, &ada, &id));
+        let doc = preview_document_text(&f, &ada, &later);
+        assert!(!doc.contains("GRACE-SECRET") && !doc.contains("GRACE-LATER-PRIVATE"));
+        assert_eq!(later["preview"]["seen"], Json::Null);
+    }
+
+    #[test]
     fn synthesis_is_private_revision_checked_and_denied_by_default() {
         let (f, mikey, grace, ada, id) = approval_fixture("synthesis-private");
         let grace_id = participant_of(&f, &id, "grace");
@@ -40901,6 +45060,15 @@ series: letters
             assert_eq!(draft_call(&f, who, &id, 0, "A section.").status, 200);
         }
         let grace_id = participant_of(&f, &id, "grace");
+        for who in [&mikey, &grace, &linus] {
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        let before = body_json(&preview_call(&f, &linus, &id));
+        assert_eq!(before["preview"]["complete"], false);
+        assert!(before["preview"]["seen"].is_null());
         let added = add_item(&f, &mikey, &id, "SYNTHESIS-LEAK-PROSE", &[&grace_id]);
         assert_eq!(added.status, 200);
 
@@ -40913,6 +45081,13 @@ series: letters
         assert_eq!(editor.status, 200);
         let body = body_json(&editor);
         assert!(body["preview"]["items"].as_array().unwrap().is_empty());
+        assert!(body["preview"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|section| section["shown"] == true));
+        assert_eq!(body["preview"]["complete"], false);
+        assert!(body["preview"]["seen"].is_null());
         let document = preview_document_text(&f, &linus, &body);
         let everything = format!("{body}{document}");
         assert!(!everything.contains("SYNTHESIS-LEAK-PROSE"));
@@ -41352,6 +45527,12 @@ series: letters
             sessions.push(session);
             tokens.push(token);
         }
+        for (revision, session) in std::iter::once(&mikey).chain(&sessions).enumerate() {
+            assert_eq!(
+                select_profile_credit(&f, session, &id, revision as u64).status,
+                200
+            );
+        }
         (f, mikey, id, sessions, tokens)
     }
 
@@ -41464,7 +45645,7 @@ series: letters
                 &f,
                 &mikey,
                 "policy",
-                policy_body(&id, "independent", "voluntary")
+                policy_body(&id, "allReady", "voluntary")
             )
             .status,
             200
@@ -41506,7 +45687,7 @@ series: letters
         }
 
         // A writer edits after approving: a save from the old revision is refused with only
-        // their own copy, and only their approval needs giving again.
+        // their own copy, and everyone must approve the edited piece again.
         let editor = &writers[e - 1];
         let stale = draft_call(&f, editor, &id, 0, "LOST-UPDATE");
         assert_eq!(stale.status, 409);
@@ -41522,11 +45703,13 @@ series: letters
         );
         let refused = publish_as(&f, &mikey, &id);
         assert_eq!(refused.status, 409);
-        assert_eq!(
-            body_json(&refused)["missing"],
-            json!([format!("Writer {e:02}")])
-        );
-        assert_eq!(approve_as(&f, editor, &id).status, 200);
+        let expected = std::iter::once("Mikey".to_string())
+            .chain((1..=others).map(|k| format!("Writer {k:02}")))
+            .collect::<Vec<_>>();
+        assert_eq!(body_json(&refused)["missing"], json!(expected));
+        for who in everyone() {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
 
         // A writer is removed mid-flow: nobody's approval covers the new author set, and the
         // removed account can no longer approve, read or publish.
@@ -41547,6 +45730,10 @@ series: letters
         // the arrangement is updated to include them and everyone approves again.
         let (returned, token) = join_writer(&f, &mikey, &id, r);
         tokens.push(token);
+        assert_eq!(
+            select_profile_credit(&f, &returned, &id, (others + 1) as u64).status,
+            200
+        );
         let fresh = body_json(&draft_read(&f, &returned, &id)).to_string();
         assert!(!fresh.contains(&format!("W-{r:02}-OPEN")));
         assert_eq!(
@@ -41711,8 +45898,133 @@ series: letters
     }
 
     #[test]
+    fn a_roundtable_of_two_is_written_arranged_approved_published_and_exported() {
+        let (f, mikey, id, writers, _) = group_fixture("roundtable-two", 1);
+        for (n, who) in [&mikey, &writers[0]].into_iter().enumerate() {
+            assert_eq!(draft_call(&f, who, &id, 0, &two_parts(n, "W")).status, 200);
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        let order = participant_ids(&f, &mikey, &id);
+        assert_eq!(
+            arrangement_write(&f, &mikey, true, &id, 0, roundtable_arrangement(1, &order)).status,
+            200
+        );
+        for who in [&mikey, &writers[0]] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &mikey, &id).status, 200);
+        let expected = [
+            "Opening round",
+            "W-01-OPEN",
+            "W-00-OPEN",
+            "Closing round",
+            "W-01-CLOSE",
+            "W-00-CLOSE",
+        ]
+        .map(str::to_string);
+        let published = published_post(&f, &id).unwrap();
+        in_reading_order("post", &published, &expected);
+        let (site, _) = crate::site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let post = site
+            .posts
+            .iter()
+            .find(|post| post.source.ends_with(&format!("{id}.md")))
+            .unwrap();
+        let files = public_files(&f);
+        let page = files
+            .iter()
+            .find(|(path, _)| {
+                path.ends_with("index.html") && path.to_string_lossy().contains(post.slug.as_str())
+            })
+            .expect("the reflection's page");
+        in_reading_order("page", &page.1, &expected);
+        assert_eq!(page.1.matches("<h2 class=\"ob-turn-author\">").count(), 4);
+        for feed in ["rss.xml", "feed.json", "llms-full.txt"] {
+            let (_, text) = files.iter().find(|(path, _)| path.ends_with(feed)).unwrap();
+            in_reading_order(feed, text, &expected);
+        }
+        crate::portable_export::run(
+            &f.dir,
+            &post.slug,
+            crate::portable_export::Format::Markdown,
+            Some("roundtable-two-export.md"),
+            true,
+            false,
+        )
+        .unwrap();
+        let exported = fs::read_to_string(f.dir.join("roundtable-two-export.md")).unwrap();
+        in_reading_order("export", &exported, &expected);
+    }
+
+    #[test]
     fn a_roundtable_of_three_is_written_arranged_approved_published_and_exported() {
         roundtable_end_to_end("roundtable-three", 2);
+    }
+
+    #[test]
+    fn a_roundtable_of_six_is_written_arranged_approved_published_and_exported() {
+        roundtable_end_to_end("roundtable-six", 5);
+    }
+
+    #[test]
+    #[ignore = "generates published pages for the browser accessibility suite"]
+    fn generate_roundtable_browser_fixtures() {
+        let destination = PathBuf::from(
+            std::env::var_os("OPENBLOG_ROUNDTABLE_FIXTURES")
+                .expect("OPENBLOG_ROUNDTABLE_FIXTURES is required"),
+        );
+        for count in [2, 3, 6] {
+            let (f, mikey, id, writers, _) = group_fixture(&format!("browser-{count}"), count - 1);
+            let everyone = std::iter::once(&mikey)
+                .chain(writers.iter())
+                .collect::<Vec<_>>();
+            for (n, who) in everyone.iter().enumerate() {
+                assert_eq!(draft_call(&f, who, &id, 0, &two_parts(n, "W")).status, 200);
+                assert_eq!(
+                    reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                    200
+                );
+            }
+            let order = participant_ids(&f, &mikey, &id);
+            assert_eq!(
+                arrangement_write(&f, &mikey, true, &id, 0, roundtable_arrangement(1, &order))
+                    .status,
+                200
+            );
+            for who in everyone {
+                assert_eq!(approve_as(&f, who, &id).status, 200);
+            }
+            assert_eq!(publish_as(&f, &mikey, &id).status, 200);
+            let (site, _) = crate::site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+            let post = site
+                .posts
+                .iter()
+                .find(|p| p.source.ends_with(&format!("{id}.md")))
+                .unwrap();
+            let target = destination.join(count.to_string());
+            fs::create_dir_all(&target).unwrap();
+            let files = tree_snapshot(&f.dir.join("dist"));
+            let page = files
+                .keys()
+                .find(|path| {
+                    path.ends_with("index.html")
+                        && path.to_string_lossy().contains(post.slug.as_str())
+                })
+                .expect("the published reflection's page");
+            fs::write(
+                target.join("page-path.txt"),
+                page.to_string_lossy().replace('\\', "/"),
+            )
+            .unwrap();
+            for (path, bytes) in files {
+                let file = target.join(path);
+                fs::create_dir_all(file.parent().unwrap()).unwrap();
+                fs::write(file, bytes).unwrap();
+            }
+        }
     }
 
     #[test]
@@ -41753,7 +46065,7 @@ series: letters
         let refused = publish_as(&f, &ada, &id);
         assert_eq!(refused.status, 409);
         assert_no_prose(&refused);
-        assert_eq!(body_json(&refused)["missing"], json!(["Mikey"]));
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey", "Grace"]));
         assert_eq!(state_trees(&f), before);
         // Arranging the piece again resolves it.
         let single = json!({
@@ -41775,8 +46087,14 @@ series: letters
     #[test]
     fn scheduling_never_tells_a_coordinator_who_cannot_read_the_drafts_whether_a_part_exists() {
         let (f, mikey, _grace, ada, id) = approval_fixture("arrangement-oracle");
-        // Ada coordinates but writes nothing, so she is not entitled to the drafts.
-        assert_eq!(preview_call(&f, &ada, &id).status, 404);
+        // Ada can open a recipient preview, but is not entitled to the drafts or an approval token.
+        let response = preview_call(&f, &ada, &id);
+        assert_eq!(response.status, 200);
+        let preview = body_json(&response);
+        assert_eq!(preview["preview"]["complete"], false);
+        assert!(preview["preview"]["seen"].is_null());
+        let document = preview_document_text(&f, &ada, &preview);
+        assert!(!document.contains("MIKEY-SECRET") && !document.contains("GRACE-SECRET"));
         let participants = body_json(&arrangement_read(&f, &mikey, &id))["participants"].clone();
         let mikey_id = participants
             .as_array()
@@ -41930,13 +46248,7 @@ series: letters
             assert_eq!(own["draft"]["markdown"], two_parts(n, "C"));
         }
         assert_eq!(
-            reveal_call(
-                f,
-                &mikey,
-                "policy",
-                policy_body(id, "independent", "allReady")
-            )
-            .status,
+            reveal_call(f, &mikey, "policy", policy_body(id, "allReady", "allReady")).status,
             200
         );
         let offered = std::thread::scope(|scope| {

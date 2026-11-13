@@ -5,6 +5,56 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Shared reflection authors can privately add, edit, reorder and withdraw multiple contributions,
+  offer all current revisions together or share one revision with named recipients. Complete
+  review, publication and private receipts cover every contribution, with whole-piece approval
+  and participant-selected credits. Arrangement choices expose only contributions the requester
+  can read; source moments require the entire sealed contribution snapshot to be visible.
+- New shared reflections default to mutual reveal: each active author must offer a revision
+  before the group can read it. Existing reflections and saved sharing policies are unchanged.
+- New shared reflections require every participant's approval by default, or a fixed participant
+  quorum chosen at creation. Existing reflections retain their original initial rules. Older
+  releases cannot read records containing the new initial requirement.
+- New shared reflections require approval of the whole piece under every policy, so an edit to
+  any section invalidates every author's approval. A section-only rule previously saved for a
+  new reflection must be replaced by unanimous agreement before approval or publication.
+  Legacy reflections retain their existing scope.
+- Authors can approve a complete combined preview in Admin, explicitly confirming public credits.
+  The private credit-choice API supports frozen profile, display-name-only and uncredited
+  choices, with individual Admin controls. New reflections require each person whose work
+  appears to choose a credit before complete review or publication. Older records preserve their
+  prior behavior until someone selects a credit; older releases cannot read the new requirement.
+- Site owners and coordinators can explicitly publish an approved shared piece in Admin. The
+  server rechecks current credit and approvals before creating the public post.
+- The combined-preview control restores keyboard focus after loading unless the user moved it.
+- Revealed drafts, conversation items and observations use valid accessible labels in Admin.
+- Approval requests now recheck that the complete current piece remains visible to the author;
+  changing sharing after a preview can no longer allow approval while sections are hidden.
+- Preview viewers without conversation access are never issued a complete-review token, even if
+  all draft sections are visible; this does not reveal whether a private conversation exists.
+- Shared-piece approvals now cover participant attribution in the reflection record. Existing
+  approvals must be reviewed again, including for older reflections.
+- The sharing panel names the revision an author offered, and warns when it is older than their
+  latest saved draft.
+- Coordinators can choose named-recipient sharing. Authors confirm exactly which active participants
+  receive their current revision; later edits stay private. Non-drafters can read explicitly shared
+  draft revisions and associated sealed source moments.
+  A release to a writer does not grant reader access after a role change; the author must share
+  again. Older releases cannot read stored releases that grant non-draft access.
+- Approval rule changes now require each active, bound participant, including readers and
+  coordinators, to agree to the exact proposed rule. Existing approvals remain in force until
+  the group agrees, then are cleared.
+- Groups can propose a fixed numeric author quorum; every writer and attributed author must
+  still approve the whole piece, and the threshold does not fall when participants leave.
+- Groups can also require every participant or a fixed participant quorum. A reader may approve
+  only after every current draft, sealed moment and the conversation are explicitly shared with
+  them. These new rules require unanimous agreement and cannot be read by older releases.
+- Whole-piece approvals bind membership and authorization revisions under every rule, so access
+  restoration cannot revive approval after a failed cleanup. Existing non-quorum whole-piece
+  approvals must be reviewed again; legacy section-only approval bindings remain unchanged.
+- Shared publication outcomes retain a private receipt for the approved section revisions and
+  the exact published Post and credit sidecar, without storing draft prose in the receipt.
+- The Admin publishing setup status has stronger text contrast on the workspace bar.
 - Diagrams (epic #566; ADRs 0416-0419): a ` ```mermaid ` fence with a `title` and `description` is drawn at build
   time as an accessible image with no JavaScript: flowcharts, sequence, class, state, entity-relationship, git and
   C4 diagrams. Colours follow the look in light, dark, print and forced-colours modes; colours you write yourself must

@@ -7141,6 +7141,10 @@ export function validateSharedReflectionDraft(draft = {}) {
     return { field: "title", message: "Add a working title or a guiding question." };
   }
   if (!text(draft.contributorId)) return { field: "contributorId", message: "Choose the contributor profile you will appear as." };
+  if (draft.approvalRule === "participantQuorum" &&
+      (!/^\d+$/.test(text(draft.approvalQuorum)) || Number(draft.approvalQuorum) < 1 || Number(draft.approvalQuorum) > 100)) {
+    return { field: "initialApprovalRequirement", message: "Choose a participant quorum between 1 and 100." };
+  }
   return null;
 }
 
@@ -7151,6 +7155,9 @@ export function sharedReflectionPayload(draft = {}) {
     title: text(draft.title),
     guidingQuestion: text(draft.guidingQuestion),
     contributorId: text(draft.contributorId),
+    initialApprovalRequirement: draft.approvalRule === "participantQuorum"
+      ? { participantQuorum: Number(draft.approvalQuorum) }
+      : "allParticipants",
     sources: (Array.isArray(draft.sources) ? draft.sources : []).map((source) => ({
       kind: SHARED_SOURCE_KINDS.some((kind) => kind.value === source.kind) ? source.kind : "other",
       title: text(source.title),
@@ -7170,7 +7177,7 @@ export function contributorSaveRefusalDetail(data) {
 }
 
 export function sharedReflectionFieldId(field) {
-  const fixed = { title: "oba-shared-title", guidingQuestion: "oba-shared-question", contributorId: "oba-shared-contributor", sources: "oba-shared-add-source" };
+  const fixed = { title: "oba-shared-title", guidingQuestion: "oba-shared-question", contributorId: "oba-shared-contributor", sources: "oba-shared-add-source", initialApprovalRequirement: "oba-shared-quorum" };
   if (Object.hasOwn(fixed, field)) return fixed[field];
   const match = /^sources\.(\d{1,2})\.(title|url|creator|publisher|published|isbn)$/.exec(String(field ?? ""));
   return match ? `oba-shared-source-${match[1]}-${match[2]}` : "";
@@ -7602,6 +7609,29 @@ export function momentLinkText(moment) {
   return moment.link.atTime && start ? `Open the source at ${start}` : "Open the source (find the location yourself)";
 }
 
+function momentBody(moment, sourceName, stater = "you") {
+  const parts = [];
+  if (moment.quotation) {
+    const rights = QUOTATION_RIGHTS.find((entry) => entry.value === moment.quotation.rights)?.label || "";
+    const provenance = QUOTATION_PROVENANCE.find((entry) => entry.value === moment.quotation.provenance)?.label || "";
+    const statement = stater === "you" ? "Rights, as you state them" : `Rights, as ${stater} states them`;
+    const notices = Array.isArray(moment.notices) ? moment.notices : [];
+    parts.push(
+      h("figure", { class: "oba-moment-quote" },
+        h("blockquote", {}, h("p", { class: "oba-draft-revealed" }, moment.quotation.text)),
+        h("figcaption", { class: "oba-small" }, `— ${moment.attribution || `${sourceName(moment.source)}, ${moment.location}`}`)),
+      h("p", { class: "oba-small" }, `${statement}: ${rights}. ${provenance}.`, moment.quotation.rightsNote ? ` Rights note: ${moment.quotation.rightsNote}` : ""),
+      notices.length ? h("ul", { class: "oba-moment-notices", "aria-label": "Things to check in this quotation" }, notices.map((notice) => h("li", {}, notice.message))) : null,
+    );
+  }
+  if (moment.observation) parts.push(h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": "Observation" }, moment.observation));
+  const linkText = momentLinkText(moment);
+  parts.push(linkText
+    ? h("p", {}, h("a", { href: moment.link.href, rel: "noopener noreferrer external", target: "_blank" }, linkText, h("span", { class: "oba-sr" }, ` in ${sourceName(moment.source)} (opens in a new tab)`)))
+    : h("p", { class: "oba-small" }, "This source has no link. The location is kept with the moment."));
+  return parts;
+}
+
 /**
  * What an offer's response says about the writer's proposed moments: nothing when they were shared
  * or the writer has none, the write-once advice when that revision was already sealed with other
@@ -7694,6 +7724,7 @@ export const REVEAL_POLICIES = Object.freeze([
   { value: "independent", label: "Independent", help: "Nobody sees anyone else's draft." },
   { value: "voluntary", label: "Voluntary", help: "Any two or more writers who offer a revision share those revisions with each other." },
   { value: "allReady", label: "Everyone ready", help: "Nothing is shared until every writer has offered a revision. If a writer cannot or will not offer, a coordinator can switch to Voluntary or change that person's role." },
+  { value: "namedRecipients", label: "Named recipients", help: "Each writer chooses exactly who can read a released revision, without waiting for the others." },
 ]);
 
 /** One comparison slot as words: whose it is, and what the reader may know about it. */
@@ -7705,11 +7736,11 @@ export function revealSlotText(slot) {
 }
 
 /** One author's line in the combined preview: what is shown and where their approval stands. */
-export function previewSectionText(section) {
+export function previewSectionText(section, quorum = false) {
   const name = section?.displayName || "A participant";
   const where = section?.shown ? `revision ${section.revision}` : "not shared with you at its current revision";
   const approval = section?.approval === "approved" ? "approved" : section?.approval === "stale" ? "approval out of date" : "awaiting approval";
-  return `${name}: ${where}; ${approval}${section?.required === false ? " (approval not required)" : ""}.`;
+  return `${name}: ${where}; ${approval}${section?.required === false ? (quorum ? " (can count toward quorum)" : " (approval not required)") : ""}.`;
 }
 
 /** One synthesis item's line in the combined preview: who it speaks for and who has approved it. */
@@ -7727,10 +7758,13 @@ export function previewStateText(preview) {
 
 /** Whose approval publication needs (ADR 0052). Every writer approves under every rule. */
 export const APPROVAL_REQUIREMENTS = Object.freeze([
+  { value: "allParticipants", label: "Every participant", help: "Everyone taking part approves after the piece has been explicitly shared with them." },
   { value: "allAuthors", label: "Every author", help: "Everyone taking part as an author approves, whether or not they wrote a section." },
   { value: "contributingAuthors", label: "Everyone who wrote", help: "Only authors who wrote a section, or are named on a conversation item, approve." },
   { value: "namedAuthors", label: "Writers and named people", help: "Everyone who wrote approves, and so do the people you choose below, even if they later leave." },
   { value: "authorsWithRoles", label: "Writers and people with a role", help: "Everyone who wrote approves, and so does every author with a role you choose below." },
+  { value: "quorum", label: "Writers and a fixed number of authors", help: "Every writer must approve, and the total must reach the chosen number. It does not decrease if someone leaves." },
+  { value: "participantQuorum", label: "Writers and a fixed number of participants", help: "Every writer must approve, and the total must reach the chosen number of participants." },
 ]);
 
 /** The roles a role-based rule can list. Readers and editors cannot approve, so they are not offered. */
@@ -7749,6 +7783,8 @@ export function approvalPolicyChoice(policy) {
   if (typeof requirement === "string") choice.kind = APPROVAL_REQUIREMENTS.some((item) => item.value === requirement) ? requirement : "allAuthors";
   else if (Array.isArray(requirement?.namedAuthors)) Object.assign(choice, { kind: "namedAuthors", named: [...requirement.namedAuthors] });
   else if (Array.isArray(requirement?.authorsWithRoles)) Object.assign(choice, { kind: "authorsWithRoles", roles: [...requirement.authorsWithRoles] });
+  else if (Number.isInteger(requirement?.quorum)) Object.assign(choice, { kind: "quorum", quorum: requirement.quorum });
+  else if (Number.isInteger(requirement?.participantQuorum)) Object.assign(choice, { kind: "participantQuorum", quorum: requirement.participantQuorum });
   return choice;
 }
 
@@ -7778,6 +7814,16 @@ export function approvalPolicyPayload(choice) {
     if (!roles.length) return { error: "Choose at least one role whose authors must approve." };
     return { policy: { requirement: { authorsWithRoles: roles }, scope } };
   }
+  if (choice?.kind === "quorum" || choice?.kind === "participantQuorum") {
+    const count = Number(choice.quorum);
+    if (!Number.isInteger(count) || count < 1 || count > 100) return { error: "Choose a whole number of authors between 1 and 100." };
+    if (scope !== "wholePiece") return { error: "A quorum requires whole-piece approval." };
+    return { policy: { requirement: { [choice.kind]: count }, scope } };
+  }
+  if (choice?.kind === "allParticipants") {
+    if (scope !== "wholePiece") return { error: "Participant approval requires whole-piece approval." };
+    return { policy: { requirement: "allParticipants", scope } };
+  }
   const kind = choice?.kind === "contributingAuthors" ? "contributingAuthors" : "allAuthors";
   return { policy: { requirement: kind, scope } };
 }
@@ -7793,6 +7839,10 @@ export function approvalRuleText(rule) {
     // Only a site owner can take a named person off the rule; a coordinator can change a role.
     if (rule.unmetNamed?.length) parts.push("A site owner can take them off the rule, or restore their access.");
     if (rule.unmetRoles?.length) parts.push("A coordinator can change the rule, or give an author that role.");
+  }
+  if (rule?.quorum) {
+    const people = Number.isInteger(rule.policy?.requirement?.participantQuorum) ? "participants" : "authors";
+    parts.push(`Quorum: ${rule.quorum.approved} of ${rule.quorum.required} approvals; ${rule.quorum.currentAuthors} current ${people}.`);
   }
   return parts.join(" ");
 }
@@ -18266,7 +18316,12 @@ export class ObAdmin extends AdminElement {
           }),
         ),
         this.draftPanel(publication, index),
+        this.creditChoicePanel(publication, index),
+        this.sharedReadingPanel(publication, index),
+        this.sharedConversationReadingPanel(publication, index),
+        this.readerPolicyPanel(publication, index),
         this.seriesPanel(publication, index),
+        this.sharedPublishPanel(publication, index),
         this.invitationPanel(publication, index),
       );
     });
@@ -18277,7 +18332,7 @@ export class ObAdmin extends AdminElement {
           "section",
           { class: "oba-contributor-intro" },
           h("p", {}, "A shared reflection starts from something you watched, read, or heard. Each writer will answer in their own words before anything is combined."),
-          h("p", { class: "oba-small" }, "Shared reflections are kept in private server files, never in your posts. Nothing is published from here, and only the people taking part can see each one."),
+          h("p", { class: "oba-small" }, "Shared reflections are kept in private server files until a coordinator publishes an approved piece. Only the people taking part can see the private work."),
         ),
         h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: "#/shared/new" }, "Start a shared reflection")),
         status,
@@ -18324,6 +18379,17 @@ export class ObAdmin extends AdminElement {
       h("option", { value: "" }, contributors.length ? "Choose your profile" : "No contributor profiles yet"),
       contributors.map(([id, entry]) => h("option", { value: id, selected: id === this.user }, `${entry.name || id} (${id})`)),
     );
+    const approvalRule = h("select", {},
+      h("option", { value: "allParticipants" }, "Every participant"),
+      h("option", { value: "participantQuorum" }, "A fixed number of participants"));
+    const approvalQuorum = h("input", { type: "number", min: "1", max: "100", step: "1", value: "2" });
+    const quorumField = field("oba-shared-quorum", "Number of participants needed", approvalQuorum,
+      "The number stays fixed even if someone leaves. Every writer must also approve.");
+    quorumField.hidden = true;
+    approvalRule.addEventListener("change", () => {
+      quorumField.hidden = approvalRule.value !== "participantQuorum";
+      markDirty();
+    });
     const addSource = h("button", { class: "oba-btn", type: "button", id: "oba-shared-add-source" }, "Add another source");
     const sourceLimit = h("small", { class: "oba-small", id: "oba-shared-source-limit", hidden: true }, `You can add up to ${MAX_SHARED_SOURCES} sources.`);
     const updateSourceLimit = () => {
@@ -18449,7 +18515,7 @@ export class ObAdmin extends AdminElement {
         onSubmit: async (event) => {
           event.preventDefault();
           status.hidden = true;
-          const draft = { title: title.value, guidingQuestion: question.value, contributorId: contributor.value, sources };
+          const draft = { title: title.value, guidingQuestion: question.value, contributorId: contributor.value, approvalRule: approvalRule.value, approvalQuorum: approvalQuorum.value, sources };
           const problem = validateSharedReflectionDraft(draft);
           if (problem) return showProblem(problem);
           submit.disabled = true;
@@ -18493,6 +18559,11 @@ export class ObAdmin extends AdminElement {
         ),
         contributors.length ? null : h("p", { class: "oba-notice" }, "Add yourself as a contributor first. ", h("a", { href: "#/contributors" }, "Open Contributors")),
       ),
+      h("fieldset", { class: "oba-contributor-card" },
+        h("legend", { class: "oba-legend" }, "Approval to publish"),
+        field("oba-shared-approval-rule", "Who must approve", approvalRule,
+          "The group may change this rule later only if every active participant agrees."),
+        quorumField),
       status,
       h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn", href: "#/shared" }, "Cancel"), h("span", { class: "oba-spacer" }), submit),
     );
@@ -18528,7 +18599,10 @@ export class ObAdmin extends AdminElement {
       const { message, reload } = sharedManagementError(error);
       problem.textContent = message;
       problem.hidden = false;
-      if (!reload) return;
+      if (!reload) {
+        problem.focus();
+        return;
+      }
       try {
         await load();
       } catch {
@@ -18630,6 +18704,7 @@ export class ObAdmin extends AdminElement {
         if (!chosen.length) {
           problem.textContent = "Choose at least one role, or remove their access instead.";
           problem.hidden = false;
+          problem.focus();
           return;
         }
         if (!lines.length) {
@@ -18727,7 +18802,7 @@ export class ObAdmin extends AdminElement {
             { class: "oba-member" },
             h("strong", {}, invitation.adminUser),
             h("span", { class: "oba-badge" }, invitation.state),
-            h("div", { class: "oba-small" }, `Would be credited as ${invitation.contributorId}. Roles: ${memberRolesLabel(invitation.roles)}.`),
+            h("div", { class: "oba-small" }, `Contributor profile: ${invitation.contributorId}. Roles: ${memberRolesLabel(invitation.roles)}.`),
             h("div", {}, invitationStatusText(invitation)),
             h("div", { class: "oba-toolbar" }, pending ? revoke : null, invitation.state !== "accepted" ? reissue : null),
             slot,
@@ -18746,7 +18821,7 @@ export class ObAdmin extends AdminElement {
       h("h4", {}, "Invite someone"),
       h("p", { class: "oba-small" }, "Invitations make a private link. Nothing is emailed; you pass the link on yourself, and it works once for the account you name."),
       h("div", { class: "oba-field" }, h("label", { for: `${prefix}-user` }, "Their sign-in name"), user),
-      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-profile` }, "They will be credited as"), profile),
+      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-profile` }, "Their contributor profile"), profile),
       h("fieldset", {}, h("legend", {}, "Sign-in roles"), roleBoxes),
       h("div", { class: "oba-field" }, h("label", { for: `${prefix}-days` }, "Valid for (days, 1 to 30)"), days),
       h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Create invitation link"),
@@ -18764,6 +18839,7 @@ export class ObAdmin extends AdminElement {
       if (invalid) {
         problem.textContent = invalid.message;
         problem.hidden = false;
+        problem.focus();
         return;
       }
       try {
@@ -18813,6 +18889,341 @@ export class ObAdmin extends AdminElement {
   }
 
   // ---- shared reflection series
+
+  sharedConversationReadingPanel(publication, index) {
+    if ((publication.roles || []).includes("contributor")) return null;
+    const headingId = `oba-shared-conversation-${index}`;
+    const body = h("div", {});
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const details = h("details", { class: "oba-invitations" },
+      h("summary", {}, "Conversation shared with you"),
+      h("h3", { id: headingId }, "Conversation shared with you"),
+      h("p", { class: "oba-small" }, "Only the current conversation explicitly shared with you appears here. Later changes stay private."),
+      problem, body);
+    let request = 0;
+    details.addEventListener("toggle", async () => {
+      const current = ++request;
+      if (!details.open) return;
+      problem.hidden = true;
+      body.replaceChildren();
+      try {
+        const result = await this.api.call("GET", `collaboration/synthesis?publicationId=${encodeURIComponent(publication.publicationId)}`);
+        if (current !== request || !details.open) return;
+        const items = result.items || [];
+        body.replaceChildren(items.length
+          ? h("ul", { "aria-labelledby": headingId }, items.map((item) =>
+            h("li", {},
+              h("p", { class: "oba-small" }, synthesisItemText(item)),
+              h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `${synthesisKindLabel(item.kind)} text` }, item.markdown))))
+          : h("p", { class: "oba-small" }, "The shared conversation is empty."));
+      } catch (error) {
+        if (current !== request || !details.open) return;
+        if (error?.status === 404) {
+          body.replaceChildren(h("p", { class: "oba-small" }, "No conversation is available to you."));
+          return;
+        }
+        problem.textContent = error?.data?.error || "The conversation could not be read. Try again.";
+        problem.hidden = false;
+        problem.focus();
+      }
+    });
+    return details;
+  }
+
+  sharedReadingPanel(publication, index) {
+    const roles = publication.roles || [];
+    if (roles.some((role) => ["contributor", "editor"].includes(role))) return null;
+    const id = publication.publicationId;
+    const heading = h("h3", { tabindex: "-1" }, "Revisions shared with you");
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const body = h("div", {});
+    const previewStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const previewHolder = h("div", {});
+    const approvalHolder = h("div", {});
+    const previewButton = h("button", { class: "oba-btn", type: "button" }, "View shared material together");
+    previewButton.addEventListener("click", async () => {
+      const current = request;
+      previewButton.disabled = true;
+      previewStatus.textContent = "Loading the preview.";
+      previewHolder.replaceChildren();
+      approvalHolder.replaceChildren();
+      try {
+        const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
+        if (current !== request || !details.open) return;
+        previewHolder.replaceChildren(h("iframe", {
+          class: "oba-preview oba-preview-combined", title: "Shared material preview, not published",
+          sandbox: "", src: preview.previewUrl,
+        }));
+        const requirement = preview.rule?.policy?.requirement;
+        const mayApprove = requirement === "allParticipants" || Number.isInteger(requirement?.participantQuorum);
+        previewStatus.textContent = mayApprove
+          ? (preview.seen ? "Review the entire piece before deciding." : "Approval is unavailable until the current piece has been shared with you in full.")
+          : "Read-only preview. Unshared or changed material is withheld; this preview cannot be used to approve publication.";
+        if (mayApprove) {
+          const confirm = h("input", { type: "checkbox", id: `oba-reader-approve-${index}` });
+          const approve = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Approve this piece");
+          approve.disabled = !preview.seen;
+          const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my approval");
+          approve.addEventListener("click", async () => {
+            if (!confirm.checked) {
+              previewStatus.textContent = "Confirm that you approve the piece you reviewed.";
+              confirm.focus();
+              return;
+            }
+            approve.disabled = true;
+            try {
+              await this.api.call("POST", "collaboration/approve", { json: { publicationId: id, seen: preview.seen, affirmed: true } });
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = "Your approval was recorded. Review the piece again to see the current state.";
+            } catch (error) {
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = error?.data?.error || "Your approval could not be recorded. Review the piece again.";
+            }
+            previewButton.focus();
+          });
+          withdraw.addEventListener("click", async () => {
+            withdraw.disabled = true;
+            try {
+              const result = await this.api.call("POST", "collaboration/approve/withdraw", { json: { publicationId: id } });
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = result?.withdrawn ? "Your approval was withdrawn." : "You had no approval to withdraw.";
+            } catch (error) {
+              withdraw.disabled = false;
+              previewStatus.textContent = error?.data?.error || "Your approval could not be withdrawn.";
+            }
+            previewButton.focus();
+          });
+          approvalHolder.append(
+            h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: confirm.id }, "I approve publishing exactly the piece I reviewed.")),
+            h("div", { class: "oba-toolbar" }, approve, withdraw),
+          );
+        }
+      } catch (error) {
+        if (current === request && details.open) previewStatus.textContent = error?.data?.error || "The preview could not be loaded. Try again.";
+      } finally {
+        previewButton.disabled = false;
+      }
+    });
+    const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Revisions shared with you"), heading,
+      h("p", { class: "oba-small" }, "Only revisions explicitly shared with you appear here, along with any source moments sealed to the current revision. Later edits stay private."),
+      problem, body, previewButton, previewStatus, previewHolder, approvalHolder);
+    let request = 0;
+    details.addEventListener("toggle", async () => {
+      const current = ++request;
+      if (!details.open) {
+        previewHolder.replaceChildren();
+        approvalHolder.replaceChildren();
+        previewStatus.textContent = "";
+        return;
+      }
+      problem.hidden = true;
+      body.replaceChildren();
+      try {
+        const [reveal, moments, visible] = await Promise.all([
+          this.api.call("GET", `collaboration/reveal?publicationId=${encodeURIComponent(id)}`),
+          this.api.call("GET", `collaboration/moments?publicationId=${encodeURIComponent(id)}`),
+          this.api.call("GET", `collaboration/contributions/shared?publicationId=${encodeURIComponent(id)}`),
+        ]);
+        if (current !== request || !details.open) return;
+        const slots = reveal.slots || [];
+        const sourceName = (sourceId) => {
+          const source = (publication.sources || []).find((entry) => entry.id === sourceId);
+          const kind = SHARED_SOURCE_KINDS.find((entry) => entry.value === source?.kind)?.label || "Source";
+          return source ? `${source.title} (${kind})` : "A source that is no longer listed";
+        };
+        const additional = (visible.contributions || []).filter((item) => item.stamp.contributionId !== item.stamp.authorParticipantId);
+        body.replaceChildren(...(slots.length || additional.length ? [h("ul", { class: "oba-member-list", "aria-label": "Shared revisions" }, slots.map((slot) =>
+          h("li", {}, h("span", {}, revealSlotText(slot)),
+            h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || ""),
+          ),
+        ), additional.map((item) => {
+          const name = slots.find((slot) => slot.participantId === item.stamp.authorParticipantId)?.displayName || "A participant";
+          return h("li", {}, h("span", {}, `${name}: shared revision ${item.stamp.number}.`),
+            h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `Additional text from ${name}` }, item.markdown));
+        }))] : [h("p", { class: "oba-small" }, "No revisions have been shared with you.")]),
+        ...(moments.shared || []).filter((entry) => entry.contributionSnapshot === true || slots.some((slot) => entry.participant?.id === slot.participantId && entry.draftRevision === slot.stamp?.number))
+          .flatMap((entry) => (entry.moments || []).map((moment) => h("div", { class: "oba-moment" },
+          h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`),
+          ...momentBody(moment, sourceName, entry.participant?.displayName || "a participant")))));
+      } catch (error) {
+        if (current !== request || !details.open) return;
+        problem.textContent = error?.data?.error || "The shared revisions could not be read. Try again.";
+        problem.hidden = false;
+        problem.focus();
+      }
+    });
+    return details;
+  }
+
+  readerPolicyPanel(publication, index) {
+    const roles = publication.roles || [];
+    if (!roles.includes("reader") || ["contributor", "editor", "coordinator", "siteOwner"].some((role) => roles.includes(role))) return null;
+    const id = publication.publicationId;
+    const prefix = `oba-reader-rule-${index}`;
+    const heading = h("h3", { tabindex: "-1" }, "Approval rule");
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const body = h("div", {});
+    const load = async () => {
+      problem.hidden = true;
+      try {
+        const rule = await this.api.call("GET", `collaboration/approval-policy?publicationId=${encodeURIComponent(id)}`);
+        const parts = [h("p", { class: "oba-small" }, `Current rule: ${rule.summary}`)];
+        const proposal = rule.proposal;
+        if (proposal) {
+          parts.push(h("h4", {}, "Proposed approval rule"), h("p", {}, proposal.summary),
+            h("p", { class: "oba-small" }, proposal.valid
+              ? `Agreed: ${(proposal.consenting || []).join(", ") || "no one yet"}. Waiting for: ${(proposal.awaiting || []).join(", ") || "no one"}.`
+              : "Membership, access or approval requirements changed. A coordinator must propose the rule again."));
+          if (proposal.consentedByYou) {
+            const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my agreement");
+            withdraw.addEventListener("click", () => change("withdraw", { publicationId: id, proposalId: proposal.id }));
+            parts.push(withdraw);
+          } else if (proposal.valid && !rule.published) {
+            const confirm = h("input", { type: "checkbox", id: `${prefix}-confirm` });
+            const agree = h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: true }, "Agree to this rule");
+            confirm.addEventListener("change", () => { agree.disabled = !confirm.checked; });
+            agree.addEventListener("click", () => change("consent", { publicationId: id, proposalId: proposal.id, affirmed: confirm.checked }));
+            parts.push(h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-confirm` }, "I agree to this exact approval rule and understand that applying it clears the piece approvals.")), agree);
+          }
+        } else parts.push(h("p", { class: "oba-small" }, "There is no proposed rule."));
+        body.replaceChildren(...parts);
+        return true;
+      } catch (error) {
+        problem.textContent = approvalRuleFailure(error).message;
+        problem.hidden = false;
+        problem.focus();
+        return false;
+      }
+    };
+    const change = async (action, json) => {
+      problem.hidden = true;
+      try {
+        const result = await this.api.call("POST", `collaboration/approval-policy/${action}`, { json });
+        status.textContent = action === "withdraw" ? "Your agreement to the proposed rule was withdrawn."
+          : result.changed ? "Everyone agreed. The rule changed and the piece approvals were cleared."
+            : "Your agreement was recorded. The current rule remains in effect until everyone agrees.";
+        if (await load()) heading.focus();
+      } catch (error) {
+        problem.textContent = approvalRuleFailure(error).message;
+        problem.hidden = false;
+        problem.focus();
+      }
+    };
+    const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Approval rule"), heading, status, problem, body);
+    details.addEventListener("toggle", () => { if (details.open) load(); });
+    return details;
+  }
+
+  creditChoicePanel(publication, index) {
+    const id = publication.publicationId;
+    const prefix = `oba-credit-${index}`;
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const choice = h("select", { id: `${prefix}-choice`, disabled: true },
+      h("option", { value: "" }, "Choose a credit"),
+      h("option", { value: "profile" }, "My contributor profile"),
+      h("option", { value: "displayName" }, "Display name only"),
+      h("option", { value: "uncredited" }, "Uncredited"),
+    );
+    const name = h("input", { id: `${prefix}-name`, type: "text", maxlength: "200", autocomplete: "off" });
+    const nameField = h("div", { class: "oba-field", hidden: true }, h("label", { for: name.id }, "Public display name"), name);
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", disabled: true }, "Save my credit");
+    const reload = h("button", { class: "oba-btn", type: "button", hidden: true }, "Reload my credit");
+    let revision = null;
+    const sync = () => { nameField.hidden = choice.value !== "displayName"; };
+    choice.addEventListener("change", sync);
+    const form = h("form", { class: "oba-shared-form" },
+      h("p", { class: "oba-small" }, "Choose how your work is credited. A profile includes a snapshot of your contributor details; a display name has no profile link; uncredited work is not listed as an author. Changing your choice requires everyone to review and approve again."),
+      h("div", { class: "oba-field" }, h("label", { for: choice.id }, "My public credit"), choice),
+      nameField, h("div", { class: "oba-toolbar" }, save, reload));
+    const load = async () => {
+      try {
+        const result = await this.api.call("GET", `collaboration/credit-choice?publicationId=${encodeURIComponent(id)}`);
+        revision = result.revision;
+        choice.value = result.choice?.kind || "";
+        name.value = result.choice?.name || "";
+        sync();
+        choice.disabled = false;
+        save.disabled = false;
+        reload.hidden = true;
+        problem.hidden = true;
+        status.textContent = result.choice ? "Your saved choice is shown." : "You have not chosen your public credit.";
+      } catch (error) {
+        revision = null;
+        choice.disabled = true;
+        save.disabled = true;
+        reload.hidden = false;
+        problem.textContent = error?.data?.error || "Your credit choice could not be loaded.";
+        problem.hidden = false;
+        problem.focus();
+      }
+    };
+    reload.addEventListener("click", load);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (revision === null || !choice.value || (choice.value === "displayName" && !name.value.trim())) {
+        problem.textContent = "Choose a credit and, for display-name-only credit, enter a name.";
+        problem.hidden = false;
+        problem.focus();
+        return;
+      }
+      const selected = choice.value === "displayName" ? { kind: choice.value, name: name.value } : { kind: choice.value };
+      save.disabled = true;
+      problem.hidden = true;
+      try {
+        const result = await this.api.call("PUT", "collaboration/credit-choice", { json: { publicationId: id, expectedRevision: revision, choice: selected } });
+        revision = result.revision;
+        status.textContent = "Your credit choice was saved. Review the combined piece again.";
+      } catch (error) {
+        revision = null;
+        reload.hidden = false;
+        problem.textContent = error?.data?.error || "Your credit choice could not be saved. Reload before trying again.";
+        problem.hidden = false;
+        problem.focus();
+      } finally {
+        save.disabled = revision === null;
+      }
+    });
+    const details = h("details", { class: "oba-invitations" }, h("summary", {}, "My public credit"), status, problem, form);
+    let loaded = false;
+    details.addEventListener("toggle", () => { if (details.open && !loaded) { loaded = true; load(); } });
+    return details;
+  }
+
+  sharedPublishPanel(publication, index) {
+    if (!(publication.roles || []).some((role) => role === "siteOwner" || role === "coordinator")) return null;
+    const prefix = `oba-publish-${index}`;
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const confirm = h("input", { id: `${prefix}-confirm`, type: "checkbox" });
+    const publish = h("button", { class: "oba-btn oba-btn-primary", type: "submit", disabled: true }, "Publish approved piece");
+    confirm.addEventListener("change", () => { publish.disabled = !confirm.checked; });
+    const form = h("form", { class: "oba-shared-form" },
+      h("p", { class: "oba-small" }, "Publishing creates a public post. The server checks the current piece, public credits and required approvals again; an outdated approval cannot be used."),
+      h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: confirm.id }, "I intend to publish the current approved piece publicly.")),
+      publish);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!confirm.checked) return;
+      publish.disabled = true;
+      problem.hidden = true;
+      try {
+        const result = await this.api.call("POST", "collaboration/publish", { json: { publicationId: publication.publicationId } });
+        status.textContent = result.alreadyPublished ? "This reflection was already published." : "The approved piece was published.";
+        form.hidden = true;
+      } catch (error) {
+        const missing = error?.data?.missing;
+        problem.textContent = `${error?.data?.error || "The piece could not be published. Nothing was changed."}${Array.isArray(missing) && missing.length ? ` Still needed: ${missing.join(", ")}.` : ""}`;
+        problem.hidden = false;
+        problem.focus();
+        confirm.checked = false;
+      } finally {
+        publish.disabled = !confirm.checked;
+      }
+    });
+    return h("details", { class: "oba-invitations" }, h("summary", {}, "Publish shared reflection"), status, problem, form);
+  }
 
   /**
    * Where this reflection sits in one of the site's ordinary series. Every participant sees the
@@ -19075,6 +19486,21 @@ export class ObAdmin extends AdminElement {
     const conflict = h("div", { class: "oba-draft-conflict", role: "group", "aria-labelledby": `${prefix}-conflict-heading`, hidden: true });
     const sharing = h("div", { class: "oba-draft-sharing", hidden: true });
     const editor = h("div", { class: "oba-draft-editor", hidden: true });
+    const contributions = h("div", { class: "oba-draft-contributions" });
+    const contributionStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const contributionProblem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const contributionList = h("div", {});
+    const newText = h("textarea", { id: `${prefix}-new-contribution`, rows: "6" });
+    const createContribution = h("button", { class: "oba-btn", type: "button" }, "Add contribution");
+    contributions.append(
+      h("h4", { id: `${prefix}-contributions-heading`, tabindex: "-1" }, "Additional contributions"),
+      h("p", { class: "oba-small" }, "Additional contributions stay private until you share them. Creating one requires whole-piece approval."),
+      contributionStatus, contributionProblem, contributionList,
+      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-new-contribution` }, "New contribution (Markdown)"), newText),
+      createContribution,
+    );
+    let owned = { contributions: [], orderRevision: 0 };
+    const typedContributions = new Map();
     let saved = { number: 0, markdown: "" };
     let saving = false;
     let stash = null;
@@ -19097,6 +19523,105 @@ export class ObAdmin extends AdminElement {
       problem.hidden = true;
       problem.textContent = "";
     };
+
+    const contributionFailure = (error) => {
+      contributionProblem.textContent = error?.data?.error || "Your contributions could not be changed. Your text remains here.";
+      contributionProblem.hidden = false;
+      contributionProblem.focus();
+    };
+    const loadContributions = async () => {
+      const result = await this.api.call("GET", `collaboration/contributions?publicationId=${encodeURIComponent(id)}`);
+      owned = result;
+      const items = result.contributions || [];
+      const live = new Set(items.map((item) => item.stamp.contributionId));
+      for (const key of typedContributions.keys()) if (!live.has(key)) typedContributions.delete(key);
+      contributionList.replaceChildren(...items.map((item, index) => {
+        const key = item.stamp.contributionId;
+        const isMain = key === item.stamp.authorParticipantId;
+        const areaId = `${prefix}-contribution-${index}`;
+        const area = h("textarea", { id: areaId, rows: "6" });
+        area.value = typedContributions.get(key) ?? item.markdown;
+        area.addEventListener("input", () => typedContributions.set(key, area.value));
+        const up = h("button", { class: "oba-btn", type: "button", disabled: index === 0, "aria-label": `Move contribution ${index + 1} up` }, "Move up");
+        const down = h("button", { class: "oba-btn", type: "button", disabled: index === items.length - 1, "aria-label": `Move contribution ${index + 1} down` }, "Move down");
+        const move = async (delta) => {
+          contributionProblem.hidden = true;
+          const expected = items.map((entry) => entry.stamp.contributionId);
+          try {
+            await this.api.call("PUT", "collaboration/contributions/order", { json: { publicationId: id, expectedRevision: result.orderRevision, expected, order: moveItem(expected, index, delta) } });
+            await loadContributions();
+            contributionStatus.textContent = "Contribution order saved. Approvals may need to be given again.";
+            contributions.querySelector(`#${prefix}-contributions-heading`)?.focus();
+          } catch (error) { contributionFailure(error); }
+        };
+        up.addEventListener("click", () => move(-1));
+        down.addEventListener("click", () => move(1));
+        const controls = [up, down];
+        if (!isMain) {
+          const savePart = h("button", { class: "oba-btn", type: "button" }, "Save contribution");
+          const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw contribution");
+          const confirmation = h("div", {});
+          savePart.addEventListener("click", async () => {
+            contributionProblem.hidden = true;
+            const sent = area.value;
+            try {
+              await this.api.call("PUT", "collaboration/contributions", { json: { publicationId: id, contributionId: key, expectedRevision: item.stamp.number, markdown: sent } });
+              if (area.value === sent) typedContributions.delete(key);
+              await loadContributions();
+              await loadSharing();
+              contributionStatus.textContent = "Contribution saved. Earlier approvals may need to be given again.";
+              contributions.querySelector(`#${prefix}-contributions-heading`)?.focus();
+            } catch (error) {
+              if (error?.status === 409 && error?.data?.current) {
+                contributionProblem.textContent = `This contribution changed elsewhere. Your text is preserved. Newer saved text: ${error.data.current.markdown}`;
+                contributionProblem.hidden = false;
+                contributionProblem.focus();
+                await loadContributions();
+              } else contributionFailure(error);
+            }
+          });
+          withdraw.addEventListener("click", () => {
+            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, "Yes, withdraw");
+            const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+            const box = h("div", { class: "oba-confirm", role: "group", tabindex: "-1", "aria-label": `Confirm withdrawal of contribution ${index + 1}` },
+              h("p", {}, "Withdraw this contribution? Previously shared copies cannot be recalled, and approvals may be cleared."), yes, no);
+            confirmation.replaceChildren(box);
+            no.addEventListener("click", () => { confirmation.replaceChildren(); withdraw.focus(); });
+            box.addEventListener("keydown", (event) => { if (event.key === "Escape") { confirmation.replaceChildren(); withdraw.focus(); } });
+            yes.addEventListener("click", async () => {
+              try {
+                await this.api.call("POST", "collaboration/contributions/withdraw", { json: { publicationId: id, contributionId: key, expectedRevision: item.stamp.number, confirmed: true } });
+                typedContributions.delete(key);
+                await loadContributions();
+                await loadSharing();
+                contributionStatus.textContent = "Contribution withdrawn.";
+                contributions.querySelector(`#${prefix}-contributions-heading`)?.focus();
+              } catch (error) { contributionFailure(error); }
+            });
+            box.focus();
+          });
+          controls.push(savePart, withdraw, confirmation);
+        }
+        return h("section", { class: "oba-field" },
+          h("h5", {}, `Contribution ${index + 1}${isMain ? " (main draft)" : ""}, revision ${item.stamp.number}`),
+          isMain ? h("p", { class: "oba-small" }, "Edit this contribution in Your reflection above.") : h("div", { class: "oba-field" }, h("label", { for: areaId }, `Contribution ${index + 1} text`), area),
+          h("div", { class: "oba-toolbar" }, ...controls));
+      }));
+    };
+    createContribution.addEventListener("click", async () => {
+      contributionProblem.hidden = true;
+      const sent = newText.value;
+      createContribution.disabled = true;
+      try {
+        await this.api.call("POST", "collaboration/contributions", { json: { publicationId: id, markdown: sent } });
+        if (newText.value === sent) newText.value = "";
+        await loadContributions();
+        await loadSharing();
+        contributionStatus.textContent = "Contribution created privately.";
+        contributions.querySelector(`#${prefix}-contributions-heading`)?.focus();
+      } catch (error) { contributionFailure(error); }
+      finally { createContribution.disabled = false; }
+    });
 
     const renderPrompts = () => {
       togglePrompts.textContent = hidePrompts ? "Show prompts" : "Hide prompts";
@@ -19165,7 +19690,7 @@ export class ObAdmin extends AdminElement {
         if (conflict.hidden && problem.hidden) text.focus();
       });
       useNewer.addEventListener("click", () => {
-        stash = mine;
+        stash = text.value;
         text.value = current?.markdown || "";
         adoptDraft(current);
         loadSharing(); // an open offer box names the old revision
@@ -19202,7 +19727,9 @@ export class ObAdmin extends AdminElement {
         restore.hidden = true;
         saving = false;
         refreshState();
-        status.textContent = `Saved as revision ${saved.number}.`;
+        status.textContent = `Saved as revision ${saved.number}. ${result?.wholePieceRequired
+          ? "All required authors must approve the new piece again."
+          : "Approvals for earlier versions may need to be given again."}`;
         await loadSharing();
       } catch (error) {
         saving = false;
@@ -19247,7 +19774,7 @@ export class ObAdmin extends AdminElement {
       event.preventDefault();
       doSave();
     });
-    editor.append(form, conflict);
+    editor.append(form, conflict, contributions);
 
     // ---- sharing
     const runSharing = async (method, path, json, done) => {
@@ -19258,7 +19785,7 @@ export class ObAdmin extends AdminElement {
         await loadSharing();
         // An offer seals the writer's proposed moments and a reveal may share others' moments, so
         // the moments panel reads them again, keeping anything typed there.
-        if (path === "collaboration/reveal/ready") await moments?.load(false);
+        if (path === "collaboration/contributions/ready" || path === "collaboration/reveal/named") await moments?.load(false);
         // The control that was pressed is gone; keep keyboard and screen-reader users in place.
         sharing.querySelector(`#${prefix}-sharing-heading`)?.focus();
         return true;
@@ -19275,27 +19802,73 @@ export class ObAdmin extends AdminElement {
     const previewStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const previewList = h("ul", { class: "oba-member-list", "aria-label": "Authors in the combined piece", hidden: true });
     const previewHolder = h("div", {});
+    const approvalHolder = h("div", {});
     const previewButton = h("button", { class: "oba-btn", type: "button" }, "Review the combined piece");
     previewButton.addEventListener("click", async () => {
+      const restoreFocus = document.activeElement === previewButton;
       previewButton.disabled = true;
       previewStatus.textContent = "Loading the preview…";
+      approvalHolder.replaceChildren();
       try {
         const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
         previewList.replaceChildren(
           ...(preview.rule ? [h("li", {}, `Approval rule: ${approvalRuleText(preview.rule)}`)] : []),
-          ...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section))),
+          ...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section, !!preview.rule?.quorum))),
           ...(preview.items || []).map((item) => h("li", {}, previewItemText(item))),
         );
         previewList.hidden = false;
         // No scripts, forms, popups or same-origin access: the sandbox has no allowances at all.
         previewHolder.replaceChildren(h("iframe", { class: "oba-preview oba-preview-combined", title: "Combined piece preview, not published", sandbox: "", src: preview.previewUrl }));
         previewStatus.textContent = `Preview, not published. ${previewStateText(preview)}`;
-      } catch {
+        const requirement = preview.rule?.policy?.requirement;
+        const canApprove = roles.includes("contributor") || requirement === "allParticipants" || Number.isInteger(requirement?.participantQuorum);
+        if (canApprove) {
+          const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my approval");
+          withdraw.addEventListener("click", async () => {
+            withdraw.disabled = true;
+            try {
+              const result = await this.api.call("POST", "collaboration/approve/withdraw", { json: { publicationId: id } });
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = result?.withdrawn ? "Your approval was withdrawn. Review the combined piece again to see the current state." : "You had no approval to withdraw.";
+              previewButton.focus();
+            } catch (error) {
+              previewStatus.textContent = error?.data?.error || "Your approval could not be withdrawn. Nothing was changed.";
+              withdraw.disabled = false;
+              withdraw.focus();
+            }
+          });
+          approvalHolder.append(withdraw);
+        }
+        if (canApprove && preview.complete && typeof preview.seen === "string") {
+          const confirm = h("input", { type: "checkbox", id: `${prefix}-approve-confirm` });
+          const approve = h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: true }, "Approve this piece");
+          confirm.addEventListener("change", () => { approve.disabled = !confirm.checked; });
+          approve.addEventListener("click", async () => {
+            approve.disabled = true;
+            try {
+              await this.api.call("POST", "collaboration/approve", { json: { publicationId: id, seen: preview.seen, affirmed: confirm.checked } });
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = "Your approval was recorded. Review the combined piece again to see the current state.";
+              previewButton.focus();
+            } catch (error) {
+              approvalHolder.replaceChildren();
+              previewStatus.textContent = error?.data?.error || "Your approval could not be recorded. Review the combined piece again; nothing was changed.";
+              previewButton.focus();
+            }
+          });
+          approvalHolder.append(
+            h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-approve-confirm` },
+              "I approve publishing exactly the piece I reviewed, including its public credits.")),
+            approve,
+          );
+        }
+      } catch (error) {
         previewList.hidden = true;
         previewHolder.replaceChildren();
-        previewStatus.textContent = "The preview could not be loaded, or you cannot preview this reflection. Nothing was changed.";
+        previewStatus.textContent = error?.data?.error || "The preview could not be loaded, or you cannot preview this reflection. Nothing was changed.";
       } finally {
         previewButton.disabled = false;
+        if (restoreFocus && document.activeElement === document.body) previewButton.focus();
       }
     });
     const previewSection = h(
@@ -19307,12 +19880,14 @@ export class ObAdmin extends AdminElement {
       previewStatus,
       previewList,
       previewHolder,
+      approvalHolder,
     );
 
     // ---- layout and arrangement (ADR 0031)
     const arrangementStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const arrangementProblem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const arrangementBody = h("div", {});
+    const reloadArrangement = h("button", { class: "oba-btn", type: "button" }, "Reload arrangement and shared contributions");
     const arrangement = h(
       "div",
       { class: "oba-arrangement", hidden: true },
@@ -19320,6 +19895,7 @@ export class ObAdmin extends AdminElement {
       h("p", { class: "oba-small" }, "The layout and the order of turns decide how readers see the approved piece. Changing either one clears approvals, so every author reads and approves again. Nothing here shows anyone's writing."),
       arrangementStatus,
       arrangementProblem,
+      reloadArrangement,
       arrangementBody,
     );
     let arranged = null;
@@ -19481,14 +20057,52 @@ export class ObAdmin extends AdminElement {
       arrangementRequested = true;
       try {
         const result = await this.api.call("GET", `collaboration/reflection?publicationId=${encodeURIComponent(id)}`);
+        arrangementProblem.hidden = true;
         arranged = { draft: arrangementDraft(result.structure, result.participants), participants: result.participants || [], canArrange: result.canArrange === true };
         drawArrangement();
         arrangement.hidden = false;
-      } catch {
-        arrangement.hidden = true;
+      } catch (error) {
+        arrangement.hidden = false;
+        arrangementProblem.textContent = error?.data?.error || "The arrangement could not be read. Try again.";
+        arrangementProblem.hidden = false;
+        arrangementBody.replaceChildren();
+        if (error?.status === 409 && Number.isSafeInteger(error?.data?.revision) && (roles.includes("coordinator") || roles.includes("siteOwner"))) {
+          const reset = h("button", { class: "oba-btn", type: "button" }, "Replace arrangement with current contributions");
+          const holder = h("div", {});
+          reset.addEventListener("click", () => {
+            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, "Yes, replace arrangement");
+            const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+            const box = h("div", { class: "oba-confirm", role: "group", tabindex: "-1", "aria-label": "Confirm replacement of the arrangement" },
+              h("p", {}, "This replaces the entire arrangement and clears approvals. All current contributions must be shared with you."), yes, no);
+            holder.replaceChildren(box);
+            const cancel = () => { holder.replaceChildren(); reset.focus(); };
+            no.addEventListener("click", cancel);
+            box.addEventListener("keydown", (event) => { if (event.key === "Escape") cancel(); });
+            yes.addEventListener("click", async () => {
+              yes.disabled = true;
+              try {
+                await this.api.call("POST", "collaboration/reflection/reset", { json: { publicationId: id, expectedRevision: error.data.revision, confirmed: true } });
+                await loadArrangement();
+                arrangementStatus.textContent = "The arrangement was replaced. Review and approve the piece again.";
+                arrangement.querySelector(`#${prefix}-arrange-heading`)?.focus();
+              } catch (failure) {
+                arrangementProblem.textContent = failure?.data?.error || "The arrangement could not be replaced.";
+                arrangementProblem.focus();
+                yes.disabled = false;
+              }
+            });
+            box.focus();
+          });
+          arrangementBody.append(reset, holder);
+        }
         arrangementRequested = false; // try again on the next refresh
       }
     };
+    reloadArrangement.addEventListener("click", async () => {
+      if (arranged && !window.confirm("Reloading discards unsaved arrangement changes. Continue?")) return;
+      await loadArrangement();
+      arrangement.querySelector(`#${prefix}-arrange-heading`)?.focus();
+    });
 
     // ---- approval rule (ADR 0052)
     const ruleStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
@@ -19498,7 +20112,7 @@ export class ObAdmin extends AdminElement {
       "div",
       { class: "oba-approval-rule", hidden: true },
       h("h4", { id: `${prefix}-rule-heading`, tabindex: "-1" }, "Approval rule"),
-      h("p", { class: "oba-small" }, "Decides whose approval publication needs. Everyone who wrote always approves their own words, and nobody can approve for someone else. Changing the rule clears every approval."),
+      h("p", { class: "oba-small" }, "Everyone who wrote approves their own words. A new approval rule takes effect only after every active participant agrees; it then clears the piece approvals."),
       ruleStatus,
       ruleProblem,
       ruleBody,
@@ -19510,8 +20124,70 @@ export class ObAdmin extends AdminElement {
         h("p", { class: "oba-small" }, h("strong", {}, "Current rule. "), approvalRuleText(rule)),
         h("p", { class: "oba-small" }, `Must approve now: ${(rule.required || []).join(", ") || "no one yet"}. Still to approve: ${(rule.missing || []).join(", ") || "no one"}.`),
       ];
+      if (rule.proposal) {
+        const proposal = rule.proposal;
+        const pending = h("div", { class: "oba-fieldset" },
+          h("h5", {}, "Proposed approval rule"),
+          h("p", {}, proposal.summary),
+          h("p", { class: "oba-small" }, proposal.valid
+            ? `Agreed: ${(proposal.consenting || []).join(", ") || "no one yet"}. Waiting for: ${(proposal.awaiting || []).join(", ") || "no one"}.`
+            : "Membership, access or approval requirements changed. A coordinator must propose the rule again."),
+        );
+        if (proposal.valid && rule.you && !proposal.consentedByYou) {
+          const confirmProposal = h("input", { type: "checkbox", id: `${prefix}-proposal-confirm` });
+          const agree = h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: true }, "Agree to this rule");
+          confirmProposal.addEventListener("change", () => { agree.disabled = !confirmProposal.checked; });
+          agree.addEventListener("click", async () => {
+            agree.disabled = true;
+            ruleProblem.hidden = true;
+            try {
+              const result = await this.api.call("POST", "collaboration/approval-policy/consent", {
+                json: { publicationId: id, proposalId: proposal.id, affirmed: confirmProposal.checked },
+              });
+              ruleStatus.textContent = result.changed
+                ? `Everyone agreed. The rule changed and ${result.cleared} piece approvals were cleared.`
+                : "Your agreement was recorded. The current rule remains in effect until everyone agrees.";
+              await loadRule();
+              ruleBlock.querySelector(`#${prefix}-rule-heading`)?.focus();
+            } catch (error) {
+              ruleProblem.textContent = approvalRuleFailure(error).message;
+              ruleProblem.hidden = false;
+              ruleProblem.focus();
+            } finally {
+              agree.disabled = false;
+            }
+          });
+          pending.append(h("div", { class: "oba-field oba-check" }, confirmProposal, " ", h("label", { for: `${prefix}-proposal-confirm` }, "I agree to this exact approval rule and understand that applying it clears the piece approvals.")), agree);
+        } else if (rule.you && proposal.consentedByYou) {
+          const withdraw = h("button", { class: "oba-btn", type: "button" }, "Withdraw my agreement");
+          withdraw.addEventListener("click", async () => {
+            withdraw.disabled = true;
+            ruleProblem.hidden = true;
+            try {
+              await this.api.call("POST", "collaboration/approval-policy/withdraw", {
+                json: { publicationId: id, proposalId: proposal.id },
+              });
+              ruleStatus.textContent = "Your agreement to the proposed rule was withdrawn.";
+              await loadRule();
+              ruleBlock.querySelector(`#${prefix}-rule-heading`)?.focus();
+            } catch (error) {
+              ruleProblem.textContent = approvalRuleFailure(error).message;
+              ruleProblem.hidden = false;
+              ruleProblem.focus();
+            } finally {
+              withdraw.disabled = false;
+            }
+          });
+          pending.append(withdraw);
+        }
+        facts.push(pending);
+      }
       if (rule.published) {
         ruleBody.replaceChildren(...facts, h("p", { class: "oba-small" }, "This reflection is published, so its rule no longer changes."));
+        return;
+      }
+      if (rule.mayPropose === false) {
+        ruleBody.replaceChildren(...facts);
         return;
       }
       const kinds = h(
@@ -19558,6 +20234,10 @@ export class ObAdmin extends AdminElement {
           return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-rule-role-${role.value}` }, role.label));
         }),
       );
+      const quorum = h("input", { type: "number", id: `${prefix}-rule-quorum-count`, min: "1", max: "100", step: "1", value: choice.quorum ?? "" });
+      quorum.addEventListener("input", () => { choice.quorum = quorum.value; });
+      const quorumField = h("div", { class: "oba-field" }, h("label", { for: `${prefix}-rule-quorum-count` }, "Number of authors needed (with fixed-number rule)"), quorum,
+        h("p", { class: "oba-small" }, "For the participant rule, this number counts participants instead of only authors."));
       const scopes = h(
         "fieldset",
         { class: "oba-fieldset" },
@@ -19566,15 +20246,16 @@ export class ObAdmin extends AdminElement {
           { value: "ownSections", label: "The approver's own sections", help: "Another author's edit leaves your approval standing." },
           { value: "wholePiece", label: "The whole piece", help: "Any edit clears every approval." },
         ].map((item) => {
-          const radio = h("input", { type: "radio", name: `${prefix}-rule-scope`, id: `${prefix}-rule-scope-${item.value}`, value: item.value, checked: choice.scope === item.value });
+          const radio = h("input", { type: "radio", name: `${prefix}-rule-scope`, id: `${prefix}-rule-scope-${item.value}`, value: item.value, checked: choice.scope === item.value, disabled: rule.wholePieceRequired && item.value === "ownSections" });
           radio.addEventListener("change", () => {
             choice.scope = item.value;
           });
-          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-rule-scope-${item.value}` }, item.label), h("span", { class: "oba-small" }, ` ${item.help}`));
+          const help = rule.wholePieceRequired && item.value === "ownSections" ? " New reflections require whole-piece approval." : ` ${item.help}`;
+          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-rule-scope-${item.value}` }, item.label), h("span", { class: "oba-small" }, help));
         }),
       );
       const confirm = h("input", { type: "checkbox", id: `${prefix}-rule-confirm` });
-      const change = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Change approval rule");
+      const change = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Propose approval rule");
       change.addEventListener("click", async () => {
         ruleProblem.hidden = true;
         const built = approvalPolicyPayload(choice);
@@ -19586,9 +20267,9 @@ export class ObAdmin extends AdminElement {
         }
         change.disabled = true;
         try {
-          const result = await this.api.call("PUT", "collaboration/approval-policy", { json: { publicationId: id, expectedRevision: rule.revision, policy: built.policy, confirmed: confirm.checked } });
-          ruleStatus.textContent = result?.changed
-            ? `The approval rule changed. ${result.cleared === 1 ? "1 approval was" : `${result?.cleared ?? 0} approvals were`} cleared; every required author reads the piece and approves again.`
+          const result = await this.api.call("PUT", "collaboration/approval-policy", { json: { publicationId: id, expectedRevision: rule.revision, expectedProposalId: rule.proposal?.id ?? null, policy: built.policy, confirmed: confirm.checked } });
+          ruleStatus.textContent = result?.proposed
+            ? "The proposed rule is waiting for every active participant to agree. The current rule still applies."
             : "That is already the rule. Nothing changed.";
           await loadRule();
           ruleBlock.querySelector(`#${prefix}-rule-heading`)?.focus();
@@ -19607,6 +20288,7 @@ export class ObAdmin extends AdminElement {
         kinds,
         people,
         roles,
+        quorumField,
         scopes,
         h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-rule-confirm` }, "I understand that changing the rule clears every approval, and every required author approves again.")),
         h("div", { class: "oba-toolbar" }, change),
@@ -19623,7 +20305,7 @@ export class ObAdmin extends AdminElement {
       }
     };
 
-    const renderSharing = (reveal) => {
+    const renderSharing = (reveal, visible) => {
       const policy = REVEAL_POLICIES.find((item) => item.value === reveal.policy) || REVEAL_POLICIES[0];
       const slots = h(
         "ul",
@@ -19633,7 +20315,7 @@ export class ObAdmin extends AdminElement {
             "li",
             {},
             h("span", {}, revealSlotText(slot)),
-            slot.kind !== "private" ? h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || "") : null,
+            slot.kind !== "private" ? h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || "") : null,
           ),
         ),
       );
@@ -19641,22 +20323,84 @@ export class ObAdmin extends AdminElement {
         h("h4", { id: `${prefix}-sharing-heading`, tabindex: "-1" }, "Sharing"),
         h("p", { class: "oba-small" }, h("strong", {}, `${policy.label}. `), policy.help, " Until a revision is shared, only its writer can read it."),
       ];
-      if (reveal.slots?.length && saved.number) {
+      if (reveal.slots?.length && owned.contributions.length) {
         if (reveal.ready) {
           const takeBack = h("button", { class: "oba-btn", type: "button" }, "Take back my offer");
-          takeBack.addEventListener("click", () => runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision: null }, () => "Your offer was taken back."));
-          parts.push(h("p", { class: "oba-small" }, "You have offered a revision to share."), takeBack);
-        } else if (policy.value !== "independent") {
-          const offer = h("button", { class: "oba-btn", type: "button" }, `Offer revision ${saved.number} to the group`);
+          takeBack.addEventListener("click", () => runSharing("PUT", "collaboration/contributions/ready", { publicationId: id, contributions: null }, () => "Your offer was taken back."));
+          const offeredRevision = Number.isSafeInteger(reveal.readyRevision) ? reveal.readyRevision : null;
+          const offerText = offeredRevision === null
+            ? "You have offered a revision to share."
+            : offeredRevision === saved.number
+              ? `You have offered revision ${offeredRevision} to share.`
+              : `You have offered revision ${offeredRevision}, not your latest revision ${saved.number}. Take back the offer before offering your latest revision.`;
+          parts.push(h("p", { class: "oba-small" }, offerText), takeBack);
+        } else if (policy.value === "namedRecipients") {
+          const eligible = reveal.slots.filter((slot) => slot.mayReceive);
+          const contributionSelect = h("select", { id: `${prefix}-named-contribution` },
+            owned.contributions.map((item, index) => h("option", { value: item.stamp.contributionId }, `Contribution ${index + 1}, revision ${item.stamp.number}`)));
+          const choices = eligible.map((slot, index) => {
+            const box = h("input", { type: "checkbox", id: `${prefix}-recipient-${index}`, value: slot.participantId });
+            return { box, element: h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-recipient-${index}` }, `${slot.displayName}${slot.nonDrafter ? " (can read without draft access)" : ""}`)) };
+          });
+          const release = h("button", { class: "oba-btn", type: "button" },
+            owned.contributions.length === 1 ? `Choose who receives revision ${owned.contributions[0].stamp.number}` : "Choose who receives this contribution");
           const holder = h("div", {});
-          offer.addEventListener("click", () => {
-            const revision = saved.number; // what the writer confirms is exactly what is sent
+          release.addEventListener("click", () => {
+            const selected = owned.contributions.find((item) => item.stamp.contributionId === contributionSelect.value);
+            if (!selected) {
+              problem.textContent = "Choose a saved contribution.";
+              problem.hidden = false;
+              problem.focus();
+              return;
+            }
+            const revision = selected.stamp.number;
+            const recipients = choices.filter(({ box }) => box.checked).map(({ box }) => box.value);
+            if (!recipients.length) {
+              problem.textContent = "Choose at least one recipient.";
+              problem.hidden = false;
+              problem.focus();
+              return;
+            }
+            const names = eligible.filter((slot) => recipients.includes(slot.participantId)).map((slot) => `${slot.displayName}${slot.nonDrafter ? " (can read without draft access)" : ""}`);
             const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, `Share revision ${revision}`);
             const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
             const box = h(
               "div",
+              { class: "oba-confirm", role: "group", "aria-labelledby": `${prefix}-named-title`, tabindex: "-1" },
+              h("p", { id: `${prefix}-named-title`, class: "oba-confirm-title" }, `Share revision ${revision}?`),
+              h("p", { class: "oba-small" }, `Only these people can read this release: ${names.join(", ")}. Moments you proposed for the piece can also be shared with this revision. A copy already read cannot be taken back. Later edits stay private.`),
+              h("div", { class: "oba-toolbar" }, yes, no),
+            );
+            holder.replaceChildren(box);
+            box.focus();
+            const close = () => { holder.replaceChildren(); release.focus(); };
+            no.addEventListener("click", close);
+            box.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
+            yes.addEventListener("click", () =>
+              runSharing("POST", "collaboration/reveal/named", { publicationId: id, contributionId: selected.stamp.contributionId, revision, recipients, expectedAuthorizationRevision: reveal.authorizationRevision }, (result) => `Revision ${revision} was shared with the selected people.${offeredMomentsText(result)}`),
+            );
+          });
+          parts.push(
+            h("div", { class: "oba-field" }, h("label", { for: `${prefix}-named-contribution` }, "Contribution to share"), contributionSelect),
+            h("fieldset", { class: "oba-fieldset" }, h("legend", {}, "Who may read this revision?"), choices.length ? choices.map(({ element }) => element) : h("p", { class: "oba-small" }, "No other active participants are available.")),
+            release,
+            holder,
+          );
+        } else if (policy.value !== "independent") {
+          const offer = h("button", { class: "oba-btn", type: "button" },
+            owned.contributions.length === 1 ? `Offer revision ${owned.contributions[0].stamp.number} to the group` : "Offer all my contributions to the group");
+          const holder = h("div", {});
+          offer.addEventListener("click", () => {
+            const offered = owned.contributions.map((item) => ({ contributionId: item.stamp.contributionId, revision: item.stamp.number }));
+            const title = offered.length === 1 ? `Share revision ${offered[0].revision}?` : `Share ${offered.length} contributions?`;
+            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" },
+              offered.length === 1 ? `Share revision ${offered[0].revision}` : "Share these revisions");
+            const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+            const box = h(
+              "div",
               { class: "oba-confirm", role: "group", "aria-labelledby": `${prefix}-offer-title`, tabindex: "-1" },
-              h("p", { id: `${prefix}-offer-title`, class: "oba-confirm-title" }, `Share revision ${revision}?`),
+              h("p", { id: `${prefix}-offer-title`, class: "oba-confirm-title" }, title),
+              h("ul", {}, offered.map((item, index) => h("li", {}, `Contribution ${index + 1}, revision ${item.revision}`))),
               h("p", { class: "oba-small" }, "When the sharing rule is met, everyone who offered will read the revisions offered. A copy that has been read cannot be taken back. Later edits stay private."),
               h("div", { class: "oba-toolbar" }, yes, no),
             );
@@ -19671,14 +20415,14 @@ export class ObAdmin extends AdminElement {
               if (event.key === "Escape") close();
             });
             yes.addEventListener("click", () =>
-              runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision }, (result) =>
+              runSharing("PUT", "collaboration/contributions/ready", { publicationId: id, contributions: offered }, (result) =>
                 `${result?.revealed ? "Revealed. Everyone who offered can now read the offered revisions." : "Offered. Nothing is shared until the rule is met."}${offeredMomentsText(result)}`,
               ),
             );
           });
           parts.push(offer, holder);
         }
-      } else if (policy.value !== "independent" && !saved.number) {
+      } else if (policy.value !== "independent" && !owned.contributions.length) {
         parts.push(h("p", { class: "oba-small" }, "Save a draft before you can offer it."));
       }
       if (reveal.canSetPolicy) {
@@ -19701,24 +20445,39 @@ export class ObAdmin extends AdminElement {
           h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-policy-confirm` }, "I understand that changing the sharing rule clears every standing offer, and nothing is shared by the change.")),
           change,
         );
-        parts.push(ruleBlock);
       }
-      if (reveal.slots?.length) parts.push(slots);
-      if (reveal.slots?.length) parts.push(previewSection);
+      parts.push(ruleBlock);
+      if (reveal.canDraft !== false && reveal.slots?.length) parts.push(slots);
+      const additional = (visible.contributions || []).filter((item) => item.stamp.contributionId !== item.stamp.authorParticipantId);
+      if (additional.length) {
+        parts.push(h("h5", {}, "Additional shared contributions"), h("ul", { class: "oba-member-list", "aria-label": "Additional shared contributions" },
+          additional.map((item) => {
+            const name = reveal.slots?.find((slot) => slot.participantId === item.stamp.authorParticipantId)?.displayName || "A participant";
+            return h("li", {}, h("span", {}, `${name}, revision ${item.stamp.number}`),
+              h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `Additional text from ${name}` }, item.markdown));
+          })));
+      }
+      if (reveal.canDraft !== false && reveal.slots?.length) parts.push(previewSection);
       parts.push(arrangement);
       const focused = arrangement.contains(document.activeElement) ? document.activeElement : null;
       sharing.replaceChildren(...parts);
       sharing.hidden = false;
       if (focused?.isConnected) focused.focus();
       if (!arrangementRequested) loadArrangement();
-      if (reveal.canSetPolicy && !ruleRequested) loadRule();
+      if (!ruleRequested) loadRule();
     };
 
     const loadSharing = async () => {
       try {
-        renderSharing(await this.api.call("GET", `collaboration/reveal?publicationId=${encodeURIComponent(id)}`));
-      } catch {
+        if (!editor.hidden) await loadContributions();
+        const [reveal, visible] = await Promise.all([
+          this.api.call("GET", `collaboration/reveal?publicationId=${encodeURIComponent(id)}`),
+          this.api.call("GET", `collaboration/contributions/shared?publicationId=${encodeURIComponent(id)}`),
+        ]);
+        renderSharing(reveal, visible);
+      } catch (error) {
         sharing.hidden = true;
+        if (!editor.hidden) contributionFailure(error);
       }
     };
 
@@ -19764,6 +20523,7 @@ export class ObAdmin extends AdminElement {
     const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const list = h("ul", { class: "oba-synthesis-list", "aria-label": "Continuing conversation items" });
     const form = h("form", { class: "oba-synthesis-form", novalidate: true, "aria-labelledby": `${prefix}-add-heading` });
+    const delivery = h("div", {});
     const root = h("div", { class: "oba-synthesis", hidden: true });
     let current = { revision: 0, items: [], authors: [], you: "" };
     let dismissed = promptsDismissed();
@@ -19823,7 +20583,7 @@ export class ObAdmin extends AdminElement {
     const itemView = (item, position, total) => {
       const textId = `${prefix}-item-${item.id}`;
       const actions = h("div", { class: "oba-toolbar" });
-      const body = h("div", { class: "oba-synthesis-body" }, h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": `${synthesisKindLabel(item.kind)} text` }, item.markdown));
+      const body = h("div", { class: "oba-synthesis-body" }, h("pre", { class: "oba-draft-revealed", role: "group", tabindex: "0", "aria-label": `${synthesisKindLabel(item.kind)} text` }, item.markdown));
       const ids = current.items.map((entry) => entry.id);
       const move = (label, delta) => {
         const button = h("button", { class: "oba-btn", type: "button", "aria-label": `${label}: ${synthesisKindLabel(item.kind)} item ${position + 1} of ${total}` }, label);
@@ -19976,6 +20736,43 @@ export class ObAdmin extends AdminElement {
       list.replaceChildren(...items.map((item, position) => itemView(item, position, items.length)));
       list.hidden = items.length === 0;
       renderForm();
+      const recipients = current.delivery?.recipients || [];
+      delivery.replaceChildren(...(recipients.length ? [
+        h("h5", {}, "Share this conversation"),
+        h("p", { class: "oba-small" }, "Each author must agree before the named person can read the entire current conversation. Changes or access changes require everyone to agree again. A copy already read cannot be taken back."),
+        h("ul", {}, recipients.map((recipient) => {
+          const holder = h("div", {});
+          const button = h("button", {
+            class: "oba-btn", type: "button",
+            "aria-label": recipient.consented ? `Withdraw my agreement to share with ${recipient.displayName}` : `Choose to share with ${recipient.displayName}`,
+          }, recipient.consented ? "Withdraw my agreement" : "Choose to share");
+          controls.set(`delivery:${recipient.id}`, button);
+          const change = (consent) => send({
+            action: "delivery", recipient: recipient.id,
+            expectedAuthorizationRevision: current.delivery.authorizationRevision, consent,
+          }, consent ? `You agreed to share with ${recipient.displayName}. Every author must agree.` : `You withdrew your agreement to share with ${recipient.displayName}.`, `delivery:${recipient.id}`);
+          button.addEventListener("click", () => {
+            if (recipient.consented) {
+              change(false);
+              return;
+            }
+            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, "Agree to share");
+            const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+            const confirmation = h("div", { class: "oba-confirm", role: "group", tabindex: "-1", "aria-label": `Share with ${recipient.displayName}` },
+              h("p", {}, `Allow ${recipient.displayName} to read the entire current conversation when all authors agree?`),
+              h("p", { class: "oba-small" }, "This includes every item shown above. A copy already read cannot be taken back."),
+              yes, " ", no);
+            holder.replaceChildren(confirmation);
+            confirmation.focus();
+            no.addEventListener("click", () => { holder.replaceChildren(); button.focus(); });
+            confirmation.addEventListener("keydown", (event) => {
+              if (event.key === "Escape") { holder.replaceChildren(); button.focus(); }
+            });
+            yes.addEventListener("click", () => change(true));
+          });
+          return h("li", {}, h("span", {}, recipient.displayName, recipient.consented ? ": you agreed. " : ": you have not agreed. "), button, holder);
+        })),
+      ] : []));
       root.hidden = false;
     };
 
@@ -19993,10 +20790,11 @@ export class ObAdmin extends AdminElement {
 
     root.append(
       heading,
-      h("p", { class: "oba-small" }, "After comparing your reflections you may add shared items: where you agree, differ, still wonder, or would apply it. None are required. Only the authors of this reflection can see them."),
+      h("p", { class: "oba-small" }, "After comparing your reflections you may add shared items: where you agree, differ, still wonder, or would apply it. None are required. Authors can see them; other participants can see them only when every author agrees to share."),
       status,
       problem,
       list,
+      delivery,
       form,
     );
     return { element: root, load };
@@ -20099,37 +20897,7 @@ export class ObAdmin extends AdminElement {
       return source ? `${source.title} (${source.kindLabel})` : "A source that is no longer listed";
     };
 
-    // `stater` names whose rights statement it is: "you" for the writer's own moments.
-    const momentBody = (moment, stater = "you") => {
-      const parts = [];
-      if (moment.quotation) {
-        const rights = QUOTATION_RIGHTS.find((entry) => entry.value === moment.quotation.rights)?.label || "";
-        const provenance = QUOTATION_PROVENANCE.find((entry) => entry.value === moment.quotation.provenance)?.label || "";
-        const statement = stater === "you" ? "Rights, as you state them" : `Rights, as ${stater} states them`;
-        const notices = Array.isArray(moment.notices) ? moment.notices : [];
-        parts.push(
-          h(
-            "figure",
-            { class: "oba-moment-quote" },
-            h("blockquote", {}, h("p", { class: "oba-draft-revealed" }, moment.quotation.text)),
-            // The server's one attribution line: speaker, source and location, as every view shows it.
-            h("figcaption", { class: "oba-small" }, `— ${moment.attribution || `${sourceName(moment.source)}, ${moment.location}`}`),
-          ),
-          h("p", { class: "oba-small" }, `${statement}: ${rights}. ${provenance}.`, moment.quotation.rightsNote ? ` Rights note: ${moment.quotation.rightsNote}` : ""),
-          notices.length
-            ? h("ul", { class: "oba-moment-notices", "aria-label": "Things to check in this quotation" }, notices.map((notice) => h("li", {}, notice.message)))
-            : null,
-        );
-      }
-      if (moment.observation) parts.push(h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": "Observation" }, moment.observation));
-      const linkText = momentLinkText(moment);
-      parts.push(
-        linkText
-          ? h("p", {}, h("a", { href: moment.link.href, rel: "noopener noreferrer external", target: "_blank" }, linkText, h("span", { class: "oba-sr" }, ` in ${sourceName(moment.source)} (opens in a new tab)`)))
-          : h("p", { class: "oba-small" }, "This source has no link. The location is kept with the moment."),
-      );
-      return parts;
-    };
+    const renderMomentBody = (moment, stater = "you") => momentBody(moment, sourceName, stater);
 
     const itemView = (moment, position, total) => {
       const actions = h("div", { class: "oba-toolbar" });
@@ -20197,7 +20965,7 @@ export class ObAdmin extends AdminElement {
         "li",
         { class: "oba-moment" },
         h("p", { class: "oba-small" }, h("strong", {}, `Moment ${position + 1} of ${total}. `), momentText(moment, current.sources)),
-        ...momentBody(moment),
+        ...renderMomentBody(moment),
         actions,
         confirmHolder,
       );
@@ -20364,7 +21132,7 @@ export class ObAdmin extends AdminElement {
               "ul",
               { class: "oba-moments-list" },
               sortMoments(entry.moments, current.sources).map((moment) =>
-                h("li", { class: "oba-moment" }, h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`), ...momentBody(moment, entry.participant?.displayName || "a participant")),
+                h("li", { class: "oba-moment" }, h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`), ...renderMomentBody(moment, entry.participant?.displayName || "a participant")),
               ),
             ),
           ),

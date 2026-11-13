@@ -19,6 +19,7 @@ use openblog_core::draft::{DraftSet, MAX_DRAFT_SET_BYTES};
 use openblog_core::invitation::InvitationState;
 use openblog_core::media_moment::{MomentSet, MAX_MOMENT_SET_BYTES};
 use openblog_core::reflection::ReflectionStructure;
+use openblog_core::shared_credit::{CreditChoices, MAX_CREDIT_CHOICES_BYTES};
 use openblog_core::synthesis::{SynthesisSet, MAX_SYNTHESIS_SET_BYTES};
 
 use crate::auth;
@@ -36,6 +37,7 @@ pub const OUTCOMES_DIRECTORY: &str = ".openblog/private/collaboration/outcomes";
 /// Private shared synthesis sets (ADR 0025), one file per publication, beside the drafts. Prose
 /// lives here, so the directory stays out of Git, generated output, feeds and exports.
 pub const SYNTHESIS_DIRECTORY: &str = ".openblog/private/collaboration/synthesis";
+pub const CREDIT_CHOICES_DIRECTORY: &str = ".openblog/private/collaboration/credit-choices";
 const MAX_ID_ATTEMPTS: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -68,8 +70,17 @@ fn random_publication_id() -> Result<String, String> {
 }
 
 /// Create a record under a fresh opaque ID without ever replacing an existing file.
+#[cfg(test)]
 pub fn create(root: &Path, new: NewSharedPublication) -> Result<SharedPublication, CreateError> {
-    create_with(root, new, random_publication_id, |from, to| {
+    create_selected(root, new, Default::default())
+}
+
+pub fn create_selected(
+    root: &Path,
+    new: NewSharedPublication,
+    requirement: openblog_core::collaboration::InitialApprovalRequirement,
+) -> Result<SharedPublication, CreateError> {
+    create_with_requirement(root, new, requirement, random_publication_id, |from, to| {
         fs::hard_link(from, to)
     })
 }
@@ -77,16 +88,28 @@ pub fn create(root: &Path, new: NewSharedPublication) -> Result<SharedPublicatio
 /// The record is written completely to a private temporary file and then linked into place.
 /// Linking fails when the target exists, so two creators can never overwrite each other, and a
 /// crash leaves either no record or a complete one. The temporary file is always removed.
+#[cfg(test)]
 fn create_with(
     root: &Path,
+    new: NewSharedPublication,
+    next_id: impl FnMut() -> Result<String, String>,
+    link: impl Fn(&Path, &Path) -> io::Result<()>,
+) -> Result<SharedPublication, CreateError> {
+    create_with_requirement(root, new, Default::default(), next_id, link)
+}
+
+fn create_with_requirement(
+    root: &Path,
     mut new: NewSharedPublication,
+    requirement: openblog_core::collaboration::InitialApprovalRequirement,
     mut next_id: impl FnMut() -> Result<String, String>,
     link: impl Fn(&Path, &Path) -> io::Result<()>,
 ) -> Result<SharedPublication, CreateError> {
     let directory = directory(root).map_err(CreateError::Storage)?;
     for _ in 0..MAX_ID_ATTEMPTS {
         new.publication_id = next_id().map_err(CreateError::Storage)?;
-        let record = SharedPublication::create(&new).map_err(CreateError::Invalid)?;
+        let record = SharedPublication::create_with_initial_requirement(&new, requirement.clone())
+            .map_err(CreateError::Invalid)?;
         let text = record_text(&record).map_err(CreateError::Storage)?;
         create_private_directory(&directory).map_err(CreateError::Storage)?;
         let target = directory.join(format!("{}.json", record.publication_id));
@@ -310,23 +333,6 @@ pub fn load_drafts(root: &Path, publication_id: &str) -> Result<StoredDrafts, St
     Ok(StoredDrafts { set, text })
 }
 
-/// The approval set for a publication; an empty set when nothing was stored. A file that exists
-/// but is malformed is an error, never an empty set, so a bad file cannot make a piece look
-/// unapproved or approved. Read-only.
-pub fn load_approvals(root: &Path, publication_id: &str) -> Result<ApprovalSet, String> {
-    let directory =
-        crate::assistant_storage::contained_target(root, Path::new(APPROVALS_DIRECTORY))
-            .map_err(|_| "approval storage resolves outside the project".to_string())?;
-    let target = directory.join(format!("{publication_id}.json"));
-    match read_drafts_file(&target) {
-        Ok(None) => Ok(ApprovalSet::new()),
-        Ok(Some(text)) => {
-            ApprovalSet::from_json(&text).map_err(|_| "the approval file is not usable".to_string())
-        }
-        Err(_) => Err("the approval file is not usable".to_string()),
-    }
-}
-
 /// Atomically store `next` when the file still holds exactly what `previous` was read from. The
 /// caller holds the Admin content transaction lock; the comparison also catches outside changes.
 /// A crash leaves either the old complete file or the new one, never a partial draft.
@@ -395,17 +401,20 @@ fn approvals_directory(root: &Path) -> Result<PathBuf, String> {
         .map_err(|_| "approval storage resolves outside the project".to_string())
 }
 
-/// Like [`load_approvals`], keeping the text so [`replace_approvals`] can detect a concurrent change.
+/// Read the approval set and retain the original text for compare-and-swap writes.
+/// A missing set starts with the record's initial policy; a malformed file is an error.
 pub fn load_approvals_for_update(
     root: &Path,
     publication_id: &str,
+    initial_policy: openblog_core::approval::ApprovalPolicy,
 ) -> Result<StoredApprovals, String> {
     let target = approvals_directory(root)?.join(format!("{publication_id}.json"));
     let text = read_drafts_file(&target).map_err(|_| "the approval file is not usable")?;
     let set = match &text {
         Some(text) => ApprovalSet::from_json(text)
             .map_err(|_| "the approval file is not usable".to_string())?,
-        None => ApprovalSet::new(),
+        None => ApprovalSet::with_initial_policy(initial_policy)
+            .map_err(|_| "the initial approval policy is not usable".to_string())?,
     };
     Ok(StoredApprovals { set, text })
 }
@@ -428,6 +437,47 @@ pub fn replace_approvals(
         &previous.text,
         Some(&text),
         MAX_APPROVAL_SET_BYTES,
+    )
+}
+
+pub struct StoredCreditChoices {
+    pub choices: CreditChoices,
+    text: Option<String>,
+}
+
+fn credit_choices_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(CREDIT_CHOICES_DIRECTORY))
+        .map_err(|_| "credit choice storage resolves outside the project".to_string())
+}
+
+pub fn load_credit_choices(
+    root: &Path,
+    publication_id: &str,
+) -> Result<StoredCreditChoices, String> {
+    let target = credit_choices_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the credit choice file is not usable")?;
+    let choices = match &text {
+        Some(text) => CreditChoices::from_json(text)
+            .map_err(|_| "the credit choice file is not usable".to_string())?,
+        None => CreditChoices::default(),
+    };
+    Ok(StoredCreditChoices { choices, text })
+}
+
+pub fn replace_credit_choices(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredCreditChoices,
+    next: &CreditChoices,
+) -> Result<(), ReplaceError> {
+    let directory = credit_choices_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!("{}\n", next.to_json().map_err(|_| ReplaceError::TooLarge)?);
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        MAX_CREDIT_CHOICES_BYTES,
     )
 }
 
@@ -769,6 +819,92 @@ mod tests {
         let text = fs::read_to_string(&loaded[0].0).unwrap();
         assert!(!text.contains("Listening together\n") && text.ends_with("}\n"));
         assert!(!root.0.join("content").exists());
+    }
+
+    #[test]
+    fn initial_approval_scope_applies_only_when_no_set_exists() {
+        use openblog_core::approval::{ApprovalPolicy, ApprovalRequirement, ApprovalScope};
+
+        let root = root("initial-approval-scope");
+        let id = "shared-scope";
+        let fresh = load_approvals_for_update(
+            &root.0,
+            id,
+            ApprovalPolicy {
+                scope: ApprovalScope::WholePiece,
+                ..ApprovalPolicy::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(fresh.set.policy().scope, ApprovalScope::WholePiece);
+        assert_eq!(fresh.set.policy_revision(), 0);
+        let legacy = load_approvals_for_update(&root.0, id, ApprovalPolicy::default()).unwrap();
+        replace_approvals(&root.0, id, &legacy, &legacy.set).unwrap();
+        let existing = load_approvals_for_update(
+            &root.0,
+            id,
+            ApprovalPolicy {
+                scope: ApprovalScope::WholePiece,
+                ..ApprovalPolicy::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(existing.set.policy().scope, ApprovalScope::OwnSections);
+        let other_id = "shared-new-quorum";
+        let chosen = ApprovalPolicy {
+            scope: ApprovalScope::WholePiece,
+            requirement: ApprovalRequirement::ParticipantQuorum(3),
+        };
+        let fresh = load_approvals_for_update(&root.0, other_id, chosen.clone()).unwrap();
+        assert_eq!(fresh.set.policy(), &chosen);
+        assert_eq!(fresh.set.policy_revision(), 0);
+        replace_approvals(&root.0, other_id, &fresh, &fresh.set).unwrap();
+        let existing =
+            load_approvals_for_update(&root.0, other_id, ApprovalPolicy::default()).unwrap();
+        assert_eq!(existing.set.policy(), &chosen);
+    }
+
+    #[test]
+    fn credit_choices_are_private_revision_checked_and_fail_closed() {
+        use openblog_core::shared_credit::CreditChoice;
+
+        let root = root("credit-choices");
+        let id = "shared-credit";
+        let first = load_credit_choices(&root.0, id).unwrap();
+        let stale = load_credit_choices(&root.0, id).unwrap();
+        assert_eq!(first.choices.revision(), 0);
+        assert!(first.choices.choice("ann").is_none());
+        let mut next = first.choices.clone();
+        next.select(
+            "ann",
+            "ann",
+            "ann",
+            0,
+            CreditChoice::DisplayName {
+                name: "Pen Name".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+        replace_credit_choices(&root.0, id, &first, &next).unwrap();
+        assert_eq!(
+            replace_credit_choices(&root.0, id, &stale, &stale.choices),
+            Err(ReplaceError::Conflict)
+        );
+        let current = load_credit_choices(&root.0, id).unwrap();
+        assert_eq!(current.choices, next);
+        assert!(!root.0.join("content").exists());
+        let path = root
+            .0
+            .join(CREDIT_CHOICES_DIRECTORY)
+            .join(format!("{id}.json"));
+        fs::write(&path, "not json").unwrap();
+        assert!(load_credit_choices(&root.0, id).is_err());
+        assert_eq!(
+            replace_credit_choices(&root.0, id, &current, &next),
+            Err(ReplaceError::Conflict)
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), "not json");
     }
 
     #[test]

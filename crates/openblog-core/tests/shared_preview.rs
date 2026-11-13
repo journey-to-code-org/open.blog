@@ -3,7 +3,7 @@
 //! returned that the requester could not read through the draft module itself.
 
 use openblog_core::approval::{ApprovalPolicy, ApprovalRequirement};
-use openblog_core::approval::{ApprovalSet, ApprovalState, ApprovalSubject, Section};
+use openblog_core::approval::{ApprovalSet, ApprovalState};
 use openblog_core::collaboration::{
     NewParticipant, NewSharedPublication, NewSourceReference, Participant, SharedPublication,
     SourceKind,
@@ -94,47 +94,20 @@ fn drafts() -> DraftSet {
 
 const ALL: [&str; 3] = ["ann", "bo", "cy"];
 
-fn subject_for(set: &DraftSet, authors: &[&str]) -> Vec<(String, String, u64, String)> {
-    authors
-        .iter()
-        .filter_map(|id| set.current_stamp(id))
-        .map(|s| {
-            (
-                s.contribution_id,
-                s.author_participant_id,
-                s.number,
-                s.digest,
-            )
-        })
-        .collect()
-}
-
 /// Approve for `who` the exact piece `set` holds now, through the token the preview issued.
 fn approve(set: &DraftSet, approvals: &mut ApprovalSet, who: &str, authors: &[&str]) {
     let preview = build(&record(), set, approvals, who, authors).unwrap();
     let seen = preview.seen.expect("a complete piece issues a token");
-    let sections = subject_for(set, authors);
-    let sections: Vec<Section<'_>> = sections
-        .iter()
-        .map(|(id, owner, revision, digest)| Section {
-            contribution_id: id,
-            owner,
-            revision: *revision,
-            digest,
-        })
-        .collect();
-    let metadata = openblog_core::approval::public_metadata(&record());
-    let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
-    let subject = ApprovalSubject {
+    openblog_core::assembly::with_subject(
+        &record(),
+        None,
+        set,
+        &openblog_core::synthesis::SynthesisSet::new(),
+        &MomentSet::new(),
         authors,
-        sections: &sections,
-        metadata: &metadata,
-        attributed: &[],
-        roles: &[],
-    };
-    approvals
-        .approve(who, who, &subject, &seen, true, T)
-        .unwrap();
+        |subject| approvals.approve(who, who, subject, &seen, true, T),
+    )
+    .unwrap();
 }
 
 #[test]
