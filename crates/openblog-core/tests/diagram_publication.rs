@@ -162,6 +162,74 @@ fn malformed_syntax_is_rejected_even_with_accessible_text() {
 }
 
 #[test]
+fn text_in_a_label_or_description_is_not_an_accessible_title() {
+    for source in [
+        "flowchart LR\naccDescr {\naccTitle: Misleading title\nDescription only\n}\nA --> B\n",
+        "flowchart LR\naccDescr: A description\nA[\"Label\naccTitle: Misleading title\nend\"] --> B\n",
+        "flowchart LR\naccTitle: A title\nA[\"Label\naccDescr: Misleading description\nend\"] --> B\n",
+    ] {
+        let body = format!("```mermaid\n{source}```\n");
+        let errors = load(
+            Sources {
+                posts: vec![post(&body, "")],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            errors.iter().any(|error| error.contains("recognized accessibility declaration")),
+            "{errors:?}"
+        );
+        let preview = load(
+            Sources {
+                posts: vec![post(&body, "draft: true\n")],
+                ..Default::default()
+            },
+            LoadOptions {
+                include_drafts: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(preview.warnings.iter().any(|warning| warning.contains("recognized accessibility declaration")));
+        assert!(!preview.posts[0].html.contains("<figure class=\"ob-diagram\">"));
+        assert!(preview.posts[0].html.contains("flowchart LR"));
+    }
+}
+
+#[test]
+fn genuine_source_alternatives_take_precedence_over_fence_options() {
+    let body = "```mermaid title=\"Fallback\" description=\"Fallback description\"\nflowchart LR\naccTitle: Real title\naccDescr: Real description\nA --> B\n```\n";
+    let site = load(
+        Sources {
+            posts: vec![post(body, "")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    assert!(site.posts[0].html.contains("Real title"));
+    assert!(site.posts[0].html.contains("Real description"));
+}
+
+#[test]
+fn misleading_source_text_does_not_override_a_fence_alternative() {
+    let body = "```mermaid title=\"Fallback\" description=\"Description\"\nflowchart LR\nA[\"Label\naccTitle: Misleading title\nend\"] --> B\n```\n";
+    let errors = load(
+        Sources {
+            posts: vec![post(body, "")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap_err();
+    assert!(errors
+        .iter()
+        .any(|error| error.contains("recognized accessibility declaration")));
+}
+
+#[test]
 fn nested_diagram_syntax_reports_the_source_line() {
     let body =
         "Intro.\n\n> ```mermaid title=Broken description=Broken\n> flowchart LR\n> A -->\n> ```\n";

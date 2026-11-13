@@ -202,6 +202,59 @@ fn render_with_control(
             .apply_override(name, value)
             .map_err(|error| error.to_string())?;
     }
+    let renderer = merman::Renderer::new()
+        .with_resource_policy(*policy.input_policy())
+        .with_parse_options(merman::ParseOptions::strict());
+    let parsed = renderer
+        .parse_semantic(&diagram.source, control.clone())
+        .map_err(|error| render_error(error, &diagram.source))?
+        .ok_or("diagram renderer found no diagram")?;
+    let (title, description) = match parsed.model() {
+        merman::model::semantic::SemanticDiagramModel::Flowchart(model) => {
+            (&model.acc_title, &model.acc_descr)
+        }
+        merman::model::semantic::SemanticDiagramModel::Sequence(model) => {
+            (&model.acc_title, &model.acc_descr)
+        }
+        merman::model::semantic::SemanticDiagramModel::State(model) => {
+            (&model.acc_title, &model.acc_descr)
+        }
+        merman::model::semantic::SemanticDiagramModel::Er(model) => {
+            (&model.acc_title, &model.acc_descr)
+        }
+        merman::model::semantic::SemanticDiagramModel::Class(model) => {
+            (&model.acc_title, &model.acc_descr)
+        }
+        merman::model::semantic::SemanticDiagramModel::GitGraph(model) => {
+            (&model.acc_title, &model.acc_descr)
+        }
+        // Merman maps C4 accTitle to its ordinary title, so it cannot prove
+        // that the title came from an accessibility declaration.
+        merman::model::semantic::SemanticDiagramModel::C4(model) => {
+            if diagram.options.title.is_none() {
+                return Err("C4 diagrams require a fence title".into());
+            }
+            (&model.acc_title, &model.acc_descr)
+        }
+        _ => return Err("unsupported diagram family".into()),
+    };
+    for (name, actual, fallback, expected) in [
+        ("title", title, &diagram.options.title, &diagram.title),
+        (
+            "description",
+            description,
+            &diagram.options.description,
+            &diagram.description,
+        ),
+    ] {
+        if actual.as_ref().or(fallback.as_ref()) != Some(expected) {
+            return Err(format!(
+                "diagram {name} must be a recognized accessibility declaration or fence option"
+            )
+            .into());
+        }
+    }
+    drop(parsed);
     let prefix = format!("ob-diagram-{ordinal}");
     let config =
         merman::SourcePresentationConfig::from_value(serde_json::json!({"htmlLabels": false}));
@@ -210,31 +263,32 @@ fn render_with_control(
         pipeline: Some(merman::svg::SvgPipeline::resvg_safe().with_static_inline_contract(&prefix)),
         ..merman::SvgRequest::default()
     };
-    let output = merman::Renderer::new()
+    let output = renderer
         .with_presentation_engine(merman::MermaidEngine::new().with_site_config(config))
-        .with_parse_options(merman::ParseOptions::strict())
         .render(merman::RenderRequest::svg(
             &diagram.source,
             control,
             request,
         ))
-        .map_err(|error| {
-            let position = match &error {
-                merman::RenderError::Parse(diagnostic) => diagnostic
-                    .terminal_diagnostic_details()
-                    .span
-                    .and_then(|span| source_position(&diagram.source, span.start)),
-                _ => None,
-            };
-            RenderFailure {
-                message: error.to_string(),
-                position,
-            }
-        })?;
+        .map_err(|error| render_error(error, &diagram.source))?;
     let merman::RenderOutput::Svg(Some(svg)) = output else {
         return Err("diagram renderer produced no SVG".into());
     };
     accessible_svg(svg.svg(), diagram, &prefix).map_err(Into::into)
+}
+
+fn render_error(error: merman::RenderError, source: &str) -> RenderFailure {
+    let position = match &error {
+        merman::RenderError::Parse(diagnostic) => diagnostic
+            .terminal_diagnostic_details()
+            .span
+            .and_then(|span| source_position(source, span.start)),
+        _ => None,
+    };
+    RenderFailure {
+        message: error.to_string(),
+        position,
+    }
 }
 
 fn source_position(source: &str, offset: usize) -> Option<(usize, usize)> {
@@ -537,7 +591,11 @@ mod tests {
             include_str!("../../../tests/fixtures/diagrams/class.mmd"),
             include_str!("../../../tests/fixtures/diagrams/c4.mmd"),
         ] {
-            let result = render(&diagram(source), 7).unwrap();
+            let mut input = diagram(source);
+            if source.starts_with("C4") {
+                input.options.title = Some(input.title.clone());
+            }
+            let result = render(&input, 7).unwrap_or_else(|error| panic!("{source}: {error}"));
             let parsed = roxmltree::Document::parse(&result).unwrap();
             assert_eq!(parsed.root_element().attribute("role"), Some("img"));
         }
@@ -551,10 +609,24 @@ mod tests {
     }
 
     #[test]
+    fn c4_requires_a_verifiable_fence_title() {
+        let source = include_str!("../../../tests/fixtures/diagrams/c4.mmd");
+        let input = crate::diagram::validate_source("mermaid", source).unwrap();
+        assert!(render(&input, 1)
+            .unwrap_err()
+            .contains("C4 diagrams require a fence title"));
+        let input =
+            crate::diagram::validate_source("mermaid title=\"System context\"", source).unwrap();
+        assert!(render(&input, 1).is_ok());
+    }
+
+    #[test]
     fn rejects_oversized_source_and_escapes_accessible_text() {
         let mut d = diagram("flowchart LR\nA --> B");
         d.title = "A & <B>".into();
         d.description = "C & <D>".into();
+        d.options.title = Some(d.title.clone());
+        d.options.description = Some(d.description.clone());
         let output = render(&d, 1).unwrap();
         let parsed = roxmltree::Document::parse(&output).unwrap();
         assert_eq!(
@@ -569,6 +641,7 @@ mod tests {
         assert!(render(&d, 1).unwrap_err().contains("exceeds"));
         d.source = "flowchart LR\nA --> B".into();
         d.title = "bad\u{0}title".into();
+        d.options.title = Some(d.title.clone());
         assert!(render(&d, 1).unwrap_err().contains("invalid XML"));
     }
 

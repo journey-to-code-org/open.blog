@@ -10,7 +10,9 @@ The renderer-independent `openblog-core::diagram::discover` function validates
 fence options, source size and accessible text against this corpus. It does not
 render diagrams, check Mermaid syntax or sanitize output. Default builds still
 render Mermaid fences as code; the experimental feature adds the publication
-gate described below.
+gate described below. Discovery scans lines and can mistake text in a multiline
+label or another accessibility block for a declaration, so its results alone
+must not be treated as evidence of a valid text alternative.
 
 An experimental `openblog-core` feature, `diagram-rendering`, now wraps that
 pipeline with accessible title and description markup and stricter rejection
@@ -25,6 +27,13 @@ warning for drafts and previews. Builds emit digest-named SVG files and full
 feeds and portable Markdown/HTML link to those files with text alternatives.
 Parser diagnostics retain their source line and column, including the Markdown
 prefix on a diagram nested in a blockquote.
+Before rendering, the experimental gate checks the discovered alternatives
+against the strict semantic model or matching fence options. Mismatches fail
+closed, including cases where misleading text overrides a fence option. C4
+requires a fence `title` matching the discovered title because merman maps its
+`accTitle` into the ordinary diagram title and cannot distinguish its origin.
+Semantic normalization can also reject source alternatives that discovery
+reads differently; authors can use fence options instead.
 When `openblog export` writes Markdown with diagrams, it also creates a new
 sibling directory containing the referenced SVG files. Other content surfaces
 are not integrated. This is not yet a complete production feature.

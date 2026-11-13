@@ -5,5 +5,6 @@ fn main() {
     std::io::stdin()
         .read_to_string(&mut source)
         .expect("read diagram source");
-    println!("{}", openblog_wasm::render_diagram("mermaid", &source, 1));
+    let info = std::env::args().nth(1).unwrap_or_else(|| "mermaid".into());
+    println!("{}", openblog_wasm::render_diagram(&info, &source, 1));
 }
