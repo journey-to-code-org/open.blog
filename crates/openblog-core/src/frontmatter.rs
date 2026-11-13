@@ -639,7 +639,11 @@ pub fn splice_explained(
     splice_inner(original, fields, body)
 }
 
-fn splice_inner(original: &str, fields: &BTreeMap<String, Value>, body: &str) -> Result<String, String> {
+fn splice_inner(
+    original: &str,
+    fields: &BTreeMap<String, Value>,
+    body: &str,
+) -> Result<String, String> {
     let (bom, source) = match original.strip_prefix('\u{feff}') {
         Some(rest) => ("\u{feff}", rest),
         None => ("", original),
@@ -694,7 +698,11 @@ fn splice_inner(original: &str, fields: &BTreeMap<String, Value>, body: &str) ->
                     render_block(key, &after, eol)
                 }
                 _ => {
-                    let before = old.front_matter.fields.get(key.as_str()).filter(|v| !is_empty_value(v));
+                    let before = old
+                        .front_matter
+                        .fields
+                        .get(key.as_str())
+                        .filter(|v| !is_empty_value(v));
                     let after = wanted.get(key.as_str());
                     if before == after {
                         continue;
@@ -730,7 +738,13 @@ fn splice_inner(original: &str, fields: &BTreeMap<String, Value>, body: &str) ->
         }
         for (key, rendered) in added {
             let at = insertion_point(&pieces, &key);
-            pieces.insert(at, Piece::Span { key, lines: rendered });
+            pieces.insert(
+                at,
+                Piece::Span {
+                    key,
+                    lines: rendered,
+                },
+            );
         }
         out.push_str(lines[0]);
         for piece in &pieces {
@@ -754,11 +768,17 @@ fn splice_inner(original: &str, fields: &BTreeMap<String, Value>, body: &str) ->
     }
 
     let original_body: String = lines[body_start.min(lines.len())..].concat();
-    if trim_newlines(&original_body) == trim_newlines(body) && trim_newlines(&old.body) == trim_newlines(body) {
+    if trim_newlines(&original_body) == trim_newlines(body)
+        && trim_newlines(&old.body) == trim_newlines(body)
+    {
         out.push_str(&original_body);
     } else {
         let lead_len = original_body.len() - original_body.trim_start_matches(['\r', '\n']).len();
-        let lead = if trim_newlines(&original_body).is_empty() { eol } else { &original_body[..lead_len] };
+        let lead = if trim_newlines(&original_body).is_empty() {
+            eol
+        } else {
+            &original_body[..lead_len]
+        };
         out.push_str(if has_front_matter { lead } else { "" });
         let content = body.replace("\r\n", "\n");
         let content = content.trim_start_matches('\n').trim_end_matches('\n');
@@ -868,7 +888,10 @@ fn render_block(top: &str, fields: &BTreeMap<String, Value>, eol: &str) -> Vec<S
     if fields.is_empty() {
         return Vec::new();
     }
-    let ordered: Vec<(&str, Value)> = fields.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+    let ordered: Vec<(&str, Value)> = fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.clone()))
+        .collect();
     let mut out = String::new();
     if top == FAQ_KEY {
         serialize_faq(&ordered, &mut out);
@@ -884,7 +907,11 @@ fn render_value(key: &str, value: &Value, eol: &str) -> Vec<String> {
         Value::Scalar(text) => vec![format!("{key}: {}{eol}", scalar_for(key, text, None))],
         Value::List(items) => {
             let mut out = vec![format!("{key}:{eol}")];
-            out.extend(items.iter().map(|item| format!("  - {}{eol}", quote_scalar(item))));
+            out.extend(
+                items
+                    .iter()
+                    .map(|item| format!("  - {}{eol}", quote_scalar(item))),
+            );
             out
         }
     }
@@ -908,7 +935,9 @@ fn render_changed(key: &str, old_lines: &[String], value: &Value, eol: &str) -> 
             };
             let written = match body.chars().next() {
                 Some('"') => quote_double(text),
-                Some('\'') if !text.chars().any(char::is_control) => format!("'{}'", text.replace('\'', "''")),
+                Some('\'') if !text.chars().any(char::is_control) => {
+                    format!("'{}'", text.replace('\'', "''"))
+                }
                 Some('\'') => quote_double(text),
                 _ => scalar_for(key, text, Some(body)),
             };
@@ -923,12 +952,21 @@ fn render_changed(key: &str, old_lines: &[String], value: &Value, eol: &str) -> 
                 .iter()
                 .map(|line| line.trim_end_matches(['\r', '\n']))
                 .find_map(|line| {
-                    let dash = line.find("- ").or_else(|| (line.trim() == "-").then(|| line.find('-').unwrap_or(0)))?;
-                    line[..dash].trim().is_empty().then(|| format!("{}- ", &line[..dash]))
+                    let dash = line
+                        .find("- ")
+                        .or_else(|| (line.trim() == "-").then(|| line.find('-').unwrap_or(0)))?;
+                    line[..dash]
+                        .trim()
+                        .is_empty()
+                        .then(|| format!("{}- ", &line[..dash]))
                 })
                 .unwrap_or_else(|| "  - ".to_string());
             let mut out = vec![format!("{written_key}:{eol}")];
-            out.extend(items.iter().map(|item| format!("{lead}{}{eol}", quote_scalar(item))));
+            out.extend(
+                items
+                    .iter()
+                    .map(|item| format!("{lead}{}{eol}", quote_scalar(item))),
+            );
             out
         }
     }
@@ -937,7 +975,8 @@ fn render_changed(key: &str, old_lines: &[String], value: &Value, eol: &str) -> 
 /// A bare scalar. `draft`, and any value that was a bare true/false before,
 /// stays a bare boolean, which every YAML reader agrees on.
 fn scalar_for(key: &str, text: &str, old_bare: Option<&str>) -> String {
-    let was_bool = old_bare.is_some_and(|old| matches!(old.trim().to_ascii_lowercase().as_str(), "true" | "false"));
+    let was_bool = old_bare
+        .is_some_and(|old| matches!(old.trim().to_ascii_lowercase().as_str(), "true" | "false"));
     let is_bool = matches!(text, "true" | "false");
     if is_bool && (key == "draft" || was_bool) {
         text.to_string()
@@ -1037,7 +1076,10 @@ mod tests {
 
     const PIE: &str = "---\ntitle: Grammi's Pumpkin Pie\ndate: 2026-11-06\ndraft: true\nseries: thanksgiving\nprofile: recipe\n# filled in by Grammi\nservings: 8\nprep: 15 min\ncook: 30 min\ntags: [thanksgiving]\ndescription: \"One sentence: about pie.\"\ncover: \"\"\n---\n\n\nThe story.\n\n## Ingredients\n\n- 1 can pumpkin\n";
 
-    fn with(source: &str, change: impl FnOnce(&mut BTreeMap<String, Value>)) -> BTreeMap<String, Value> {
+    fn with(
+        source: &str,
+        change: impl FnOnce(&mut BTreeMap<String, Value>),
+    ) -> BTreeMap<String, Value> {
         let mut fields = parse(source).unwrap().front_matter.fields;
         change(&mut fields);
         fields
@@ -1051,7 +1093,11 @@ mod tests {
         let a: Vec<&str> = before.lines().collect();
         let b: Vec<&str> = after.lines().collect();
         assert_eq!(a.len(), b.len(), "line count changed:\n{after}");
-        a.iter().zip(&b).filter(|(x, y)| x != y).map(|(x, y)| (x.to_string(), y.to_string())).collect()
+        a.iter()
+            .zip(&b)
+            .filter(|(x, y)| x != y)
+            .map(|(x, y)| (x.to_string(), y.to_string()))
+            .collect()
     }
 
     #[test]
@@ -1075,12 +1121,22 @@ mod tests {
                     continue;
                 }
                 let fields = doc.front_matter.fields.clone();
-                assert_eq!(splice(&source, &fields, &doc.body).as_deref(), Some(source.as_str()), "{}", path.display());
+                assert_eq!(
+                    splice(&source, &fields, &doc.body).as_deref(),
+                    Some(source.as_str()),
+                    "{}",
+                    path.display()
+                );
                 if fields.contains_key("title") {
                     let mut retitled = fields.clone();
                     retitled.insert("title".into(), Value::Scalar("A new: title".into()));
-                    let out = splice(&source, &retitled, &doc.body).unwrap_or_else(|| panic!("{}", path.display()));
-                    let diff = source.lines().zip(out.lines()).filter(|(a, b)| a != b).count();
+                    let out = splice(&source, &retitled, &doc.body)
+                        .unwrap_or_else(|| panic!("{}", path.display()));
+                    let diff = source
+                        .lines()
+                        .zip(out.lines())
+                        .filter(|(a, b)| a != b)
+                        .count();
                     assert_eq!(diff, 1, "{}\n{out}", path.display());
                 }
                 checked += 1;
@@ -1094,22 +1150,45 @@ mod tests {
         let fields = parse(PIE).unwrap().front_matter.fields;
         assert_eq!(splice(PIE, &fields, &body_of(PIE)).unwrap(), PIE);
         // Studio drops the leading blank lines it shows: still untouched.
-        assert_eq!(splice(PIE, &fields, "The story.\n\n## Ingredients\n\n- 1 can pumpkin").unwrap(), PIE);
+        assert_eq!(
+            splice(
+                PIE,
+                &fields,
+                "The story.\n\n## Ingredients\n\n- 1 can pumpkin"
+            )
+            .unwrap(),
+            PIE
+        );
     }
 
     #[test]
     fn splice_changes_only_the_changed_line() {
-        let fields = with(PIE, |f| { f.insert("servings".into(), Value::Scalar("10".into())); });
+        let fields = with(PIE, |f| {
+            f.insert("servings".into(), Value::Scalar("10".into()));
+        });
         let out = splice(PIE, &fields, &body_of(PIE)).unwrap();
-        assert_eq!(changed_lines(PIE, &out), vec![("servings: 8".into(), "servings: 10".into())]);
-        let fields = with(PIE, |f| { f.insert("description".into(), Value::Scalar("Pie: the best".into())); });
+        assert_eq!(
+            changed_lines(PIE, &out),
+            vec![("servings: 8".into(), "servings: 10".into())]
+        );
+        let fields = with(PIE, |f| {
+            f.insert("description".into(), Value::Scalar("Pie: the best".into()));
+        });
         let out = splice(PIE, &fields, &body_of(PIE)).unwrap();
-        assert_eq!(changed_lines(PIE, &out), vec![("description: \"One sentence: about pie.\"".into(), "description: \"Pie: the best\"".into())]);
+        assert_eq!(
+            changed_lines(PIE, &out),
+            vec![(
+                "description: \"One sentence: about pie.\"".into(),
+                "description: \"Pie: the best\"".into()
+            )]
+        );
     }
 
     #[test]
     fn splice_publishing_removes_only_the_draft_line() {
-        let fields = with(PIE, |f| { f.remove("draft"); });
+        let fields = with(PIE, |f| {
+            f.remove("draft");
+        });
         let out = splice(PIE, &fields, &body_of(PIE)).unwrap();
         assert_eq!(out, PIE.replace("draft: true\n", ""));
     }
@@ -1119,14 +1198,25 @@ mod tests {
         let published = PIE.replace("draft: true\n", "");
         let fields = with(&published, |f| {
             f.insert("draft".into(), Value::Scalar("true".into()));
-            f.insert("tags".into(), Value::List(vec!["thanksgiving".into(), "pie, sweet".into()]));
+            f.insert(
+                "tags".into(),
+                Value::List(vec!["thanksgiving".into(), "pie, sweet".into()]),
+            );
         });
         let out = splice(&published, &fields, &body_of(&published)).unwrap();
-        assert!(out.contains("tags: [thanksgiving, \"pie, sweet\"]\n"), "{out}");
+        assert!(
+            out.contains("tags: [thanksgiving, \"pie, sweet\"]\n"),
+            "{out}"
+        );
         assert!(out.contains("\ndraft: true\n"), "{out}");
         let block = "---\ntitle: A\ntags:\n    - one\n---\nBody\n";
-        let fields = with(block, |f| { f.insert("tags".into(), Value::List(vec!["one".into(), "two".into()])); });
-        assert_eq!(splice(block, &fields, "Body").unwrap(), "---\ntitle: A\ntags:\n    - one\n    - two\n---\nBody\n");
+        let fields = with(block, |f| {
+            f.insert("tags".into(), Value::List(vec!["one".into(), "two".into()]));
+        });
+        assert_eq!(
+            splice(block, &fields, "Body").unwrap(),
+            "---\ntitle: A\ntags:\n    - one\n    - two\n---\nBody\n"
+        );
     }
 
     #[test]
@@ -1142,18 +1232,32 @@ mod tests {
 
     #[test]
     fn splice_body_edits_keep_the_gap_and_line_endings() {
-        let out = splice(PIE, &parse(PIE).unwrap().front_matter.fields, "A new story.").unwrap();
+        let out = splice(
+            PIE,
+            &parse(PIE).unwrap().front_matter.fields,
+            "A new story.",
+        )
+        .unwrap();
         assert!(out.ends_with("---\n\n\nA new story.\n"), "{out}");
         let crlf = "---\r\ntitle: A\r\n---\r\nOld\r\n";
-        let fields = with(crlf, |f| { f.insert("servings".into(), Value::Scalar("4".into())); });
-        assert_eq!(splice(crlf, &fields, "New\nline").unwrap(), "---\r\ntitle: A\r\nservings: 4\r\n---\r\nNew\r\nline\r\n");
+        let fields = with(crlf, |f| {
+            f.insert("servings".into(), Value::Scalar("4".into()));
+        });
+        assert_eq!(
+            splice(crlf, &fields, "New\nline").unwrap(),
+            "---\r\ntitle: A\r\nservings: 4\r\n---\r\nNew\r\nline\r\n"
+        );
         let bom = "\u{feff}---\ntitle: A\n---\nBody\n";
-        assert!(splice(bom, &with(bom, |_| {}), "Body").unwrap().starts_with('\u{feff}'));
+        assert!(splice(bom, &with(bom, |_| {}), "Body")
+            .unwrap()
+            .starts_with('\u{feff}'));
     }
 
     #[test]
     fn splice_removes_emptied_keys_and_handles_no_front_matter() {
-        let fields = with(PIE, |f| { f.insert("prep".into(), Value::Scalar(String::new())); });
+        let fields = with(PIE, |f| {
+            f.insert("prep".into(), Value::Scalar(String::new()));
+        });
         let out = splice(PIE, &fields, &body_of(PIE)).unwrap();
         assert_eq!(out, PIE.replace("prep: 15 min\n", ""));
         let plain = "Just words\n";
@@ -1167,9 +1271,14 @@ mod tests {
     #[test]
     fn splice_rewrites_a_changed_job_block_and_refuses_duplicates() {
         let source = "---\ntitle: Floor\njob:\n  trade: flooring\n  place:\n    town: Maple Falls\n---\nDone.\n";
-        let fields = with(source, |f| { f.insert("job.place.town".into(), Value::Scalar("Elkins".into())); });
+        let fields = with(source, |f| {
+            f.insert("job.place.town".into(), Value::Scalar("Elkins".into()));
+        });
         let out = splice(source, &fields, "Done.").unwrap();
-        assert_eq!(parse(&out).unwrap().front_matter.get("job.place.town"), Some("Elkins"));
+        assert_eq!(
+            parse(&out).unwrap().front_matter.get("job.place.town"),
+            Some("Elkins")
+        );
         assert!(out.starts_with("---\ntitle: Floor\njob:\n"));
         let twice = "---\ntitle: A\ntitle: B\n---\nx\n";
         assert!(splice(twice, &with("---\ntitle: B\n---\nx\n", |_| {}), "x").is_none());

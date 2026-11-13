@@ -7,6 +7,7 @@ import { createRouter, parseRoute } from "./router.js";
 import { signInForm } from "./screens/signin.js";
 import { SCREENS } from "./screens/index.js";
 import { createPostsStore } from "./parts/store.js";
+import { createUndo } from "./parts/undo.js";
 import { ApiError } from "./api.js";
 import { sayListDate } from "./parts/post-list.js";
 
@@ -21,7 +22,9 @@ export async function startShell(root, api, meta) {
   const posts = createPostsStore(api);
   const context = { api, meta, siteName, posts, go: (hash) => router.go(hash) };
 
-  const content = h("main", { class: "studio-screen", id: "studio-main" });
+  const undoSlot = h("div", { class: "studio-undo", "aria-live": "polite" });
+  const screenHost = h("div");
+  const content = h("main", { class: "studio-screen", id: "studio-main" }, undoSlot, screenHost);
   const actions = h("div", { class: "studio-actions", slot: "actions" });
   const find = h("action-button", { variant: "ghost", "aria-keyshortcuts": isMac ? "Meta+K" : "Control+K", onClick: () => openPalette() },
     "Find", h("span", { class: "studio-key", "aria-hidden": "true", text: isMac ? "⌘K" : "Ctrl K" }));
@@ -66,6 +69,7 @@ export async function startShell(root, api, meta) {
 
   async function signOut() {
     if (!(await router.current()?.leave?.() ?? true)) return;
+    context.undo?.forget();
     await api.signOut();
     location.hash = "#/";
     location.reload();
@@ -73,8 +77,7 @@ export async function startShell(root, api, meta) {
 
   let paletteScreen = [];
   const BASE = [
-    { id: "go-home", label: "Home", group: "Go to", href: "#/" },
-    { id: "go-posts", label: "Posts", group: "Go to", href: "#/posts" },
+    ...NAV.map((item) => ({ id: `go-${item.id}`, label: item.label, group: "Go to", href: item.href })),
     { id: "write", label: "Write something new", group: "Do", href: "#/write" },
     { id: "site", label: "View my site", group: "Do" },
     { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin" },
@@ -125,7 +128,7 @@ export async function startShell(root, api, meta) {
       shell.current = AREA[route.name] || "home";
       shell.heading = screen.title;
       document.title = `${screen.title} · ${siteName}`;
-      content.replaceChildren(screen.element);
+      screenHost.replaceChildren(screen.element);
       actions.replaceChildren(...(screen.actions || []));
       paletteScreen = screen.palette || [];
       palette.items = [...paletteScreen, ...BASE];
@@ -135,6 +138,7 @@ export async function startShell(root, api, meta) {
     },
   });
   context.replaceRoute = (hash) => router.replace(hash);
+  context.undo = await createUndo({ api, posts, slot: undoSlot, onRestored: () => router.current()?.reload?.() });
   context.setTitle = (title) => { shell.heading = title; document.title = `${title} · ${siteName}`; };
   context.setActions = (nodes) => actions.replaceChildren(...nodes);
   context.toast = toast;

@@ -5,11 +5,15 @@ import { use } from "../zubra.js";
 import { postList } from "../parts/post-list.js";
 import { countByStatus, matchPosts, summary } from "../parts/search.js";
 import { parseRoute, routeHash } from "../router.js";
+import { ask } from "../parts/dialogs.js";
+import { postHref } from "../parts/post-list.js";
+import { takeOffQuestion, takeOffSite, takenOffWords } from "../parts/take-off.js";
+import { toast } from "../parts/dom.js";
 
 const STATUSES = ["all", "draft", "scheduled", "published"];
 
-export async function createPosts({ posts, replaceRoute }) {
-  await use("action-button", "text-field", "segmented-control", "empty-state", "skeleton-block", "status-badge", "alert-banner");
+export async function createPosts({ api, posts, replaceRoute, undo, go }) {
+  await use("dropdown-menu", "action-button", "text-field", "segmented-control", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   let items = [];
   // Search and filter live in the address, so Back and a reload come back to the same list.
   const asked = parseRoute(location.hash).query;
@@ -43,7 +47,38 @@ export async function createPosts({ posts, replaceRoute }) {
       list.replaceChildren(h("empty-state", { heading: "Nothing matches" }, query ? `No posts match “${query}”.` : "No posts here yet.",
         h("action-button", { slot: "actions", variant: "secondary", onClick: () => { query = ""; status = "all"; find.value = ""; filter.value = "all"; remember(); draw(); } }, "Show all posts")));
     } else {
-      list.replaceChildren(postList(shown, "Posts"));
+      list.replaceChildren(postList(shown, "Posts", rowMenu));
+    }
+  }
+
+  // Each row ends with More: open it, take it off the site, or delete it (with Undo).
+  function rowMenu(post) {
+    const items = [{ value: "open", label: "Open it" }];
+    if (post.status === "published" || post.status === "scheduled") items.push({ value: "takeoff", label: "Take it off my site" });
+    items.push({ value: "delete", label: "Delete" });
+    return h("dropdown-menu", { class: "studio-row-menu", items, onItemselect: (e) => rowChoice(post, e.detail) },
+      h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: ` for ${post.title || "this post"}` })));
+  }
+
+  async function rowChoice(post, value) {
+    const title = post.title || "this post";
+    if (value === "open") go(postHref(post.path));
+    if (value === "takeoff") await takeOff(post);
+    if (value === "delete") {
+      const deleted = await undo.deletePost({ path: post.path, title, state: post.status, ask, takeOff: () => takeOff(post, true) });
+      if (deleted) load();
+    }
+  }
+
+  async function takeOff(post, asked = false) {
+    if (!asked && (await ask(takeOffQuestion(post.title || "this post"))) !== "yes") return;
+    try {
+      const { sent } = await takeOffSite(api, post.path);
+      posts.stale();
+      toast(takenOffWords(sent), sent.sent === "failed" ? { variant: "warning" } : {});
+      load();
+    } catch (error) {
+      toast(error.message, { variant: "warning" });
     }
   }
 
@@ -57,5 +92,5 @@ export async function createPosts({ posts, replaceRoute }) {
     }
   }
 
-  return { title: "Posts", element, load };
+  return { title: "Posts", element, load, reload: load };
 }

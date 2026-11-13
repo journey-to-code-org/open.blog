@@ -82,6 +82,7 @@ test("Grammi writes and publishes Pumpkin bread on a phone", async ({ page }) =>
   await signIn(page);
   await expect(page.getByRole("heading", { name: "What would you like to do?" })).toBeVisible();
   await page.getByRole("link", { name: "Write something new" }).first().click();
+  await page.getByRole("link", { name: /A story/ }).click();
   await page.getByRole("textbox", { name: "Title", exact: true }).fill("Pumpkin bread");
   await page.getByRole("textbox", { name: "Words", exact: true }).fill("Two loaves, one for the neighbors.\n\nBake for 60 minutes.");
   await expect(page.getByText(/Draft · saved/)).toBeVisible({ timeout: 10000 });
@@ -125,12 +126,13 @@ test("a change made elsewhere never loses her words", async ({ page }) => {
 });
 
 test("after a new post saves, Write something new opens a blank post", async ({ page }) => {
-  await signIn(page, "#/write");
+  await signIn(page, "#/write/new/story");
   await page.getByRole("textbox", { name: "Title", exact: true }).fill("First of two");
   await page.getByRole("textbox", { name: "Words", exact: true }).fill("One.");
   await expect(page).toHaveURL(/#\/write\/.*first-of-two/, { timeout: 10000 });
   await page.getByRole("link", { name: "Home" }).first().click();
   await page.getByRole("link", { name: "Write something new" }).first().click();
+  await page.getByRole("link", { name: /A story/ }).click();
   await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeFocused();
 });
@@ -154,7 +156,7 @@ test("looking at a post without changing it saves nothing", async ({ page }) => 
 
 test("words with no title wait for her, and the question fits a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 860 });
-  await signIn(page, "#/write");
+  await signIn(page, "#/write/new/story");
   await page.getByRole("textbox", { name: "Words", exact: true }).fill("Deviled eggs, the way Mom made them.");
   await page.goto(`${origin}/admin/studio/#/posts`);
   const dialog = page.getByRole("dialog");
@@ -164,12 +166,12 @@ test("words with no title wait for her, and the question fits a phone", async ({
     expect(box.x + box.width).toBeLessThanOrEqual(400);
   }
   await dialog.getByRole("button", { name: "Leave for now" }).click();
-  await page.goto(`${origin}/admin/studio/#/write`);
+  await page.goto(`${origin}/admin/studio/#/write/new/story`);
   await page.getByRole("button", { name: "Put them back" }).click();
   await expect(page.getByRole("textbox", { name: "Words", exact: true })).toHaveValue("Deviled eggs, the way Mom made them.");
 });
 
-for (const [name, hash] of [["Home", ""], ["Posts", "#/posts"], ["Write", "#/write"]]) {
+for (const [name, hash] of [["Home", ""], ["Posts", "#/posts"], ["Write", "#/write/new/story"], ["New post", "#/write"]]) {
   test(`${name} passes axe and fits 320 px`, async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });
     await signIn(page, hash);

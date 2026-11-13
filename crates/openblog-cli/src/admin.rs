@@ -16913,10 +16913,15 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             // In keep mode a key the request leaves out entirely stays as it is;
             // only `null` (or an empty value) removes one. A client that forgets
             // a field can't delete it by accident.
-            if let (Ok(document), Some(sent)) = (frontmatter::parse(&current), body["fields"].as_object()) {
+            if let (Ok(document), Some(sent)) =
+                (frontmatter::parse(&current), body["fields"].as_object())
+            {
                 for (key, value) in &document.front_matter.fields {
                     let top = key.split('.').next().unwrap_or(key);
-                    if !sent.contains_key(key) && !sent.contains_key(top) && !fields.contains_key(key) {
+                    if !sent.contains_key(key)
+                        && !sent.contains_key(top)
+                        && !fields.contains_key(key)
+                    {
                         fields.insert(key.clone(), value.clone());
                     }
                 }
@@ -17343,7 +17348,10 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     if let Some(sent) = req.query.get("etag") {
         let current = fs::read_to_string(&path).unwrap_or_default();
         if *sent != etag(&current) {
-            return Response::error(409, "This post changed since you opened it, so it wasn't deleted.");
+            return Response::error(
+                409,
+                "This post changed since you opened it, so it wasn't deleted.",
+            );
         }
     }
     if rel.starts_with("proof/") {
@@ -17471,7 +17479,10 @@ fn restore_document(state: &AppState, req: &Request) -> Response {
     let Some(trashed) = body["trashedTo"].as_str() else {
         return Response::error(400, "Missing trashedTo");
     };
-    if body.get("trashedTrackTo").is_some_and(|track| !track.is_null()) {
+    if body
+        .get("trashedTrackTo")
+        .is_some_and(|track| !track.is_null())
+    {
         return Response::error(
             422,
             "This post had a map track, so it can't be put back from here. Its files are still in the site's trash folder.",
@@ -17544,7 +17555,10 @@ fn restore_document(state: &AppState, req: &Request) -> Response {
     }
     for (from, to) in &moves {
         if !from.is_file() {
-            return Response::error(404, "This post is no longer in the trash, so it can't come back from here.");
+            return Response::error(
+                404,
+                "This post is no longer in the trash, so it can't come back from here.",
+            );
         }
         if to.exists() {
             return Response::error(
@@ -26427,7 +26441,12 @@ What I read:
         assert_eq!(profiles[1]["fields"][2]["suggestions"][0], "American");
         assert_eq!(profiles[1]["fields"][0]["suggestions"], json!([]));
         assert_eq!(profiles[1]["fields"][0]["aliases"], json!(["serves"]));
-        let prep = profiles[1]["fields"].as_array().unwrap().iter().find(|f| f["key"] == "prepTime").unwrap();
+        let prep = profiles[1]["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["key"] == "prepTime")
+            .unwrap();
         assert_eq!(prep["aliases"], json!(["prep", "prep_time"]));
         assert_eq!(profiles[2]["id"], "research");
         assert_eq!(profiles[2]["fields"][0]["key"], "doi");

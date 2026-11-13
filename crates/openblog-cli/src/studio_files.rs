@@ -2,6 +2,7 @@
 //! Studio's files (the Admin rebuilt on Zubra UI), embedded in the binary and served under
 //! `/admin/studio/`.
 
+#[rustfmt::skip]
 pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("api.js", include_bytes!("../../../web/studio/api.js")),
     ("fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2", include_bytes!("../../../web/studio/fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2")),
@@ -12,15 +13,28 @@ pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("parts/dates.js", include_bytes!("../../../web/studio/parts/dates.js")),
     ("parts/dialogs.js", include_bytes!("../../../web/studio/parts/dialogs.js")),
     ("parts/dom.js", include_bytes!("../../../web/studio/parts/dom.js")),
+    ("parts/image-markdown.js", include_bytes!("../../../web/studio/parts/image-markdown.js")),
     ("parts/kept.js", include_bytes!("../../../web/studio/parts/kept.js")),
+    ("parts/picture-picker.js", include_bytes!("../../../web/studio/parts/picture-picker.js")),
+    ("parts/post-details.js", include_bytes!("../../../web/studio/parts/post-details.js")),
     ("parts/post-fields.js", include_bytes!("../../../web/studio/parts/post-fields.js")),
     ("parts/post-list.js", include_bytes!("../../../web/studio/parts/post-list.js")),
+    ("parts/preview.js", include_bytes!("../../../web/studio/parts/preview.js")),
     ("parts/publish.js", include_bytes!("../../../web/studio/parts/publish.js")),
+    ("parts/recipe-advice.js", include_bytes!("../../../web/studio/parts/recipe-advice.js")),
+    ("parts/recipe-body.js", include_bytes!("../../../web/studio/parts/recipe-body.js")),
+    ("parts/recipe-editor.js", include_bytes!("../../../web/studio/parts/recipe-editor.js")),
+    ("parts/recipe-fields.js", include_bytes!("../../../web/studio/parts/recipe-fields.js")),
+    ("parts/recipe-numbers.js", include_bytes!("../../../web/studio/parts/recipe-numbers.js")),
     ("parts/search.js", include_bytes!("../../../web/studio/parts/search.js")),
     ("parts/store.js", include_bytes!("../../../web/studio/parts/store.js")),
+    ("parts/take-off.js", include_bytes!("../../../web/studio/parts/take-off.js")),
+    ("parts/undo.js", include_bytes!("../../../web/studio/parts/undo.js")),
     ("router.js", include_bytes!("../../../web/studio/router.js")),
     ("screens/home.js", include_bytes!("../../../web/studio/screens/home.js")),
     ("screens/index.js", include_bytes!("../../../web/studio/screens/index.js")),
+    ("screens/new-post.js", include_bytes!("../../../web/studio/screens/new-post.js")),
+    ("screens/pictures.js", include_bytes!("../../../web/studio/screens/pictures.js")),
     ("screens/posts.js", include_bytes!("../../../web/studio/screens/posts.js")),
     ("screens/signin.js", include_bytes!("../../../web/studio/screens/signin.js")),
     ("screens/write.js", include_bytes!("../../../web/studio/screens/write.js")),

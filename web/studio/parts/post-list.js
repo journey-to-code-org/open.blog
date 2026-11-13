@@ -20,16 +20,18 @@ export function postHref(path) {
   return `#/write/${encodeURIComponent(path)}`;
 }
 
-export function postRow(post) {
+/** One row. `menu(post)` may return a node (a "More" menu) to end the row with. */
+export function postRow(post, menu) {
   const badge = BADGE[post.status] || BADGE.draft;
   const when = post.status === "error" ? "This file can't be read; open it in the old Admin." : post.date ? sayListDate(post.date) : "No date yet";
   return h("li", { class: "studio-post-row", "data-status": post.status },
     h("a", { class: "studio-post-link", href: postHref(post.path) },
       h("span", { class: "studio-post-title", text: post.title || "Untitled" }),
       h("span", { class: "studio-post-when", text: when })),
-    h("status-badge", { variant: badge.variant, dot: true }, badge.text));
+    h("status-badge", { variant: badge.variant, dot: true }, badge.text),
+    menu ? menu(post) : null);
 }
 
-export function postList(posts, label) {
-  return h("ul", { class: "studio-post-list", "aria-label": label }, posts.map(postRow));
+export function postList(posts, label, menu) {
+  return h("ul", { class: "studio-post-list", "aria-label": label }, posts.map((post) => postRow(post, menu)));
 }
