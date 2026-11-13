@@ -18,7 +18,7 @@
 //! id that is already taken is refused; that collision (never any content) is the only thing a
 //! participant can learn about an id they do not own.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use blake2::{Blake2s256, Digest};
@@ -224,6 +224,8 @@ pub struct DraftSet {
     named_releases: Vec<NamedRelease>,
     #[serde(default, skip_serializing_if = "crate::shared_series::is_zero")]
     order_revision: u64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    owner_reorders: BTreeMap<String, u64>,
 }
 
 fn digest(owner: &str, contribution_id: &str, number: u64, markdown: &str) -> String {
@@ -258,6 +260,7 @@ impl DraftSet {
             ready: Vec::new(),
             named_releases: Vec::new(),
             order_revision: 0,
+            owner_reorders: BTreeMap::new(),
         };
         if set.is_valid() {
             Ok(set)
@@ -376,6 +379,9 @@ impl DraftSet {
         if current as usize >= MAX_REVISIONS_PER_DRAFT {
             return Err(DraftError::LimitReached);
         }
+        self.owner_order_revision(requester)?
+            .checked_add(1)
+            .ok_or(DraftError::LimitReached)?;
         let next_order =
             if current == 0 && (contribution_id != requester || self.order_revision != 0) {
                 Some(
@@ -445,6 +451,11 @@ impl DraftSet {
                 draft.id.eq_ignore_ascii_case(contribution_id) && draft.owner == requester
             })
             .ok_or(DraftError::Denied)?;
+        if !current.withdrawn {
+            self.owner_order_revision(requester)?
+                .checked_add(1)
+                .ok_or(DraftError::LimitReached)?;
+        }
         let next_order =
             if !current.withdrawn && (current.id != current.owner || self.order_revision != 0) {
                 Some(
@@ -617,6 +628,31 @@ impl DraftSet {
             .collect())
     }
 
+    /// Only contributions currently visible to this requester. Hidden contribution IDs and
+    /// counts are omitted. The caller must authorize and classify the requester first.
+    pub fn visible_views(
+        &self,
+        requester: &str,
+        active: &[&str],
+        named_reader: bool,
+    ) -> Result<Vec<DraftView>, DraftError> {
+        if !self.is_member(requester) || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        Ok(self
+            .drafts
+            .iter()
+            .filter(|draft| !draft.withdrawn && active.contains(&draft.owner.as_str()))
+            .filter_map(|draft| {
+                if named_reader {
+                    self.view_named(requester, &draft.id, active).ok()
+                } else {
+                    self.view(requester, &draft.id, active).ok()
+                }
+            })
+            .collect())
+    }
+
     /// Derive transient, prose-free ownership metadata from this private set. Callers must
     /// authorize access to every returned contribution ID and must not persist the derived
     /// contract as a substitute for the private draft store.
@@ -668,6 +704,37 @@ impl DraftSet {
     /// Monotonic ordering revision, retained even if a participant restores an earlier order.
     pub fn order_revision(&self) -> u64 {
         self.order_revision
+    }
+
+    /// An owner-scoped order token. Other participants' private activity never changes it.
+    pub fn owner_order_revision(&self, requester: &str) -> Result<u64, DraftError> {
+        if !self.is_member(requester) {
+            return Err(DraftError::Denied);
+        }
+        let revision = self.owner_reorders.get(requester).copied().unwrap_or(0);
+        self.drafts
+            .iter()
+            .filter(|draft| draft.owner == requester)
+            .try_fold(revision, |value, draft| {
+                value
+                    .checked_add(draft.revisions.len() as u64)
+                    .and_then(|value| value.checked_add(u64::from(draft.withdrawn)))
+                    .ok_or(DraftError::LimitReached)
+            })
+    }
+
+    /// Owner-scoped variant that does not reveal other participants' ordering activity.
+    pub fn reorder_owned_scoped(
+        &mut self,
+        requester: &str,
+        expected_revision: u64,
+        expected: &[&str],
+        order: &[&str],
+    ) -> Result<bool, DraftError> {
+        if self.owner_order_revision(requester)? != expected_revision {
+            return Err(DraftError::Stale);
+        }
+        self.reorder_owned(requester, self.order_revision, expected, order)
     }
 
     /// Whether active authors have live contributions outside the legacy one-draft-per-owner
@@ -747,6 +814,14 @@ impl DraftSet {
             }
         }
         next.order_revision = revision;
+        let owner_reorders = next
+            .owner_reorders
+            .entry(requester.to_string())
+            .or_default();
+        *owner_reorders = owner_reorders
+            .checked_add(1)
+            .ok_or(DraftError::LimitReached)?;
+        next.owner_order_revision(requester)?;
         if next.to_json().len() >= MAX_DRAFT_SET_BYTES {
             return Err(DraftError::LimitReached);
         }
@@ -1225,6 +1300,17 @@ impl DraftSet {
             || self.drafts.len() > MAX_CONTRIBUTIONS
             || self.exchanges.len() > MAX_EXCHANGES
             || self.named_releases.len() > MAX_EXCHANGES
+            || self.owner_reorders.len() > MAX_PARTICIPANTS
+        {
+            return false;
+        }
+        if self.owner_reorders.iter().any(|(owner, count)| {
+            !self.is_member(owner) || *count == 0 || self.owner_order_revision(owner).is_err()
+        }) || self
+            .owner_reorders
+            .values()
+            .try_fold(0_u64, |sum, count| sum.checked_add(*count))
+            .is_none_or(|sum| sum > self.order_revision)
         {
             return false;
         }
@@ -1417,6 +1503,39 @@ mod tests {
             "private other"
         );
         assert_eq!(drafts.owned_views("unknown"), Err(DraftError::Denied));
+    }
+
+    #[test]
+    fn scoped_order_tokens_ignore_other_owners_and_cannot_replay_after_reversion() {
+        let mut drafts = set(&["ada", "bo"]);
+        drafts.save("ada", "ada", 0, "one", T).unwrap();
+        let original = drafts.owner_order_revision("ada").unwrap();
+        drafts.save("bo", "secret", 0, "private", T).unwrap();
+        assert_eq!(drafts.owner_order_revision("ada").unwrap(), original);
+        drafts.save("ada", "extra", 0, "two", T).unwrap();
+        let two = drafts.owner_order_revision("ada").unwrap();
+        assert_ne!(two, original);
+        drafts
+            .reorder_owned_scoped("ada", two, &["ada", "extra"], &["extra", "ada"])
+            .unwrap();
+        let reordered = drafts.owner_order_revision("ada").unwrap();
+        drafts
+            .reorder_owned_scoped("ada", reordered, &["extra", "ada"], &["ada", "extra"])
+            .unwrap();
+        assert_eq!(
+            drafts.reorder_owned_scoped("ada", two, &["ada", "extra"], &["extra", "ada"]),
+            Err(DraftError::Stale)
+        );
+        drafts.withdraw("ada", "extra").unwrap();
+        assert_eq!(
+            drafts.reorder_owned_scoped("ada", original, &["ada"], &["ada"]),
+            Err(DraftError::Stale)
+        );
+        let loaded = DraftSet::from_json(&drafts.to_json()).unwrap();
+        assert_eq!(
+            loaded.owner_order_revision("ada"),
+            drafts.owner_order_revision("ada")
+        );
     }
 
     #[test]
