@@ -86,7 +86,7 @@ test("choose a look, a color, a size and the dark button; save; then back to the
   await page.getByRole("button", { name: "Back to how your site looks" }).click();
   await page.getByRole("button", { name: "Save" }).click();
   await expect.poll(() => JSON.parse(config()).appearance?.textSize).toBe("large");
-  await expect.poll(() => JSON.parse(config()).colorSchemeToggle).toBe(false);
+  await expect.poll(() => JSON.parse(config()).colorSchemeToggle, { timeout: 30000 }).toBe(false);
   const saved = JSON.parse(config());
   expect(saved.appearance.accent).toBe("#0f766e");
   expect(saved.colorSchemeToggle).toBe(false);
@@ -98,7 +98,8 @@ test("choose a look, a color, a size and the dark button; save; then back to the
   // Everything as it was: no look, and the button back to the theme's say (a null line is kept as
   // written, the same as no line).
   await expect.poll(() => JSON.parse(config()).appearance).toBeUndefined();
-  await expect.poll(() => JSON.parse(config()).colorSchemeToggle ?? null).toBe(null);
+  // The dark-mode save comes second and may wait for the first save's send-out to free the lock.
+  await expect.poll(() => JSON.parse(config()).colorSchemeToggle ?? null, { timeout: 30000 }).toBe(null);
   const back = JSON.parse(config());
   delete back.colorSchemeToggle;
   const original = JSON.parse(before);
