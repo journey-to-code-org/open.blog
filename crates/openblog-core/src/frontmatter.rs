@@ -972,8 +972,6 @@ fn render_changed(key: &str, old_lines: &[String], value: &Value, eol: &str) -> 
     }
 }
 
-/// A bare scalar. `draft`, and any value that was a bare true/false before,
-/// stays a bare boolean, which every YAML reader agrees on.
 /// Front matter keys the engine reads as a switch (`get_bool`): written bare, `nav: true`, as people
 /// write them by hand, not as the text `"true"`.
 const SWITCH_KEYS: [&str; 7] = [
@@ -986,6 +984,8 @@ const SWITCH_KEYS: [&str; 7] = [
     "codeHighlighting",
 ];
 
+/// A bare scalar. A switch key, and any value that was a bare true/false before, stays a bare
+/// boolean, which every YAML reader agrees on.
 fn scalar_for(key: &str, text: &str, old_bare: Option<&str>) -> String {
     let was_bool = old_bare
         .is_some_and(|old| matches!(old.trim().to_ascii_lowercase().as_str(), "true" | "false"));

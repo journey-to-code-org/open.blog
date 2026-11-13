@@ -42,7 +42,7 @@ export async function createTools() {
     ...TOOLS.map(({ group, items }) => h("section", { class: "studio-section", "aria-label": group },
       h("h3", { text: group }),
       h("ul", { class: "studio-tool-list" }, items.map(([name, what, hash]) => h("li", {},
-        h("a", { href: `/admin/${hash}`, target: "_blank", rel: "noopener" }, h("strong", { text: name }), h("span", { class: "studio-help", text: what }))))))));
+        h("a", { href: `/admin/${hash}`, target: "_blank", rel: "noopener" }, h("strong", { text: name }), " ", h("span", { class: "studio-help", text: what }))))))));
   return {
     title: "More tools",
     element,

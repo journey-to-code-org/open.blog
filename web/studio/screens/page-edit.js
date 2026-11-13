@@ -9,7 +9,7 @@ import { createBodyHost } from "../parts/body-host.js";
 import { showPreview } from "../parts/preview.js";
 import { onlyChanges } from "../parts/post-fields.js";
 import { sendOut, siteLink, wentOutWords } from "../parts/publish.js";
-import { editHref, kindFields } from "../parts/doc-kinds.js";
+import { editHref, isOn, kindFields, nameKeyOf } from "../parts/doc-kinds.js";
 import { askWhichToKeep } from "../parts/conflict.js";
 
 const SAME = "";
@@ -21,6 +21,8 @@ export async function createPageEdit(context, k, arg) {
   const doc = { etag: "", fields: {}, url: "" };
   let baseline = "";
   let busy = false;
+  let menuWas = false; // the menu switch as the file has it
+  let lastSaid = ""; // what the last save really did, in her words
 
   const trail = h("breadcrumb-trail", { items: [{ label: "Home", href: "#/" }, { label: k.heading.replace("Your ", "").replace(/^./, (c) => c.toUpperCase()), href: `#/${k.list}` }, { label: k.newTitle, href: "" }] });
   const status = h("p", { class: "studio-status", role: "status" });
@@ -52,8 +54,9 @@ export async function createPageEdit(context, k, arg) {
     trail.items = [...trail.items.slice(0, 2), { label: label(), href: "" }];
     heading.textContent = label();
     context.setTitle?.(label());
-    status.replaceChildren(path ? (isDirty() ? "Changes not saved yet" : "Saved. It's on your site.") : `A new ${k.one}. Give it a ${k.nameLabel.toLowerCase()}, then Save.`);
-    if (path && doc.url && !isDirty()) status.append(" ", h("a", { href: siteLink(meta, doc.url), target: "_blank", rel: "noopener", text: "See it on your site" }));
+    status.replaceChildren(!path ? `A new ${k.one}. Give it a ${k.nameLabel.toLowerCase()}, then Save.`
+      : isDirty() ? "Changes not saved yet." : lastSaid || "Changes you make go on your site when you Save.");
+    if (path && doc.url && !isDirty() && !lastSaid) status.append(" ", h("a", { href: siteLink(meta, doc.url), target: "_blank", rel: "noopener", text: "See it on your site" }));
     more.items = [
       ...(path ? [{ value: "delete", label: `Delete this ${k.one}` }] : []),
       { value: "details", label: "Show details" },
@@ -65,10 +68,13 @@ export async function createPageEdit(context, k, arg) {
 
   async function fill(reply) {
     const f = reply.fields || {};
-    name.value = String(f[k.nameKey] ?? f.title ?? f.name ?? "");
+    name.value = String(f[nameKeyOf(k, f)] ?? "");
     description.value = String(f.description ?? "");
-    if (inMenu) inMenu.checked = f.nav === true || f.nav === "true";
-    look.value = looks.some((l) => l.value === f.theme) ? f.theme : SAME;
+    menuWas = isOn(f.nav);
+    if (inMenu) inMenu.checked = menuWas;
+    // A look Studio doesn't list (a theme added by hand) is kept, not cleared.
+    if (f.theme && !looks.some((l) => l.value === f.theme)) look.options = [...looks, { value: String(f.theme), label: `${f.theme} (its own look)` }];
+    look.value = f.theme ? String(f.theme) : SAME;
     await body.set(String(reply.body ?? ""), { boxes: false });
     doc.etag = reply.etag || "";
     doc.fields = { ...f };
@@ -89,7 +95,7 @@ export async function createPageEdit(context, k, arg) {
     if (path && !isDirty() && !force) { toast("Nothing's changed. Your site already has this."); return true; }
     busy = true;
     save.loading = true;
-    const fields = kindFields(k, values);
+    const fields = kindFields(k, values, { nameKey: nameKeyOf(k, doc.fields), menuWas });
     try {
       const reply = path
         ? await api.call("PUT", `document?path=${encodeURIComponent(path)}`, { json: { fields: onlyChanges(doc.fields, fields), body: values.body, etag: doc.etag, frontMatter: "keep" } })
@@ -99,10 +105,12 @@ export async function createPageEdit(context, k, arg) {
       doc.etag = reply.etag;
       doc.url = reply.url || doc.url;
       doc.fields = Object.fromEntries(Object.entries({ ...doc.fields, ...fields }).filter(([, v]) => v !== null && v !== ""));
+      menuWas = values.inMenu;
       baseline = snapshot();
       if (wasNew) context.replaceRoute?.(editHref(k, path));
       const result = await sendOut(api, `${wasNew ? "Add" : "Change"} the ${k.one} ${values.name.trim()}`);
       const said = wentOutWords(result, { meta, action: "saved" });
+      lastSaid = said.words;
       toast(said.words, { variant: said.variant, duration: result.sent === "failed" ? 0 : undefined });
       paint();
       return true;
@@ -113,10 +121,21 @@ export async function createPageEdit(context, k, arg) {
         name.querySelector("input")?.focus();
         return false;
       }
+      if (error.status === 401 || error.data?.signedOut) {
+        banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Not saved" }, "You're signed out. Your words are still here; press Save to sign in and save them."));
+        return false;
+      }
+      // A name with nothing to make an address from (only emoji, say) is said on the name itself.
+      if (error.status === 422 && /title|slug|name/i.test(error.message || "")) {
+        name.error = `Use some letters or numbers in the ${k.nameLabel.toLowerCase()}, so it can have an address.`;
+        name.querySelector("input")?.focus();
+        return false;
+      }
       const lines = Array.isArray(error.data?.problems) ? error.data.problems : [];
       banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" },
-        error.status ? "Something in it needs fixing. Your words are still here." : "Check your connection and try again. Your words are still here.",
+        !error.status ? "Check your connection and try again. Your words are still here." : error.status === 413 ? "It's too long to save. Shorten it a little; your words are still here." : `${error.message || "Something in it needs fixing."} Your words are still here.`,
         lines.length ? h("ul", {}, lines.map((line) => h("li", { text: String(line) }))) : null));
+      banner.scrollIntoView?.({ block: "nearest" });
       return false;
     } finally {
       busy = false;
@@ -128,9 +147,9 @@ export async function createPageEdit(context, k, arg) {
   async function conflict() {
     const theirs = await api.get(`document?path=${encodeURIComponent(path)}`).catch(() => null);
     if (!theirs) { banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" }, "Check your connection and try again.")); return false; }
-    const choice = await askWhichToKeep({ name: label(), what: "changes", them: "them", were: true });
+    const choice = await askWhichToKeep({ name: label(), what: "changes", them: "it", were: false });
     if (choice === "mine") { doc.etag = theirs.etag; doc.fields = { ...theirs.fields }; return saveNow({ force: true }); }
-    if (choice === "theirs") { await fill(theirs); toast("Here's the version from the other device."); }
+    if (choice === "theirs") { await fill(theirs); heading.focus(); toast("Here's the version from the other device."); }
     return false;
   }
 
@@ -149,7 +168,8 @@ export async function createPageEdit(context, k, arg) {
     }
     if (value === "old") open(`/admin/#/edit/${encodeURIComponent(path)}`, "_blank", "noopener");
     if (value === "delete") {
-      const done = await context.undo.deletePost({ path, etag: doc.etag, title: label(), state: "published", ask, list: k.many });
+      const done = await context.undo.deletePost({ path, etag: doc.etag, title: label(), state: "published", ask, list: k.many, one: k.one,
+        note: [k.kind === "series" ? "Its posts stay; they just aren't gathered on one page." : "", isDirty() ? "Changes you haven't saved go with it." : ""].filter(Boolean).join(" ") });
       if (done) { baseline = ""; context.go(`#/${k.list}`); }
     }
   }

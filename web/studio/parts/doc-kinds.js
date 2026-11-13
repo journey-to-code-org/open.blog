@@ -44,9 +44,18 @@ export const KINDS = {
 export const kindForRoute = (route) => Object.values(KINDS).find((k) => k.list === route || k.edit === route) || null;
 export const editHref = (k, path) => `#/${k.edit}/${encodeURIComponent(path || "new")}`;
 
-/** The fields a save sends for this kind, from what's on screen. Pure; exported for tests. */
-export function kindFields(k, { name, description, inMenu, look }) {
-  const fields = { [k.nameKey]: name.trim(), description: description.trim(), theme: look || "" };
-  if (k.menu) fields.nav = inMenu ? true : null;
+/** Whether a front matter value means "on", the way the engine reads it (true, yes, on). */
+export const isOn = (value) => value === true || /^(true|yes|on)$/i.test(String(value ?? "").trim());
+
+/** Which key a file names itself under: the one it already uses, else the kind's own. */
+export const nameKeyOf = (k, fields = {}) => (fields.name !== undefined ? "name" : fields.title !== undefined ? "title" : k.nameKey);
+
+/**
+ * The fields a save sends for this kind, from what's on screen. The menu switch is sent only when
+ * she changed it, so `nav: yes` written by hand is never rewritten or dropped. Pure; for tests.
+ */
+export function kindFields(k, { name, description, inMenu, look }, { nameKey = k.nameKey, menuWas } = {}) {
+  const fields = { [nameKey]: name.trim(), description: description.trim(), theme: look || "" };
+  if (k.menu && inMenu !== menuWas) fields.nav = inMenu ? true : null;
   return fields;
 }

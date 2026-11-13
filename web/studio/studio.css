@@ -321,3 +321,10 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-field-item-tools, .studio-field-with { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; }
 .studio-versions { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-2); }
 .studio-versions li { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; }
+
+/* More tools (slice 4): each tool a full-width row, its name then what it's for. */
+.studio-tool-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.studio-tool-list a { display: grid; gap: 0.1rem; min-height: 2.75rem; padding: var(--space-2) var(--space-3); border-radius: var(--radius); text-decoration: none; color: inherit; }
+.studio-tool-list a:hover { background: var(--studio-flour-lift); }
+.studio-tool-list a strong { text-decoration: underline; text-underline-offset: 0.15em; }
+.studio-tool-list a .studio-help { display: block; }

@@ -34,6 +34,9 @@ test.beforeAll(async () => {
   original = `${text.slice(0, close).trimEnd()},\n  "seasons": {\n    "version": 1,\n    "enabled": true,\n    "windows": [\n      {\n        "theme": "paper",\n        "start": "11-01",\n        "end": "01-06"\n      },\n      {\n        "theme": "demo",\n        "start": "07-01",\n        "end": "07-31"\n      }\n    ]\n  }\n}\n`;
   writeFileSync(configPath, original);
   mkdirSync(join(root, "content", "series"), { recursive: true });
+  writeFileSync(join(root, "content", "series", "cookies.md"), "---\ntitle: Christmas Cookies\n---\n\nTins of them.\n");
+  mkdirSync(join(root, "content", "pages"), { recursive: true });
+  writeFileSync(join(root, "content", "pages", "hand.md"), "---\ntitle: Written by hand\nnav: yes\n---\n\nHello.\n");
   writeFileSync(join(root, "content", "series", "thanksgiving.md"), "---\nname: Thanksgiving Table\n# kept as written\ndescription: Every dish, every November.\n---\n\nIn the order she cooks them.\n");
   execFileSync(binary, ["user", "add", "writer", "--root", root], { env: { ...process.env, OPENBLOG_PASSWORD: password }, stdio: "pipe" });
   const listener = createServer();
@@ -75,14 +78,14 @@ async function signIn(page, hash) {
 
 test("add a page, change one line, delete it and Undo", async ({ page }) => {
   await signIn(page, "#/pages");
-  await expect(page.getByText("No pages yet")).toBeVisible();
+  await expect(page.getByText("1 page on your site")).toBeVisible();
   await page.getByRole("link", { name: "Add a page" }).first().click();
   await page.getByRole("textbox", { name: "Title" }).fill("About Grammi");
   await page.getByRole("textbox", { name: "About it, in one line" }).fill("Who she is.");
   await page.getByRole("switch", { name: "Show it in your site's menu" }).click();
   await page.getByRole("textbox", { name: "Words" }).fill("The kitchen is open.");
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Saved. It's on your site." })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /^Saved/ })).toBeVisible();
   const file = read("pages/about-grammi.md");
   expect(file).toContain("title: About Grammi");
   expect(file).toContain("nav: true");
@@ -90,26 +93,44 @@ test("add a page, change one line, delete it and Undo", async ({ page }) => {
   await expect(page).toHaveURL(/#\/page\/pages%2Fabout-grammi\.md/);
   await page.getByRole("textbox", { name: "About it, in one line" }).fill("Who she is, and her kitchen.");
   await page.keyboard.press("Control+s");
-  await expect(page.getByRole("status").filter({ hasText: "Saved. It's on your site." })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /^Saved/ })).toBeVisible();
   expect(read("pages/about-grammi.md")).toBe(file.replace("description: Who she is.", "description: Who she is, and her kitchen."));
   await page.getByRole("link", { name: "Pages" }).first().click();
-  await expect(page.getByText("1 page on your site")).toBeVisible();
+  await expect(page.getByText("2 pages on your site")).toBeVisible();
   await page.getByRole("button", { name: "More for About Grammi" }).click();
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await page.getByRole("button", { name: "Delete it" }).click();
-  await expect(page.getByText("No pages yet")).toBeVisible();
+  await expect(page.getByText("1 page on your site")).toBeVisible();
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.getByRole("link", { name: "About Grammi" })).toBeVisible();
 });
 
+test("a hand-written nav: yes and a collection's title: survive a save", async ({ page }) => {
+  await signIn(page, "#/page/pages%2Fhand.md");
+  await expect(page.getByRole("switch", { name: "Show it in your site's menu" })).toBeChecked();
+  await page.getByRole("textbox", { name: "About it, in one line" }).fill("Said by hand.");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => read("pages/hand.md")).toContain("description: Said by hand.");
+  expect(read("pages/hand.md")).toContain("nav: yes");
+  await page.goto(`${origin}/admin/studio/#/collection/series%2Fcookies.md`);
+  await page.getByRole("textbox", { name: "Name" }).fill("Christmas Cookie Tins");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => read("series/cookies.md")).toContain("title: Christmas Cookie Tins");
+  expect(read("series/cookies.md")).not.toContain("name:");
+});
+
 test("a collection keeps its file as written, and a post goes into it from Write", async ({ page }) => {
-  await signIn(page, "#/collections");
+  // Write first, in a fresh visit: the Collection choice is there without opening anything else.
+  await signIn(page, "#/posts");
+  await page.locator(".studio-post-link").first().click();
+  await expect(page.getByRole("combobox", { name: "Collection" })).toBeVisible();
+  await page.goto(`${origin}/admin/studio/#/collections`);
   await page.getByRole("link", { name: "Thanksgiving Table" }).click();
   await expect(page.getByRole("textbox", { name: "Name" })).toHaveValue("Thanksgiving Table");
   const before = read("series/thanksgiving.md");
   await page.getByRole("textbox", { name: "About it, in one line" }).fill("Every dish, every year.");
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Saved. It's on your site." })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /^Saved/ })).toBeVisible();
   expect(read("series/thanksgiving.md")).toBe(before.replace("Every dish, every November.", "Every dish, every year."));
   await page.goto(`${origin}/admin/studio/#/posts`);
   await page.locator(".studio-post-link").first().click();

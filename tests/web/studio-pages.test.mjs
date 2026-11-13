@@ -22,3 +22,29 @@ test("every tool opens an old Admin address, and none says a technical word", ()
     assert.doesNotMatch(`${name} ${what}`, /JSON|config|API|deploy|git/i);
   }
 });
+
+import { isOn, nameKeyOf } from "../../web/studio/parts/doc-kinds.js";
+import { collectionOptions, seriesSlug } from "../../web/studio/parts/write-page.js";
+
+test("the menu switch reads yes and on as the engine does, and is sent only when she changed it", () => {
+  assert.ok(isOn("yes") && isOn("On") && isOn(true) && !isOn("no") && !isOn(undefined));
+  assert.equal("nav" in kindFields(KINDS.pages, { name: "About", description: "", inMenu: true, look: "" }, { menuWas: true }), false);
+  assert.equal(kindFields(KINDS.pages, { name: "About", description: "", inMenu: false, look: "" }, { menuWas: true }).nav, null);
+});
+
+test("a collection written with title: keeps title:", () => {
+  assert.equal(nameKeyOf(KINDS.series, { title: "Cookies" }), "title");
+  assert.equal(nameKeyOf(KINDS.series, {}), "name");
+  assert.deepEqual(Object.keys(kindFields(KINDS.series, { name: "Cookie Tins", description: "", inMenu: false, look: "" }, { nameKey: "title" })), ["title", "description", "theme"]);
+});
+
+test("a post's collection shows as written: matched by its slug, or kept as one of its own", () => {
+  const series = [{ slug: "thanksgiving", title: "Thanksgiving Table" }];
+  assert.equal(seriesSlug("Thanksgiving"), "thanksgiving");
+  const matched = collectionOptions(series, "Thanksgiving");
+  assert.equal(matched.value, "Thanksgiving");
+  assert.equal(matched.options.find((o) => o.value === "Thanksgiving").label, "Thanksgiving Table");
+  const own = collectionOptions(series, "easter");
+  assert.equal(own.options.at(-1).label, "easter (no page of its own yet)");
+  assert.equal(collectionOptions([], "").options.length, 1);
+});

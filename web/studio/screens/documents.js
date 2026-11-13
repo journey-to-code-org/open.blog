@@ -26,7 +26,7 @@ export async function createDocuments({ api, undo, go }, k) {
     return h("li", { class: "studio-post-row" },
       h("a", { class: "studio-post-link", href: editHref(k, item.path) },
         h("span", { class: "studio-post-title", text: item.title || "Untitled" }),
-        item.status === "error" ? h("span", { class: "studio-post-when", text: "This file can't be read; open it in the old Admin." }) : null),
+        item.status === "error" ? h("span", { class: "studio-post-when", text: `Something's wrong with this ${k.one}. Ask the person who set up your site.` }) : null),
       menu);
   }
 
@@ -41,7 +41,8 @@ export async function createDocuments({ api, undo, go }, k) {
   }
 
   async function remove(item) {
-    const done = await undo.deletePost({ path: item.path, etag: "", title: item.title || `this ${k.one}`, state: "published", ask, list: k.many });
+    const done = await undo.deletePost({ path: item.path, etag: "", title: item.title || `this ${k.one}`, state: "published", ask, list: k.many, one: k.one,
+      note: k.kind === "series" ? "Its posts stay; they just aren't gathered on one page." : "" });
     if (done) await load();
   }
 
