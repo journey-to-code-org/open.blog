@@ -132,3 +132,12 @@ test("only running late and waiting on an account reach her, as one banner", () 
   assert.equal(both.heading, "Shares are running late");
   assert.equal(both.lines[1], "1 share is waiting for an account that isn't set up to post. Tell the person who set up your site, or choose Don't share it.");
 });
+
+import { cleanupTrouble } from "../../web/studio/parts/quote-words.js";
+
+test("an older requests service is said in plain words, never as a code", () => {
+  const said = cleanupTrouble({ status: 409, data: { code: "hosted-too-old" } });
+  assert.equal(said, "Your requests service needs updating before Studio can clean up. Tell the person who set up your site.");
+  assert.doesNotMatch(said, /409|hosted|function|deploy/i);
+  assert.equal(cleanupTrouble({ status: 502 }), quoteTrouble({ status: 502 }));
+});

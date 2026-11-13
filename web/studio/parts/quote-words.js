@@ -90,6 +90,12 @@ export function quoteTrouble(error) {
   return "That didn't go through. Try again.";
 }
 
+/** A refusal while cleaning up archived requests; an older requests service is said plainly. */
+export function cleanupTrouble(error) {
+  if (error?.data?.code === "hosted-too-old") return "Your requests service needs updating before Studio can clean up. Tell the person who set up your site.";
+  return quoteTrouble(error);
+}
+
 // ---- R1: the spreadsheet and auto-erase sheets (docs/specs/studio/r1/ux.md) ----------------
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];

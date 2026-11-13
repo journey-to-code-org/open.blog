@@ -132,6 +132,13 @@ are the only workflow there is.
   Render) does it; **Erase expired now** does it on demand. New and handled requests are never erased
   automatically. Whoever runs the function can instead fix the number with `OPENBLOG_QUOTE_RETENTION_DAYS`; then
   that number wins, and Admin shows it and says it is changed there.
+- **Erase the old ones now** (Studio, under Requests, **More**, **Clean up archived requests**) never erases on a
+  guess. Admin first asks the function what it can do (`GET retention` answers `dryRun: true` and
+  `eraseBefore: true`), then counts with a dry run, which erases nothing and gives the cutoff it counted with
+  (`before`), asks the owner once, and erases with that cutoff, so a request archived in the meantime is not erased
+  uncounted (the cutoff is never later than the retention period allows). A function deployed before these existed
+  ignores a dry run and would erase, so Admin sends it nothing that could erase: Studio says the requests service
+  needs updating (code `hosted-too-old` in its details). Deploy the current function to fix it.
 
 ## Privacy
 

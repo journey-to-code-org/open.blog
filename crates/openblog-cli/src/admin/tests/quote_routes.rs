@@ -487,18 +487,30 @@ fn failed_owner_emails_reach_admin_and_a_retry_passes_back_only_counts() {
         .starts_with("post /api/quote/notifications/retry "));
 }
 
+/// What a hosted function that can count first and erase up to a cutoff says about retention.
+fn capable() -> (u16, String) {
+    (
+        200,
+        json!({ "retentionDays": 30, "retentionSource": "admin", "dryRun": true, "eraseBefore": true })
+            .to_string(),
+    )
+}
+
 #[test]
 fn the_retention_run_has_a_dry_run_that_only_counts_and_says_photos_left_behind() {
     let (endpoint, server) = hosted(vec![
+        capable(),
         (
             200,
-            json!({ "enabled": true, "wouldErase": 3, "photos": 2, "rows": ["x"] }).to_string(),
+            json!({ "enabled": true, "wouldErase": 3, "photos": 2, "before": "2026-10-02T12:00:00.123Z", "rows": ["x"] }).to_string(),
         ),
+        capable(),
         (
             200,
             json!({ "enabled": true, "erased": 3, "photosPending": 1 }).to_string(),
         ),
-        // An older function that ignores dryRun says what it erased: not taken as a count.
+        // A function that says it can, then erases anyway: its reply is not taken as a count.
+        capable(),
         (200, json!({ "enabled": true, "erased": 1 }).to_string()),
     ]);
     let env = env_for(&endpoint);
@@ -513,26 +525,89 @@ fn the_retention_run_has_a_dry_run_that_only_counts_and_says_photos_left_behind(
     for bad in [
         json!({ "dryRun": "yes" }),
         json!({ "dryRun": true, "x": 1 }),
+        json!({ "dryRun": true, "before": "2026-10-02T12:00:00Z" }),
+        json!({ "before": "yesterday" }),
+        json!({ "before": 5 }),
+        json!({ "before": "2026-10-02T12:00:00Z".repeat(3) }),
     ] {
         assert_eq!(run(bad.clone()).status, 400, "{bad}");
     }
     let dry = run(json!({ "dryRun": true }));
-    assert_eq!(dry.status, 200);
+    assert_eq!(dry.status, 200, "{}", String::from_utf8_lossy(&dry.body));
     assert_eq!(
         body_json(&dry),
-        json!({ "enabled": true, "wouldErase": 3, "photos": 2 })
+        json!({ "enabled": true, "wouldErase": 3, "photos": 2, "before": "2026-10-02T12:00:00Z" })
     );
-    let done = run(json!({}));
+    // The real run passes the cutoff the count used, so nothing archived since goes too.
+    let done = run(json!({ "before": "2026-10-02T12:00:00Z" }));
     assert_eq!(
         body_json(&done),
         json!({ "enabled": true, "erased": 3, "photosPending": 1 })
     );
     assert_eq!(run(json!({ "dryRun": true })).status, 502);
     let seen = server.join().unwrap();
-    assert_eq!(seen.len(), 3, "refused bodies never reached the function");
+    assert_eq!(seen.len(), 6, "refused bodies never reached the function");
     assert!(seen[0]
         .to_ascii_lowercase()
+        .starts_with("get /api/quote/retention "));
+    assert!(seen[1]
+        .to_ascii_lowercase()
         .starts_with("post /api/quote/retention/run "));
-    assert!(seen[0].ends_with("{\"dryRun\":true}"));
-    assert!(seen[1].ends_with("{}"));
+    assert!(seen[1].ends_with("{\"dryRun\":true}"));
+    assert!(seen[2]
+        .to_ascii_lowercase()
+        .starts_with("get /api/quote/retention "));
+    assert!(seen[3].ends_with("{\"before\":\"2026-10-02T12:00:00Z\"}"));
+}
+
+#[test]
+fn an_older_hosted_function_is_never_asked_to_count_or_erase_up_to_a_cutoff() {
+    // An older function ignores dryRun and erases. So the check comes first, from what the function
+    // says it can do, and the erase is never sent.
+    let (endpoint, server) = hosted(vec![
+        // Older than the retention status: it has no such route.
+        (404, json!({ "error": "not-found" }).to_string()),
+        // Has a status, without the capabilities.
+        (
+            200,
+            json!({ "retentionDays": 30, "retentionSource": "admin" }).to_string(),
+        ),
+        // Can count, but can't erase up to a cutoff.
+        (
+            200,
+            json!({ "retentionDays": 30, "dryRun": true }).to_string(),
+        ),
+        // Quote requests turned off there: said as that, not as too old.
+        (404, json!({ "error": "not-enabled" }).to_string()),
+    ]);
+    let env = env_for(&endpoint);
+    let run = |body: Json| {
+        route_with(
+            &env,
+            &json_req("POST", "/x", body),
+            "mikey",
+            "retention/run",
+        )
+    };
+    for body in [
+        json!({ "dryRun": true }),
+        json!({ "dryRun": true }),
+        json!({ "before": "2026-10-02T12:00:00Z" }),
+    ] {
+        let refused = run(body.clone());
+        assert_eq!(refused.status, 409, "{body}");
+        assert_eq!(body_json(&refused)["code"], "hosted-too-old", "{body}");
+    }
+    let off = run(json!({ "dryRun": true }));
+    assert_eq!(off.status, 404);
+    assert_eq!(body_json(&off)["code"], "not-enabled");
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 4);
+    for call in &seen {
+        assert!(
+            call.to_ascii_lowercase()
+                .starts_with("get /api/quote/retention "),
+            "only the status was asked: {call}"
+        );
+    }
 }

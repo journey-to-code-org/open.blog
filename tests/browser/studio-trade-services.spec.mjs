@@ -259,7 +259,9 @@ test("Reminders: change a topic's words and dates, turn one off with Undo, add a
   await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toHaveCount(0);
 });
 
-function mockQuoteSheets(page, { retentionDays = null, retentionSource = null, wouldErase = 3 } = {}) {
+const CUTOFF = "2026-10-14T12:00:00Z";
+
+function mockQuoteSheets(page, { retentionDays = null, retentionSource = null, wouldErase = 3, tooOld = false } = {}) {
   const calls = [];
   return page.route("**/admin/api/quote/**", async (route) => {
     const url = new URL(route.request().url());
@@ -270,7 +272,8 @@ function mockQuoteSheets(page, { retentionDays = null, retentionSource = null, w
     if (path === "requests") return json(route, 200, { requests: [{ id: UUID(1), status: "archived", name: "Pat Miller", phone: "304", town: "Elkins", service: "Roof", description: "x", photos: [], photoCount: 0, createdAt: new Date().toISOString(), notify: "sent", notifyAttempts: 1 }], unreadable: 0, services: [], retentionDays, retentionSource, notifyEnabled: true });
     if (path === "export") return json(route, 200, url.searchParams.get("from") === "2026-01-01" ? { csv: "", filename: "q.csv", count: 0 } : { csv: "name\nPat\n", filename: "quote-requests.csv", count: 14 });
     if (path === "retention") return json(route, 200, { retentionDays: body.days, retentionSource: body.days ? "admin" : null });
-    if (path === "retention/run") return json(route, 200, body.dryRun ? { enabled: true, wouldErase, photos: 2 } : { enabled: true, erased: wouldErase, photosPending: 1 });
+    if (path === "retention/run" && tooOld) return json(route, 409, { error: "The quote function is older than this Admin and could erase without counting first; deploy the current netlify/functions/quote.mjs", code: "hosted-too-old" });
+    if (path === "retention/run") return json(route, 200, body.dryRun ? { enabled: true, wouldErase, photos: 2, before: CUTOFF } : { enabled: true, erased: wouldErase, photosPending: 1 });
     return json(route, 404, { error: "not found" });
   }).then(() => calls);
 }
@@ -321,7 +324,8 @@ test("Requests: download chosen days; clean up archived requests, checked first 
   await expect(page.getByRole("button", { name: "Keep them" })).toBeFocused();
   await page.getByRole("button", { name: "Erase for good" }).click();
   await expect(sheet.locator("p[role=status]")).toHaveText("Erased 3 old requests. 1 photo is still being removed; nothing points to it.");
-  expect(calls.filter((c) => c.path === "retention/run").map((c) => c.body)).toEqual([{ dryRun: true }, {}]);
+  // The erase takes only what was counted: it passes the count's cutoff.
+  expect(calls.filter((c) => c.path === "retention/run").map((c) => c.body)).toEqual([{ dryRun: true }, { before: CUTOFF }]);
   // A changed setting asks before leaving.
   await sheet.getByRole("switch", { name: "Erase archived requests by themselves" }).click();
   await page.evaluate(() => { location.hash = "#/"; });
@@ -340,6 +344,21 @@ test("Requests: a host-set period shows no fields, and nothing old enough says s
   await expect(sheet.getByRole("switch")).toHaveCount(0);
   await sheet.getByRole("button", { name: "Erase the old ones now" }).click();
   await expect(sheet.locator("p[role=status]")).toHaveText("Nothing is old enough to erase yet.");
+  expect(calls.filter((c) => c.path === "retention/run").map((c) => c.body)).toEqual([{ dryRun: true }]);
+});
+
+test("Requests: an older requests service is said in plain words, and nothing is erased", async ({ page }) => {
+  const calls = await mockQuoteSheets(page, { retentionDays: 30, retentionSource: "admin", tooOld: true });
+  await signIn(page, "#/quotes");
+  await page.getByRole("button", { name: /More/ }).first().click();
+  await page.getByRole("menuitem", { name: "Clean up archived requests…" }).click();
+  const sheet = page.locator("side-sheet");
+  await sheet.getByRole("button", { name: "Erase the old ones now" }).click();
+  await expect(sheet.locator("p[role=status]")).toHaveText("Your requests service needs updating before Studio can clean up. Tell the person who set up your site.");
+  await expect(page.getByRole("heading", { name: /Erase .* now\?/ })).toHaveCount(0);
+  const details = sheet.locator("details");
+  await details.locator("summary").click();
+  await expect(details).toContainText("409 (hosted-too-old)");
   expect(calls.filter((c) => c.path === "retention/run").map((c) => c.body)).toEqual([{ dryRun: true }]);
 });
 

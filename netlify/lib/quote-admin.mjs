@@ -257,18 +257,36 @@ export async function eraseConfirmed({ store, settings, ids, token, now }) {
   return eraseRows({ store, settings, rows: await rowsFor(store, list) });
 }
 
+// What this function can do with retention, for Admin to read before it sends anything that could
+// erase: an older function has no `GET retention` and ignores both, so it would erase on a count.
+export const RETENTION_CAN = Object.freeze({ dryRun: true, eraseBefore: true });
+
+const cutoffFor = (days, now) => new Date(now() - days * DAY).toISOString();
+
 // What the sweep would erase now, counted and changed nothing (G12): Admin asks before erasing.
+// `before` is the cutoff it counted with; the erase that follows passes it back.
 export async function retentionPreview({ store, settings, days, now }) {
-  if (!days) return { enabled: false, wouldErase: 0, photos: 0 };
-  const before = new Date(now() - days * DAY).toISOString();
+  if (!days) return { enabled: false, wouldErase: 0, photos: 0, before: null };
+  const before = cutoffFor(days, now);
   const rows = await store.archivedBefore(before, MAX_ERASE * 20);
-  return { enabled: true, wouldErase: rows.length, photos: rows.reduce((n, row) => n + photoPaths(settings, row).length, 0) };
+  return { enabled: true, wouldErase: rows.length, photos: rows.reduce((n, row) => n + photoPaths(settings, row).length, 0), before };
 }
 
-// Archived requests older than the retention period. One failed batch stops the sweep and reports.
-export async function retentionSweep({ store, settings, days, now }) {
+// The earlier of a cutoff given by Admin (from its count) and the one the retention period gives
+// now, so an erase never takes more than was counted, nor anything the period still keeps.
+function sweepCutoff(days, now, given) {
+  const own = cutoffFor(days, now);
+  if (given === undefined || given === null) return own;
+  const time = typeof given === "string" && given.length <= 40 ? Date.parse(given) : NaN;
+  if (Number.isNaN(time)) throw new QuoteError(400, "bad-before");
+  return new Date(Math.min(time, Date.parse(own))).toISOString();
+}
+
+// Archived requests older than the retention period (or than `before`, when given). One failed
+// batch stops the sweep and reports.
+export async function retentionSweep({ store, settings, days, now, before: given }) {
   if (!days) return { enabled: false, erased: 0 };
-  const before = new Date(now() - days * DAY).toISOString();
+  const before = sweepCutoff(days, now, given);
   let erased = 0;
   let photosPending = 0;
   for (let round = 0; round < 20; round += 1) {

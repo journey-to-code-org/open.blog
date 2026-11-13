@@ -4,7 +4,7 @@
 import { h } from "./dom.js";
 import { use } from "../zubra.js";
 import { ask } from "./dialogs.js";
-import { exportDayProblem, exportWords, retentionWords, retentionDaysProblem, eraseOldQuestion, erasedOldWords, quoteTrouble } from "./quote-words.js";
+import { cleanupTrouble, exportDayProblem, exportWords, retentionWords, retentionDaysProblem, eraseOldQuestion, erasedOldWords, quoteTrouble } from "./quote-words.js";
 
 const DEFAULT_DAYS = 30;
 
@@ -125,14 +125,15 @@ export async function openCleanup({ sheet, api, opener, reply, say, onChanged })
       const question = eraseOldQuestion(dryRun, saved.days);
       const choice = await ask({ ...question, choices: [{ label: "Keep them", value: "keep" }, { label: "Erase for good", value: "erase", variant: "destructive" }] });
       if (choice !== "erase") { status.textContent = "Nothing was erased."; return; }
-      const done = await api.post("quote/retention/run", {});
+      // Only what was counted: the erase passes the count's cutoff, so a request archived since stays.
+      const done = await api.post("quote/retention/run", dryRun.before ? { before: dryRun.before } : {});
       const words = erasedOldWords(done);
       status.textContent = words;
       say(words);
       onChanged?.();
     } catch (error) {
       if (error.status === 401) throw error;
-      status.textContent = quoteTrouble(error);
+      status.textContent = cleanupTrouble(error);
       drawDetails(error);
     } finally {
       eraseNow.loading = false;
