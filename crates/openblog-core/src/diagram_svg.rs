@@ -337,6 +337,9 @@ fn accessible_svg(svg: &str, diagram: &Diagram, prefix: &str) -> Result<String, 
         escape::xml(&diagram.title), escape::xml(&diagram.description)
     ));
     output.push_str(&svg[end..]);
+    if output.len() > MAX_SVG_BYTES {
+        return Err(format!("diagram SVG exceeds {MAX_SVG_BYTES} bytes"));
+    }
     Ok(output)
 }
 
@@ -491,6 +494,21 @@ mod tests {
         let svg =
             format!("<svg xmlns=\"{SVG_NAMESPACE}\"><g id=\"local\"/><use href=\"#local\"/></svg>");
         assert!(accessible_svg(&svg, &d, "test").is_ok());
+    }
+
+    #[test]
+    fn svg_limit_applies_after_accessible_markup_is_added() {
+        let d = diagram("flowchart LR\nA --> B");
+        let open = format!("<svg xmlns=\"{SVG_NAMESPACE}\"><text>");
+        let close = "</text></svg>";
+        let padding = MAX_SVG_BYTES - open.len() - close.len();
+        let svg = format!("{open}{}{close}", "x".repeat(padding));
+        assert_eq!(svg.len(), MAX_SVG_BYTES);
+        assert!(accessible_svg(&svg, &d, "test")
+            .unwrap_err()
+            .contains("exceeds"));
+        let smaller = format!("{open}{}{close}", "x".repeat(padding - 1024));
+        assert!(accessible_svg(&smaller, &d, "test").is_ok());
     }
 
     #[test]

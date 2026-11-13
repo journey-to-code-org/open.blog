@@ -8,9 +8,9 @@ records what must happen before integration.
 
 The renderer-independent `openblog-core::diagram::discover` function validates
 fence options, source size and accessible text against this corpus. It does not
-render diagrams, check Mermaid syntax or sanitize output, and is not yet a
-publication gate. Until the rest of the feature is integrated, Mermaid fences
-continue to render as code.
+render diagrams, check Mermaid syntax or sanitize output. Default builds still
+render Mermaid fences as code; the experimental feature adds the publication
+gate described below.
 
 An experimental `openblog-core` feature, `diagram-rendering`, now wraps that
 pipeline with accessible title and description markup and stricter rejection
