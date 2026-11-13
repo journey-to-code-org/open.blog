@@ -11,14 +11,15 @@ import { joinInstant, splitInstant } from "../parts/dates.js";
 import { formFromDocument, postState, primaryAction, statusLine } from "../parts/post-fields.js";
 import { afterSave, fieldsForSave, layoutOf, nothingToSave, sendPost } from "../parts/post-session.js";
 import { howItGoesOut, sendOut, siteLink, wentOutWords } from "../parts/publish.js";
-import { keptBanner, mineAside, postDetails } from "../parts/post-details.js";
+import { keptBanner, postDetails } from "../parts/post-details.js";
 import { isRecipe } from "../parts/recipe-fields.js";
 import { recipeNumbers } from "../parts/recipe-numbers.js";
 import { createBodyHost } from "../parts/body-host.js";
 import { adviceFor } from "../parts/recipe-advice.js";
 import { showPreview } from "../parts/preview.js";
-import { takeOffQuestion } from "../parts/take-off.js";
-import { askWhichToKeep, busyBanner, chooseLaterBanner } from "../parts/conflict.js";
+import { createTrouble } from "../parts/write-trouble.js";
+import { crumbs, isMacLike, writeCommands, writePage } from "../parts/write-page.js";
+import { postActions } from "../parts/write-actions.js";
 
 const AUTOSAVE_MS = 3000;
 const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
@@ -46,39 +47,10 @@ export async function createWrite(context, arg) {
   let numbers = null; // Serves and the times, for a recipe
 
   // ---- the page
-  const crumbs = (name) => [{ label: "Home", href: "#/" }, { label: "Posts", href: "#/posts" }, { label: name, href: "" }];
-  const trail = h("breadcrumb-trail", { items: crumbs("New post") });
-  const status = h("p", { class: "studio-status", role: "status" });
-  const banner = h("div", { class: "studio-banner", "aria-live": "polite" });
-  const title = h("text-field", { label: "Title", class: "studio-writing studio-writing-title", maxlength: 200 });
   const body = await createBodyHost({ api, maxBytes: meta.capture?.maxPhotoBytes || 0, onChange: () => changed() });
-  const numbersHost = h("div");
-  const day = h("date-field", { label: "Date" });
-  const time = h("text-field", { label: "Time (your time)", type: "time" });
-  const tags = h("tag-input", { label: "Tags", max: 20, suggestions: meta.tags || [] });
-  const cover = h("div");
-  const saveLabel = h("span", { text: "Save draft" });
-  const save = h("action-button", { variant: "secondary", class: "studio-save", onClick: () => saveNow("draft") }, saveLabel);
-  const primaryLabel = h("span", { text: "Publish" });
-  const primary = h("action-button", { onClick: () => saveNow("publish") }, primaryLabel);
-  const look = h("action-button", { variant: "secondary", onClick: (e) => preview(e.currentTarget) }, "See how it looks");
-  const more = h("dropdown-menu", { label: "More", items: [], onItemselect: (e) => run(e.detail) });
-  const details = h("side-sheet", { label: "About this post", side: "right" });
-  const element = h("section", { class: "studio-page studio-write", "aria-labelledby": "studio-write-h" },
-    h("div", { class: "studio-write-top" }, trail, more),
-    h("h2", { id: "studio-write-h", class: "studio-visually-hidden", tabindex: "-1", text: "Write" }),
-    status, banner,
-    h("div", { class: "studio-write-grid" },
-      h("div", { class: "studio-write-main" }, title, numbersHost, body.element),
-      h("div", { class: "studio-write-side" },
-        h("fieldset", { class: "studio-when" }, h("legend", { text: "When it appears" }),
-          h("cluster-layout", { gap: "0.75rem" }, day, time),
-          h("p", { class: "studio-help", text: "Leave it empty to use the day you publish." })),
-        h("div", { class: "studio-tags" }, h("p", { class: "studio-label", "aria-hidden": "true", text: "Tags" }), tags,
-          h("p", { class: "studio-help", text: "Type a tag and press Enter." })),
-        cover)),
-    h("div", { class: "studio-write-bar" }, look, save, primary),
-    details);
+  const { trail, status, banner, title, numbersHost, day, time, tags, cover, saveLabel, save, primaryLabel, primary, look, more, details, element } = writePage({
+    meta, body, on: { save: () => saveNow("draft"), publish: () => saveNow("publish"), preview: (opener) => preview(opener), command: (id) => run(id) },
+  });
 
   // ---- reading the form
   const bodyText = () => body.text();
@@ -115,25 +87,10 @@ export async function createWrite(context, arg) {
     more.items = menuItems();
   }
 
-  // One list of what she can do with this post: More shows her items first and the ones for
-  // whoever set up the site last; Find shows them all with their keys.
-  function commands() {
-    const mac = isMacLike();
-    return [
-      { id: "save", label: "Save", hint: mac ? "⌘S" : "Ctrl S", more: false },
-      { id: "publish", label: "Publish or update", hint: mac ? "⌘↵" : "Ctrl Enter", more: false },
-      { id: "preview", label: "See how it looks", more: false },
-      { id: "takeoff", label: "Take it off my site", when: doc.state === "published" },
-      { id: "draft", label: saveLabel.textContent, when: narrow() && doc.state !== "published", palette: false },
-      { id: "about", label: "More about this recipe", when: isRecipePost() },
-      { id: "view", label: "See it on your site", when: Boolean(doc.url) && isPublished() },
-      { id: "delete", label: doc.path ? "Delete this post" : "Throw this away" },
-      { id: "plain", label: "Write it all in one box", when: isRecipePost() && body.usesBoxes() },
-      { id: "boxes", label: "Use the recipe boxes", when: isRecipePost() && !body.usesBoxes() },
-      { id: "details", label: "Show details" },
-      { id: "old", label: "Open in the old Admin", when: Boolean(doc.path) },
-    ].filter((command) => command.when !== false);
-  }
+  const commands = () => writeCommands({
+    state: doc.state, path: doc.path, url: doc.url, recipe: isRecipePost(), boxes: body.usesBoxes(),
+    saveLabel: saveLabel.textContent, narrow: narrow(), mac: isMacLike(),
+  });
   const menuItems = () => commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label }));
 
   async function fill(values) {
@@ -256,7 +213,7 @@ export async function createWrite(context, arg) {
       return true;
     } catch (error) {
       pending = false;
-      await problem(error, intent, quiet);
+      await trouble.problem(error, intent, quiet);
       return false;
     } finally {
       saving = null;
@@ -285,69 +242,19 @@ export async function createWrite(context, arg) {
       h("action-button", { variant: "secondary", onClick: () => announce() }, "Send it out again")));
   }
 
-  async function problem(error, intent, quiet) {
-    if (error.status === 409 && doc.path) return conflict(quiet);
-    notSaved = "Not saved yet";
-    if (error.status === 409) {
-      const name = read().title.trim();
-      title.error = "There's already a post with this title. Change it a little and it will save.";
-      toast(`Not saved yet: there's already a post called “${name}”. Change the title a little.`, { variant: "warning", duration: 0 });
+  const trouble = createTrouble({
+    api, banner, title, doc, read, now, paint, saveNow,
+    notSaved: (words) => { notSaved = words; },
+    markDirty: () => { dirty = true; },
+    takeTheirs: async (theirs) => {
+      doc.url = theirs.url || doc.url;
+      form = { ...formFromDocument(theirs), extra: theirs.fields || {} };
+      await fill(form);
+      notSaved = "";
+      settle();
       paint();
-      return;
-    }
-    const lines = Array.isArray(error.data?.problems) ? error.data.problems : [];
-    banner.replaceChildren(h("alert-banner", { variant: "danger", heading: intent === "publish" ? "Not published" : "Not saved" },
-      error.message, lines.length ? h("ul", {}, lines.map((line) => h("li", { text: String(line) }))) : null,
-      error.status === 401 ? h("action-button", { variant: "secondary", onClick: () => saveNow(intent) }, "Sign in and try again") : null));
-    if (quiet && error.status !== 401) toast("Not saved yet. Your words are still here.", { variant: "warning" });
-    paint();
-  }
-
-  // Someone else (or another device) changed the file while she had it open.
-  async function conflict(quiet) {
-    let theirs;
-    try {
-      theirs = await api.get(`document?path=${encodeURIComponent(doc.path)}`);
-    } catch (error) {
-      notSaved = "Not saved yet";
-      banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" }, error.message));
-      paint();
-      return;
-    }
-    notSaved = "Not saved yet";
-    paint();
-    if (theirs.etag === doc.etag) return banner.replaceChildren(busyBanner());
-    const later = () => banner.replaceChildren(chooseLaterBanner(() => resolveConflict(theirs, later)));
-    // An autosave never springs a question on her: it says so, and she chooses when she's ready.
-    if (quiet) return later();
-    await resolveConflict(theirs, later);
-  }
-
-  async function resolveConflict(theirs, later) {
-    const mine = read();
-    const theirState = postState(theirs, now());
-    const choice = await askWhichToKeep({ name: mine.title.trim() || "This post", theirState, myState: doc.state });
-    if (choice === null) return later();
-    doc.etag = theirs.etag;
-    doc.fields = { ...theirs.fields };
-    doc.state = theirState;
-    if (choice === "mine") {
-      dirty = true;
-      await saveNow(theirState === "draft" ? "draft" : "publish", { force: true });
-      return;
-    }
-    banner.replaceChildren(mineAside(mine, copy));
-    doc.url = theirs.url || doc.url;
-    form = { ...formFromDocument(theirs), extra: theirs.fields || {} };
-    await fill(form);
-    notSaved = "";
-    settle();
-    paint();
-  }
-
-  async function copy(text) {
-    try { await navigator.clipboard.writeText(text); toast("Copied. Paste it wherever you need it."); } catch { toast("Select the words and copy them yourself.", { variant: "warning" }); }
-  }
+    },
+  });
 
   // Ctrl/⌘ S. Saving a published post never puts half-done words on her site: they stay on this
   // device until she presses Update.
@@ -382,40 +289,12 @@ export async function createWrite(context, arg) {
     details.open = true;
   }
 
-  async function takeOff(asked = false) {
-    if (!asked && (await ask(takeOffQuestion(read().title.trim() || "this post"))) !== "yes") return;
-    // Her latest changes come along: it's saved as a draft with what's on screen.
-    if (!(await saveNow("draft", { force: true }))) return;
-    const sent = await sendOut(api, `Take ${form.title} off the site`);
-    lastPublish = sent;
-    const said = wentOutWords(sent, { meta, action: "takenOff" });
-    toast(said.words, { variant: said.variant });
-    paint();
-  }
-
-  async function remove() {
-    const name = read().title.trim() || "this post";
-    if (!doc.path) {
-      const choice = await ask({ heading: "Throw this away?", text: "It hasn't been saved, so it can't be brought back.", choices: [{ label: "Throw it away", value: "yes", variant: "destructive" }, { label: "Keep writing", value: "no", variant: "secondary" }] });
-      if (choice !== "yes") return;
-      kept.clear(keptKey);
-      settle();
-      context.go("#/posts");
-      return;
-    }
-    // Undo brings back what she saw, so a draft's pending changes are saved first.
-    if (dirty && !isPublished() && !(await saveNow("draft", { quiet: true }))) return;
-    const deleted = await context.undo.deletePost({
-      path: doc.path, etag: doc.etag, title: name, state: doc.state, ask,
-      fieldJournal: doc.fields.profile === "field-journal",
-      takeOff: () => takeOff(true),
-    });
-    if (deleted) {
-      kept.clear(doc.path);
-      settle();
-      context.go("#/posts");
-    }
-  }
+  const { takeOff, remove } = postActions({
+    api, meta, ask, kept, keptKey, doc, context,
+    title: () => read().title.trim(), formTitle: () => form.title,
+    isDirty: () => dirty, isPublished, saveNow, settle, paint,
+    published: (sent) => { lastPublish = sent; },
+  });
 
   // ---- leaving
   async function leave() {
@@ -520,10 +399,6 @@ export async function createWrite(context, arg) {
     },
     command: run,
   };
-}
-
-function isMacLike() {
-  return /Mac|iPhone|iPad/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || "");
 }
 
 function safeJoin(date, time) {

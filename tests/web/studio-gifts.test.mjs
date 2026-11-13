@@ -25,3 +25,15 @@ test("a card's message wraps at spaces, keeps its paragraphs, and stops at nine 
   assert.deepEqual(wrapLines("Merry Christmas Grammi\nSave me some pie", 15), ["Merry Christmas", "Grammi", "Save me some", "pie"]);
   assert.equal(wrapLines("a\n".repeat(20)).length, 9);
 });
+
+import { writeCommands } from "../../web/studio/parts/write-page.js";
+
+test("the post's commands follow its state", () => {
+  const ids = (over) => writeCommands({ state: "draft", path: "posts/x.md", url: "", recipe: false, boxes: false, saveLabel: "Save draft", narrow: false, mac: false, ...over }).map((c) => c.id);
+  assert.ok(!ids({}).includes("takeoff"));
+  assert.ok(ids({ state: "published", url: "/x/" }).includes("takeoff"));
+  assert.ok(ids({ state: "published", url: "/x/" }).includes("view"));
+  assert.deepEqual(ids({ path: "" }).filter((id) => id === "old"), []);
+  assert.ok(ids({ recipe: true, boxes: true }).includes("plain"));
+  assert.ok(ids({ narrow: true }).includes("draft"));
+});
