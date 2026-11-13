@@ -279,6 +279,130 @@ fn multi_contribution_publication_requires_every_current_part_exactly_once() {
 }
 
 #[test]
+fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
+    use openblog_core::approval::ApprovalScope;
+    use openblog_core::assembly::{
+        assemble_all_contributions_with_credits, with_credit_subject_for_all_contributions,
+    };
+    use openblog_core::collaboration::Contribution;
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let mut record = record();
+    record.collaboration.contributions = [("first", "ann"), ("second", "ann"), ("third", "bo")]
+        .into_iter()
+        .map(|(id, owner)| Contribution {
+            id: id.into(),
+            participant_id: owner.into(),
+            markdown: String::new(),
+        })
+        .collect();
+    let mut set = DraftSet::new(&ALL).unwrap();
+    set.save("ann", "first", 0, "FIRST", T).unwrap();
+    set.save("ann", "second", 0, "SECOND", T).unwrap();
+    set.save("bo", "third", 0, "THIRD", T).unwrap();
+    let arrangement = structure(
+        r#"{"version":1,"revision":1,"layout":"roundtable","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"third","part":0},{"draft":"second","part":0}]}]}"#,
+    );
+    let active = ["ann", "bo"];
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let mut choices = CreditChoices::default();
+    choices
+        .select("ann", "ann", "ann", 0, CreditChoice::Uncredited)
+        .unwrap();
+    choices
+        .select("bo", "bo", "bo", 1, CreditChoice::Uncredited)
+        .unwrap();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    for who in active {
+        with_credit_subject_for_all_contributions(
+            &record,
+            Some(&arrangement),
+            &set,
+            &synthesis,
+            &moments,
+            &active,
+            &active,
+            &choices,
+            |subject| {
+                let seen = approvals.binding_for(subject, who).unwrap();
+                approvals.approve(who, who, subject, &seen, true, T)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    }
+    let assemble = |set: &DraftSet, choices: &CreditChoices| {
+        assemble_all_contributions_with_credits(
+            &record,
+            &arrangement,
+            set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &active,
+            &active,
+            DATE,
+            choices,
+        )
+    };
+    let result = assemble(&set, &choices).unwrap();
+    assert!(in_order(
+        body(&result.source),
+        &["FIRST", "THIRD", "SECOND"]
+    ));
+    assert!(!result.source.contains("Ann"));
+    assert!(!result.source.contains("Bo"));
+    let incomplete = structure(
+        r#"{"version":1,"revision":1,"layout":"roundtable","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"third","part":0}]}]}"#,
+    );
+    let mut incomplete_approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    for who in active {
+        with_credit_subject_for_all_contributions(
+            &record,
+            Some(&incomplete),
+            &set,
+            &synthesis,
+            &moments,
+            &active,
+            &active,
+            &choices,
+            |subject| {
+                let seen = incomplete_approvals.binding_for(subject, who).unwrap();
+                incomplete_approvals.approve(who, who, subject, &seen, true, T)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    }
+    assert!(matches!(
+        assemble_all_contributions_with_credits(
+            &record,
+            &incomplete,
+            &set,
+            &synthesis,
+            &moments,
+            &incomplete_approvals,
+            &active,
+            &active,
+            DATE,
+            &choices,
+        ),
+        Err(AssemblyError::ArrangementMismatch)
+    ));
+    set.save("ann", "second", 1, "Changed", T + 1).unwrap();
+    assert!(matches!(
+        assemble(&set, &choices),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    set.save("ann", "second", 2, "SECOND", T + 2).unwrap();
+    assert!(matches!(
+        assemble(&set, &choices),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
 fn a_piece_without_a_structure_keeps_participant_order_and_never_shows_the_marker() {
     let record = record();
     let set = world();

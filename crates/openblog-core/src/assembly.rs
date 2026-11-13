@@ -467,11 +467,27 @@ pub fn publication_credit_order(
     moments: &MomentSet,
     active: &[&str],
 ) -> Result<Vec<String>, AssemblyError> {
+    publication_credit_order_mode(record, structure, drafts, synthesis, moments, active, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn publication_credit_order_mode(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    all_contributions: bool,
+) -> Result<Vec<String>, AssemblyError> {
     let mut order = Vec::new();
     if let Some(structure) = structure {
-        let entries = structure
-            .reading_order(&record.collaboration, drafts)
-            .map_err(|_| AssemblyError::ArrangementMismatch)?;
+        let entries = if all_contributions {
+            structure.reading_order_for_publication(&record.collaboration, drafts, active)
+        } else {
+            structure.reading_order(&record.collaboration, drafts)
+        }
+        .map_err(|_| AssemblyError::ArrangementMismatch)?;
         for entry in entries {
             if active.contains(&entry.participant_id)
                 && entry.markdown.is_some()
@@ -682,6 +698,7 @@ pub fn assemble_for_participants(
         participants,
         date,
         None,
+        false,
     )
 }
 
@@ -710,6 +727,37 @@ pub fn assemble_for_participants_with_credits(
         participants,
         date,
         Some(choices),
+        false,
+    )
+}
+
+/// Assemble an explicitly arranged multi-contribution piece with exact credit-bound approvals.
+/// The caller must only accept approvals from previews that show every current contribution.
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_all_contributions_with_credits(
+    record: &SharedPublication,
+    structure: &ReflectionStructure,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    participants: &[&str],
+    date: &str,
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<Assembly, AssemblyError> {
+    assemble_inner(
+        record,
+        Some(structure),
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        active,
+        participants,
+        date,
+        Some(choices),
+        true,
     )
 }
 
@@ -725,6 +773,7 @@ fn assemble_inner(
     participants: &[&str],
     date: &str,
     choices: Option<&crate::shared_credit::CreditChoices>,
+    all_contributions: bool,
 ) -> Result<Assembly, AssemblyError> {
     if !record.allows_approval_scope(approvals.policy().scope) {
         return Err(AssemblyError::ApprovalScope);
@@ -734,18 +783,35 @@ fn assemble_inner(
     // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
     // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
     let readiness = match choices {
-        Some(choices) => with_credit_subject_for_participants(
-            record,
-            structure,
-            drafts,
-            synthesis,
-            moments,
-            active,
-            participants,
-            choices,
-            |subject| approvals.evaluate(subject),
-        )
-        .map_err(|_| AssemblyError::Invalid)?,
+        Some(choices) => {
+            let evaluate = |subject: &ApprovalSubject<'_>| approvals.evaluate(subject);
+            if all_contributions {
+                with_credit_subject_for_all_contributions(
+                    record,
+                    structure,
+                    drafts,
+                    synthesis,
+                    moments,
+                    active,
+                    participants,
+                    choices,
+                    evaluate,
+                )
+            } else {
+                with_credit_subject_for_participants(
+                    record,
+                    structure,
+                    drafts,
+                    synthesis,
+                    moments,
+                    active,
+                    participants,
+                    choices,
+                    evaluate,
+                )
+            }
+            .map_err(|_| AssemblyError::Invalid)?
+        }
         None => with_subject_for_participants(
             record,
             structure,
@@ -787,7 +853,13 @@ fn assemble_inner(
     }
     let projected = choices
         .map(|choices| {
-            public_credit_projection(record, drafts, synthesis, moments, active, choices)
+            if all_contributions {
+                public_credit_projection_for_all_contributions(
+                    record, drafts, synthesis, moments, active, choices,
+                )
+            } else {
+                public_credit_projection(record, drafts, synthesis, moments, active, choices)
+            }
         })
         .transpose()?;
     let public_record = projected.as_ref().map_or(record, |(record, _)| record);
@@ -817,9 +889,12 @@ fn assemble_inner(
         // The same latest revisions the approval's binding covers, in the one reading order. A
         // turn naming a part an author has since removed is a coordinator's fix, so it gets its
         // own error; it is reached only once the approvals are met.
-        let order = structure
-            .reading_order(&public_record.collaboration, drafts)
-            .map_err(|_| AssemblyError::ArrangementMismatch)?;
+        let order = if all_contributions {
+            structure.reading_order_for_publication(&public_record.collaboration, drafts, active)
+        } else {
+            structure.reading_order(&public_record.collaboration, drafts)
+        }
+        .map_err(|_| AssemblyError::ArrangementMismatch)?;
         let order: Vec<_> = order
             .into_iter()
             .filter(|entry| active.contains(&entry.participant_id) && entry.markdown.is_some())
@@ -962,8 +1037,15 @@ fn assemble_inner(
     let credits_path = crate::contributor::sidecar_path(&path).ok_or(AssemblyError::Invalid)?;
     let credits = match choices {
         Some(choices) => {
-            let credit_order =
-                publication_credit_order(record, structure, drafts, synthesis, moments, active)?;
+            let credit_order = publication_credit_order_mode(
+                record,
+                structure,
+                drafts,
+                synthesis,
+                moments,
+                active,
+                all_contributions,
+            )?;
             let ids = credit_order.iter().map(String::as_str).collect::<Vec<_>>();
             choices
                 .project(&ids)

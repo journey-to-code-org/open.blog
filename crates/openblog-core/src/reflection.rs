@@ -405,6 +405,35 @@ impl ReflectionStructure {
         }
     }
 
+    /// Unscoped, complete reading order for the publish gate after approvals are met.
+    pub(crate) fn reading_order_for_publication<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        drafts: &DraftSet,
+        active: &[&str],
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.validate_contribution_coverage(contract, drafts, active)?;
+        self.order_with_owners(
+            contract,
+            |id| {
+                contract
+                    .contributions
+                    .iter()
+                    .find(|contribution| contribution.id.eq_ignore_ascii_case(id))
+                    .map(|contribution| contribution.participant_id.as_str())
+            },
+            true,
+            |id, part| {
+                let view = drafts.latest_view(id).ok_or(ReflectionError::Invalid)?;
+                let text = split_parts(&view.markdown)
+                    .get(part)
+                    .ok_or(ReflectionError::Invalid)?
+                    .to_string();
+                Ok(Some(text))
+            },
+        )
+    }
+
     fn order_contributions<'a>(
         &'a self,
         contract: &'a CollaborationContract,
