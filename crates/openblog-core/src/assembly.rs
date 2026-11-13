@@ -775,7 +775,10 @@ fn assemble_inner(
     choices: Option<&crate::shared_credit::CreditChoices>,
     all_contributions: bool,
 ) -> Result<Assembly, AssemblyError> {
-    if !record.allows_approval_scope(approvals.policy().scope) {
+    if !record.allows_approval_scope(approvals.policy().scope)
+        || (all_contributions
+            && approvals.policy().scope != crate::approval::ApprovalScope::WholePiece)
+    {
         return Err(AssemblyError::ApprovalScope);
     }
     // The approvals are evaluated before anything reads a draft. Checking the arrangement against

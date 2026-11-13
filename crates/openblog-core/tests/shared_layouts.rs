@@ -314,6 +314,21 @@ fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
         .select("bo", "bo", "bo", 1, CreditChoice::Uncredited)
         .unwrap();
     let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(matches!(
+        assemble_all_contributions_with_credits(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &moments,
+            &ApprovalSet::with_scope(ApprovalScope::OwnSections),
+            &active,
+            &active,
+            DATE,
+            &choices,
+        ),
+        Err(AssemblyError::ApprovalScope)
+    ));
     for who in active {
         with_credit_subject_for_all_contributions(
             &record,
