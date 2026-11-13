@@ -196,7 +196,7 @@ test("Reminders: change a topic's words and dates, turn one off with Undo, add a
   await expect(sheet.getByText("Runs across the new year.")).toBeVisible();
   await sheet.getByRole("textbox", { name: "What to write about" }).fill(`Ladders and gutters. ${HOSTILE}`);
   await save.click();
-  await expect(sheet.locator("p[role=status]")).toHaveText("Saved. Studio suggests “Get the roof ready before winter” from October 1 to February 29.");
+  await expect(sheet.locator("p[role=status]")).toHaveText("Saved. Your blog suggests “Get the roof ready before winter” from October 1 to February 29.");
   expect(server.state.puts.at(-1)).toEqual({ etag: "e1", seasonalPrompts: { enabled: true, topics: [{ id: "roofing-winter", topic: "Get the roof ready before winter", prompt: `Ladders and gutters. ${HOSTILE}`, start: "10-01", end: "02-29" }] } });
   // Put back the original, with Undo.
   const winter = sheet.locator("[data-topic='roofing-winter']");
@@ -210,7 +210,7 @@ test("Reminders: change a topic's words and dates, turn one off with Undo, add a
   // Turn Ice dams off, then Undo.
   const ice = sheet.locator("[data-topic='roofing-ice']");
   await ice.getByRole("switch", { name: "Suggest this" }).click();
-  await expect(sheet.locator("p[role=status]")).toHaveText("Studio won't suggest “Ice dams” any more.");
+  await expect(sheet.locator("p[role=status]")).toHaveText("Your blog won't suggest “Ice dams” any more.");
   expect(server.state.entries.find((e) => e.id === "roofing-ice")).toEqual({ id: "roofing-ice", disabled: true });
   await sheet.getByRole("button", { name: "Undo" }).click();
   await expect(sheet.locator("p[role=status]")).toHaveText("“Ice dams” is back.");
@@ -222,7 +222,7 @@ test("Reminders: change a topic's words and dates, turn one off with Undo, add a
   await sheet.locator("[data-topic='new']").getByRole("textbox", { name: "Topic" }).fill("Gutter day");
   await sheet.locator("[data-topic='new']").getByRole("textbox", { name: "What to write about" }).fill("Why clean gutters matter.");
   await sheet.getByRole("button", { name: "Add it" }).click();
-  await expect(sheet.locator("p[role=status]")).toHaveText("Added. Studio suggests “Gutter day” from November 13 to December 13.");
+  await expect(sheet.locator("p[role=status]")).toHaveText("Added. Your blog suggests “Gutter day” from November 13 to December 13.");
   await expect(sheet.locator("[data-topic='own-gutter-day'] h3")).toBeFocused();
   expect(server.state.entries.at(-1)).toEqual({ id: "own-gutter-day", topic: "Gutter day", prompt: "Why clean gutters matter.", start: "11-13", end: "12-13" });
   // Strangers' text stays text.
@@ -354,7 +354,7 @@ test("Requests: an older requests service is said in plain words, and nothing is
   await page.getByRole("menuitem", { name: "Clean up archived requests…" }).click();
   const sheet = page.locator("side-sheet");
   await sheet.getByRole("button", { name: "Erase the old ones now" }).click();
-  await expect(sheet.locator("p[role=status]")).toHaveText("Your requests service needs updating before Studio can clean up. Tell the person who set up your site.");
+  await expect(sheet.locator("p[role=status]")).toHaveText("Your requests service needs updating before your blog can clean up. Tell the person who set up your site.");
   await expect(page.getByRole("heading", { name: /Erase .* now\?/ })).toHaveCount(0);
   const details = sheet.locator("details");
   await details.locator("summary").click();
@@ -373,7 +373,7 @@ test("Reminders: Undo only takes back the latest save, and a switch keeps her fo
   const ice = sheet.locator("[data-topic='roofing-ice']");
   await ice.getByRole("switch", { name: "Suggest this" }).focus();
   await page.keyboard.press("Space");
-  await expect(sheet.locator("p[role=status]")).toHaveText("Studio won't suggest “Ice dams” any more.");
+  await expect(sheet.locator("p[role=status]")).toHaveText("Your blog won't suggest “Ice dams” any more.");
   await expect(ice.getByRole("switch", { name: "Suggest this" })).toBeFocused();
   await expect(ice.getByRole("switch", { name: "Suggest this" })).not.toBeChecked();
   // Undo by keyboard: focus goes back to the switch, not the page.
@@ -389,7 +389,7 @@ test("Reminders: Undo only takes back the latest save, and a switch keeps her fo
   await winter.getByRole("button", { name: /Change/ }).click();
   await winter.getByRole("combobox", { name: "Starts, month" }).selectOption({ label: "August" });
   await winter.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(sheet.locator("p[role=status]")).toHaveText("Saved. Studio suggests “Get the roof ready before winter” from August 1 to October 31.");
+  await expect(sheet.locator("p[role=status]")).toHaveText("Saved. Your blog suggests “Get the roof ready before winter” from August 1 to October 31.");
   await expect(sheet.getByRole("button", { name: "Undo" })).toHaveCount(0);
   expect(server.state.entries).toEqual(expect.arrayContaining([{ id: "roofing-ice", disabled: true }, expect.objectContaining({ id: "roofing-winter", start: "08-01" })]));
 });

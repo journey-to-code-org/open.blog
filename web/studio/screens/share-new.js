@@ -166,7 +166,7 @@ export async function createShareNew({ api, go }, route) {
       go("#/sharing");
       return;
     }
-    const may = unsure.length ? ` Studio didn't hear back from ${unsure.join(" and ")}; it may have it. Look under Sharing in a minute before sharing there again.` : "";
+    const may = unsure.length ? ` Your blog didn't hear back from ${unsure.join(" and ")}; it may have it. Look under Sharing in a minute before sharing there again.` : "";
     status.textContent = `${done.length ? `Shared to ${done.join(" and ")}. ` : ""}${failed.join(" ")}${failed.length ? " Change it and press Share it again; the ones that went won't go twice." : ""}${may}`;
     if (field === "caption") { caption.error = "This doesn't fit on every account you chose. Shorten it a little."; caption.querySelector("textarea")?.focus(); }
     else if (field === "time") { status.textContent += " Pick another time."; (day.querySelector("input") || whenPick).focus?.(); }

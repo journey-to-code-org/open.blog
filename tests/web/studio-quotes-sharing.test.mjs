@@ -55,7 +55,7 @@ test("the caption is counted against the shortest limit of the accounts chosen",
 });
 
 test("account trouble and send words are hers", () => {
-  assert.match(healthWords({ provider: "facebook", health: "needs-reauth" }), /^Facebook stopped taking posts from Studio/);
+  assert.match(healthWords({ provider: "facebook", health: "needs-reauth" }), /^Facebook stopped taking posts from your blog/);
   assert.equal(healthWords({ provider: "facebook", health: "ok" }), "");
   assert.equal(needsReconnect("provider-auth"), true);
   assert.equal(sentWords(["Facebook", "Bluesky"], "in about 5 minutes"), "On its way. Facebook and Bluesky get it in about 5 minutes.");
@@ -138,7 +138,7 @@ import { checkQuestion } from "../../web/studio/parts/share-words.js";
 
 test("an older requests service is said in plain words, never as a code", () => {
   const said = cleanupTrouble({ status: 409, data: { code: "hosted-too-old" } });
-  assert.equal(said, "Your requests service needs updating before Studio can clean up. Tell the person who set up your site.");
+  assert.equal(said, "Your requests service needs updating before your blog can clean up. Tell the person who set up your site.");
   assert.doesNotMatch(said, /409|hosted|function|deploy/i);
   assert.equal(cleanupTrouble({ status: 502 }), quoteTrouble({ status: 502 }));
 });
@@ -147,6 +147,6 @@ test("Check it asks about the right place, with or without its name", () => {
   assert.equal(checkQuestion({ provider: "facebook", kind: "page", displayName: "Ridgeline" }), "Facebook didn't say whether it posted. Look at your Facebook Page, Ridgeline. Is it there?");
   assert.equal(checkQuestion({ provider: "facebook", kind: "page", displayName: "" }), "Facebook didn't say whether it posted. Look at your Facebook Page. Is it there?");
   assert.equal(checkQuestion({ provider: "bluesky", displayName: "  " }), "Bluesky didn't say whether it posted. Look at your Bluesky account. Is it there?");
-  assert.equal(checkQuestion(null), "Studio couldn't tell whether it posted. Look at the account it was going to. Is it there?");
+  assert.equal(checkQuestion(null), "Your blog couldn't tell whether it posted. Look at the account it was going to. Is it there?");
   for (const d of [{ provider: "facebook" }, { provider: "mastodon", displayName: null }, {}]) assert.doesNotMatch(checkQuestion(d), /, \.|undefined|null| \./);
 });

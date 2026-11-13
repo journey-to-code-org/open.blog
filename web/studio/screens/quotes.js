@@ -45,7 +45,7 @@ export async function createQuotes({ api }) {
       if (!state.enabled) {
         cards.removeAttribute("aria-busy");
         cards.replaceChildren();
-        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Studio can't open your quote requests" }, "The quote form isn't connected properly. Tell the person who set up your site."));
+        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your blog can't open your quote requests" }, "The quote form isn't connected properly. Tell the person who set up your site."));
         drawDetails(state);
         return;
       }
@@ -131,7 +131,7 @@ export async function createQuotes({ api }) {
       await navigator.clipboard.writeText(String(text || ""));
       status.textContent = said;
     } catch {
-      status.textContent = "Studio couldn't copy it. Select it and copy it instead.";
+      status.textContent = "That didn't copy. Select it and copy it instead.";
     }
   }
 

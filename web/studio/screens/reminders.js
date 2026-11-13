@@ -33,7 +33,7 @@ export async function createReminders({ api, go }) {
   const details = h("details", { class: "studio-help" });
   const element = h("section", { class: "studio-page studio-reminders", "aria-labelledby": "studio-reminders-h" },
     h("div", { class: "studio-today" }, h("div", { class: "studio-comment-head" }, heading, screenMore),
-      h("p", { class: "studio-lede", text: "At the right time of year, Studio suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself." }),
+      h("p", { class: "studio-lede", text: "At the right time of year, your blog suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself." }),
       tradeHelp),
     undoSlot, banner, status, body, details);
 
@@ -62,14 +62,14 @@ export async function createReminders({ api, go }) {
     drawDetails();
     if (!data.enabled) {
       body.replaceChildren(h("empty-state", { heading: "Reminders are off" },
-        "Turn them on and Studio suggests what to write for your trade, at the right time of year. It never publishes anything.",
+        "Turn them on and your blog suggests what to write for your trade, at the right time of year. It never publishes anything.",
         h("action-button", { slot: "actions", onClick: () => setEnabled(true) }, "Turn on reminders")));
       return;
     }
     const due = data.reminders.filter((r) => r.status === "due");
     const later = data.reminders.filter((r) => r.status !== "due");
     if (!due.length && !later.length) {
-      body.replaceChildren(h("empty-state", { heading: "Nothing for now" }, "Nothing to write about for the next month. Studio will tell you when something comes up."));
+      body.replaceChildren(h("empty-state", { heading: "Nothing for now" }, "Nothing to write about for the next month. Your blog will tell you when something comes up."));
       return;
     }
     body.replaceChildren(...[
@@ -118,7 +118,7 @@ export async function createReminders({ api, go }) {
       const done = await api.post("seasonal/open", { key: r.key });
       if (!done.document) {
         await load();
-        status.textContent = "Started a draft, but Studio can't open it here. Find it under Posts.";
+        status.textContent = "Started a draft, but it can't open here. Find it under Posts.";
         return;
       }
       toast(`${done.created === false ? "You started this one already. Here it is." : "Here's a draft to start from. It's not on your site."}${data.voiceReady ? " The Assistant can help write it in your voice." : ""}`);
@@ -166,7 +166,7 @@ export async function createReminders({ api, go }) {
 
   async function stopTopic(r) {
     if (!(await put(true, M.withDisabled(data.entries, r.id, true)))) return;
-    const words = `Studio won't suggest “${r.topic}” any more.`;
+    const words = `Your blog won't suggest “${r.topic}” any more.`;
     status.textContent = words;
     const undo = h("action-button", { size: "sm", onClick: async () => { undoSlot.replaceChildren(); if (await put(true, M.withDisabled(data.entries, r.id, false))) status.textContent = `“${r.topic}” is back.`; } }, "Undo");
     undoSlot.replaceChildren(h("alert-banner", { variant: "info", dismissible: true, heading: words }, undo));

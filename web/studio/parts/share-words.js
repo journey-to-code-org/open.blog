@@ -15,7 +15,7 @@ const placeWord = (d) => (d?.kind === "page" || d?.kind === "organization" ? "Pa
 /** Check it's question: where to look, naming the account only when it has a name. */
 export function checkQuestion(d) {
   const name = providerName(d?.provider);
-  if (!name) return "Studio couldn't tell whether it posted. Look at the account it was going to. Is it there?";
+  if (!name) return "Your blog couldn't tell whether it posted. Look at the account it was going to. Is it there?";
   const shown = typeof d?.displayName === "string" ? d.displayName.trim() : "";
   return `${name} didn't say whether it posted. Look at your ${name} ${placeWord(d)}${shown ? `, ${shown}` : ""}. Is it there?`;
 }
@@ -81,9 +81,9 @@ export function healthWords(account, { now = new Date(), timeZone } = {}) {
   const same = `signing in to the ${name} account you used the first time`;
   if (account?.health === "expiring") {
     const day = sayDay(usableUntil(account), { now, timeZone });
-    return `${name} stops taking posts from Studio ${day ? `on ${day}` : "soon"}. Reconnect it before then, ${same}.`;
+    return `${name} stops taking posts from your blog ${day ? `on ${day}` : "soon"}. Reconnect it before then, ${same}.`;
   }
-  if (account?.health === "needs-reauth") return `${name} stopped taking posts from Studio. Reconnect it, ${same}.`;
+  if (account?.health === "needs-reauth") return `${name} stopped taking posts from your blog. Reconnect it, ${same}.`;
   if (account?.health === "disconnected") return "Disconnected.";
   return "";
 }
@@ -110,7 +110,7 @@ const PROBLEMS = {
   "attempts-exhausted": "It was tried as many times as allowed.",
   timeout: "It didn't answer, so it may or may not have been shared.",
   "not-delivered": "It said the post didn't go out.",
-  "needs-review": "Studio couldn't tell whether it went out. Look at the account.",
+  "needs-review": "Your blog couldn't tell whether it went out. Look at the account.",
   "account-disconnected": "Its account was disconnected.",
 };
 export const problemLine = (code) => PROBLEMS[code] || (code ? "Something went wrong." : "");
@@ -128,21 +128,21 @@ export function sentWords(names, when) {
 export function shareTrouble(error) {
   const status = error?.status ?? 0;
   const code = error?.data?.code;
-  if (!status) return "Studio couldn't reach your site's server. Check your connection, then try again.";
+  if (!status) return "Your site's server couldn't be reached. Check your connection, then try again.";
   if (code === "hosted-key-rejected" || code === "hosted-unavailable" || status === 404) return "Sharing isn't working right now. Tell the person who set up your site.";
-  if (status === 502 || status === 503 || status === 504) return "Studio couldn't reach your sharing service. Try again in a minute.";
+  if (status === 502 || status === 503 || status === 504) return "Your sharing service couldn't be reached. Try again in a minute.";
   return "That didn't go through. Try again.";
 }
 
 // ---- R1: a share's history and running late (docs/specs/studio/r1/ux.md) ------------------
 
 const BUSY = {
-  "rate-limited": (p) => `${p} asked Studio to slow down.`,
+  "rate-limited": (p) => `${p} asked your blog to slow down.`,
   "provider-unavailable": (p) => `${p} was busy.`,
   timeout: (p) => `${p} didn't answer.`,
-  "lease-expired": () => "Studio stopped before it heard back.",
+  "lease-expired": () => "Your blog stopped before it heard back.",
   "reviewed-not-posted": () => "You checked: it wasn't there.",
-  deferred: () => "Studio ran out of time and will try again.",
+  deferred: () => "Your blog ran out of time and will try again.",
 };
 const why = (code, provider) => (code ? (BUSY[code] ? BUSY[code](providerName(provider) || "It") : problemLine(code)) : "");
 

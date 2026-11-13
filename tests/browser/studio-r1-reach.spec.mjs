@@ -273,7 +273,7 @@ test("Share this job: after the job changed, the post buttons come back, and Und
   // A job that isn't there offers nothing to open.
   await signIn(page, "#/sharing/job/posts%2Fgone.md");
   const banner = page.locator(".studio-job-share alert-banner");
-  await expect(banner).toContainText("Studio couldn't find this job. It may have been deleted or renamed.");
+  await expect(banner).toContainText("Your blog couldn't find this job. It may have been deleted or renamed.");
   await expect(page.getByRole("link", { name: "Open it in Write" })).toHaveCount(0);
   await expect(banner.getByRole("button", { name: "Try again" })).toHaveCount(0);
   // Nextdoor was marked earlier; then she changed the job's words.

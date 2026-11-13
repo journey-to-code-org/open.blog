@@ -71,9 +71,9 @@ test("each provider's line and first step say what happens, in her words", () =>
   assert.equal(R.providerLine({ provider: "linkedin" }), "Post as yourself on LinkedIn.");
   assert.equal(R.providerLine({ provider: "mastodon", instance: "https://mastodon.social" }), "Post as your account on mastodon.social.");
   assert.equal(R.providerLine({ provider: "bluesky" }), "Post as your Bluesky account.");
-  assert.deepEqual(R.stepOneWords({ provider: "facebook" }), ["Studio sends you to Facebook. Sign in there and say yes; Facebook sends you back here to pick your Facebook Page."]);
+  assert.deepEqual(R.stepOneWords({ provider: "facebook" }), ["Your blog sends you to Facebook. Sign in there and say yes; Facebook sends you back here to pick your Facebook Page."]);
   assert.deepEqual(R.stepOneWords({ provider: "mastodon", instance: "https://mastodon.social", visibility: "unlisted", media: "cover" }), [
-    "Studio sends you to mastodon.social. Sign in there and say yes; you come back here to finish.",
+    "Your blog sends you to mastodon.social. Sign in there and say yes; you come back here to finish.",
     "Anyone with the link can see them, but they stay out of public timelines.",
     "Your post's photo goes with it.",
   ]);
@@ -88,7 +88,7 @@ test("places, reasons and notes say what she needs and nothing technical", () =>
   assert.equal(R.reasonWords("no-posting-role"), "Facebook doesn't let your account post on this Page.");
   assert.equal(R.reasonWords("not-administrator", "linkedin"), "LinkedIn doesn't let your account post on this page.");
   assert.match(R.reasonWords("missing-scope", "linkedin"), /^LinkedIn didn't allow posting here/);
-  assert.equal(R.reasonWords("something-new"), "Studio can't post here.");
+  assert.equal(R.reasonWords("something-new"), "Your blog can't post here.");
   assert.deepEqual(R.noteWords({ code: "pages-truncated", text: "x" }).first, true);
   assert.deepEqual(R.noteWords({ code: "organizations-not-approved", text: "LinkedIn refused" }), { text: "LinkedIn refused", first: false });
   assert.equal(R.accountKind({ provider: "facebook" }), "Facebook Page");
@@ -112,9 +112,9 @@ test("what came back from the provider, and refused actions, are hers; never a c
   assert.match(R.actionTrouble(err(429, "too-many-attempts")), /^Too many connections are unfinished/);
   assert.match(R.actionTrouble(err(409, "provider-not-configured"), "facebook"), /^Facebook isn't set up on your site any more/);
   for (const e of [err(502, "hosted-key-rejected"), err(502, "hosted-unavailable"), err(404, "not-set-up")]) assert.match(R.actionTrouble(e), /^Sharing isn't working right now/);
-  for (const e of [err(502, "bad-reply"), err(504, "hosted-timeout"), err(0)]) assert.match(R.actionTrouble(e), /^Studio couldn't reach your sharing service/);
+  for (const e of [err(502, "bad-reply"), err(504, "hosted-timeout"), err(0)]) assert.match(R.actionTrouble(e), /^Your sharing service couldn't be reached/);
   assert.match(R.actionTrouble(err(503, "provider-unavailable"), "bluesky"), /^Bluesky couldn't be reached/);
-  assert.match(R.actionTrouble(err(429, "provider-rate-limited"), "bluesky"), /^Bluesky asked Studio to slow down/);
+  assert.match(R.actionTrouble(err(429, "provider-rate-limited"), "bluesky"), /^Bluesky asked your blog to slow down/);
 });
 
 test("live attempts: still going, not run out, the newest per provider; a reconnect is its account's", () => {
@@ -177,12 +177,12 @@ test("waiting counts and the shares to try again belong to the one account", () 
 });
 
 test("disconnect and connect say what happened", () => {
-  assert.equal(R.disconnectWords(2), "2 posts waiting to go there won't be shared. Studio forgets how to post to it; you can connect it again later.");
-  assert.equal(R.disconnectWords(0), "Studio forgets how to post to it. You can connect it again later.");
+  assert.equal(R.disconnectWords(2), "2 posts waiting to go there won't be shared. Your blog forgets how to post to it; you can connect it again later.");
+  assert.equal(R.disconnectWords(0), "Your blog forgets how to post to it. You can connect it again later.");
   assert.equal(R.disconnectedWords("Grammi's House", 2), "Disconnected Grammi's House. 2 waiting posts won't be shared.");
   assert.equal(R.disconnectedWords("Grammi's House", "3; drop"), "Disconnected Grammi's House.");
-  assert.equal(R.connectedWords(account()), "Connected. Studio can post to Grammi's House on Facebook now. To add another Facebook Page, connect Facebook again.");
-  assert.equal(R.connectedWords(account({ provider: "bluesky", displayName: "@grammi.bsky.social" })), "Connected. Studio can post to @grammi.bsky.social on Bluesky now.");
+  assert.equal(R.connectedWords(account()), "Connected. Your blog can post to Grammi's House on Facebook now. To add another Facebook Page, connect Facebook again.");
+  assert.equal(R.connectedWords(account({ provider: "bluesky", displayName: "@grammi.bsky.social" })), "Connected. Your blog can post to @grammi.bsky.social on Bluesky now.");
 });
 
 test("Sharing's connect and reconnect links stay in Studio", () => {
@@ -202,9 +202,9 @@ test("health: the badge names the day to sign in again by; the words name the ac
   assert.equal(healthBadge(account({ health: "expiring", credential: {} }), { now }), "Sign in again soon");
   assert.equal(HEALTH_BADGES.expiring, "Sign in again soon");
   assert.equal(healthBadge(account({ health: "needs-reauth" })), "Needs reconnecting");
-  assert.equal(healthWords(expiring, { now, timeZone: tz }), "Facebook stops taking posts from Studio on Friday, November 27. Reconnect it before then, signing in to the Facebook account you used the first time.");
-  assert.equal(healthWords(account({ health: "expiring", credential: {} }), { now }), "Facebook stops taking posts from Studio soon. Reconnect it before then, signing in to the Facebook account you used the first time.");
-  assert.equal(healthWords(account({ health: "needs-reauth" })), "Facebook stopped taking posts from Studio. Reconnect it, signing in to the Facebook account you used the first time.");
+  assert.equal(healthWords(expiring, { now, timeZone: tz }), "Facebook stops taking posts from your blog on Friday, November 27. Reconnect it before then, signing in to the Facebook account you used the first time.");
+  assert.equal(healthWords(account({ health: "expiring", credential: {} }), { now }), "Facebook stops taking posts from your blog soon. Reconnect it before then, signing in to the Facebook account you used the first time.");
+  assert.equal(healthWords(account({ health: "needs-reauth" })), "Facebook stopped taking posts from your blog. Reconnect it, signing in to the Facebook account you used the first time.");
   assert.equal(sayShortDay("2027-01-02T15:00:00Z", { now, timeZone: tz }), "Jan 2, 2027");
   assert.equal(sayClock("2026-11-13T20:05:00Z", { timeZone: tz }), "3:05 PM");
   assert.equal(sayClock("2026-11-13"), "");

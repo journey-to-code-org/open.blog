@@ -82,12 +82,12 @@ test("what to fix first, and refusals, in her words", () => {
   assert.equal(jobShareTrouble({ status: 422, data: { code: "not-shareable" } }), "This isn't a published job, so there's nothing to share.");
   assert.equal(jobShareTrouble({ status: 409, data: { code: "changed" } }), "The job changed while you looked. Here are the new words.");
   assert.equal(jobShareTrouble({ status: 409, data: { code: "sent" } }, "Nextdoor"), "Your site already sent this, or may have. Look on Nextdoor first.");
-  assert.equal(jobShareTrouble({ status: 0 }), "Studio couldn't reach your site's server. Check your connection, then try again.");
+  assert.equal(jobShareTrouble({ status: 0 }), "Your site's server couldn't be reached. Check your connection, then try again.");
 });
 
 test("a job that isn't there says so and offers nothing to open; a stale Undo says the newer mark stays", () => {
   const missing = { status: 404, data: { code: "not-found" } };
-  assert.equal(jobShareTrouble(missing), "Studio couldn't find this job. It may have been deleted or renamed.");
+  assert.equal(jobShareTrouble(missing), "Your blog couldn't find this job. It may have been deleted or renamed.");
   assert.equal(troubleAction(missing), null);
   assert.equal(troubleAction({ status: 422, data: { code: "not-shareable" } }), "write");
   assert.equal(troubleAction({ status: 500 }), "retry");

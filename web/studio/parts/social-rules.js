@@ -95,7 +95,7 @@ export function stepOneWords(provider) {
   if (provider?.provider === "mastodon") {
     const where = host(provider.instance) || "your Mastodon server";
     return [
-      `Studio sends you to ${where}. Sign in there and say yes; you come back here to finish.`,
+      `Your blog sends you to ${where}. Sign in there and say yes; you come back here to finish.`,
       VISIBILITY_WORDS[provider.visibility] || "",
       provider.media === "cover" ? "Your post's photo goes with it." : "",
     ].filter(Boolean);
@@ -103,7 +103,7 @@ export function stepOneWords(provider) {
   const pick = provider?.provider === "facebook" ? "pick your Facebook Page"
     : provider?.provider === "linkedin" ? (provider.organizations ? "pick where posts go: your profile, or a company page you run" : "pick where posts go")
       : "finish";
-  return [`Studio sends you to ${name}. Sign in there and say yes; ${name} sends you back here to ${pick}.`];
+  return [`Your blog sends you to ${name}. Sign in there and say yes; ${name} sends you back here to ${pick}.`];
 }
 
 /** An account's provider and kind: "Facebook Page", "LinkedIn company page". */
@@ -129,7 +129,7 @@ const REASONS = Object.freeze({
   "missing-scope": "Facebook didn't allow posting here. Connect again and leave every box ticked.",
   "not-administrator": "LinkedIn doesn't let your account post on this page.",
   "no-posting-role": "Facebook doesn't let your account post on this Page.",
-  "role-unverified": "Facebook didn't say what you can do on this Page, so Studio can't use it.",
+  "role-unverified": "Facebook didn't say what you can do on this Page, so your blog can't use it.",
   "no-page-token": "Facebook didn't give access to this Page. Connect again and choose it on Facebook.",
   "account-inactive": "Bluesky says this account isn't active.",
   "account-suspended": "Mastodon says this account is suspended.",
@@ -138,7 +138,7 @@ const REASONS = Object.freeze({
 /** Why a place can't be picked. `missing-scope` names the provider it came from. */
 export function reasonWords(reason, provider = "facebook") {
   if (reason === "missing-scope" && provider !== "facebook") return `${providerName(provider) || "It"} didn't allow posting here. Connect again and leave every box ticked.`;
-  return REASONS[reason] || "Studio can't post here.";
+  return REASONS[reason] || "Your blog can't post here.";
 }
 
 const FIRST_NOTES = Object.freeze({
@@ -160,7 +160,7 @@ export function outcomeWords(code, provider, { reconnecting = false, name = "" }
   const p = providerName(provider) || "It";
   switch (code) {
     case "denied": return `You said no on ${p}, so nothing was connected.`;
-    case "scopes-missing": return `${p} didn't allow everything Studio needs to post. Try again and leave every box ticked.`;
+    case "scopes-missing": return `${p} didn't allow everything your blog needs to post. Try again and leave every box ticked.`;
     case "no-destination":
       if (provider === "facebook") return "Facebook didn't show any Page you can post to. You need to run the Page. If you do, ask the person who set up your site to add you to its Facebook app.";
       if (provider === "linkedin") return "LinkedIn didn't show anywhere you can post.";
@@ -171,7 +171,7 @@ export function outcomeWords(code, provider, { reconnecting = false, name = "" }
     case "provider-error":
     case "invalid-request": return `${p} didn't finish connecting. Try again.`;
     case "provider-unavailable": return `${p} couldn't be reached. Try again in a few minutes.`;
-    case "provider-rate-limited": return `${p} asked Studio to slow down. Wait a few minutes, then try again.`;
+    case "provider-rate-limited": return `${p} asked your blog to slow down. Wait a few minutes, then try again.`;
     case "identity-mismatch": return mismatchWords(provider, { reconnecting, name });
     case "storage-failed": return "Your site couldn't save the connection. Try again.";
     default: return "That didn't connect. Try again.";
@@ -190,13 +190,13 @@ export function actionTrouble(error, provider = "") {
   const status = error?.status ?? 0;
   const code = error?.data?.code;
   const p = providerName(provider) || "That place";
-  if (!status) return "Studio couldn't reach your sharing service. Try again in a minute.";
+  if (!status) return "Your sharing service couldn't be reached. Try again in a minute.";
   if (code === "too-many-attempts") return "Too many connections are unfinished. Stop one above, or wait 10 minutes.";
   if (code === "provider-not-configured") return `${p} isn't set up on your site any more. Tell the person who set up your site.`;
   if (code === "hosted-key-rejected" || code === "hosted-unavailable" || code === "not-set-up" || status === 404) return "Sharing isn't working right now. Tell the person who set up your site.";
   if (code === "provider-unavailable") return `${p} couldn't be reached. Try again in a few minutes.`;
-  if (code === "provider-rate-limited" || status === 429) return `${p} asked Studio to slow down. Wait a few minutes, then try again.`;
-  if (status === 502 || status === 503 || status === 504) return "Studio couldn't reach your sharing service. Try again in a minute.";
+  if (code === "provider-rate-limited" || status === 429) return `${p} asked your blog to slow down. Wait a few minutes, then try again.`;
+  if (status === 502 || status === 503 || status === 504) return "Your sharing service couldn't be reached. Try again in a minute.";
   return "That didn't go through. Try again.";
 }
 
@@ -259,7 +259,7 @@ export function attemptCard(connection, { hasLink = false, timeZone } = {}) {
   const p = providerName(connection?.provider);
   const until = untilWords(connection?.expiresAt, { timeZone });
   if (connection?.status === "exchanging") {
-    return { heading: `${p} said yes`, words: "Studio is finishing up. This takes a few seconds.", buttons: [] };
+    return { heading: `${p} said yes`, words: "Your blog is finishing up. This takes a few seconds.", buttons: [] };
   }
   if (connection?.status === "authorized") {
     const what = connection.provider === "facebook" ? "choose your Facebook Page" : connection.provider === "linkedin" ? "choose where posts go" : "choose your account";
@@ -317,8 +317,8 @@ export function retriedWords(done, failed) {
 
 /** The Disconnect question's words. */
 export function disconnectWords(waiting) {
-  if (waiting > 0) return `${waiting === 1 ? "1 post waiting to go there won't" : `${waiting} posts waiting to go there won't`} be shared. Studio forgets how to post to it; you can connect it again later.`;
-  return "Studio forgets how to post to it. You can connect it again later.";
+  if (waiting > 0) return `${waiting === 1 ? "1 post waiting to go there won't" : `${waiting} posts waiting to go there won't`} be shared. Your blog forgets how to post to it; you can connect it again later.`;
+  return "Your blog forgets how to post to it. You can connect it again later.";
 }
 
 /** "Disconnected Grammi's House." plus how many waiting posts won't be shared. */
@@ -330,7 +330,7 @@ export function disconnectedWords(name, canceled) {
 /** The status after a connect. */
 export function connectedWords(account) {
   const extra = account?.provider === "facebook" ? " To add another Facebook Page, connect Facebook again." : "";
-  return `Connected. Studio can post to ${account?.displayName || "it"} on ${providerName(account?.provider)} now.${extra}`;
+  return `Connected. Your blog can post to ${account?.displayName || "it"} on ${providerName(account?.provider)} now.${extra}`;
 }
 
 /**

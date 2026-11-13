@@ -23,7 +23,7 @@ export async function createWhereItWent({ api, days, social, posts: store = null
       if (error.status === 401) throw error;
       lastError = error;
       element.removeAttribute("aria-busy");
-      element.replaceChildren(h("alert-banner", { variant: "danger", heading: "Studio couldn't read that" }, "Try again. ",
+      element.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your blog couldn't read that" }, "Try again. ",
         h("action-button", { variant: "secondary", size: "sm", onClick: () => load() }, "Try again")));
       drawDetails(null);
       return;

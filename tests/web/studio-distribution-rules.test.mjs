@@ -107,5 +107,5 @@ test("Studio's words for each place, the heading and the days", () => {
   assert.equal(reachedWords([{ status: "delivered" }], 365), "Reached 1 place in the last year");
   assert.equal(daysWords(90), "in the last 90 days");
   assert.deepEqual([daysFrom("90"), daysFrom("365"), daysFrom("7"), daysFrom(undefined)], [90, 365, 30, 30]);
-  assert.equal(unreadableWords("Pinterest"), "Studio couldn't read what went to Pinterest, so it isn't here. Tell the person who set up your site.");
+  assert.equal(unreadableWords("Pinterest"), "Your blog couldn't read what went to Pinterest, so it isn't here. Tell the person who set up your site.");
 });

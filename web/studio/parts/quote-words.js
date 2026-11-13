@@ -84,7 +84,7 @@ export function homeQuoteLine(requests) {
 /** A failure in her words; the server's text (which may name settings) goes in details. */
 export function quoteTrouble(error) {
   const status = error?.status ?? 0;
-  if (!status) return "Studio couldn't reach your site's server. Check your connection, then try again.";
+  if (!status) return "Your site's server couldn't be reached. Check your connection, then try again.";
   if (status === 404 || status === 401) return "The quote form isn't connected properly. Tell the person who set up your site.";
   if (status === 502 || status === 503 || status === 504) return "Your quote requests aren't answering right now. Try again in a minute.";
   return "That didn't go through. Try again.";
@@ -92,7 +92,7 @@ export function quoteTrouble(error) {
 
 /** A refusal while cleaning up archived requests; an older requests service is said plainly. */
 export function cleanupTrouble(error) {
-  if (error?.data?.code === "hosted-too-old") return "Your requests service needs updating before Studio can clean up. Tell the person who set up your site.";
+  if (error?.data?.code === "hosted-too-old") return "Your requests service needs updating before your blog can clean up. Tell the person who set up your site.";
   return quoteTrouble(error);
 }
 

@@ -106,12 +106,12 @@ export const keyFor = (work, digest) => `${work}\n${digest}`;
 /** A refusal from the share routes, in her words. */
 export function jobShareTrouble(error, label = "there") {
   const code = error?.data?.code;
-  if (code === "not-found") return "Studio couldn't find this job. It may have been deleted or renamed.";
+  if (code === "not-found") return "Your blog couldn't find this job. It may have been deleted or renamed.";
   if (code === "marked-again") return `You marked ${label} again since, so that newer mark stays.`;
   if (code === "not-shareable" || error?.status === 422) return "This isn't a published job, so there's nothing to share.";
   if (code === "changed") return "The job changed while you looked. Here are the new words.";
   if (code === "sent") return `Your site already sent this, or may have. Look on ${label} first.`;
-  if (!error?.status) return "Studio couldn't reach your site's server. Check your connection, then try again.";
+  if (!error?.status) return "Your site's server couldn't be reached. Check your connection, then try again.";
   return "That didn't go through. Try again.";
 }
 

@@ -44,7 +44,7 @@ export function createSharePreview({ api, read, onProblems = () => {} }) {
     onProblems(byField);
     element.replaceChildren(...replies.map(({ provider, reply }) => {
       const name = providerName(provider);
-      const notes = !reply ? ["Studio couldn't show this just now. It will still share as you wrote it."]
+      const notes = !reply ? ["Your blog couldn't show this just now. It will still share as you wrote it."]
         : provider === "bluesky" ? blueskyNotes(caption, reply.link, reply.card)
           : provider === "mastodon" ? mastodonNotes(caption, reply.link, reply.cover)
             : [`On ${name} the link to your post goes with it.`];
