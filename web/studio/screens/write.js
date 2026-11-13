@@ -182,6 +182,7 @@ export async function createWrite(context, path) {
       form = { ...values, cover: form.cover, coverAlt: form.coverAlt, date: fields.date || "" };
       savedAt = now();
       kept.clear(doc.path);
+      context.posts?.stale();
       return reply;
     })();
     try {

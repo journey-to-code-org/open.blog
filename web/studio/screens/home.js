@@ -4,7 +4,7 @@ import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { postList, postHref, sayListDate } from "../parts/post-list.js";
 
-export async function createHome({ api }) {
+export async function createHome({ posts }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   const body = h("div", { class: "studio-home", "aria-busy": "true" }, h("skeleton-block", { shape: "card" }), h("skeleton-block", { lines: 3 }));
   const write = () => h("action-button", { href: "#/write", size: "lg", class: "studio-primary" }, "Write something new");
@@ -15,7 +15,7 @@ export async function createHome({ api }) {
   async function load() {
     let items;
     try {
-      items = (await api.get("documents?kind=posts")).items || [];
+      items = await posts.list({ fresh: true });
     } catch (error) {
       body.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your posts didn't load" }, error.message));
       body.removeAttribute("aria-busy");

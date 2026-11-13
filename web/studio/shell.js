@@ -5,24 +5,21 @@ import { h, toast } from "./parts/dom.js";
 import { use } from "./zubra.js";
 import { createRouter, parseRoute } from "./router.js";
 import { signInForm } from "./screens/signin.js";
-import { createHome } from "./screens/home.js";
-import { createPosts } from "./screens/posts.js";
-import { createWrite } from "./screens/write.js";
+import { SCREENS } from "./screens/index.js";
+import { createPostsStore } from "./parts/store.js";
 import { ApiError } from "./api.js";
 import { sayListDate } from "./parts/post-list.js";
 
-const NAV = [
-  { id: "home", label: "Home", href: "#/" },
-  { id: "posts", label: "Posts", href: "#/posts" },
-];
-const AREA = { home: "home", posts: "posts", write: "posts" };
+const NAV = SCREENS.filter((s) => s.nav).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
+const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 export async function startShell(root, api, meta) {
   await use("dashboard-shell", "command-palette", "action-button", "modal-dialog", "toast-region");
   const siteName = meta.siteTitle || "Your site";
   rememberSiteName(siteName);
-  const context = { api, meta, siteName, go: (hash) => router.go(hash) };
+  const posts = createPostsStore(api);
+  const context = { api, meta, siteName, posts, go: (hash) => router.go(hash) };
 
   const content = h("main", { class: "studio-screen", id: "studio-main" });
   const actions = h("div", { class: "studio-actions", slot: "actions" });
@@ -84,16 +81,16 @@ export async function startShell(root, api, meta) {
     { id: "signout", label: "Sign out", group: "Do" },
   ];
   async function refreshPalette() {
-    let posts = [];
+    let items = [];
     try {
-      posts = (await api.get("documents?kind=posts")).items || [];
+      items = await posts.list();
     } catch {
       // The palette still offers everything else.
     }
     palette.items = [
       ...paletteScreen,
       ...BASE,
-      ...posts.filter((p) => p.status !== "error").map((p) => ({
+      ...items.filter((p) => p.status !== "error").map((p) => ({
         id: `post:${p.path}`, label: p.title || p.path, group: "Posts", href: `#/write/${encodeURIComponent(p.path)}`,
         hint: p.status === "draft" ? "Draft" : p.status === "scheduled" ? `Scheduled ${sayListDate(p.date)}` : "Published",
       })),
@@ -123,11 +120,7 @@ export async function startShell(root, api, meta) {
   }
 
   const router = createRouter({
-    screens: {
-      home: () => createHome(context),
-      posts: () => createPosts(context),
-      write: (route) => createWrite(context, route.arg),
-    },
+    screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => s.create(context, route)])),
     async onShow(screen, route) {
       shell.current = AREA[route.name] || "home";
       shell.heading = screen.title;
