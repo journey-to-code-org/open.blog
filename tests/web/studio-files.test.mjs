@@ -40,3 +40,10 @@ test("index.html loads only Studio's own files", () => {
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/, "no inline script");
   assert.doesNotMatch(html, /\sstyle=|<style/, "no inline style");
 });
+
+test("Studio never hands replaceChildren a possible null (it would print \"null\")", () => {
+  for (const file of ownFiles()) {
+    const code = readFileSync(file, "utf8");
+    assert.doesNotMatch(code, /replaceChildren\([^\n;]*\?[^\n;]*:\s*null\)/, `${relative(repo, file)}: use fill() or spread a list instead`);
+  }
+});

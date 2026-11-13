@@ -197,3 +197,11 @@ test("statusLine words", () => {
   assert.equal(line({ state: "published", date: "2026-11-12T21:00:00Z" }), "Published today at 4 PM");
   assert.equal(line({ state: "published", date: "2026-04-09" }), "Published Thursday, April 9");
 });
+
+test("onlyChanges sends just what changed and nulls for what goes", async () => {
+  const { onlyChanges } = await import("../../web/studio/parts/post-fields.js");
+  const received = { title: "Pie", draft: "true", tags: ["a"], cover: "", series: "thanksgiving", prep: "15 min" };
+  assert.deepEqual(onlyChanges(received, { title: "Pie", draft: true, tags: ["a"], cover: "", coverAlt: null, series: "thanksgiving", prep: "20 min" }), { prep: "20 min" });
+  assert.deepEqual(onlyChanges(received, { title: "Pie", draft: null, tags: ["a", "b"], cover: "" }), { draft: null, tags: ["a", "b"] });
+  assert.deepEqual(onlyChanges({ title: "A" }, { title: "A", date: "2026-11-13T10:00:00-05:00" }), { date: "2026-11-13T10:00:00-05:00" });
+});

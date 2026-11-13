@@ -166,3 +166,106 @@ modal-dialog .action-button { white-space: normal; height: auto; min-height: 2.7
 @media (max-width: 40rem) { modal-dialog footer > * { flex: 1 1 100%; } modal-dialog footer .action-button { width: 100%; } }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+/* ---- Slice 2 ---- */
+
+/* The recipe boxes: numbered rows on hairlines, each with its Move or remove menu. */
+.studio-recipe, .studio-body { display: grid; gap: var(--space-5); min-width: 0; }
+.studio-recipe-numbers cluster-layout > * { flex: 1 1 10rem; }
+.studio-list-box { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-3); min-width: 0; }
+.studio-list-box legend { padding: 0; font-weight: 600; font-size: var(--text-lg); margin-bottom: var(--space-1); }
+.studio-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.studio-row-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: end; }
+.studio-row-item .studio-row-field { min-width: 0; }
+.studio-row-moved { animation: studio-moved 240ms ease-out; border-radius: var(--radius); }
+@keyframes studio-moved { from { background: var(--studio-sage); } to { background: transparent; } }
+.studio-put-photo { justify-self: start; }
+.studio-others { font-style: italic; }
+.studio-checks { margin: var(--space-2) 0 0; padding-left: var(--space-5); display: grid; gap: var(--space-2); }
+
+/* Write's bar: See how it looks, Save draft, the primary. On a phone, Save draft lives in More. */
+@media (max-width: 40rem) {
+  .studio-write-bar .studio-save { display: none; }
+}
+.studio-write { padding-bottom: calc(var(--space-8) + var(--space-4)); }
+
+/* Pictures */
+.studio-picture-grid-page { max-height: none; overflow: visible; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); }
+@media (min-width: 45rem) { .studio-picture-grid-page { grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); } }
+.studio-picture-pending { display: grid; place-items: center; min-height: 7rem; color: var(--studio-ink-soft); }
+.studio-sheet-img { width: 100%; border-radius: var(--radius); border: 1px solid var(--studio-linen); }
+.studio-picker { display: grid; gap: var(--space-4); }
+
+/* See how it looks: a wide sheet on a computer, the whole screen on a phone. */
+side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet { width: min(64rem, 100vw); max-width: 100vw; }
+@media (min-width: 60rem) { side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet { width: min(64rem, 75vw); } }
+.studio-preview-tools { justify-content: space-between; align-items: center; }
+@media (max-width: 40rem) { .studio-preview-device { display: none; } }
+.studio-preview-stage { display: grid; justify-items: center; background: var(--studio-sage); border-radius: var(--radius); padding: var(--space-2); min-height: 60dvh; }
+.studio-preview-frame { width: 100%; height: 75dvh; border: 1px solid var(--studio-linen); border-radius: calc(var(--radius) - 4px); background: #fff; }
+.studio-preview-stage[data-device="phone"] .studio-preview-frame { width: 390px; max-width: 100%; }
+.studio-preview-wait { align-self: center; }
+
+/* The Undo banner sits above every screen. */
+.studio-undo:empty { display: none; }
+.studio-undo { margin-bottom: var(--space-5); }
+.studio-undo-details summary { cursor: pointer; min-height: 44px; display: inline-flex; align-items: center; }
+.studio-row-menu { flex: none; }
+/* Whatever has focus scrolls clear of Write's sticky bar. */
+.studio-shell * { scroll-padding-bottom: 6rem; }
+.studio-write :focus { scroll-margin-bottom: 6rem; }
+
+/* Review round 2 (QA, Grammi, Mikey on slice 2) */
+/* Rows: the box takes the whole width; Move or remove sits on the label's line. */
+.studio-row-item { display: block; position: relative; }
+.studio-row-item .studio-row-menu { position: absolute; top: -0.35rem; right: 0; }
+.studio-row-field textarea { field-sizing: content; min-height: 3lh; }
+.studio-row-note:empty { display: none; }
+.studio-row-note { color: var(--studio-damson); font-weight: 600; }
+.studio-row-moved .studio-row-field input, .studio-row-moved .studio-row-field textarea { outline: 3px solid var(--studio-sage); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .studio-row-moved { animation: none; } }
+/* Photos in her words, shown as photos. */
+.studio-photo-strip { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-photo-chip { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: var(--space-2); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-photo-chip img { width: 3.5rem; height: 3.5rem; object-fit: cover; border-radius: calc(var(--radius) - 4px); }
+.studio-photo-strip-wrap { display: grid; gap: var(--space-2); }
+/* Posts: on a phone the title takes the whole line; the badge and More go under it. */
+@media (max-width: 40rem) {
+  .studio-post-row { flex-wrap: wrap; }
+  .studio-post-link { flex: 1 1 100%; }
+}
+.studio-post-file { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--studio-ink-soft); overflow-wrap: anywhere; }
+/* Focused fields scroll clear of the top bar too. */
+.studio-shell * { scroll-padding-top: 5rem; }
+/* On a phone the page's own name is in the breadcrumb or heading, so the top bar's copy is only
+   read aloud (it was squeezed to "Gramm Pum…"). */
+@media (max-width: 40rem) {
+  .studio-shell header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* ---- Slice 3: Decorations ---- */
+.studio-decorations { gap: var(--space-6); }
+.studio-today { display: grid; gap: var(--space-3); padding: var(--space-5); background: var(--studio-flour-lift); border: 1px solid var(--studio-linen); border-radius: var(--radius); }
+.studio-today .studio-question { font-size: var(--text-xl); }
+.studio-season-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--studio-linen); }
+.studio-season-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1) var(--space-3); align-items: center; padding: var(--space-2) 0; border-bottom: 1px solid var(--studio-linen); }
+.studio-season-open { display: grid; gap: 0.1rem; min-height: 44px; padding: var(--space-1) 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.studio-season-open:hover .studio-season-name { text-decoration: underline; }
+.studio-season-name { font-weight: 600; color: var(--studio-damson); }
+.studio-season-dates { font-size: var(--text-sm); color: var(--studio-ink-soft); }
+.studio-season-badges { display: flex; gap: var(--space-2); grid-column: 1; }
+.studio-season-row .studio-row-menu { grid-column: 2; grid-row: 1; }
+.studio-season-problem { grid-column: 1 / -1; color: var(--studio-ink); }
+.studio-season-fix { grid-column: 1 / -1; justify-self: start; }
+.studio-deco-bar { justify-content: space-between; align-items: center; }
+.studio-save-words { margin: 0; font-weight: 600; }
+.studio-season-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: var(--text-sm); }
+.studio-season-table th, .studio-season-table td { text-align: start; padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--studio-linen); }
+.studio-season-sheet select-field { display: block; }
+/* Long look names ("Put January: snowy morning up now") wrap instead of pushing the page sideways. */
+.studio-today .action-button, .studio-decorations .action-button { white-space: normal; height: auto; min-height: 2.75rem; padding-block: 0.5rem; text-align: center; }
+/* At 320 px the season's name and dates take the whole line; Move or remove goes under them. */
+@media (max-width: 24rem) {
+  .studio-season-row { grid-template-columns: minmax(0, 1fr); }
+  .studio-season-row .studio-row-menu { grid-column: 1; grid-row: auto; justify-self: start; }
+}

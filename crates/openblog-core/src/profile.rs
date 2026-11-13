@@ -350,6 +350,14 @@ pub fn field_help(field: &ProfileField, recipe_listing: bool) -> &'static str {
 pub fn field_aliases(key: &str) -> &'static [&'static str] {
     match key {
         "course" => &crate::recipe::COURSE_KEYS[1..],
+        // The same names `recipe.rs` reads, so a value written as `prep:` shows
+        // in the field instead of being shadowed by a new `prepTime:`.
+        "servings" => &["serves"],
+        "prepTime" => &["prep", "prep_time"],
+        "cookTime" => &["cook", "cook_time"],
+        "totalTime" => &["total", "total_time"],
+        "yield" => &["makes"],
+        "adaptedFrom" => &["adapted_from", "basedOn"],
         _ => &[],
     }
 }

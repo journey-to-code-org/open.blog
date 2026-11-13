@@ -6,6 +6,13 @@ import { startShell } from "./shell.js";
 import { showSignIn } from "./screens/signin.js";
 
 const api = createApi();
+
+// Zubra UI's modal-dialog and side-sheet put a <header> inside their <dialog>, which counts as a
+// second page banner (axe: landmark-no-duplicate-banner). Until that's fixed upstream, Studio
+// marks those headers as plain groups.
+new MutationObserver(() => {
+  for (const header of document.querySelectorAll("dialog header:not([role])")) header.setAttribute("role", "none");
+}).observe(document.body, { childList: true, subtree: true });
 const root = document.getElementById("studio");
 
 async function start() {

@@ -5,26 +5,26 @@ import { h, toast } from "./parts/dom.js";
 import { use } from "./zubra.js";
 import { createRouter, parseRoute } from "./router.js";
 import { signInForm } from "./screens/signin.js";
-import { createHome } from "./screens/home.js";
-import { createPosts } from "./screens/posts.js";
-import { createWrite } from "./screens/write.js";
+import { SCREENS } from "./screens/index.js";
+import { createPostsStore } from "./parts/store.js";
+import { createUndo } from "./parts/undo.js";
 import { ApiError } from "./api.js";
 import { sayListDate } from "./parts/post-list.js";
 
-const NAV = [
-  { id: "home", label: "Home", href: "#/" },
-  { id: "posts", label: "Posts", href: "#/posts" },
-];
-const AREA = { home: "home", posts: "posts", write: "posts" };
+const NAV = SCREENS.filter((s) => s.nav).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
+const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 export async function startShell(root, api, meta) {
   await use("dashboard-shell", "command-palette", "action-button", "modal-dialog", "toast-region");
   const siteName = meta.siteTitle || "Your site";
   rememberSiteName(siteName);
-  const context = { api, meta, siteName, go: (hash) => router.go(hash) };
+  const posts = createPostsStore(api);
+  const context = { api, meta, siteName, posts, go: (hash) => router.go(hash) };
 
-  const content = h("main", { class: "studio-screen", id: "studio-main" });
+  const undoSlot = h("div", { class: "studio-undo", "aria-live": "polite" });
+  const screenHost = h("div");
+  const content = h("main", { class: "studio-screen", id: "studio-main" }, undoSlot, screenHost);
   const actions = h("div", { class: "studio-actions", slot: "actions" });
   const find = h("action-button", { variant: "ghost", "aria-keyshortcuts": isMac ? "Meta+K" : "Control+K", onClick: () => openPalette() },
     "Find", h("span", { class: "studio-key", "aria-hidden": "true", text: isMac ? "⌘K" : "Ctrl K" }));
@@ -41,7 +41,7 @@ export async function startShell(root, api, meta) {
 
   const palette = h("command-palette", { label: "Find", placeholder: "Find a post or something to do…", onSelect: (event) => runCommand(event.detail) });
   palette.addEventListener("openchange", (event) => { if (event.detail) refreshPalette(); });
-  root.replaceChildren(shell, palette, h("toast-region", { position: "bottom-center", label: "Messages" }));
+  root.replaceChildren(shell, palette, h("toast-region", { position: globalThis.matchMedia?.("(max-width: 40rem)").matches ? "top-center" : "bottom-center", label: "Messages" }));
 
   // Signing in again: a dialog over the screen, so her words stay where they are.
   api.onSignedOut = () => new Promise((resolve, reject) => {
@@ -69,6 +69,7 @@ export async function startShell(root, api, meta) {
 
   async function signOut() {
     if (!(await router.current()?.leave?.() ?? true)) return;
+    context.undo?.forget();
     await api.signOut();
     location.hash = "#/";
     location.reload();
@@ -76,24 +77,26 @@ export async function startShell(root, api, meta) {
 
   let paletteScreen = [];
   const BASE = [
-    { id: "go-home", label: "Home", group: "Go to", href: "#/" },
-    { id: "go-posts", label: "Posts", group: "Go to", href: "#/posts" },
-    { id: "write", label: "Write something new", group: "Do", href: "#/write" },
+    ...NAV.map((item) => ({ id: `go-${item.id}`, label: item.label, group: "Go to", href: item.href })),
+    { id: "write-recipe", label: "Write a new recipe", group: "Do", href: "#/write/new/recipe" },
+    { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
+    { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
     { id: "site", label: "View my site", group: "Do" },
     { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin" },
     { id: "signout", label: "Sign out", group: "Do" },
   ];
   async function refreshPalette() {
-    let posts = [];
+    let items = [];
     try {
-      posts = (await api.get("documents?kind=posts")).items || [];
+      items = await posts.list();
     } catch {
       // The palette still offers everything else.
     }
     palette.items = [
-      ...paletteScreen,
+      ...(context.undo?.has() ? [{ id: "undo", label: "Undo the delete", group: "Do" }] : []),
+      ...(router.current()?.palette || paletteScreen),
       ...BASE,
-      ...posts.filter((p) => p.status !== "error").map((p) => ({
+      ...items.filter((p) => p.status !== "error").map((p) => ({
         id: `post:${p.path}`, label: p.title || p.path, group: "Posts", href: `#/write/${encodeURIComponent(p.path)}`,
         hint: p.status === "draft" ? "Draft" : p.status === "scheduled" ? `Scheduled ${sayListDate(p.date)}` : "Published",
       })),
@@ -112,36 +115,35 @@ export async function startShell(root, api, meta) {
     const screen = router.current();
     const id = key === "s" ? "save" : "publish";
     if (key === "s") event.preventDefault();
-    if (!screen?.palette?.some((item) => item.id === id) || palette.open || document.querySelector("modal-dialog[open]")) return;
+    if (!(screen?.palette?.some((item) => item.id === id) || screen?.keys?.includes(id)) || palette.open || document.querySelector("modal-dialog[open]")) return;
     event.preventDefault();
     screen.command(id);
   });
   function runCommand(id) {
     if (id === "site") account("site");
     else if (id === "signout") signOut();
+    else if (id === "undo") context.undo?.restore();
     else router.current()?.command?.(id);
   }
 
   const router = createRouter({
-    screens: {
-      home: () => createHome(context),
-      posts: () => createPosts(context),
-      write: (route) => createWrite(context, route.arg),
-    },
+    screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => s.create(context, route)])),
     async onShow(screen, route) {
       shell.current = AREA[route.name] || "home";
       shell.heading = screen.title;
       document.title = `${screen.title} · ${siteName}`;
-      content.replaceChildren(screen.element);
+      screenHost.replaceChildren(screen.element);
       actions.replaceChildren(...(screen.actions || []));
       paletteScreen = screen.palette || [];
       palette.items = [...paletteScreen, ...BASE];
       await screen.load?.();
+      if (context.undo?.takeFocus()) return;
       if (screen.focus) screen.focus();
       else content.querySelector("h1, h2")?.focus?.();
     },
   });
   context.replaceRoute = (hash) => router.replace(hash);
+  context.undo = await createUndo({ api, posts, slot: undoSlot, onRestored: () => router.current()?.reload?.() });
   context.setTitle = (title) => { shell.heading = title; document.title = `${title} · ${siteName}`; };
   context.setActions = (nodes) => actions.replaceChildren(...nodes);
   context.toast = toast;
