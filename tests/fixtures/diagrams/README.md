@@ -53,6 +53,22 @@ Generated examples with 201 visible entities or participants in each supported
 family are rejected by the model budget; the model also counts relationships
 and other items, so smaller diagrams may reach the limit.
 
+## Destination evidence
+
+Checked 2026-11-12: the Forem source at
+[`ce40d3b`](https://github.com/forem/forem/blob/ce40d3b7019f832a0ac8ae681d15ba52f1fabfab/app/lib/redcarpet/render/html_rouge.rb)
+recognizes Mermaid fences, but falls back to code above 20,000 bytes or 500
+lines. Its [client initializer](https://github.com/forem/forem/blob/ce40d3b7019f832a0ac8ae681d15ba52f1fabfab/app/javascript/utilities/mermaidDiagrams.js)
+loads Mermaid only when a diagram is present. This establishes behavior in
+that source revision, not which revision is deployed on DEV or whether every
+diagram supported here renders there. Do not infer native support for DEV or
+other destinations from this evidence alone.
+
+The current syndication path uses the portable image projection for all five
+destinations. An integration test compares each preview with its outgoing
+request and checks that changing the alternative changes the preview digest;
+it does not verify that those destinations display SVG images.
+
 Native rendering caches successful SVGs in memory using a digest of source,
 options, alternatives, renderer version and SVG ID scope. The cache is limited
 to 32 entries and 8 MiB and is discarded when the process exits. It never caches
