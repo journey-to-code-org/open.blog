@@ -26830,7 +26830,11 @@ What I read:
         };
         assert_eq!(meta(&session)["engagement"], false);
         // The built-in counter until the hosted one is set up.
-        let counted = if f.state.analytics_enabled { json!("counter") } else { json!(false) };
+        let counted = if f.state.analytics_enabled {
+            json!("counter")
+        } else {
+            json!(false)
+        };
         assert_eq!(meta(&session)["visitors"], counted);
         let loaded = body_json(&handle(
             &f.state,
