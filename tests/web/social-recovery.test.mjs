@@ -81,6 +81,24 @@ test("an unknown outcome the author found on the provider is recorded as publish
   assert.equal(s.attempts[0].outcome, "published");
 });
 
+test("G7: an owner who saw it on her Page marks it shared without the provider's id", async () => {
+  const s = setup();
+  const post = unknown(s);
+  const reply = await s.call("POST", "announcements/resolve", post.id, { version: 3, outcome: "published" });
+  assert.equal(reply.status, 200, JSON.stringify(reply.body));
+  assert.equal(post.status, "published");
+  assert.equal(post.provider_post_id, `owner-checked:${post.id}`, "kept as her word: passes the id check and the unique index");
+  assert.equal(reply.body.announcement.providerPostId, null, "never shown as if it were the provider's id");
+  assert.equal(reply.body.announcement.checkedByOwner, true);
+  const listed = await s.call("GET", "announcements");
+  const view = listed.body.announcements.find((a) => a.id === post.id);
+  assert.equal(view.providerPostId, null);
+  assert.equal(view.checkedByOwner, true);
+  const other = unknown(s);
+  const withId = await s.call("POST", "announcements/resolve", other.id, { version: 3, outcome: "published", providerPostId: "urn:li:share:9" });
+  assert.equal(withId.body.announcement.checkedByOwner, undefined, "a real id is not her word");
+});
+
 test("an unknown outcome the author found missing becomes failed and can then be retried", async () => {
   const s = setup();
   const post = unknown(s);
@@ -100,7 +118,8 @@ test("resolving checks the outcome, the id, the status and the version", async (
   for (const body of [
     { version: 3 },
     { version: 3, outcome: "done" },
-    { version: 3, outcome: "published" },
+    { version: 3, outcome: "published", providerPostId: "" },
+    { version: 3, outcome: "published", providerPostId: 7 },
     { version: 3, outcome: "published", providerPostId: "has a space" },
     { version: 3, outcome: "published", providerPostId: "x".repeat(301) },
     { version: 3, outcome: "not-posted", providerPostId: "urn:li:share:1" },

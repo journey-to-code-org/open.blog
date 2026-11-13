@@ -1,13 +1,19 @@
 // Sharing: where her posts have gone out to her accounts (Facebook, Bluesky...) and what's going out
 // next, grouped by what needs her. Share a post opens the composer (share-new.js). Her accounts are
-// at the bottom: what's connected, how it's doing, Disconnect. Connecting a new account, changing a
-// share's words or time, and checking an unclear one are in the old Admin for now. Nothing is ever
-// shared by itself: publishing never shares. Studio slice 10c; docs/specs/studio/slice-10bc/ux.md.
+// at the bottom: what's connected, how it's doing, Disconnect. Each row changes, checks or shows the
+// history of its share in a sheet (parts/share-sheets.js), and one banner says when shares run late.
+// Connecting or reconnecting an account is in the old Admin until R2. Nothing is ever shared by
+// itself: publishing never shares. Studio slice 10c, R1; docs/specs/studio/slice-10bc/ux.md, r1/ux.md.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { sayWhen } from "../parts/dates.js";
-import { accountLabel, BADGES, deliveryOf, groups, healthWords, HEALTH_BADGES, needsReconnect, problemLine, providerName, shareTrouble } from "../parts/share-words.js";
+import { accountLabel, BADGES, deliveryOf, groups, healthWords, HEALTH_BADGES, lateBanner, needsReconnect, problemLine, providerName, shareTrouble } from "../parts/share-words.js";
+import { browserZone, healthLines } from "../parts/announcements-rules.js";
+import { createSheet, guardedLeave } from "../parts/sheet.js";
+import { openChange, openCheck, openHistory } from "../parts/share-sheets.js";
+
+const SENDING_RELOAD_MS = 60 * 1000;
 
 export async function createSharing({ api, go }) {
   await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "skeleton-block", "status-badge");
@@ -15,6 +21,10 @@ export async function createSharing({ api, go }) {
   let posts = [];
   let items = [];
   let accounts = [];
+  let health = null;
+  let sendingTimer = null;
+  const zone = browserZone();
+  const sheet = await createSheet({ label: "Share" });
 
   const heading = h("h2", { id: "studio-sharing-h", class: "studio-question", tabindex: "-1", text: "Where have your posts been shared?" });
   const share = h("action-button", { href: "#/sharing/new" }, "Share a post");
@@ -42,6 +52,7 @@ export async function createSharing({ api, go }) {
       posts = found.posts || [];
       items = queue.announcements || [];
       accounts = (acc.accounts || []).filter((a) => a.status !== "disconnected" && a.health !== "disconnected");
+      health = (await api.get("social/announcements/health").catch((error) => { if (error.status === 401) throw error; return null; }))?.health || null;
       banner.replaceChildren();
       draw();
     } catch (error) {
@@ -58,8 +69,13 @@ export async function createSharing({ api, go }) {
     drawAccounts();
     drawDetails();
     const reconnect = accounts.filter((a) => a.health === "needs-reauth" || a.health === "expiring");
-    banner.replaceChildren(...reconnect.map((a) => h("alert-banner", { variant: "warning", heading: `${accountLabel(a)} needs reconnecting` }, healthWords(a), " ",
-      h("a", { href: "/admin/#/social", target: "_blank", rel: "noopener" }, "Reconnect it"))));
+    const late = lateBanner(health);
+    banner.replaceChildren(
+      ...(late ? [h("alert-banner", { variant: "warning", heading: late.heading }, ...late.lines.map((line) => h("p", { text: line })))] : []),
+      ...reconnect.map((a) => h("alert-banner", { variant: "warning", heading: `${accountLabel(a)} needs reconnecting` }, healthWords(a), " ",
+        h("a", { href: "/admin/#/social", target: "_blank", rel: "noopener" }, "Reconnect it"))));
+    clearTimeout(sendingTimer);
+    if (items.some((i) => deliveryOf(i) === "processing")) sendingTimer = setTimeout(() => { if (element.isConnected && !sheet.isOpen) load(); }, SENDING_RELOAD_MS);
     share.hidden = !destinations.length;
     if (!destinations.length) {
       body.replaceChildren(h("empty-state", { heading: "Nothing to share to yet" },
@@ -88,19 +104,39 @@ export async function createSharing({ api, go }) {
         ? h("action-button", { href: "/admin/#/social", target: "_blank", label: `Reconnect: ${title}` }, "Reconnect")
         : h("action-button", { label: `Try again: ${title}`, onClick: (e) => retry(item, e.currentTarget) }, "Try again"));
     }
-    if (state === "unknown") buttons.push(h("action-button", { href: "/admin/#/announcements", target: "_blank", label: `Check it: ${title}` }, "Check it"));
+    if (state === "unknown") buttons.push(h("action-button", { label: `Check it: ${title}`, onClick: (e) => openCheck({ sheet, api, item, title, opener: e.currentTarget, onDone: (words, id) => changed(words, id), onRefresh: moved }) }, "Check it"));
     if (state === "pending" || state === "retrying") {
-      buttons.push(h("action-button", { variant: "secondary", href: "/admin/#/announcements", target: "_blank", label: `Change: ${title}` }, "Change"));
+      buttons.push(h("action-button", { variant: "secondary", label: `Change: ${title}`, onClick: (e) => openChange({ sheet, api, item, title, zone, opener: e.currentTarget, onDone: (words, id) => changed(words, id), onRefresh: moved }) }, "Change"));
       buttons.push(h("action-button", { variant: "secondary", label: `Don't share it: ${title}`, onClick: () => cancel(item, title) }, "Don't share it"));
     }
+    const menu = h("dropdown-menu", {
+      class: "studio-row-menu",
+      items: [{ value: "history", label: "Show its history" }],
+      onItemselect: () => openHistory({ sheet, api, item, title, zone, opener: menu }),
+    }, h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: ` for ${title} on ${providerName(item.destination?.provider) || "an account"}` })));
     return h("li", { class: "studio-comment", "data-id": item.id },
       h("div", { class: "studio-comment-head" },
         h("h4", { id: headingId, class: "studio-comment-who", tabindex: "-1", text: title }),
-        h("status-badge", { variant: state === "failed" ? "danger" : state === "published" ? "success" : "neutral" }, BADGES[state])),
+        h("status-badge", { variant: state === "failed" ? "danger" : state === "published" ? "success" : "neutral" }, BADGES[state]), menu),
       h("p", { class: "studio-help", text: [accountLabel(item.destination), sayWhen(item.scheduledFor)].filter(Boolean).join(" · ") }),
       item.caption ? h("p", { class: "studio-comment-body", text: item.caption }) : null,
       (state === "failed" || state === "unknown" || state === "retrying") && item.lastErrorCode ? h("p", { class: "studio-help", text: problemLine(item.lastErrorCode) }) : null,
+      state === "processing" ? h("p", { class: "studio-help", text: "It's going out now. This updates in a minute." }) : null,
       buttons.length ? h("div", { class: "studio-comment-actions" }, ...buttons) : null);
+  }
+
+  /** After a change or a check: the list again, the words, and her place on that row. */
+  async function changed(words, id) {
+    await load();
+    status.textContent = words;
+    toast(words);
+    requestAnimationFrame(() => (body.querySelector(`[data-id="${id}"] .studio-comment-who`) || heading).focus());
+  }
+
+  async function moved(words) {
+    await load();
+    status.textContent = words;
+    heading.focus();
   }
 
   async function retry(item, button) {
@@ -200,9 +236,10 @@ export async function createSharing({ api, go }) {
       h("ul", { class: "studio-mono" }, ...[
         error ? `error ${error.status}${error.data?.code ? ` (${error.data.code})` : ""}: ${error.message}` : null,
         ...destinations.map((d) => `destination ${d.id} ${d.provider} ${d.kind} ${d.displayName}`),
-        ...items.map((i) => `${i.id} v${i.version} ${i.status}/${deliveryOf(i)} ${i.scheduledFor}${i.lastErrorCode ? ` ${i.lastErrorCode}` : ""} ${i.canonicalUrl || i.work}`),
-      ].filter(Boolean).map((t) => h("li", { text: t }))),
-      h("p", {}, h("a", { href: "/admin/#/announcements", target: "_blank", rel: "noopener" }, "Announcements in the old Admin")));
+        ...items.map((i) => `${i.id} v${i.version} ${i.status}/${deliveryOf(i)} ${i.scheduledFor}${i.lastErrorCode ? ` ${i.lastErrorCode}` : ""}${i.checkedByOwner ? " checked by owner" : i.providerPostId ? ` post ${i.providerPostId}` : ""} ${i.canonicalUrl || i.work}`),
+        ...(health && health.installed !== true ? ["health: not installed"] : []),
+        ...healthLines(health).map((line) => `health ${line.code}: ${line.text}`),
+      ].filter(Boolean).map((t) => h("li", { text: t }))));
   }
 
   return {
@@ -210,6 +247,8 @@ export async function createSharing({ api, go }) {
     element,
     load,
     reload: load,
+    leave: async () => { const go = await guardedLeave(sheet); if (go) clearTimeout(sendingTimer); return go; },
+    isDirty: () => sheet.isDirty(),
     focus: () => heading.focus(),
     get palette() {
       return [{ id: "new", label: "Share a post", group: "Sharing" }];

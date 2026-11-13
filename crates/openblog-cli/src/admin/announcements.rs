@@ -646,7 +646,8 @@ fn plain_post_id(id: &str) -> bool {
 }
 
 /// Settles an announcement whose outcome is unknown, after the author has looked at the account:
-/// posted (with the provider's post id) or not posted.
+/// posted (with the provider's post id when she has it; without one, the hosted function records
+/// that she checked it, G7) or not posted.
 fn resolve(transport: &dyn Transport, user: &str, req: &Request) -> Response {
     let id = match announcement_id(req) {
         Ok(id) => id,
@@ -661,7 +662,8 @@ fn resolve(transport: &dyn Transport, user: &str, req: &Request) -> Response {
         ("published", Some(post_id)) if plain_post_id(&post_id) => {
             payload["providerPostId"] = Json::String(post_id);
         }
-        ("published", _) => {
+        ("published", None) => {}
+        ("published", Some(_)) => {
             return Response::json(
                 400,
                 &json!({

@@ -94,3 +94,41 @@ test("erasing old requests asks with the dry run's counts and says what went", (
   assert.equal(erasedOldWords({ erased: 3 }), "Erased 3 old requests.");
   assert.equal(erasedOldWords({ erased: 3, photosPending: 1 }), "Erased 3 old requests. 1 photo is still being removed; nothing points to it.");
 });
+
+// ---- R1: a share's history and running late ----
+import { historyLine, historyLines, triedWords, lateBanner } from "../../web/studio/parts/share-words.js";
+
+test("a share's history in her words, the day said once per day", () => {
+  const now = new Date("2026-11-21T12:00:00Z");
+  const opts = { provider: "facebook", timeZone: "UTC", now };
+  const lines = historyLines([
+    { at: "2026-11-20T15:05:00Z", change: "created", state: "pending", attemptNo: 0, code: null },
+    { at: "2026-11-20T15:06:00Z", change: "status", state: "retrying", attemptNo: 1, code: "provider-unavailable" },
+    { at: "2026-11-20T15:12:00Z", change: "status", state: "published", attemptNo: 2, code: null },
+    { at: "2026-11-21T09:00:00Z", change: "rescheduled", state: "pending", scheduledFor: "2026-11-21T10:00:00Z" },
+  ], opts);
+  assert.deepEqual(lines, [
+    "Yesterday at 3:05 PM: scheduled.",
+    "3:06 PM: tried, didn't go out. Facebook was busy.",
+    "3:12 PM: shared.",
+    "Today at 9 AM: time changed to Today at 10 AM.",
+  ]);
+  assert.equal(historyLine({ at: "2026-11-20T15:06:00Z", change: "status", state: "failed", code: "reviewed-not-posted" }, opts), "Yesterday at 3:06 PM: didn't go out. You checked: it wasn't there.");
+  assert.equal(historyLine({ at: "2026-11-20T15:06:00Z", change: "edited", state: "pending" }, { ...opts, withDay: false }), "3:06 PM: words changed.");
+  assert.equal(historyLine({ at: "2026-11-20T15:06:00Z", change: "status", state: "unknown", code: "timeout" }, opts), "Yesterday at 3:06 PM: sent, but there was no clear answer. Facebook didn't answer.");
+  assert.deepEqual(historyLines(null), []);
+  assert.equal(triedWords([{}, {}]), "Tried 2 times.");
+  assert.equal(triedWords([{}]), "Tried once.");
+  assert.equal(triedWords([]), "");
+});
+
+test("only running late and waiting on an account reach her, as one banner", () => {
+  assert.equal(lateBanner(null), null);
+  assert.equal(lateBanner({ installed: false, alerts: ["backlog-overdue"] }), null);
+  assert.equal(lateBanner({ installed: true, alerts: ["needs-review", "accounts-need-reconnect", "failed-recently"] }), null, "the rest are rows already, or Mikey's");
+  assert.deepEqual(lateBanner({ installed: true, alerts: ["backlog-overdue"], overdue: 3 }), { heading: "Shares are running late", lines: ["Some posts should have gone out by now. Tell the person who set up your site."] });
+  assert.deepEqual(lateBanner({ installed: true, alerts: ["provider-not-configured"], waitingOnProvider: 2 }), { heading: "Some shares can't go out yet", lines: ["2 shares are waiting for an account that isn't set up to post. Tell the person who set up your site, or choose Don't share it."] });
+  const both = lateBanner({ installed: true, alerts: ["backlog-overdue", "provider-not-configured"], waitingOnProvider: 1 });
+  assert.equal(both.heading, "Shares are running late");
+  assert.equal(both.lines[1], "1 share is waiting for an account that isn't set up to post. Tell the person who set up your site, or choose Don't share it.");
+});

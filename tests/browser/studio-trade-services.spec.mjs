@@ -405,6 +405,132 @@ test("Requests, Reminders, Sharing and the composer pass axe at 320 px without s
   }
 });
 
+async function mockSharingRows(page, { patchCode = null } = {}) {
+  const sent = [];
+  const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 11) + "09:00:00Z";
+  const items = [
+    { id: UUID(41), version: 2, work: "/portable-lesson/", caption: `Ice dams ${HOSTILE}`, status: "unknown", delivery: "unknown", lastErrorCode: "timeout", scheduledFor: "2026-11-12T09:00:00Z", destination: { provider: "facebook", displayName: "Ridgeline Roofing", kind: "page" } },
+    { id: UUID(42), version: 3, work: "/portable-lesson/", caption: "Storm tips", status: "scheduled", scheduledFor: soon, destination: { provider: "bluesky", displayName: "@ridgeline", kind: "account" } },
+    { id: UUID(43), version: 1, work: "/portable-lesson/", caption: "Going now", status: "claimed", delivery: "processing", scheduledFor: "2026-11-13T09:00:00Z", destination: { provider: "facebook", displayName: "Ridgeline Roofing", kind: "page" } },
+  ];
+  await page.route("**/admin/api/social/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/admin/api/social/", "");
+    const method = route.request().method();
+    const body = route.request().postDataJSON?.() ?? null;
+    if (path === "destinations") return json(route, 200, { destinations: [{ id: UUID(21), provider: "facebook", displayName: "Ridgeline Roofing", kind: "page" }, { id: UUID(22), provider: "bluesky", displayName: "@ridgeline", kind: "account" }] });
+    if (path === "posts") return json(route, 200, { posts: [{ work: "/portable-lesson/", title: "Ice dams: what to do", eligible: true, canonicalUrl: "https://example.org/portable-lesson/" }] });
+    if (path === "accounts") return json(route, 200, { accounts: [] });
+    if (path === "announcements/health") return json(route, 200, { health: { installed: true, alerts: ["backlog-overdue", "provider-not-configured", "needs-review"], overdue: 1, waitingOnProvider: 2, needsReview: 1 } });
+    if (path === "announcements" && method === "GET") return json(route, 200, { announcements: items });
+    if (path === "preview") { sent.push({ preview: body }); return json(route, 200, { ok: true, caption: body.caption, link: "https://example.org/portable-lesson/", card: { title: "Ice dams: what to do", description: "Before winter." }, cover: null, problems: [] }); }
+    if (path === "announcements" && method === "PATCH") {
+      sent.push({ patch: url.searchParams.get("id"), ...body });
+      if (patchCode) return json(route, 409, { error: "x", code: patchCode });
+      const item = items.find((i) => i.id === url.searchParams.get("id"));
+      Object.assign(item, body.caption ? { caption: body.caption } : {}, body.scheduledFor ? { scheduledFor: body.scheduledFor } : {}, { version: item.version + 1 });
+      return json(route, 200, { announcement: item });
+    }
+    if (path === "announcements/resolve") {
+      sent.push({ resolve: url.searchParams.get("id"), ...body });
+      Object.assign(items[0], body.outcome === "published" ? { status: "published", delivery: "published", lastErrorCode: null } : { status: "failed", delivery: "failed", lastErrorCode: "reviewed-not-posted" });
+      return json(route, 200, { announcement: items[0] });
+    }
+    if (path === "announcements/attempts") return json(route, 200, { delivery: "unknown", timelineExact: true, timeline: [
+      { at: "2026-11-12T09:00:00Z", change: "created", state: "pending", attemptNo: 0, code: null, scheduledFor: null },
+      { at: "2026-11-12T09:01:00Z", change: "status", state: "retrying", attemptNo: 1, code: "provider-unavailable", scheduledFor: null },
+      { at: "2026-11-12T09:07:00Z", change: "status", state: "unknown", attemptNo: 2, code: "timeout", scheduledFor: null },
+    ], attempts: [{ attemptNo: 1, outcome: "transient", httpStatus: 503, errorCode: "provider-unavailable" }, { attemptNo: 2, outcome: "unknown", httpStatus: null, errorCode: "timeout" }] });
+    return json(route, 404, { error: "not found" });
+  });
+  return sent;
+}
+
+test("Sharing: change a share's words or time with its preview, check an unclear one, see its history, and hear when it's late", async ({ page }) => {
+  const sent = await mockSharingRows(page);
+  await signIn(page, "#/sharing");
+  await expect(page.getByRole("heading", { name: "Where have your posts been shared?" })).toBeVisible();
+  await expect(page.locator(".studio-sharing a[href='/admin/#/announcements']")).toHaveCount(0);
+  await expect(page.getByText("Shares are running late")).toBeVisible();
+  await expect(page.getByText("2 shares are waiting for an account that isn't set up to post.", { exact: false })).toBeVisible();
+  const going = page.locator(".studio-comment", { hasText: "Going now" });
+  await expect(going.getByText("It's going out now. This updates in a minute.")).toBeVisible();
+  await expect(going.locator(".studio-comment-actions")).toHaveCount(0);
+  // Change: only what changed is sent, after a preview.
+  const storm = page.locator(".studio-comment", { hasText: "Storm tips" });
+  await storm.getByRole("button", { name: "Change" }).click();
+  const sheet = page.locator("side-sheet");
+  const caption = sheet.getByRole("textbox", { name: "What to say" });
+  await expect(caption).toBeFocused();
+  await expect(caption).toHaveValue("Storm tips");
+  await expect(sheet.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  await caption.fill("Storm tips: what to check after hail");
+  await expect(sheet.getByText("36 of 300")).toBeVisible();
+  await expect(sheet.getByText("How it looks on Bluesky")).toBeVisible();
+  await sheet.getByText("How it looks on Bluesky").click();
+  await expect(sheet.getByText(/On Bluesky the link is a card with the post's title/)).toBeVisible();
+  expect(sent.find((s) => s.preview).preview).toMatchObject({ provider: "bluesky", caption: "Storm tips: what to check after hail", work: "/portable-lesson/" });
+  await sheet.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.locator(".studio-sharing p[role=status]")).toHaveText(/^Changed\. It goes out .+\.$/);
+  const patch = sent.find((s) => s.patch);
+  expect(patch).toEqual({ patch: UUID(42), version: 3, timeZone: expect.any(String), caption: "Storm tips: what to check after hail" });
+  await expect(page.locator(".studio-comment", { hasText: "Storm tips" }).locator("h4")).toBeFocused();
+  // Time alone: no caption sent.
+  await page.locator(".studio-comment", { hasText: "Storm tips" }).getByRole("button", { name: "Change" }).click();
+  await sheet.getByRole("textbox", { name: "Time" }).fill("10:30");
+  await sheet.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.locator(".studio-sharing p[role=status]")).toHaveText(/at 10:30 AM\.$/);
+  const second = sent.filter((s) => s.patch)[1];
+  expect(second.caption).toBeUndefined();
+  expect(second.version).toBe(4);
+  expect(second.scheduledFor).toMatch(/T\d\d:30:00Z$/);
+  // Leaving a changed share asks.
+  await page.locator(".studio-comment", { hasText: "Storm tips" }).getByRole("button", { name: "Change" }).click();
+  await caption.fill("Half typed");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Save your changes?" })).toBeVisible();
+  await page.getByRole("button", { name: "Leave without saving" }).click();
+  await expect(sheet.getByRole("textbox", { name: "What to say" })).toHaveCount(0);
+  expect(sent.filter((s) => s.patch)).toHaveLength(2);
+  // Check it: Save waits for her answer; no post id needed.
+  const ice = page.locator(`.studio-comment[data-id="${UUID(41)}"]`);
+  await expect(ice.getByText(HOSTILE, { exact: false })).toBeVisible();
+  await ice.getByRole("button", { name: "Check it" }).click();
+  await expect(sheet.getByText("Facebook didn't say whether it posted. Look at your Facebook Page, Ridgeline Roofing. Is it there?")).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await sheet.getByText("It's there", { exact: true }).click();
+  await sheet.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator(".studio-sharing p[role=status]")).toHaveText("Marked as shared.");
+  expect(sent.find((s) => s.resolve)).toEqual({ resolve: UUID(41), version: 2, outcome: "published" });
+  // Its history, newest last.
+  await page.locator(`.studio-comment[data-id="${UUID(41)}"]`).getByRole("button", { name: /More/ }).click();
+  await page.getByRole("menuitem", { name: "Show its history" }).click();
+  await expect(sheet.getByRole("heading", { name: "What happened to this share" })).toBeVisible();
+  await expect(sheet.locator("ol li")).toHaveCount(3);
+  await expect(sheet.locator("ol li").nth(1)).toHaveText(/tried, didn't go out\. Facebook was busy\.$/);
+  await expect(sheet.getByText("Tried 2 times.")).toBeVisible();
+  expect(await page.locator("img[src=x]").count()).toBe(0);
+});
+
+test("Sharing: a share that started going out can't be changed, and says so", async ({ page }) => {
+  await mockSharingRows(page, { patchCode: "not-editable" });
+  await signIn(page, "#/sharing");
+  await page.locator(".studio-comment", { hasText: "Storm tips" }).getByRole("button", { name: "Change" }).click();
+  await page.locator("side-sheet").getByRole("textbox", { name: "What to say" }).fill("New words");
+  await page.locator("side-sheet").getByRole("button", { name: "Save changes" }).click();
+  await expect(page.locator(".studio-sharing p[role=status]")).toHaveText("It started going out, so it can't be changed now.");
+  await expect(page.locator("side-sheet").getByRole("textbox", { name: "What to say" })).toHaveCount(0);
+});
+
+test("Share a post shows how it looks on each kind of account chosen", async ({ page }) => {
+  const sent = await mockSharingRows(page);
+  await signIn(page, "#/sharing/new");
+  await expect(page.getByRole("heading", { name: "Share a post", level: 2 })).toBeVisible();
+  await expect(page.getByText("How it looks on Facebook")).toBeVisible();
+  await expect(page.getByText("How it looks on Bluesky")).toBeVisible();
+  expect(sent.filter((s) => s.preview).map((s) => s.preview.provider).sort()).toEqual(["bluesky", "facebook"]);
+});
+
 async function axeClean(page, selector, label) {
   await page.waitForTimeout(400);
   await page.evaluate(axeSource);
@@ -433,4 +559,23 @@ test("R1 sheets on Reminders and Requests pass axe at 320 px without sideways sc
   await page.getByRole("button", { name: /More/ }).first().click();
   await page.getByRole("menuitem", { name: "Clean up archived requests…" }).click();
   await axeClean(page, "side-sheet", "clean-up sheet");
+});
+
+test("R1 sheets on Sharing pass axe at 320 px without sideways scrolling", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mockSharingRows(page);
+  await signIn(page, "#/sharing");
+  await expect(page.getByText("Shares are running late")).toBeVisible();
+  await axeClean(page, "main", "sharing with its banner");
+  await page.locator(".studio-comment", { hasText: "Storm tips" }).getByRole("button", { name: "Change" }).click();
+  await expect(page.getByText("How it looks on Bluesky")).toBeVisible();
+  await axeClean(page, "side-sheet", "change sheet");
+  await page.locator("side-sheet").getByRole("button", { name: "Cancel" }).click();
+  await page.locator(`.studio-comment[data-id="${UUID(41)}"]`).getByRole("button", { name: "Check it" }).click();
+  await axeClean(page, "side-sheet", "check sheet");
+  await page.locator("side-sheet").getByRole("button", { name: "Cancel" }).click();
+  await page.locator(`.studio-comment[data-id="${UUID(41)}"]`).getByRole("button", { name: /More/ }).click();
+  await page.getByRole("menuitem", { name: "Show its history" }).click();
+  await expect(page.getByText("Tried 2 times.")).toBeVisible();
+  await axeClean(page, "side-sheet", "history sheet");
 });
