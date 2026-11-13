@@ -590,6 +590,9 @@ fn route(state: &AppState, req: &Request) -> Response {
     if !req.is_read_only() {
         return Response::error(405, "Method not allowed");
     }
+    if path == "/admin/studio" || path.starts_with("/admin/studio/") {
+        return studio_file(path);
+    }
     if path == CODE_RUNNER_LANGUAGE_PATH {
         let config = site::load_config(&state.root).unwrap_or_default();
         return match site::web_file(&state.root, &config, CODE_RUNNER_LANGUAGE_ASSET) {
@@ -672,6 +675,35 @@ fn header_default(mut response: Response, name: &str, value: &str) -> Response {
         response.headers.push((name.to_string(), value.to_string()));
     }
     response
+}
+
+/// Studio, the Admin rebuilt on Zubra UI (`.claude/skills/studio-architecture`): its files, embedded
+/// in the binary, under `/admin/studio/`. The page signs in with Admin's own session and calls the same
+/// API, under the same security policy.
+fn studio_file(path: &str) -> Response {
+    let rel = match path
+        .trim_start_matches("/admin/studio")
+        .trim_start_matches('/')
+    {
+        "" => "index.html",
+        rel => rel,
+    };
+    let Some((_, bytes)) = crate::studio_files::STUDIO_FILES
+        .iter()
+        .find(|(name, _)| *name == rel)
+    else {
+        return Response::error(404, "Not found");
+    };
+    let ctype = match rel.rsplit('.').next() {
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("html") => "text/html; charset=utf-8",
+        Some("json") => "application/json",
+        Some("svg") => "image/svg+xml",
+        Some("woff2") => "font/woff2",
+        _ => "application/octet-stream",
+    };
+    Response::new(200, ctype, bytes.to_vec())
 }
 
 fn secured(response: Response) -> Response {
@@ -18917,6 +18949,7 @@ mod tests {
     mod seasonal_routes;
     mod service_routes;
     mod social_routes;
+    mod studio_routes;
     mod theme_draft_routes;
     mod trade_checklist_routes;
     mod voice_assistant_routes;

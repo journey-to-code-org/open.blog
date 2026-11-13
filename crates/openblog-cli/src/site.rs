@@ -1080,7 +1080,7 @@ pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
     let mut found = Vec::new();
     for file in fsutil::walk(&web_dir) {
         let rel = fsutil::relative(&web_dir, &file);
-        if rel.starts_with("admin/") {
+        if rel.starts_with("admin/") || rel.starts_with("studio/") {
             continue;
         }
         let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");

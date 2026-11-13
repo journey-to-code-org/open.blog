@@ -1,0 +1,30 @@
+{
+  "about": "The Zubra UI elements Studio uses. Add a name here, then run node scripts/vendor-zubra-ui.mjs <zubra-ui checkout> and node scripts/studio-files.mjs.",
+  "components": [
+    "action-button",
+    "alert-banner",
+    "auto-grid",
+    "breadcrumb-trail",
+    "cluster-layout",
+    "command-palette",
+    "content-card",
+    "dashboard-shell",
+    "date-field",
+    "dropdown-menu",
+    "empty-state",
+    "file-drop",
+    "loading-spinner",
+    "modal-dialog",
+    "segmented-control",
+    "side-sheet",
+    "skeleton-block",
+    "status-badge",
+    "tag-input",
+    "text-field",
+    "toast-region"
+  ],
+  "source": {
+    "repository": "https://github.com/journey-to-code-org/zubra-ui",
+    "commit": "0d2fdd06a84921d3471b7472b1b6f1504a8e2e13"
+  }
+}
