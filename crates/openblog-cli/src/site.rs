@@ -1333,6 +1333,20 @@ pub(crate) fn diagram_pngs(site: &Site) -> Result<Vec<(String, Vec<u8>)>, String
             .map_err(|error| format!("{}: diagram PNG: {error}", asset.path))?;
         out.push((path, png));
     }
+    // A diagram a post names as its cover also gets its card image (ADR 0419).
+    for post in &site.posts {
+        let Some(cover) = post.cover.as_deref() else {
+            continue;
+        };
+        for asset in post.diagram_assets() {
+            let path = asset.card_png_path();
+            if cover.trim_start_matches('/') == path && seen.insert(path.clone()) {
+                let png = openblog_core::diagram_svg::render_card_png(&asset.diagram)
+                    .map_err(|error| format!("{}: diagram card image: {error}", asset.path))?;
+                out.push((path, png));
+            }
+        }
+    }
     Ok(out)
 }
 

@@ -903,7 +903,7 @@ impl<'a> PortableProjection<'a> {
                         self.base_url.trim_end_matches('/'),
                         portable_image_path(asset)
                     );
-                    let alt = format!("{}: {}", diagram.title, diagram.description);
+                    let alt = diagram.alternative_text();
                     let mut replacement =
                         format!("![{}]({})", markdown_text(&alt), markdown_destination(&url));
                     if let Some(caption) = &diagram.options.caption {

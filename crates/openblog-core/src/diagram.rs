@@ -26,6 +26,14 @@ pub struct Diagram {
     pub description: String,
 }
 
+impl Diagram {
+    /// The text that stands in for the drawing wherever only an image can go: its title and
+    /// description, as portable copies and feeds write them.
+    pub fn alternative_text(&self) -> String {
+        format!("{}: {}", self.title, self.description)
+    }
+}
+
 /// A derived static image associated with its validated source and text alternative.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Asset {
@@ -35,6 +43,15 @@ pub struct Asset {
 }
 
 impl Asset {
+    /// Where the diagram's card image is published when a post names it with `coverDiagram`
+    /// (ADR 0419): beside the SVG, 1200 × 630.
+    pub fn card_png_path(&self) -> String {
+        match self.path.strip_suffix(".svg") {
+            Some(stem) => format!("{stem}.card.png"),
+            None => format!("{}.card.png", self.path),
+        }
+    }
+
     /// Where the PNG copy of this diagram is published (ADR 0419): beside the SVG.
     pub fn png_path(&self) -> String {
         match self.path.strip_suffix(".svg") {
@@ -142,11 +159,11 @@ fn validate(line: usize, column: usize, info: &str, source: String) -> Result<Di
     let title = alternative(&source, "accTitle")
         .map_err(fail)?
         .or_else(|| options.title.clone())
-        .ok_or_else(|| fail("diagram needs an accTitle or fence title".into()))?;
+        .ok_or_else(|| fail("this diagram has no title for screen readers; add `title=\"…\"` to its ```mermaid line, or an `accTitle:` line to the diagram".into()))?;
     let description = alternative(&source, "accDescr")
         .map_err(fail)?
         .or_else(|| options.description.clone())
-        .ok_or_else(|| fail("diagram needs an accDescr or fence description".into()))?;
+        .ok_or_else(|| fail("this diagram has no description for screen readers; add `description=\"…\"` to its ```mermaid line, or an `accDescr:` line to the diagram".into()))?;
     Ok(Diagram {
         line,
         column,

@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 diagram-rendering = ["dep:merman", "dep:roxmltree"]
 # PNG copies of diagrams for destinations that cannot show SVG, and for cards (native only).
-diagram-png = ["diagram-rendering", "merman/png", "merman/native-fonts", "dep:merman-export"]
+diagram-png = ["diagram-rendering", "merman/png", "merman/native-fonts", "dep:merman-export", "dep:tiny-skia"]
 
 [dependencies]
 http = { workspace = true }
@@ -22,3 +22,4 @@ blake2 = "0.10"
 merman = { version = "=0.10.0", default-features = false, features = ["diagram-c4", "diagram-class", "diagram-er", "diagram-flowchart", "diagram-git-graph", "diagram-sequence", "diagram-state", "svg", "layout-cytoscape"], optional = true }
 roxmltree = { version = "=0.20.0", optional = true }
 merman-export = { version = "=0.10.0", default-features = false, features = ["png", "bundled-fonts"], optional = true }
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "png-format"], optional = true }

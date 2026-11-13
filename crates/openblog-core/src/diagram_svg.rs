@@ -204,6 +204,42 @@ fn render_within(
 /// bytes are the same on every machine. At most 1600 pixels on a side.
 #[cfg(all(feature = "diagram-png", not(target_arch = "wasm32")))]
 pub fn render_png(diagram: &Diagram) -> Result<Vec<u8>, String> {
+    render_png_within(diagram, 800, 800)
+}
+
+/// The width and height of a diagram's card image (ADR 0419): the 1.91:1 shape link previews
+/// and visual cards use, large enough for every destination's minimum.
+pub const CARD_PNG_SIZE: (u32, u32) = (1200, 630);
+
+/// A diagram drawn as a card image: [`render_png`]'s drawing, fitted inside a margin and centred
+/// on a white 1200 × 630 canvas, so a link preview shows the whole diagram uncropped.
+#[cfg(all(feature = "diagram-png", not(target_arch = "wasm32")))]
+pub fn render_card_png(diagram: &Diagram) -> Result<Vec<u8>, String> {
+    let (width, height) = CARD_PNG_SIZE;
+    let margin = 48;
+    let drawing = render_png_within(diagram, (width - 2 * margin) / 2, (height - 2 * margin) / 2)?;
+    let drawing = tiny_skia::Pixmap::decode_png(&drawing)
+        .map_err(|error| format!("diagram card: {error}"))?;
+    let mut canvas = tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| "diagram card: canvas could not be made".to_string())?;
+    canvas.fill(tiny_skia::Color::WHITE);
+    let x = (width.saturating_sub(drawing.width()) / 2) as i32;
+    let y = (height.saturating_sub(drawing.height()) / 2) as i32;
+    canvas.draw_pixmap(
+        x,
+        y,
+        drawing.as_ref(),
+        &tiny_skia::PixmapPaint::default(),
+        tiny_skia::Transform::identity(),
+        None,
+    );
+    canvas
+        .encode_png()
+        .map_err(|error| format!("diagram card: {error}"))
+}
+
+#[cfg(all(feature = "diagram-png", not(target_arch = "wasm32")))]
+fn render_png_within(diagram: &Diagram, width: u32, height: u32) -> Result<Vec<u8>, String> {
     use merman::svg::export::{NativeFontContext, NativeFontLimits, RasterFitBox, RasterOptions};
     if diagram.source.len() > MAX_SOURCE_BYTES {
         return Err(format!("diagram source exceeds {MAX_SOURCE_BYTES} bytes"));
@@ -233,7 +269,7 @@ pub fn render_png(diagram: &Diagram) -> Result<Vec<u8>, String> {
         .with_parse_options(merman::ParseOptions::strict())
         .with_presentation_engine(merman::MermaidEngine::new().with_site_config(config));
     let raster = RasterOptions::default()
-        .with_fit_to(RasterFitBox::contain(800, 800))
+        .with_fit_to(RasterFitBox::contain(width, height))
         .with_scale(2.0)
         .with_matte("white")
         .with_font_context(fonts);

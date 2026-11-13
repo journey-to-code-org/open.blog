@@ -373,6 +373,34 @@ pub struct Post {
     pub source: String,
 }
 
+/// The diagram `coverDiagram: N` names as the post's cover (ADR 0419): the Nth diagram in the
+/// post, counted from 1. Its card image becomes the cover, so the page's link preview and every
+/// visual card use it, with the diagram's own text alternative unless `coverAlt` says otherwise.
+fn cover_diagram<'a>(
+    fm: &FrontMatter,
+    diagrams: &'a [crate::diagram::Asset],
+) -> Result<Option<&'a crate::diagram::Asset>, String> {
+    let Some(value) = first(fm, &["coverDiagram", "cover_diagram"]) else {
+        return Ok(None);
+    };
+    if !cfg!(feature = "diagram-png") {
+        return Err(
+            "`coverDiagram` needs a build that draws diagram PNG copies; set `cover` instead"
+                .to_string(),
+        );
+    }
+    let count = diagrams.len();
+    match value.trim().parse::<usize>() {
+        Ok(n) if (1..=count).contains(&n) => Ok(Some(&diagrams[n - 1])),
+        _ if count == 0 => Err(format!(
+            "`coverDiagram: {value}` names a diagram, but this post draws none"
+        )),
+        _ => Err(format!(
+            "`coverDiagram: {value}` must be a number from 1 to {count}, counting the post's diagrams in order"
+        )),
+    }
+}
+
 impl Post {
     /// The diagrams this post draws (ADR 0416), for writing their files.
     pub fn diagram_assets(&self) -> &[crate::diagram::Asset] {
@@ -2472,7 +2500,14 @@ fn load_post_in(
     let description = first(fm, &["description", "summary", "brief", "excerpt"])
         .map(str::to_string)
         .unwrap_or_else(|| markdown::excerpt(&rendered.prose, 180));
-    let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
+    let diagram_cover = cover_diagram(fm, &rendered.diagrams)?;
+    if diagram_cover.is_some() && first(fm, &["cover", "image", "coverImage", "hero"]).is_some() {
+        return Err(
+            "`coverDiagram` and `cover` both name the cover image; keep one of them".to_string(),
+        );
+    }
+    let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]))
+        .or_else(|| diagram_cover.map(|asset| format!("/{}", asset.card_png_path())));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
     let cover_light = optional_string(first(fm, &["coverLight", "cover_light"]));
     let cover_dark = optional_string(first(fm, &["coverDark", "cover_dark"]));
@@ -2500,8 +2535,9 @@ fn load_post_in(
         }
     }
     let cover_alt = first(fm, &["coverAlt", "imageAlt", "cover_alt"])
-        .unwrap_or("")
-        .to_string();
+        .map(str::to_string)
+        .or_else(|| diagram_cover.map(|asset| asset.diagram.alternative_text()))
+        .unwrap_or_default();
     let accessibility = accessibility::audit_document(DocumentAuditInput {
         path: &file.path,
         markdown: &doc.body,

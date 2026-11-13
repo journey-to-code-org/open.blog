@@ -585,3 +585,79 @@ fn node_links_lead_to_pages_and_a_broken_one_stops_a_published_post() {
         draft.warnings
     );
 }
+
+#[cfg(feature = "diagram-png")]
+#[test]
+fn a_diagram_named_as_the_cover_is_the_link_preview_with_its_text_alternative() {
+    let site = load(
+        Sources {
+            posts: vec![post(VALID, "coverDiagram: 1\n")],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    let asset = &site.posts[0].diagram_assets()[0];
+    let card = asset.card_png_path();
+    assert!(card.ends_with(".card.png"));
+    assert_eq!(
+        site.posts[0].cover.as_deref(),
+        Some(format!("/{card}").as_str())
+    );
+    assert_eq!(site.posts[0].cover_alt, "Request: A calls B");
+    let files = generate(&site, &ThemeSet::new()).unwrap();
+    let html = &files
+        .iter()
+        .find(|file| file.path == "posts/example/index.html")
+        .unwrap()
+        .contents;
+    assert!(
+        html.contains(&format!(
+            "<meta property=\"og:image\" content=\"https://example.test/{card}\">"
+        )),
+        "{html}"
+    );
+    assert!(html.contains("content=\"Request: A calls B\""), "{html}");
+    let png = openblog_core::diagram_svg::render_card_png(&asset.diagram).unwrap();
+    assert_eq!(&png[16..24], &[0, 0, 4, 176, 0, 0, 2, 118]);
+    assert_eq!(
+        png,
+        openblog_core::diagram_svg::render_card_png(&asset.diagram).unwrap()
+    );
+}
+
+#[cfg(feature = "diagram-png")]
+#[test]
+fn a_cover_diagram_must_name_one_of_the_posts_diagrams_and_not_compete_with_a_cover() {
+    for (body, extra, expected) in [
+        (VALID, "coverDiagram: 2\n", "must be a number from 1 to 1"),
+        (
+            VALID,
+            "coverDiagram: first\n",
+            "must be a number from 1 to 1",
+        ),
+        (
+            "No diagrams here.\n",
+            "coverDiagram: 1\n",
+            "this post draws none",
+        ),
+        (
+            VALID,
+            "coverDiagram: 1\ncover: /img/a.png\n",
+            "keep one of them",
+        ),
+    ] {
+        let errors = load(
+            Sources {
+                posts: vec![post(body, extra)],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            errors.iter().any(|error| error.contains(expected)),
+            "{extra}: {errors:?}"
+        );
+    }
+}

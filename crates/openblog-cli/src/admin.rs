@@ -26025,6 +26025,45 @@ What I read:
         assert_eq!(handle(&f.state, &r).status, 200);
     }
 
+    #[cfg(feature = "diagram-rendering")]
+    #[test]
+    fn publishing_a_diagram_without_a_text_alternative_is_refused_but_a_draft_saves() {
+        let f = fixture("diagram-gate");
+        let session = login_ok(&f);
+        let fence = "Intro.\n\n```mermaid\nflowchart LR\nA --> B\n```\n";
+        let save = |draft: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({
+                            "kind": "posts",
+                            "fields": { "title": if draft { "Draft flow" } else { "Live flow" }, "date": "2020-01-01", "draft": draft },
+                            "body": fence,
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let refused = save(false);
+        let text = String::from_utf8_lossy(&refused.body).to_string();
+        assert_ne!(refused.status, 200, "{text}");
+        assert!(text.contains("diagram"), "{text}");
+        assert!(text.contains("screen readers"), "{text}");
+        assert!(text.contains("title="), "{text}");
+        let draft = save(true);
+        assert_eq!(
+            draft.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&draft.body)
+        );
+    }
+
     #[test]
     fn state_changes_need_csrf_and_same_origin() {
         let f = fixture("csrf");
