@@ -553,6 +553,32 @@ mod tests {
     }
 
     #[test]
+    fn model_budget_rejects_large_node_sets_across_diagram_families() {
+        type Case = (&'static str, fn(usize) -> String);
+        let cases: [Case; 7] = [
+            ("flowchart LR", |n| format!("n{n}[Node {n}]")),
+            ("stateDiagram-v2", |n| format!("[*] --> S{n}")),
+            ("classDiagram", |n| format!("class C{n}")),
+            ("erDiagram", |n| format!("ENTITY{n} {{\n string field\n}}")),
+            ("sequenceDiagram", |n| format!("participant P{n}")),
+            ("gitGraph", |n| format!("commit id: \"c{n}\"")),
+            ("C4Context", |n| format!("Person(p{n}, \"Person {n}\")")),
+        ];
+        for (header, node) in cases {
+            let source = format!(
+                "{header}\n{}\n",
+                (0..201).map(node).collect::<Vec<_>>().join("\n")
+            );
+            assert!(source.len() < MAX_SOURCE_BYTES, "{header}");
+            let error = match render(&diagram(&source), 1) {
+                Ok(_) => panic!("{header}: exceeded model budget without refusal"),
+                Err(error) => error,
+            };
+            assert!(error.contains("max_model_items"), "{header}: {error}");
+        }
+    }
+
+    #[test]
     fn rejects_hostile_input_or_produces_audited_svg() {
         for source in [
             include_str!("../../../tests/fixtures/diagrams/hostile/click.mmd"),

@@ -49,6 +49,9 @@ Its 200-item model budget is not an exact node-count limit, the native timeout
 is cooperative, and callers on the web must enforce a timeout by terminating
 their Worker. It is not yet a complete or independently security-audited
 publication boundary.
+Generated examples with 201 visible entities or participants in each supported
+family are rejected by the model budget; the model also counts relationships
+and other items, so smaller diagrams may reach the limit.
 
 Native rendering caches successful SVGs in memory using a digest of source,
 options, alternatives, renderer version and SVG ID scope. The cache is limited
