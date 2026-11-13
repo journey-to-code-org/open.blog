@@ -13974,7 +13974,7 @@ fn change_approval(
         if !matches!(preview, Ok(preview) if preview.seen.as_deref() == Some(seen)) {
             return Response::error(
                 409,
-                "The piece or your access to it changed after you read it. Reload the combined preview and read it again; nothing was recorded.",
+                "The piece changed after you read it, or you can no longer read all of it. Reload the combined preview and read it again; nothing was recorded.",
             );
         }
     }
@@ -39426,6 +39426,7 @@ series: letters
         let before = state_trees(&f);
         let response = post_api(&f, &mikey, "approve", seen);
         assert_eq!(response.status, 409);
+        assert!(String::from_utf8_lossy(&response.body).contains("piece changed after you read it"));
         assert_no_prose(&response);
         assert_eq!(state_trees(&f), before);
         for author in [&mikey, &grace] {
