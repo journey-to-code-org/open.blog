@@ -214,6 +214,18 @@ pub(super) fn preview_look(state: &AppState, req: &Request) -> Response {
     let Some(look) = body.get("look").and_then(Json::as_str).map(str::trim) else {
         return Response::error(422, "Choose the look to see");
     };
+    preview_home(state, look, None)
+}
+
+/// The home page in `look`, built in memory. `decorations`, when given, replaces the saved choices
+/// for that look, so the Decorations screen can show pieces before they're saved.
+pub(super) fn preview_home(
+    state: &AppState,
+    look: &str,
+    decorations: Option<
+        std::collections::BTreeMap<String, openblog_core::decorations::DecorChoice>,
+    >,
+) -> Response {
     let mut config = match site::load_config(&state.root) {
         Ok(config) => config,
         Err(error) => return Response::error(500, &error),
@@ -230,6 +242,9 @@ pub(super) fn preview_look(state: &AppState, req: &Request) -> Response {
     }
     config.theme = look.to_string();
     config.seasons = SeasonsConfig::default();
+    if let Some(choices) = decorations {
+        config.decorations.insert(look.to_string(), choices);
+    }
     config.snippets = Default::default();
     config.analytics.builtin = false;
     config.analytics.show_views = false;
@@ -260,7 +275,10 @@ pub(super) fn preview_look(state: &AppState, req: &Request) -> Response {
     };
     let c = &preview_site.config;
     let theme = match themes.resolve(&c.theme) {
-        Ok(theme) => theme,
+        Ok(theme) => match c.decorations.get(&c.theme) {
+            Some(choices) => theme.with_decorations(choices),
+            None => theme,
+        },
         Err(error) => return Response::error(422, &error),
     };
     // The look's own stylesheet goes in the page, so it shows even when that theme isn't built yet.

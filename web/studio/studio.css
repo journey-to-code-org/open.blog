@@ -269,3 +269,10 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
   .studio-season-row { grid-template-columns: minmax(0, 1fr); }
   .studio-season-row .studio-row-menu { grid-column: 1; grid-row: auto; justify-self: start; }
 }
+
+/* What's hanging (slice 3b): one row per decoration, the switch then its versions. */
+.studio-deco-pieces { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-deco-piece { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1.2fr); gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-deco-piece:has(> :only-child) { grid-template-columns: 1fr; }
+.studio-deco-status { display: grid; gap: var(--space-2); justify-items: start; }
+@media (max-width: 40rem) { .studio-deco-piece { grid-template-columns: 1fr; } }

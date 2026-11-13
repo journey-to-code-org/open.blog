@@ -42,6 +42,10 @@ pub struct SiteConfig {
     /// theme as it is.
     #[serde(skip_serializing_if = "LookSettings::is_default")]
     pub appearance: LookSettings,
+    /// The owner's decoration choices, by theme then piece: `false` takes a piece down, a name puts
+    /// up another version of it (Studio slice 3b). Absent means every theme as it is.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub decorations: crate::decorations::DecorChoices,
     /// URL pattern for posts. `{slug}` is replaced. `/{slug}/` keeps Hashnode-style URLs.
     pub post_path: String,
     /// Posts per listing page. `0` disables pagination.
@@ -562,6 +566,7 @@ impl Default for SiteConfig {
             theme: "base".to_string(),
             color_scheme_toggle: None,
             appearance: LookSettings::default(),
+            decorations: BTreeMap::new(),
             post_path: "/posts/{slug}/".to_string(),
             posts_per_page: 10,
             latest_posts_per_page: 0,

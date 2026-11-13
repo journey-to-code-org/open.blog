@@ -10,6 +10,7 @@ import { showPreview } from "../parts/preview.js";
 import { sendOut, servedHere, wentOutWords } from "../parts/publish.js";
 import { editSeason } from "../parts/season-sheet.js";
 import { askPutUpNow } from "../parts/put-up-now.js";
+import { createDecorPieces } from "../parts/decor-pieces.js";
 import { dayAfter, sayLongDate, todaySentence } from "../parts/season-words.js";
 import { MAX_WINDOWS, nextChange, problems, sayRange, switchTimeWords, toStored, upNowUntil, wearingOn, windowHolds as windowHoldsDay } from "../parts/season-windows.js";
 
@@ -33,8 +34,9 @@ export async function createDecorations({ api, meta }) {
   const saveButton = h("action-button", { onClick: () => save() }, "Save");
   const bar = h("div", { class: "studio-write-bar studio-deco-bar", hidden: true }, barWords, saveButton);
   const details = h("side-sheet", { label: "For the person who set up your site", side: "right" });
+  const pieces = await createDecorPieces({ api, meta });
   const element = h("section", { class: "studio-page studio-decorations", "aria-labelledby": "studio-deco-h" },
-    banner, card,
+    banner, card, pieces.element,
     h("section", { class: "studio-section", "aria-labelledby": "studio-cal-h" },
       h("h3", { id: "studio-cal-h", text: "Your calendar" }),
       toggle,
@@ -371,6 +373,7 @@ export async function createDecorations({ api, meta }) {
     card.replaceChildren(h("skeleton-block", { lines: 3 }));
     try {
       adopt(await api.get("seasons"));
+      pieces.load({ wearing: saved.wearing });
       // From Find anywhere: "Put a look up now" lands here and asks straight away.
       if (new URLSearchParams(location.hash.split("?")[1] || "").get("do") === "putup") {
         history.replaceState(null, "", "#/decorations");
@@ -404,6 +407,7 @@ export async function createDecorations({ api, meta }) {
         { id: "details", label: "Show decorations details", group: "Decorations" },
         ...looks.map((look) => ({ id: `up:${look.value}`, label: `Put up ${look.label}`, group: "Put up now" })),
         ...looks.map((look) => ({ id: `see:${look.value}`, label: `See how it looks in ${look.label}`, group: "See how it looks" })),
+        ...pieces.palette(),
       ];
     },
     keys: ["save", "publish"], // Ctrl/⌘ S and Ctrl/⌘ Enter both save here
@@ -413,6 +417,7 @@ export async function createDecorations({ api, meta }) {
       if (id === "details") showDetails();
       if (id.startsWith("up:")) putUp(id.slice(3));
       if (id.startsWith("see:")) preview(id.slice(4));
+      if (id.startsWith("piece:")) pieces.command(id);
     },
     reload: load,
   };

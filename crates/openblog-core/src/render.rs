@@ -1244,6 +1244,10 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
 
 /// Layer the owner's look (if any) over a resolved theme.
 fn with_look(theme: Theme, site: &Site) -> Theme {
+    let theme = match site.config.decorations.get(&theme.name) {
+        Some(choices) => theme.with_decorations(choices),
+        None => theme,
+    };
     if site.config.appearance.is_neutral() {
         theme
     } else {

@@ -714,7 +714,7 @@ source, and links to files outside the folder point there. See [Documentation si
 
 ## Themes
 
-Themes are not configured here beyond `theme` and `seasons`; each theme has its own `theme.json`. See
+Themes are not configured here beyond `theme`, `seasons` and `decorations`; each theme has its own `theme.json`. See
 [Themes](themes.md).
 
 ### Seasons
@@ -737,3 +737,19 @@ between seasons. Days are `MM-DD` in UTC, a window may cross the new year, and w
 first one listed wins. Every theme a window names must exist, or the build stops and says which. A
 series, page or post with its own `theme` keeps it whatever the season. Off and not written back unless
 stated. Admin's **Seasons** screen edits it. See [Seasons](themes.md#seasons).
+
+### Decorations
+
+`decorations` takes down, or swaps, single decorations a theme declares as pieces (its `theme.json`
+`decorations`), by theme then piece. `false` takes a piece down; a name puts up that version of it:
+
+```json
+"decorations": {
+  "christmas": { "garland": false, "wreath": "toyshelf" }
+}
+```
+
+It names pieces and versions only, never CSS. A theme without the piece, or a version that no longer
+exists, is skipped at build time, so renaming a theme never stops a build; saving one through Admin is
+refused. Absent means every theme as it is. Studio's **Decorations** screen edits it. See
+[Decoration pieces](themes.md#decoration-pieces).

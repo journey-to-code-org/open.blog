@@ -88,6 +88,7 @@ pub mod correction_decision;
 pub mod curated_context;
 pub mod curated_selection;
 pub mod date;
+pub mod decorations;
 pub mod distribution;
 pub mod docs_section;
 pub mod draft;

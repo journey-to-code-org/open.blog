@@ -89,6 +89,7 @@ mod announcements;
 mod business;
 mod capture_assistant;
 mod comparisons;
+mod decorations;
 mod greetings;
 mod job_sharing;
 mod landing;
@@ -529,6 +530,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "seasons" || name == "seasons/preview" {
             return Ok(seasons::MAX_REQUEST_BYTES);
         }
+        if name == "decorations" || name == "decorations/preview" {
+            return Ok(decorations::MAX_REQUEST_BYTES);
+        }
         if name == "business" {
             return Ok(business::MAX_REQUEST_BYTES);
         }
@@ -818,6 +822,9 @@ fn authenticated_api(
         ("GET", "seasons") => seasons::get_seasons(state),
         ("PUT", "seasons") => seasons::save_seasons(state, req),
         ("POST", "seasons/preview") => seasons::preview_look(state, req),
+        ("GET", "decorations") => decorations::get_decorations(state),
+        ("PUT", "decorations") => decorations::save_decorations(state, req),
+        ("POST", "decorations/preview") => decorations::preview_decorations(state, req),
         ("GET", "business") => business::get_business(state),
         ("PUT", "business") => business::save_business(state, req),
         ("GET", "seasonal") => seasonal::get_seasonal(state),
@@ -19087,6 +19094,7 @@ mod tests {
     mod business_routes;
     mod capture_transcribe_routes;
     mod comparison_routes;
+    mod decorations_routes;
     mod distribution_routes;
     mod document_keep_routes;
     mod greeting_routes;

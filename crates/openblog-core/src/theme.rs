@@ -46,6 +46,10 @@ pub struct ThemeFile {
     /// Admin can offer it with a form and nothing an owner types is ever markup. Inherited through
     /// `extends`; a child theme may add components or replace one by name.
     pub components: BTreeMap<String, crate::components::ComponentDecl>,
+    /// The decorations this theme hangs, as pieces the owner may take down or swap for another
+    /// version (Studio slice 3b). Each piece names the tokens it owns. Inherited through `extends`;
+    /// a child theme replaces a piece by name.
+    pub decorations: BTreeMap<String, crate::decorations::DecorPiece>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -141,6 +145,10 @@ pub struct Theme {
     pub customizable: Vec<String>,
     /// The owner's look compiled for this theme (ADR 0248); `None` leaves the theme untouched.
     pub look: Option<CompiledLook>,
+    /// The decoration pieces this theme declares, merged down its chain.
+    pub decorations: BTreeMap<String, crate::decorations::DecorPiece>,
+    /// A fingerprint of the owner's decoration choices that took effect, if any.
+    pub decor_hash: Option<String>,
     /// Absolute site URL of the theme's own favicon, if it has one.
     pub favicon: Option<String>,
     /// Absolute site URL of the theme's own header logo, if it has one.
@@ -270,6 +278,10 @@ impl ThemeSet {
             }
             for (k, v) in &file.tokens {
                 theme.tokens.insert(k.clone(), v.clone());
+            }
+            crate::decorations::check_pieces(n, &file.decorations)?;
+            for (id, piece) in &file.decorations {
+                theme.decorations.insert(id.clone(), piece.clone());
             }
             if let Some(v) = file.options.heading_code_labels {
                 theme.heading_code_labels = v;
@@ -411,10 +423,25 @@ impl Theme {
     }
 
     pub fn tokens_url(&self) -> String {
-        match &self.look {
-            Some(look) => format!("/themes/{}/tokens.css?v={}", self.name, look.hash),
-            None => format!("/themes/{}/tokens.css", self.name),
+        match (&self.look, &self.decor_hash) {
+            (Some(look), None) => format!("/themes/{}/tokens.css?v={}", self.name, look.hash),
+            (Some(look), Some(decor)) => {
+                format!("/themes/{}/tokens.css?v={}-{decor}", self.name, look.hash)
+            }
+            (None, Some(decor)) => format!("/themes/{}/tokens.css?v={decor}", self.name),
+            (None, None) => format!("/themes/{}/tokens.css", self.name),
         }
+    }
+
+    /// This theme with the owner's decoration choices laid over it. No choices (or none that apply
+    /// to this theme's pieces) returns the theme unchanged, so its output stays byte-identical.
+    pub fn with_decorations(
+        mut self,
+        choices: &BTreeMap<String, crate::decorations::DecorChoice>,
+    ) -> Theme {
+        let applied = crate::decorations::apply(&mut self.tokens, &self.decorations, choices);
+        self.decor_hash = crate::decorations::fingerprint(&applied);
+        self
     }
 
     /// This theme with the owner's look compiled over it. A look that changes nothing here returns the
@@ -769,6 +796,57 @@ mod tests {
             .unwrap()
             .manifest_json()
             .contains("customizable"));
+    }
+
+    #[test]
+    fn decoration_pieces_inherit_and_choices_only_touch_their_tokens() {
+        use crate::decorations::DecorChoice;
+        let mut set = ThemeSet::new();
+        set.insert(
+            "house",
+            ThemeFile::from_json(r#"{"extends":"base","tokens":{"decorGarland":"none"}}"#).unwrap(),
+        );
+        set.insert(
+            "christmas",
+            ThemeFile::from_json(
+                r#"{"extends":"house","tokens":{"decorGarland":"url(g.svg)"},
+                "decorations":{"garland":{"label":"Garland","tokens":["decorGarland"],
+                "off":{"decorGarland":"none"},
+                "variants":{"toys":{"label":"Toys","tokens":{"decorGarland":"url(t.svg)"}}}}}}"#,
+            )
+            .unwrap(),
+        );
+        set.insert(
+            "child",
+            ThemeFile::from_json(r#"{"extends":"christmas"}"#).unwrap(),
+        );
+        let plain = set.resolve("christmas").unwrap();
+        assert!(set
+            .resolve("child")
+            .unwrap()
+            .decorations
+            .contains_key("garland"));
+        let same = plain.clone().with_decorations(&BTreeMap::new());
+        assert_eq!(same.tokens_css(), plain.tokens_css());
+        assert_eq!(same.tokens_url(), plain.tokens_url());
+        let off = plain
+            .clone()
+            .with_decorations(&BTreeMap::from([("garland".into(), DecorChoice::Off)]));
+        assert!(off.tokens_css().contains("--ob-decor-garland: none;"));
+        assert_ne!(off.tokens_url(), plain.tokens_url());
+        let toys = plain.with_decorations(&BTreeMap::from([(
+            "garland".into(),
+            DecorChoice::Variant("toys".into()),
+        )]));
+        assert!(toys.tokens_css().contains("url(t.svg)"));
+        set.insert(
+            "bad",
+            ThemeFile::from_json(
+                r#"{"extends":"base","decorations":{"garland":{"tokens":["decorGarland"],"off":{"colorAccent":"red"}}}}"#,
+            )
+            .unwrap(),
+        );
+        assert!(set.resolve("bad").unwrap_err().contains("colorAccent"));
     }
 
     #[test]
