@@ -1,7 +1,7 @@
 // Sharing in her words: where a post went out and what's going out next, grouped by what she needs
 // to do; the badge for each; the shortest caption limit across the accounts she chose; and account
 // health. DOM-free, tested. Studio slice 10c; docs/specs/studio/slice-10bc/ux.md.
-import { sayWhen } from "./dates.js";
+import { sayDay, sayShortDay, sayWhen } from "./dates.js";
 
 const LIMITS = { linkedin: 3000, facebook: 3000, bluesky: 300, mastodon: 475 };
 const PROVIDERS = { linkedin: "LinkedIn", facebook: "Facebook", bluesky: "Bluesky", mastodon: "Mastodon" };
@@ -65,16 +65,39 @@ export function captionWords(caption, providers) {
   return { count, limit, over, text: over ? `${count - limit} characters too many for ${providerName(shortest)}` : `${count} of ${limit}${which}` };
 }
 
-/** What a card says about an account's health, or "". */
-export function healthWords(account) {
-  const name = providerName(account.provider);
-  if (account.health === "expiring") return `${name} stops working soon. Reconnect it, signing in as the same account.`;
-  if (account.health === "needs-reauth") return `${name} stopped working. Reconnect it, signing in as the same account.`;
-  if (account.health === "disconnected") return "Disconnected.";
+/** The last moment an account's sign-in works: the later of its access and renew dates, or "". */
+export function usableUntil(account) {
+  const dates = [account?.credential?.accessExpiresAt, account?.credential?.refreshExpiresAt].filter((d) => Date.parse(d || ""));
+  return dates.sort((a, b) => Date.parse(b) - Date.parse(a))[0] || "";
+}
+
+/**
+ * What a card says about an account's health, or "": "Facebook stops taking posts from Studio on
+ * Friday, November 27. Reconnect it before then, signing in to the Facebook account you used the
+ * first time."
+ */
+export function healthWords(account, { now = new Date(), timeZone } = {}) {
+  const name = providerName(account?.provider);
+  const same = `signing in to the ${name} account you used the first time`;
+  if (account?.health === "expiring") {
+    const day = sayDay(usableUntil(account), { now, timeZone });
+    return `${name} stops taking posts from Studio ${day ? `on ${day}` : "soon"}. Reconnect it before then, ${same}.`;
+  }
+  if (account?.health === "needs-reauth") return `${name} stopped taking posts from Studio. Reconnect it, ${same}.`;
+  if (account?.health === "disconnected") return "Disconnected.";
   return "";
 }
 
-export const HEALTH_BADGES = { ok: "Connected", expiring: "Expiring soon", "needs-reauth": "Needs reconnecting", disconnected: "Disconnected" };
+export const HEALTH_BADGES = { ok: "Connected", expiring: "Sign in again soon", "needs-reauth": "Needs reconnecting", disconnected: "Disconnected" };
+
+/** The badge's words: "Sign in again by Nov 27" when the day is known. */
+export function healthBadge(account, { now = new Date(), timeZone } = {}) {
+  if (account?.health === "expiring") {
+    const day = sayShortDay(usableUntil(account), { now, timeZone });
+    return day ? `Sign in again by ${day}` : HEALTH_BADGES.expiring;
+  }
+  return HEALTH_BADGES[account?.health] || HEALTH_BADGES["needs-reauth"];
+}
 
 /** The list's problem line for a failed or unclear share. */
 const PROBLEMS = {

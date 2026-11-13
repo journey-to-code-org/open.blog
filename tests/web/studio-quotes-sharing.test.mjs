@@ -55,7 +55,7 @@ test("the caption is counted against the shortest limit of the accounts chosen",
 });
 
 test("account trouble and send words are hers", () => {
-  assert.match(healthWords({ provider: "facebook", health: "needs-reauth" }), /^Facebook stopped working/);
+  assert.match(healthWords({ provider: "facebook", health: "needs-reauth" }), /^Facebook stopped taking posts from Studio/);
   assert.equal(healthWords({ provider: "facebook", health: "ok" }), "");
   assert.equal(needsReconnect("provider-auth"), true);
   assert.equal(sentWords(["Facebook", "Bluesky"], "in about 5 minutes"), "On its way. Facebook and Bluesky get it in about 5 minutes.");

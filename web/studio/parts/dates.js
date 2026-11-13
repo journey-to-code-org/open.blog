@@ -183,3 +183,28 @@ export function isFuture(value, now = new Date(), timeZone) {
   const ms = parsed.dateOnly ? wallToMs(parsed.y, parsed.m, parsed.d, 0, 0, timeZone) : parsed.ms;
   return ms > now.getTime();
 }
+
+/**
+ * A short day for a badge: "Nov 27", or "Nov 27, 2027" in another year. "" when unreadable.
+ * @param {string|Date} iso
+ * @param {{ now?: Date, timeZone?: string }} [options]
+ */
+export function sayShortDay(iso, { now = new Date(), timeZone } = {}) {
+  const parsed = parse(iso);
+  if (!parsed) return "";
+  const { y, m, d } = calendarDay(parsed, timeZone);
+  const words = `${MONTHS[m - 1].slice(0, 3)} ${d}`;
+  return y === wallParts(now.getTime(), timeZone).year ? words : `${words}, ${y}`;
+}
+
+/**
+ * The time of day alone: "3:35 PM", "8 AM". "" for an empty, unreadable or date-only value.
+ * @param {string|Date} iso
+ * @param {{ timeZone?: string }} [options]
+ */
+export function sayClock(iso, { timeZone } = {}) {
+  const parsed = parse(iso);
+  if (!parsed || parsed.dateOnly) return "";
+  const { hour, minute } = calendarDay(parsed, timeZone);
+  return clockWords(hour, minute);
+}
