@@ -7159,3 +7159,17 @@ ob-voice-library {
 .oba-quotes-emails { padding: 0.75rem; border: 2px solid var(--ob-color-border); border-radius: 0.5rem; display: grid; gap: 0.5rem; overflow-wrap: anywhere; }
 .oba-quotes-emails p { margin: 0; }
 .oba-quotes-email { font-weight: 600; }
+
+/* Greeting cards (ADR 0411) */
+.oba-greetings { display: grid; gap: 0.9rem; min-width: 0; }
+.oba-greetings-list, .oba-greetings-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.oba-greetings-card { padding: 0.7rem 0.9rem; border: 1px solid var(--oba-border, #d9d3c7); border-radius: 10px; overflow-wrap: anywhere; }
+.oba-greetings-card[data-status="failed"] { border-left: 5px solid var(--oba-danger, #a3172b); }
+.oba-greetings-card p { margin: 0 0 0.35rem; }
+.oba-greetings-people li { overflow-wrap: anywhere; }
+.oba-greetings-editor { display: grid; gap: 0.7rem; padding: 1rem; border: 1px solid var(--oba-border, #d9d3c7); border-radius: 12px; }
+.oba-greetings-designs { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; border: 0; padding: 0; margin: 0; }
+.oba-greetings-designs legend { font-weight: 600; margin-bottom: 0.3rem; }
+.oba-greetings-design { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.5rem; border: 1px solid var(--oba-border, #d9d3c7); border-radius: 999px; }
+.oba-greetings-editor textarea { width: 100%; min-height: 9rem; }
+.oba-greetings-frame { width: 100%; height: 34rem; border: 1px solid var(--oba-border, #d9d3c7); border-radius: 10px; background: #efe9e1; }

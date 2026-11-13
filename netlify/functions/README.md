@@ -402,3 +402,11 @@ that does not exist.
 
 To undo it, remove `OPENBLOG_AUTHOR_RESPONSES_ENABLED` and redeploy. Existing answers stay private
 in the inbox, where they can still be rejected or removed but not approved.
+
+## Greeting cards (optional)
+
+`greetings.mjs` keeps the owner's address book and cards (Admin's **Greeting cards**), and
+`greetings-send.mjs` runs every hour and sends the cards that are due through Brevo. Both are off, and the
+first answers 404, unless `OPENBLOG_GREETINGS_ENABLED=true` and its settings are complete; run
+[`supabase/greetings.sql`](../../supabase/greetings.sql) first. The settings and the steps are in
+[Greeting cards](../../docs/greeting-cards.md); the design is ADR 0411.
