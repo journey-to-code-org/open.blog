@@ -337,6 +337,50 @@ pub fn public_credit_projection(
     Ok((public_record, credits))
 }
 
+/// Public credit order: first appearance in the arranged drafts, then any additional people
+/// whose approved conversation or moments appear.
+pub fn publication_credit_order(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+) -> Result<Vec<String>, AssemblyError> {
+    let mut order = Vec::new();
+    if let Some(structure) = structure {
+        let entries = structure
+            .reading_order(&record.collaboration, drafts)
+            .map_err(|_| AssemblyError::ArrangementMismatch)?;
+        for entry in entries {
+            if active.contains(&entry.participant_id)
+                && entry.markdown.is_some()
+                && !order.iter().any(|id| id == entry.participant_id)
+            {
+                order.push(entry.participant_id.to_string());
+            }
+        }
+    } else {
+        for participant in &record.collaboration.participants {
+            if active.contains(&participant.id.as_str())
+                && drafts.current_stamp(&participant.id).is_some()
+            {
+                order.push(participant.id.clone());
+            }
+        }
+    }
+    for id in synthesis
+        .attributed_authors()
+        .into_iter()
+        .chain(moments.attributed_participants())
+    {
+        if !order.iter().any(|existing| existing == id) {
+            order.push(id.to_string());
+        }
+    }
+    Ok(order)
+}
+
 /// Display names for participant ids, in the order given; unknown ids are skipped.
 pub fn display_names<'a>(
     record: &SharedPublication,
@@ -648,7 +692,6 @@ fn assemble_inner(
     };
     let mut prose = Vec::new();
     let mut credits = Vec::new();
-    let mut credit_order = Vec::new();
     let mut arranged = None;
     if let Some(structure) = structure {
         // The same latest revisions the approval's binding covers, in the one reading order. A
@@ -672,7 +715,6 @@ fn assemble_inner(
             }
             if !credited.contains(&entry.participant_id) {
                 credited.push(entry.participant_id);
-                credit_order.push(entry.participant_id.to_string());
                 if choices.is_none() {
                     credits.push(credit_for(entry.participant_id)?);
                 }
@@ -707,7 +749,6 @@ fn assemble_inner(
             let Some(view) = drafts.latest_view(&participant.id) else {
                 continue;
             };
-            credit_order.push(participant.id.clone());
             if choices.is_none() {
                 credits.push(credit_for(&participant.id)?);
             }
@@ -801,15 +842,8 @@ fn assemble_inner(
     let credits_path = crate::contributor::sidecar_path(&path).ok_or(AssemblyError::Invalid)?;
     let credits = match choices {
         Some(choices) => {
-            for id in synthesis
-                .attributed_authors()
-                .into_iter()
-                .chain(moments.attributed_participants())
-            {
-                if !credit_order.iter().any(|existing| existing == id) {
-                    credit_order.push(id.to_string());
-                }
-            }
+            let credit_order =
+                publication_credit_order(record, structure, drafts, synthesis, moments, active)?;
             let ids = credit_order.iter().map(String::as_str).collect::<Vec<_>>();
             choices
                 .project(&ids)

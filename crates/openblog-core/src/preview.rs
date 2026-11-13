@@ -43,11 +43,16 @@ form-action 'none'; frame-ancestors 'self'";
 pub enum PreviewError {
     /// The requester is not a current author of this publication.
     Denied,
+    /// Public credit choices are missing or cannot be projected safely.
+    CreditChoices,
 }
 
 impl std::fmt::Display for PreviewError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("preview access denied")
+        formatter.write_str(match self {
+            Self::Denied => "preview access denied",
+            Self::CreditChoices => "public credit choices are incomplete or invalid",
+        })
     }
 }
 
@@ -218,6 +223,7 @@ pub fn build(
         None,
         show_synthesis,
         options,
+        None,
     )
 }
 
@@ -249,6 +255,7 @@ pub fn build_with_participants(
         None,
         show_synthesis,
         options,
+        None,
     )
 }
 
@@ -281,6 +288,64 @@ pub fn build_for_recipient(
         Some(recipients),
         show_synthesis,
         options,
+        None,
+    )
+}
+
+/// Build a credit-aware preview only after the requester can see the entire current piece.
+#[allow(clippy::too_many_arguments)]
+pub fn build_with_credit_choices(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    requester: &str,
+    active: &[&str],
+    participants: &[&str],
+    recipient: bool,
+    show_synthesis: bool,
+    options: RenderOptions<'_>,
+    choices: &crate::shared_credit::CreditChoices,
+) -> Result<CombinedPreview, PreviewError> {
+    let recipients = recipient.then_some(participants);
+    let partial = build_for(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        requester,
+        active,
+        participants,
+        recipients,
+        show_synthesis,
+        options,
+        None,
+    )?;
+    if !partial.complete {
+        return Ok(partial);
+    }
+    let (public_record, _) = crate::assembly::public_credit_projection(
+        record, drafts, synthesis, moments, active, choices,
+    )
+    .map_err(|_| PreviewError::CreditChoices)?;
+    build_for(
+        &public_record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        approvals,
+        requester,
+        active,
+        participants,
+        recipients,
+        show_synthesis,
+        options,
+        Some((record, choices)),
     )
 }
 
@@ -298,6 +363,7 @@ fn build_for(
     recipients: Option<&[&str]>,
     show_synthesis: bool,
     options: RenderOptions<'_>,
+    credit_subject: Option<(&SharedPublication, &crate::shared_credit::CreditChoices)>,
 ) -> Result<CombinedPreview, PreviewError> {
     if recipients.map_or_else(
         || !active.contains(&requester),
@@ -330,128 +396,165 @@ fn build_for(
             })
         })
         .collect();
-    crate::assembly::with_subject_for_participants(
-        record,
-        structure,
-        drafts,
-        synthesis,
-        moments,
-        active,
-        participants,
-        |subject| {
-            let mut sections = Vec::new();
-            let mut rendered = Vec::new();
-            // Moments proposed for the piece are part of their owner's contribution (ADR 0063,
-            // 0064): another author sees them only sealed to the owner's latest revision that
-            // author may read. Until then the owner's whole part is withheld, so nobody can be
-            // handed an approval token for moments they have not seen.
-            let mut withheld = false;
-            let mut shown_moments: Vec<&Moment> = Vec::new();
-            for (author, stamp) in authors.iter().zip(&stamps) {
-                let entitled = stamp.as_ref().and_then(|stamp| {
-                    let view = match recipients {
-                        Some(people) => drafts.view_named(requester, &author.id, people),
-                        None => drafts.view(requester, &author.id, active),
-                    }
-                    .ok()?;
-                    (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest)
-                        .then_some(view)
-                });
-                let readable = entitled.as_ref().map(|view| view.stamp.number);
-                let proposed = moments
-                    .publication_moments()
-                    .iter()
-                    .any(|moment| moment.participant() == author.id);
-                let moments_shown = !proposed
-                    || author.id == requester
-                    || readable.is_some_and(|revision| moments.is_sealed(&author.id, revision));
-                if !moments_shown {
-                    withheld = true;
-                } else if proposed {
-                    let visible = match recipients {
-                        Some(people) => moments
-                            .revealed_to_recipient(requester, people, active, &author.id, readable),
-                        None => moments.revealed(requester, active, &author.id, readable),
-                    }
-                    .unwrap_or_default();
-                    shown_moments.extend(visible);
+    let build = |subject: &crate::approval::ApprovalSubject<'_>| {
+        let mut sections = Vec::new();
+        let mut rendered = Vec::new();
+        // Moments proposed for the piece are part of their owner's contribution (ADR 0063,
+        // 0064): another author sees them only sealed to the owner's latest revision that
+        // author may read. Until then the owner's whole part is withheld, so nobody can be
+        // handed an approval token for moments they have not seen.
+        let mut withheld = false;
+        let mut shown_moments: Vec<&Moment> = Vec::new();
+        for (author, stamp) in authors.iter().zip(&stamps) {
+            let entitled = stamp.as_ref().and_then(|stamp| {
+                let view = match recipients {
+                    Some(people) => drafts.view_named(requester, &author.id, people),
+                    None => drafts.view(requester, &author.id, active),
                 }
-                let entitled = entitled.filter(|_| moments_shown);
-                let prose = entitled
-                    .as_ref()
-                    .map(|view| render_section(&strip_part_markers(&view.markdown), options));
-                sections.push(PreviewSection {
-                    participant_id: author.id.clone(),
-                    display_name: author.display_name.clone(),
-                    shown: prose.is_some(),
-                    revision: entitled.as_ref().map(|view| view.stamp.number),
-                    approval: approvals.state(subject, &author.id),
-                    required: approvals.is_required(subject, &author.id),
-                    errors: prose.as_ref().map(|r| r.errors.clone()).unwrap_or_default(),
-                });
-                rendered.push(prose.map(|r| r.html));
+                .ok()?;
+                (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest)
+                    .then_some(view)
+            });
+            let readable = entitled.as_ref().map(|view| view.stamp.number);
+            let proposed = moments
+                .publication_moments()
+                .iter()
+                .any(|moment| moment.participant() == author.id);
+            let moments_shown = !proposed
+                || author.id == requester
+                || readable.is_some_and(|revision| moments.is_sealed(&author.id, revision));
+            if !moments_shown {
+                withheld = true;
+            } else if proposed {
+                let visible = match recipients {
+                    Some(people) => moments
+                        .revealed_to_recipient(requester, people, active, &author.id, readable),
+                    None => moments.revealed(requester, active, &author.id, readable),
+                }
+                .unwrap_or_default();
+                shown_moments.extend(visible);
             }
+            let entitled = entitled.filter(|_| moments_shown);
+            let prose = entitled
+                .as_ref()
+                .map(|view| render_section(&strip_part_markers(&view.markdown), options));
+            sections.push(PreviewSection {
+                participant_id: author.id.clone(),
+                display_name: author.display_name.clone(),
+                shown: prose.is_some(),
+                revision: entitled.as_ref().map(|view| view.stamp.number),
+                approval: approvals.state(subject, &author.id),
+                required: approvals.is_required(subject, &author.id),
+                errors: prose.as_ref().map(|r| r.errors.clone()).unwrap_or_default(),
+            });
+            rendered.push(prose.map(|r| r.html));
+        }
 
-            // Complete means every section that exists is shown. An author who owns no section adds no
-            // content to be missed, so they can still approve the whole piece (ADR 0020).
-            let by_author: Vec<(&PreviewSection, bool)> = sections
+        // Complete means every section that exists is shown. An author who owns no section adds no
+        // content to be missed, so they can still approve the whole piece (ADR 0020).
+        let by_author: Vec<(&PreviewSection, bool)> = sections
+            .iter()
+            .zip(&stamps)
+            .map(|(section, stamp)| (section, stamp.is_some()))
+            .collect();
+        let arranged = structure.map(|structure| {
+            arrange(
+                record, structure, drafts, requester, active, recipients, &by_author, options,
+            )
+        });
+        let participant_policy = matches!(
+            approvals.policy().requirement,
+            ApprovalRequirement::AllParticipants | ApprovalRequirement::ParticipantQuorum(_)
+        );
+        let complete = (recipients.is_none() || participant_policy)
+            && show_synthesis
+            && !subject_sections.is_empty()
+            && !withheld
+            && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())
+            && sections
                 .iter()
                 .zip(&stamps)
-                .map(|(section, stamp)| (section, stamp.is_some()))
-                .collect();
-            let arranged = structure.map(|structure| {
-                arrange(
-                    record, structure, drafts, requester, active, recipients, &by_author, options,
-                )
-            });
-            let participant_policy = matches!(
-                approvals.policy().requirement,
-                ApprovalRequirement::AllParticipants | ApprovalRequirement::ParticipantQuorum(_)
-            );
-            let complete = (recipients.is_none() || participant_policy)
-                && show_synthesis
-                && !subject_sections.is_empty()
-                && !withheld
-                && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())
-                && sections
-                    .iter()
-                    .zip(&stamps)
-                    .all(|(section, stamp)| stamp.is_none() || section.shown);
-            let items = preview_items(record, synthesis, requester);
-            let ready = complete
-                && approvals.evaluate(subject) == Ok(Readiness::Ready)
-                && items.iter().all(|item| item.awaiting.is_empty());
-            // Synthesis is for its authors only (EditSynthesis). Readiness above still counts every
-            // item, but anyone who may not edit the synthesis sees neither its prose nor its names.
-            let items = if show_synthesis { items } else { Vec::new() };
-            let seen = if complete {
-                approvals.binding_for(subject, requester).ok()
-            } else {
-                None
-            };
-            let rule = rule_for(record, approvals, subject);
-            let document = document(
-                record,
-                &rule,
-                &sections,
-                &rendered,
-                arranged.as_ref(),
-                &moments_html(record, moments, &shown_moments, options),
-                &conversation_html(record, &items, synthesis, options),
-                complete,
-                ready,
-            );
-            Ok(CombinedPreview {
-                sections,
-                rule,
-                complete,
-                ready,
-                seen,
-                items,
-                document,
-            })
-        },
-    )
+                .all(|(section, stamp)| stamp.is_none() || section.shown);
+        let items = preview_items(record, synthesis, requester);
+        let ready = complete
+            && approvals.evaluate(subject) == Ok(Readiness::Ready)
+            && items.iter().all(|item| item.awaiting.is_empty());
+        // Synthesis is for its authors only (EditSynthesis). Readiness above still counts every
+        // item, but anyone who may not edit the synthesis sees neither its prose nor its names.
+        let items = if show_synthesis { items } else { Vec::new() };
+        let seen = if complete {
+            approvals.binding_for(subject, requester).ok()
+        } else {
+            None
+        };
+        let rule = rule_for(record, approvals, subject);
+        let credit_details = if complete {
+            match credit_subject {
+                Some((original, choices)) => {
+                    let order = crate::assembly::publication_credit_order(
+                        original, structure, drafts, synthesis, moments, active,
+                    )
+                    .map_err(|_| PreviewError::CreditChoices)?;
+                    let ids = order.iter().map(String::as_str).collect::<Vec<_>>();
+                    let credits = choices
+                        .project(&ids)
+                        .map_err(|_| PreviewError::CreditChoices)?;
+                    format!(
+                            "<section class=\"ob-preview-section\"><h2>Public credits</h2><p>These are the public identity details included in the approved post.</p><pre>{}</pre></section>\n",
+                            escape::text(credits.sidecar())
+                        )
+                }
+                None => String::new(),
+            }
+        } else {
+            String::new()
+        };
+        let document = document(
+            record,
+            &rule,
+            &sections,
+            &rendered,
+            arranged.as_ref(),
+            &moments_html(record, moments, &shown_moments, options),
+            &conversation_html(record, &items, synthesis, options),
+            &credit_details,
+            complete,
+            ready,
+        );
+        Ok(CombinedPreview {
+            sections,
+            rule,
+            complete,
+            ready,
+            seen,
+            items,
+            document,
+        })
+    };
+    match credit_subject {
+        Some((original, choices)) => crate::assembly::with_credit_subject_for_participants(
+            original,
+            structure,
+            drafts,
+            synthesis,
+            moments,
+            active,
+            participants,
+            choices,
+            build,
+        )
+        .map_err(|_| PreviewError::CreditChoices)?,
+        None => crate::assembly::with_subject_for_participants(
+            record,
+            structure,
+            drafts,
+            synthesis,
+            moments,
+            active,
+            participants,
+            build,
+        ),
+    }
 }
 
 /// The moments proposed for the piece that the requester may read, in the order the piece
@@ -646,6 +749,7 @@ fn document(
     arranged: Option<&Result<String, ()>>,
     moments: &str,
     conversation: &str,
+    credit_details: &str,
     complete: bool,
     ready: bool,
 ) -> String {
@@ -751,6 +855,7 @@ fn document(
         ));
     }
     html.push_str("</ol>\n");
+    html.push_str(credit_details);
     match arranged {
         Some(Ok(arranged)) => html.push_str(arranged),
         Some(Err(())) => html.push_str(
@@ -811,6 +916,7 @@ body { margin: 0 auto; max-width: 42rem; padding: 1rem; font: 1rem/1.6 system-ui
 .ob-preview-banner { border: 2px dashed var(--warn); background: var(--warn-bg); color: var(--warn); padding: .5rem .75rem; }\n\
 .ob-preview-state { font-weight: 600; }\n\
 .ob-preview-authors { padding-left: 1.25rem; }\n\
+.ob-preview-section pre { white-space: pre-wrap; overflow-wrap: anywhere; }\n\
 .ob-preview-section { border-top: 1px solid var(--line); margin-top: 1.5rem; padding-top: .5rem; }\n\
 .ob-preview-status { font-size: .875rem; font-weight: 600; }\n\
 .ob-preview-hidden { font-style: italic; }\n\

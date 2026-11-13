@@ -107,11 +107,15 @@ fn choice_aware_assembly_uses_only_approved_public_identities() {
     ]) {
         participant.display_name = name.into();
     }
-    let set = drafts(&[
+    let mut set = drafts(&[
         ("ann", "First words"),
         ("bo", "Second words"),
         ("cy", "Third words"),
     ]);
+    set.set_policy(openblog_core::draft::RevealPolicy::AllReady);
+    for who in ALL {
+        set.mark_ready(who, 1, &ALL).unwrap();
+    }
     let structure = ReflectionStructure::from_json(
         r#"{"version":1,"revision":1,"layout":"roundtable","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0},{"draft":"cy","part":0}]}]}"#,
     )
@@ -150,6 +154,72 @@ fn choice_aware_assembly_uses_only_approved_public_identities() {
     let synthesis = SynthesisSet::new();
     let moments = MomentSet::new();
     let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let shown = openblog_core::preview::build_with_credit_choices(
+        &record,
+        Some(&structure),
+        &set,
+        &synthesis,
+        &moments,
+        &approvals,
+        "ann",
+        &ALL,
+        &ALL,
+        false,
+        true,
+        SiteConfig::default().render_options(),
+        &choices,
+    )
+    .unwrap();
+    assert!(shown.complete);
+    assert!(shown.document.contains("Public credits"));
+    assert!(shown.document.contains("Approved Ann"));
+    assert!(shown.document.contains("Pen Name"));
+    assert!(shown.document.contains("Uncredited participant"));
+    assert!(!shown.document.contains("Private Ann"));
+    assert!(!shown.document.contains("Private Bo"));
+    assert!(!shown.document.contains("Private Cy"));
+    assert!(matches!(
+        openblog_core::preview::build_with_credit_choices(
+            &record,
+            Some(&structure),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            "ann",
+            &ALL,
+            &ALL,
+            false,
+            true,
+            SiteConfig::default().render_options(),
+            &CreditChoices::default(),
+        ),
+        Err(openblog_core::preview::PreviewError::CreditChoices)
+    ));
+    let private = drafts(&[
+        ("ann", "First words"),
+        ("bo", "Hidden"),
+        ("cy", "Also hidden"),
+    ]);
+    let partial = openblog_core::preview::build_with_credit_choices(
+        &record,
+        Some(&structure),
+        &private,
+        &synthesis,
+        &moments,
+        &approvals,
+        "ann",
+        &ALL,
+        &ALL,
+        false,
+        true,
+        SiteConfig::default().render_options(),
+        &CreditChoices::default(),
+    )
+    .unwrap();
+    assert!(!partial.complete);
+    assert!(partial.seen.is_none());
+    assert!(!partial.document.contains("Hidden"));
     with_credit_subject_for_participants(
         &record,
         Some(&structure),
@@ -162,6 +232,9 @@ fn choice_aware_assembly_uses_only_approved_public_identities() {
         |subject| {
             for who in ALL {
                 let seen = approvals.binding_for(subject, who).unwrap();
+                if who == "ann" {
+                    assert_eq!(shown.seen.as_deref(), Some(seen.as_str()));
+                }
                 approvals
                     .approve(who, who, subject, &seen, true, T)
                     .unwrap();
@@ -184,6 +257,9 @@ fn choice_aware_assembly_uses_only_approved_public_identities() {
         )
     };
     let post = build(&choices).unwrap();
+    assert!(shown
+        .document
+        .contains(&openblog_core::escape::text(&post.credits)));
     assert!(post.source.contains("Approved Ann"));
     assert!(post.source.contains("Pen Name"));
     assert!(post.source.contains("Uncredited participant"));
