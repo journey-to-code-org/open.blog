@@ -13,6 +13,9 @@ const SENDER = /^(?:([^<>\r\n"]{1,80}) <([^\s@<>",;]{1,64}@[^\s@<>",;]{1,200}\.[
 const text = (value) => String(value ?? "");
 
 /** Off unless switched on; switched on but incomplete is still off, naming (never showing) what is wrong. */
+/** The database bridge inside the service container: plain HTTP, but never leaves the machine. */
+export const LOOPBACK = /^http:\/\/127\.0\.0\.1:\d{2,5}$/;
+
 export function greetingSettings(env = {}) {
   if (text(env.OPENBLOG_GREETINGS_ENABLED).trim().toLowerCase() !== "true") return { enabled: false, problems: [] };
   const problems = [];
@@ -25,7 +28,8 @@ export function greetingSettings(env = {}) {
   const zone = text(env.OPENBLOG_GREETINGS_TIME_ZONE || "America/New_York").trim();
   const origin = text(env.OPENBLOG_SITE_ORIGIN).trim().replace(/\/+$/, "");
   const base = text(env.OPENBLOG_SITE_BASE_PATH || "/").trim();
-  if (!/^https:\/\/[^\s/]+$/.test(url)) problems.push("SUPABASE_URL");
+  // HTTPS, or the service container's own database bridge on loopback (service/server.mjs).
+  if (!/^https:\/\/[^\s/]+$/.test(url) && !LOOPBACK.test(url)) problems.push("SUPABASE_URL");
   if (!key || /\s/.test(key)) problems.push("SUPABASE_SECRET_KEY");
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(siteId)) problems.push("OPENBLOG_SITE_ID");
   if (adminKey.length < 32 || /\s/.test(adminKey)) problems.push("OPENBLOG_GREETINGS_ADMIN_KEY");
