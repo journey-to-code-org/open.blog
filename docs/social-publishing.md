@@ -126,9 +126,11 @@ the function sends it on to the Studio it started from, in the same tab, so the 
 and chooses where posts go. How that address is made, so nothing else can choose it:
 
 1. Studio's **Connect** (or **Reconnect**) goes to Admin. Admin reads the function's `GET status`; only when it says
-   `returns: true` does Admin name a return address, built from the request's own `Origin` (which must match the
+   `returns: true` (the function says so once `supabase/social-return.sql` has run, schema version 5) does Admin name
+   a return address, built from the request's own `Origin` (which must match the
    `Host` it reached) plus the fixed path `/admin/studio/`, and only for `https`, or `http` to `localhost`,
-   `127.0.0.1` or `[::1]`. A browser cannot send one; the field is refused.
+   `127.0.0.1` or `[::1]`. A browser cannot send one; the field is refused. Admin's reply says `returns: true` only
+   when it named one with that start, and Studio goes in the same tab only then; otherwise it offers a new tab.
 2. The function checks it again (that exact shape, at most 300 characters) and stores it on the attempt's row
    (`return_to`, from `supabase/social-return.sql`).
 3. The callback finds the row by its single-use `state` and answers `303` to

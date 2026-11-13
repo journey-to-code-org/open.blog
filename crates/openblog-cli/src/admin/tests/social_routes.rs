@@ -798,6 +798,71 @@ fn a_connect_names_its_own_studio_as_the_way_back_only_when_the_function_returns
 }
 
 #[test]
+fn a_start_and_a_reconnect_say_whether_a_way_back_was_recorded() {
+    let start = || {
+        from(
+            Some("https://blog.example.com"),
+            "blog.example.com",
+            json!({ "provider": "facebook" }),
+        )
+    };
+    // The function returns: the address was sent with the start, and the reply says so.
+    let (endpoint, server) = hosted(vec![(200, status_reply(true)), (201, started_reply())]);
+    let r = route_with(&env_for(&endpoint), &start(), "mikey", "connections");
+    assert_eq!(r.status, 200);
+    assert_eq!(body_json(&r)["returns"], true);
+    server.join().unwrap();
+    // The function doesn't, or its status couldn't be read this time: none was sent, and the reply
+    // says false, so Studio takes the new-tab way whatever it read when the page loaded.
+    for status in [
+        (200, status_reply(false)),
+        (500, json!({ "error": "internal" }).to_string()),
+    ] {
+        let (endpoint, server) = hosted(vec![status, (201, started_reply())]);
+        let r = route_with(&env_for(&endpoint), &start(), "mikey", "connections");
+        assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+        assert_eq!(body_json(&r)["returns"], false);
+        let seen = server.join().unwrap();
+        assert!(!seen[1].contains("returnTo"), "{}", seen[1]);
+    }
+    // A plain-http origin names none either, and says so.
+    let (endpoint, server) = hosted(vec![(201, started_reply())]);
+    let r = route_with(
+        &env_for(&endpoint),
+        &from(
+            Some("http://blog.example.com"),
+            "blog.example.com",
+            json!({ "provider": "facebook" }),
+        ),
+        "mikey",
+        "connections",
+    );
+    assert_eq!(body_json(&r)["returns"], false);
+    server.join().unwrap();
+    // A reconnect says the same.
+    let mut pending = facebook_pending();
+    pending["reauthAccountId"] = json!(ID);
+    let reconnecting = json!({ "connection": pending, "authorizeUrl": "https://www.facebook.com/v23.0/dialog/oauth?state=again" }).to_string();
+    let path = format!("accounts/{ID}/reconnect");
+    for (status, expected) in [(status_reply(true), true), (status_reply(false), false)] {
+        let (endpoint, server) = hosted(vec![(200, status), (201, reconnecting.clone())]);
+        let r = route_with(
+            &env_for(&endpoint),
+            &from(
+                Some("https://blog.example.com"),
+                "blog.example.com",
+                json!({}),
+            ),
+            "mikey",
+            &path,
+        );
+        assert_eq!(r.status, 200);
+        assert_eq!(body_json(&r)["returns"], expected);
+        server.join().unwrap();
+    }
+}
+
+#[test]
 fn no_way_back_is_named_from_a_foreign_malformed_or_plain_http_origin_and_none_from_the_browser() {
     // Each of these sends only the start (the fake would panic on a status call it was not given).
     for (origin, host) in [

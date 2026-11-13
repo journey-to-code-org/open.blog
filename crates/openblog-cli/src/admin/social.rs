@@ -22,7 +22,8 @@
 //! The way back (Studio R2, G6): when the function's status says it `returns`, a connect or an OAuth
 //! reconnect names where the provider's callback sends the browser on to: the request's own Origin
 //! (already matched to Host by `check_origin`) plus the fixed path `/admin/studio/`, and only for
-//! `https` or a loopback `http`. Nothing the browser sends can choose it.
+//! `https` or a loopback `http`. Nothing the browser sends can choose it. The start's reply says
+//! `returns: true` only when it named one, and Studio decides same tab or new tab from that alone.
 //!
 //! Every refusal carries a `code` (G18) beside its message, so Studio says it in its own words.
 
@@ -698,8 +699,15 @@ fn start_context(
 }
 
 /// What a connection start or reconnect answered: an attempt to continue at the provider, or, for
-/// an app-password provider, an attempt that is already signed in.
-fn started(reply: &Json, signed_in: bool, instance: Option<&str>) -> Result<Json, Response> {
+/// an app-password provider, an attempt that is already signed in. `returns` says whether a way
+/// back was named with this very start (the function took it, or the start would have failed), so
+/// Studio picks the same tab or the new-tab way from this reply, never from an older status read.
+fn started(
+    reply: &Json,
+    signed_in: bool,
+    instance: Option<&str>,
+    returns: bool,
+) -> Result<Json, Response> {
     let connection = reply.get("connection").and_then(project_connection);
     if signed_in {
         return match connection {
@@ -717,7 +725,7 @@ fn started(reply: &Json, signed_in: bool, instance: Option<&str>) -> Result<Json
         .and_then(|url| authorize_url(url, instance));
     match (connection, url) {
         (Some(connection), Some(url)) => {
-            Ok(json!({ "connection": connection, "authorizeUrl": url }))
+            Ok(json!({ "connection": connection, "authorizeUrl": url, "returns": returns }))
         }
         _ => Err(bad_reply()),
     }
@@ -758,14 +766,19 @@ fn start(req: &Request, config: &SocialConfig, user: &str) -> Result<Json, Respo
     }
     if app_password {
         let reply = hosted(config, "POST", "connections", Some(&forward), user)?;
-        return started(&reply, true, None);
+        return started(&reply, true, None, false);
     }
     let context = start_context(req, config, user, Some(&provider));
     if let Some(back) = &context.return_to {
         forward["returnTo"] = json!(back);
     }
     let reply = hosted(config, "POST", "connections", Some(&forward), user)?;
-    started(&reply, false, context.instance.as_deref())
+    started(
+        &reply,
+        false,
+        context.instance.as_deref(),
+        context.return_to.is_some(),
+    )
 }
 
 fn reconnect(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Result<Json, Response> {
@@ -779,7 +792,7 @@ fn reconnect(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Resu
             Some(&credentials),
             user,
         )?;
-        return started(&reply, true, None);
+        return started(&reply, true, None, false);
     }
     // Which provider this account is only the reply says, so the status is read whenever a return
     // address or a Mastodon instance might be needed.
@@ -795,7 +808,12 @@ fn reconnect(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Resu
         Some(&forward),
         user,
     )?;
-    started(&reply, false, context.instance.as_deref())
+    started(
+        &reply,
+        false,
+        context.instance.as_deref(),
+        context.return_to.is_some(),
+    )
 }
 
 fn select(req: &Request, config: &SocialConfig, user: &str, id: &str) -> Result<Json, Response> {
