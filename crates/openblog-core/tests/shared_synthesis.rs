@@ -5,7 +5,7 @@ use openblog_core::approval::{
     ApprovalPolicy, ApprovalRequirement, ApprovalSet, ApprovalSubject, Readiness, Section,
 };
 use openblog_core::synthesis::{
-    NewSynthesisItem, SynthesisEdit, SynthesisError, SynthesisKind, SynthesisSet,
+    DeliveryContext, NewSynthesisItem, SynthesisEdit, SynthesisError, SynthesisKind, SynthesisSet,
     MAX_SYNTHESIS_ITEMS, MAX_SYNTHESIS_MARKDOWN_BYTES,
 };
 
@@ -31,6 +31,113 @@ fn an_empty_synthesis_is_valid_and_changes_nothing_for_approval() {
     assert_eq!(set.view("ann", &AUTHORS).unwrap().len(), 0);
     let round = SynthesisSet::from_json(&set.to_json()).unwrap();
     assert_eq!(round, set);
+}
+
+#[test]
+fn delivery_requires_every_author_for_the_exact_recipient_and_current_access() {
+    let mut set = SynthesisSet::new();
+    let authors = ["ann", "bo"];
+    let recipients = ["reader", "other"];
+    let context = DeliveryContext {
+        authors: &authors,
+        recipients: &recipients,
+        membership_revision: 2,
+        authorization_revision: 3,
+    };
+    set.add(
+        "ann",
+        &authors,
+        0,
+        item(SynthesisKind::Agreement, "Private.", &["bo"]),
+    )
+    .unwrap();
+    assert_eq!(
+        set.view_delivered("reader", &context),
+        Err(SynthesisError::Denied)
+    );
+    set.consent_delivery("ann", "reader", 1, &context, true)
+        .unwrap();
+    assert_eq!(
+        set.view_delivered("reader", &context),
+        Err(SynthesisError::Denied)
+    );
+    assert_eq!(
+        set.consent_delivery("bo", "reader", 1, &context, true),
+        Err(SynthesisError::Stale)
+    );
+    set.consent_delivery("bo", "reader", 2, &context, true)
+        .unwrap();
+    let restored = SynthesisSet::from_json(&set.to_json()).unwrap();
+    assert_eq!(
+        restored.view_delivered("reader", &context).unwrap()[0].markdown(),
+        "Private."
+    );
+    assert_eq!(
+        restored.view_delivered("other", &context),
+        Err(SynthesisError::Denied)
+    );
+    for changed in [
+        DeliveryContext {
+            authorization_revision: 4,
+            ..context
+        },
+        DeliveryContext {
+            membership_revision: 3,
+            ..context
+        },
+    ] {
+        assert_eq!(
+            restored.view_delivered("reader", &changed),
+            Err(SynthesisError::Denied)
+        );
+    }
+    set.consent_delivery("ann", "reader", 3, &context, false)
+        .unwrap();
+    assert_eq!(
+        set.view_delivered("reader", &context),
+        Err(SynthesisError::Denied)
+    );
+}
+
+#[test]
+fn delivery_never_revives_after_a_conversation_edit_or_return_to_empty() {
+    let mut set = SynthesisSet::new();
+    let authors = ["ann"];
+    let recipients = ["reader"];
+    let context = DeliveryContext {
+        authors: &authors,
+        recipients: &recipients,
+        membership_revision: 0,
+        authorization_revision: 0,
+    };
+    set.consent_delivery("ann", "reader", 0, &context, true)
+        .unwrap();
+    assert!(set.view_delivered("reader", &context).unwrap().is_empty());
+    let id = set
+        .add(
+            "ann",
+            &authors,
+            1,
+            item(SynthesisKind::Question, "A question.", &[]),
+        )
+        .unwrap();
+    assert_eq!(
+        set.view_delivered("reader", &context),
+        Err(SynthesisError::Denied)
+    );
+    set.withdraw("ann", &authors, 2, &id).unwrap();
+    assert_eq!(
+        set.view_delivered("reader", &context),
+        Err(SynthesisError::Denied)
+    );
+    assert_eq!(
+        set.consent_delivery("reader", "reader", 3, &context, true),
+        Err(SynthesisError::Denied)
+    );
+    assert_eq!(
+        set.consent_delivery("ann", "unknown", 3, &context, true),
+        Err(SynthesisError::Denied)
+    );
 }
 
 #[test]

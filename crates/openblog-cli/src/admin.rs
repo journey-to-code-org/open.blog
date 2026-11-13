@@ -14148,11 +14148,11 @@ fn participant_name(record: &SharedPublication, id: &str) -> String {
 /// requester was authorized and `SynthesisSet::view` accepted them as an author.
 fn synthesis_json(
     set: &openblog_core::synthesis::SynthesisSet,
+    items: &[openblog_core::synthesis::SynthesisItem],
     record: &SharedPublication,
     own: &str,
     authors: &[&str],
-) -> Option<Json> {
-    let items = set.view(own, authors).ok()?;
+) -> Json {
     let who = |id: &str| json!({ "id": id, "displayName": participant_name(record, id) });
     let items: Vec<Json> = items
         .iter()
@@ -14170,12 +14170,12 @@ fn synthesis_json(
             })
         })
         .collect();
-    Some(json!({
+    json!({
         "revision": set.revision(),
         "items": items,
         "authors": authors.iter().map(|id| who(id)).collect::<Vec<_>>(),
         "you": own,
-    }))
+    })
 }
 
 fn read_synthesis(state: &AppState, req: &Request, session: &auth::Session) -> Response {
@@ -14188,7 +14188,7 @@ fn read_synthesis(state: &AppState, req: &Request, session: &auth::Session) -> R
     let Some(record) = &transaction.record else {
         return synthesis_not_found();
     };
-    let Some(own) = synthesis_owner(&transaction, record, session) else {
+    let Some(own) = policy_participant(&transaction, record, &session.user) else {
         return synthesis_not_found();
     };
     let stored = match crate::shared_publications::load_synthesis(&state.root, publication_id) {
@@ -14200,9 +14200,25 @@ fn read_synthesis(state: &AppState, req: &Request, session: &auth::Session) -> R
     };
     let authors = synthesis_authors(&transaction, record);
     let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
-    match synthesis_json(&stored.set, record, &own, &authors) {
-        Some(json) => Response::json(200, &json),
-        None => synthesis_not_found(),
+    let recipients = policy_participants(&transaction, record);
+    let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+    let context = openblog_core::synthesis::DeliveryContext {
+        authors: &authors,
+        recipients: &recipients,
+        membership_revision: record.collaboration.revision,
+        authorization_revision: record.authorization.revision,
+    };
+    let items = if synthesis_owner(&transaction, record, session).is_some() {
+        stored.set.view(&own, &authors)
+    } else {
+        stored.set.view_delivered(&own, &context)
+    };
+    match items {
+        Ok(items) => Response::json(
+            200,
+            &synthesis_json(&stored.set, items, record, &own, &authors),
+        ),
+        Err(_) => synthesis_not_found(),
     }
 }
 
@@ -14241,6 +14257,12 @@ enum SynthesisChange {
     },
     Reorder {
         order: Vec<String>,
+    },
+    Delivery {
+        recipient: String,
+        #[serde(rename = "expectedAuthorizationRevision")]
+        expected_authorization_revision: u64,
+        consent: bool,
     },
 }
 
@@ -14341,6 +14363,27 @@ fn change_synthesis(state: &AppState, req: &Request, session: &auth::Session) ->
             let order = order.iter().map(String::as_str).collect::<Vec<_>>();
             next.reorder(&own, &authors, expected, &order)
         }
+        SynthesisChange::Delivery {
+            recipient,
+            expected_authorization_revision,
+            consent,
+        } => {
+            if *expected_authorization_revision != record.authorization.revision {
+                return Response::error(
+                    409,
+                    "Access changed since you chose a recipient. Reload before sharing; nothing was changed.",
+                );
+            }
+            let recipients = policy_participants(&transaction, record);
+            let recipients = recipients.iter().map(String::as_str).collect::<Vec<_>>();
+            let context = openblog_core::synthesis::DeliveryContext {
+                authors: &authors,
+                recipients: &recipients,
+                membership_revision: record.collaboration.revision,
+                authorization_revision: record.authorization.revision,
+            };
+            next.consent_delivery(&own, recipient, expected, &context, *consent)
+        }
     };
     match result {
         Ok(()) => {}
@@ -14398,9 +14441,9 @@ fn change_synthesis(state: &AppState, req: &Request, session: &auth::Session) ->
             body.publication_id
         );
     }
-    match synthesis_json(&next, record, &own, &authors) {
-        Some(json) => Response::json(200, &json),
-        None => synthesis_not_found(),
+    match next.view(&own, &authors) {
+        Ok(items) => Response::json(200, &synthesis_json(&next, items, record, &own, &authors)),
+        Err(_) => synthesis_not_found(),
     }
 }
 
@@ -42040,6 +42083,74 @@ series: letters
             .as_str()
             .unwrap()
             .to_string()
+    }
+
+    #[test]
+    fn synthesis_delivery_needs_each_author_and_current_recipient_access() {
+        let (f, mikey, grace, ada, id) = approval_fixture("synthesis-delivery");
+        let ada_id = participant_of(&f, &id, "ada");
+        let added = add_item(&f, &mikey, &id, "PRIVATE-CONVERSATION", &[]);
+        assert_eq!(added.status, 200);
+        assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
+        let auth_revision = stored_record(&f, &id).authorization.revision;
+        let change = |revision, consent| {
+            json!({
+                "action": "delivery",
+                "recipient": ada_id,
+                "expectedAuthorizationRevision": revision,
+                "consent": consent,
+            })
+        };
+        assert_eq!(
+            synthesis_change(&f, &mikey, &id, 1, change(auth_revision + 1, true)).status,
+            409
+        );
+        assert_eq!(
+            synthesis_change(&f, &mikey, &id, 1, change(auth_revision, true)).status,
+            200
+        );
+        assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
+        assert_eq!(
+            synthesis_change(&f, &grace, &id, 2, change(auth_revision, true)).status,
+            200
+        );
+        let delivered = synthesis_read(&f, &ada, &id);
+        assert_eq!(delivered.status, 200);
+        assert_eq!(
+            body_json(&delivered)["items"][0]["markdown"],
+            "PRIVATE-CONVERSATION"
+        );
+        assert_eq!(
+            synthesis_change(&f, &ada, &id, 3, change(auth_revision, true)).status,
+            404
+        );
+        let synthesis_path = f.dir.join(format!(
+            ".openblog/private/collaboration/synthesis/{id}.json"
+        ));
+        let standing = fs::read(&synthesis_path).unwrap();
+        for roles in [json!(["reader"]), json!(["coordinator"])] {
+            let revision = stored_record(&f, &id).authorization.revision;
+            assert_eq!(
+                post_api(
+                    &f,
+                    &mikey,
+                    "members/roles",
+                    json!({
+                        "publicationId": id, "participantId": ada_id, "roles": roles,
+                        "expectedRevision": revision
+                    })
+                )
+                .status,
+                200
+            );
+        }
+        fs::write(&synthesis_path, standing).unwrap();
+        assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
+        assert_eq!(
+            add_item(&f, &mikey, &id, "NEW-CONVERSATION", &[]).status,
+            200
+        );
+        assert_eq!(synthesis_read(&f, &ada, &id).status, 404);
     }
 
     #[test]
