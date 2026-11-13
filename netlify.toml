@@ -53,6 +53,15 @@
   to = "/.netlify/functions/greetings/:splat"
   status = 200
 
+# Optional push notifications to the owner (ADR 0412). Off unless OPENBLOG_PUSH_ENABLED is set.
+[functions."push"]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/push/*"
+  to = "/.netlify/functions/push/:splat"
+  status = 200
+
 # Optional quote requests (ADR 0381). Off unless OPENBLOG_QUOTE_ENABLED is set.
 [functions."quote"]
   node_bundler = "esbuild"
