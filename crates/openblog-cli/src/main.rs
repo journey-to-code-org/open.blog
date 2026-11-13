@@ -47,6 +47,7 @@ mod shared_publications;
 mod site;
 mod source_metadata;
 mod source_store;
+mod studio_files;
 mod syndication;
 mod transaction;
 mod url_context;
