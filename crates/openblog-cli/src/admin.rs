@@ -12211,7 +12211,7 @@ fn document_credits(sidecar: &Path, config: &SiteConfig) -> (Json, Json, Json) {
         )
         .err()
         .unwrap_or_else(|| {
-            "This post has frozen publication credits. The ordinary credit editor cannot edit them; saving without changing credits preserves the sidecar.".into()
+            "This post has frozen publication credits. Saving without changing credits preserves them; choosing another authorship source replaces them.".into()
         });
         return (Json::Null, credit_etag, Json::String(error));
     }
@@ -34515,6 +34515,10 @@ What I read:
             .as_str()
             .unwrap()
             .contains("frozen publication credits"));
+        assert!(fetched["creditError"]
+            .as_str()
+            .unwrap()
+            .contains("choosing another authorship source replaces them"));
         let saved = handle(
             &f.state,
             &authed(
