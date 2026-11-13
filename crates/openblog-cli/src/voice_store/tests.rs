@@ -616,20 +616,20 @@ fn a_link_entry_is_erased_as_a_link_and_the_target_outside_the_project_survives(
 
 /// A folder link: a symlink, else a junction on Windows. `false` when neither can be made.
 fn try_dir_link(target: &Path, link: &Path) -> bool {
-    if try_link(target, link) {
-        return true;
-    }
     #[cfg(windows)]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(link)
-            .arg(target)
-            .output()
-            .is_ok_and(|out| out.status.success())
+        try_link(target, link)
+            || std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .is_ok_and(|out| out.status.success())
     }
     #[cfg(not(windows))]
-    false
+    {
+        try_link(target, link)
+    }
 }
 
 fn project_with_posts() -> Project {
