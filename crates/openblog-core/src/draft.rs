@@ -573,16 +573,20 @@ impl DraftSet {
         self.order_revision
     }
 
-    /// Reorder only the requester's live contributions, checking the order they last saw.
+    /// Reorder only the requester's live contributions, checking the revision and order they saw.
     /// Callers must also compare-and-swap the persisted draft set and invalidate approvals.
     pub fn reorder_owned(
         &mut self,
         requester: &str,
+        expected_revision: u64,
         expected: &[&str],
         order: &[&str],
     ) -> Result<bool, DraftError> {
         if !self.is_member(requester) {
             return Err(DraftError::Denied);
+        }
+        if self.order_revision != expected_revision {
+            return Err(DraftError::Stale);
         }
         let owned: Vec<_> = self
             .drafts
@@ -1179,29 +1183,29 @@ mod tests {
         );
         let before = drafts.to_json();
         assert_eq!(
-            drafts.reorder_owned("ada", &["first", "second"], &["other", "first"]),
+            drafts.reorder_owned("ada", 0, &["first", "second"], &["other", "first"]),
             Err(DraftError::Invalid)
         );
         assert_eq!(
-            drafts.reorder_owned("ada", &["first", "second"], &["first", "first"]),
+            drafts.reorder_owned("ada", 0, &["first", "second"], &["first", "first"]),
             Err(DraftError::Invalid)
         );
         assert_eq!(
-            drafts.reorder_owned("unknown", &[], &[]),
+            drafts.reorder_owned("unknown", 0, &[], &[]),
             Err(DraftError::Denied)
         );
         assert_eq!(
-            drafts.reorder_owned("ada", &["second", "first"], &["first", "second"]),
+            drafts.reorder_owned("ada", 0, &["second", "first"], &["first", "second"]),
             Err(DraftError::Stale)
         );
         assert_eq!(drafts.to_json(), before);
         assert_eq!(
-            drafts.reorder_owned("ada", &["first", "second"], &["second", "first"]),
+            drafts.reorder_owned("ada", 0, &["first", "second"], &["second", "first"]),
             Ok(true)
         );
         assert_eq!(drafts.order_revision(), 1);
         assert_eq!(
-            drafts.reorder_owned("ada", &["second", "first"], &["second", "first"]),
+            drafts.reorder_owned("ada", 1, &["second", "first"], &["second", "first"]),
             Ok(false)
         );
         let drafts = DraftSet::from_json(&drafts.to_json()).unwrap();

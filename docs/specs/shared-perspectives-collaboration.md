@@ -476,7 +476,8 @@ path. Older releases cannot read newly created records carrying the explicit-cho
 Remaining collaboration work is tracked in epic #592.
 
 The draft set can list and reorder a participant's own live contributions with an expected
-order. A monotonic order revision is bound into approval, including after an order is restored.
+order and ordering revision. A monotonic order revision is bound into approval, including after
+an order is restored.
 The Admin route, reveal, preview and publication paths still support one draft per participant;
 the core ordering operation is not exposed until those paths can safely handle every contribution.
 Older releases cannot read draft sets after this ordering operation changes their order.

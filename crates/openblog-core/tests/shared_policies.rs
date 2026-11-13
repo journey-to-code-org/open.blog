@@ -143,11 +143,15 @@ fn contribution_reordering_and_reversion_do_not_revive_approval() {
         |subject| approvals.binding_for(subject, "ann").unwrap(),
     );
     drafts
-        .reorder_owned("ann", &["ann", "ann-second"], &["ann-second", "ann"])
+        .reorder_owned("ann", 0, &["ann", "ann-second"], &["ann-second", "ann"])
         .unwrap();
     drafts
-        .reorder_owned("ann", &["ann-second", "ann"], &["ann", "ann-second"])
+        .reorder_owned("ann", 1, &["ann-second", "ann"], &["ann", "ann-second"])
         .unwrap();
+    assert_eq!(
+        drafts.reorder_owned("ann", 0, &["ann", "ann-second"], &["ann-second", "ann"]),
+        Err(openblog_core::draft::DraftError::Stale)
+    );
     with_subject(
         &record,
         None,
