@@ -6,8 +6,9 @@
 //   node scripts/studio-files.mjs --check   exit 1 if the list is out of date (CI and tests)
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const here = resolve(dirname(new URL(import.meta.url).pathname), "..");
+const here = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = join(here, "web/studio");
 const out = join(here, "crates/openblog-cli/src/studio_files.rs");
 
