@@ -414,15 +414,15 @@ test("Simple hides a page until the site uses it or it is open, and no other pre
 });
 
 test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
-  const content = ["Overview", "Posts", "Pages", "Series", "Services", "Reviews", "Shared reflections", "Capture", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look", "Business facts", "Reminders", "Where it went"];
-  const simple = ["Overview", "Posts", "Pages", "Landing page", "Customize look"];
+  const content = ["Overview", "Posts", "Pages", "Series", "Services", "Reviews", "Shared reflections", "Capture", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look", "Seasons", "Design a theme", "Business facts", "Reminders", "Where it went"];
+  const simple = ["Overview", "Posts", "Pages", "Landing page", "Customize look", "Seasons", "Design a theme"];
   const research = "Research workspace";
   const voice = "Voice";
   const cases = [
     [{ preset: "simple" }, "overview", simple],
     [{ preset: "simple" }, "sources", [...simple, research]],
     [{ preset: "guided" }, "posts", [...content, voice, research]],
-    [{ preset: "simple" }, "appearance", ["Overview", "Posts", "Pages", "Landing page", "Appearance", "Customize look"]],
+    [{ preset: "simple" }, "appearance", ["Overview", "Posts", "Pages", "Landing page", "Appearance", "Customize look", "Seasons", "Design a theme"]],
     [{ preset: "advanced" }, "overview", [...content, voice, "Analytics", "Moderation inbox", research, "Contributors"]],
     [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, voice, "Analytics", "Moderation inbox", research]],
     [{ preset: "custom", hiddenModules: ["research"] }, "overview", [...content, voice, "Analytics", "Moderation inbox", "Contributors"]],

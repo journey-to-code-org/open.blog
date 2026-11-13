@@ -112,7 +112,21 @@ fn store_error(state: &AppState, error: LandingError, config: &SiteConfig) -> Re
     }
 }
 
-/// `GET landing`: the stored page, its revision and the default layout.
+/// The theme components an owner may place (ADR 0408): those every theme the site can wear offers,
+/// with their settings, for the Add a section list and the form each gets.
+fn components_json(state: &AppState, config: &SiteConfig) -> Json {
+    let Ok(themes) = site::load_themes(&state.root, config) else {
+        return json!([]);
+    };
+    Json::Array(
+        site::offered_components(&site::wearable_themes(config), &themes)
+            .iter()
+            .map(openblog_core::components::Component::to_json)
+            .collect(),
+    )
+}
+
+/// `GET landing`: the stored page, its revision, the default layout and the components on offer.
 pub(super) fn get(state: &AppState) -> Response {
     let _content = lock(&state.build);
     let config = match site::load_config(&state.root) {
@@ -120,7 +134,11 @@ pub(super) fn get(state: &AppState) -> Response {
         Err(error) => return Response::error(500, &error),
     };
     match store::read(&state.root, &config.paths.content) {
-        Ok(stored) => Response::json(200, &view(stored.as_ref(), &config.home)),
+        Ok(stored) => {
+            let mut answer = view(stored.as_ref(), &config.home);
+            answer["components"] = components_json(state, &config);
+            Response::json(200, &answer)
+        }
         Err(error) => store_error(state, error, &config),
     }
 }
@@ -194,6 +212,21 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
         Ok(page) => page,
         Err(problems) => return store_error(state, LandingError::Invalid(problems), &config),
     };
+    // A component and its settings are checked against every theme the site can wear before a
+    // byte is written, so a save never leaves a page the build refuses (ADR 0408).
+    if let Ok(themes) = site::load_themes(&state.root, &config) {
+        let problems: Vec<LandingProblem> =
+            site::landing_component_problems(&page, &site::wearable_themes(&config), &themes)
+                .into_iter()
+                .map(|(id, message)| LandingProblem {
+                    section: Some(id),
+                    message,
+                })
+                .collect();
+        if !problems.is_empty() {
+            return store_error(state, LandingError::Invalid(problems), &config);
+        }
+    }
     let mut build = lock(&state.build);
     let _transaction = match content_transaction(state) {
         Ok(lock) => lock,

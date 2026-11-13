@@ -33,6 +33,8 @@ const SLOW_ROUTES = [
   "#/voice/library",
   "#/capture",
   "#/landing",
+  "#/seasons",
+  "#/design",
   "#/announcements",
   `#/share/${POST_PATH}`,
   "#/paths",

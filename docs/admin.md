@@ -933,6 +933,12 @@ Open **Landing page** (`#/landing`) to arrange the home page. A first visit offe
 replaced without a yes. A site that has never built a landing page starts from what visitors see today, and
 nothing is written until you save.
 
+When your theme offers components (a countdown sign, a photo gallery), **Add a section** lists them after the
+built-in sections, each with the plain name and description the theme gives it. Its form is made from the settings
+the theme declares: a list to choose from, a line of text, a number, or a switch. The preview runs no scripts, so
+it shows what the build rendered ahead for a component with a Zubra source, or otherwise its one-line fallback
+([Components an owner can place](theme-components.md#components-an-owner-can-place)).
+
 The Recipes layout shows your newest recipes once you publish the first one. To do the same in any other layout,
 set **What to show** to **Only my recipes** on a Latest posts section.
 
@@ -1005,6 +1011,45 @@ number or email, publish a service, publish a job, save a review, and share a jo
 files every time by `GET /admin/api/trade-checklist`, which only reads, so it ticks only when your site has it and
 unticks if that goes away. Each open step links to where it is done. **Hide** stores `tradeChecklistDismissed` in
 your workspace preferences; nothing else is stored. See [A site for a trade business](trades.md#the-checklist-on-admins-home).
+
+### Design a theme
+
+Open **Design a theme** (`#/design`) to describe the look you want in your own words ("warm like my kitchen at
+Christmas, deep red and pine green, big easy-to-read writing"), or start from one of the ideas. The Assistant
+drafts a theme, and the screen shows its name, a sentence on what it chose, its colours as swatches, and your
+own home page in it at Phone, Tablet and Desktop sizes, in light or dark. **Change it** asks for a change in
+words ("a little warmer"); **Save this theme** makes it a new theme with the name you give it.
+
+- **Start from** chooses which of your themes the new one builds on. It keeps that theme's layout and decorations
+  (its garland, its snow, its components) and changes the colours and the writing.
+- **What the Assistant can choose** is deliberately small: six colours for light and six for dark, a font for the
+  writing and one for headings from a fixed list, a corner style and a text size. It is never CSS, a script, an
+  image or a font file. The server checks every answer, refuses any other field, and makes every colour that
+  carries writing easy to read (body text at 7:1, the rest at 4.5:1), saying in a sentence what it changed.
+- **Nothing changes until you choose.** Drafting and previewing write nothing. Saving only creates
+  `themes/<new name>/theme.json`; it never replaces a theme and never puts the new one on. Choose it on
+  **Seasons**, for the whole site or as a season of its own.
+
+It needs the Assistant set up (see [Optional question generation](#optional-question-generation)). Your
+description is sent to the provider you configured, as data it is told never to follow as instructions, and
+nothing else from your site is sent but its title and the name of the theme you start from. The routes are
+`GET theme-draft` (the themes to start from), `POST theme-draft`, `POST theme-draft/preview` and
+`POST theme-draft/save`, behind the session and the CSRF check
+([ADR 0410](adr/0410-an-owner-describes-a-theme-in-words-and-the-assistant-may-propose-only-colours-fonts-and-sizes-the-engine-makes-readable.md)).
+
+### Seasons
+
+Open **Seasons** (`#/seasons`) to choose the theme your whole site wears, and, if you like, let the calendar change
+it. The top of the screen says what visitors see today and when that changes ("Today your site is decorated for
+Thanksgiving. On December 1 it changes to Christmas."). Turn on **Change the decorations with the calendar** and
+add a season for each holiday: what goes up, the month and day it starts and the month and day it ends. A season
+can run past New Year, and **Move up** and **Move down** decide which wins where two overlap. **Between seasons,
+your site wears** is your everyday look. With the calendar off, the screen is simply where you choose your site's
+theme.
+
+The screen reads and saves `GET`/`PUT /admin/api/seasons` (session and CSRF as for every write, bounded to 8 KiB).
+A save is checked against the revision you loaded, refused when it names a theme that does not exist, and changes
+only the `theme` and `seasons` members of `openblog.json`, edited as text. See [Seasons](themes.md#seasons).
 
 ### Seasonal reminders
 

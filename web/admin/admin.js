@@ -16,6 +16,8 @@ import { createDistributionReport } from "./distribution.js";
 import { createAnnouncementsPanel } from "./announcements.js";
 import { createJobShare } from "./job-share.js";
 import { createBusinessFacts } from "./business.js";
+import { createSeasons } from "./seasons.js";
+import { createThemeDesigner } from "./theme-designer.js";
 import { createSeasonalReminders } from "./seasonal.js";
 import { createServices } from "./services.js";
 import { createReviews } from "./proof.js";
@@ -27,6 +29,8 @@ import {
   LIMITS as LANDING_LIMITS,
   PREVIEW_SIZES,
   SECTION_CATALOG,
+  componentEntries,
+  setComponents,
   addSection,
   addressProblem,
   compareSections,
@@ -10036,7 +10040,14 @@ function landingField(spec, data, ctx, prefix) {
   const optional = spec.required ? "" : " (optional)";
   const label = h("label", { for: id }, `${spec.label}${optional}`);
   let input;
-  if (spec.kind === "textarea") {
+  if (spec.kind === "toggle") {
+    input = h("input", { id, type: "checkbox", checked: data[spec.name] ?? spec.default ?? false });
+    input.addEventListener("change", () => { data[spec.name] = input.checked; });
+    const entry = { path, input, error, hint, shown: false };
+    ctx.fields.push(entry);
+    input.addEventListener("change", () => ctx.changed());
+    return h("div", { class: "oba-field oba-capture-check" }, input, h("label", { for: id }, spec.label), hint, error);
+  } else if (spec.kind === "textarea") {
     input = h("textarea", { id, rows: spec.rows || 4, value: data[spec.name] ?? "" });
     input.addEventListener("input", () => { data[spec.name] = input.value; });
   } else if (spec.kind === "select") {
@@ -10640,6 +10651,12 @@ function landingRichText(spec, data, ctx, path, id) {
 
 function landingGroup(spec, data, ctx, path) {
   const body = h("div", { class: "oba-landing-group-body" });
+  if (spec.fixed) {
+    // A group that is always there, such as a component's settings: no add or remove.
+    if (!landingIsObject(data[spec.name])) data[spec.name] = spec.blank();
+    body.append(...landingFields(spec.fields, data[spec.name], ctx, path));
+    return h("fieldset", { class: "oba-landing-group", "data-group": path }, h("legend", {}, spec.label), body);
+  }
   const box = h("fieldset", { class: "oba-landing-group", "data-group": path }, h("legend", {}, `${spec.label} (optional)`), body);
   const render = (focus) => {
     if (landingIsObject(data[spec.name])) {
@@ -11760,6 +11777,8 @@ export class ObAdmin extends AdminElement {
       h("a", { class: "oba-tab", ...simpleOnly("comparisons"), "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
       h("a", { class: "oba-tab", ...simpleOnly("appearance"), "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
       h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
+      h("a", { class: "oba-tab", "aria-current": active === "seasons" ? "page" : null, href: "#/seasons" }, "Seasons"),
+      h("a", { class: "oba-tab", "aria-current": active === "design" ? "page" : null, href: "#/design" }, "Design a theme"),
       ...(this.social?.enabled || active === "announcements" ? [h("a", { class: "oba-tab", "aria-current": active === "announcements" ? "page" : null, href: "#/announcements" }, "Announcements")] : []),
       h("a", { class: "oba-tab", ...simpleOnly("business"), "aria-current": active === "business" ? "page" : null, href: "#/business" }, "Business facts"),
       h("a", { class: "oba-tab", ...simpleOnly("reminders"), "aria-current": active === "reminders" ? "page" : null, href: "#/reminders" }, "Reminders"),
@@ -11779,6 +11798,10 @@ export class ObAdmin extends AdminElement {
         ? { title: "Services", detail: "Describe each service once, with what it includes, a price band, a timeline and the questions customers ask." }
       : active === "reviews"
         ? { title: "Reviews", detail: "Save a customer's real review with its link, and show it on your Reviews page and beside the job it is about." }
+      : active === "design"
+        ? { title: "Design a theme", detail: "Describe the look you want in your own words; the Assistant drafts a theme to preview, change and save." }
+      : active === "seasons"
+        ? { title: "Seasons", detail: "Choose the theme your site wears, and let the calendar put up each holiday's decorations and take them down." }
       : active === "look"
         ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
@@ -12085,6 +12108,8 @@ export class ObAdmin extends AdminElement {
       { label: "New service", category: "Create", keywords: "service price band faq", run: () => go("#/services/new") },
       { label: "Reviews", category: "Content", keywords: "review reviews proof testimonial stars rating google facebook customer", run: () => go("#/reviews") },
       { label: "New review", category: "Create", keywords: "review proof testimonial stars google facebook", run: () => go("#/reviews/new") },
+    { label: "Design a theme", category: "Site", keywords: "design theme describe words ai assistant colors colours look new", run: () => go("#/design") },
+    { label: "Seasons", category: "Site", keywords: "season seasonal holiday holidays christmas thanksgiving decorations decorate theme calendar automatic", run: () => go("#/seasons") },
     { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New recipe", category: "Create", keywords: "cook food ingredients dish", run: () => go("#/new/recipe") },
@@ -12329,6 +12354,8 @@ export class ObAdmin extends AdminElement {
       else if (head === "appearance") await this.showAppearance();
       else if (head === "look") await this.showLook();
       else if (head === "business") await this.showBusiness();
+      else if (head === "seasons") await this.showSeasons();
+      else if (head === "design") await this.showDesigner();
       else if (head === "reminders") await this.showReminders();
       else if (head === "distribution") await this.showDistribution();
       else if (head === "services") await this.showServices(tail);
@@ -13551,6 +13578,7 @@ export class ObAdmin extends AdminElement {
     let loaded;
     try {
       loaded = await whileHere(this.api.call("GET", "landing"));
+      setComponents(loaded?.components);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) throw error;
       this.mount(this.shell("landing", h("p", { class: "oba-error", role: "alert" }, landingErrorText(error))));
@@ -13652,7 +13680,7 @@ export class ObAdmin extends AdminElement {
     };
 
     const sectionForm = (section) => {
-      const info = sectionInfo(section.type);
+      const info = sectionInfo(section.type, section);
       const ctx = {
         idBase: `oba-landing-${section.id}`,
         posts,
@@ -13699,7 +13727,7 @@ export class ObAdmin extends AdminElement {
       const list = sections();
       cards.replaceChildren(
         ...list.map((section, index) => {
-          const info = sectionInfo(section.type);
+          const info = sectionInfo(section.type, section);
           const bad = (pageProblems(draft).get(section.id) || []).length;
           const attention = h("p", { class: "oba-landing-attention", hidden: !bad }, bad ? `${bad} ${bad === 1 ? "thing needs" : "things need"} attention` : "");
           const card = h(
@@ -13849,13 +13877,13 @@ export class ObAdmin extends AdminElement {
       h(
         "ul",
         { class: "oba-landing-types" },
-        SECTION_CATALOG.map((entry) =>
+        [...SECTION_CATALOG, ...componentEntries()].map((entry) =>
           h(
             "li",
             {},
             h(
               "button",
-              { class: "oba-landing-type", type: "button", "data-add-type": entry.type, onClick: () => addOfType(entry.type) },
+              { class: "oba-landing-type", type: "button", "data-add-type": entry.type, "data-add-component": entry.tag || null, onClick: () => addOfType(entry.type, entry.tag) },
               h("span", { class: "oba-landing-icon", "aria-hidden": "true" }, entry.icon),
               h("span", { class: "oba-landing-type-text" }, h("strong", {}, entry.label), h("span", {}, entry.description), h("span", { class: "oba-small oba-landing-sample" }, `For example: ${entry.sample}`)),
             ),
@@ -13870,8 +13898,8 @@ export class ObAdmin extends AdminElement {
         closePicker();
       }
     });
-    const addOfType = (type) => {
-      const result = addSection(sections(), type);
+    const addOfType = (type, tag) => {
+      const result = addSection(sections(), type, undefined, tag);
       if (result.full) {
         say(`A page holds at most ${LANDING_LIMITS.sections} sections.`, "error");
         return;
@@ -14456,6 +14484,30 @@ export class ObAdmin extends AdminElement {
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();
     this.viewBusy = () => busy || publishing;
+  }
+
+  // ---- design a theme from words (ADR 0410)
+
+  /** `#/design`: the owner describes a look, the Assistant drafts a theme, and she previews and saves it. */
+  async showDesigner() {
+    const view = createThemeDesigner({ api: this.api, makeFrame: (options) => previewFrame(options) });
+    this.mount(this.shell("design", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
+  }
+
+  // ---- seasons (ADR 0407)
+
+  /** `#/seasons`: the site theme, and the calendar that changes it. */
+  async showSeasons() {
+    const view = createSeasons({ api: this.api });
+    this.mount(this.shell("seasons", view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    this.viewCleanup = () => view.destroy();
+    await view.load();
   }
 
   // ---- business facts (ADR 0307)

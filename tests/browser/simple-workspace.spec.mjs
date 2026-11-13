@@ -71,7 +71,7 @@ const onScreen = async (locator) => {
 
 test("a new owner sees only the essentials, and the rest is one step away", async ({ page }) => {
   await signIn(page);
-  await expect(navigation(page).getByRole("link")).toHaveText(["Overview", "Posts", "Pages", "Landing page", "Customize look"]);
+  await expect(navigation(page).getByRole("link")).toHaveText(["Overview", "Posts", "Pages", "Landing page", "Customize look", "Seasons", "Design a theme"]);
   await expect(page.locator("[data-voice-invitation]")).toHaveCount(0);
   await expect(page.getByText("Not a git repository")).toHaveCount(0);
   await onScreen(navigation(page).getByRole("link", { name: "Customize look" }));

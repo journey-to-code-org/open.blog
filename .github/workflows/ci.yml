@@ -25,6 +25,10 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Install the Zubra compiler
+        # Theme components with a Zubra source are rendered ahead with the `zubra` command when one
+        # is installed (ADR 0409); with it here, the test that compiles a real component runs.
+        run: npm install --global @zubra/compiler@5.8.0
       - name: Test
         # This workspace emits many integration-test binaries. Bound concurrent links and
         # omit test-only debug symbols so a hosted runner does not exhaust memory or disk.

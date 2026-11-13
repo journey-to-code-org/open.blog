@@ -30,6 +30,81 @@ engine. The open-source engine ships no effects; `themes/demo/` is a worked exam
 Because the element wraps text that is already in the HTML, the page is complete before
 JavaScript runs, and search engines and feed readers see ordinary headings.
 
+## Components an owner can place
+
+A theme can also offer components for the owner to put on the landing page herself, with no code:
+Admin's **Landing page** lists them under **Add a section**, and each gets a form built from the settings
+the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-places-with-a-form-and-a-section-holds-only-a-name-and-checked-values.md)).
+
+```jsonc
+// themes/<name>/theme.json
+{
+  "components": {
+    "holiday-countdown": {                               // the custom element's name
+      "label": "Countdown sign",                         // what the owner sees in the list
+      "description": "A little sign that counts the days until the holiday.",
+      "script": "components/holiday-countdown.js",       // a file in this theme's folder
+      "fallback": "A countdown sign to the holiday hangs here.",
+      "props": [
+        { "name": "holiday", "type": "choice", "label": "Which holiday", "default": "thanksgiving",
+          "choices": [ { "value": "thanksgiving", "label": "Thanksgiving" },
+                       { "value": "christmas", "label": "Christmas" } ],
+          "help": "The sign counts down to this day." }
+      ]
+    }
+  }
+}
+```
+
+- **Settings** are `text` (one line; `maxLength`, default 200), `choice` (`choices`), `number` (`min`, `max`),
+  `toggle` (written as an attribute with no value when on, left out when off), `date` (a calendar day
+  written `2026-12-25`; Admin shows a date picker and refuses a day that doesn't exist, such as February 30),
+  or `post` (Admin lists the site's posts; the element's attribute is the post's address, such as
+  `/blog/posts/meatloaf/`, and is left out while that post is a draft).
+  Each has a `name` (the attribute), a `label`, and optionally `help`, `required` and `default`. A name is lowercase letters,
+  digits and hyphens and never an event handler (`on…`), `id`, `class`, `style`, `src` or `href`.
+- **The script** is a `.js` file inside the theme folder. An address elsewhere is refused, so a theme
+  never loads code from another site through a component.
+- **The section** the owner adds holds only the component's name, an optional heading and the values:
+  `{ "id": "sign", "type": "component", "tag": "holiday-countdown", "props": { "holiday": "christmas" } }`.
+  The build checks every value against the declaration and writes the element with escaped attributes,
+  followed by its module script (a browser runs a module once, however often it is linked).
+- **`fallback`** is one plain line shown where scripts do not run: Admin's preview, and readers without
+  JavaScript, when the component has no content rendered ahead (below).
+- **`source`** (optional) is the component's Zubra `.zb` file in the theme folder. When the `zubra` command is
+  installed, the build renders it with the section's values and writes that HTML inside the element, so the
+  component is there before its script runs: readers without JavaScript and Admin's preview see the component
+  itself, and the fallback is left out.
+- **Every theme the site can wear must offer it.** With [seasons](themes.md#seasons), that is the site
+  theme and every season's, so declare components on the theme the seasons extend. A page that places a
+  component no wearable theme offers, or a value its declaration refuses, stops the build and names the section.
+- Components are inherited through `extends`, and a child theme may add more or redeclare one by name.
+
+A component written in [Zubra](https://github.com/journey-to-code-org/zubra) compiles to a plain custom
+element with `zubra compile <file>.zb --emit element`, which needs nothing installed on the page; a
+hand-written element works the same way.
+
+### Rendered ahead with Zubra
+
+A component with a `source` gets its content at build time
+([ADR 0409](adr/0409-components-with-a-zubra-source-are-rendered-ahead-by-the-zubra-command-when-it-is-installed.md)):
+
+```sh
+npm install --global @zubra/compiler      # or the Rust CLI; or set OPENBLOG_ZUBRA, e.g. "npx -y @zubra/compiler"
+zubra compile components/my-sign.zb --emit element --output components/my-sign.js   # the script
+zubra compile components/my-sign.zb --emit css > components/my-sign.css            # its styles, for before the script runs
+```
+
+List the CSS file under the theme's `stylesheets` so the rendered content is styled before the script adopts
+its own copy. The build runs `zubra compile <source> --props <values> --partial` once per placed component and
+keeps the result while the source and the values are unchanged, so Admin's live preview does not run it again.
+Whatever only the browser can compute (today's date, the window size) is left for the element to fill in when it
+starts: write those parts so the server has something to say without them, such as "Counting down to Christmas"
+before the number of days is known. The plain element replaces the rendered content with its own when it starts.
+
+Without the `zubra` command, nothing is rendered ahead: every element is written empty with its fallback, as
+before. A source that cannot be compiled is a warning naming the section, never a failed build.
+
 ## Styling the landing page
 
 When a site has a landing page, each section is written as

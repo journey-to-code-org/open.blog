@@ -6038,6 +6038,146 @@ ob-voice-library {
   overflow-wrap: anywhere;
 }
 
+/* The Design a theme screen (ADR 0410). */
+.oba-designer {
+  display: grid;
+  gap: 1rem;
+  max-width: 52rem;
+  min-width: 0;
+}
+.oba-designer textarea,
+.oba-designer input[type="text"] {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  font: inherit;
+}
+.oba-designer-ideas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.oba-designer .oba-btn { min-height: 44px; }
+.oba-designer-result {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+}
+.oba-designer-result h3 { margin: 0; font-size: 1.35rem; }
+.oba-designer-summary { margin: 0; }
+.oba-designer-notes { margin: 0; padding-left: 1.2rem; }
+.oba-designer-notes[hidden] { display: none; }
+.oba-designer-modes { display: flex; gap: 0.5rem; }
+.oba-designer-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+}
+.oba-designer-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+}
+.oba-designer-chip {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  border: 1px solid rgb(0 0 0 / 0.2);
+}
+
+/* The Seasons screen (ADR 0407): one column at 320px, rows wrap, 44px targets. */
+.oba-seasons {
+  display: grid;
+  gap: 1rem;
+  max-width: 46rem;
+  min-width: 0;
+}
+.oba-seasons-today {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-left: 4px solid var(--ob-color-accent);
+  background: var(--ob-color-surface-raised);
+  border-radius: var(--ob-radius-sm);
+  font-size: 1.1rem;
+}
+.oba-seasons-today:empty { display: none; }
+.oba-seasons-form {
+  display: grid;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.oba-seasons-switch label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.oba-seasons-switch input[type="checkbox"] {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+.oba-seasons-calendar {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.75rem 0 0;
+  border: 0;
+  border-top: var(--ob-border-width) solid var(--ob-color-border);
+}
+.oba-seasons-calendar > legend {
+  padding: 0 0.5rem 0 0;
+  font-weight: 700;
+}
+.oba-seasons-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.oba-seasons-window {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+}
+.oba-seasons-window-line,
+.oba-seasons-window-actions,
+.oba-seasons-day {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.oba-seasons select {
+  min-height: 44px;
+  padding: 0.45rem 0.6rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  font: inherit;
+  max-width: 100%;
+}
+.oba-seasons .oba-btn { min-height: 44px; }
+.oba-seasons-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 /* The Business facts screen (ADR 0307): designed at 400px first. One column, 44px targets, every label and message wraps. */
 .oba-business {
   display: grid;

@@ -278,7 +278,7 @@ pub(super) fn preview(state: &AppState, req: &Request) -> Response {
 
 /// The page with the link to the theme's `tokens.css` replaced by the stylesheet itself, or with the
 /// stylesheet added to the head when the page has no such link.
-fn inline_tokens(html: &str, theme: &str, css: &str) -> String {
+pub(super) fn inline_tokens(html: &str, theme: &str, css: &str) -> String {
     let style = format!("<style>{}</style>", css.replace("</", r"<\/"));
     let needle = format!("themes/{theme}/tokens.css");
     if let Some(at) = html.find(&needle) {

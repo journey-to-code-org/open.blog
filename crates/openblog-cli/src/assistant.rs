@@ -17,6 +17,7 @@ use serde::Serialize;
 use serde_json::{json, Value as Json};
 
 pub mod job_draft;
+pub mod theme_draft;
 pub mod transcribe;
 
 pub const ASSISTANT_SCHEMA_VERSION: u32 = 1;
@@ -628,6 +629,10 @@ pub enum AssistantTask {
         input: job_draft::JobDraftInput,
         context: Vec<ReviewContext>,
     },
+    /// A theme proposed from the owner's description (ADR 0410).
+    ThemeDraft {
+        input: theme_draft::ThemeDraftInput,
+    },
 }
 
 impl AssistantTask {
@@ -639,6 +644,7 @@ impl AssistantTask {
             Self::InlineCompletion { .. } => ExpectedOutput::InlineCompletion,
             Self::VoiceGuide { .. } => ExpectedOutput::VoiceGuide,
             Self::JobDraft { .. } => ExpectedOutput::JobDraft,
+            Self::ThemeDraft { .. } => ExpectedOutput::ThemeDraft,
         }
     }
 }
@@ -672,6 +678,8 @@ pub enum AssistantSource {
     Samples,
     /// The job-draft task carries the author's notes in its task (ADR 0303).
     JobNotes,
+    /// The theme-draft task carries the owner's description in its task (ADR 0410).
+    ThemeDescription,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -682,6 +690,7 @@ pub enum ExpectedOutput {
     InlineCompletion,
     VoiceGuide,
     JobDraft,
+    ThemeDraft,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -984,6 +993,8 @@ pub enum AssistantResult {
     Completion(InlineCompletion),
     VoiceGuide(VoiceGuide),
     JobDraft(JobDraft),
+    /// A checked theme draft, as `openblog_core::theme_draft::ThemeDraft::to_json` writes it.
+    ThemeDraft(Json),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1584,7 +1595,8 @@ fn anthropic_output_schema(request: &AssistantRequest) -> Json {
                 AssistantTask::CodeInteraction { .. } => unreachable!("output kind was checked"),
                 AssistantTask::InlineCompletion { .. }
                 | AssistantTask::VoiceGuide { .. }
-                | AssistantTask::JobDraft { .. } => {
+                | AssistantTask::JobDraft { .. }
+                | AssistantTask::ThemeDraft { .. } => {
                     unreachable!("output kind was checked")
                 }
             };
@@ -1699,6 +1711,7 @@ fn anthropic_output_schema(request: &AssistantRequest) -> Json {
             })
         }
         ExpectedOutput::JobDraft => job_draft::schema(),
+        ExpectedOutput::ThemeDraft => theme_draft::schema(),
         ExpectedOutput::InlineCompletion => json!({
             "type": "object",
             "properties": {
@@ -1829,6 +1842,9 @@ fn validate_assistant_result(
         }
         ExpectedOutput::JobDraft => {
             job_draft::validate_job_draft(value).map(AssistantResult::JobDraft)
+        }
+        ExpectedOutput::ThemeDraft => {
+            theme_draft::validate_theme_draft(value).map(AssistantResult::ThemeDraft)
         }
     }
 }
@@ -2034,6 +2050,9 @@ pub fn provider_payload(request: &AssistantRequest) -> Result<Json, AssistantErr
         (AssistantTask::JobDraft { input, context }, AssistantSource::JobNotes) => {
             job_draft::payload(request, input, context)
         }
+        (AssistantTask::ThemeDraft { input }, AssistantSource::ThemeDescription) => {
+            theme_draft::payload(request, input)
+        }
         _ => Err(AssistantError::new(
             AssistantErrorKind::InvalidConfiguration,
             "Assistant task and source types do not match",
@@ -2081,7 +2100,8 @@ pub fn legacy_quiz_payload(request: &AssistantRequest) -> Result<Json, Assistant
             | ExpectedOutput::ReviewFindings
             | ExpectedOutput::InlineCompletion
             | ExpectedOutput::VoiceGuide
-            | ExpectedOutput::JobDraft => {
+            | ExpectedOutput::JobDraft
+            | ExpectedOutput::ThemeDraft => {
                 unreachable!("task was checked above")
             }
         }
