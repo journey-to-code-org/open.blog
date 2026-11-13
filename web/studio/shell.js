@@ -11,12 +11,13 @@ import { createUndo } from "./parts/undo.js";
 import { ApiError } from "./api.js";
 import { sayListDate } from "./parts/post-list.js";
 
-const NAV = SCREENS.filter((s) => s.nav).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
+const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 export async function startShell(root, api, meta) {
   await use("dashboard-shell", "command-palette", "action-button", "modal-dialog", "toast-region");
+  const NAV = navFor(meta);
   const siteName = meta.siteTitle || "Your site";
   rememberSiteName(siteName);
   const posts = createPostsStore(api);
@@ -127,7 +128,7 @@ export async function startShell(root, api, meta) {
   }
 
   const router = createRouter({
-    screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => s.create(context, route)])),
+    screens: Object.fromEntries(SCREENS.filter((s) => !s.when || s.when(meta)).map((s) => [s.name, (route) => s.create(context, route)])),
     async onShow(screen, route) {
       shell.current = AREA[route.name] || "home";
       shell.heading = screen.title;

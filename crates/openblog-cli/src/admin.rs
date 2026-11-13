@@ -90,6 +90,7 @@ mod business;
 mod capture_assistant;
 mod comparisons;
 mod decorations;
+mod gifts;
 mod greetings;
 mod job_sharing;
 mod landing;
@@ -563,6 +564,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name.starts_with("greetings/") {
             return Ok(greetings::MAX_GREETINGS_REQUEST_BYTES);
         }
+        if name.starts_with("gifts/") {
+            return Ok(gifts::MAX_GIFTS_REQUEST_BYTES);
+        }
         if let Some(rest) = name.strip_prefix("social/") {
             return Ok(if announcements::owns(rest) {
                 announcements::MAX_REQUEST_BYTES
@@ -725,7 +729,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         && name != "logout"
         && !name.starts_with("social/")
         && !name.starts_with("quote/")
-        && !name.starts_with("greetings/");
+        && !name.starts_with("greetings/")
+        && !name.starts_with("gifts/");
     let _filesystem_transaction = if workspace.is_some() && local_write {
         match crate::transaction::ContentTransactionLock::acquire(&state.root) {
             Ok(transaction) => Some(transaction),
@@ -783,6 +788,9 @@ fn authenticated_api(
     }
     if let Some(rest) = name.strip_prefix("quote/") {
         return quote::route(req, &session.user, rest);
+    }
+    if let Some(rest) = name.strip_prefix("gifts/") {
+        return gifts::route(req, rest);
     }
     if let Some(rest) = name.strip_prefix("greetings/") {
         let response = greetings::route(req, &session.user, rest);
@@ -4237,6 +4245,7 @@ fn meta(state: &AppState) -> Response {
             "social": social::is_configured(),
             "quote": quote::is_configured(),
             "greetings": greetings::is_configured(),
+            "gifts": gifts::is_configured(),
             "now": clock::now().rfc3339(),
         }),
     )
