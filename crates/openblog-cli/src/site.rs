@@ -1343,6 +1343,13 @@ pub fn generate_site_with_boundary(
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
     let config = load_config(root)?;
     let sources = read_sources(root, &config)?;
+    // Held route files whose own post is live, read before the load takes the sources.
+    let held_live = held_tracks_gone_live(
+        root,
+        &config,
+        &sources.posts,
+        options.now.unwrap_or_else(crate::clock::now),
+    );
     // Evidence gaps in the private claims file, for the author only: printed
     // with the other evidence findings, never written to the output. They are
     // reviewed against the posts this build read, before the load takes them.
@@ -1439,18 +1446,16 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         put(rel, &bytes)?;
     }
     // A post that went live on its day may name a file still held privately:
-    // the build takes it from there until the server moves it into `static`.
-    for track in &live_tracks {
+    // the build takes it from there until the server moves it into `static`,
+    // only for the post that staged it (G47).
+    for track in &held_live {
         if tracks_in_static.contains(track) {
             continue;
         }
         let rel = format!("{TRACK_UPLOADS}{track}");
         let held = root.join(HELD_TRACKS).join(track);
-        if held.is_file() {
-            let bytes =
-                fs::read(&held).map_err(|e| format!("cannot read {}: {e}", held.display()))?;
-            put(rel, &bytes)?;
-        }
+        let bytes = fs::read(&held).map_err(|e| format!("cannot read {}: {e}", held.display()))?;
+        put(rel, &bytes)?;
     }
 
     // 2. Front-end assets: base.css, the web components, and the WebAssembly build.
@@ -1523,6 +1528,77 @@ pub(crate) const TRACK_UPLOADS: &str = "tracks/uploads/";
 /// Where an exact route file waits, private, while its post is a draft or
 /// waits for its day (Studio R7 G47). Never pruned and never copied raw.
 pub(crate) const HELD_TRACKS: &str = ".openblog/pending-tracks/held";
+
+/// Beside each held route file, `<file>.owner` holds the path (in the content
+/// folder) of the post that staged it. Only that post going live takes the file
+/// up: another post naming it gets nothing (G47).
+pub(crate) fn held_owner_file(held: &Path) -> PathBuf {
+    let mut name = held.as_os_str().to_owned();
+    name.push(".owner");
+    PathBuf::from(name)
+}
+
+/// The post that staged a held route file, or `None` when none is recorded.
+pub(crate) fn held_track_owner(held: &Path) -> Option<String> {
+    let owner = fs::read_to_string(held_owner_file(held)).ok()?;
+    let owner = owner.trim();
+    (!owner.is_empty()).then(|| owner.to_string())
+}
+
+/// Record the post that a held route file belongs to.
+pub(crate) fn record_held_track_owner(held: &Path, owner: &str) -> Result<(), String> {
+    fsutil::write_file(&held_owner_file(held), format!("{owner}\n").as_bytes())
+}
+
+/// The route file (relative to `tracks/uploads/`) a post shows for download,
+/// with whether the post is live now: published, due, field journal, exact.
+pub(crate) fn post_route_file(
+    file: &SourceFile,
+    config: &SiteConfig,
+    now: DateTime,
+) -> Option<(String, bool)> {
+    if !file.contents.contains("/tracks/uploads/") {
+        return None;
+    }
+    let post = openblog_core::model::load_post(
+        file,
+        config,
+        openblog_core::markdown::RenderOptions::default(),
+    )
+    .ok()?;
+    let track = post
+        .field_journal
+        .as_ref()?
+        .route_url
+        .as_deref()?
+        .strip_prefix("/tracks/uploads/")?
+        .to_string();
+    Some((track, !post.draft && post.date <= now))
+}
+
+/// The held route files (relative to `tracks/uploads/`) whose own post, the
+/// one that staged it, is live now and still names it.
+pub(crate) fn held_tracks_gone_live(
+    root: &Path,
+    config: &SiteConfig,
+    posts: &[SourceFile],
+    now: DateTime,
+) -> Vec<String> {
+    let held_root = root.join(HELD_TRACKS);
+    if !held_root.is_dir() {
+        return Vec::new();
+    }
+    fsutil::walk(&held_root)
+        .into_iter()
+        .filter(|file| file.extension().and_then(|value| value.to_str()) == Some("gpx"))
+        .filter_map(|file| {
+            let track = fsutil::relative(&held_root, &file);
+            let owner = held_track_owner(&file)?;
+            let post = posts.iter().find(|post| post.path == owner)?;
+            (post_route_file(post, config, now)? == (track.clone(), true)).then_some(track)
+        })
+        .collect()
+}
 
 /// The route files (relative to `tracks/uploads/`) that live posts show for
 /// download: a published, due field-journal post with `locationPrivacy:
@@ -2283,6 +2359,18 @@ The cave educates.
         }
         fs::write(root.join(HELD_TRACKS).join("2026/held.gpx"), gpx).unwrap();
         fs::write(root.join(HELD_TRACKS).join("2026/held-draft.gpx"), gpx).unwrap();
+        record_held_track_owner(
+            &root.join(HELD_TRACKS).join("2026/held.gpx"),
+            "posts/2026-01-05-held.md",
+        )
+        .unwrap();
+        record_held_track_owner(
+            &root.join(HELD_TRACKS).join("2026/held-draft.gpx"),
+            "posts/2026-01-05-held-draft.md",
+        )
+        .unwrap();
+        // A live post naming a file held for another post gets nothing (G47).
+        post("2026-01-05-taker", "locationPrivacy: exact\n", "held-draft");
         post("2026-01-05-live", "locationPrivacy: exact\n", "live");
         post("2026-01-05-held", "locationPrivacy: exact\n", "held");
         post(

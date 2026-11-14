@@ -426,7 +426,7 @@ impl AppState {
     pub fn rebuild_locked(&self, status: &mut BuildStatus) -> Result<BuildReport, String> {
         let now = clock::now();
         if let Ok(config) = site::load_config(&self.root) {
-            release_held_tracks(&self.root, &config, now);
+            sort_route_files(&self.root, &config, now);
         }
         let result = site::build(
             &self.root,
@@ -16901,6 +16901,8 @@ struct StagedTrack {
     target: PathBuf,
     url: String,
     contents: Vec<u8>,
+    /// The post a held file belongs to (its path in the content folder), recorded beside it.
+    owner: Option<String>,
 }
 
 fn field_scalar<'a>(fields: &'a BTreeMap<String, Value>, key: &str) -> Option<&'a str> {
@@ -16917,6 +16919,7 @@ fn staged_track(
     effective: &BTreeMap<String, Value>,
     fields: &mut BTreeMap<String, Value>,
     live: bool,
+    rel: &str,
 ) -> Result<Option<StagedTrack>, (&'static str, String)> {
     let Some(token) = body.get("trackToken").and_then(Json::as_str) else {
         return Ok(None);
@@ -16969,54 +16972,77 @@ fn staged_track(
         target: if live { public_dir } else { held_dir }.join(file_name),
         url,
         contents,
+        owner: (!live).then(|| rel.to_string()),
     }))
 }
 
-/// Move the route files of posts that are now live from where they were held
-/// into `static`, so the site's files (and a repository built from them)
-/// hold them from the day they go up (G47). Best effort: the build already
-/// takes a held file a live post names.
-fn release_held_tracks(root: &Path, config: &SiteConfig, now: DateTime) {
+/// Before each rebuild, put each exact route file where its post's state says
+/// (G47): a held file whose own post is now live goes into `static`, so the
+/// site's files (and a repository built from them) hold it from the day it goes
+/// up; a file an older release put in `static` for a post that isn't live (a
+/// draft, or one waiting for its day) moves into the held store for that post,
+/// so it leaves the repository. A file a live post shows never moves, and a file
+/// no post names stays where it is (the build leaves it out). Best effort: the
+/// build already takes a held file its live post names.
+fn sort_route_files(root: &Path, config: &SiteConfig, now: DateTime) {
     let held_root = root.join(site::HELD_TRACKS);
-    if !held_root.is_dir() {
+    let static_root = root
+        .join(&config.paths.static_dir)
+        .join(site::TRACK_UPLOADS);
+    if !held_root.is_dir() && !static_root.is_dir() {
         return;
     }
     let Ok(sources) = site::read_sources(root, config) else {
         return;
     };
-    for file in &sources.posts {
-        if describe(&file.path, &file.contents, config, now).0 != "published" {
-            continue;
+    let move_file = |from: &Path, to: &Path| -> bool {
+        if to.exists() {
+            return false;
         }
-        let Ok(document) = frontmatter::parse(&file.contents) else {
-            continue;
-        };
-        let journal = openblog_core::field_journal::FieldJournalMetadata::from_front_matter(
-            &document.front_matter,
-        );
-        let Some(relative) = journal
-            .route_url
-            .as_deref()
-            .and_then(|url| url.strip_prefix("/tracks/uploads/"))
-        else {
-            continue;
-        };
-        let held = held_root.join(relative);
-        let public = root
-            .join(&config.paths.static_dir)
-            .join(site::TRACK_UPLOADS)
-            .join(relative);
-        if !held.is_file() || public.exists() {
-            continue;
-        }
-        if let Some(parent) = public.parent() {
+        if let Some(parent) = to.parent() {
             if fs::create_dir_all(parent).is_err() {
-                continue;
+                return false;
             }
         }
-        match crate::fsutil::retry_transient(|| fs::rename(&held, &public)) {
-            Ok(()) => eprintln!("admin: route file {relative} went up with its post"),
-            Err(error) => eprintln!("admin: cannot move route file {relative}: {error}"),
+        crate::fsutil::retry_transient(|| fs::rename(from, to)).is_ok()
+    };
+    for track in site::held_tracks_gone_live(root, config, &sources.posts, now) {
+        let held = held_root.join(&track);
+        if move_file(&held, &static_root.join(&track)) {
+            let _ = fs::remove_file(site::held_owner_file(&held));
+            eprintln!("admin: a route file went up with its post");
+        } else {
+            eprintln!("admin: a route file could not go up with its post");
+        }
+    }
+    if !static_root.is_dir() {
+        return;
+    }
+    // Which posts name each file, and whether any of them is live.
+    let mut named: BTreeMap<String, (bool, Vec<&str>)> = BTreeMap::new();
+    for file in &sources.posts {
+        if let Some((track, live)) = site::post_route_file(file, config, now) {
+            let entry = named.entry(track).or_default();
+            entry.0 |= live;
+            entry.1.push(&file.path);
+        }
+    }
+    for (track, (live, posts)) in named {
+        let public = static_root.join(&track);
+        if live || !public.is_file() {
+            continue;
+        }
+        let Some(owner) = posts.into_iter().min() else {
+            continue;
+        };
+        let held = held_root.join(&track);
+        if move_file(&public, &held) {
+            if site::record_held_track_owner(&held, owner).is_err() {
+                // Without an owner the file would never go up again: put it back.
+                let _ = fs::rename(&held, &public);
+                continue;
+            }
+            eprintln!("admin: a route file for a post that isn't live was put away");
         }
     }
 }
@@ -17140,15 +17166,18 @@ fn write_document_bundle(
     let result = (|| {
         if let Some(track) = upload {
             write_atomic_bytes(&track.target, &track.contents)?;
+            if let Some(owner) = &track.owner {
+                site::record_held_track_owner(&track.target, owner)?;
+            }
         }
         if let Some((from, to)) = retire {
             if let Some(parent) = to.parent() {
                 fs::create_dir_all(parent)
                     .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
             }
-            crate::fsutil::retry_transient(|| fs::rename(from, to)).map_err(|error| {
-                format!("cannot retire private track {}: {error}", from.display())
-            })?;
+            crate::fsutil::retry_transient(|| fs::rename(from, to))
+                .map_err(|_| "cannot retire a private route file".to_string())?;
+            let _ = fs::remove_file(site::held_owner_file(from));
         }
         Ok(())
     })();
@@ -17157,6 +17186,7 @@ fn write_document_bundle(
         let _ = restore_file(sidecar, previous_sidecar.as_deref());
         if let Some(track) = upload {
             let _ = restore_file(&track.target, previous_upload.as_deref());
+            let _ = fs::remove_file(site::held_owner_file(&track.target));
         }
         return Err(error);
     }
@@ -17313,11 +17343,35 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         clock::now(),
     )
     .0 == "published";
-    let track_upload =
-        match staged_track(&state.root, &config, &body, &effective, &mut fields, live) {
-            Ok(track) => track,
-            Err((code, error)) => return track_refused(code, &error),
-        };
+    // A route file held for another post isn't this post's to show: a `route`
+    // naming one is left out of what's written (G47).
+    if exact_location && body.get("trackToken").is_none() {
+        if let Some(route) = field_scalar(&effective, "route") {
+            if let Some(relative) = route.strip_prefix("/tracks/uploads/") {
+                let held = state.root.join(site::HELD_TRACKS).join(relative);
+                if !relative.contains("..")
+                    && held.is_file()
+                    && site::held_track_owner(&held).as_deref() != Some(rel.as_str())
+                {
+                    fields.remove("route");
+                    effective.remove("route");
+                    dropped.push("route");
+                }
+            }
+        }
+    }
+    let track_upload = match staged_track(
+        &state.root,
+        &config,
+        &body,
+        &effective,
+        &mut fields,
+        live,
+        &rel,
+    ) {
+        Ok(track) => track,
+        Err((code, error)) => return track_refused(code, &error),
+    };
     let mut source = frontmatter::compose(&fields, text_body);
     let path = match resolve_content_path(&state.root, &config, &rel) {
         Ok(p) => p,
@@ -36698,6 +36752,157 @@ href: /about/
             json!({"etag": published["etag"]}),
         );
         assert_eq!(built_tracks(&f.dir), vec![future_url[1..].to_string()]);
+    }
+
+    #[test]
+    fn a_held_route_file_goes_up_only_with_the_post_that_staged_it() {
+        let f = fixture("track-owner");
+        let session = login_ok(&f);
+        let gpx = br#"<?xml version="1.0"?><gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#;
+        let mut request = authed(
+            req("POST", "/admin/api/track-upload?name=home.gpx"),
+            &session,
+            true,
+        );
+        request.body = gpx.to_vec();
+        let token = body_json(&handle(&f.state, &request))["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields":{"title":"Home Loop","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"exact"},"body":"Notes.","trackToken":token,"trackName":"Home Loop.gpx"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let url = body_json(&response)["trackUrl"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let relative = url.trim_start_matches("/tracks/uploads/").to_string();
+        let held = f.dir.join(site::HELD_TRACKS).join(&relative);
+        assert!(held.is_file());
+        assert_eq!(
+            site::held_track_owner(&held).as_deref(),
+            Some("posts/2026-01-03-home-loop.md"),
+            "the held file records the post that staged it"
+        );
+
+        // Another post, live and exact, names the draft's held file: saved, it loses the `route`.
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields":{"title":"Other","date":"2026-01-04","profile":"field-journal","locationPrivacy":"exact","route":url},"body":"Notes."}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let other = fs::read_to_string(f.dir.join("content/posts/2026-01-04-other.md")).unwrap();
+        assert!(!other.contains("route:"), "{other}");
+
+        // Written by hand, it still gets nothing: the file stays held and out of the site.
+        fs::write(
+            f.dir.join("content/posts/2026-01-05-sneaky.md"),
+            format!("---\ntitle: Sneaky\ndate: 2026-01-05\nprofile: field-journal\nlocationPrivacy: exact\nroute: {url}\n---\nNotes."),
+        )
+        .unwrap();
+        f.state.rebuild().unwrap();
+        assert!(held.is_file());
+        assert!(!f.dir.join("static").join(&url[1..]).exists());
+        assert_eq!(built_tracks(&f.dir), Vec::<String>::new());
+
+        // Its own post going live takes it up.
+        let draft = f.dir.join("content/posts/2026-01-03-home-loop.md");
+        let source = fs::read_to_string(&draft).unwrap();
+        fs::write(&draft, source.replace("draft: true\n", "")).unwrap();
+        f.state.rebuild().unwrap();
+        assert!(f.dir.join("static").join(&url[1..]).is_file());
+        assert!(!held.exists() && !site::held_owner_file(&held).exists());
+    }
+
+    #[test]
+    fn an_older_release_s_route_file_for_a_post_not_live_moves_out_of_static() {
+        let f = fixture("track-legacy");
+        let year = clock::now().civil().year;
+        let gpx = r#"<gpx><trk><trkseg><trkpt lat="1" lon="1"/><trkpt lat="2" lon="2"/></trkseg></trk></gpx>"#;
+        let uploads = f.dir.join(format!("static/tracks/uploads/{year}"));
+        fs::create_dir_all(&uploads).unwrap();
+        for name in ["draft", "future", "live", "shared", "stray"] {
+            fs::write(uploads.join(format!("{name}.gpx")), gpx).unwrap();
+        }
+        let post = |file: &str, extra: &str, route: &str| {
+            fs::write(
+                f.dir.join(format!("content/posts/{file}.md")),
+                format!("---\ntitle: {file}\n{extra}profile: field-journal\nlocationPrivacy: exact\nroute: /tracks/uploads/{year}/{route}.gpx\n---\nNotes."),
+            )
+            .unwrap();
+        };
+        post(
+            "2026-01-04-draft",
+            "date: 2026-01-04\ndraft: true\n",
+            "draft",
+        );
+        post("2099-01-04-future", "date: 2099-01-04\n", "future");
+        post("2026-01-04-live", "date: 2026-01-04\n", "live");
+        // A file a live post shows stays, even when a draft names it too.
+        post(
+            "2026-01-05-shared-draft",
+            "date: 2026-01-05\ndraft: true\n",
+            "shared",
+        );
+        post("2026-01-05-shared-live", "date: 2026-01-05\n", "shared");
+        f.state.rebuild().unwrap();
+        let held = f.dir.join(site::HELD_TRACKS).join(year.to_string());
+        for name in ["draft", "future"] {
+            assert!(!uploads.join(format!("{name}.gpx")).exists(), "{name}");
+            assert!(held.join(format!("{name}.gpx")).is_file(), "{name}");
+        }
+        assert_eq!(
+            site::held_track_owner(&held.join("draft.gpx")).as_deref(),
+            Some("posts/2026-01-04-draft.md")
+        );
+        for name in ["live", "shared", "stray"] {
+            assert!(uploads.join(format!("{name}.gpx")).is_file(), "{name}");
+        }
+        let mut built = built_tracks(&f.dir);
+        built.sort();
+        assert_eq!(
+            built,
+            vec![
+                format!("tracks/uploads/{year}/live.gpx"),
+                format!("tracks/uploads/{year}/shared.gpx")
+            ]
+        );
+
+        // The draft goes up later: its file comes back from where it was held.
+        let draft = f.dir.join("content/posts/2026-01-04-draft.md");
+        let source = fs::read_to_string(&draft).unwrap();
+        fs::write(&draft, source.replace("draft: true\n", "")).unwrap();
+        f.state.rebuild().unwrap();
+        assert!(uploads.join("draft.gpx").is_file());
+        assert!(built_tracks(&f.dir).contains(&format!("tracks/uploads/{year}/draft.gpx")));
     }
 
     #[test]
