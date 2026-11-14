@@ -296,6 +296,9 @@ test("Undo after typing takes back only the tip and keeps the typing; a take-out
   await openPost(page, "typed-gone", `${front("Gone")}\nAbove.\n\n> [!TIP]\n> Chill the dough.\n\nBelow.\n`);
   await page.getByRole("group", { name: "Tip: Chill the dough." }).getByRole("button", { name: /^Move/ }).click();
   await page.getByRole("menuitem", { name: "Take it out" }).click();
+  // The take-out has finished (the tip is gone and it says so) before the words are rewritten.
+  await expect(page.getByRole("group", { name: "Tip: Chill the dough." })).toHaveCount(0);
+  await expect(page.locator(".studio-piece-status").first()).toHaveText("Tip taken out.");
   await words.fill("Something else.");
   await page.getByRole("button", { name: "Undo", exact: true }).first().click();
   await expect(page.locator(".studio-piece-status").first()).toHaveText("This changed since, so it can't be undone here.");
