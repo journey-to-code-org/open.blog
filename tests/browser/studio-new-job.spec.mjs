@@ -485,6 +485,37 @@ test("the old Admin sending and Studio sending on one phone make one draft each 
   await old.close();
 });
 
+/** Another window asks for a newer version of the list: `commit` false aborts it, so it stays version 1. */
+const upgradeElsewhere = (page, commit) => page.evaluate((commit) => new Promise((done) => {
+  const request = indexedDB.open("openblog-capture", 2);
+  request.onupgradeneeded = () => { if (!commit) request.transaction.abort(); };
+  request.onsuccess = () => { request.result.close(); done("upgraded"); };
+  request.onerror = () => done("aborted");
+}), commit);
+
+test("another window's update closes the list: Save opens it again, or says to reload and keeps the job", async ({ page }) => {
+  await openNewJob(page);
+  await fillJob(page, "Firstclose");
+  await saveButton(page).click();
+  await expect.poll(() => draftsIn(trade, "firstclose").length).toBe(1);
+  // An update that didn't happen (aborted): the list is still version 1, and Save opens it again.
+  expect(await upgradeElsewhere(page, false)).toBe("aborted");
+  await fillJob(page, "Reopened");
+  await saveButton(page).click();
+  await expect(status(page)).toHaveText(/^(Saved on this computer\.|Sent\.)$/);
+  await expect.poll(() => draftsIn(trade, "reopened").length).toBe(1);
+  // One that did: this page can't open it again, says so, and the job stays on the screen.
+  expect(await upgradeElsewhere(page, true)).toBe("upgraded");
+  await fillJob(page, "Stayshere");
+  await saveButton(page).click();
+  await expect(page.getByRole("alert")).toContainText("Another window updated your blog's pages. Reload, then save again. This job stays here.");
+  await expect(page.getByRole("alert")).not.toContainText("out of room");
+  await expect(notesBox(page)).toHaveValue("Flashing lifted at the valley.");
+  await expect(page.locator(".studio-thumb img")).toHaveCount(2);
+  // This throwaway browser's list is put back to version 1 for the tests after.
+  await page.evaluate(() => new Promise((done) => { const r = indexedDB.deleteDatabase("openblog-capture"); r.onsuccess = r.onerror = r.onblocked = () => done(); }));
+});
+
 test("a sign-in that lapsed while sending by itself shows Needs you and asks nothing; Sign in sends it", async ({ page, context }) => {
   await openNewJob(page);
   await page.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));

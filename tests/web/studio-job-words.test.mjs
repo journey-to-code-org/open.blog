@@ -107,3 +107,7 @@ test("the company is named, never its address or model", () => {
   assert.equal(words.companyName({ destination: "Acme" }), "Acme");
   assert.match(words.transcribeDisclosure({ engine: "provider", provider: "open-ai", destination: "https://api.openai.com", leavesServer: true }), /^Your voice note goes to OpenAI /);
 });
+
+test("a list closed by another window's update: reload, then save again, and the job stays", () => {
+  assert.equal(words.ROOM_WORDS("closed"), "Another window updated your blog's pages. Reload, then save again. This job stays here.");
+});

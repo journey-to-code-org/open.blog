@@ -414,3 +414,47 @@ test("Throw it away never removes a job another window is sending, and a list th
   assert.ok(await inner.get(idOf(3)), "still kept");
   assert.equal(await sender(blog, closing).start(), false, "a list that can't be read doesn't open");
 });
+
+test("a list closed by another window's update is opened again and the job kept; one that can't reopen says so", async () => {
+  const blog = fakeBlog();
+  blog.online = false;
+  const inner = createMemoryStore();
+  // A store like the browser's: once closed (versionchange), every call fails.
+  const browserStore = () => {
+    const store = { closed: false, close() { store.closed = true; } };
+    for (const name of ["put", "get", "all", "remove"]) {
+      store[name] = async (...args) => {
+        if (store.closed) throw new DOMException("The database connection is closing.", "InvalidStateError");
+        return inner[name](...args);
+      };
+    }
+    return store;
+  };
+  let opened = 0;
+  let current = null;
+  let reopens = true;
+  const jobs = createJobSender({
+    api: blog.api, meta: { siteUses: { trade: true } }, win: fakeWindow(), exists: async () => true,
+    openStore: async () => {
+      opened += 1;
+      if (opened > 1 && !reopens) return null;
+      current = browserStore();
+      return current;
+    },
+  });
+  await jobs.start();
+  current.close();
+  const kept = await jobs.add(capture(1));
+  assert.equal(kept.ok, true, "kept after opening the list again");
+  assert.equal(opened, 2);
+  assert.ok(await inner.get(idOf(1)));
+  assert.equal(jobs.unusable(), false);
+
+  // Closed again, and this time it can't be opened (another window holds a newer version).
+  current.close();
+  reopens = false;
+  const refused = await jobs.add(capture(2));
+  assert.deepEqual(refused, { ok: false, code: "closed" });
+  assert.equal(await inner.get(idOf(2)), undefined);
+  assert.equal(jobs.unusable(), false, "it isn't a window that can't keep jobs");
+});

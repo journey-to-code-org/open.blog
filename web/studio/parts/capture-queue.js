@@ -224,7 +224,11 @@ export function openIndexedStore(factory = globalThis.indexedDB) {
           database.close();
         },
       };
+      // Another page's update: close at once to let it in. The sender opens it again when it's next
+      // needed (an add answers `closed` meanwhile), so a save never reads as a phone out of room.
       database.onversionchange = () => store.close();
+      // The browser can close it too (Safari does when the phone is short of memory).
+      database.onclose = () => { store.closed = true; };
       resolve(store);
     };
   });
@@ -252,9 +256,11 @@ export function createCaptureQueue({ store, limits = QUEUE_LIMITS, onChange = ()
     refresh,
     /**
      * Keep a job on this phone. Resolves `{ ok: true, record }`, or `{ ok: false, code }` with a
-     * `roomProblem` code or `write` when the phone couldn't keep it. Never throws.
+     * `roomProblem` code, `closed` when the list was closed under it (another window's update; the
+     * caller opens it again), or `write` when the phone couldn't keep it. Never throws.
      */
     async add(capture, now = new Date(), by = "") {
+      if (store.closed) return { ok: false, code: "closed" };
       try {
         await refresh();
         const record = makeRecord(capture, now, by);
@@ -264,6 +270,7 @@ export function createCaptureQueue({ store, limits = QUEUE_LIMITS, onChange = ()
         await refresh();
         return { ok: true, record };
       } catch (error) {
+        if (store.closed || error?.name === "InvalidStateError") return { ok: false, code: "closed" };
         return { ok: false, code: "write", quota: error?.name === "QuotaExceededError" };
       }
     },

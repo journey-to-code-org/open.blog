@@ -17,6 +17,7 @@ export function ROOM_WORDS(code, { limits = {}, noun = "phone", queued = 0, remo
   if (code === "maxQueued") return `${thisDevice(noun)} is already holding ${plural(queued || limits.maxQueued || 5, "job")} that haven't sent. This one stays here until they go.`;
   if (code === "maxCaptureBytes") return `This job has too many large photos to keep. Take out about ${remove}.`;
   if (code === "maxQueueBytes") return `The jobs waiting on this ${noun} are using all the room your blog has here. Send them first. This one stays here.`;
+  if (code === "closed") return "Another window updated your blog's pages. Reload, then save again. This job stays here.";
   return `${thisDevice(noun)} is out of room to keep it. Free up some space, or send the waiting jobs first. This one stays here.`;
 }
 

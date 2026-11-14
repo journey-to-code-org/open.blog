@@ -189,16 +189,26 @@ export function createJobSender({
     return live.get(id);
   };
 
-  async function open(create) {
+  /** A list another window's update closed is forgotten, so the next call opens it again. */
+  function forgetClosed() {
+    if (store?.closed) {
+      queue = null;
+      store = null;
+    }
+  }
+
+  /** `reopen`: it was open a moment ago, so failing now isn't a window that can't keep jobs. */
+  async function open(create, { reopen = false } = {}) {
+    forgetClosed();
     if (queue) return queue;
     if (opening) return opening;
     opening = (async () => {
-      const there = await exists();
+      const there = reopen || (await exists());
       if (!create && there === false) return null;
       if (!create && there === null && !(meta.siteUses?.trade === true)) return null;
       store = await openStore();
       if (!store) {
-        unusable = create;
+        if (!reopen) unusable = create;
         return null;
       }
       const opened = createCaptureQueue({ store, limits, onChange: () => emit() });
@@ -214,7 +224,10 @@ export function createJobSender({
     return opening;
   }
 
+  let listening = false;
   function listen() {
+    if (listening) return;
+    listening = true;
     win.addEventListener?.("online", () => flush());
     win.document?.addEventListener?.("visibilitychange", () => {
       if (win.document.visibilityState === "visible") reload().then(() => flush());
@@ -331,6 +344,7 @@ export function createJobSender({
       return flushing;
     }
     const run = async () => {
+      if (store?.closed) await open(true, { reopen: true });
       if (!queue) return { sent: 0, blocked: "" };
       let sent = 0;
       let blocked = "";
@@ -382,9 +396,15 @@ export function createJobSender({
     /** This window can't keep jobs (private mode, a policy): jobs send straight away instead. */
     unusable: () => unusable,
     async add(capture) {
-      const opened = await open(true);
-      if (!opened) return { ok: false, code: "no-store" };
-      const kept = await queue.add(capture, new Date(), api.user);
+      const wasOpen = Boolean(store);
+      if (!(await open(true, { reopen: wasOpen }))) return { ok: false, code: wasOpen ? "closed" : "no-store" };
+      let kept = await queue.add(capture, new Date(), api.user);
+      if (!kept.ok && kept.code === "closed") {
+        // Closed under it (another window's update): open it again and try once more.
+        if (typeof store.close === "function") store.close();
+        else store.closed = true;
+        kept = (await open(true, { reopen: true })) ? await queue.add(capture, new Date(), api.user) : { ok: false, code: "closed" };
+      }
       if (kept.ok) {
         tell();
         tries = 0;

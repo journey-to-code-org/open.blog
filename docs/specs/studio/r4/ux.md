@@ -178,6 +178,7 @@ Remembered on this phone (`openblog.capture.prefs.v1`, unchanged: `readPrefs`/`r
 | `maxCaptureBytes` | "This job has too many large photos to keep. Take out about 3." (largest first) |
 | `maxQueueBytes` | "The jobs waiting on this phone are using all the room your blog has here. Send them first. This one stays here." |
 | `QuotaExceededError` / write failed | "This phone is out of room to keep it. Free up some space, or send the waiting jobs first. This one stays here." |
+| store closed (another window's `versionchange`, or the browser closed it) | opened again and saved once more; if it can't be opened: "Another window updated your blog's pages. Reload, then save again. This job stays here." (never "out of room") |
 
 4. Kept: form clears (new id), picks remembered, `navigator.storage.persist()` asked once silently, status "Saved on this phone.", focus to status. The sender starts at once.
 

@@ -144,6 +144,15 @@ test("without IndexedDB there's no store, and asking whether one exists never ma
   assert.equal(opened, 0);
 });
 
+test("adding to a list another window's update closed says so, apart from a phone out of room", async () => {
+  const inner = createMemoryStore();
+  const store = { ...inner, closed: true, all: async () => { throw new DOMException("closing", "InvalidStateError"); } };
+  const queue = createCaptureQueue({ store });
+  assert.deepEqual(await queue.add({ id: "0".repeat(32), fields: { notes: "x" }, photos: [], audio: null }), { ok: false, code: "closed" });
+  const shut = createCaptureQueue({ store: { ...inner, all: async () => { throw new DOMException("closing", "InvalidStateError"); } } });
+  assert.equal((await shut.add({ id: "0".repeat(32), fields: { notes: "x" }, photos: [], audio: null })).code, "closed");
+});
+
 test("a page asking for a newer version is let in: this one closes", async () => {
   let database;
   const factory = {
