@@ -58,6 +58,13 @@ When a component falls short, fix or extend it in zubra-ui and re-vendor it (see
 - One short sentence of help under a field, only when the label can't carry it.
 - Dates and times as people say them: "Friday, November 27 at 8 AM".
 - Numbers she cares about, never internals: "3 recipes waiting", not "3 drafts (status=draft)".
+- Grammi is a persona for judging screens, never a default. No shipped string names her, her
+  family, her site or her food; recipe examples appear only on recipe screens.
+- Who helps her is `{helper}`, the product is `{product}`, her name is `{owner}`. Never write
+  "the person who set up your site", "your blog" or a name as a literal.
+- Every her-layer sentence is a word id with its default in the area's `parts/*-words.js`;
+  a site may change it, so it must read right on its own and with any `{helper}` (no pronouns
+  for the helper: "Tell {helper}.", not "Tell him").
 
 ## Review checklist
 
