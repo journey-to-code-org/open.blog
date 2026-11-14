@@ -16914,14 +16914,15 @@ fn staged_track(
     root: &Path,
     config: &SiteConfig,
     body: &Json,
+    effective: &BTreeMap<String, Value>,
     fields: &mut BTreeMap<String, Value>,
     live: bool,
 ) -> Result<Option<StagedTrack>, (&'static str, String)> {
     let Some(token) = body.get("trackToken").and_then(Json::as_str) else {
         return Ok(None);
     };
-    if field_scalar(fields, "profile") != Some("field-journal")
-        || field_scalar(fields, "locationPrivacy") != Some("exact")
+    if field_scalar(effective, "profile") != Some("field-journal")
+        || field_scalar(effective, "locationPrivacy") != Some("exact")
     {
         return Err((
             "track-needs-exact",
@@ -17250,8 +17251,30 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             Err(error) => return Response::error(500, &error),
         }
     }
-    let field_journal = field_scalar(&fields, "profile") == Some("field-journal");
-    let exact_location = field_journal && field_scalar(&fields, "locationPrivacy") == Some("exact");
+    // Studio sends only what changed and keeps the rest of the file as it is (`frontMatter:
+    // "keep"`), so what the post will be is the file's fields under the ones sent: the route
+    // rules below, and whether the post is live, read that.
+    let mut effective = fields.clone();
+    if body["frontMatter"].as_str() == Some("keep") {
+        if let (Some(rel), Some(sent)) = (existing_path.as_deref(), body["fields"].as_object()) {
+            let current = resolve_content_path(&state.root, &config, rel)
+                .ok()
+                .and_then(|path| fs::read_to_string(path).ok());
+            if let Some(document) = current.and_then(|text| frontmatter::parse(&text).ok()) {
+                for (key, value) in &document.front_matter.fields {
+                    let top = key.split('.').next().unwrap_or(key);
+                    if !sent.contains_key(key) && !sent.contains_key(top) {
+                        effective
+                            .entry(key.clone())
+                            .or_insert_with(|| value.clone());
+                    }
+                }
+            }
+        }
+    }
+    let field_journal = field_scalar(&effective, "profile") == Some("field-journal");
+    let exact_location =
+        field_journal && field_scalar(&effective, "locationPrivacy") == Some("exact");
     // What a field journal's privacy leaves out of the file: the route file's
     // address unless exact, and the route's shape when hidden (G52), so a
     // public repository never holds the shape of a route its post hides.
@@ -17261,7 +17284,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     }
     if field_journal
         && openblog_core::field_journal::LocationPrivacy::parse(field_scalar(
-            &fields,
+            &effective,
             "locationPrivacy",
         )) == openblog_core::field_journal::LocationPrivacy::Hidden
     {
@@ -17269,6 +17292,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     }
     for key in &dropped {
         fields.remove(*key);
+        effective.remove(*key);
     }
     let (rel, created) = match existing_path {
         Some(rel) => (rel, false),
@@ -17284,15 +17308,16 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     // a post waiting for its day keeps it private until it goes up (G47).
     let live = describe(
         &rel,
-        &frontmatter::compose(&fields, text_body),
+        &frontmatter::compose(&effective, text_body),
         &config,
         clock::now(),
     )
     .0 == "published";
-    let track_upload = match staged_track(&state.root, &config, &body, &mut fields, live) {
-        Ok(track) => track,
-        Err((code, error)) => return track_refused(code, &error),
-    };
+    let track_upload =
+        match staged_track(&state.root, &config, &body, &effective, &mut fields, live) {
+            Ok(track) => track,
+            Err((code, error)) => return track_refused(code, &error),
+        };
     let mut source = frontmatter::compose(&fields, text_body);
     let path = match resolve_content_path(&state.root, &config, &rel) {
         Ok(p) => p,
@@ -18240,8 +18265,17 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
                 })
                 .cloned()
                 .collect();
-            let shown = if mine.is_empty() { errors } else { mine };
-            return Err(build_refused(&site::content_problems(&shown), &shown));
+            // A problem only in other documents doesn't make this one unbuildable: it is
+            // coded apart, so a checklist doesn't hold this post back for it (G46).
+            if mine.is_empty() {
+                let mut refused = build_refused(&site::content_problems(&errors), &errors);
+                if let Ok(mut json) = serde_json::from_slice::<Json>(&refused.body) {
+                    json["code"] = json!("site-build");
+                    refused = Response::json(422, &json);
+                }
+                return Err(refused);
+            }
+            return Err(build_refused(&site::content_problems(&mine), &mine));
         }
     };
     Ok(DraftSite {
@@ -33803,6 +33837,17 @@ What I read:
 
         let (status, bad) = send(json!({ "kind": "nope", "fields": {}, "body": "" }));
         assert_eq!((status, bad["code"].as_str()), (422, Some("bad-request")));
+        // Another post the build can't make: this one isn't held back for it.
+        let broken = f.dir.join("content/posts/2026-01-09-broken.md");
+        fs::write(&broken, "---\ntitle: Broken\ndate: soon\n---\nx\n").unwrap();
+        let (status, elsewhere) =
+            send(json!({ "kind": "posts", "fields": fields, "body": "Hello.", "only": "checks" }));
+        assert_eq!(
+            (status, elsewhere["code"].as_str()),
+            (422, Some("site-build")),
+            "{elsewhere}"
+        );
+        fs::remove_file(&broken).unwrap();
         assert_eq!(problem_line("posts/a.md:12: bad"), Some(12));
         assert_eq!(problem_line("bad shortcode on line 7 of the body"), Some(7));
         assert_eq!(problem_line("no place"), None);
@@ -36833,6 +36878,91 @@ href: /about/
         );
         assert_eq!(trimmed.status, 200);
         assert!(fs::read_to_string(&file).unwrap().contains("routeShape"));
+    }
+
+    #[test]
+    fn a_kept_layout_save_reads_the_route_rules_from_the_file_it_keeps() {
+        // Studio sends only what changed: the profile and the date stay in the file, and
+        // the route rules still see them.
+        let f = fixture("track-keep");
+        let session = login_ok(&f);
+        let file = f.dir.join("content/posts/2026-01-03-kept.md");
+        fs::write(
+            &file,
+            "---\ntitle: Kept\ndate: 2026-01-03\ndraft: true\nprofile: field-journal\nlocationPrivacy: hidden\n---\nNotes.\n",
+        )
+        .unwrap();
+        let mut request = authed(
+            req("POST", "/admin/api/track-upload?name=kept.gpx"),
+            &session,
+            true,
+        );
+        request.body = br#"<gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#.to_vec();
+        let token = body_json(&handle(&f.state, &request))["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let current = fs::read_to_string(&file).unwrap();
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-kept.md",
+                    json!({"fields":{"locationPrivacy":"exact","distanceKm":"3"},"body":"Notes.","etag":etag(&current),"frontMatter":"keep","trackToken":token,"trackName":"kept.gpx"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let url = body_json(&saved)["trackUrl"].as_str().unwrap().to_string();
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(text.contains(&format!("route: {url}")), "{text}");
+        assert!(text.contains("profile: field-journal"));
+        // Still a draft in the file, so the route file is held, not public.
+        assert!(f
+            .dir
+            .join(site::HELD_TRACKS)
+            .join(url.trim_start_matches("/tracks/uploads/"))
+            .is_file());
+        assert!(!f.dir.join("static").join(&url[1..]).exists());
+        // Hidden again without the profile in the request: the shape and the route go.
+        let current = fs::read_to_string(&file).unwrap();
+        fs::write(
+            &file,
+            current.replace("distanceKm", "routeShape: 0,1 2,3\ndistanceKm"),
+        )
+        .unwrap();
+        let current = fs::read_to_string(&file).unwrap();
+        let hidden = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-kept.md",
+                    json!({"fields":{"locationPrivacy":"hidden"},"body":"Notes.","etag":etag(&current),"frontMatter":"keep"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            hidden.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&hidden.body)
+        );
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(
+            !text.contains("routeShape") && !text.contains("route:"),
+            "{text}"
+        );
     }
 
     #[test]
