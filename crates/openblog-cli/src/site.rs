@@ -1441,6 +1441,10 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
                 continue;
             }
             tracks_in_static.insert(track.to_string());
+            // A route file's name stays out of what's printed.
+            let bytes = fs::read(&file).map_err(|_| "cannot read a route file".to_string())?;
+            put(rel, &bytes).map_err(|_| "cannot write a route file".to_string())?;
+            continue;
         }
         let bytes = fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
         put(rel, &bytes)?;
@@ -1454,8 +1458,8 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         }
         let rel = format!("{TRACK_UPLOADS}{track}");
         let held = root.join(HELD_TRACKS).join(track);
-        let bytes = fs::read(&held).map_err(|e| format!("cannot read {}: {e}", held.display()))?;
-        put(rel, &bytes)?;
+        let bytes = fs::read(&held).map_err(|_| "cannot read a held route file".to_string())?;
+        put(rel, &bytes).map_err(|_| "cannot write a route file".to_string())?;
     }
 
     // 2. Front-end assets: base.css, the web components, and the WebAssembly build.

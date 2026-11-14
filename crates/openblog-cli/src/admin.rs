@@ -19656,11 +19656,8 @@ fn upload_track(state: &AppState, req: &Request) -> Response {
     ) {
         return Response::error(500, &error);
     }
-    eprintln!(
-        "admin: staged track {token} ({} bytes, {} kept)",
-        req.body.len(),
-        cleaned.len()
-    );
+    // Never the token or the file's name: a log is no place for where someone was.
+    eprintln!("admin: a route file went up for a post");
     Response::json(201, &json!({ "token": token, "points": points }))
 }
 
@@ -36752,6 +36749,33 @@ href: /about/
             json!({"etag": published["etag"]}),
         );
         assert_eq!(built_tracks(&f.dir), vec![future_url[1..].to_string()]);
+    }
+
+    /// A log is no place for where someone was: no line the server prints about a
+    /// route file may carry a value (its token, name or path), only fixed words.
+    #[test]
+    fn no_printed_line_about_a_route_file_carries_its_token_or_name() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offending = Vec::new();
+        for entry in fs::read_dir(&src).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|value| value.to_str()) != Some("rs") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).unwrap();
+            for (at, _) in text.match_indices("println!(") {
+                let call = &text[at..];
+                let call = &call[..call.find(");").unwrap_or(call.len())];
+                let lower = call.to_ascii_lowercase();
+                let about_route = ["route", "gpx", "staged track", "pending-tracks", "tracks/"]
+                    .iter()
+                    .any(|word| lower.contains(word));
+                if about_route && call.contains('{') {
+                    offending.push(format!("{}: {call}", path.display()));
+                }
+            }
+        }
+        assert!(offending.is_empty(), "{offending:#?}");
     }
 
     #[test]
