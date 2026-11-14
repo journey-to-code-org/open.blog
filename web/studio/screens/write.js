@@ -54,6 +54,8 @@ export async function createWrite(context, arg, route = {}) {
   let goToProblem = null; // "Go to it" for a problem in About this post
   let savedAt = null;
   let saving = null;
+  let checking = false; // R7: Publish's checks are running: the button is busy and the status says so
+  let verbWord = "Publish";
   let timer = 0;
   let titleLeft = false;
   let lastPublish = null;
@@ -118,7 +120,7 @@ export async function createWrite(context, arg, route = {}) {
   sheets = await createWriteReady({
     api, meta, doc, about, body, title, tags, suggestions, primary, aboutButton, status, paint: () => paint(),
     read: () => read(), fieldsFor: (values, intent) => fieldsFor(values, intent), picker: () => picker, job: () => job(), kind: () => kind(),
-    isDirty: () => dirty, snapshot: () => snapshot(), changed: () => changed(), verb: () => primaryLabel.textContent,
+    isDirty: () => dirty, snapshot: () => snapshot(), changed: () => changed(), verb: () => verbWord, checking: (on) => setChecking(on),
     publish: () => saveNow("publish", { checked: true }), recipeGoTo: (target) => goTo(target), signedOut: () => api.onSignedOut?.(),
   });
   aboutButton.after(sheets.card);
@@ -152,13 +154,16 @@ export async function createWrite(context, arg, route = {}) {
   function paint() {
     const current = read();
     const action = doc.state === "published" ? "Update" : primaryAction(doc.state === "new" ? "draft" : doc.state, current.date, now());
-    primaryLabel.textContent = action;
+    verbWord = action;
+    primaryLabel.textContent = checking ? say("ready.checkingShort") : action;
+    if (checking) primary.loading = true;
     saveLabel.textContent = doc.state === "scheduled" ? "Make it a draft again" : "Save draft";
     save.hidden = doc.state === "published";
     const name = current.title.trim() || (isRecipePost() ? "New recipe" : isJob() ? "New job" : "New post");
     trail.items = crumbs(name);
     context.setTitle(name);
-    if (notSaved) status.textContent = notSaved;
+    if (checking) status.textContent = say("ready.checking");
+    else if (notSaved) status.textContent = notSaved;
     else if (pending) status.textContent = doc.state === "new" ? "Not saved yet" : "Draft · saving in a moment…";
     else if (doc.state === "new") status.textContent = `${isRecipePost() ? "New recipe" : isJob() ? "New job" : "New story"}. Add a title and your draft will save itself.`;
     else status.textContent = statusLine({ state: doc.state, savedAt, dirtyPublished: isPublished() && dirty, date: form.date || current.date }, now());
@@ -292,7 +297,26 @@ export async function createWrite(context, arg, route = {}) {
     return true;
   }
 
-  async function saveNow(intent, { quiet = false, force = false, checked = false } = {}) {
+  /** Publish's checks running (R7): busy and said from the first moment, until they answer. */
+  function setChecking(on) {
+    if (checking === on) return;
+    checking = on;
+    if (!on) primary.loading = false;
+    paint();
+  }
+
+  async function saveNow(intent, options = {}) {
+    // From the moment Publish is pressed, even behind a save on its way: "Checking your post…".
+    const gating = intent === "publish" && !options.checked && !options.quiet;
+    if (gating) setChecking(true);
+    try {
+      return await saveOnce(intent, options);
+    } finally {
+      if (gating) setChecking(false);
+    }
+  }
+
+  async function saveOnce(intent, { quiet = false, force = false, checked = false } = {}) {
     clearTimeout(timer);
     timer = 0;
     if (saving) await saving.catch(() => {});
@@ -318,7 +342,8 @@ export async function createWrite(context, arg, route = {}) {
     // R7: Publish runs the checks first; the sheet opens instead when it has something to show
     // (a job the build would refuse, suggestions on a first Publish, a research post). A draft
     // always saves, and Publish from inside the sheet publishes.
-    if (intent === "publish" && !checked && !quiet && !(await sheets.gate(button))) { pending = false; paint(); return false; }
+    if (intent === "publish" && !checked && !quiet && !(await sheets.gate(button))) { pending = false; setChecking(false); return false; }
+    setChecking(false);
     // A post on her site moved to a later day comes off until then: asked once.
     if (intent === "publish" && doc.state === "published" && isFutureOnServer(fields.date || "", now()) && !(await when.confirmMove())) { pending = false; paint(); return false; }
     const wasLive = doc.state === "published";
@@ -466,7 +491,7 @@ export async function createWrite(context, arg, route = {}) {
     title: () => read().title.trim(), formTitle: () => form.title,
     isDirty: () => dirty, isPublished, saveNow, settle, paint,
     published: (sent) => { lastPublish = sent; },
-    banner, form: () => form, now, schedule: () => scheduleTruth(), read, verb: () => primaryLabel.textContent, focusTitle: () => title.querySelector("input")?.focus(),
+    banner, form: () => form, now, schedule: () => scheduleTruth(), read, verb: () => verbWord, focusTitle: () => title.querySelector("input")?.focus(),
   });
   const leave = async () => {
     if (!(await addMenu.leave())) return false;

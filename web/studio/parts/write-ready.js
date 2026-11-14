@@ -131,11 +131,8 @@ export async function createWriteReady(w) {
     card: sheet.card,
     /** Before a Publish, Schedule or Update from Write: true to go on, false when the sheet opened instead. */
     async gate(button) {
-      const label = button.querySelector("span");
-      const was = label?.textContent;
-      button.loading = true;
-      if (label) label.textContent = say("ready.checkingShort");
-      if (w.status) w.status.textContent = say("ready.checking");
+      // Write shows the checking state (busy button, "Checking your post…") while this runs.
+      w.checking?.(true);
       let result;
       try {
         result = await sheet.check();
@@ -143,9 +140,7 @@ export async function createWriteReady(w) {
         if (error?.status === 401) { w.signedOut(); return false; }
         return true;
       } finally {
-        button.loading = false;
-        if (label) label.textContent = was;
-        w.paint?.();
+        w.checking?.(false);
       }
       if (!shouldOpenOnPublish({ state: doc.state, intent: "publish", result, research: research() })) return true;
       sheet.show({ from: button });

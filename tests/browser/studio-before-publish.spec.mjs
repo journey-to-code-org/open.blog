@@ -155,6 +155,37 @@ test("the first Publish with suggestions opens the sheet: the real card, Fix it 
   await expect(status(page)).toContainText("Published");
 });
 
+test("Checking: from the moment Publish is pressed, the button is busy and the status says so, even behind a save", async ({ page }) => {
+  await openPost(page, "2026-10-04-slow.md", CLEAN.replace("A clean post", "A slow post").replace("2026-10-01", "2026-10-04"));
+  // A save already on its way, and a check that takes its time.
+  let releaseSave;
+  const saveHeld = new Promise((done) => { releaseSave = done; });
+  await page.route("**/admin/api/document?**", async (route) => { if (route.request().method() === "PUT") await saveHeld; await route.continue(); });
+  await page.route("**/admin/api/document", async (route) => { if (route.request().method() === "PUT") await saveHeld; await route.continue(); });
+  let releaseCheck;
+  const checkHeld = new Promise((done) => { releaseCheck = done; });
+  await page.route("**/admin/api/preview", async (route) => { await checkHeld; await route.continue(); });
+  await page.getByRole("textbox", { name: "Title", exact: true }).fill("A slow post, changed");
+  let saveSeen;
+  const saveSent = new Promise((done) => { saveSeen = done; });
+  page.on("request", (request) => { if (request.method() === "PUT" && request.url().includes("/api/document")) saveSeen(); });
+  await saveSent; // the draft saves by itself a moment after the change, and is held on its way
+  const button = page.locator(".studio-write-bar > action-button").last().locator("button");
+  await button.click();
+  await expect(button).toHaveAttribute("aria-busy", "true", { timeout: 500 });
+  await expect(button).toHaveText(/Checking…/, { timeout: 500 });
+  await expect(status(page)).toHaveText("Checking your post…", { timeout: 500 });
+  releaseSave();
+  // Still checking while the check runs, whatever else repaints Write.
+  await page.waitForTimeout(300);
+  await expect(status(page)).toHaveText("Checking your post…");
+  await expect(button).toHaveAttribute("aria-busy", "true");
+  releaseCheck();
+  await expect.poll(() => fileOf("2026-10-04-slow.md")).not.toContain("draft: true");
+  await expect(status(page)).toContainText("Published");
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 test("keyboard only: the side card opens it, Escape closes it and focus goes back", async ({ page }) => {
   await openPost(page, "2026-10-03-pie.md", MESSY.replace("Apple cake", "Pear pie").replace("2026-10-02", "2026-10-03"));
   const side = page.getByRole("button", { name: /^Before you publish:/ });

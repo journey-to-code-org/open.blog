@@ -41,7 +41,7 @@ By `studio-ux`, 2026-11-13. Sources: `studio-ux`, `studio-architecture`, `retire
 Write (#/write/<path>), draft or new
   | [Publish] / [Schedule]  (first time this post goes up)
   v
-Checking (button busy "Checking…", status "Checking your post…", at most 8 s)
+Checking (from the moment it is pressed, even while a save is on its way: button busy "Checking…", status "Checking your post…", until the checks answer, at most 8 s)
   |-- nothing to show (or no signal) ------------------> save as today (R4 job check, R5 schedule)
   |-- suggestions / blocks / research post / couldn't check
   v
