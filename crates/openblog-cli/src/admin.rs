@@ -102,6 +102,7 @@ mod reading_paths;
 mod seasonal;
 mod seasons;
 mod social;
+pub(crate) mod studio_words;
 mod theme_draft;
 mod trade_checklist;
 mod voice;
@@ -205,6 +206,8 @@ pub struct AppState {
     pub workspace_enabled: bool,
     /// This server starts again from its image when it restarts (ADR 0353).
     pub host_resets_files: bool,
+    /// The host's file of Studio's words (`OPENBLOG_STUDIO_WORDS_PATH`), read on every `meta`.
+    pub studio_words_path: Option<PathBuf>,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
     /// Last analytics backup to the branch, as a unix time.
@@ -287,6 +290,7 @@ impl AppState {
             workspace: Mutex::new(None),
             workspace_enabled: false,
             host_resets_files: crate::workspace::host_resets_files(),
+            studio_words_path: studio_words::host_path_from_env(),
             assistant_operations: AssistantConcurrency::new(2),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
@@ -4532,6 +4536,9 @@ fn meta(state: &AppState) -> Response {
                 json!(false)
             },
             "now": clock::now().rfc3339(),
+            // Studio's words for this site (docs/studio-words.md): what's in effect and, for the
+            // developer only, what was dropped and why.
+            "studioWords": studio_words::for_meta(&config, state.studio_words_path.as_deref()),
         }),
     )
 }
@@ -19629,6 +19636,7 @@ mod tests {
     mod social_routes;
     mod studio_job_routes;
     mod studio_routes;
+    mod studio_words_routes;
     mod theme_draft_routes;
     mod trade_checklist_routes;
     mod voice_assistant_routes;

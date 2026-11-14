@@ -1376,6 +1376,7 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
     // did.
     let readiness = readiness::report_of_all(root, &site);
     let checked = check_site(root, &mut site, &themes, readiness.applies, json);
+    let words = check_studio_words(&site.config, json);
     let refused = (readiness.blocking() > 0).then(|| {
         format!(
             "research readiness: {} finding(s) refuse the next build{}",
@@ -1384,7 +1385,11 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
         )
     });
     if json {
-        let error = checked.as_ref().err().or(refused.as_ref());
+        let error = checked
+            .as_ref()
+            .err()
+            .or(words.as_ref().err())
+            .or(refused.as_ref());
         print!("{}", check_envelope(Some(&readiness), error));
     } else {
         // After the checks above, whether or not they stopped early, so the
@@ -1392,7 +1397,42 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
         eprint!("{}", readiness.text_after(checked.is_err()));
     }
     checked?;
+    words?;
     refused.map_or(Ok(()), Err)
+}
+
+/// Studio's words (docs/studio-words.md): each change in `studio.words` and in the host's file
+/// (`OPENBLOG_STUDIO_WORDS_PATH`) that Studio drops, said the way Studio's Home details say it. A
+/// problem in the site's own file fails the check; one in the host's file is a warning.
+fn check_studio_words(
+    config: &openblog_core::config::SiteConfig,
+    quiet: bool,
+) -> Result<(), String> {
+    use admin::studio_words;
+    let host_path = studio_words::host_path_from_env();
+    let (host, host_problems) = studio_words::read_host_file(host_path.as_deref());
+    let (_, problems) = studio_words::resolve(
+        &config.studio.words,
+        &host,
+        host_problems,
+        &config.author.name,
+    );
+    let mut site_problems = 0;
+    for problem in &problems {
+        if problem.place == "site" {
+            site_problems += 1;
+            if !quiet {
+                eprintln!("error: studio words: {}", problem.words);
+            }
+        } else if !quiet {
+            eprintln!("warning: studio words (server file): {}", problem.words);
+        }
+    }
+    match site_problems {
+        0 => Ok(()),
+        1 => Err("studio.words in openblog.json has 1 problem; Studio shows its own words there instead.".into()),
+        n => Err(format!("studio.words in openblog.json has {n} problems; Studio shows its own words there instead.")),
+    }
 }
 
 /// The JSON `check --json` prints: the report's own view, or an empty one

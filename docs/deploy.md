@@ -508,6 +508,17 @@ A site repository can pin both to one engine commit and build them itself, as
 `railway/` folder and `scripts/setup-railway.sh`. Limit each service's rebuilds to its own files
 (Railway's watch paths), or every save in the editor redeploys the editor.
 
+## Studio's words for every site on a host
+
+A host serving many sites can set Studio's words once for all of them: point each site's server at
+the same JSON file with `OPENBLOG_STUDIO_WORDS_PATH` (for example
+`OPENBLOG_STUDIO_WORDS_PATH=/etc/openblog/studio-words.json` holding
+`{ "vars": { "helper": "Hillside Web Care" } }`). The variable is read when the server starts; the
+file is read each time Studio opens, so editing it needs no restart. A site's own `studio.words`
+wins per key. A file that can't be read, isn't JSON, is over 64 KiB or has more than 500 entries
+is set aside as a whole and reported in Studio's Home details and by `openblog check` as a
+warning. See [Studio's words](studio-words.md).
+
 ## A theme that is not in the repository
 
 Builds in CI only see committed files. If a theme is kept out of the repository

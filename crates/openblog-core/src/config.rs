@@ -183,6 +183,35 @@ pub struct SiteConfig {
     /// sidebar. Off and omitted from the written file until stated.
     #[serde(skip_serializing_if = "crate::docs_section::DocsConfig::is_default")]
     pub docs: crate::docs_section::DocsConfig,
+    /// Studio's words for this site (docs/studio-words.md): who helps her, what she calls the
+    /// blog, her name, and sentences by word id. Omitted from the written file while empty.
+    #[serde(skip_serializing_if = "StudioConfig::is_default")]
+    pub studio: StudioConfig,
+}
+
+/// The `studio` object of `openblog.json`. Only `words` for now.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct StudioConfig {
+    pub words: StudioWords,
+}
+
+impl StudioConfig {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// A site's changes to Studio's words: variables (`helper`, `product`, `owner`) and sentences by
+/// word id. Values stay JSON here, so a wrong type is a problem the server reports and drops, not
+/// a configuration that fails to load; the server checks each entry against Studio's catalog.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct StudioWords {
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub vars: BTreeMap<String, serde_json::Value>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub text: BTreeMap<String, serde_json::Value>,
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -631,6 +660,7 @@ impl Default for SiteConfig {
             quote: crate::quote::QuoteConfig::default(),
             reviews: crate::proof::ReviewsConfig::default(),
             docs: crate::docs_section::DocsConfig::default(),
+            studio: StudioConfig::default(),
         }
     }
 }
@@ -1837,6 +1867,29 @@ mod captcha_tests {
         .unwrap();
         assert!(!off.engagement.captcha.enabled());
     }
+    #[test]
+    fn studio_words_load_as_json_and_refuse_unknown_keys() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","studio":{"words":{"vars":{"helper":"Mikey","owner":3},"text":{"cards.signOff":"Love, {owner}"}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(config.studio.words.vars["helper"], "Mikey");
+        // A wrong type is kept for the server to report, not a load failure.
+        assert_eq!(config.studio.words.vars["owner"], 3);
+        assert_eq!(config.studio.words.text["cards.signOff"], "Love, {owner}");
+        assert!(SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","studio":{"wrods":{}}}"#
+        )
+        .is_err());
+        assert!(SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","studio":{"words":{"var":{}}}}"#
+        )
+        .is_err());
+        // Absent, it is not written back.
+        let plain = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev"}"#).unwrap();
+        assert!(!serde_json::to_string(&plain).unwrap().contains("studio"));
+    }
+
     /// Every top-level `openblog.json` key has to be mentioned in `docs/configuration.md`, which
     /// the documentation site publishes as the configuration reference. A key counts as
     /// documented when the page shows it as `"key"` in the example or names it in backticks.
