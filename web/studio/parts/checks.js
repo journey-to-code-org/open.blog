@@ -53,6 +53,16 @@ function insecure(url) {
 }
 
 /**
+ * A picture description that is a file name or a placeholder, the engine's `placeholder_alt`
+ * (openblog-core accessibility.rs) word for word, so the two never disagree.
+ */
+export function looksLikeFileName(alt) {
+  const normalized = String(alt || "").trim().toLowerCase();
+  return ["image", "photo", "picture", "placeholder", "alt text", "todo"].includes(normalized)
+    || [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg"].some((extension) => normalized.endsWith(extension));
+}
+
+/**
  * Check Markdown. Each issue is `{ id, rule, message, start, end, fix }` where `start`/`end` is the place the
  * message is about and `fix`, when there is one, is `{ kind, label, ... }` (see `applyFix`).
  * Options: `html` also reports HTML tags (for Markdown a post accepts), `headingBase` is the level of the page's
@@ -81,7 +91,9 @@ export function checkMarkdown(markdown, options = {}) {
     const url = match[3];
     const labelStart = match.index + match[1].length + 1;
     const labelEnd = labelStart + label.length;
-    if (image && !label.trim()) {
+    if (image && looksLikeFileName(label)) {
+      add("picture-file-name", "A picture's description looks like a file name. Say what it shows instead.", match.index, match.index + match[0].length, fix("describe", "Describe it", [labelStart, labelEnd], { prompt: "What does the picture show?" }));
+    } else if (image && !label.trim()) {
       add("picture-description", "A picture has no description. People who cannot see it will not know what it shows.", match.index, match.index + match[0].length, fix("describe", "Describe it", [labelStart, labelEnd], { prompt: "What does the picture show?" }));
     } else if (!image && !label.trim()) {
       add("empty-link", "A link has no words, so it cannot be read or tapped by name.", match.index, match.index + match[0].length, fix("describe", "Add words", [labelStart, labelEnd], { prompt: "What should the link say?" }));
@@ -210,6 +222,7 @@ export function checkWords(issue, text = "") {
   const words = String(text).slice(issue?.start || 0, issue?.end || 0).match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu)?.length || 0;
   switch (issue?.rule) {
     case "picture-description": return { words: say("check.photoDescription"), fix: say("check.describeIt") };
+    case "picture-file-name": return { words: say("ready.photoFileName", { name: label }), fix: say("check.describeIt") };
     case "empty-link": return { words: say("check.emptyLink"), fix: say("check.addWords") };
     case "vague-link": return { words: say("check.vagueLink", { words: label }), fix: say("check.changeWords") };
     case "empty-address": return { words: say("check.emptyAddress"), fix: "" };

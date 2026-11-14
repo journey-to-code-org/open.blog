@@ -123,3 +123,17 @@ test("each suggestion is said in her words, with the fix's label, and HTML only 
   assert.equal(suggestionsHeading(1), "1 suggestion for your words");
   assert.equal(suggestionsHeading(3), "3 suggestions for your words");
 });
+
+test("a photo whose description looks like a file name gets Describe it, as the engine's rule does (R7)", () => {
+  const text = "Before.\n\n![IMG_2041.jpg](/images/pie.jpg)\n\nAfter.\n";
+  const [issue] = checkMarkdown(text).filter((i) => i.rule === "picture-file-name");
+  assert.ok(issue, "listed");
+  assert.equal(issue.fix.kind, "describe");
+  const said = checkWords(issue, text);
+  assert.equal(said.words, "A photo's description looks like a file name (“IMG_2041.jpg”). Say what it shows instead.");
+  assert.equal(said.fix, "Describe it");
+  assert.equal(applyFix(text, issue, "Pie cooling on the sill").markdown, "Before.\n\n![Pie cooling on the sill](/images/pie.jpg)\n\nAfter.\n");
+  for (const alt of ["photo", "Picture", "DSC_0001.JPEG", "cake.webp"]) assert.ok(checkMarkdown(`![${alt}](/a.jpg)`).some((i) => i.rule === "picture-file-name"), alt);
+  for (const alt of ["Pie cooling", "A jpg of pie, then cake"]) assert.ok(!checkMarkdown(`![${alt}](/a.jpg)`).some((i) => i.rule === "picture-file-name"), alt);
+  assert.ok(!checkMarkdown("[IMG_2041.jpg](/a.jpg)").some((i) => i.rule === "picture-file-name"), "a link is not a photo");
+});

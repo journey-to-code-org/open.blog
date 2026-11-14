@@ -30,7 +30,7 @@ export function createSuggestions({ boxes, did, reveal, body = () => "", checkEv
       const fix = h("action-button", { variant: "secondary", size: "sm", onClick: () => {
         if (issue.fix.kind !== "describe") { apply(box, issue, ""); return; }
         // A describe-fix asks for her words first.
-        const answer = h("text-field", { label: issue.rule === "picture-description" ? say("form.describe") : say("form.linkWords") });
+        const answer = h("text-field", { label: ["picture-description", "picture-file-name"].includes(issue.rule) ? say("form.describe") : say("form.linkWords") });
         const use_ = h("action-button", { size: "sm", onClick: () => { if (String(answer.value || "").trim()) apply(box, issue, String(answer.value)); else answer.error = say("form.fillThis"); } }, say("check.useWords"));
         fix.replaceWith(h("span", { class: "studio-suggestion-fix" }, answer, use_));
         requestAnimationFrame(() => answer.querySelector("input")?.focus());
@@ -106,7 +106,7 @@ export function createSuggestions({ boxes, did, reveal, body = () => "", checkEv
         return {
           rule: issue.rule, line: lineOf(box, issue.start), words: said.words, details,
           fixLabel: said.fix && issue.fix ? said.fix : "", describe: issue.fix?.kind === "describe",
-          describeLabel: issue.rule === "picture-description" ? say("form.describe") : say("form.linkWords"),
+          describeLabel: ["picture-description", "picture-file-name"].includes(issue.rule) ? say("form.describe") : say("form.linkWords"),
           show: () => reveal(box, issue.start, issue.end),
           fix: (answer = "") => apply(box, issue, answer),
         };

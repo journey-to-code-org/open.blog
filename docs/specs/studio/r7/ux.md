@@ -232,7 +232,7 @@ One list, in post order, merged by `mergeSuggestions(local, server)`: R6 suggest
 | `image-alt-review` on `coverAlt` | Needs review | Suggestion `cover-description`: "Your cover photo has no description, so people who can't see it won't know what it shows." | **Describe it** (inline "Describe the picture", writes `coverAlt`) |
 | `image-alt-placeholder` on `coverAlt` | Potential | "Your cover photo's description looks like a file name (“IMG_2041.jpg”). Say what it shows instead." | **Describe it** |
 | `image-alt-review` in the words | Needs review | R6 `picture-description` | R6 |
-| `image-alt-placeholder` in the words / before-and-after | Potential | "A photo's description looks like a file name (“IMG_2041.jpg”). Say what it shows instead." | **Describe it** |
+| `image-alt-placeholder` in the words / before-and-after | Potential | "A photo's description looks like a file name (“IMG_2041.jpg”). Say what it shows instead." | **Describe it** (R6's own rule `picture-file-name`, the engine's `placeholder_alt` word for word, so it is listed once, under the words too; a before-and-after card's picture keeps **Show me**) |
 | `link-name-empty` | Detected | R6 `empty-link` | R6 |
 | `link-purpose-review` | Potential | R6 `vague-link` (with the server's words in quotes) | R6 |
 | `heading-level-skip` | Potential | R6 `heading-skip` | R6 |

@@ -13,7 +13,7 @@ const LONG_TITLE = 65;
 /** R6's rule each engine accessibility code repeats, when it does: the engine's is then dropped. */
 export const SAME_AS_R6 = Object.freeze({
   "image-alt-review": "picture-description",
-  "image-alt-placeholder": "picture-description",
+  "image-alt-placeholder": "picture-file-name",
   "link-name-empty": "empty-link",
   "link-purpose-review": "vague-link",
   "heading-level-skip": "heading-skip",
@@ -47,7 +47,7 @@ export function a11yWords(code, finding = {}, context = {}) {
   const place = { field: field || undefined, line: context.line ?? undefined };
   if (field === "coverAlt" && code === "image-alt-review") return { list: "suggestion", id: "cover-description", words: say("ready.coverDescription"), fix: "describe-cover", ...place };
   if (field === "coverAlt" && code === "image-alt-placeholder") return { list: "suggestion", id: "cover-file-name", words: say("ready.coverFileName", { name: context.coverAlt || "" }), fix: "describe-cover", ...place };
-  if (code === "image-alt-placeholder") return { list: "suggestion", id: "photo-file-name", words: say("ready.photoFileName", { name: altIn(context.lineText) }), fix: "show", same: "picture-description", ...place };
+  if (code === "image-alt-placeholder") return { list: "suggestion", id: "photo-file-name", words: say("ready.photoFileName", { name: altIn(context.lineText) }), fix: "show", same: "picture-file-name", ...place };
   if (SAME_AS_R6[code] === "html" || code === "document-language-missing" || finding?.scope === "site") return { list: "details", id: code, words: String(finding?.message || ""), fix: null, ...place };
   if (SAME_AS_R6[code]) return { list: "suggestion", id: code, words: say("ready.hardToUse"), fix: "show", same: SAME_AS_R6[code], ...place };
   if (code === "table-structure-review") return { list: "worth", id: code, words: say("ready.table"), fix: "show", ...place };

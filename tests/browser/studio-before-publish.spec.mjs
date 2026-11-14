@@ -186,6 +186,21 @@ test("Checking: from the moment Publish is pressed, the button is busy and the s
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
+test("a photo described with a file name gets Describe it, listed once, and the words go in", async ({ page }) => {
+  const file = "2026-10-05-plum.md";
+  await openPost(page, file, "---\ntitle: Plum tart\ndate: 2026-10-05\ndraft: true\ntags: [baking]\ndescription: A summary that says what the post is about in a sentence or two.\n---\n\nThe tart.\n\n![IMG_2041.jpg](/images/plum.jpg)\n");
+  await page.getByRole("button", { name: /^Before you publish:/ }).click();
+  await expect(ready(page)).toBeVisible();
+  const list = ready(page).locator(".studio-ready-suggestions");
+  const item = list.locator("li").filter({ hasText: "looks like a file name (“IMG_2041.jpg”)" });
+  await expect(item).toHaveCount(1, { timeout: 15000 });
+  await item.getByRole("button", { name: "Describe it" }).click();
+  await item.getByRole("textbox").fill("Plum tart on a blue plate");
+  await item.getByRole("button", { name: "Use these words" }).click();
+  await expect(ready(page).locator(".studio-ready-did")).toContainText("Fixed.");
+  await expect.poll(() => fileOf(file), { timeout: 10000 }).toContain("![Plum tart on a blue plate](/images/plum.jpg)");
+});
+
 test("keyboard only: the side card opens it, Escape closes it and focus goes back", async ({ page }) => {
   await openPost(page, "2026-10-03-pie.md", MESSY.replace("Apple cake", "Pear pie").replace("2026-10-02", "2026-10-03"));
   const side = page.getByRole("button", { name: /^Before you publish:/ });
