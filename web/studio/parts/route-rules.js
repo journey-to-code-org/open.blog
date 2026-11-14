@@ -105,6 +105,41 @@ export function readGpx(source) {
 }
 
 /**
+ * The segments with `trim` metres left off each end of the whole route: the first `trim` metres
+ * walked from the start and the last `trim` metres walked to the finish, across segments (a short
+ * first or last segment goes whole and the walk goes on into the next), and then every point
+ * closer than `trim` in a straight line to where the route started or finished, so a later
+ * segment that begins back at home, or a loop that passes it, is left off there too. A segment is
+ * split where points are left off (no line is drawn across the gap) and only parts of two or more
+ * points stay. Pure; the points keep their positions for the caller to draw.
+ */
+export function trimEnds(segments, trim) {
+  const metres = Math.max(0, Number(trim) || 0);
+  const all = segments.filter((segment) => segment.length);
+  if (!metres || !all.length) return all.map((segment) => [...segment]).filter((segment) => segment.length >= 2);
+  const start = all[0][0];
+  const finish = all.at(-1).at(-1);
+  // Distance walked from the start to each point, within segments (a recording gap adds nothing,
+  // so the walk leaves off at least as much as it says).
+  const walked = [];
+  let total = 0;
+  for (const segment of all) {
+    walked.push(segment.map((point, index) => (total += index ? distanceMeters(segment[index - 1], point) : 0)));
+  }
+  const out = [];
+  all.forEach((segment, s) => {
+    let part = [];
+    segment.forEach((point, i) => {
+      const far = walked[s][i] >= metres && total - walked[s][i] >= metres && distanceMeters(start, point) >= metres && distanceMeters(finish, point) >= metres;
+      if (far) part.push(point);
+      else if (part.length) { out.push(part); part = []; }
+    });
+    if (part.length) out.push(part);
+  });
+  return out.filter((part) => part.length >= 2);
+}
+
+/**
  * Read a route file and return only what may be published: distance, climb, time, and the
  * drawings for `privacy`. Throws RouteError. `trimMeters` is left off each end when trimmed.
  */
@@ -123,20 +158,8 @@ export function analyzeGpx(source, { privacy = "hidden", trimMeters = DEFAULT_TR
   let kept = segments.map((segment) => [...segment]);
   if (privacy === "trimmed") {
     if (distanceMeters_ <= 2 * trim) throw new RouteError("too-short-to-trim", { metres: Math.round(distanceMeters_), trim });
-    kept = kept.map((segment, segmentIndex) => {
-      const distances = segmentDistances[segmentIndex];
-      let start = 0;
-      if (segmentIndex === 0) {
-        let walked = 0;
-        while (start < distances.length && walked < trim) walked += distances[start++];
-      }
-      let end = segment.length - 1;
-      if (segmentIndex === segments.length - 1) {
-        let walked = 0;
-        while (end > start && walked < trim) walked += distances[--end];
-      }
-      return segment.slice(start, end + 1);
-    });
+    kept = trimEnds(segments, trim);
+    if (!kept.length) throw new RouteError("too-short-to-trim", { metres: Math.round(distanceMeters_), trim });
   }
   let offset = 0;
   const elevationSegments = segments.map((segment, segmentIndex) => {

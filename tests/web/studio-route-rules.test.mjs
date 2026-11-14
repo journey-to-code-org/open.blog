@@ -7,7 +7,7 @@ import test from "node:test";
 
 import {
   DEFAULT_TRIM, ROUTE_KEYS, RouteError, TRIM_CHOICES, analyzeGpx, cleanGpx, durationWords, gpxProblem, looksLikeAddress, numbersWords,
-  readGpx, routeChange, routeLine, routeValues, saveRouteProblem, sendProblem, trimOptions, tripSuggestions,
+  readGpx, routeChange, routeLine, routeValues, saveRouteProblem, sendProblem, trimEnds, trimOptions, tripSuggestions,
 } from "../../web/studio/parts/route-rules.js";
 import { HER_BANNED } from "../../web/studio/parts/plain-words.js";
 import { catalog } from "../../web/studio/parts/words.js";
@@ -197,4 +197,63 @@ test("no her-layer route word uses a word she never sees", () => {
     assert.doesNotMatch(entry.text, HER_BANNED, id);
     assert.doesNotMatch(entry.text, /\b(GPX|track|coordinates|latitude|upload|token|OpenGraph|WCAG|SEO|score|readiness|audit|finding|acknowledge|validator|fingerprint|Studio|Admin)\b/i, id);
   }
+});
+
+// QA (R7 blocker): the ends are left off across segments, not only inside the first and last one.
+/** A segment north of (lat, lon) of `metres`, one point every `step` metres. */
+function segment(lat, lon, metres, step = 25) {
+  const out = [];
+  for (let m = 0; m <= metres; m += step) out.push(`<trkpt lat="${(lat + m / 111_195).toFixed(7)}" lon="${lon}"/>`);
+  return `<trkseg>${out.join("")}</trkseg>`;
+}
+const gpxOf = (...segments) => `<gpx version="1.1"><trk>${segments.join("")}</trk></gpx>`;
+function metresBetween(a, b) {
+  const r = (d) => (d * Math.PI) / 180;
+  const s = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lon - a.lon) / 2) ** 2;
+  return 12_742_000 * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+const HOME = { lat: 42, lon: -72 };
+const nearest = (kept, place) => Math.min(...kept.flat().map((point) => metresBetween(point, place)));
+
+test("QA repro: a 50 m segment, then a 3 km segment starting at home, keeps nothing within 500 m of home", () => {
+  const source = gpxOf(segment(42, -72, 50), segment(42, -72, 3000));
+  const kept = trimEnds(readGpx(source), 500);
+  assert.ok(nearest(kept, HOME) >= 500, `a kept point is ${Math.round(nearest(kept, HOME))} m from home`);
+  assert.ok(kept.every((part) => part.length >= 2), "a segment left with one point is dropped");
+  const a = analyzeGpx(source, { privacy: "trimmed" });
+  assert.equal(a.keptPointCount, kept.flat().length);
+});
+
+test("the end is left off across segments too, and whole short segments go", () => {
+  // 3 km going north, then two short segments that come back and end at home.
+  const end = { lat: 42 + 3000 / 111_195, lon: -72 };
+  const source = gpxOf(segment(42, -71.9, 3000), segment(end.lat - 40 / 111_195, -72, 40), segment(end.lat - 30 / 111_195, -72, 30, 10));
+  const kept = trimEnds(readGpx(source), 500);
+  const last = readGpx(source).at(-1).at(-1);
+  assert.ok(nearest(kept, last) >= 500, `a kept point is ${Math.round(nearest(kept, last))} m from the end`);
+  assert.equal(kept.length, 1, "the two short segments at the end are dropped whole");
+});
+
+test("a later segment that starts back at home is left off near home as well", () => {
+  // 600 m away (more than the trim along the way), then a new segment that starts at home again.
+  const source = gpxOf(segment(42, -72, 600), segment(42, -72, 3000));
+  const kept = trimEnds(readGpx(source), 500);
+  assert.ok(nearest(kept, HOME) >= 500, `a kept point is ${Math.round(nearest(kept, HOME))} m from home`);
+});
+
+test("every trim choice keeps every drawn point at least that far from both ends", () => {
+  const source = gpxOf(segment(42, -72, 120), segment(42.0005, -72, 80), segment(42, -72.01, 5000), segment(42.05, -72, 60));
+  const segments = readGpx(source);
+  const start = segments[0][0];
+  const finish = segments.at(-1).at(-1);
+  for (const trim of TRIM_CHOICES) {
+    const kept = trimEnds(segments, trim);
+    assert.ok(nearest(kept, start) >= trim && nearest(kept, finish) >= trim, `trim ${trim}`);
+  }
+});
+
+test("a route that never gets far enough from its ends is too short to trim", () => {
+  // A loop of small out-and-backs around home: long enough in total, never 500 m away.
+  const source = gpxOf(...Array.from({ length: 8 }, () => segment(42, -72, 300)));
+  assert.equal(code(() => analyzeGpx(source, { privacy: "trimmed" })), "too-short-to-trim");
 });

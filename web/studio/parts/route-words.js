@@ -16,7 +16,7 @@ export const WORDS = {
   "route.hidden": { text: "Don't show it", layer: "her" },
   "route.hiddenHelp": { text: "Readers see the numbers only.", layer: "her" },
   "route.trimmed": { text: "The shape, without where it starts and ends", layer: "her" },
-  "route.trimmedHelp": { text: "A drawing with no map and no place names. The first and last part are left off.", layer: "her" },
+  "route.trimmedHelp": { text: "A drawing with no map and no place names. The first and last part are left off, and so is anywhere it comes close to where it starts or ends.", layer: "her" },
   "route.approximate": { text: "The whole shape", layer: "her" },
   "route.approximateHelp": { text: "A drawing with no map and no place names. Someone who knows the area may recognise where it starts.", layer: "her" },
   "route.exact": { text: "The exact route", layer: "her" },

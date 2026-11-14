@@ -4041,9 +4041,9 @@
       "vars": []
     },
     "route.trimmedHelp": {
-      "text": "A drawing with no map and no place names. The first and last part are left off.",
+      "text": "A drawing with no map and no place names. The first and last part are left off, and so is anywhere it comes close to where it starts or ends.",
       "layer": "her",
-      "max": 158,
+      "max": 240,
       "vars": []
     },
     "route.undone": {

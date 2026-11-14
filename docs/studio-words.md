@@ -744,7 +744,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `route.trim2000` | her | About 2 km (1.2 mi) | none | 40 |
 | `route.trim500` | her | About 500 m (1,600 ft) | none | 44 |
 | `route.trimmed` | her | The shape, without where it starts and ends | none | 86 |
-| `route.trimmedHelp` | her | A drawing with no map and no place names. The first and last part are left off. | none | 158 |
+| `route.trimmedHelp` | her | A drawing with no map and no place names. The first and last part are left off, and so is anywhere it comes close to where it starts or ends. | none | 240 |
 | `route.undone` | her | Undone. Your route is as it was. | none | 64 |
 | `route.unreadable` | her | That file couldn't be opened. Choose it again. | none | 92 |
 | `route.unsafe` | her | That file has something in it besides a route, so it wasn't read. | none | 130 |
