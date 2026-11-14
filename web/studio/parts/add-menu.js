@@ -179,7 +179,20 @@ export async function createAddMenu(ctx) {
     const banner = h("div", { "aria-live": "polite" });
     const footerStatus = h("p", { class: "studio-help", role: "status" });
     const changing = Boolean(block || link || heading || quote);
-    const opened = buildForm(kind, {
+    // A form may report a change while it is built (a photo picker filled in from the card), so
+    // everything its onChange reads exists before buildForm runs.
+    let opened = null;
+    let linked = [];
+    function clearProblems() {
+      for (const control of linked) control.error = "";
+      linked = [];
+      banner.replaceChildren();
+    }
+    function drawSketch() {
+      if (!opened) return;
+      try { live.replaceChildren(sketch(opened.sketch())); } catch { live.replaceChildren(); }
+    }
+    opened = buildForm(kind, {
       api: ctx.api, meta: ctx.meta, block, link, heading, quote, file, maxBytes: ctx.meta.capture?.maxPhotoBytes || 0,
       selection: link ? "" : box?.selection?.() || "",
       posts: () => (ctx.context.posts?.list?.() || ctx.api.get("documents?kind=posts").then((r) => r.items || []))
@@ -194,16 +207,7 @@ export async function createAddMenu(ctx) {
     const preview = h("action-button", { variant: "secondary", onClick: (e) => seeIt(e.currentTarget) }, say("form.seeIt"));
     const addIt = h("action-button", { class: "studio-add-it", onClick: () => commit() }, changing ? say("form.done") : say("form.addIt"));
     const takeOff = link ? h("action-button", { variant: "secondary", onClick: () => unlink() }, say("form.takeLinkOff")) : null;
-    function drawSketch() {
-      try { live.replaceChildren(sketch(opened.sketch())); } catch { live.replaceChildren(); }
-    }
     drawSketch();
-    let linked = [];
-    function clearProblems() {
-      for (const control of linked) control.error = "";
-      linked = [];
-      banner.replaceChildren();
-    }
     const content = [
       changing ? null : back,
       h("p", { class: "studio-help studio-add-where", text: changing ? "" : where() }),

@@ -202,6 +202,35 @@ test("Change with nothing changed writes nothing; a real change writes the same 
   await expect.poll(() => fileOf("change")).toContain("\n\nhttps://youtu.be/aaaaaaaaaaa\n\n```quiz");
 });
 
+test("Change on a photo card: a new description goes in with Done", async ({ page }) => {
+  await openPost(page, "photo-change", EVERYTHING);
+  await page.getByRole("group", { name: "Photo: Pie cooling" }).getByRole("button", { name: /^Change/ }).click();
+  const form = page.getByRole("dialog", { name: "Photo" });
+  const describe = form.getByRole("textbox", { name: "Describe the photo" });
+  await expect(describe).toHaveValue("Pie cooling");
+  await describe.fill("Pie on the sill");
+  await form.getByRole("button", { name: "Done" }).click();
+  await expect(form).toBeHidden();
+  await expect(page.getByRole("group", { name: "Photo: Pie on the sill" })).toBeVisible();
+  await page.keyboard.press("Control+s");
+  await expect.poll(() => fileOf("photo-change")).toBe(EVERYTHING.replace("![Pie cooling]", "![Pie on the sill]"));
+});
+
+test("Change on Before and after photos: a new description goes in with Done", async ({ page }) => {
+  const pair = "```compare\nbefore: /images/uploads/2026/before.png\nbefore-alt: The dough\nafter: /images/uploads/2026/after.png\nafter-alt: The loaf\n```";
+  await openPost(page, "pair-change", `${front("Pair")}\nWords.\n\n${pair}\n`);
+  await page.getByRole("group", { name: /^Before and after photos/ }).getByRole("button", { name: /^Change/ }).click();
+  const form = page.getByRole("dialog", { name: "Before and after photos" });
+  const describe = form.getByRole("group", { name: "After" }).getByRole("textbox", { name: "Describe it" });
+  await expect(describe).toHaveValue("The loaf");
+  await describe.fill("The loaf, baked");
+  await form.getByRole("button", { name: "Done" }).click();
+  await expect(form).toBeHidden();
+  await expect(page.locator(".studio-piece-status").first()).toHaveText("Before and after photos changed.");
+  await page.keyboard.press("Control+s");
+  await expect.poll(() => fileOf("pair-change")).toContain("after-alt: The loaf, baked\n```");
+});
+
 test("Add something puts a tip where she was, says where first, and Undo takes it back", async ({ page }) => {
   const text = `${front("Adding")}\nMy mother made this every year.\n\nPreheat the oven.\n`;
   await openPost(page, "adding", text);
