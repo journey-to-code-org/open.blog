@@ -191,7 +191,11 @@ test("Details show the worker's, the page's and the server's release, and Clear 
     await (await caches.open(name)).put("/admin/studio/__marker", new Response("x"));
     await (await caches.open("not-studio")).put("/elsewhere", new Response("y"));
   });
+  // Clear saved pages deletes the copies and then reloads: wait for that reload to finish, or the
+  // checks below can pass on the old page and the next evaluate runs into the navigation.
+  const reloaded = page.waitForEvent("load");
   await details.getByRole("button", { name: "Clear saved pages" }).click();
+  await reloaded;
   await expect(page.getByRole("heading", { name: "New job", level: 2 })).toBeVisible();
   await expect.poll(() => page.evaluate(async () => Boolean(await caches.match("/admin/studio/__marker")))).toBe(false);
   expect(await page.evaluate(async () => Boolean(await caches.match("/elsewhere", { cacheName: "not-studio" })))).toBe(true);
