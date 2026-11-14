@@ -173,7 +173,7 @@ test("Publish checks the job first: problems in her words with Go to it, a draft
   await expect(banner).toContainText("Before this job goes on your site (3)");
   await expect(banner).toContainText("“Gutter guards” isn't one of your services yet. Choose one, or add it under Services first.");
   await expect(banner).toContainText("Add the town.");
-  await expect(banner).toContainText("Just the state's name or its two letters.");
+  await expect(banner).toContainText("Add the state.");
   await banner.getByRole("button", { name: "Go to it: Add the town." }).click();
   await expect(about(page).getByRole("textbox", { name: "Town" })).toBeFocused();
   await expect(about(page).getByRole("textbox", { name: "Town" })).toHaveAttribute("aria-describedby", /studio-job-problem-/);
