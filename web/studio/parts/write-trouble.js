@@ -30,7 +30,7 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
     doc.state = theirState;
     if (choice === "mine") {
       markDirty();
-      await saveNow(theirState === "draft" ? "draft" : "publish", { force: true });
+      await saveNow(theirState === "draft" ? "draft" : "publish", { force: true, checked: true });
       return;
     }
     banner.replaceChildren(mineAside(mine, copy));
@@ -92,7 +92,7 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
     doc.creditEtag = theirs.creditEtag ?? null;
     if (choice === "theirs") about.takeCredits(theirs);
     markDirty();
-    await saveNow(intent, { force: true, quiet: intent !== "publish" });
+    await saveNow(intent, { force: true, quiet: intent !== "publish", checked: true });
   }
 
   // The server's own sentences, for the person who set up the site.
@@ -125,10 +125,10 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
     } else if (said.where === "status") {
       // Said once: the status says it isn't saved, the banner says why and offers Try again.
       banner.replaceChildren(h("alert-banner", { variant: "warning" }, said.words,
-        h("action-button", { variant: "secondary", onClick: () => saveNow(intent) }, "Try again")));
+        h("action-button", { variant: "secondary", onClick: () => saveNow(intent, { checked: true }) }, "Try again")));
     } else if (said.where === "signin") {
       banner.replaceChildren(h("alert-banner", { variant: "danger", heading: intent === "publish" ? "Not published" : "Not saved" },
-        "Sign in again to save. Your words are kept.", h("action-button", { variant: "secondary", onClick: () => saveNow(intent) }, "Sign in and try again")));
+        "Sign in again to save. Your words are kept.", h("action-button", { variant: "secondary", onClick: () => saveNow(intent, { checked: true }) }, "Sign in and try again")));
     } else {
       banner.replaceChildren(h("alert-banner", { variant: "danger", heading: intent === "publish" ? "Not published" : "Not saved" },
         said.words || error.message, serverDetail(error)));

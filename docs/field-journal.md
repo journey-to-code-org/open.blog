@@ -30,10 +30,25 @@ not fetch or imply historical weather data.
 
 ## Import a GPX track
 
-Open **Field Review** in Admin Studio (`Alt+5`), choose the privacy mode, and select a GPX
-file. Analysis happens locally in the browser. OpenBlog calculates distance, positive
-elevation gain, elapsed time when timestamps exist, a normalized route outline, and an
-elevation profile. No map, weather, or tracking service is contacted.
+In Studio, open **Your route** from a trip post (Write's More, Find, About this post › This trip
+outdoors, or Before you publish › Your trip) and choose the route file your hiking app or watch
+exported (in AllTrails, Strava or Gaia GPS, use Export or Share and choose GPX). The file is read on
+the phone or computer, with regular expressions and no document parsing, and never leaves it
+unless you choose the exact route. Studio calculates distance, positive elevation gain (only when
+the file has heights), elapsed time (only when it has times), a normalized route outline, and an
+elevation profile. No map, weather, or tracking service is contacted. Every new file starts as
+**Don't show it**; the drawings under **What readers see** are made from exactly the values that
+will be written.
+
+| Studio's choice | Mode | Published route data |
+| --- | --- | --- |
+| **Don't show it** (default) | `hidden` | The numbers only. The climb drawing is left out unless **Show a drawing of the climb** is switched on. |
+| **The shape, without where it starts and ends** | `trimmed` | A drawing with the first and last part left off: 500 m at each end by default (200 m, 1 km or 2 km; any number of metres in the details). A route shorter than both ends together is refused. |
+| **The whole shape** | `approximate` | A drawing of the whole route, ends included (it was "Just the area" in R5; someone who knows the area may recognise where it starts). |
+| **The exact route** | `exact` | Asks once, then the downloadable file: cleaned on the phone to track points with position and height (times, waypoints, names and the app's details removed), cleaned again by the server, and sent with the next save, draft or not. It becomes public only when the post is live (below), so a post with the exact route can be scheduled. |
+
+In the old Admin, open **Field Review** (`Alt+5`), choose the privacy mode, and select a GPX
+file; its modes are these:
 
 | Mode | Published route data |
 | --- | --- |

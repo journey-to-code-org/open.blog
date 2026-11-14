@@ -15,7 +15,6 @@ import { afterSave, fieldsForSave, layoutOf, nothingToSave, sendPost } from "../
 import { howItGoesOut, servedHere, siteLink } from "../parts/publish.js";
 import { keptBanner, postDetails } from "../parts/post-details.js";
 import { createBodyHost } from "../parts/body-host.js";
-import { adviceFor } from "../parts/recipe-advice.js";
 import { showPreview } from "../parts/preview.js";
 import { cantOpen, createTrouble, unreadable } from "../parts/write-trouble.js";
 import { collectionOptions, crumbs, isMacLike, writeCommands, writePage } from "../parts/write-page.js";
@@ -29,6 +28,8 @@ import { fileSlug } from "../parts/about-rules.js";
 import { portabilitySourceSelection } from "../parts/portable-rules.js";
 import { createAddMenu } from "../parts/add-menu.js";
 import { createSuggestions } from "../parts/write-suggestions.js";
+import { createWriteReady } from "../parts/write-ready.js";
+import { saveRouteProblem } from "../parts/route-rules.js";
 import { say } from "../parts/words.js";
 
 const AUTOSAVE_MS = 3000;
@@ -60,7 +61,8 @@ export async function createWrite(context, arg, route = {}) {
   let goesOut = null;
   let writeUpReady = false;
   let picker = null;
-  let sheetOnOpen = null; // ?sheet=about|copy: opened once the screen has focus
+  let sheetOnOpen = null; // ?sheet=about|copy|ready|youtube|route: opened once the screen has focus
+  let sheets = null; // R7: Before you publish, Words for YouTube and Your route
 
   // ---- the page
   // R6: Add something, and the cards in every box of her words.
@@ -78,7 +80,8 @@ export async function createWrite(context, arg, route = {}) {
     afterPiece: (box) => { if (isJob()) body.redrawPhotos(box); },
   });
   body = await createBodyHost({ onChange: () => changed(), pieces: addMenu.host });
-  suggestions = createSuggestions({ boxes: () => body.boxes(), did: (box, before, words) => addMenu.did(box, before, words), reveal: (box, start, end) => box.reveal(start, end) });
+  suggestions = createSuggestions({ boxes: () => body.boxes(), did: (box, before, words) => addMenu.did(box, before, words), reveal: (box, start, end) => box.reveal(start, end),
+    body: () => body.text(), checkEverything: () => sheets?.open("ready", suggestions.element) });
   const { trail, status, banner, title, numbersHost, day, time, tags, cover, collection, saveLabel, save, primaryLabel, primary, look, more, whenHelp, about: aboutButton, aboutLine, element } = writePage({
     meta, body, on: { save: () => saveNow("draft"), publish: () => saveNow("publish"), preview: (opener) => preview(opener), command: (id) => run(id), about: (opener) => about.open({ from: opener }) },
   });
@@ -89,6 +92,20 @@ export async function createWrite(context, arg, route = {}) {
       excerpt: doc.excerpt, cover: form.cover, coverAlt: form.coverAlt, collection: collectionName(), body: bodyText(), dirty, facts: facts() }),
     onChange: () => changed(), onKind: (from, to, options) => switchKind(from, to, options), addParts: () => addRecipeParts(),
     goPeople: (options) => goPeople(options), setCoverAddress: (url) => picker?.setAddress(url),
+    // R7: the real shared card, and the route and YouTube sheets from This trip outdoors and This video.
+    realCard: async () => (await api.post("preview", { kind: "posts", path: doc.path, fields: fieldsFor(read(), "publish"), body: bodyText(), only: "checks" }))?.social || null,
+    routeChoice: async (to) => {
+      // Less shows at once (the shape and the route file go; the climb drawing stays as it is);
+      // more needs the route file, in Your route.
+      if (to === "hidden") { about.setValue("routeShape", ""); about.setValue("route", ""); return true; }
+      about.close();
+      sheets?.open("route", aboutButton);
+      toast(say("route.chooseAgain"));
+      return false;
+    },
+    openRoute: () => { about.close(); sheets?.open("route", aboutButton); },
+    openYoutube: () => { about.close(); sheets?.open("youtube", aboutButton); },
+    goCover: () => picker?.focus(),
   });
   // A recipe's numbers and a job's About this job (R4), under the title.
   const kindPart = createKindParts({ api, meta, doc, host: numbersHost, body, banner, title, say: (words) => { status.textContent = words; }, changed: () => changed(),
@@ -98,6 +115,13 @@ export async function createWrite(context, arg, route = {}) {
   const copySheet = await createCopyPost({ api, post: () => copyPost(), goTo: (range) => goToRange(range) });
   element.append(about.element, copySheet.element);
   body.element.after(suggestions.element);
+  sheets = await createWriteReady({
+    api, meta, doc, about, body, title, tags, suggestions, primary, aboutButton, status, paint: () => paint(),
+    read: () => read(), fieldsFor: (values, intent) => fieldsFor(values, intent), picker: () => picker, job: () => job(), kind: () => kind(),
+    isDirty: () => dirty, snapshot: () => snapshot(), changed: () => changed(), verb: () => primaryLabel.textContent,
+    publish: () => saveNow("publish", { checked: true }), recipeGoTo: (target) => goTo(target), signedOut: () => api.onSignedOut?.(),
+  });
+  aboutButton.after(sheets.card);
   about.onLine((line) => { aboutLine.textContent = line; aboutButton.label = `About this post: ${line}`; });
 
   // ---- reading the form
@@ -143,6 +167,7 @@ export async function createWrite(context, arg, route = {}) {
     if (doc.path && doc.state === "published" && !dirty && isJob()) status.append(" · ", h("a", { href: shareJobHref(), text: "Share this job" }));
     aboutLine.textContent = about.line({ unsent: isPublished() && dirty });
     aboutButton.label = `About this post: ${aboutLine.textContent}`;
+    sheets?.changed();
     when.paint();
     about.paintFooter();
     more.items = menuItems();
@@ -153,7 +178,8 @@ export async function createWrite(context, arg, route = {}) {
     saveLabel: saveLabel.textContent, narrow: narrow(), mac: isMacLike(), job: isJob(), writeUp: writeUpReady,
   });
   const shareJobHref = () => `#/sharing/job/${encodeURIComponent(doc.path)}?from=write`;
-  const menuItems = () => [{ value: "add", label: say("add.more") }, ...commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label }))];
+  const menuItems = () => [{ value: "add", label: say("add.more") }, ...commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })),
+    ...(sheets ? sheets.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : [])];
 
   /** What kind of post changed (or was undone): the boxes follow, and her words stay hers. */
   async function switchKind(from, to, options) {
@@ -197,16 +223,17 @@ export async function createWrite(context, arg, route = {}) {
     await showPreview(api, {
       path: doc.path, title: values.title.trim(),
       fields: fieldsFor(values, "draft"), body: withBody ?? values.body, opener,
-      problemsView: isRecipePost() ? recipeProblems : null,
+      problemsView: (close) => lookFirst(close),
     });
   }
 
-  function recipeProblems(problems, close) {
-    const items = problems.map((problem) => {
-      const { words: said, target } = adviceFor(problem);
-      return h("li", {}, said, " ", target ? h("action-button", { variant: "link", onClick: () => { close(); requestAnimationFrame(() => goTo(target)); } }, "Go to it") : null);
-    });
-    return h("alert-banner", { variant: "warning", heading: `A few things to check (${problems.length})` }, h("ul", { class: "studio-checks" }, items));
+  // R7: one place per fact. The recipe's problems are in Before you publish; See how it looks
+  // says how many the last check found, with a way there.
+  function lookFirst(close) {
+    const count = sheets?.lastSuggestions() || 0;
+    if (!count) return null;
+    return h("p", { class: "studio-row" }, h("span", { text: count === 1 ? say("ready.previewOne") : say("ready.previewMany", { count: String(count) }) }), " ",
+      h("action-button", { variant: "link", onClick: () => { close(); requestAnimationFrame(() => sheets.open("ready", look)); } }, say("ready.showThem")));
   }
 
   function goTo(target) {
@@ -265,7 +292,7 @@ export async function createWrite(context, arg, route = {}) {
     return true;
   }
 
-  async function saveNow(intent, { quiet = false, force = false } = {}) {
+  async function saveNow(intent, { quiet = false, force = false, checked = false } = {}) {
     clearTimeout(timer);
     timer = 0;
     if (saving) await saving.catch(() => {});
@@ -288,13 +315,10 @@ export async function createWrite(context, arg, route = {}) {
     if (checksStop(quiet)) { pending = false; paint(); return false; }
     const fields = fieldsFor(values, intent);
     const button = intent === "publish" ? primary : save;
-    // A job is checked the way the build checks it before it goes up; a draft always saves.
-    if (intent === "publish" && job() && !(await job().check(fields))) {
-      pending = false;
-      paint();
-      if (!quiet) banner.querySelector("alert-banner")?.scrollIntoView?.({ block: "nearest" });
-      return false;
-    }
+    // R7: Publish runs the checks first; the sheet opens instead when it has something to show
+    // (a job the build would refuse, suggestions on a first Publish, a research post). A draft
+    // always saves, and Publish from inside the sheet publishes.
+    if (intent === "publish" && !checked && !quiet && !(await sheets.gate(button))) { pending = false; paint(); return false; }
     // A post on her site moved to a later day comes off until then: asked once.
     if (intent === "publish" && doc.state === "published" && isFutureOnServer(fields.date || "", now()) && !(await when.confirmMove())) { pending = false; paint(); return false; }
     const wasLive = doc.state === "published";
@@ -303,12 +327,13 @@ export async function createWrite(context, arg, route = {}) {
     const aboutSent = about.extra();
     if (!quiet) button.loading = true;
     saving = (async () => {
-      const reply = await sendPost(api, doc, fields, values.body, { credits });
+      const reply = await sendPost(api, doc, fields, values.body, { credits, track: sheets.track() });
       if (!doc.path) {
         context.replaceRoute(`#/write/${encodeURIComponent(reply.path)}`);
         kept.clear(keptKey);
       }
       Object.assign(doc, afterSave(doc, reply, fields));
+      sheets.saved(reply);
       if (doc.state === "published") doc.wasPublished = true;
       if (!doc.slug) doc.slug = fileSlug(doc.path);
       about.saved({ fields: doc.fields, sentCredits: credits, sent: values.aboutKept.about });
@@ -339,6 +364,14 @@ export async function createWrite(context, arg, route = {}) {
       return true;
     } catch (error) {
       pending = false;
+      // R7: a route file that didn't go with the post says so, with a way back to Your route.
+      const route = saveRouteProblem(error);
+      if (route) {
+        notSaved = route;
+        goToProblem = () => sheets.open("route", primary);
+        paint();
+        return false;
+      }
       await trouble.problem(error, intent, quiet);
       return false;
     } finally {
@@ -387,6 +420,7 @@ export async function createWrite(context, arg, route = {}) {
   async function run(value) {
     const opener = more.querySelector("button") || aboutButton;
     if (value === "suggestions") { suggestions.open(); return; }
+    if (sheets.run(value, more.querySelector("button") || aboutButton)) return;
     if (addMenu.command(value)) return;
     if (value === "save") saveCommand();
     if (value === "publish") saveNow("publish");
@@ -436,6 +470,7 @@ export async function createWrite(context, arg, route = {}) {
   });
   const leave = async () => {
     if (!(await addMenu.leave())) return false;
+    if (!(await sheets.leave())) return false;
     clearTimeout(timer);
     timer = 0;
     return leaveNow();
@@ -520,7 +555,7 @@ export async function createWrite(context, arg, route = {}) {
     // ?sheet=about|copy (an old Settings link, Find, People's Back): opened once Write has focus.
     const query = route.query || {};
     if (query.add && query.sheet) about.addPerson(String(query.add));
-    if (query.sheet === "about" || (query.sheet === "copy" && doc.path)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
+    if (query.sheet === "about" || (query.sheet === "copy" && doc.path) || sheets.isSheet(query.sheet)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
     // ?add=1 (the list) or ?add=<kind> (that form), when it isn't a person for Who wrote it.
     else if (query.add && !query.sheet) sheetOnOpen = { add: String(query.add) };
     paint();
@@ -554,6 +589,7 @@ export async function createWrite(context, arg, route = {}) {
         const { sheet, group } = sheetOnOpen;
         sheetOnOpen = null;
         if (sheet === "copy") copySheet.open({ from: more, closed: plainAddress });
+        else if (sheets.isSheet(sheet)) { plainAddress(); sheets.open(sheet, sheets.card); }
         else about.open({ group, from: aboutButton, closed: plainAddress });
       }
     },
@@ -561,6 +597,7 @@ export async function createWrite(context, arg, route = {}) {
       return [
         ...commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post", hint: c.hint })),
         ...addMenu.palette().map((c) => ({ ...c, group: "This post" })),
+        ...sheets.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })),
         { id: "suggestions", label: say("add.findSuggestions"), group: "This post" },
       ];
     },

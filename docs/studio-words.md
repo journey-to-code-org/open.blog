@@ -537,8 +537,222 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `paste.plainMac` | her | ⌘⇧V pastes plain words. | none | 46 |
 | `photo.altHelp` | her | For people who can't see it, like “A red front door with a wreath”. | none | 134 |
 | `quote.hostChose` | her | {helper} chose this, so it can't be changed here. | `{helper}` | 98 |
+| `ready.addCover` | her | Add a cover photo | none | 40 |
+| `ready.addTag` | her | Add a tag | none | 40 |
+| `ready.also` | her | Also {count} suggestions. | `{count}` | 50 |
+| `ready.alsoOne` | her | Also 1 suggestion. | none | 40 |
+| `ready.blockedNote` | her | Fix the things under Needs fixing first. Your words are kept. | none | 122 |
+| `ready.blocks` | her | {count} things need fixing before your post can go up. | `{count}` | 108 |
+| `ready.build` | her | Something in this post stops {product} from building it. Tell {helper}. | `{product}` `{helper}` | 142 |
+| `ready.cardCaption` | her | How your post looks when it's shared | none | 72 |
+| `ready.cardFirstLines` | her | The first lines of your post. | none | 58 |
+| `ready.cardHelp` | her | What Facebook, text messages and other apps show when someone shares it. | none | 144 |
+| `ready.cardLongSummary` | her | Google usually shows about 160 letters; this summary has {count}. The rest may be cut off. | `{count}` | 180 |
+| `ready.cardName` | her | {name}: {line} | `{name}` `{line}` | 40 |
+| `ready.cardNoPicture` | her | No picture. Add a cover photo and shared links show it. | none | 110 |
+| `ready.cardNoSummary` | her | No summary, so your first lines are used. | none | 82 |
+| `ready.cardPictureFailed` | her | The picture couldn't be shown here. It may still show when shared. | none | 132 |
+| `ready.cardRough` | her | Roughly how it looks. The real card shows when you have a signal. | none | 130 |
+| `ready.cardRoughFixFirst` | her | Roughly how it looks. The real card shows once the things above are fixed. | none | 148 |
+| `ready.cardRoughHeading` | her | Roughly how it looks in a search or a shared link | none | 98 |
+| `ready.cardYourTitle` | her | Your title | none | 40 |
+| `ready.changeSummary` | her | Change the summary | none | 40 |
+| `ready.checkAgain` | her | Check again | none | 40 |
+| `ready.checkEverything` | her | Check everything before you publish | none | 70 |
+| `ready.checking` | her | Checking your post… | none | 40 |
+| `ready.checkingAgain` | her | Checking again… | none | 40 |
+| `ready.checkingShort` | her | Checking… | none | 40 |
+| `ready.close` | her | Close | none | 40 |
+| `ready.coverDescription` | her | Your cover photo has no description, so people who can't see it won't know what it shows. | none | 178 |
+| `ready.coverFileName` | her | Your cover photo's description looks like a file name (“{name}”). Say what it shows instead. | `{name}` | 184 |
+| `ready.describeCoverLabel` | her | Describe it: cover photo | none | 48 |
+| `ready.describeIt` | her | Describe it | none | 40 |
+| `ready.describeLabel` | her | Describe the picture | none | 40 |
+| `ready.detailsA11y` | details | Accessibility | none | 40 |
+| `ready.detailsBuild` | details | Build notes | none | 40 |
+| `ready.detailsCard` | details | Shared card | none | 40 |
+| `ready.detailsCardRows` | details | OpenGraph type: {type}. X card: {card}. Image: {image}. Page: {url}. | `{type}` `{card}` `{image}` `{url}` | 136 |
+| `ready.detailsCertify` | details | These checks find some source problems. They don't certify WCAG conformance. | none | 152 |
+| `ready.detailsPage` | details | Check on the page yourself | none | 52 |
+| `ready.detailsPageList` | details | Colour contrast, visible focus, keyboard order, zoom and reflow to 320 px, reduced motion, target size, layouts at phone and desktop widths, and things from other sites. | none | 240 |
+| `ready.detailsRaw` | details | Server sentences | none | 40 |
+| `ready.detailsRecipe` | details | Recipe codes | none | 40 |
+| `ready.detailsSearch` | details | Search hints | none | 40 |
+| `ready.fillThis` | her | Write a few words first. | none | 48 |
+| `ready.fixFirst` | her | Fix this first. | none | 40 |
+| `ready.fixed` | her | Fixed. | none | 40 |
+| `ready.goToIt` | her | Go to it | none | 40 |
+| `ready.hardToUse` | her | Something here may be hard for some readers to use. | none | 102 |
+| `ready.hintDepth` | details | {count} words; 150 or more when the topic needs explaining. | `{count}` | 118 |
+| `ready.hintNoOpening` | details | No opening paragraph before the first heading or list. | none | 108 |
+| `ready.hintOpening` | details | The opening paragraph is {count} letters; 40–350 answers the question early. | `{count}` | 152 |
+| `ready.hintSections` | details | No section headings (## or ###). | none | 64 |
+| `ready.hintSource` | details | No link to an outside source. | none | 58 |
+| `ready.hintSubtitle` | details | Line under the title is {count} letters; 160 or fewer reads as one line. | `{count}` | 144 |
+| `ready.hintSummary` | details | Summary is {count} letters; 50–180 is usual. | `{count}` | 88 |
+| `ready.keepWriting` | her | Keep writing | none | 40 |
+| `ready.lineBlockOne` | her | 1 thing needs fixing | none | 40 |
+| `ready.lineBlocks` | her | {count} things need fixing | `{count}` | 52 |
+| `ready.lineChanged` | her | Changed since the last check | none | 56 |
+| `ready.lineMany` | her | {count} suggestions | `{count}` | 40 |
+| `ready.lineNotChecked` | her | Not checked yet | none | 40 |
+| `ready.lineNothing` | her | Nothing to check | none | 40 |
+| `ready.lineOne` | her | 1 suggestion | none | 40 |
+| `ready.lineSoFar` | her | {count} suggestions so far | `{count}` | 52 |
+| `ready.lineSoFarOne` | her | 1 suggestion so far | none | 40 |
+| `ready.media` | her | Your video or sound: if there's talking, captions or a written version help people who can't hear it. | none | 202 |
+| `ready.needsFixing` | her | Needs fixing first ({count}) | `{count}` | 56 |
+| `ready.noName` | her | {product} doesn't have your name yet, so the post doesn't say who wrote it. Tell {helper}. | `{product}` `{helper}` | 180 |
+| `ready.noSignal` | her | Waiting for a signal to check the rest. What's here was checked on this {phone}. | `{phone}` | 160 |
+| `ready.noTags` | her | No tags yet. A tag puts it with your other posts on the same topic. | none | 134 |
+| `ready.nothing` | her | Nothing to check. | none | 40 |
+| `ready.nothingHelp` | her | Checks catch some things, not everything. | none | 82 |
+| `ready.oneBlock` | her | 1 thing needs fixing before your post can go up. | none | 96 |
+| `ready.oneSuggestion` | her | 1 suggestion. It doesn't stop you publishing. | none | 90 |
+| `ready.open` | her | Before you publish… | none | 40 |
+| `ready.openPublished` | her | Check this post… | none | 40 |
+| `ready.otherSite` | her | Something from another website is shown in your post. Check that it works without a mouse. | none | 180 |
+| `ready.photoFileName` | her | A photo's description looks like a file name (“{name}”). Say what it shows instead. | `{name}` | 166 |
+| `ready.previewMany` | her | {count} things to look at before you publish. | `{count}` | 90 |
+| `ready.previewOne` | her | 1 thing to look at before you publish. | none | 76 |
+| `ready.sheet` | her | Before you publish | none | 40 |
+| `ready.sheetPublished` | her | Check this post | none | 40 |
+| `ready.showMe` | her | Show me | none | 40 |
+| `ready.showMeLabel` | her | Show me: {what} | `{what}` | 40 |
+| `ready.showThem` | her | Show them | none | 40 |
+| `ready.someDidntRun` | her | Some checks didn't run, so this list may be missing things. You can still publish. | none | 164 |
+| `ready.suggestions` | her | {count} suggestions. None of them stop you publishing. | `{count}` | 108 |
+| `ready.suggestionsHeading` | her | Suggestions ({count}) | `{count}` | 42 |
+| `ready.table` | her | Your table: check that the top row names each column, like Weight and Time. | none | 150 |
+| `ready.titleLong` | her | Google shows about 65 letters of a title; this one has {count}. The rest may be cut off. | `{count}` | 176 |
+| `ready.tooLong` | her | This post is too long to check all at once. You can still publish. | none | 132 |
+| `ready.undone` | her | Undone. | none | 40 |
+| `ready.useWords` | her | Use these words | none | 40 |
+| `ready.whenShared` | her | When it's shared | none | 40 |
+| `ready.worth` | her | Worth a look ({count}) | `{count}` | 44 |
+| `ready.writeSummary` | her | Write a summary | none | 40 |
+| `ready.yourTrip` | her | Your trip | none | 40 |
+| `ready.yourVideo` | her | Your video | none | 40 |
 | `recipe.askAddName` | her | This recipe doesn't say who wrote it. Ask {helper} to add your name. | `{helper}` | 136 |
 | `recipe.notesHeading` | her | Notes | none | 60 |
+| `recipe.numberedStep` | her | Step {n} starts with its own number. Take it out; {product} numbers the steps. | `{n}` `{product}` | 156 |
+| `review.blocking` | her | Needs fixing before it can go up ({count}) | `{count}` | 84 |
+| `review.blockingHelp` | her | {product} won't publish the post with these. They can't be marked as checked. | `{product}` | 154 |
+| `review.cantRead` | her | {product} couldn't read this post to check it. Tell {helper}. | `{product}` `{helper}` | 122 |
+| `review.countChecked` | her | {count} ({checked} checked) | `{count}` `{checked}` | 54 |
+| `review.counts` | her | Found by a check: {detected}. Might need a look: {potential}. Only you can check: {review}. | `{detected}` `{potential}` `{review}` | 182 |
+| `review.detailsMarksFile` | details | Marks file: {file}. {error} | `{file}` `{error}` | 54 |
+| `review.detected` | her | Found by a check ({count}) | `{count}` | 52 |
+| `review.detectedHelp` | her | Fix them, or mark them as checked if nothing needs to change. They don't stop you publishing. | none | 186 |
+| `review.didMark` | her | Marked as checked. It stays on the list and in the count. | none | 114 |
+| `review.didUnmark` | her | No longer marked as checked. | none | 56 |
+| `review.didntRun` | her | The research checks didn't run. A research post waits until they do. | none | 136 |
+| `review.gateRefuses` | her | This can't be marked as checked: {product} refuses it, so it has to be fixed. | `{product}` | 154 |
+| `review.gateRefusesWhenPublished` | her | This can't be marked as checked: once the post is published, {product} refuses this citation, so fix it instead. Until then it only warns. | `{product}` | 240 |
+| `review.gateWithholds` | her | This can't be marked as checked. The comparison stays off your site until you look at the place and approve it again. | none | 234 |
+| `review.heading` | her | Research checks | none | 40 |
+| `review.intro` | her | These are prompts from your research checks, not verdicts: nothing here says the post is true or complete. Only what {product} refuses stops publishing. | `{product}` | 240 |
+| `review.mark` | her | Mark as checked | none | 40 |
+| `review.markChanged` | her | This list was changed on another computer. Here it is again; mark it again if you still need to. | none | 192 |
+| `review.markLabel` | her | Mark as checked: {what} | `{what}` | 46 |
+| `review.markNoSignal` | her | Waiting for a signal. Nothing was marked. | none | 82 |
+| `review.markRefused` | her | That wasn't marked. Nothing changed. | none | 72 |
+| `review.marked` | her | You marked this as checked. It stays on the list until it changes. | none | 132 |
+| `review.markedStale` | her | You marked an earlier version of this as checked; it has changed since. Mark it again if it still needs no change. | none | 228 |
+| `review.marksUnreadable` | her | Marks can't be read right now, so none are shown or saved. Tell {helper}. | `{helper}` | 146 |
+| `review.needsReview` | her | Only you can check these ({count}) | `{count}` | 68 |
+| `review.needsReviewHelp` | her | Check them against your sources. They don't stop you publishing. | none | 128 |
+| `review.next` | her | Next: | none | 40 |
+| `review.notChecked` | her | Not checked: {reason} | `{reason}` | 42 |
+| `review.nothing` | her | The research checks found nothing for this post. Checks can't see everything. | none | 154 |
+| `review.placeField` | her | In {field} | `{field}` | 40 |
+| `review.placeLine` | her | In your words, near “{words}” | `{words}` | 58 |
+| `review.placeNotes` | her | In your research notes | none | 44 |
+| `review.placeOtherPost` | her | In another of your posts | none | 48 |
+| `review.placeResearch` | her | In your research: {thing} {id} | `{thing}` `{id}` | 60 |
+| `review.placeWords` | her | In your words | none | 40 |
+| `review.potential` | her | Might need a look ({count}) | `{count}` | 54 |
+| `review.potentialHelp` | her | They don't stop you publishing. | none | 62 |
+| `review.showMe` | her | Show me | none | 40 |
+| `review.showMeLabel` | her | Show me: {what} | `{what}` | 40 |
+| `review.waiting` | her | Waiting for the research checks. | none | 64 |
+| `route.addRoute` | her | Add your route | none | 40 |
+| `route.added` | her | Route added. {line} | `{line}` | 40 |
+| `route.approximate` | her | The whole shape | none | 40 |
+| `route.approximateHelp` | her | A drawing with no map and no place names. Someone who knows the area may recognise where it starts. | none | 198 |
+| `route.appsHelp` | her | In AllTrails, Strava or Gaia GPS, use Export or Share and choose GPX. | none | 138 |
+| `route.askExact` | her | Show the exact route? | none | 42 |
+| `route.askExactText` | her | Anyone can download it and see exactly where you started and finished. Times and your app's details are taken out first. | none | 240 |
+| `route.askUse` | her | Use this route? | none | 40 |
+| `route.askUseText` | her | You chose a file but didn't add it. | none | 70 |
+| `route.back` | her | Before you publish | none | 40 |
+| `route.canDownload` | her | Readers can download it. | none | 48 |
+| `route.changeRoute` | her | Change your route | none | 40 |
+| `route.changed` | her | Changed. {line} | `{line}` | 40 |
+| `route.choose` | her | Choose a route file | none | 40 |
+| `route.chooseAgain` | her | Choose your route file again to show it this way. | none | 98 |
+| `route.climb` | her | Show a drawing of the climb | none | 54 |
+| `route.comesOff` | her | Your route file comes off your site when you press Update. | none | 116 |
+| `route.detailsCleaned` | details | Cleaned file: {size}, {points} track points with position and height. Removed: times, waypoints, routes, names, descriptions, links, the app's details and extensions. | `{size}` `{points}` | 240 |
+| `route.detailsKeys` | details | Keys written: {keys} | `{keys}` | 40 |
+| `route.detailsPoints` | details | Points read: {points}; kept for the drawing: {kept}; track parts: {parts}. | `{points}` `{kept}` `{parts}` | 148 |
+| `route.detailsStaged` | details | Staged: {token} | `{token}` | 40 |
+| `route.detailsTrim` | details | Metres left off each end | none | 48 |
+| `route.detailsTrimHelp` | details | Any number of metres, 0 to 5000. | none | 64 |
+| `route.detailsWhere` | details | Held privately in .openblog/pending-tracks/held/ while the post is a draft or scheduled; at {address} once it is live. Staged copies are kept privately for up to a day. | `{address}` | 240 |
+| `route.didntGo` | her | Your route file didn't go with the post. Choose it again in Your route. | none | 142 |
+| `route.done` | her | Done | none | 40 |
+| `route.drawClimb` | her | Drawing of the climb | none | 40 |
+| `route.drawTrimmed` | her | Drawing of your route as readers see it, without the first and last {trim} | `{trim}` | 148 |
+| `route.drawWhole` | her | Drawing of your route as readers see it, the whole route | none | 112 |
+| `route.exact` | her | The exact route | none | 40 |
+| `route.exactHelp` | her | Readers can download your route file and see exactly where you started and finished. | none | 168 |
+| `route.expired` | her | Your route file waited too long. Choose it again in Your route, then save. | none | 148 |
+| `route.from` | her | From “{name}”: | `{name}` | 40 |
+| `route.hidden` | her | Don't show it | none | 40 |
+| `route.hiddenHelp` | her | Readers see the numbers only. | none | 58 |
+| `route.howMuch` | her | How much of the route readers see | none | 66 |
+| `route.keepHidden` | her | Keep it hidden | none | 40 |
+| `route.leaveOff` | her | Leave off at each end | none | 42 |
+| `route.leaveOut` | her | Leave it out | none | 40 |
+| `route.lede` | her | Choose the route file from your hiking app or watch. It stays on this {phone}: only the numbers and a drawing go to {product}. | `{phone}` `{product}` | 240 |
+| `route.lineExact` | her | Route: readers can download your exact route. | none | 90 |
+| `route.lineHidden` | her | Route: readers see the numbers only. | none | 72 |
+| `route.lineNone` | her | No route added. | none | 40 |
+| `route.lineTrimmed` | her | Route: readers see a drawing without the first and last {trim}. | `{trim}` | 126 |
+| `route.lineTrimmedPlain` | her | Route: readers see a drawing without the first and last part. | none | 122 |
+| `route.lineWhole` | her | Route: readers see a drawing of the whole route. | none | 96 |
+| `route.neverMind` | her | Never mind | none | 40 |
+| `route.noDrawing` | her | No drawing. | none | 40 |
+| `route.noRoute` | her | That file has no route in it. Some apps save only places; choose the one with your route. | none | 178 |
+| `route.noTimes` | her | No times in the file, so How long stays as you wrote it. | none | 112 |
+| `route.notGpx` | her | That isn't a route file. Choose the file that ends in .gpx. | none | 118 |
+| `route.numbersOnly` | her | Readers see the numbers only: {numbers}. | `{numbers}` | 80 |
+| `route.replaces` | her | This replaces the distance, climb and time in your post. | none | 112 |
+| `route.sendEmpty` | her | That route file is empty. Choose it again. | none | 84 |
+| `route.sendTooBig` | her | That route file is too big for {product} ({max} MB at most). Show less of the route, or ask {helper}. | `{product}` `{max}` `{helper}` | 202 |
+| `route.sendUnreadable` | her | {product} couldn't read that route file. Choose another, or show less of the route. | `{product}` | 166 |
+| `route.sheet` | her | Your route | none | 40 |
+| `route.showIt` | her | Show it | none | 40 |
+| `route.takeOff` | her | Take the route off | none | 40 |
+| `route.takenOff` | her | Route taken off. | none | 40 |
+| `route.tooBig` | her | That route file is too big ({size}). Files up to 10 MB work. | `{size}` | 120 |
+| `route.tooManyPoints` | her | That route has too many points to read here. Shorten it in your hiking app, or share a simpler copy. | none | 200 |
+| `route.tooShort` | her | Your route is too short to leave that much off each end. Choose less, or don't show it. | none | 174 |
+| `route.trim1000` | her | About 1 km (0.6 mi) | none | 40 |
+| `route.trim200` | her | About 200 m (650 ft) | none | 40 |
+| `route.trim2000` | her | About 2 km (1.2 mi) | none | 40 |
+| `route.trim500` | her | About 500 m (1,600 ft) | none | 44 |
+| `route.trimmed` | her | The shape, without where it starts and ends | none | 86 |
+| `route.trimmedHelp` | her | A drawing with no map and no place names. The first and last part are left off. | none | 158 |
+| `route.undone` | her | Undone. Your route is as it was. | none | 64 |
+| `route.unreadable` | her | That file couldn't be opened. Choose it again. | none | 92 |
+| `route.unsafe` | her | That file has something in it besides a route, so it wasn't read. | none | 130 |
+| `route.use` | her | Use this route | none | 40 |
+| `route.useIt` | her | Use it | none | 40 |
+| `route.waitsPrivate` | her | Your route file waits, private, until your post is on your site. | none | 128 |
+| `route.waitsSignal` | her | Waiting for a signal to send your route file. The numbers and drawing are in. It sends while this page is open. | none | 222 |
+| `route.whatReadersSee` | her | What readers see | none | 40 |
 | `share.tellOrSkip` | her | Tell {helper}, or choose Don't share it. | `{helper}` | 80 |
 | `social.canTurnOn` | her | {helper} can turn it on. Your site works the same without it. | `{helper}` | 122 |
 | `social.facebookNoPage` | her | Facebook didn't show any Page you can post to. You need to run the Page. If you do, ask {helper} to add you to its Facebook app. | `{helper}` | 240 |
@@ -575,7 +789,57 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `thing.tip` | her | Tip | none | 40 |
 | `thing.video` | her | Video | none | 40 |
 | `thing.watchOut` | her | Watch out | none | 40 |
+| `trip.areaAddress` | her | “{area}” looks like a street address. Use an area name instead, like a park or a mountain range. | `{area}` | 192 |
+| `trip.exactRoute` | her | Readers can see exactly where you started and finished. Make sure it doesn't show a home, a campsite, or a place where rare plants or animals live. | none | 240 |
+| `trip.noArea` | her | Add where you went, as an area that's safe to share, like a park or a mountain range. | none | 170 |
+| `trip.noConditions` | her | Add the conditions: weather, trail, water, what you saw. | none | 112 |
+| `trip.noDistance` | her | Add your route, or fill in the distance, so readers know how far you went. | none | 148 |
+| `trip.showLess` | her | Show less of the route | none | 44 |
 | `undo.askHelp` | her | There's a new {one} with that name now. Ask {helper} to help bring this one back. | `{one}` `{helper}` | 162 |
 | `undo.mayFind` | her | “{title}” can't come back from here. {helper} may still find it. | `{title}` `{helper}` | 128 |
 | `write.collectionHelp` | her | Put it with others, like all your posts on one topic. | none | 106 |
+| `youtube.change` | her | Change | none | 40 |
+| `youtube.chapterHelp` | her | Chapters are lines in your words that start with a time, like “0:00 Getting started”. The first starts at 0:00, and YouTube needs at least three, each 10 seconds or longer. | none | 240 |
+| `youtube.chapters` | her | {count} chapters, from the lines in your words that start with a time. | `{count}` | 140 |
+| `youtube.copyDescription` | her | Copy description | none | 40 |
+| `youtube.copyFind` | her | Copy the YouTube description | none | 56 |
+| `youtube.copyRefused` | her | Select the words and copy them. | none | 62 |
+| `youtube.copyTags` | her | Copy tags | none | 40 |
+| `youtube.copyTitle` | her | Copy title | none | 40 |
+| `youtube.description` | her | Description | none | 40 |
+| `youtube.descriptionBrackets` | her | YouTube doesn't allow < or > in the description. Take them out of the summary, the chapters or the AI note. | none | 214 |
+| `youtube.descriptionCopied` | her | Description copied. Paste it into YouTube. | none | 84 |
+| `youtube.descriptionTooLong` | her | These words are too long for YouTube, which takes 5,000 at most, counting the chapters. Shorten the summary. | none | 216 |
+| `youtube.detailsCli` | details | Check or write out the full release with `openblog video {slug}`; uploading is in docs/video-production.md §Upload an approved release. | `{slug}` | 240 |
+| `youtube.detailsLocal` | details | Worked out on this page with the engine's rules; the server's copy shows when there is a signal. | none | 192 |
+| `youtube.detailsStatus` | details | Release: {status} · digest {digest} | `{status}` `{digest}` | 70 |
+| `youtube.done` | her | Done | none | 40 |
+| `youtube.durationMissing` | her | Add how long the video is, so the last chapter can be checked. | none | 124 |
+| `youtube.firstNotZero` | her | The first chapter has to start at 0:00. | none | 78 |
+| `youtube.get` | her | Get the words for YouTube | none | 50 |
+| `youtube.keepPrivate` | her | Keep the video private on YouTube until this post is on your site. | none | 132 |
+| `youtube.lede` | her | Paste these into YouTube when you put your video up. Nothing here changes your video. | none | 170 |
+| `youtube.noAddress` | her | Save your post to add its address. | none | 68 |
+| `youtube.noChapters` | her | No chapters. That's fine; YouTube shows the video without them. | none | 126 |
+| `youtube.oneChapter` | her | 1 chapter, from the line in your words that starts with a time. | none | 126 |
+| `youtube.other` | her | YouTube may not take these words as they are. | none | 90 |
+| `youtube.outOfOrder` | her | The chapters' times have to go up, one after the other. | none | 110 |
+| `youtube.problems` | her | Before YouTube will take these ({count}) | `{count}` | 80 |
+| `youtube.rowProblem` | her | Words for YouTube: 1 thing YouTube won't take | none | 90 |
+| `youtube.rowProblems` | her | Words for YouTube: {count} things YouTube won't take | `{count}` | 104 |
+| `youtube.rowReady` | her | Words for YouTube: ready to copy · {chapters} | `{chapters}` | 90 |
+| `youtube.sheet` | her | Words for YouTube | none | 40 |
+| `youtube.showMe` | her | Show me | none | 40 |
+| `youtube.tags` | her | Tags | none | 40 |
+| `youtube.tagsCopied` | her | Tags copied. | none | 40 |
+| `youtube.tagsTooLong` | her | YouTube takes up to 500 letters of tags; yours have {count}. Use fewer or shorter tags. | `{count}` | 174 |
+| `youtube.title` | her | Title | none | 40 |
+| `youtube.titleBrackets` | her | YouTube doesn't allow < or > in a title. Take them out of the title. | none | 136 |
+| `youtube.titleCopied` | her | Title copied. | none | 40 |
+| `youtube.titleCount` | her | {count} of 100 letters | `{count}` | 44 |
+| `youtube.titleMissing` | her | Give your post a title first. | none | 58 |
+| `youtube.titleTooLong` | her | YouTube takes titles of up to 100 letters; this one has {count}. Shorten the title. | `{count}` | 166 |
+| `youtube.tooFew` | her | YouTube shows chapters only when there are at least 3. Add more, or take the times out. | none | 174 |
+| `youtube.tooShort` | her | Each chapter has to be at least 10 seconds long, the last one too. | none | 132 |
+| `youtube.whereAt` | her | Where it's at: {stage} | `{stage}` | 44 |
 <!-- words:end -->

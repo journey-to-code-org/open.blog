@@ -11,9 +11,18 @@ accessibility review.
 
 ## Author workflow
 
-In the browser editor, open **Accessibility** or press `Alt+7`. The studio audits the current
-unsaved document through the production preview endpoint. It shows site-wide findings and
-findings for that document only; guidance from unrelated posts, pages, or series is excluded.
+In Studio, the audit runs on the current unsaved post in Write's **Before you publish** sheet
+(it opens by itself on a first Publish with something to show, or any time from the side card,
+More or Find). Detected and Potential findings are **Suggestions** in plain words, each with
+**Show me**; a finding Studio's own Suggestions already show at the same place is listed once.
+Needs-review findings are **Worth a look**: closed, never counted, and they never open the sheet,
+because they can't be "fixed", only decided. Codes, outcomes, lines, WCAG references, site-wide
+findings and the rendered-page checklist are under **For the person who set up your site**. See
+[Before you publish](admin.md#before-you-publish).
+
+In the old browser editor, open **Accessibility** or press `Alt+7`. It audits the current unsaved
+document through the production preview endpoint. It shows site-wide findings and findings for
+that document only; guidance from unrelated posts, pages, or series is excluded.
 
 For a repository-wide review, run:
 

@@ -75,7 +75,7 @@ export const PROFILE_GROUPS = Object.freeze({
     fields: [
       { key: "activity", label: "What you did", suggestions: ["Hike", "Paddle", "Field survey"] },
       { key: "location", label: "Where", help: "An area name that's safe to share, like the Dolly Sods. Never a home or a private spot." },
-      { key: "locationPrivacy", label: "How much of the place readers see", control: "choice", start: "hidden", choices: { hidden: "Don't show it", approximate: "Just the area", trimmed: "The route without where it starts and ends", exact: "The exact route" } },
+      { key: "locationPrivacy", label: "How much of the place readers see", control: "choice", start: "hidden", choices: { hidden: "Don't show it", trimmed: "The shape, without where it starts and ends", approximate: "The whole shape", exact: "The exact route" } },
       { key: "distanceKm", label: "Distance (km)", help: "A number, like 4.2.", inputmode: "decimal" },
       { key: "elevationGainM", label: "Climb (m)", help: "A number, like 4.2.", inputmode: "decimal" },
       { key: "duration", label: "How long", help: "Like 2 hr 15 min." },

@@ -622,3 +622,54 @@ side-sheet.studio-about-sheet dialog, side-sheet.studio-about-sheet .sheet { wid
 .studio-person-name { overflow-wrap: anywhere; }
 .studio-people-raw { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow: auto; }
 .studio-back { justify-self: start; }
+
+/* Before you publish, Words for YouTube and Your route (R7): 28rem sheets, the whole screen on a phone. */
+side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { width: min(28rem, 100vw); max-width: 100vw; }
+@media (max-width: 30rem) { side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { width: 100vw; height: 100dvh; max-height: 100dvh; } }
+.studio-ready-body { display: grid; gap: var(--space-5); min-width: 0; }
+.studio-ready-group { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-ready-group[hidden] { display: none; }
+.studio-ready-group h3 { margin: 0; font-size: var(--text-lg); }
+.studio-ready-group h4 { margin: 0; font-size: var(--text-base); }
+.studio-ready-group p { margin: 0; overflow-wrap: anywhere; }
+.studio-ready-blocks, .studio-review-blocking { border-inline-start: 4px solid var(--studio-beet); padding-inline-start: var(--space-3); }
+.studio-review-group { display: grid; gap: var(--space-2); min-width: 0; }
+.studio-ready-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-4); min-width: 0; }
+.studio-ready-item { display: grid; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.studio-ready-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
+.studio-ready-status { margin: 0; font-weight: 600; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.studio-ready-status:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+.studio-ready-nothing { flex-basis: 100%; font-weight: 400; }
+.studio-ready-did { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio-ready-did[hidden], .studio-ready-note[hidden], .studio-step-back[hidden] { display: none; }
+.studio-ready-note { flex: 1 1 100%; margin: 0; }
+.studio-ready-worth > summary, .studio-ready-details > summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.studio-ready-details ul, .studio-review details ul { margin: 0; padding-inline-start: var(--space-5); overflow-wrap: anywhere; }
+.studio-step-back { justify-self: start; }
+.studio-ready-open { display: block; }
+@media (max-width: 30rem) {
+  .studio-ready-actions > action-button { flex: 1 1 100%; }
+  .studio-ready-actions > action-button .action-button { width: 100%; white-space: normal; height: auto; min-height: 2.75rem; }
+  /* The sheet's footer: Publish above Keep writing. */
+  side-sheet.studio-ready-sheet [slot="actions"].studio-ready-actions { flex-direction: column-reverse; align-items: stretch; }
+}
+@media (prefers-reduced-motion: reduce) { .studio-ready-spinner { display: none; } }
+/* The real shared card: text in a figure, the picture above its words. */
+.studio-share { display: grid; gap: var(--space-2); min-width: 0; }
+.studio-share-card { margin: 0; border: 1px solid var(--studio-linen); border-radius: var(--radius); overflow: hidden; background: var(--card); min-width: 0; }
+.studio-share-card-img { display: block; width: 100%; max-height: 12rem; object-fit: cover; }
+.studio-share-card-img[hidden], .studio-share-card p[hidden], .studio-share-notes[hidden], .studio-share p[hidden] { display: none; }
+.studio-share-card-text { padding: var(--space-3); display: grid; gap: var(--space-1); min-width: 0; }
+.studio-share-card-text p { margin: 0; overflow-wrap: anywhere; }
+.studio-share-card-site, .studio-share-card-address { font-size: var(--text-sm); color: var(--studio-ink-soft); }
+.studio-share-card-site { text-transform: uppercase; letter-spacing: 0.04em; }
+.studio-share-card-title { font-weight: 600; }
+.studio-share-card-auto { color: var(--studio-ink-soft); }
+.studio-share-card-loading { opacity: 0.6; }
+.studio-share-notes { margin: 0; padding-inline-start: var(--space-5); display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
+/* Your route: drawings of what readers see, in the published page's 1000 × 100 box. */
+.studio-route-drawing { display: block; width: 100%; height: 5rem; border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--card); }
+.studio-route-drawing polyline { fill: none; stroke: var(--primary); stroke-width: 3; vector-effect: non-scaling-stroke; }
+.studio-about-route { display: grid; gap: var(--space-2); min-width: 0; }
+.studio-about-route > action-button, .studio-about-youtube { justify-self: start; }
+.studio-youtube-description textarea { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -8,6 +8,12 @@ test("Studio's own addresses are left alone", () => {
 
 test("an old editor address opens the right Studio editor by folder", () => {
   assert.equal(legacyRoute("#/edit/posts/pecan-pie.md"), "#/write/posts%2Fpecan-pie.md");
+  // R7: the editor's checking panes open their sheets; Evidence waits for R12.
+  for (const [pane, sheet] of [["settings", "about"], ["social", "ready"], ["optimize", "ready"], ["accessibility", "ready"], ["release", "youtube"], ["field", "route"]]) {
+    assert.equal(legacyRoute(`#/edit/posts/pie.md?pane=${pane}`), `#/write/posts%2Fpie.md?sheet=${sheet}`, pane);
+  }
+  assert.equal(legacyRoute("#/edit/posts/pie.md?pane=evidence"), "#/write/posts%2Fpie.md");
+  assert.equal(legacyRoute("#/edit/pages/about.md?pane=social"), "#/page/pages%2Fabout.md", "only a post's panes have sheets");
   assert.equal(legacyRoute("#/edit/posts%2Fpecan-pie.md"), "#/write/posts%2Fpecan-pie.md");
   assert.equal(legacyRoute("#/edit/pages/about.md"), "#/page/pages%2Fabout.md");
   assert.equal(legacyRoute("#/edit/series/cookies.md"), "#/collection/series%2Fcookies.md");
@@ -39,7 +45,7 @@ test("R5: Contributors is People, and a post's Settings pane is About this post"
   assert.equal(legacyRoute("#/contributors"), "#/people");
   assert.equal(legacyRoute("#/people"), null, "Studio's own address stays");
   assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=settings"), "#/write/posts%2F2026-11-06-pie.md?sheet=about");
-  assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=social"), "#/write/posts%2F2026-11-06-pie.md", "other panes open the post");
+  assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=evidence"), "#/write/posts%2F2026-11-06-pie.md", "a pane with no sheet yet opens the post");
   assert.equal(legacyRoute("#/edit/pages/about.md?pane=settings"), "#/page/pages%2Fabout.md");
 });
 

@@ -98,7 +98,6 @@ test("each job check problem is said for her field", () => {
   assert.equal(say("job.media.after", "bad-media"), "A photo marked Before or After isn't on your site any more. Mark another.");
   assert.equal(say("job.review", "unknown-review"), "That review isn't saved any more. Choose another.");
   assert.equal(say("job", "invalid"), "Something about this job needs fixing. Tell the person who set up your site.");
-  assert.equal(words.checkHeading(2), "Before this job goes on your site (2)");
 });
 
 test("the company is named, never its address or model", () => {

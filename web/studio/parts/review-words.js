@@ -1,0 +1,48 @@
+// The words of Research checks in Before you publish (Studio R7): the research review before a
+// research post goes up (ADR 0123), in her words. Pure data, read with `say()` from words.js
+// (docs/studio-words.md). The server's own sentences (message, next step) are shown as they come;
+// `openblog check`'s words are kept for the details.
+
+/** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string }>} */
+export const WORDS = {
+  "review.heading": { text: "Research checks", layer: "her" },
+  "review.intro": { text: "These are prompts from your research checks, not verdicts: nothing here says the post is true or complete. Only what {product} refuses stops publishing.", layer: "her" },
+  "review.counts": { text: "Found by a check: {detected}. Might need a look: {potential}. Only you can check: {review}.", layer: "her" },
+  "review.countChecked": { text: "{count} ({checked} checked)", layer: "her" },
+  "review.blocking": { text: "Needs fixing before it can go up ({count})", layer: "her" },
+  "review.blockingHelp": { text: "{product} won't publish the post with these. They can't be marked as checked.", layer: "her" },
+  "review.detected": { text: "Found by a check ({count})", layer: "her" },
+  "review.detectedHelp": { text: "Fix them, or mark them as checked if nothing needs to change. They don't stop you publishing.", layer: "her" },
+  "review.potential": { text: "Might need a look ({count})", layer: "her" },
+  "review.potentialHelp": { text: "They don't stop you publishing.", layer: "her" },
+  "review.needsReview": { text: "Only you can check these ({count})", layer: "her" },
+  "review.needsReviewHelp": { text: "Check them against your sources. They don't stop you publishing.", layer: "her" },
+  "review.next": { text: "Next:", layer: "her" },
+  "review.gateWithholds": { text: "This can't be marked as checked. The comparison stays off your site until you look at the place and approve it again.", layer: "her" },
+  "review.gateRefusesWhenPublished": { text: "This can't be marked as checked: once the post is published, {product} refuses this citation, so fix it instead. Until then it only warns.", layer: "her" },
+  "review.gateRefuses": { text: "This can't be marked as checked: {product} refuses it, so it has to be fixed.", layer: "her" },
+  "review.placeLine": { text: "In your words, near “{words}”", layer: "her" },
+  "review.placeWords": { text: "In your words", layer: "her" },
+  "review.placeField": { text: "In {field}", layer: "her" },
+  "review.placeOtherPost": { text: "In another of your posts", layer: "her" },
+  "review.placeResearch": { text: "In your research: {thing} {id}", layer: "her" },
+  "review.placeNotes": { text: "In your research notes", layer: "her" },
+  "review.mark": { text: "Mark as checked", layer: "her" },
+  "review.markLabel": { text: "Mark as checked: {what}", layer: "her" },
+  "review.marked": { text: "You marked this as checked. It stays on the list until it changes.", layer: "her" },
+  "review.markedStale": { text: "You marked an earlier version of this as checked; it has changed since. Mark it again if it still needs no change.", layer: "her" },
+  "review.didMark": { text: "Marked as checked. It stays on the list and in the count.", layer: "her" },
+  "review.didUnmark": { text: "No longer marked as checked.", layer: "her" },
+  "review.markChanged": { text: "This list was changed on another computer. Here it is again; mark it again if you still need to.", layer: "her" },
+  "review.markRefused": { text: "That wasn't marked. Nothing changed.", layer: "her" },
+  "review.markNoSignal": { text: "Waiting for a signal. Nothing was marked.", layer: "her" },
+  "review.notChecked": { text: "Not checked: {reason}", layer: "her" },
+  "review.marksUnreadable": { text: "Marks can't be read right now, so none are shown or saved. Tell {helper}.", layer: "her" },
+  "review.nothing": { text: "The research checks found nothing for this post. Checks can't see everything.", layer: "her" },
+  "review.didntRun": { text: "The research checks didn't run. A research post waits until they do.", layer: "her" },
+  "review.cantRead": { text: "{product} couldn't read this post to check it. Tell {helper}.", layer: "her" },
+  "review.waiting": { text: "Waiting for the research checks.", layer: "her" },
+  "review.showMe": { text: "Show me", layer: "her" },
+  "review.showMeLabel": { text: "Show me: {what}", layer: "her" },
+  "review.detailsMarksFile": { text: "Marks file: {file}. {error}", layer: "details" },
+};

@@ -5,8 +5,8 @@ import { h } from "./dom.js";
 import { use } from "../zubra.js";
 
 /**
- * Open the preview sheet. `problemsView(problems, close)` turns recipe problems into her words
- * (with "Go to it" buttons); `opener` gets focus back when it closes.
+ * Open the preview sheet. `problemsView(close)` is the screen's own line above the page (Write:
+ * how many things the last check found, with Show them); `opener` gets focus back when it closes.
  */
 export async function showPreview(api, {
   kind = "posts", path = "", fields, body, title, problemsView, opener,
@@ -45,8 +45,8 @@ export async function showPreview(api, {
     stage.replaceChildren(h("p", { class: "studio-preview-wait studio-row" }, h("loading-spinner", { label: "Getting it ready", inline: true }), " Getting it ready…"));
     try {
       const reply = await request();
-      const problems = Array.isArray(reply.recipeProblems) ? reply.recipeProblems : [];
-      notes.replaceChildren(problems.length && problemsView ? problemsView(problems, close) : "");
+      // R7: the screen's own line (Write: what the last check found, with Show them).
+      notes.replaceChildren(problemsView?.(close) || "");
       const frame = h("iframe", { class: "studio-preview-frame", title: frameTitle });
       frame.setAttribute("sandbox", "allow-scripts");
       frame.setAttribute("src", reply.previewUrl);

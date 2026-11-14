@@ -90,6 +90,11 @@ test("Grammi writes and publishes Pumpkin bread on a phone", async ({ page }) =>
   expect(file).toBeTruthy();
   expect(readFileSync(join(root, "content", "posts", file), "utf8")).toContain("Two loaves");
   await page.getByRole("button", { name: "Publish", exact: true }).click();
+  // R7: her first Publish with something to look at (no tags yet) opens Before you publish;
+  // Publish there publishes.
+  const ready = page.locator("side-sheet.studio-ready-sheet dialog").filter({ has: page.getByRole("heading", { name: "Before you publish", level: 2 }) });
+  await expect(ready.getByText("No tags yet. A tag puts it with your other posts on the same topic.")).toBeVisible({ timeout: 10000 });
+  await ready.locator("[slot=actions]").getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByText(/Published\b/).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Update", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save draft" })).toBeHidden();

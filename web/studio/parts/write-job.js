@@ -7,7 +7,7 @@ import { createSheet } from "./sheet.js";
 import { createJobAbout, addedWords } from "./job-about.js";
 import { appendTranscript, draftBody } from "./capture-assistant-rules.js";
 import { photosIn } from "./photo-strip.js";
-import { checkHeading, jobProblemWords } from "./job-words.js";
+import { jobProblemWords } from "./job-words.js";
 import { askToWriteUp, writeUpSetup } from "./job-writeup.js";
 import { say as word } from "./words.js";
 
@@ -34,7 +34,7 @@ export async function createWriteJob({ api, meta, fields, capture, body, banner,
   });
   const scaffold = meta.job?.scaffold || "";
   let description = typeof fields.description === "string" ? fields.description : "";
-  let linked = []; // [control, id] pairs a check pointed at
+  let linked = []; // the controls a check put an error on
 
   // Each photo card: "Photo 2 shows" Before, After or Neither. The number is the photo's place in
   // the whole post, so moving a card renumbers it (and job.media follows the cards' order).
@@ -129,46 +129,33 @@ export async function createWriteJob({ api, meta, fields, capture, body, banner,
     });
   }
 
-  // ---- the check before Publish
-  async function check(saving) {
+  // ---- the check before Publish (R7: its problems are listed under Needs fixing first in
+  // Before you publish, each with Go to it, and each field says which problem is about it)
+  /** The job check's problems, `[{ field, code, words, message }]`, or null when it couldn't run. */
+  async function checkProblems(saving) {
     const job = Object.fromEntries(Object.entries(saving).filter(([key, value]) => key.startsWith("job.") && value !== null && value !== ""));
     let reply;
     try {
       reply = await api.post("job/check", { fields: job });
-    } catch {
+    } catch (error) {
+      if (error?.status === 401) throw error;
       // The check couldn't run (no signal): the build checks again when it publishes.
-      return true;
+      return null;
     }
     const problems = Array.isArray(reply?.problems) ? reply.problems.filter((p) => p && typeof p === "object") : [];
     unlink();
-    if (reply?.ok !== false || !problems.length) {
-      banner.replaceChildren();
-      return true;
-    }
-    const items = problems.map((problem, index) => {
+    if (reply?.ok !== false || !problems.length) return [];
+    return problems.map((problem) => {
       const words = jobProblemWords(problem, { service: about.serviceName() });
+      // The field says which problem is about it, as its own error.
       const control = about.field(problem.field);
-      const id = `studio-job-problem-${index}`;
-      // The field says which problem is about it.
-      const input = control?.querySelector("input, select, textarea");
-      if (input) {
-        input.setAttribute("aria-describedby", `${input.getAttribute("aria-describedby") || ""} ${id}`.trim());
-        linked.push([input, id]);
-      }
-      return h("li", { id }, words, " ",
-        control || problem.field.startsWith("job.media") ? h("action-button", { variant: "link", label: `Go to it: ${words}`, onClick: () => focusProblem(problem.field) }, "Go to it") : null,
-        h("details", { class: "studio-help" }, h("summary", { text: word("common.detailsFor") }), h("p", { class: "studio-mono", text: String(problem.message || "") })));
+      if (control && "error" in control) { control.error = words; linked.push(control); }
+      return { field: String(problem.field || ""), code: String(problem.code || ""), words, message: String(problem.message || "") };
     });
-    banner.replaceChildren(h("alert-banner", { variant: "warning", heading: checkHeading(problems.length), role: "alert" }, h("ul", { class: "studio-checks" }, items)));
-    return false;
   }
 
   function unlink() {
-    for (const [input, id] of linked) {
-      const rest = (input.getAttribute("aria-describedby") || "").split(/\s+/).filter((part) => part && part !== id).join(" ");
-      if (rest) input.setAttribute("aria-describedby", rest);
-      else input.removeAttribute("aria-describedby");
-    }
+    for (const control of linked) control.error = "";
     linked = [];
   }
 
@@ -189,7 +176,7 @@ export async function createWriteJob({ api, meta, fields, capture, body, banner,
     set: (next) => about.set(next),
     bodyOptions,
     photoMark,
-    check,
+    checkProblems,
     writeUp,
     /** "Write it up for me" is offered once it's known to be set up. */
     async canWriteUp() {

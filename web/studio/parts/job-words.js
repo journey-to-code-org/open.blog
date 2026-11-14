@@ -217,8 +217,6 @@ export function jobProblemWords(problem = {}, { service = "" } = {}) {
   return `Something about this job needs fixing. ${say("common.tell")}`;
 }
 
-/** "Before this job goes on your site (2)". */
-export const checkHeading = (count) => `Before this job goes on your site (${count})`;
 
 /** The write-up sheet's words: what goes, and where. */
 export function writeUpDisclosure({ words = 0, destination = "" } = {}) {

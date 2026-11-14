@@ -23,16 +23,14 @@ immediately.
 | **Edit** | Every post, page, and series. Front matter fields become a form; unknown fields you added by hand are kept. |
 | **Create** | New posts, pages, and series. The file is named from the date and slug. |
 | **Preview** | A full-page site preview plus portable HTML and Markdown projections for posts, all generated from the current unsaved source. Portable warnings identify transformed or canonical-only behavior; front matter stays in Settings and is never printed into a preview. |
-| **Social preview** | A card built from the generated OpenGraph title, description, canonical URL, type, image, and X card mode—not a separate browser-side approximation. |
-| **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
-| **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
+| **Before you publish** | One checklist in Write (Studio R7): what the build would refuse, the real shared card (the generated OpenGraph title, description, address, picture and X card), suggestions from the engine's accessibility audit, R6's checks, search hints and recipe advice, and, on research posts, the research checks. It opens by itself on a post's first Publish when it has something to show. There is no score. See [Before you publish](#before-you-publish). |
 | **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
 | **Images** | Insert by button, drag and drop, or paste. **Insert image**, a post's cover photo, picture pieces and the landing page builder all open the same picker: add a new photo or choose an earlier upload, shown as pictures. Large photos are reduced as they are uploaded (see [Photo uploads](#photo-uploads)). Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Write in a word-processor-style Visual mode or switch to Markdown. Choose Paragraph or Heading 2–6, then apply bold, italic, links, quotes, numbered or bulleted lists, images, and code. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in either mode. |
 | **Personal workspace** | Start with a calm writing-focused workspace, choose Guided or Advanced, or customize optional tools, their order, spacing, and default writing mode. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
-| **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
-| **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
+| **Words for YouTube** | The title, description, tags and chapters `openblog video` writes for a video post, checked against YouTube's rules, ready to copy. |
+| **Your route** | Read a route file (GPX) on the phone, derive distance, climb and time, and choose how much readers see: nothing but the numbers (the default), the shape without its ends, the whole shape, or the exact route file. |
 | **Assistant** | Inspect the configured author-time provider, manage portable or private author/site context, and preview exactly which context is selected. Provider credentials remain on the server. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Shared reflections** | Start a private shared reflection from a video, article, podcast, book, or other source, with a working title or guiding question. Nothing is published and no post is created. |
@@ -83,9 +81,13 @@ for the login. The browser then forgets the old writing mode, so the migration h
 and another login in the same browser starts in **Simple**. A remembered preview width does
 not count, because this release still remembers it.
 
-Inside the editor, Social, Release kit, Field Review, Optimize, Accessibility, Evidence, and
+Inside the old editor, Social, Release kit, Field Review, Optimize, Accessibility, Evidence, and
 Assistant are separate full-width views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
+Studio has no panes: Social, Optimize and Accessibility are its **Before you publish** sheet,
+Release kit is **Words for YouTube** and Field Review is **Your route**, each reached from Write's
+side card, More or Find (`Ctrl+K`); an old `#/edit/<post>?pane=social|optimize|accessibility|release|field`
+address opens the matching sheet.
 
 Portable preview findings are grouped by capability, representation, and destination, with
 **Fully portable**, **Gracefully transformed**, or **Canonical-only interaction** labels
@@ -703,16 +705,62 @@ the saved source revision.
 
 ### Review accessibility while writing
 
-Open **Accessibility** to run the publishing engine's source audit against the current
-unsaved document. The view includes site-wide configuration findings, such as a missing
-default language, but excludes findings that belong only to other documents. It reports
-what was located, the canonical file/line or field, and what to do next.
+In Studio, the publishing engine's source audit runs against the current unsaved post in
+**Before you publish** (below). Detected and Potential findings are **Suggestions**, in plain
+words with **Show me** (and **Describe it** for a cover photo with no description); Needs review
+findings are **Worth a look**, closed and never counted, because only the author can decide them.
+A finding R6's Suggestions already show at the same place is listed once. Every finding's code,
+outcome, file and line or field, message, repair and WCAG references are under the sheet's
+details, with the rendered-page checklist (contrast, focus, keyboard order, zoom and reflow,
+reduced motion, target size, layouts, things from other sites) and the note that the checks don't
+certify conformance. Site-wide findings, such as a missing default language, are in the details
+only. In the old editor, **Accessibility** shows the same audit. See
+[Accessibility checks and manual review](accessibility.md).
 
-The outcome labels have deliberately different meanings: **Detected** is a source condition
-the engine can establish, **Potential** is a useful heuristic that still needs context, and
-**Needs review** is a decision only an author can make. The pane never turns an empty result
-into a score or conformance claim. See [Accessibility checks and manual review](accessibility.md)
-for every check, the CLI workflow, and the rendered-page checklist.
+### Before you publish
+
+Write's **Before you publish** sheet answers "Is there anything I should look at before people
+see this?" It opens by itself only on a post's **first** Publish or Schedule, and only when it has
+something to show (a blocker, a suggestion, the exact route, a check that couldn't run, or a
+research post, which always opens it); **Update** opens it only when something blocks. It opens
+any time from the card under About this post (its line says "2 suggestions so far", "Nothing to
+check" or "Changed since the last check"), More, Find, R6's Suggestions (**Check everything before
+you publish**) and See how it looks (**Show them**). In order:
+
+- **Needs fixing first**: what the build would refuse: a job's check problems (each with **Go to
+  it**), research findings the build refuses, and a post the build can't make. Publish waits,
+  `aria-disabled` and still focusable, and says why; **Save draft** always works.
+- **When it's shared**: the real card from `POST preview` (`only: "checks"`), with notes for no
+  summary, a summary over 160 letters, no picture, or a picture that can't be shown. About this
+  post shows the same card a moment after the title, summary or cover changes, and R5's rough
+  card when there is no signal.
+- **Suggestions**: one list in post order: R6's checks (with their Fix it and Undo), the engine's
+  accessibility findings, search hints (`title-long` over 65 letters, `no-tags`, `no-name`) and the
+  recipe advice See how it looks used to show. None of them stop Publish.
+- **Your video**, **Your trip** and **Research checks** on those posts; **Worth a look**; and the
+  details, which keep the search hints (summary length, opening paragraph, sections, depth,
+  outside source), build notes, recipe codes and every raw server sentence.
+
+The checks run in parallel and wait at most 8 seconds. With no signal, Publish goes the usual
+way and the sheet doesn't open; a check that didn't run says so with **Check again**. Ctrl/⌘ Enter
+in the sheet publishes (or, when something blocks, goes to the first blocker).
+
+**Words for YouTube** (video posts) shows the title, description, tags and chapters as
+`openblog video` writes them (from `POST video/release`, or the page's own copy of the engine's
+rules with no signal): the description ends with "Read the article: <address>", a video with no
+chapters is fine, and anything YouTube won't take is listed above with **Show me**. Copy never
+waits on a problem.
+
+**Your route** (trip posts) reads a route file on the phone with no network and keeps its text
+only in the page's memory. Every file starts as **Don't show it** (the numbers only; the climb
+drawing is off until switched on); **The shape, without where it starts and ends** leaves off
+500 m at each end by default (200 m, 1 km or 2 km, or any number in the details); **The whole
+shape**; and **The exact route**, which asks once. The drawings show exactly the values that will
+be written. An exact route file is cleaned on the phone (positions and heights only) and again on
+the server, staged privately, and sent with the next save, draft or not: the server holds it in
+`.openblog/pending-tracks/held/` until the post is live, so a post with the exact route can be
+scheduled. **Use this route**, a change of choice and **Take the route off** each have Undo. See
+[Field journals](field-journal.md#import-a-gpx-track).
 
 ### Review research evidence while writing
 
@@ -773,12 +821,15 @@ own option with a warning; saving without changing it preserves the value.
 Research posts select Research and expose DOI and license fields. Values entered there are
 preserved when switching profiles and saved without discarding explicit clears.
 Video posts select Video production and expose YouTube URL, duration, thumbnail, and
-AI-assistance disclosure fields. The Release kit view remains inactive for other profiles.
+AI-assistance disclosure fields; in Studio, **Words for YouTube** gives the release words. The
+Release kit view remains inactive for other profiles.
 Field-journal posts expose activity, area, privacy, distance, elevation, duration, and
-conditions. Field Review analyzes GPX in the browser and privately stages the source track
-only in Exact mode; it becomes public as part of a successful post save. Other modes save
-privacy-filtered derived data. Downgrading a saved Exact route moves its managed GPX to
-`.openblog/trash/tracks/` so the next build retracts it without destroying the source.
+conditions. Field Review (Studio: **Your route**) analyzes GPX in the browser and privately stages
+a cleaned copy of the track only in Exact mode; the server keeps it private while the post is a
+draft or scheduled and makes it public when the post is live. Other modes save privacy-filtered
+derived data, and a hidden route keeps no shape in the file. Downgrading a saved Exact route moves
+its managed GPX to `.openblog/trash/tracks/` so the next build retracts it without destroying the
+source.
 Choosing **Job** shows an **About this job** form in Settings: trade, service, town, region,
 started, finished, price range, and before and after photos (uploaded the same way as any
 image). On an empty body it also writes the four headings `Problem`, `What we found`,

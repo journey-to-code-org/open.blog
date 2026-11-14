@@ -5,5 +5,6 @@
 export const WORDS = {
   // Written into a new recipe's Markdown as its heading: only new recipes change.
   "recipe.notesHeading": { text: "Notes", layer: "her", max: 60 },
+  "recipe.numberedStep": { text: "Step {n} starts with its own number. Take it out; {product} numbers the steps.", layer: "her" },
   "recipe.askAddName": { text: "This recipe doesn't say who wrote it. Ask {helper} to add your name.", layer: "her" },
 };

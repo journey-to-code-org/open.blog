@@ -17,6 +17,12 @@ import {
 } from "./about-rules.js";
 import { KIND_WORDS, kindChoices, kindLabel, PROFILE_GROUPS } from "./profile-words.js";
 import { tradeSite } from "./record-kinds.js";
+import { createShareCard } from "./share-card.js";
+import { say } from "./words.js";
+
+/** Route values a trip writes that the sheet has no field for (Your route sets them, R7). */
+const ROUTE_EXTRA = ["routeShape", "elevationProfile", "route"];
+const CARD_WAIT_MS = 1500;
 
 /** Which group each opener asks for, and the value whose field gets focus. */
 const GROUP_FIRST = { kind: "profile", recipe: "course", page: "subtitle", search: "description", credits: "", details: "slug" };
@@ -25,8 +31,11 @@ const GROUP_FIRST = { kind: "profile", recipe: "course", page: "subtitle", searc
  * `post()` → { state, wasPublished, path, fields, title, url, excerpt, cover, coverAlt, collection, facts };
  * `onChange()` after every edit; `onKind(from, to)` changes Write's boxes and returns kindChange's
  * { help, addParts }; `addParts()` puts the recipe parts in; `goPeople({ add })` opens People.
+ * R7: `realCard()` asks the server for the shared card (null without a signal); `routeChoice(to)`
+ * says whether a new How much readers see can be taken here; `openRoute()` and `openYoutube()`
+ * open Your route and Words for YouTube; `goCover()` goes to Write's cover photo.
  */
-export async function createAboutPost({ api, meta, post, onChange, onKind, addParts, goPeople, setCoverAddress, maxBytes = 0 }) {
+export async function createAboutPost({ api, meta, post, onChange, onKind, addParts, goPeople, setCoverAddress, maxBytes = 0, realCard = null, routeChoice = null, openRoute = null, openYoutube = null, goCover = null }) {
   await use("side-sheet", "text-field", "select-field", "toggle-switch", "action-button", "alert-banner", "content-card", "skeleton-block", "status-badge");
   let keys = {};
   let initial = {};
@@ -142,7 +151,8 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     const id = `studio-about-own-h`;
     const listing = meta.recipeListing !== false;
     groups.own.setAttribute("aria-labelledby", id);
-    groups.own.replaceChildren(h("h3", { id, tabindex: "-1", text: group.heading }), ...group.fields.map((spec) => ownField(spec, listing)));
+    groups.own.replaceChildren(h("h3", { id, tabindex: "-1", text: group.heading }), ...group.fields.map((spec) => ownField(spec, listing)),
+      values.profile === "video" && openYoutube ? h("action-button", { variant: "secondary", class: "studio-about-youtube", onClick: () => openYoutube() }, say("youtube.get")) : null);
   }
 
   function ownField(spec, listing) {
@@ -150,8 +160,15 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
       return controls.select(spec.key, { label: spec.label, help: spec.help, options: [{ value: "", label: "Not set" }, ...Object.entries(spec.choices).map(([value, label]) => ({ value, label }))] });
     }
     if (spec.control === "choice") {
+      if (spec.key === "locationPrivacy" && routeChoice) {
+        // R7: the same choice as Your route. Less works here; more needs the route file there.
+        const box = controls.choice(spec.key, { legend: spec.label, choices: spec.choices, help: spec.help, start: spec.start || "", confirm: (to) => routeChoice(to) });
+        const has = Boolean(String(values.distanceKm || values.routeShape || "").trim());
+        return h("div", { class: "studio-about-route" }, box,
+          h("action-button", { variant: "secondary", onClick: () => openRoute?.() }, has ? say("route.changeRoute") : say("route.addRoute")));
+      }
       const confirm = spec.key === "locationPrivacy"
-        ? async (to) => to !== "exact" || (await ask({ heading: "Show the exact route?", text: "Anyone can see where you started and finished.", choices: [{ label: "Show it", value: "yes" }, { label: "Keep it hidden", value: "no", variant: "secondary" }] })) === "yes"
+        ? async (to) => to !== "exact" || (await ask({ heading: say("route.askExact"), text: say("route.askExactText"), focus: 1, choices: [{ label: say("route.showIt"), value: "yes" }, { label: say("route.keepHidden"), value: "no", variant: "secondary" }] })) === "yes"
         : null;
       return controls.choice(spec.key, { legend: spec.label, choices: spec.choices, help: spec.help, start: spec.start || "", confirm });
     }
@@ -190,12 +207,11 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
   // The counter shows every change; the live region speaks only when the limit is crossed.
   const count = h("p", { class: "studio-help" });
   const countSay = h("p", { class: "studio-visually-hidden", "aria-live": "polite" });
-  const card = {
-    image: h("img", { class: "studio-about-card-img", alt: "" }),
-    address: h("p", { class: "studio-about-card-address" }),
-    title: h("p", { class: "studio-about-card-title" }),
-    summary: h("p", { class: "studio-about-card-summary" }),
-  };
+  // R7: the real card when there is a signal, asked a moment after the title, summary or cover
+  // change; R5's rough card until then, said to be rough.
+  const shareCard = createShareCard({ meta, onNote: (target) => { if (target === "summary") controls.get("description")?.focus(); else { close(); goCover?.(); } } });
+  let cardTimer = 0;
+  let cardTurn = 0;
   const pinSay = h("p", { class: "studio-help" });
   const pinLive = h("p", { class: "studio-visually-hidden", "aria-live": "polite" });
   function drawSearch() {
@@ -209,11 +225,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     fill(groups.search,
       h("h3", { id: "studio-about-search-h", tabindex: "-1", text: "In search and when shared" }),
       controls.text("description", { label: "Summary", rows: 3, maxlength: 500, help: "One or two sentences. Leave empty and your blog uses the first lines of your post." }),
-      count, countSay,
-      h("p", { class: "studio-label", id: "studio-about-card-h", text: "Roughly how it looks in a search or a shared link" }),
-      h("content-card", { class: "studio-about-card", "aria-labelledby": "studio-about-card-h" },
-        h("div", { slot: "media" }, card.image), card.address, card.title, card.summary),
-      h("p", { class: "studio-help", text: "Roughly how it looks. To see the real card, use See how it looks." }),
+      count, countSay, shareCard.element,
       pins);
     paintSearch();
   }
@@ -224,14 +236,24 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     const words = summaryCount(values.description);
     if (Boolean(words) !== Boolean(count.textContent)) countSay.textContent = words;
     count.textContent = words;
-    card.address.textContent = p.path || p.state !== "new"
-      ? slugPreview({ siteUrl: meta.siteUrl, postPath: meta.postPath, slug: values.slug, title: p.title, path: p.path }).replace(/\/$/, "")
-      : "your blog's address";
-    card.title.textContent = p.title || "Your title";
+    shareCard.rough(roughCard());
+    if (!realCard || !shownNow) return;
+    clearTimeout(cardTimer);
+    cardTimer = setTimeout(async () => {
+      const mine = ++cardTurn;
+      const social = await realCard().catch(() => null);
+      if (mine === cardTurn && social && shownNow) shareCard.show(social, { description: values.description, cover: post().cover });
+    }, CARD_WAIT_MS);
+  }
+
+  /** R5's rough card from what Write has: the title, summary or first lines, address and cover. */
+  function roughCard() {
+    const p = post();
     const own = cardSummary(values.description);
-    card.summary.textContent = own || cardSummary(p.excerpt || "") || "The first lines of your post.";
-    card.summary.classList.toggle("studio-about-card-auto", !own);
-    if (p.cover) { card.image.src = p.cover; card.image.alt = p.coverAlt || ""; card.image.hidden = false; } else { card.image.removeAttribute("src"); card.image.hidden = true; }
+    return {
+      title: p.title, summary: own || cardSummary(p.excerpt || ""), auto: !own, cover: p.cover, coverAlt: p.coverAlt,
+      address: p.path || p.state !== "new" ? slugPreview({ siteUrl: meta.siteUrl, postPath: meta.postPath, slug: values.slug, title: p.title, path: p.path }).replace(/\/$/, "") : "",
+    };
   }
 
   function paintPins() {
@@ -264,11 +286,11 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     opener = from;
     onClose = closed;
     paintFooter();
-    paintSearch();
     credits.ready();
     if (group === "details") details.open();
     element.open = true;
     shownNow = true;
+    paintSearch();
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const name = focusName || GROUP_FIRST[group] || "";
       if (group === "credits") { groups.credits.scrollIntoView?.({ block: "start" }); credits.focus(); return; }
@@ -285,6 +307,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     load(fields = {}, reply = {}) {
       keys = aboutKeys(fields, meta.profiles || []);
       initial = aboutFromDocument(fields, keys, reply.resolvedProfile || "");
+      for (const key of ROUTE_EXTRA) initial[key] = fields[key] == null ? "" : String(fields[key]);
       for (const key of Object.keys(values)) delete values[key];
       Object.assign(values, initial);
       credits.reset(reply);
@@ -306,6 +329,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     setValue(name, value) { values[name] = value; controls.get(name)?.set(value); paintLine(); },
     /** The card follows the title and cover as she changes them. */
     paintCard: () => paintSearch(),
+    roughCard,
     /** What a save adds to the post's fields: only what changed, under the post's own keys. */
     extra: () => aboutExtra(keys, initial, values),
     /** What a save sends as `credits` (undefined: leave the credit file alone). */

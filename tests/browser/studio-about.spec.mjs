@@ -131,11 +131,13 @@ test("a summary-only change on a published post rewrites one line, under the nam
   await expect(sheet(page).locator("[data-about^='job.']")).toHaveCount(0);
   const summary = sheet(page).getByRole("textbox", { name: "Summary" });
   await expect(summary).toHaveValue("Moist and spiced.");
-  await expect(sheet(page).locator(".studio-about-card-summary")).toHaveText("Moist and spiced.");
-  // No cover: the card has no picture area at all, not an empty box.
-  await expect(sheet(page).locator(".studio-about-card .card-media")).toBeHidden();
+  await expect(sheet(page).locator(".studio-share-card-description")).toHaveText("Moist and spiced.");
+  // No cover: the card has no picture at all, not an empty box; R7: with a signal it is the real card.
+  await expect(sheet(page).locator(".studio-share-card-img")).toBeHidden();
+  await expect(sheet(page).getByText("What Facebook, text messages and other apps show when someone shares it.")).toBeVisible();
+  await expect(sheet(page).getByText("No picture. Add a cover photo and shared links show it.")).toBeVisible();
   await summary.fill("Moist, spiced and easy.");
-  await expect(sheet(page).locator(".studio-about-card-summary")).toHaveText("Moist, spiced and easy.");
+  await expect(sheet(page).locator(".studio-share-card-description")).toHaveText("Moist, spiced and easy.");
   await expect(sheet(page).getByText("Press Update to put these on your site.")).toBeVisible();
   await sheet(page).getByRole("button", { name: "Done" }).click();
   await expect(aboutButton(page)).toBeFocused();
@@ -280,6 +282,8 @@ test("Publish that runs into the question about who wrote it is still a Publish 
   page.removeAllListeners("dialog");
   await addAnn(page);
   await page.getByRole("button", { name: "Publish", exact: true }).click();
+  // R7: a first Publish with suggestions opens Before you publish; its Publish is still a Publish.
+  await page.locator("side-sheet.studio-ready-sheet dialog [slot=actions]").getByRole("button", { name: "Publish", exact: true }).click();
   const question = page.getByRole("dialog", { name: "Who wrote this post was changed on another computer." });
   await expect(question).toBeVisible({ timeout: 10000 });
   await expect(status(page)).toContainText("Not published yet: choose which list of who wrote it to keep.");
@@ -417,6 +421,8 @@ test("a future day with no time goes up at 8 AM her time, and says when it reall
   await expect(page.getByRole("textbox", { name: "Time (your time)" })).toHaveValue("08:00");
   await expect(page.locator("#studio-when-help")).toHaveText("It goes up at 8 AM unless you change the time.");
   await page.getByRole("button", { name: "Schedule", exact: true }).click();
+  // R7: the first Schedule with suggestions opens Before you publish, whose button says Schedule.
+  await page.locator("side-sheet.studio-ready-sheet dialog [slot=actions]").getByRole("button", { name: "Schedule", exact: true }).click();
   await expect(status(page)).toHaveText("Scheduled for Thursday, November 26, 2099 at 8 AM", { timeout: 10000 });
   const saved = execFileSync("grep", ["-rl", "Thanksgiving morning", join(dir, "content", "posts")]).toString().trim();
   expect(readFileSync(saved, "utf8")).toContain("date: 2099-11-26T08:00:00-05:00");

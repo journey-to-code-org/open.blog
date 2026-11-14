@@ -25,7 +25,7 @@ series: zhalendor
 ---
 ```
 
-`productionStatus` follows the workflow shown in Admin's Release kit: `idea`, `scripting`,
+`productionStatus` (Studio: **Where it's at**) follows the workflow shown in the release words: `idea`, `scripting`,
 `storyboarding`, `generating`, `editing`, `scheduled`, and `released`. Season and episode numbers
 and concise production credits appear in a visible production summary. They remain ordinary,
 portable front matter rather than service-specific project records.
@@ -65,11 +65,19 @@ Write chapters as ordinary timestamp lines anywhere outside fenced or inline cod
 Opening narration…
 ```
 
-Open **Release kit** in Admin Studio (`Alt+4`). The kit checks that the first chapter begins
-at `00:00`, at least three chapters exist, timestamps are chronological, and each chapter is
-at least ten seconds long. It then combines the post description, validated timestamp lines,
-and optional AI-assistance disclosure into a YouTube-ready description. Review the result and
-use **Copy release description**; OpenBlog never changes the YouTube video itself.
+In Studio, open **Words for YouTube** from a video post (Write's More, Find, About this post ›
+This video, or Before you publish › Your video). It shows the title, description, tags and
+chapters exactly as `openblog video <slug>` writes them, from the server (`POST video/release`)
+or, with no signal, from the page's own copy of the engine's rules: the description is the
+summary (or `videoDescription`), then "Read the article: <address>" (left out until the post is
+saved), the chapters, and the AI-assistance note. A video with no chapters is fine; when there
+are chapters, the first starts at `0:00`, there are at least three, they go up, and each is at
+least ten seconds long. Anything YouTube won't take is listed above with **Show me**, and never
+stops **Copy description**. Until the post is on your site, the sheet says to keep the video
+private on YouTube. OpenBlog never changes the YouTube video itself.
+
+The old editor's **Release kit** (`Alt+4`) still validates the chapters and copies a description
+without the article line until the old Admin goes (R15).
 
 Transcript text remains part of the normal Markdown body, so it participates in site search,
 feeds, accessibility review, and the site's text exports without requiring a proprietary

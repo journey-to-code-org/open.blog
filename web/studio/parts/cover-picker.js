@@ -76,5 +76,9 @@ export async function coverPicker({ api, cover = "", coverAlt = "", coverCredit 
     /** A cover by web address (Details): shown at once, words and Photo by kept. */
     setAddress(url) { if (url === state.cover) return; state.cover = url; draw(); changed(); },
     focusCredit: () => root.querySelectorAll("text-field")[1]?.querySelector("input")?.focus(),
+    /** Describe the picture from elsewhere (Before you publish's Describe it), and its Undo. */
+    setAlt(text) { if (text === state.coverAlt) return; state.coverAlt = String(text); draw(); changed(); },
+    /** Focus where she adds a cover (no cover) or describes it (a cover). */
+    focus() { (root.querySelector("text-field input") || root.querySelector("file-drop button, file-drop input, action-button button"))?.focus(); },
   };
 }

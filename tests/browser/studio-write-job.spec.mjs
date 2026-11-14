@@ -175,22 +175,28 @@ test("each photo is marked Before, After or Neither, written in the order they'r
 
 test("Publish checks the job first: problems in her words with Go to it, a draft still saves, and fixing it publishes", async ({ page }) => {
   await openPost(page, "gutters", `---\ntitle: Gutters in Beverly\ndate: 2026-10-01\ndraft: true\nprofile: job\njob:\n  trade: roofing\n  service: gutter-guards\n  started: 2026-10-01\n  finished: 2026-10-02\n---\n${SCAFFOLD}`);
-  await page.getByRole("button", { name: "Publish" }).click();
-  const banner = page.getByRole("alert").filter({ hasText: "Before this job goes on your site" });
-  await expect(banner).toContainText("Before this job goes on your site (3)");
-  await expect(banner).toContainText("“Gutter guards” isn't one of your services yet. Choose one, or add it under Services first.");
-  await expect(banner).toContainText("Add the town.");
-  await expect(banner).toContainText("Add the state.");
-  await banner.getByRole("button", { name: "Go to it: Add the town." }).click();
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  // R7: the job check is Before you publish's Needs fixing first.
+  const ready = page.locator("side-sheet.studio-ready-sheet dialog").filter({ has: page.getByRole("heading", { name: "Before you publish", level: 2 }) });
+  const blocks = ready.locator(".studio-ready-blocks");
+  await expect(blocks.getByRole("heading", { name: "Needs fixing first (3)" })).toBeVisible();
+  await expect(blocks).toContainText("“Gutter guards” isn't one of your services yet. Choose one, or add it under Services first.");
+  await expect(blocks).toContainText("Add the town.");
+  await expect(blocks).toContainText("Add the state.");
+  await blocks.getByRole("button", { name: "Go to it: Add the town." }).click();
   await expect(about(page).getByRole("textbox", { name: "Town" })).toBeFocused();
-  await expect(about(page).getByRole("textbox", { name: "Town" })).toHaveAttribute("aria-describedby", /studio-job-problem-/);
+  // The field says which problem is about it.
+  await expect(about(page).getByRole("textbox", { name: "Town" })).toHaveAccessibleDescription(/Add the town\./);
   expect(fileOf("gutters")).toMatch(/draft: true/);
   await axeClean(page, "the job check");
 
   await about(page).getByRole("textbox", { name: "Town" }).fill("Beverly");
   await about(page).getByRole("textbox", { name: "State" }).fill("WV");
   await about(page).getByRole("combobox", { name: "Service" }).selectOption("roof-repair");
-  await page.getByRole("button", { name: "Publish" }).click();
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  // A first Publish with suggestions left (say, no tags) opens the sheet; Publish there publishes.
+  const go = ready.locator("[slot=actions]").getByRole("button", { name: "Publish" });
+  if (await go.waitFor({ state: "visible", timeout: 8000 }).then(() => true, () => false)) await go.click();
   await expect.poll(() => fileOf("gutters")).not.toMatch(/draft: true/);
   await expect(page.getByRole("link", { name: "Share this job" })).toBeVisible();
 });

@@ -3,7 +3,7 @@
 import { h } from "./dom.js";
 import { use } from "../zubra.js";
 
-export async function ask({ heading, text, choices }) {
+export async function ask({ heading, text, choices, focus = 0 }) {
   await use("modal-dialog", "action-button");
   return new Promise((resolve) => {
     let answered = false;
@@ -20,7 +20,7 @@ export async function ask({ heading, text, choices }) {
     });
     document.body.append(dialog);
     dialog.open = true;
-    // Start on the first answer, not the ×.
-    requestAnimationFrame(() => dialog.querySelector("action-button .action-button")?.focus());
+    // Start on the first answer (or the one `focus` names, the safe one), not the ×.
+    requestAnimationFrame(() => dialog.querySelectorAll("action-button .action-button")[focus]?.focus());
   });
 }

@@ -2659,6 +2659,636 @@
         "helper"
       ]
     },
+    "ready.addCover": {
+      "text": "Add a cover photo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.addTag": {
+      "text": "Add a tag",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.also": {
+      "text": "Also {count} suggestions.",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.alsoOne": {
+      "text": "Also 1 suggestion.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.blockedNote": {
+      "text": "Fix the things under Needs fixing first. Your words are kept.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "ready.blocks": {
+      "text": "{count} things need fixing before your post can go up.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.build": {
+      "text": "Something in this post stops {product} from building it. Tell {helper}.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "product",
+        "helper"
+      ]
+    },
+    "ready.cardCaption": {
+      "text": "How your post looks when it's shared",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "ready.cardFirstLines": {
+      "text": "The first lines of your post.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "ready.cardHelp": {
+      "text": "What Facebook, text messages and other apps show when someone shares it.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "ready.cardLongSummary": {
+      "text": "Google usually shows about 160 letters; this summary has {count}. The rest may be cut off.",
+      "layer": "her",
+      "max": 180,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.cardName": {
+      "text": "{name}: {line}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name",
+        "line"
+      ]
+    },
+    "ready.cardNoPicture": {
+      "text": "No picture. Add a cover photo and shared links show it.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "ready.cardNoSummary": {
+      "text": "No summary, so your first lines are used.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "ready.cardPictureFailed": {
+      "text": "The picture couldn't be shown here. It may still show when shared.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "ready.cardRough": {
+      "text": "Roughly how it looks. The real card shows when you have a signal.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "ready.cardRoughFixFirst": {
+      "text": "Roughly how it looks. The real card shows once the things above are fixed.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "ready.cardRoughHeading": {
+      "text": "Roughly how it looks in a search or a shared link",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "ready.cardYourTitle": {
+      "text": "Your title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.changeSummary": {
+      "text": "Change the summary",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.checkAgain": {
+      "text": "Check again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.checkEverything": {
+      "text": "Check everything before you publish",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "ready.checking": {
+      "text": "Checking your post…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.checkingAgain": {
+      "text": "Checking again…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.checkingShort": {
+      "text": "Checking…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.close": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.coverDescription": {
+      "text": "Your cover photo has no description, so people who can't see it won't know what it shows.",
+      "layer": "her",
+      "max": 178,
+      "vars": []
+    },
+    "ready.coverFileName": {
+      "text": "Your cover photo's description looks like a file name (“{name}”). Say what it shows instead.",
+      "layer": "her",
+      "max": 184,
+      "vars": [
+        "name"
+      ]
+    },
+    "ready.describeCoverLabel": {
+      "text": "Describe it: cover photo",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "ready.describeIt": {
+      "text": "Describe it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.describeLabel": {
+      "text": "Describe the picture",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.detailsA11y": {
+      "text": "Accessibility",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "ready.detailsBuild": {
+      "text": "Build notes",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "ready.detailsCard": {
+      "text": "Shared card",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "ready.detailsCardRows": {
+      "text": "OpenGraph type: {type}. X card: {card}. Image: {image}. Page: {url}.",
+      "layer": "details",
+      "max": 136,
+      "vars": [
+        "type",
+        "card",
+        "image",
+        "url"
+      ]
+    },
+    "ready.detailsCertify": {
+      "text": "These checks find some source problems. They don't certify WCAG conformance.",
+      "layer": "details",
+      "max": 152,
+      "vars": []
+    },
+    "ready.detailsPage": {
+      "text": "Check on the page yourself",
+      "layer": "details",
+      "max": 52,
+      "vars": []
+    },
+    "ready.detailsPageList": {
+      "text": "Colour contrast, visible focus, keyboard order, zoom and reflow to 320 px, reduced motion, target size, layouts at phone and desktop widths, and things from other sites.",
+      "layer": "details",
+      "max": 240,
+      "vars": []
+    },
+    "ready.detailsRaw": {
+      "text": "Server sentences",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "ready.detailsRecipe": {
+      "text": "Recipe codes",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "ready.detailsSearch": {
+      "text": "Search hints",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "ready.fillThis": {
+      "text": "Write a few words first.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "ready.fixFirst": {
+      "text": "Fix this first.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.fixed": {
+      "text": "Fixed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.goToIt": {
+      "text": "Go to it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.hardToUse": {
+      "text": "Something here may be hard for some readers to use.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "ready.hintDepth": {
+      "text": "{count} words; 150 or more when the topic needs explaining.",
+      "layer": "details",
+      "max": 118,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.hintNoOpening": {
+      "text": "No opening paragraph before the first heading or list.",
+      "layer": "details",
+      "max": 108,
+      "vars": []
+    },
+    "ready.hintOpening": {
+      "text": "The opening paragraph is {count} letters; 40–350 answers the question early.",
+      "layer": "details",
+      "max": 152,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.hintSections": {
+      "text": "No section headings (## or ###).",
+      "layer": "details",
+      "max": 64,
+      "vars": []
+    },
+    "ready.hintSource": {
+      "text": "No link to an outside source.",
+      "layer": "details",
+      "max": 58,
+      "vars": []
+    },
+    "ready.hintSubtitle": {
+      "text": "Line under the title is {count} letters; 160 or fewer reads as one line.",
+      "layer": "details",
+      "max": 144,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.hintSummary": {
+      "text": "Summary is {count} letters; 50–180 is usual.",
+      "layer": "details",
+      "max": 88,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.keepWriting": {
+      "text": "Keep writing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.lineBlockOne": {
+      "text": "1 thing needs fixing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.lineBlocks": {
+      "text": "{count} things need fixing",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.lineChanged": {
+      "text": "Changed since the last check",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "ready.lineMany": {
+      "text": "{count} suggestions",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.lineNotChecked": {
+      "text": "Not checked yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.lineNothing": {
+      "text": "Nothing to check",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.lineOne": {
+      "text": "1 suggestion",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.lineSoFar": {
+      "text": "{count} suggestions so far",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.lineSoFarOne": {
+      "text": "1 suggestion so far",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.media": {
+      "text": "Your video or sound: if there's talking, captions or a written version help people who can't hear it.",
+      "layer": "her",
+      "max": 202,
+      "vars": []
+    },
+    "ready.needsFixing": {
+      "text": "Needs fixing first ({count})",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.noName": {
+      "text": "{product} doesn't have your name yet, so the post doesn't say who wrote it. Tell {helper}.",
+      "layer": "her",
+      "max": 180,
+      "vars": [
+        "product",
+        "helper"
+      ]
+    },
+    "ready.noSignal": {
+      "text": "Waiting for a signal to check the rest. What's here was checked on this {phone}.",
+      "layer": "her",
+      "max": 160,
+      "vars": [
+        "phone"
+      ]
+    },
+    "ready.noTags": {
+      "text": "No tags yet. A tag puts it with your other posts on the same topic.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "ready.nothing": {
+      "text": "Nothing to check.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.nothingHelp": {
+      "text": "Checks catch some things, not everything.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "ready.oneBlock": {
+      "text": "1 thing needs fixing before your post can go up.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "ready.oneSuggestion": {
+      "text": "1 suggestion. It doesn't stop you publishing.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "ready.open": {
+      "text": "Before you publish…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.openPublished": {
+      "text": "Check this post…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.otherSite": {
+      "text": "Something from another website is shown in your post. Check that it works without a mouse.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "ready.photoFileName": {
+      "text": "A photo's description looks like a file name (“{name}”). Say what it shows instead.",
+      "layer": "her",
+      "max": 166,
+      "vars": [
+        "name"
+      ]
+    },
+    "ready.previewMany": {
+      "text": "{count} things to look at before you publish.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.previewOne": {
+      "text": "1 thing to look at before you publish.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "ready.sheet": {
+      "text": "Before you publish",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.sheetPublished": {
+      "text": "Check this post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.showMe": {
+      "text": "Show me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.showMeLabel": {
+      "text": "Show me: {what}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "what"
+      ]
+    },
+    "ready.showThem": {
+      "text": "Show them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.someDidntRun": {
+      "text": "Some checks didn't run, so this list may be missing things. You can still publish.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "ready.suggestions": {
+      "text": "{count} suggestions. None of them stop you publishing.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.suggestionsHeading": {
+      "text": "Suggestions ({count})",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.table": {
+      "text": "Your table: check that the top row names each column, like Weight and Time.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "ready.titleLong": {
+      "text": "Google shows about 65 letters of a title; this one has {count}. The rest may be cut off.",
+      "layer": "her",
+      "max": 176,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.tooLong": {
+      "text": "This post is too long to check all at once. You can still publish.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "ready.undone": {
+      "text": "Undone.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.useWords": {
+      "text": "Use these words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.whenShared": {
+      "text": "When it's shared",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.worth": {
+      "text": "Worth a look ({count})",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "count"
+      ]
+    },
+    "ready.writeSummary": {
+      "text": "Write a summary",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.yourTrip": {
+      "text": "Your trip",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "ready.yourVideo": {
+      "text": "Your video",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "recipe.askAddName": {
       "text": "This recipe doesn't say who wrote it. Ask {helper} to add your name.",
       "layer": "her",
@@ -2671,6 +3301,797 @@
       "text": "Notes",
       "layer": "her",
       "max": 60,
+      "vars": []
+    },
+    "recipe.numberedStep": {
+      "text": "Step {n} starts with its own number. Take it out; {product} numbers the steps.",
+      "layer": "her",
+      "max": 156,
+      "vars": [
+        "n",
+        "product"
+      ]
+    },
+    "review.blocking": {
+      "text": "Needs fixing before it can go up ({count})",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "count"
+      ]
+    },
+    "review.blockingHelp": {
+      "text": "{product} won't publish the post with these. They can't be marked as checked.",
+      "layer": "her",
+      "max": 154,
+      "vars": [
+        "product"
+      ]
+    },
+    "review.cantRead": {
+      "text": "{product} couldn't read this post to check it. Tell {helper}.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "product",
+        "helper"
+      ]
+    },
+    "review.countChecked": {
+      "text": "{count} ({checked} checked)",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "count",
+        "checked"
+      ]
+    },
+    "review.counts": {
+      "text": "Found by a check: {detected}. Might need a look: {potential}. Only you can check: {review}.",
+      "layer": "her",
+      "max": 182,
+      "vars": [
+        "detected",
+        "potential",
+        "review"
+      ]
+    },
+    "review.detailsMarksFile": {
+      "text": "Marks file: {file}. {error}",
+      "layer": "details",
+      "max": 54,
+      "vars": [
+        "file",
+        "error"
+      ]
+    },
+    "review.detected": {
+      "text": "Found by a check ({count})",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "count"
+      ]
+    },
+    "review.detectedHelp": {
+      "text": "Fix them, or mark them as checked if nothing needs to change. They don't stop you publishing.",
+      "layer": "her",
+      "max": 186,
+      "vars": []
+    },
+    "review.didMark": {
+      "text": "Marked as checked. It stays on the list and in the count.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "review.didUnmark": {
+      "text": "No longer marked as checked.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "review.didntRun": {
+      "text": "The research checks didn't run. A research post waits until they do.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "review.gateRefuses": {
+      "text": "This can't be marked as checked: {product} refuses it, so it has to be fixed.",
+      "layer": "her",
+      "max": 154,
+      "vars": [
+        "product"
+      ]
+    },
+    "review.gateRefusesWhenPublished": {
+      "text": "This can't be marked as checked: once the post is published, {product} refuses this citation, so fix it instead. Until then it only warns.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "review.gateWithholds": {
+      "text": "This can't be marked as checked. The comparison stays off your site until you look at the place and approve it again.",
+      "layer": "her",
+      "max": 234,
+      "vars": []
+    },
+    "review.heading": {
+      "text": "Research checks",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "review.intro": {
+      "text": "These are prompts from your research checks, not verdicts: nothing here says the post is true or complete. Only what {product} refuses stops publishing.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "review.mark": {
+      "text": "Mark as checked",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "review.markChanged": {
+      "text": "This list was changed on another computer. Here it is again; mark it again if you still need to.",
+      "layer": "her",
+      "max": 192,
+      "vars": []
+    },
+    "review.markLabel": {
+      "text": "Mark as checked: {what}",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "what"
+      ]
+    },
+    "review.markNoSignal": {
+      "text": "Waiting for a signal. Nothing was marked.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "review.markRefused": {
+      "text": "That wasn't marked. Nothing changed.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "review.marked": {
+      "text": "You marked this as checked. It stays on the list until it changes.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "review.markedStale": {
+      "text": "You marked an earlier version of this as checked; it has changed since. Mark it again if it still needs no change.",
+      "layer": "her",
+      "max": 228,
+      "vars": []
+    },
+    "review.marksUnreadable": {
+      "text": "Marks can't be read right now, so none are shown or saved. Tell {helper}.",
+      "layer": "her",
+      "max": 146,
+      "vars": [
+        "helper"
+      ]
+    },
+    "review.needsReview": {
+      "text": "Only you can check these ({count})",
+      "layer": "her",
+      "max": 68,
+      "vars": [
+        "count"
+      ]
+    },
+    "review.needsReviewHelp": {
+      "text": "Check them against your sources. They don't stop you publishing.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "review.next": {
+      "text": "Next:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "review.notChecked": {
+      "text": "Not checked: {reason}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "reason"
+      ]
+    },
+    "review.nothing": {
+      "text": "The research checks found nothing for this post. Checks can't see everything.",
+      "layer": "her",
+      "max": 154,
+      "vars": []
+    },
+    "review.placeField": {
+      "text": "In {field}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "field"
+      ]
+    },
+    "review.placeLine": {
+      "text": "In your words, near “{words}”",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "words"
+      ]
+    },
+    "review.placeNotes": {
+      "text": "In your research notes",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "review.placeOtherPost": {
+      "text": "In another of your posts",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "review.placeResearch": {
+      "text": "In your research: {thing} {id}",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "thing",
+        "id"
+      ]
+    },
+    "review.placeWords": {
+      "text": "In your words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "review.potential": {
+      "text": "Might need a look ({count})",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "count"
+      ]
+    },
+    "review.potentialHelp": {
+      "text": "They don't stop you publishing.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "review.showMe": {
+      "text": "Show me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "review.showMeLabel": {
+      "text": "Show me: {what}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "what"
+      ]
+    },
+    "review.waiting": {
+      "text": "Waiting for the research checks.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "route.addRoute": {
+      "text": "Add your route",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.added": {
+      "text": "Route added. {line}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "line"
+      ]
+    },
+    "route.approximate": {
+      "text": "The whole shape",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.approximateHelp": {
+      "text": "A drawing with no map and no place names. Someone who knows the area may recognise where it starts.",
+      "layer": "her",
+      "max": 198,
+      "vars": []
+    },
+    "route.appsHelp": {
+      "text": "In AllTrails, Strava or Gaia GPS, use Export or Share and choose GPX.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "route.askExact": {
+      "text": "Show the exact route?",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "route.askExactText": {
+      "text": "Anyone can download it and see exactly where you started and finished. Times and your app's details are taken out first.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "route.askUse": {
+      "text": "Use this route?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.askUseText": {
+      "text": "You chose a file but didn't add it.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "route.back": {
+      "text": "Before you publish",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.canDownload": {
+      "text": "Readers can download it.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "route.changeRoute": {
+      "text": "Change your route",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.changed": {
+      "text": "Changed. {line}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "line"
+      ]
+    },
+    "route.choose": {
+      "text": "Choose a route file",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.chooseAgain": {
+      "text": "Choose your route file again to show it this way.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "route.climb": {
+      "text": "Show a drawing of the climb",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "route.comesOff": {
+      "text": "Your route file comes off your site when you press Update.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "route.detailsCleaned": {
+      "text": "Cleaned file: {size}, {points} track points with position and height. Removed: times, waypoints, routes, names, descriptions, links, the app's details and extensions.",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "size",
+        "points"
+      ]
+    },
+    "route.detailsKeys": {
+      "text": "Keys written: {keys}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "keys"
+      ]
+    },
+    "route.detailsPoints": {
+      "text": "Points read: {points}; kept for the drawing: {kept}; track parts: {parts}.",
+      "layer": "details",
+      "max": 148,
+      "vars": [
+        "points",
+        "kept",
+        "parts"
+      ]
+    },
+    "route.detailsStaged": {
+      "text": "Staged: {token}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "token"
+      ]
+    },
+    "route.detailsTrim": {
+      "text": "Metres left off each end",
+      "layer": "details",
+      "max": 48,
+      "vars": []
+    },
+    "route.detailsTrimHelp": {
+      "text": "Any number of metres, 0 to 5000.",
+      "layer": "details",
+      "max": 64,
+      "vars": []
+    },
+    "route.detailsWhere": {
+      "text": "Held privately in .openblog/pending-tracks/held/ while the post is a draft or scheduled; at {address} once it is live. Staged copies are kept privately for up to a day.",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "address"
+      ]
+    },
+    "route.didntGo": {
+      "text": "Your route file didn't go with the post. Choose it again in Your route.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "route.done": {
+      "text": "Done",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.drawClimb": {
+      "text": "Drawing of the climb",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.drawTrimmed": {
+      "text": "Drawing of your route as readers see it, without the first and last {trim}",
+      "layer": "her",
+      "max": 148,
+      "vars": [
+        "trim"
+      ]
+    },
+    "route.drawWhole": {
+      "text": "Drawing of your route as readers see it, the whole route",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "route.exact": {
+      "text": "The exact route",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.exactHelp": {
+      "text": "Readers can download your route file and see exactly where you started and finished.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "route.expired": {
+      "text": "Your route file waited too long. Choose it again in Your route, then save.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "route.from": {
+      "text": "From “{name}”:",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "route.hidden": {
+      "text": "Don't show it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.hiddenHelp": {
+      "text": "Readers see the numbers only.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "route.howMuch": {
+      "text": "How much of the route readers see",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "route.keepHidden": {
+      "text": "Keep it hidden",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.leaveOff": {
+      "text": "Leave off at each end",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "route.leaveOut": {
+      "text": "Leave it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.lede": {
+      "text": "Choose the route file from your hiking app or watch. It stays on this {phone}: only the numbers and a drawing go to {product}.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "phone",
+        "product"
+      ]
+    },
+    "route.lineExact": {
+      "text": "Route: readers can download your exact route.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "route.lineHidden": {
+      "text": "Route: readers see the numbers only.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "route.lineNone": {
+      "text": "No route added.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.lineTrimmed": {
+      "text": "Route: readers see a drawing without the first and last {trim}.",
+      "layer": "her",
+      "max": 126,
+      "vars": [
+        "trim"
+      ]
+    },
+    "route.lineTrimmedPlain": {
+      "text": "Route: readers see a drawing without the first and last part.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "route.lineWhole": {
+      "text": "Route: readers see a drawing of the whole route.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "route.neverMind": {
+      "text": "Never mind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.noDrawing": {
+      "text": "No drawing.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.noRoute": {
+      "text": "That file has no route in it. Some apps save only places; choose the one with your route.",
+      "layer": "her",
+      "max": 178,
+      "vars": []
+    },
+    "route.noTimes": {
+      "text": "No times in the file, so How long stays as you wrote it.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "route.notGpx": {
+      "text": "That isn't a route file. Choose the file that ends in .gpx.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "route.numbersOnly": {
+      "text": "Readers see the numbers only: {numbers}.",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "numbers"
+      ]
+    },
+    "route.replaces": {
+      "text": "This replaces the distance, climb and time in your post.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "route.sendEmpty": {
+      "text": "That route file is empty. Choose it again.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "route.sendTooBig": {
+      "text": "That route file is too big for {product} ({max} MB at most). Show less of the route, or ask {helper}.",
+      "layer": "her",
+      "max": 202,
+      "vars": [
+        "product",
+        "max",
+        "helper"
+      ]
+    },
+    "route.sendUnreadable": {
+      "text": "{product} couldn't read that route file. Choose another, or show less of the route.",
+      "layer": "her",
+      "max": 166,
+      "vars": [
+        "product"
+      ]
+    },
+    "route.sheet": {
+      "text": "Your route",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.showIt": {
+      "text": "Show it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.takeOff": {
+      "text": "Take the route off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.takenOff": {
+      "text": "Route taken off.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.tooBig": {
+      "text": "That route file is too big ({size}). Files up to 10 MB work.",
+      "layer": "her",
+      "max": 120,
+      "vars": [
+        "size"
+      ]
+    },
+    "route.tooManyPoints": {
+      "text": "That route has too many points to read here. Shorten it in your hiking app, or share a simpler copy.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "route.tooShort": {
+      "text": "Your route is too short to leave that much off each end. Choose less, or don't show it.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "route.trim1000": {
+      "text": "About 1 km (0.6 mi)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.trim200": {
+      "text": "About 200 m (650 ft)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.trim2000": {
+      "text": "About 2 km (1.2 mi)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.trim500": {
+      "text": "About 500 m (1,600 ft)",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "route.trimmed": {
+      "text": "The shape, without where it starts and ends",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "route.trimmedHelp": {
+      "text": "A drawing with no map and no place names. The first and last part are left off.",
+      "layer": "her",
+      "max": 158,
+      "vars": []
+    },
+    "route.undone": {
+      "text": "Undone. Your route is as it was.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "route.unreadable": {
+      "text": "That file couldn't be opened. Choose it again.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "route.unsafe": {
+      "text": "That file has something in it besides a route, so it wasn't read.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "route.use": {
+      "text": "Use this route",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.useIt": {
+      "text": "Use it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "route.waitsPrivate": {
+      "text": "Your route file waits, private, until your post is on your site.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "route.waitsSignal": {
+      "text": "Waiting for a signal to send your route file. The numbers and drawing are in. It sends while this page is open.",
+      "layer": "her",
+      "max": 222,
+      "vars": []
+    },
+    "route.whatReadersSee": {
+      "text": "What readers see",
+      "layer": "her",
+      "max": 40,
       "vars": []
     },
     "share.tellOrSkip": {
@@ -2906,6 +4327,44 @@
       "max": 40,
       "vars": []
     },
+    "trip.areaAddress": {
+      "text": "“{area}” looks like a street address. Use an area name instead, like a park or a mountain range.",
+      "layer": "her",
+      "max": 192,
+      "vars": [
+        "area"
+      ]
+    },
+    "trip.exactRoute": {
+      "text": "Readers can see exactly where you started and finished. Make sure it doesn't show a home, a campsite, or a place where rare plants or animals live.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "trip.noArea": {
+      "text": "Add where you went, as an area that's safe to share, like a park or a mountain range.",
+      "layer": "her",
+      "max": 170,
+      "vars": []
+    },
+    "trip.noConditions": {
+      "text": "Add the conditions: weather, trail, water, what you saw.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "trip.noDistance": {
+      "text": "Add your route, or fill in the distance, so readers know how far you went.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "trip.showLess": {
+      "text": "Show less of the route",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
     "undo.askHelp": {
       "text": "There's a new {one} with that name now. Ask {helper} to help bring this one back.",
       "layer": "her",
@@ -2929,6 +4388,291 @@
       "layer": "her",
       "max": 106,
       "vars": []
+    },
+    "youtube.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.chapterHelp": {
+      "text": "Chapters are lines in your words that start with a time, like “0:00 Getting started”. The first starts at 0:00, and YouTube needs at least three, each 10 seconds or longer.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "youtube.chapters": {
+      "text": "{count} chapters, from the lines in your words that start with a time.",
+      "layer": "her",
+      "max": 140,
+      "vars": [
+        "count"
+      ]
+    },
+    "youtube.copyDescription": {
+      "text": "Copy description",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.copyFind": {
+      "text": "Copy the YouTube description",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "youtube.copyRefused": {
+      "text": "Select the words and copy them.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "youtube.copyTags": {
+      "text": "Copy tags",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.copyTitle": {
+      "text": "Copy title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.description": {
+      "text": "Description",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.descriptionBrackets": {
+      "text": "YouTube doesn't allow < or > in the description. Take them out of the summary, the chapters or the AI note.",
+      "layer": "her",
+      "max": 214,
+      "vars": []
+    },
+    "youtube.descriptionCopied": {
+      "text": "Description copied. Paste it into YouTube.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "youtube.descriptionTooLong": {
+      "text": "These words are too long for YouTube, which takes 5,000 at most, counting the chapters. Shorten the summary.",
+      "layer": "her",
+      "max": 216,
+      "vars": []
+    },
+    "youtube.detailsCli": {
+      "text": "Check or write out the full release with `openblog video {slug}`; uploading is in docs/video-production.md §Upload an approved release.",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "slug"
+      ]
+    },
+    "youtube.detailsLocal": {
+      "text": "Worked out on this page with the engine's rules; the server's copy shows when there is a signal.",
+      "layer": "details",
+      "max": 192,
+      "vars": []
+    },
+    "youtube.detailsStatus": {
+      "text": "Release: {status} · digest {digest}",
+      "layer": "details",
+      "max": 70,
+      "vars": [
+        "status",
+        "digest"
+      ]
+    },
+    "youtube.done": {
+      "text": "Done",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.durationMissing": {
+      "text": "Add how long the video is, so the last chapter can be checked.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "youtube.firstNotZero": {
+      "text": "The first chapter has to start at 0:00.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "youtube.get": {
+      "text": "Get the words for YouTube",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "youtube.keepPrivate": {
+      "text": "Keep the video private on YouTube until this post is on your site.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "youtube.lede": {
+      "text": "Paste these into YouTube when you put your video up. Nothing here changes your video.",
+      "layer": "her",
+      "max": 170,
+      "vars": []
+    },
+    "youtube.noAddress": {
+      "text": "Save your post to add its address.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "youtube.noChapters": {
+      "text": "No chapters. That's fine; YouTube shows the video without them.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "youtube.oneChapter": {
+      "text": "1 chapter, from the line in your words that starts with a time.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "youtube.other": {
+      "text": "YouTube may not take these words as they are.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "youtube.outOfOrder": {
+      "text": "The chapters' times have to go up, one after the other.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "youtube.problems": {
+      "text": "Before YouTube will take these ({count})",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "count"
+      ]
+    },
+    "youtube.rowProblem": {
+      "text": "Words for YouTube: 1 thing YouTube won't take",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "youtube.rowProblems": {
+      "text": "Words for YouTube: {count} things YouTube won't take",
+      "layer": "her",
+      "max": 104,
+      "vars": [
+        "count"
+      ]
+    },
+    "youtube.rowReady": {
+      "text": "Words for YouTube: ready to copy · {chapters}",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "chapters"
+      ]
+    },
+    "youtube.sheet": {
+      "text": "Words for YouTube",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.showMe": {
+      "text": "Show me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.tags": {
+      "text": "Tags",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.tagsCopied": {
+      "text": "Tags copied.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.tagsTooLong": {
+      "text": "YouTube takes up to 500 letters of tags; yours have {count}. Use fewer or shorter tags.",
+      "layer": "her",
+      "max": 174,
+      "vars": [
+        "count"
+      ]
+    },
+    "youtube.title": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.titleBrackets": {
+      "text": "YouTube doesn't allow < or > in a title. Take them out of the title.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "youtube.titleCopied": {
+      "text": "Title copied.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "youtube.titleCount": {
+      "text": "{count} of 100 letters",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "count"
+      ]
+    },
+    "youtube.titleMissing": {
+      "text": "Give your post a title first.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "youtube.titleTooLong": {
+      "text": "YouTube takes titles of up to 100 letters; this one has {count}. Shorten the title.",
+      "layer": "her",
+      "max": 166,
+      "vars": [
+        "count"
+      ]
+    },
+    "youtube.tooFew": {
+      "text": "YouTube shows chapters only when there are at least 3. Add more, or take the times out.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "youtube.tooShort": {
+      "text": "Each chapter has to be at least 10 seconds long, the last one too.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "youtube.whereAt": {
+      "text": "Where it's at: {stage}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "stage"
+      ]
     }
   }
 }

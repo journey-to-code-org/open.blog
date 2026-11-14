@@ -29,6 +29,12 @@ const OLD_RENAMED = {
   announcements: "sharing", greetings: "cards",
 };
 const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
+/**
+ * The old editor's panes and the Write sheet each opens: Settings is About this post (R5); Social,
+ * Optimize and Accessibility are Before you publish, Release kit is Words for YouTube, Field review
+ * is Your route (R7). Evidence waits for R12 and opens the post.
+ */
+export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route" });
 const NOT_YET = new Set(["comparisons", "design", "paths", "research", "shared", "voice"]);
 
 /**
@@ -44,8 +50,8 @@ export function legacyRoute(hash) {
     let file = rest.join("/");
     try { file = decodeURIComponent(file); } catch { /* as typed */ }
     const screen = OLD_FOLDERS[file.split("/")[0]] || "write";
-    // R5: a post's old Settings pane is its About this post sheet; other panes open the post.
-    const sheet = screen === "write" && new URLSearchParams(search).get("pane") === "settings" ? "?sheet=about" : "";
+    // R5/R7: a post's old panes open their sheet (PANE_SHEETS); others open the post.
+    const sheet = screen === "write" && PANE_SHEETS[new URLSearchParams(search).get("pane")] ? `?sheet=${PANE_SHEETS[new URLSearchParams(search).get("pane")]}` : "";
     return `#/${screen}/${encodeURIComponent(file)}${sheet}`;
   }
   if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
