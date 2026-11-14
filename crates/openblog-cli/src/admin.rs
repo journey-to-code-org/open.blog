@@ -721,6 +721,14 @@ fn studio_file(path: &str) -> Response {
     };
     // The worker lives at /admin/sw.js only: served from here too, it could be registered with a
     // second, narrower scope.
+    // Which release the page is (R4 Details: the worker's, the page's and the server's side by side).
+    if rel == "release.js" {
+        return Response::new(
+            200,
+            "text/javascript; charset=utf-8",
+            format!("export const RELEASE = \"{}\";\n", studio_release().0).into_bytes(),
+        );
+    }
     let Some(bytes) = studio_bytes(rel).filter(|_| rel != "sw.js") else {
         return Response::error(404, "Not found");
     };
@@ -737,14 +745,14 @@ fn studio_file(path: &str) -> Response {
     Response::new(200, ctype, bytes.to_vec())
 }
 
-/// The first line of the served worker: this release's version (a hash of every Studio file) and the
-/// addresses of Studio's own files, which the worker keeps so Studio opens with no signal (R4 G35).
-/// Never an API address, never the old Admin's files.
-pub(crate) fn studio_release_line() -> String {
-    static LINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    LINE.get_or_init(|| {
+/// This release of Studio's files: its version (a hash of every Studio file) and the addresses of
+/// the files the worker keeps so Studio opens with no signal (R4 G35), including `release.js`, which
+/// tells the page its own version. Never an API address, never the old Admin's files.
+fn studio_release() -> &'static (String, Vec<String>) {
+    static RELEASE: std::sync::OnceLock<(String, Vec<String>)> = std::sync::OnceLock::new();
+    RELEASE.get_or_init(|| {
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        let mut files = Vec::new();
+        let mut files = vec!["/admin/studio/release.js".to_string()];
         for (name, bytes) in crate::studio_files::STUDIO_FILES {
             for byte in name.as_bytes().iter().chain(bytes.iter()) {
                 hash ^= u64::from(*byte);
@@ -763,12 +771,17 @@ pub(crate) fn studio_release_line() -> String {
             }
         }
         files.sort();
-        format!(
-            "self.STUDIO_RELEASE = {};\n",
-            json!({ "version": format!("{hash:016x}"), "files": files })
-        )
+        (format!("{hash:016x}"), files)
     })
-    .clone()
+}
+
+/// The first line of the served worker: this release's version and the files it keeps.
+pub(crate) fn studio_release_line() -> String {
+    let (version, files) = studio_release();
+    format!(
+        "self.STUDIO_RELEASE = {};\n",
+        json!({ "version": version, "files": files })
+    )
 }
 
 /// One of Studio's embedded files, by its path under `web/studio/`.

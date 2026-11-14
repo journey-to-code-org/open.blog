@@ -8,6 +8,7 @@ import { captureBytes, DB_NAME, DB_VERSION, STORE_NAME } from "./capture-queue.j
 import { captureTitle } from "./new-job-rules.js";
 import { keptTitle, waitingCount } from "./job-words.js";
 import { savePhotos, throwAwayAsk, waitingCard } from "./waiting-cards.js";
+import { clearSavedPages, readReleases } from "./releases.js";
 
 /** `{ jobs, meta, api, here, noun, limits, services, say }`. */
 export function createWaitingSide({ jobs, meta, api, here, noun, limits, services, say }) {
@@ -62,10 +63,28 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
     drawDetails(entries);
   }
 
+  // Which release is where: read when New job opens and again each time Mikey opens Details (a first
+  // visit has no worker in charge yet).
+  let releases = null;
+  let releasesAt = 0;
+  const clearButton = () => {
+    const offline = navigator.onLine === false;
+    return h("p", {},
+      h("action-button", { variant: "secondary", size: "sm", disabled: offline, "data-clear-pages": "true", onClick: () => clearSavedPages() }, "Clear saved pages"),
+      h("span", { class: "studio-help", text: offline ? " Needs a signal: the pages are fetched again." : " Deletes the kept copy of these pages and reloads. Jobs on this phone stay." }));
+  };
+
   async function drawDetails(entries) {
+    if (!releases) {
+      releasesAt = Date.now();
+      releases = readReleases().catch(() => ({ lines: [], mismatch: false }));
+    }
+    const release = await releases;
     const bytes = entries.reduce((sum, entry) => sum + (entry.record ? captureBytes(entry.record) : 0), 0);
     const estimate = await navigator.storage?.estimate?.().catch(() => null);
     const persisted = await navigator.storage?.persisted?.().catch(() => null);
+    // Redrawn as jobs change: what Mikey opened stays open.
+    const open = Boolean(details.querySelector("details")?.open);
     details.replaceChildren(detailsBox([
       `IndexedDB ${DB_NAME} v${DB_VERSION} / ${STORE_NAME}: ${entries.length} of ${limits.maxQueued} jobs, ${(bytes / 1048576).toFixed(1)} of ${Math.round(limits.maxQueueBytes / 1048576)} MB`,
       `in progress: IndexedDB studio-new-job v1 / open, key ${api.user || "(none)"}`,
@@ -74,7 +93,22 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
       "Safari may clear site data after 7 days without a visit; the Home Screen app is exempt; Safari and the Home Screen app don't share storage.",
       "Old Admin windows opened before this update use the same list; sending from both makes one draft (ADR 0297).",
       `limits: ${Object.entries(meta.capture || {}).map(([k, v]) => `${k} ${v}`).join(", ")}`,
-    ]));
+      ...release.lines,
+    ], release.mismatch ? h("status-badge", { variant: "warning", "data-release-mismatch": "true" }, "Releases differ") : null, clearButton()));
+    const box = details.querySelector("details");
+    // Re-opened here after a redraw: that toggle isn't Mikey's, so it doesn't read again.
+    let restoring = open;
+    if (open) box.open = true;
+    box.addEventListener("toggle", () => {
+      if (restoring) {
+        restoring = false;
+        return;
+      }
+      if (box.open && Date.now() - releasesAt > 500) {
+        releases = null;
+        drawDetails(jobs.entries());
+      }
+    });
   }
 
   return { element, link, heading, list, draw };

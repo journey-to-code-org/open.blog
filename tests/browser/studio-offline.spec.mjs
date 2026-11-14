@@ -170,6 +170,41 @@ test("a server that takes 15 s to answer: New job opens from the kept copy in a 
   await context.unroute(/\/admin\/studio\//);
 });
 
+test("Details show the worker's, the page's and the server's release, and Clear saved pages deletes only Studio's copies", async ({ page, context }) => {
+  await visitOnce(page);
+  const version = /"version":"([0-9a-f]{16})"/.exec(await (await fetch(`${origin}/admin/sw.js`)).text())[1];
+  // A job waits on this phone: clearing the pages must leave it be.
+  await context.setOffline(true);
+  await page.getByRole("textbox", { name: "What did you do?", exact: true }).fill("Stays through a clear.");
+  await page.getByRole("button", { name: "Save this job", exact: true }).click();
+  await expect(page.locator("[data-waiting]")).toHaveCount(1);
+  await context.setOffline(false);
+  await page.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));
+  await context.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));
+  const details = page.locator(".studio-account-side details").last();
+  await details.locator("summary").click();
+  await expect(details).toContainText(`releases: worker ${version} · page ${version} · server ${version}`);
+  await expect(details.locator("[data-release-mismatch]")).toHaveCount(0);
+  // A marker in Studio's copy, and a cache that isn't Studio's: only the first goes.
+  await page.evaluate(async () => {
+    const [name] = (await caches.keys()).filter((key) => key.startsWith("studio-"));
+    await (await caches.open(name)).put("/admin/studio/__marker", new Response("x"));
+    await (await caches.open("not-studio")).put("/elsewhere", new Response("y"));
+  });
+  await details.getByRole("button", { name: "Clear saved pages" }).click();
+  await expect(page.getByRole("heading", { name: "New job", level: 2 })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => Boolean(await caches.match("/admin/studio/__marker")))).toBe(false);
+  expect(await page.evaluate(async () => Boolean(await caches.match("/elsewhere", { cacheName: "not-studio" })))).toBe(true);
+  await page.evaluate(() => caches.delete("not-studio"));
+  await expect(page.locator("[data-waiting]")).toHaveCount(1);
+  // The worker is still there, and keeps the pages again from here on.
+  expect(await page.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration("/admin/")))).toBe(true);
+  await context.unroute(/\/admin\/api\/(upload|document|capture\?)/);
+  await page.unroute(/\/admin\/api\/(upload|document|capture\?)/);
+  await page.evaluate(() => dispatchEvent(new Event("online")));
+  await expect(page.locator("[data-waiting]")).toHaveCount(0, { timeout: 15000 });
+});
+
 test("the worker keeps only Studio's own files: never an API reply, never the old Admin", async ({ page }) => {
   await visitOnce(page);
   await page.goto(`${origin}/admin/studio/#/`);

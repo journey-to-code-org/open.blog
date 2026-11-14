@@ -315,6 +315,7 @@ After Publish, R1's "Share this job" link is unchanged.
 | Sending | words | per-step log (slots sent/skipped/already there, audio, document reply incl. `duplicate`) |
 | Voice to words | where it goes | engine, destination, model, `OPENBLOG_TRANSCRIBE_COMMAND`, transcript in `.openblog/captures/` |
 | Old Admin | nothing | "Old Admin windows opened before this update use the same list; sending from both makes one draft (ADR 0297)." |
+| Releases | nothing | the worker's (asked by message), the page's (`/admin/studio/release.js`, written by the server) and the server's (first line of `/admin/sw.js`) side by side, read again each time Details opens; a `status-badge` "Releases differ" when the known ones differ; **Clear saved pages** (deletes only `studio-*` caches and reloads; never unregisters the worker, never touches IndexedDB; disabled with no signal) |
 | Job check | her words | raw problem sentences |
 | Limits | "too big", "5 jobs" | every `meta.capture` value |
 

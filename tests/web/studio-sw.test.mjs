@@ -90,7 +90,7 @@ const RELEASE = { version: "abc123", files: ["/admin/studio/", "/admin/studio/st
 test("installing keeps exactly the release's own files, and never asks the server for anything else", async () => {
   const asked = [];
   const w = worker({ release: RELEASE, fetch: async (request) => { asked.push(new URL(request.url).pathname); return response(`body of ${request.url}`); } });
-  assert.deepEqual(Object.keys(w.listeners).sort(), ["activate", "fetch", "install", "notificationclick", "push"]);
+  assert.deepEqual(Object.keys(w.listeners).sort(), ["activate", "fetch", "install", "message", "notificationclick", "push"]);
   await w.fire("install", {});
   assert.deepEqual(asked.sort(), [...RELEASE.files].sort());
   assert.deepEqual([...w.caches.stores.keys()], ["studio-abc123"]);
@@ -339,4 +339,28 @@ test("the worker's studioAddress and the rules' copy are the same function", asy
   const { studioAddress } = await import("../../web/studio/parts/notification-rules.js");
   assert.equal(studioAddress("/admin/#/quotes", ORIGIN), `${ORIGIN}/admin/studio/#/quotes`);
   assert.equal(studioAddress("javascript:alert(1)", ORIGIN), `${ORIGIN}/admin/studio/`);
+});
+
+test("asked which release it is, the worker says its version, and nothing else", async () => {
+  const w = worker({ release: RELEASE });
+  const replies = [];
+  w.listeners.message({ data: { type: "release" }, ports: [{ postMessage: (m) => replies.push(m) }] });
+  w.listeners.message({ data: { type: "something else" }, ports: [{ postMessage: (m) => replies.push(m) }] });
+  w.listeners.message({ data: null, ports: [] });
+  assert.deepEqual(replies.map((r) => ({ ...r })), [{ type: "release", version: "abc123" }]);
+});
+
+test("Details put the worker's, the page's and the server's release side by side, and flag any that differ", async () => {
+  const { releaseLines, scriptRelease } = await import("../../web/studio/parts/worker-rules.js");
+  assert.equal(scriptRelease('self.STUDIO_RELEASE = {"version":"0123456789abcdef","files":[]};\nconst x = 1;'), "0123456789abcdef");
+  assert.equal(scriptRelease("nothing here"), "");
+  const same = releaseLines({ worker: "aaaa", page: "aaaa", server: "aaaa" });
+  assert.equal(same.mismatch, false);
+  assert.deepEqual(same.lines, ["releases: worker aaaa · page aaaa · server aaaa"]);
+  const stale = releaseLines({ worker: "aaaa", page: "aaaa", server: "bbbb" });
+  assert.equal(stale.mismatch, true);
+  assert.match(stale.lines[1], /differ/);
+  const none = releaseLines({ worker: "", page: "aaaa", server: "" });
+  assert.deepEqual(none.lines, ["releases: worker none · page aaaa · server unknown (no signal)"]);
+  assert.equal(none.mismatch, false, "only versions that are known are compared");
 });

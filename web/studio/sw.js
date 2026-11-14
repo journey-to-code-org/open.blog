@@ -121,6 +121,12 @@ self.addEventListener("fetch", (event) => {
   })());
 });
 
+// Details ask which release this worker keeps, to put beside the page's and the server's.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "release") return;
+  event.ports?.[0]?.postMessage({ type: "release", version: RELEASE.version });
+});
+
 /**
  * Where tapping a notice goes: the old Admin's addresses (`/admin/`, `/admin/#/quotes`) become
  * Studio's with the same `#…`; a Studio address is kept; an https page from the owner's other app is

@@ -404,6 +404,45 @@ fn the_installed_app_opens_studio_under_the_same_id_and_scope_with_studios_worke
 }
 
 #[test]
+fn studio_knows_which_release_it_is_and_the_worker_keeps_that_file_too() {
+    let f = fixture("push-release");
+    let line = crate::admin::studio_release_line();
+    let release: Json = serde_json::from_str(
+        line.trim()
+            .trim_start_matches("self.STUDIO_RELEASE = ")
+            .trim_end_matches(';'),
+    )
+    .unwrap();
+    let version = release["version"].as_str().unwrap().to_string();
+    assert_eq!(version.len(), 16);
+    let r = handle(&f.state, &req("GET", "/admin/studio/release.js"));
+    assert_eq!(r.status, 200);
+    assert!(ctype(&r).starts_with("text/javascript"));
+    assert_eq!(
+        String::from_utf8_lossy(&r.body),
+        format!("export const RELEASE = \"{version}\";\n")
+    );
+    let files: Vec<&str> = release["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Json::as_str)
+        .collect();
+    assert!(files.contains(&"/admin/studio/release.js"));
+    assert!(files.contains(&"/admin/studio/"));
+    assert!(!files.iter().any(|file| file.contains("/api/")));
+    // Not a file of its own anywhere else, and only ever read.
+    assert_eq!(
+        handle(&f.state, &req("GET", "/admin/release.js")).status,
+        404
+    );
+    assert_eq!(
+        handle(&f.state, &req("POST", "/admin/studio/release.js")).status,
+        405
+    );
+}
+
+#[test]
 fn the_manifest_names_the_app_after_the_site_or_my_blog() {
     let mut config = SiteConfig::default();
     let named = |config: &SiteConfig| -> Json {
