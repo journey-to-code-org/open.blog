@@ -161,6 +161,36 @@ pub(crate) fn prepare(root: &Path, slug: &str) -> Result<Prepared, String> {
     })
 }
 
+/// The preview of a post as the editor holds it, saved or not (Studio R7 G50): the same
+/// release, description and checks `openblog video` prints for it. `live` says whether the
+/// post is up now. `None` for a post that isn't a video.
+pub(crate) fn draft_preview(
+    root: &Path,
+    site: &openblog_core::Site,
+    post: &openblog_core::Post,
+    live: bool,
+) -> Option<VideoPreview> {
+    let release = VideoRelease::from_post(post)?;
+    let canonical_url = site.config.absolute(&post.url);
+    let article_public = public_address(&canonical_url) && live;
+    let paths = &site.config.paths;
+    let probe = |asset: &AssetRef<'_>| probe(root, &paths.static_dir, asset);
+    Some(video_release::youtube_preview(
+        &release,
+        PreviewSource {
+            slug: &post.slug,
+            source_path: &post.source,
+            canonical_url: &canonical_url,
+            article_public,
+            folders: PublicFolders {
+                static_dir: &paths.static_dir,
+                output_dir: &paths.output,
+            },
+        },
+        &probe,
+    ))
+}
+
 /// Whether the canonical address is one a viewer can reach: public and `https`, and not the
 /// example host a new site starts with.
 fn public_address(canonical_url: &str) -> bool {
@@ -337,4 +367,157 @@ fn write_preview(
         video_release::preview_page(preview, copied.as_deref()).as_bytes(),
     )?;
     Ok(directory)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openblog_core::markdown::RenderOptions;
+    use openblog_core::{frontmatter, SiteConfig, SourceFile};
+
+    const FIXTURE: &str = "tests/web/fixtures/video-release.json";
+
+    /// Video posts beside the repository's own: each rule YouTube applies, once.
+    const CASES: &[(&str, &str)] = &[
+        ("no-chapters", "---\ntitle: A short walk\ndate: 2026-01-01\nprofile: video\ndescription: Just a walk.\n---\nNo times here.\n"),
+        ("chapters", "---\ntitle: Three parts\ndate: 2026-01-01\nprofile: video\nduration: 2:00\ntags: [Walks, Long walks]\naiDisclosure: Captions were drafted with help.\n---\nIntro.\n\n- 0:00 Start\n- 0:20 Middle\n* 1:00 End\n\n```\n0:30 Not a chapter\n```\n"),
+        ("bad-chapters", "---\ntitle: Out of order\ndate: 2026-01-01\nprofile: video\nduration: 1:05\n---\n0:05 Late\n0:04 Back\n1:00 Last\n"),
+        ("short-last", "---\ntitle: Short end\ndate: 2026-01-01\nprofile: video\nduration: 1:05\n---\n0:00 One\n0:30 Two\n1:00 Three\n"),
+        ("no-duration", "---\ntitle: No length\ndate: 2026-01-01\nprofile: video\n---\n0:00 One\n0:30 Two\n1:00 Three\n"),
+        ("brackets", "---\ntitle: A <b> title\ndate: 2026-01-01\nprofile: video\nvideoDescription: Less < more\n---\nWords.\n"),
+        ("long", "---\ntitle: A title that goes on and on and on, far past what YouTube takes for a title, more than a hundred letters\ndate: 2026-01-01\nprofile: video\nvideoTitle: \"\"\n---\nWords.\n"),
+        ("excerpt", "---\ntitle: No summary\ndate: 2026-01-01\nprofile: video\n---\nThe first lines of the post are what the summary is when there isn't one.\n\n0:00 Start\n0:15 Next\n0:45 Last\n"),
+    ];
+
+    fn sources() -> Vec<(String, String)> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut found = Vec::new();
+        for dir in ["content/posts", "examples"] {
+            for file in fsutil::walk(&root.join(dir)) {
+                if file.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
+                }
+                let Ok(text) = fs::read_to_string(&file) else {
+                    continue;
+                };
+                if text.contains("\nprofile: video") {
+                    found.push((fsutil::relative(&root, &file), text));
+                }
+            }
+        }
+        found.sort();
+        found.extend(
+            CASES
+                .iter()
+                .map(|(name, text)| (format!("case:{name}"), text.to_string())),
+        );
+        found
+    }
+
+    /// What Studio's `video-rules.js` must make of each video post: written here from the engine,
+    /// read by tests/web/studio-video-rules.test.mjs. Set OPENBLOG_WRITE_FIXTURES=1 to rewrite it.
+    #[test]
+    fn studio_words_for_youtube_fixture_matches_the_engine() {
+        let config = SiteConfig {
+            url: "https://blog.example.org".into(),
+            ..SiteConfig::default()
+        };
+        let mut cases = Vec::new();
+        for (name, text) in sources() {
+            let document = frontmatter::parse(&text).unwrap();
+            let fm = &document.front_matter;
+            let path = format!(
+                "posts/{}.md",
+                name.rsplit('/')
+                    .next()
+                    .unwrap()
+                    .trim_end_matches(".md")
+                    .trim_start_matches("case:")
+            );
+            let post = openblog_core::model::load_post(
+                &SourceFile {
+                    path: path.clone(),
+                    contents: text.clone(),
+                },
+                &config,
+                RenderOptions::default(),
+            )
+            .unwrap();
+            let release = VideoRelease::from_post(&post).unwrap();
+            let url = config.absolute(&post.url);
+            let preview = video_release::youtube_preview(
+                &release,
+                PreviewSource {
+                    slug: &post.slug,
+                    source_path: &path,
+                    canonical_url: &url,
+                    article_public: true,
+                    folders: PublicFolders {
+                        static_dir: "static",
+                        output_dir: "dist",
+                    },
+                },
+                &|_| AssetFacts::Missing,
+            );
+            let mut fields = serde_json::Map::new();
+            for key in [
+                "title",
+                "videoTitle",
+                "description",
+                "summary",
+                "videoDescription",
+                "aiDisclosure",
+                "duration",
+            ] {
+                if let Some(value) = fm.get(key) {
+                    fields.insert(key.into(), serde_json::json!(value));
+                }
+            }
+            let codes: Vec<&str> = preview
+                .problems
+                .iter()
+                .map(|p| p.code.as_str())
+                .filter(|code| {
+                    code.starts_with("title-")
+                        || code.starts_with("description-")
+                        || code.starts_with("tags-")
+                        || code.starts_with("chapters-")
+                })
+                .collect();
+            cases.push(serde_json::json!({
+                "name": name,
+                "fields": fields,
+                "body": post.authored_markdown(),
+                "excerpt": post.description,
+                "url": url,
+                "tags": release.tags,
+                "expected": {
+                    "title": preview.title,
+                    "description": preview.description,
+                    "tags": preview.tags,
+                    "codes": codes,
+                },
+            }));
+        }
+        let text = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "note": "Written by `cargo test studio_words_for_youtube_fixture` with OPENBLOG_WRITE_FIXTURES=1 (crates/openblog-cli/src/video_release.rs). Do not edit.",
+                "cases": cases,
+            }))
+            .unwrap()
+        );
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(FIXTURE);
+        if std::env::var_os("OPENBLOG_WRITE_FIXTURES").is_some() {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, &text).unwrap();
+        }
+        let stored = fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            stored == text,
+            "{FIXTURE} is out of date: run OPENBLOG_WRITE_FIXTURES=1 cargo test -p openblog-cli studio_words_for_youtube_fixture"
+        );
+    }
 }

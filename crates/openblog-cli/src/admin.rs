@@ -425,6 +425,9 @@ impl AppState {
     /// serialises content writes so two saves never interleave.
     pub fn rebuild_locked(&self, status: &mut BuildStatus) -> Result<BuildReport, String> {
         let now = clock::now();
+        if let Ok(config) = site::load_config(&self.root) {
+            release_held_tracks(&self.root, &config, now);
+        }
         let result = site::build(
             &self.root,
             &BuildOptions {
@@ -1200,6 +1203,7 @@ fn authenticated_api(
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
+        ("POST", "video/release") => video_release_preview(state, req),
         ("POST", "pieces") => build_piece(req),
         ("POST", "job/check") => job_check(state, req),
         ("POST", "research/review") => review_before_publication(state, req),
@@ -16911,51 +16915,113 @@ fn staged_track(
     config: &SiteConfig,
     body: &Json,
     fields: &mut BTreeMap<String, Value>,
-) -> Result<Option<StagedTrack>, String> {
+    live: bool,
+) -> Result<Option<StagedTrack>, (&'static str, String)> {
     let Some(token) = body.get("trackToken").and_then(Json::as_str) else {
         return Ok(None);
     };
     if field_scalar(fields, "profile") != Some("field-journal")
         || field_scalar(fields, "locationPrivacy") != Some("exact")
     {
-        return Err("staged tracks require the Field journal profile in Exact mode".into());
+        return Err((
+            "track-needs-exact",
+            "staged tracks require the Field journal profile in Exact mode".into(),
+        ));
     }
-    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("invalid staged track token".into());
+    if !valid_track_token(token) {
+        return Err(("bad-token", "invalid staged track token".into()));
     }
     let pending = root
         .join(".openblog/pending-tracks")
         .join(format!("{token}.gpx"));
-    let contents =
-        fs::read(&pending).map_err(|_| "staged track expired; import the GPX again".to_string())?;
-    let source =
-        std::str::from_utf8(&contents).map_err(|_| "staged GPX is not UTF-8".to_string())?;
-    validate_gpx(source)?;
+    let contents = fs::read(&pending).map_err(|_| {
+        (
+            "track-expired",
+            "staged track expired; import the GPX again".to_string(),
+        )
+    })?;
+    let source = std::str::from_utf8(&contents)
+        .map_err(|_| ("not-utf8", "staged GPX is not UTF-8".to_string()))?;
+    validate_gpx(source).map_err(|error| ("not-gpx", error))?;
     let name = body
         .get("trackName")
         .and_then(Json::as_str)
         .unwrap_or("track.gpx");
     let stem = sanitize_upload_stem(name);
     let year = clock::now().civil().year;
-    let dir_rel = format!("tracks/uploads/{year}");
-    let static_dir = root.join(&config.paths.static_dir);
+    let public_dir = root
+        .join(&config.paths.static_dir)
+        .join(site::TRACK_UPLOADS)
+        .join(year.to_string());
+    let held_dir = root.join(site::HELD_TRACKS).join(year.to_string());
     let mut file_name = format!("{stem}.gpx");
     let mut number = 2;
-    while static_dir.join(&dir_rel).join(&file_name).exists() {
+    // A name is taken whether its file is public or still held.
+    while public_dir.join(&file_name).exists() || held_dir.join(&file_name).exists() {
         file_name = format!("{stem}-{number}.gpx");
         number += 1;
     }
-    let relative = format!("{dir_rel}/{file_name}");
-    let url = format!("/{relative}");
+    let url = format!("/{}{year}/{file_name}", site::TRACK_UPLOADS);
     fields.insert("route".into(), Value::Scalar(url.clone()));
     Ok(Some(StagedTrack {
         pending,
-        target: static_dir.join(relative),
+        target: if live { public_dir } else { held_dir }.join(file_name),
         url,
         contents,
     }))
 }
 
+/// Move the route files of posts that are now live from where they were held
+/// into `static`, so the site's files (and a repository built from them)
+/// hold them from the day they go up (G47). Best effort: the build already
+/// takes a held file a live post names.
+fn release_held_tracks(root: &Path, config: &SiteConfig, now: DateTime) {
+    let held_root = root.join(site::HELD_TRACKS);
+    if !held_root.is_dir() {
+        return;
+    }
+    let Ok(sources) = site::read_sources(root, config) else {
+        return;
+    };
+    for file in &sources.posts {
+        if describe(&file.path, &file.contents, config, now).0 != "published" {
+            continue;
+        }
+        let Ok(document) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        let journal = openblog_core::field_journal::FieldJournalMetadata::from_front_matter(
+            &document.front_matter,
+        );
+        let Some(relative) = journal
+            .route_url
+            .as_deref()
+            .and_then(|url| url.strip_prefix("/tracks/uploads/"))
+        else {
+            continue;
+        };
+        let held = held_root.join(relative);
+        let public = root
+            .join(&config.paths.static_dir)
+            .join(site::TRACK_UPLOADS)
+            .join(relative);
+        if !held.is_file() || public.exists() {
+            continue;
+        }
+        if let Some(parent) = public.parent() {
+            if fs::create_dir_all(parent).is_err() {
+                continue;
+            }
+        }
+        match crate::fsutil::retry_transient(|| fs::rename(&held, &public)) {
+            Ok(()) => eprintln!("admin: route file {relative} went up with its post"),
+            Err(error) => eprintln!("admin: cannot move route file {relative}: {error}"),
+        }
+    }
+}
+
+/// The file an exact route names: in `static` once its post went up, else
+/// where it is held while the post is a draft or scheduled (G47).
 fn static_track_path(root: &Path, config: &SiteConfig, route: &str) -> Option<PathBuf> {
     let relative = route.strip_prefix("/tracks/uploads/")?;
     if relative.is_empty()
@@ -16967,11 +17033,16 @@ fn static_track_path(root: &Path, config: &SiteConfig, route: &str) -> Option<Pa
     {
         return None;
     }
-    Some(
-        root.join(&config.paths.static_dir)
-            .join("tracks/uploads")
-            .join(relative),
-    )
+    let public = root
+        .join(&config.paths.static_dir)
+        .join("tracks/uploads")
+        .join(relative);
+    let held = root.join(site::HELD_TRACKS).join(relative);
+    Some(if !public.is_file() && held.is_file() {
+        held
+    } else {
+        public
+    })
 }
 
 /// A saved review a published job still shows cannot go to the trash: the build would stop on that job, or,
@@ -17181,15 +17252,24 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     }
     let field_journal = field_scalar(&fields, "profile") == Some("field-journal");
     let exact_location = field_journal && field_scalar(&fields, "locationPrivacy") == Some("exact");
+    // What a field journal's privacy leaves out of the file: the route file's
+    // address unless exact, and the route's shape when hidden (G52), so a
+    // public repository never holds the shape of a route its post hides.
+    let mut dropped: Vec<&str> = Vec::new();
     if field_journal && !exact_location {
-        fields.remove("route");
+        dropped.push("route");
     }
-    let track_upload = match staged_track(&state.root, &config, &body, &mut fields) {
-        Ok(track) => track,
-        Err(error) => return Response::error(422, &error),
-    };
-    let mut source = frontmatter::compose(&fields, text_body);
-
+    if field_journal
+        && openblog_core::field_journal::LocationPrivacy::parse(field_scalar(
+            &fields,
+            "locationPrivacy",
+        )) == openblog_core::field_journal::LocationPrivacy::Hidden
+    {
+        dropped.push("routeShape");
+    }
+    for key in &dropped {
+        fields.remove(*key);
+    }
     let (rel, created) = match existing_path {
         Some(rel) => (rel, false),
         None => {
@@ -17200,6 +17280,20 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             }
         }
     };
+    // An exact route file goes into `static` only with a live post; a draft or
+    // a post waiting for its day keeps it private until it goes up (G47).
+    let live = describe(
+        &rel,
+        &frontmatter::compose(&fields, text_body),
+        &config,
+        clock::now(),
+    )
+    .0 == "published";
+    let track_upload = match staged_track(&state.root, &config, &body, &mut fields, live) {
+        Ok(track) => track,
+        Err((code, error)) => return track_refused(code, &error),
+    };
+    let mut source = frontmatter::compose(&fields, text_body);
     let path = match resolve_content_path(&state.root, &config, &rel) {
         Ok(p) => p,
         Err(e) => return coded_error(400, "bad-path", &e),
@@ -17302,6 +17396,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                     if !sent.contains_key(key)
                         && !sent.contains_key(top)
                         && !fields.contains_key(key)
+                        && !dropped.contains(&key.as_str())
                     {
                         fields.insert(key.clone(), value.clone());
                     }
@@ -18042,16 +18137,17 @@ impl DraftSite<'_> {
 fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>, Response> {
     let text_body = body["body"].as_str().unwrap_or("");
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
-        return Err(Response::error(413, "The post body is too large"));
+        return Err(coded_error(413, "too-large", "The post body is too large"));
     }
     let fields = match fields_from_json(&body["fields"]) {
         Ok(fields) => fields,
-        Err(e) => return Err(Response::error(422, &e)),
+        Err(e) => return Err(coded_error(422, "bad-request", &e)),
     };
     let kind = body["kind"].as_str().unwrap_or("posts").to_string();
     if !matches!(kind.as_str(), "posts" | "pages" | "series" | "services") {
-        return Err(Response::error(
+        return Err(coded_error(
             422,
+            "bad-request",
             "kind must be posts, series, pages, or services",
         ));
     }
@@ -18059,16 +18155,17 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
         Some(path) => match check_rel_path(path) {
             Ok(path_kind) if path_kind == kind => path.to_string(),
             Ok(_) => {
-                return Err(Response::error(
+                return Err(coded_error(
                     422,
+                    "bad-request",
                     "path does not match the document kind",
                 ))
             }
-            Err(e) => return Err(Response::error(422, &e)),
+            Err(e) => return Err(coded_error(422, "bad-request", &e)),
         },
         None => match derive_new_path(&kind, &fields) {
             Ok(path) => path,
-            Err(e) => return Err(Response::error(422, &e)),
+            Err(e) => return Err(coded_error(422, "bad-request", &e)),
         },
     };
     let source = frontmatter::compose(&fields, text_body);
@@ -18144,7 +18241,7 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
                 .cloned()
                 .collect();
             let shown = if mine.is_empty() { errors } else { mine };
-            return Err(Response::error(422, &site::content_problems(&shown)));
+            return Err(build_refused(&site::content_problems(&shown), &shown));
         }
     };
     Ok(DraftSite {
@@ -18368,25 +18465,30 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
         return r;
     }
     if req.body.len() > 16 * 1024 {
-        return Response::error(413, "An acknowledgement is limited to 16 KiB");
+        return coded_error(413, "too-large", "An acknowledgement is limited to 16 KiB");
     }
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(body) => body,
-        Err(_) => return Response::error(400, "Invalid JSON"),
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
     };
     let Some(revision) = body["revision"].as_str() else {
-        return Response::error(400, "Missing acknowledgements revision");
+        return coded_error(400, "bad-request", "Missing acknowledgements revision");
     };
     let acknowledgement: Acknowledgement =
         match serde_json::from_value(body["acknowledgement"].clone()) {
             Ok(acknowledgement) => acknowledgement,
             Err(error) => {
-                return Response::error(422, &format!("Invalid acknowledgement: {error}"))
+                return coded_error(
+                    422,
+                    "invalid-acknowledgement",
+                    &format!("Invalid acknowledgement: {error}"),
+                )
             }
         };
     if let Some(problem) = acknowledgement.problem() {
-        return Response::error(
+        return coded_error(
             422,
+            "invalid-acknowledgement",
             &format!("Not acknowledged: {problem}. Nothing was changed."),
         );
     }
@@ -18407,6 +18509,7 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
             409,
             &json!({
                 "error": "The acknowledgements changed since this review was read. Nothing was changed; review again.",
+                "code": "changed",
                 "conflict": true,
                 "revision": research_review::load(&state.root).ok().map(|snapshot| snapshot.revision),
             }),
@@ -18415,6 +18518,7 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
             422,
             &json!({
                 "error": format!("{error}. Nothing was changed."),
+                "code": "file-invalid",
                 "file": research_review::ACKNOWLEDGEMENTS_FILE,
             }),
         ),
@@ -18551,8 +18655,62 @@ fn preview(state: &AppState, req: &Request) -> Response {
         _ => None,
     };
     let Some((url, theme)) = target else {
-        return Response::error(422, "Preview document was not found in the site model");
+        return coded_error(
+            422,
+            "not-found",
+            "Preview document was not found in the site model",
+        );
     };
+    let first_body_line = draft.first_body_line;
+    let social = match social_metadata(preview_site, rel) {
+        Ok(meta) => json!({
+            "siteName": meta.site_name,
+            "title": meta.title,
+            "description": meta.description,
+            "url": meta.url,
+            "image": meta.image,
+            "imageAlt": meta.image_alt.unwrap_or_default(),
+            "type": meta.kind,
+            "card": meta.card,
+        }),
+        Err(e) => return build_refused(&e, std::slice::from_ref(&e)),
+    };
+    let accessibility: Vec<_> = preview_site
+        .accessibility
+        .iter()
+        .filter(|finding| finding.source.path == rel || finding.scope == AuditScope::Site)
+        .cloned()
+        .collect();
+    // The previewed recipe's problems, as codes Admin words for its author (#556).
+    let recipe_problems = preview_site
+        .posts
+        .iter()
+        .find(|post| post.source == rel)
+        .and_then(|post| {
+            let recipe = post.recipe.as_ref()?;
+            Some(openblog_core::recipe_check::check(
+                &preview_site.config,
+                post,
+                recipe,
+            ))
+        })
+        .unwrap_or_default();
+    // Before you publish asks only for the checks (Studio R7 G53): no portable
+    // copy and no preview page, so it answers in time on a large site.
+    if body["only"].as_str() == Some("checks") {
+        return Response::json(
+            200,
+            &json!({
+                "url": url,
+                "social": social,
+                "warnings": preview_site.warnings,
+                "warningsSource": rel,
+                "recipeProblems": recipe_problems,
+                "accessibility": accessibility,
+                "firstBodyLine": first_body_line,
+            }),
+        );
+    }
     let research = preview_site
         .posts
         .iter()
@@ -18580,25 +18738,29 @@ fn preview(state: &AppState, req: &Request) -> Response {
         .map(|(post, summary)| citation_preview(&post.slug, summary));
     let portable_preview = if kind == "posts" {
         let Some(post) = preview_site.posts.iter().find(|post| post.source == rel) else {
-            return Response::error(422, "Preview post was not found in the site model");
+            return coded_error(
+                422,
+                "not-found",
+                "Preview post was not found in the site model",
+            );
         };
         // A published part of a collaborative series previews the series context its external
         // copies carry, exactly as an acknowledgement recomputes it (ADR 0041).
         let projection = match admin_portable_projection(preview_site, post, portable_config) {
             Ok(projection) => projection,
-            Err(error) => return Response::error(422, &error),
+            Err(error) => return build_refused(&error, std::slice::from_ref(&error)),
         };
         let mut portable_html = match projection.portable_html() {
             Ok(output) => output,
-            Err(error) => return Response::error(422, &error),
+            Err(error) => return build_refused(&error, std::slice::from_ref(&error)),
         };
         let portable_markdown = match projection.portable_markdown() {
             Ok(markdown) => markdown,
-            Err(error) => return Response::error(422, &error),
+            Err(error) => return build_refused(&error, std::slice::from_ref(&error)),
         };
         let portable_text = match projection.portable_text() {
             Ok(text) => text,
-            Err(error) => return Response::error(422, &error),
+            Err(error) => return build_refused(&error, std::slice::from_ref(&error)),
         };
         // compose() normalizes leading blank lines; locations must refer to the
         // unsaved editor body, not the composed production-preview document.
@@ -18682,22 +18844,9 @@ fn preview(state: &AppState, req: &Request) -> Response {
     } else {
         Json::Null
     };
-    let social = match social_metadata(preview_site, rel) {
-        Ok(meta) => json!({
-            "siteName": meta.site_name,
-            "title": meta.title,
-            "description": meta.description,
-            "url": meta.url,
-            "image": meta.image,
-            "imageAlt": meta.image_alt.unwrap_or_default(),
-            "type": meta.kind,
-            "card": meta.card,
-        }),
-        Err(e) => return Response::error(422, &e),
-    };
     let document = match generate_document(preview_site, themes, rel) {
         Ok(document) => document,
-        Err(e) => return Response::error(422, &e),
+        Err(e) => return build_refused(&e, std::slice::from_ref(&e)),
     };
     let token = match auth::random_token() {
         Ok(token) => token,
@@ -18705,32 +18854,12 @@ fn preview(state: &AppState, req: &Request) -> Response {
     };
     let csp = preview_csp(&preview_site.config);
     store_preview(state, &token, document.contents, csp);
-    let accessibility: Vec<_> = preview_site
-        .accessibility
-        .iter()
-        .filter(|finding| finding.source.path == rel || finding.scope == AuditScope::Site)
-        .cloned()
-        .collect();
     let evidence: Vec<_> = preview_site
         .evidence
         .iter()
         .filter(|finding| finding.source.path == rel)
         .cloned()
         .collect();
-    // The previewed recipe's problems, as codes Admin words for its author (#556).
-    let recipe_problems = preview_site
-        .posts
-        .iter()
-        .find(|post| post.source == rel)
-        .and_then(|post| {
-            let recipe = post.recipe.as_ref()?;
-            Some(openblog_core::recipe_check::check(
-                &preview_site.config,
-                post,
-                recipe,
-            ))
-        })
-        .unwrap_or_default();
     Response::json(
         200,
         &json!({
@@ -18747,9 +18876,87 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "recipeProblems": recipe_problems,
             "recipeNotes": openblog_core::recipe_listing::plan(preview_site).notes,
             "accessibility": accessibility,
-            "evidence": evidence
+            "evidence": evidence,
+            "firstBodyLine": first_body_line
         }),
     )
+}
+
+/// A draft the build would refuse (Studio R7 G46): the sentence as before in
+/// `error`, and each problem with the field it names when it names one.
+fn build_refused(error: &str, problems: &[String]) -> Response {
+    let problems: Vec<Json> = problems
+        .iter()
+        .map(|problem| {
+            let issue = post_settings::document_issue(problem);
+            let mut entry = json!({ "message": problem });
+            if let Some(field) = issue["field"].as_str().filter(|field| !field.is_empty()) {
+                entry["field"] = json!(field);
+            }
+            if let Some(line) = problem_line(problem) {
+                entry["line"] = json!(line);
+            }
+            entry
+        })
+        .collect();
+    Response::json(
+        422,
+        &json!({ "error": error, "code": "build", "problems": problems }),
+    )
+}
+
+/// The line a build problem names ("… line 12 …" or "path.md:12:"), when it names one.
+fn problem_line(problem: &str) -> Option<u64> {
+    let after_line = problem
+        .split("line ")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|digits| digits.parse().ok());
+    after_line.or_else(|| {
+        let (_, rest) = problem.split_once(".md:")?;
+        rest.split(|c: char| !c.is_ascii_digit())
+            .next()?
+            .parse()
+            .ok()
+    })
+}
+
+/// What `openblog video` would print for the post as the editor holds it,
+/// saved or not (Studio R7 G50), so Words for YouTube and the engine can't
+/// disagree. Reads only; sends nothing.
+fn video_release_preview(state: &AppState, req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
+    };
+    if body["kind"].as_str().unwrap_or("posts") != "posts" {
+        return coded_error(422, "bad-request", "Only a post has a video release");
+    }
+    let mut draft = match load_draft_site(state, &body) {
+        Ok(draft) => draft,
+        Err(response) => return response,
+    };
+    draft.release();
+    let Some(post) = draft
+        .site
+        .posts
+        .iter()
+        .find(|post| post.source == draft.rel)
+    else {
+        return coded_error(422, "not-found", "The post was not found in the site model");
+    };
+    let live = !post.draft && post.date <= clock::now();
+    match crate::video_release::draft_preview(&state.root, &draft.site, post, live) {
+        Some(preview) => Response::json(200, &preview.to_json_value()),
+        None => coded_error(
+            422,
+            "not-video",
+            "A video release is prepared only from a post with `profile: video`",
+        ),
+    }
 }
 
 /// What the previewed post's citations made public, with its portable
@@ -19315,20 +19522,35 @@ fn upload_track(state: &AppState, req: &Request) -> Response {
     };
     let max = config.admin.max_upload_mb as usize * 1024 * 1024;
     if req.body.is_empty() {
-        return Response::error(400, "No GPX data");
+        return coded_error(400, "empty", "No GPX data");
     }
     if req.body.len() > max {
-        return Response::error(
+        return Response::json(
             413,
-            &format!("Tracks can be at most {} MB", config.admin.max_upload_mb),
+            &json!({
+                "error": format!("Tracks can be at most {} MB", config.admin.max_upload_mb),
+                "code": "too-large",
+                "maxMb": config.admin.max_upload_mb,
+            }),
         );
     }
     let Ok(source) = std::str::from_utf8(&req.body) else {
-        return Response::error(415, "GPX tracks must be UTF-8 XML");
+        return coded_error(415, "not-utf8", "GPX tracks must be UTF-8 XML");
     };
-    if let Err(error) = validate_gpx(source) {
-        return Response::error(415, &error);
+    if gpx_is_unsafe(source) {
+        return coded_error(
+            415,
+            "unsafe",
+            "Choose a GPX track without scripts or document entities",
+        );
     }
+    if let Err(error) = validate_gpx(source) {
+        return coded_error(415, "not-gpx", &error);
+    }
+    // Only what the published file needs is kept: track points with their
+    // position and height. Times, waypoints, names and the app's details are
+    // dropped before the file is stored (G48).
+    let (cleaned, points) = clean_gpx(source);
     let token = match auth::random_token() {
         Ok(token) => token,
         Err(error) => return Response::error(500, &error),
@@ -19340,19 +19562,26 @@ fn upload_track(state: &AppState, req: &Request) -> Response {
         Err(response) => return response,
     };
     prune_staged_tracks(&pending_dir);
-    if let Err(error) = fsutil::write_file(&pending_dir.join(format!("{token}.gpx")), &req.body) {
+    if let Err(error) = fsutil::write_file(
+        &pending_dir.join(format!("{token}.gpx")),
+        cleaned.as_bytes(),
+    ) {
         return Response::error(500, &error);
     }
-    eprintln!("admin: staged track {token} ({} bytes)", req.body.len());
-    Response::json(201, &json!({ "token": token }))
+    eprintln!(
+        "admin: staged track {token} ({} bytes, {} kept)",
+        req.body.len(),
+        cleaned.len()
+    );
+    Response::json(201, &json!({ "token": token, "points": points }))
 }
 
 fn discard_track(state: &AppState, req: &Request) -> Response {
     let Some(token) = req.query.get("token") else {
-        return Response::error(400, "Missing track token");
+        return coded_error(400, "bad-token", "Missing track token");
     };
-    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Response::error(400, "Invalid track token");
+    if !valid_track_token(token) {
+        return coded_error(400, "bad-token", "Invalid track token");
     }
     let _guard = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
@@ -19390,13 +19619,112 @@ fn prune_staged_tracks(dir: &Path) {
     }
 }
 
-fn validate_gpx(source: &str) -> Result<(), String> {
+fn valid_track_token(token: &str) -> bool {
+    token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// A save refused because of its route file (G49): coded like other refusals.
+fn track_refused(code: &str, message: &str) -> Response {
+    Response::json(
+        422,
+        &json!({
+            "error": message,
+            "code": code,
+            "problems": [message],
+            "issues": [{ "code": code, "field": "route", "message": message }],
+        }),
+    )
+}
+
+fn gpx_is_unsafe(source: &str) -> bool {
     let lower = source.to_ascii_lowercase();
-    if lower.contains("<!doctype")
+    lower.contains("<!doctype")
         || lower.contains("<!entity")
         || lower.contains("<script")
         || lower.contains("<?xml-stylesheet")
-    {
+}
+
+/// The GPX with only its track points' position and height, each track
+/// segment kept apart (G48), and how many points it kept. Call only on a
+/// source `validate_gpx` accepted. Numbers are written back from their
+/// parsed values, so nothing of the source's text survives but the numbers.
+fn clean_gpx(source: &str) -> (String, usize) {
+    let mut segments: Vec<Vec<(f64, f64, Option<f64>)>> = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut in_segment = false;
+    for part in source.split('<').skip(1) {
+        let Some((tag, text)) = part.split_once('>') else {
+            continue;
+        };
+        let tag = tag.trim();
+        if tag.starts_with(['?', '!']) {
+            continue;
+        }
+        if let Some(closing) = tag.strip_prefix('/') {
+            let name = closing.trim().rsplit(':').next().unwrap_or("");
+            if name.eq_ignore_ascii_case("trkseg") {
+                in_segment = false;
+            }
+            stack.pop();
+            continue;
+        }
+        let name = tag
+            .split_ascii_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_end_matches('/');
+        let local = name.rsplit(':').next().unwrap_or(name).to_ascii_lowercase();
+        let inside = |wanted: &str| stack.iter().any(|name| name == wanted);
+        if local == "trkseg" && inside("trk") {
+            segments.push(Vec::new());
+            in_segment = true;
+        } else if local == "trkpt" && in_segment {
+            let lat = xml_attribute(tag, "lat").and_then(|value| value.parse::<f64>().ok());
+            let lon = xml_attribute(tag, "lon").and_then(|value| value.parse::<f64>().ok());
+            if let (Some(lat), Some(lon)) = (lat, lon) {
+                if lat.is_finite() && lat.abs() <= 90.0 && lon.is_finite() && lon.abs() <= 180.0 {
+                    if let Some(segment) = segments.last_mut() {
+                        segment.push((lat, lon, None));
+                    }
+                }
+            }
+        } else if local == "ele" && stack.last().is_some_and(|name| name == "trkpt") && in_segment {
+            let height = text
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite() && (-1000.0..=10000.0).contains(value));
+            if let Some(point) = segments.last_mut().and_then(|segment| segment.last_mut()) {
+                point.2 = height;
+            }
+        }
+        if !tag.ends_with('/') {
+            stack.push(local);
+        }
+    }
+    let mut out = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"open.blog\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n<trk>\n",
+    );
+    let mut points = 0;
+    for segment in segments.iter().filter(|segment| !segment.is_empty()) {
+        out.push_str("<trkseg>\n");
+        for (lat, lon, height) in segment {
+            points += 1;
+            match height {
+                Some(height) => out.push_str(&format!(
+                    "<trkpt lat=\"{lat}\" lon=\"{lon}\"><ele>{height}</ele></trkpt>\n"
+                )),
+                None => out.push_str(&format!("<trkpt lat=\"{lat}\" lon=\"{lon}\"/>\n")),
+            }
+        }
+        out.push_str("</trkseg>\n");
+    }
+    out.push_str("</trk>\n</gpx>\n");
+    (out, points)
+}
+
+fn validate_gpx(source: &str) -> Result<(), String> {
+    if gpx_is_unsafe(source) {
         return Err("Choose a GPX track without scripts or document entities".into());
     }
     let mut stack: Vec<String> = Vec::new();
@@ -22212,6 +22540,102 @@ What I read:
             ),
         );
         assert_eq!(pages.status, 422);
+    }
+
+    #[test]
+    fn acknowledgement_refusals_carry_codes() {
+        let f = review_fixture("review-ack-codes");
+        let session = login_ok(&f);
+        let send = |body: Vec<u8>| {
+            let mut request = authed(
+                req("PUT", "/admin/api/research/review/acknowledgements"),
+                &session,
+                true,
+            );
+            request
+                .headers
+                .insert("content-type".into(), "application/json".into());
+            request.body = body;
+            let response = handle(&f.state, &request);
+            (response.status, body_json(&response))
+        };
+        let first = review(&f, &session, REVIEW_BODY);
+        let revision = first["acknowledgements"]["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let context = finding(&first, "context-link-unpublished").clone();
+        let ack = json!({
+            "validator": context["validator"], "code": context["code"],
+            "object": context["scope"]["object"], "path": context["scope"]["path"],
+            "fingerprint": context["fingerprint"],
+        });
+        let (status, bad_json) = send(b"{".to_vec());
+        assert_eq!(
+            (status, bad_json["code"].as_str()),
+            (400, Some("bad-request"))
+        );
+        let (status, no_revision) =
+            send(json!({ "acknowledgement": ack }).to_string().into_bytes());
+        assert_eq!(
+            (status, no_revision["code"].as_str()),
+            (400, Some("bad-request"))
+        );
+        let (status, big) = send(vec![b' '; 17 * 1024]);
+        assert_eq!((status, big["code"].as_str()), (413, Some("too-large")));
+        let mut hostile = ack.clone();
+        hostile["resolved"] = json!(true);
+        let (status, invalid) = send(
+            json!({ "revision": revision, "acknowledgement": hostile })
+                .to_string()
+                .into_bytes(),
+        );
+        assert_eq!(
+            (status, invalid["code"].as_str()),
+            (422, Some("invalid-acknowledgement"))
+        );
+        let refusing = finding(&first, "citation-unresolved").clone();
+        let (status, refused) = send(
+            json!({ "revision": revision, "acknowledgement": {
+                "validator": refusing["validator"], "code": refusing["code"],
+                "object": refusing["scope"]["object"], "path": refusing["scope"]["path"],
+                "fingerprint": refusing["fingerprint"],
+            } })
+            .to_string()
+            .into_bytes(),
+        );
+        assert_eq!(
+            (status, refused["code"].as_str()),
+            (422, Some("invalid-acknowledgement"))
+        );
+        let (status, saved) = send(
+            json!({ "revision": revision, "acknowledgement": ack })
+                .to_string()
+                .into_bytes(),
+        );
+        assert_eq!(status, 200, "{saved}");
+        let (status, changed) = send(
+            json!({ "revision": revision, "acknowledgement": ack })
+                .to_string()
+                .into_bytes(),
+        );
+        assert_eq!((status, changed["code"].as_str()), (409, Some("changed")));
+        assert_eq!(changed["revision"], saved["revision"]);
+        fs::write(
+            f.dir.join(research_review::ACKNOWLEDGEMENTS_FILE),
+            "{not json",
+        )
+        .unwrap();
+        let (status, broken) = send(
+            json!({ "revision": saved["revision"], "acknowledgement": ack })
+                .to_string()
+                .into_bytes(),
+        );
+        assert!(matches!(status, 409 | 422), "{status} {broken}");
+        if status == 422 {
+            assert_eq!(broken["code"], "file-invalid");
+            assert_eq!(broken["file"], research_review::ACKNOWLEDGEMENTS_FILE);
+        }
     }
 
     #[test]
@@ -33317,6 +33741,166 @@ What I read:
     }
 
     #[test]
+    fn a_preview_for_the_checks_skips_the_page_and_coded_refusals_name_the_problem() {
+        let f = fixture("preview-checks");
+        let session = login_ok(&f);
+        let send = |body: Json| {
+            let response = handle(
+                &f.state,
+                &authed(json_req("POST", "/admin/api/preview", body), &session, true),
+            );
+            (response.status, body_json(&response))
+        };
+        let fields = json!({ "title": "A post with a cover", "date": "2026-01-02", "cover": "/images/x.jpg", "tags": "walks" });
+        let (status, full) = send(
+            json!({ "kind": "posts", "fields": fields, "body": "Hello.\n\n![](/images/y.jpg)\n" }),
+        );
+        assert_eq!(status, 200);
+        assert!(full["previewUrl"].is_string());
+        let header_lines = frontmatter::compose(&fields_from_json(&fields).unwrap(), "")
+            .matches('\n')
+            .count();
+        assert_eq!(full["firstBodyLine"], header_lines + 1);
+        let (status, checks) = send(
+            json!({ "kind": "posts", "fields": fields, "body": "Hello.\n\n![](/images/y.jpg)\n", "only": "checks" }),
+        );
+        assert_eq!(status, 200);
+        let mut keys: Vec<&str> = checks
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "accessibility",
+                "firstBodyLine",
+                "recipeProblems",
+                "social",
+                "url",
+                "warnings",
+                "warningsSource"
+            ]
+        );
+        assert_eq!(checks["social"], full["social"]);
+        assert_eq!(checks["accessibility"], full["accessibility"]);
+        assert_eq!(checks["firstBodyLine"], full["firstBodyLine"]);
+        // The page was never made: nothing new is stored for the checks.
+        assert!(checks.get("previewUrl").is_none());
+
+        let (status, refused) = send(
+            json!({ "kind": "posts", "fields": { "title": "Bad date", "date": "not a date" }, "body": "x" }),
+        );
+        assert_eq!(status, 422, "{refused}");
+        assert_eq!(refused["code"], "build");
+        assert!(refused["error"].as_str().is_some_and(|e| !e.is_empty()));
+        let problems = refused["problems"].as_array().unwrap();
+        assert!(!problems.is_empty());
+        assert!(problems.iter().all(|p| p["message"].is_string()));
+        assert!(problems.iter().any(|p| p["field"] == "date"), "{refused}");
+
+        let (status, bad) = send(json!({ "kind": "nope", "fields": {}, "body": "" }));
+        assert_eq!((status, bad["code"].as_str()), (422, Some("bad-request")));
+        assert_eq!(problem_line("posts/a.md:12: bad"), Some(12));
+        assert_eq!(problem_line("bad shortcode on line 7 of the body"), Some(7));
+        assert_eq!(problem_line("no place"), None);
+    }
+
+    #[test]
+    fn a_video_release_of_the_draft_is_what_openblog_video_prints() {
+        let f = fixture("video-release-draft");
+        let session = login_ok(&f);
+        let body = "Intro.\n\n0:00 Start\n0:20 Middle\n1:00 End\n";
+        let fields = json!({ "title": "The gate", "date": "2026-01-02", "profile": "video", "description": "A walk to the gate.", "duration": "PT2M", "tags": ["Walks", "Gates"], "videoUrl": "https://www.youtube.com/watch?v=abcdefghijk" });
+        fs::write(
+            f.dir.join("content/posts/2026-01-02-the-gate.md"),
+            frontmatter::compose(&fields_from_json(&fields).unwrap(), body),
+        )
+        .unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/video/release",
+                    json!({ "kind": "posts", "path": "posts/2026-01-02-the-gate.md", "fields": fields, "body": body }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let draft = body_json(&response);
+        let printed = crate::video_release::prepare(&f.dir, "the-gate")
+            .unwrap()
+            .preview
+            .to_json_value();
+        for key in [
+            "title",
+            "description",
+            "tags",
+            "chapters",
+            "problems",
+            "status",
+            "steps",
+            "digest",
+        ] {
+            assert_eq!(draft[key], printed[key], "{key}");
+        }
+        assert!(draft["description"]
+            .as_str()
+            .unwrap()
+            .contains("Read the article: "));
+
+        // An unsaved change shows at once, and its problems carry codes.
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/video/release",
+                    json!({ "kind": "posts", "path": "posts/2026-01-02-the-gate.md", "fields": fields, "body": "0:05 Late start\n" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        let changed = body_json(&response);
+        let codes: Vec<&str> = changed["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["code"].as_str().unwrap())
+            .collect();
+        assert_eq!(codes[..2], ["chapters-first-not-zero", "chapters-too-few"]);
+        assert!(codes.iter().all(|code| !code.is_empty()));
+
+        let mut story = fields.clone();
+        story["profile"] = json!("");
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/video/release",
+                    json!({ "kind": "posts", "fields": story, "body": body }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 422);
+        assert_eq!(body_json(&response)["code"], "not-video");
+    }
+
+    #[test]
     fn unknown_content_profiles_round_trip_and_warn_in_preview() {
         let f = fixture("profile-roundtrip");
         let session = login_ok(&f);
@@ -35934,6 +36518,374 @@ href: /about/
             .join("dist")
             .join(delete_url.trim_start_matches('/'))
             .exists());
+    }
+
+    /// Every file under `dist/tracks/uploads`, as site paths.
+    fn built_tracks(dir: &Path) -> Vec<String> {
+        fsutil::walk(&dir.join("dist/tracks/uploads"))
+            .iter()
+            .map(|path| fsutil::relative(&dir.join("dist"), path))
+            .collect()
+    }
+
+    #[test]
+    fn an_exact_route_file_stays_private_until_its_post_is_live() {
+        let f = fixture("track-held");
+        let session = login_ok(&f);
+        let gpx = br#"<?xml version="1.0"?><gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#;
+        let stage = || {
+            let mut request = authed(
+                req("POST", "/admin/api/track-upload?name=ridge.gpx"),
+                &session,
+                true,
+            );
+            request.body = gpx.to_vec();
+            let response = handle(&f.state, &request);
+            assert_eq!(response.status, 201);
+            body_json(&response)["token"].as_str().unwrap().to_string()
+        };
+        let save = |method: &str, path: &str, fields: Json, extra: Json| {
+            let mut body = json!({ "kind": "posts", "fields": fields, "body": "Trail notes." });
+            for (key, value) in extra.as_object().unwrap() {
+                body[key] = value.clone();
+            }
+            let response = handle(
+                &f.state,
+                &authed(json_req(method, path, body), &session, true),
+            );
+            assert!(
+                response.status < 300,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            body_json(&response)
+        };
+        let year = clock::now().civil().year;
+
+        // A draft: the file is held privately, never in `static` or the built site.
+        let token = stage();
+        let draft = save(
+            "POST",
+            "/admin/api/document",
+            json!({"title":"Draft Ridge","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"exact"}),
+            json!({"trackToken": token, "trackName": "Draft Ridge.gpx"}),
+        );
+        let draft_url = draft["trackUrl"].as_str().unwrap().to_string();
+        assert_eq!(draft_url, format!("/tracks/uploads/{year}/draft-ridge.gpx"));
+        let relative = draft_url.trim_start_matches("/tracks/uploads/");
+        assert!(f.dir.join(site::HELD_TRACKS).join(relative).is_file());
+        assert!(!f.dir.join("static").join(&draft_url[1..]).exists());
+        assert!(!f
+            .dir
+            .join(format!(".openblog/pending-tracks/{token}.gpx"))
+            .exists());
+        assert_eq!(built_tracks(&f.dir), Vec::<String>::new());
+
+        // A post waiting for its day: held too.
+        let token = stage();
+        let future = save(
+            "POST",
+            "/admin/api/document",
+            json!({"title":"Future Ridge","date":"2099-01-01","profile":"field-journal","locationPrivacy":"exact"}),
+            json!({"trackToken": token, "trackName": "Future Ridge.gpx"}),
+        );
+        assert_eq!(future["status"], "scheduled");
+        let future_url = future["trackUrl"].as_str().unwrap().to_string();
+        assert!(!f.dir.join("static").join(&future_url[1..]).exists());
+        assert_eq!(built_tracks(&f.dir), Vec::<String>::new());
+
+        // Old releases put a draft's file in `static`; a stray file sits there too.
+        // Neither reaches the built site.
+        let legacy = format!("tracks/uploads/{year}/legacy.gpx");
+        fs::create_dir_all(f.dir.join("static").join(format!("tracks/uploads/{year}"))).unwrap();
+        fs::write(f.dir.join("static").join(&legacy), gpx).unwrap();
+        fs::write(
+            f.dir
+                .join(format!("static/tracks/uploads/{year}/stray.gpx")),
+            gpx,
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join("content/posts/2026-01-04-legacy.md"),
+            format!("---\ntitle: Legacy\ndate: 2026-01-04\ndraft: true\nprofile: field-journal\nlocationPrivacy: exact\nroute: /{legacy}\n---\nNotes."),
+        )
+        .unwrap();
+        // A live post that names a file but isn't exact doesn't publish it either.
+        fs::write(
+            f.dir.join("content/posts/2026-01-05-hidden.md"),
+            format!("---\ntitle: Hidden\ndate: 2026-01-05\nprofile: field-journal\nlocationPrivacy: hidden\nroute: /tracks/uploads/{year}/stray.gpx\n---\nNotes."),
+        )
+        .unwrap();
+        f.state.rebuild().unwrap();
+        assert_eq!(built_tracks(&f.dir), Vec::<String>::new());
+
+        // Publishing the draft (no new token) puts its file in `static` and the site.
+        let path = "/admin/api/document?path=posts/2026-01-03-draft-ridge.md";
+        let published = save(
+            "PUT",
+            path,
+            json!({"title":"Draft Ridge","date":"2026-01-03","profile":"field-journal","locationPrivacy":"exact","route":draft_url}),
+            json!({"etag": draft["etag"]}),
+        );
+        assert_eq!(published["status"], "published");
+        assert!(f.dir.join("static").join(&draft_url[1..]).is_file());
+        assert!(!f.dir.join(site::HELD_TRACKS).join(relative).exists());
+        assert_eq!(built_tracks(&f.dir), vec![draft_url[1..].to_string()]);
+
+        // The scheduled post's day comes: the next build shows its file and moves it up.
+        let scheduled = f.dir.join("content/posts/2099-01-01-future-ridge.md");
+        let source = fs::read_to_string(&scheduled).unwrap();
+        fs::write(&scheduled, source.replace("2099-01-01", "2026-01-06")).unwrap();
+        f.state.rebuild().unwrap();
+        assert!(f.dir.join("static").join(&future_url[1..]).is_file());
+        let mut built = built_tracks(&f.dir);
+        built.sort();
+        assert_eq!(
+            built,
+            vec![draft_url[1..].to_string(), future_url[1..].to_string()]
+        );
+
+        // Making it a draft again takes the file off the built site at once.
+        save(
+            "PUT",
+            path,
+            json!({"title":"Draft Ridge","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"exact","route":draft_url}),
+            json!({"etag": published["etag"]}),
+        );
+        assert_eq!(built_tracks(&f.dir), vec![future_url[1..].to_string()]);
+    }
+
+    #[test]
+    fn a_staged_route_file_keeps_only_positions_and_heights_and_errors_carry_codes() {
+        let f = fixture("track-clean");
+        let session = login_ok(&f);
+        let send = |bytes: &[u8]| {
+            let mut request = authed(req("POST", "/admin/api/track-upload"), &session, true);
+            request.body = bytes.to_vec();
+            handle(&f.state, &request)
+        };
+        let gpx = r#"<?xml version="1.0"?>
+<gpx version="1.1" creator="Garmin Fenix 7 serial 12345" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+<metadata><name>Home loop</name><link href="https://example.com/me"><text>me</text></link><time>2026-05-01T07:00:00Z</time></metadata>
+<wpt lat="39.1" lon="-79.6"><name>My house</name></wpt>
+<rte><rtept lat="39.2" lon="-79.7"/></rte>
+<trk><name>Morning</name><desc>From home</desc><trkseg>
+<trkpt lat="39.0001" lon="-79.5001"><ele>1012.5</ele><time>2026-05-01T07:00:00Z</time><extensions><gpxtpx:hr>140</gpxtpx:hr></extensions></trkpt>
+<trkpt lat="39.0002" lon="-79.5002"><time>2026-05-01T07:01:00Z</time></trkpt>
+</trkseg><trkseg><trkpt lat="39.0003" lon="-79.5003"><ele>1013</ele></trkpt><trkpt lat="39.0004" lon="-79.5004"/></trkseg></trk>
+</gpx>"#;
+        let staged = send(gpx.as_bytes());
+        assert_eq!(staged.status, 201);
+        let staged = body_json(&staged);
+        assert_eq!(staged["points"], 4);
+        let token = staged["token"].as_str().unwrap();
+        let kept = fs::read_to_string(f.dir.join(format!(".openblog/pending-tracks/{token}.gpx")))
+            .unwrap();
+        for gone in [
+            "<time",
+            "<wpt",
+            "<rte",
+            "<metadata",
+            "<name",
+            "<desc",
+            "<link",
+            "<extensions",
+            "Garmin",
+            "12345",
+            "My house",
+            "39.1",
+            "hr>",
+        ] {
+            assert!(!kept.contains(gone), "{gone} in {kept}");
+        }
+        assert!(kept.contains(r#"<trkpt lat="39.0001" lon="-79.5001"><ele>1012.5</ele></trkpt>"#));
+        assert!(kept.contains(r#"<trkpt lat="39.0002" lon="-79.5002"/>"#));
+        assert_eq!(kept.matches("<trkseg>").count(), 2);
+        assert!(validate_gpx(&kept).is_ok());
+
+        let code = |response: &Response| body_json(response)["code"].as_str().unwrap().to_string();
+        let empty = send(b"");
+        assert_eq!((empty.status, code(&empty).as_str()), (400, "empty"));
+        let latin = send(b"<gpx>\xff</gpx>");
+        assert_eq!((latin.status, code(&latin).as_str()), (415, "not-utf8"));
+        let unsafe_file = send(b"<!DOCTYPE gpx><gpx></gpx>");
+        assert_eq!(
+            (unsafe_file.status, code(&unsafe_file).as_str()),
+            (415, "unsafe")
+        );
+        let not_gpx = send(b"<html>no route</html>");
+        assert_eq!((not_gpx.status, code(&not_gpx).as_str()), (415, "not-gpx"));
+        let big = send(&vec![b' '; 11 * 1024 * 1024]);
+        assert_eq!((big.status, code(&big).as_str()), (413, "too-large"));
+        assert!(body_json(&big)["maxMb"].as_u64().is_some());
+        let bad_discard = handle(
+            &f.state,
+            &authed(
+                req("DELETE", "/admin/api/track-upload?token=nope"),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            (bad_discard.status, code(&bad_discard).as_str()),
+            (400, "bad-token")
+        );
+
+        let save = |privacy: &str, token: &str| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({"kind":"posts","fields":{"title":format!("Ridge {privacy} {}", &token[..4]),"date":"2026-01-03","profile":"field-journal","locationPrivacy":privacy},"body":"Notes.","trackToken":token}),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        for (privacy, sent, expected) in [
+            ("hidden", token, "track-needs-exact"),
+            ("exact", "zzzz", "bad-token"),
+            ("exact", &"a".repeat(64)[..], "track-expired"),
+        ] {
+            let refused = save(privacy, sent);
+            assert_eq!(refused.status, 422);
+            let refused = body_json(&refused);
+            assert_eq!(refused["code"], expected);
+            assert_eq!(refused["issues"][0]["code"], expected);
+            assert_eq!(refused["issues"][0]["field"], "route");
+            assert!(refused["error"].as_str().is_some());
+        }
+    }
+
+    #[test]
+    fn a_hidden_route_keeps_no_shape_in_the_file() {
+        let f = fixture("track-hidden-shape");
+        let session = login_ok(&f);
+        let shape = "0,50 500,20 1000,80";
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields":{"title":"Shape","date":"2026-01-03","profile":"field-journal","locationPrivacy":"hidden","routeShape":shape,"elevationProfile":shape},"body":"Notes."}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(created.status, 201);
+        let created = body_json(&created);
+        let file = f.dir.join("content/posts/2026-01-03-shape.md");
+        let saved = fs::read_to_string(&file).unwrap();
+        assert!(!saved.contains("routeShape"), "{saved}");
+        assert!(
+            saved.contains("elevationProfile"),
+            "the climb drawing is hers to keep"
+        );
+
+        // A shape written by hand before, on a post that keeps its layout and
+        // doesn't send the key, still goes when the post is saved hidden.
+        fs::write(
+            &file,
+            format!("---\ntitle: Shape\ndate: 2026-01-03\nprofile: field-journal\nlocationPrivacy: trimmed\nrouteShape: {shape}\n---\nNotes.\n"),
+        )
+        .unwrap();
+        let current = fs::read_to_string(&file).unwrap();
+        let _ = created;
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-shape.md",
+                    json!({"fields":{"title":"Shape","date":"2026-01-03","profile":"field-journal","locationPrivacy":"hidden"},"body":"Notes.","etag":etag(&current),"frontMatter":"keep"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = fs::read_to_string(&file).unwrap();
+        assert!(!saved.contains("routeShape"), "{saved}");
+        assert!(saved.contains("locationPrivacy: hidden"));
+        // Trimmed keeps its shape.
+        let current = saved;
+        let trimmed = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-shape.md",
+                    json!({"fields":{"title":"Shape","date":"2026-01-03","profile":"field-journal","locationPrivacy":"trimmed","routeShape":shape},"body":"Notes.","etag":etag(&current),"frontMatter":"keep"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(trimmed.status, 200);
+        assert!(fs::read_to_string(&file).unwrap().contains("routeShape"));
+    }
+
+    #[test]
+    fn a_held_route_file_is_retired_when_its_post_stops_showing_it() {
+        let f = fixture("track-held-retire");
+        let session = login_ok(&f);
+        let mut request = authed(
+            req("POST", "/admin/api/track-upload?name=ridge.gpx"),
+            &session,
+            true,
+        );
+        request.body = br#"<gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#.to_vec();
+        let token = body_json(&handle(&f.state, &request))["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields":{"title":"Held","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"exact"},"body":"Notes.","trackToken":token,"trackName":"Held.gpx"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(created.status, 201);
+        let created = body_json(&created);
+        let url = created["trackUrl"].as_str().unwrap();
+        let held = f
+            .dir
+            .join(site::HELD_TRACKS)
+            .join(url.trim_start_matches("/tracks/uploads/"));
+        assert!(held.is_file());
+        let hidden = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-held.md",
+                    json!({"fields":{"title":"Held","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"hidden"},"body":"Notes.","etag":created["etag"]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(hidden.status, 200);
+        assert!(!held.exists());
+        assert!(fsutil::walk(&f.dir.join(".openblog/trash/tracks"))
+            .iter()
+            .any(|path| path.extension().and_then(|value| value.to_str()) == Some("gpx")));
     }
 
     #[test]

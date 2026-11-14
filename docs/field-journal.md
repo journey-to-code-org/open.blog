@@ -40,13 +40,36 @@ elevation profile. No map, weather, or tracking service is contacted.
 | **Hidden** | Statistics and elevation profile only; no route outline or source GPX. This is the default. |
 | **Trimmed** | Removes the chosen distance from both endpoints, then saves only normalized drawing points. |
 | **Approximate** | Saves normalized drawing points but no geographic coordinates or source GPX. |
-| **Exact** | Privately stages the original GPX, then publishes it as a downloadable static asset only when the post saves successfully. |
+| **Exact** | Privately stages a cleaned copy of the GPX, then publishes it as a downloadable static asset once the post is live. |
 
 Normalized points describe a shape in an SVG view box, not latitude and longitude. Hidden,
-trimmed, and approximate imports never upload the source file. Exact mode requires a human
+trimmed, and approximate imports never upload the source file, and a Hidden journal keeps no
+`routeShape` in its file: the server drops it on save, so a public repository never holds the
+shape of a route its post hides. Exact mode requires a human
 review because it can reveal a home, campsite, sensitive species, or fragile habitat.
-Changing a saved Exact journal to another privacy mode removes its OpenBlog-managed public
-track and moves the source file to `.openblog/trash/tracks/` for recovery. Deleting the
+
+### When an exact route file becomes public
+
+The server keeps only what the published file needs: each track point's latitude, longitude
+and height. Times, waypoints, routes, names, descriptions, links, the recording app's details
+and extensions are removed before the staged copy is stored.
+
+An exact route file is public only while its post is:
+
+- Saving a **draft** or a post **scheduled for a later day** keeps the file private, in
+  `.openblog/pending-tracks/held/<year>/<name>.gpx` (inside the ignored `.openblog` folder, never
+  pruned while it waits). The post's `route` already names its future address,
+  `/tracks/uploads/<year>/<name>.gpx`.
+- When the post goes live (published now, or its scheduled day comes), the server moves the file
+  into `static/tracks/uploads/` before it builds, so the site's files and a repository built
+  from them hold it from that day.
+- Every build copies files under `static/tracks/uploads/` only when a live post with
+  `locationPrivacy: exact` names them, even a build that shows drafts. A file a draft names
+  (including one an older release put in `static`), a stray file, or a file named by a post that
+  isn't exact never reaches the built site.
+
+Changing a saved Exact journal to another privacy mode removes its OpenBlog-managed
+track, public or held, and moves it to `.openblog/trash/tracks/` for recovery. Deleting the
 journal does the same. Abandoned private staging files can be discarded from the editor
 and are pruned after 24 hours when another GPX is staged.
 

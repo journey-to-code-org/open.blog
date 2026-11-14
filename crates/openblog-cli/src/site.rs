@@ -1419,15 +1419,38 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // even when a static or theme directory is configured to contain it.
     let private = fsutil::PrivateState::of(root).withhold(&comparison_files(root, config));
 
-    // 1. Static files (images, favicon, CNAME, ...) at the site root.
+    // 1. Static files (images, favicon, CNAME, ...) at the site root. An exact
+    // route file is copied only while a live post shows it (Studio R7 G47).
+    let live_tracks = live_track_files(&site, options.now.unwrap_or_else(crate::clock::now));
+    let mut tracks_in_static = HashSet::new();
     let static_dir = root.join(&config.paths.static_dir);
     for file in fsutil::walk(&static_dir) {
         if private.contains(&file) {
             continue;
         }
         let rel = fsutil::relative(&static_dir, &file);
+        if let Some(track) = rel.strip_prefix(TRACK_UPLOADS) {
+            if !live_tracks.contains(track) {
+                continue;
+            }
+            tracks_in_static.insert(track.to_string());
+        }
         let bytes = fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
         put(rel, &bytes)?;
+    }
+    // A post that went live on its day may name a file still held privately:
+    // the build takes it from there until the server moves it into `static`.
+    for track in &live_tracks {
+        if tracks_in_static.contains(track) {
+            continue;
+        }
+        let rel = format!("{TRACK_UPLOADS}{track}");
+        let held = root.join(HELD_TRACKS).join(track);
+        if held.is_file() {
+            let bytes =
+                fs::read(&held).map_err(|e| format!("cannot read {}: {e}", held.display()))?;
+            put(rel, &bytes)?;
+        }
     }
 
     // 2. Front-end assets: base.css, the web components, and the WebAssembly build.
@@ -1492,6 +1515,27 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         boundary,
         readiness,
     })
+}
+
+/// Where exact route files live in `static`, as site paths.
+pub(crate) const TRACK_UPLOADS: &str = "tracks/uploads/";
+
+/// Where an exact route file waits, private, while its post is a draft or
+/// waits for its day (Studio R7 G47). Never pruned and never copied raw.
+pub(crate) const HELD_TRACKS: &str = ".openblog/pending-tracks/held";
+
+/// The route files (relative to `tracks/uploads/`) that live posts show for
+/// download: a published, due field-journal post with `locationPrivacy:
+/// exact`. Everything else under `tracks/uploads/` stays out of the site,
+/// even in a build that includes drafts.
+pub(crate) fn live_track_files(site: &Site, now: DateTime) -> HashSet<String> {
+    site.posts
+        .iter()
+        .filter(|post| !post.draft && post.date <= now)
+        .filter_map(|post| post.field_journal.as_ref()?.route_url.as_deref())
+        .filter_map(|url| url.strip_prefix("/tracks/uploads/"))
+        .map(str::to_string)
+        .collect()
 }
 
 /// Paths whose changes should trigger a rebuild while serving.
@@ -2212,6 +2256,76 @@ The cave educates.
             search.contains("Hello"),
             "the public search index is still built"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_a_live_exact_post_puts_its_route_file_in_the_site() {
+        let root = temp_root("live-tracks");
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::create_dir_all(root.join("static/tracks/uploads/2026")).unwrap();
+        fs::create_dir_all(root.join(HELD_TRACKS).join("2026")).unwrap();
+        fs::write(root.join(CONFIG_FILE), "{}").unwrap();
+        let post = |name: &str, extra: &str, route: &str| {
+            fs::write(
+                root.join(format!("content/posts/{name}.md")),
+                format!("---\ntitle: {name}\ndate: 2026-01-05\nprofile: field-journal\n{extra}route: /tracks/uploads/2026/{route}.gpx\n---\nNotes.\n"),
+            )
+            .unwrap();
+        };
+        let gpx = "<gpx><trk><trkseg><trkpt lat=\"1\" lon=\"1\"/><trkpt lat=\"2\" lon=\"2\"/></trkseg></trk></gpx>";
+        for name in ["live", "draft", "future", "hidden", "stray"] {
+            fs::write(
+                root.join(format!("static/tracks/uploads/2026/{name}.gpx")),
+                gpx,
+            )
+            .unwrap();
+        }
+        fs::write(root.join(HELD_TRACKS).join("2026/held.gpx"), gpx).unwrap();
+        fs::write(root.join(HELD_TRACKS).join("2026/held-draft.gpx"), gpx).unwrap();
+        post("2026-01-05-live", "locationPrivacy: exact\n", "live");
+        post("2026-01-05-held", "locationPrivacy: exact\n", "held");
+        post(
+            "2026-01-05-draft",
+            "draft: true\nlocationPrivacy: exact\n",
+            "draft",
+        );
+        post(
+            "2026-01-05-held-draft",
+            "draft: true\nlocationPrivacy: exact\n",
+            "held-draft",
+        );
+        post("2026-01-05-hidden", "locationPrivacy: trimmed\n", "hidden");
+        fs::write(
+            root.join("content/posts/2099-01-05-future.md"),
+            "---\ntitle: Future\ndate: 2099-01-05\nprofile: field-journal\nlocationPrivacy: exact\nroute: /tracks/uploads/2026/future.gpx\n---\nNotes.\n",
+        )
+        .unwrap();
+        // Even a build that shows drafts and posts before their day leaves their files out.
+        for include_drafts in [false, true] {
+            build(
+                &root,
+                &BuildOptions {
+                    include_drafts,
+                    out_override: None,
+                    now: Some(DateTime::parse("2026-06-01T00:00:00Z").unwrap()),
+                },
+            )
+            .unwrap();
+            let mut built: Vec<String> = fsutil::walk(&root.join("dist/tracks"))
+                .iter()
+                .map(|path| fsutil::relative(&root.join("dist"), path))
+                .collect();
+            built.sort();
+            assert_eq!(
+                built,
+                vec![
+                    "tracks/uploads/2026/held.gpx".to_string(),
+                    "tracks/uploads/2026/live.gpx".to_string()
+                ],
+                "include_drafts: {include_drafts}"
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
