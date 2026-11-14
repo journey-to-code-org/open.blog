@@ -24,6 +24,7 @@ export const WORDS = {
   "form.leaveAsWas": { text: "Leave it as it was", layer: "her" },
   "form.waiting": { text: "Waiting for a signal. What you filled in is kept here. Press Add it when you have one.", layer: "her" },
   "form.noAnswer": { text: "{product} didn't answer, so it isn't in yet. What you filled in is kept.", layer: "her" },
+  "form.signedOut": { text: "You're signed out, so it isn't in yet. What you filled in is kept. Press Try again to sign in.", layer: "her" },
   "form.tryAgain": { text: "Try again", layer: "her" },
   "form.moved": { text: "This changed while the form was open. Close it and try again.", layer: "her" },
   "form.cantAddYet": { text: "{product} can't add this yet. {helper} can update it.", layer: "her" },

@@ -308,7 +308,7 @@ R7's "Before you publish" lists the same suggestions, written once here.
 | 422 `unknown-kind`/`unknown-field`/`repeated` | form banner | "Your blog can't add this yet. The person who set up your site can update it." |
 | 413 `too-large`/`too-many` | form banner | "That's too much for one piece. Split it into two." |
 | 400 | form banner | "That didn't work. Tell the person who set up your site." |
-| 401 | shell | "Sign in again"; form stays filled in |
+| 401 | shell, then footer | "Sign in again" (signing in sends it again and finishes the add); giving up: "You're signed out, so it isn't in yet. What you filled in is kept. Press Try again to sign in." **Try again**; values kept in `studio-add:<path>:<kind>` |
 | no answer | footer | "Waiting for a signal. What you filled in is kept here. Press Add it when you have one." |
 | 5xx | footer | "Your blog didn't answer, so it isn't in yet. What you filled in is kept." **Try again** |
 | upload refused | picker | today's `photoProblem` |

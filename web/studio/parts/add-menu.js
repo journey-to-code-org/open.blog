@@ -260,6 +260,8 @@ export async function createAddMenu(ctx) {
       addIt.loading = true;
       try {
         return await opened.read();
+      } catch {
+        return { failed: true };
       } finally {
         addIt.loading = false;
       }
@@ -268,7 +270,7 @@ export async function createAddMenu(ctx) {
     async function seeIt(opener) {
       const got = await result();
       if (got.problems) { showProblems(got.problems); return; }
-      if (got.waiting || got.failed) { waitingNote(got); return; }
+      if (got.waiting || got.failed || got.signedOut) { waitingNote(got); return; }
       writes.textContent = got.markdown || "";
       const placed = place(got);
       if (placed) await ctx.preview(opener, box, placed.text);
@@ -276,7 +278,8 @@ export async function createAddMenu(ctx) {
 
     function waitingNote(got) {
       keep(waitingKey(kind), opened.values());
-      footerStatus.replaceChildren(got.waiting ? say("form.waiting") : say("form.noAnswer"), got.failed ? h("action-button", { variant: "secondary", size: "sm", onClick: () => commit() }, say("form.tryAgain")) : "");
+      const words = got.waiting ? say("form.waiting") : got.signedOut ? say("form.signedOut") : say("form.noAnswer");
+      footerStatus.replaceChildren(words, got.waiting ? "" : h("action-button", { variant: "secondary", size: "sm", onClick: () => commit() }, say("form.tryAgain")));
     }
 
     // Done with nothing changed writes nothing. One at a time: Ctrl/⌘ Enter pressed again while the
@@ -296,7 +299,7 @@ export async function createAddMenu(ctx) {
       if (changing && !opened.dirty()) { close(); return true; }
       const got = await result();
       if (got.problems) { showProblems(got.problems); return false; }
-      if (got.waiting || got.failed) { waitingNote(got); return false; }
+      if (got.waiting || got.failed || got.signedOut) { waitingNote(got); return false; }
       writes.textContent = got.markdown || "";
       const placed = place(got);
       if (!placed) { footerStatus.textContent = say("form.moved"); return false; }

@@ -197,6 +197,43 @@ test("Ctrl+Enter pressed twice on a slow server adds the button once", async ({ 
   await expect.poll(() => fileOf("twice").split("```piece button").length).toBe(2);
 });
 
+test("signed out while adding: the form is kept; signing in again finishes the add, giving up leaves it to finish later", async ({ page }) => {
+  await openPost(page, "signed-out", `${front("Signed out")}\nWords.\n`);
+  const signedOut = { status: 401, contentType: "application/json", body: "{\"error\":\"Sign in again.\"}" };
+  let refusals = 1;
+  await page.route("**/admin/api/pieces", (route) => (refusals-- > 0 ? route.fulfill(signedOut) : route.continue()));
+  let sheet = await addFromWords(page);
+  await sheet.getByRole("button", { name: "A video", exact: true }).click();
+  let form = page.getByRole("dialog", { name: "Video" });
+  await form.getByRole("textbox", { name: "YouTube or Vimeo link" }).fill("https://vimeo.com/76979871");
+  await form.getByRole("textbox", { name: "What it's about" }).fill("Shaping the loaf");
+  await form.getByRole("button", { name: "Add it" }).click();
+  let dialog = page.getByRole("dialog", { name: "Sign in again" });
+  await dialog.getByRole("textbox", { name: "Your name", exact: true }).fill("writer");
+  await dialog.getByRole("textbox", { name: "Password", exact: true }).fill(password);
+  await dialog.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("group", { name: "Video: Shaping the loaf" })).toBeVisible();
+  // Giving up on signing in: no error, the form stays filled in, and it is kept for later.
+  refusals = 2;
+  sheet = await addFromWords(page);
+  await sheet.getByRole("button", { name: "A video", exact: true }).click();
+  form = page.getByRole("dialog", { name: "Video" });
+  await form.getByRole("textbox", { name: "YouTube or Vimeo link" }).fill("https://vimeo.com/1084537");
+  await form.getByRole("textbox", { name: "What it's about" }).fill("Cooling the loaf");
+  await form.getByRole("button", { name: "Add it" }).click();
+  dialog = page.getByRole("dialog", { name: "Sign in again" });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(form).toContainText("You're signed out, so it isn't in yet. What you filled in is kept.");
+  await expect(form.getByRole("textbox", { name: "What it's about" })).toHaveValue("Cooling the loaf");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("studio-add:posts/signed-out.md:video") || "null")?.title)).toBe("Cooling the loaf");
+  await page.unroute("**/admin/api/pieces");
+  await form.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("group", { name: "Video: Cooling the loaf" })).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem("studio-add:posts/signed-out.md:video"))).toBeNull();
+});
+
 test("questions and answers: the server's coded refusal lands on the right row", async ({ page }) => {
   await openPost(page, "faq", `${front("Faq")}\nWords.\n`);
   const sheet = await addFromWords(page);

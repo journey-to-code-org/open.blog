@@ -122,7 +122,8 @@ async function serverPiece(api, kind, values) {
     if (error.status === 422) return { problems: pieceProblems(error.data) };
     if (error.status === 413) return { problems: [{ field: "", code: error.data?.code || "too-large" }] };
     if (error.status === 400) return { problems: [{ field: "", code: "bad-request" }] };
-    if (error.status === 401) throw error;
+    // Signed out and she didn't sign in again (signing in again sends it once more by itself).
+    if (error.status === 401) return { signedOut: true };
     if (!error.status || error.status === 0 || error.offline) return { waiting: true };
     return { failed: true };
   }

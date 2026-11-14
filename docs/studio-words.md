@@ -437,6 +437,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `form.seeItNote` | her | Only you can see this. Nothing is added until you press Add it. | none | 126 |
 | `form.shorter` | her | Shorter, please: {max} letters at most. | `{max}` | 78 |
 | `form.sideName` | her | Name for this side | none | 40 |
+| `form.signedOut` | her | You're signed out, so it isn't in yet. What you filled in is kept. Press Try again to sign in. | none | 188 |
 | `form.socialAdd` | her | Add a link | none | 40 |
 | `form.socialAdded` | her | Link {n} added. | `{n}` | 40 |
 | `form.socialAddress` | her | Address | none | 40 |

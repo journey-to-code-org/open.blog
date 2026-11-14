@@ -2021,6 +2021,12 @@
       "max": 40,
       "vars": []
     },
+    "form.signedOut": {
+      "text": "You're signed out, so it isn't in yet. What you filled in is kept. Press Try again to sign in.",
+      "layer": "her",
+      "max": 188,
+      "vars": []
+    },
     "form.socialAdd": {
       "text": "Add a link",
       "layer": "her",
