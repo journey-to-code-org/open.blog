@@ -145,6 +145,26 @@ test("Escape in Find clears the words there first and says so; with nothing in i
   await expect(sheet).toBeHidden();
 });
 
+test("pasting past a field's limit says it was shortened", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+  await openPost(page, "paste-long", `${front("Paste long")}\nWords.\n`);
+  const sheet = await addFromWords(page);
+  await sheet.getByRole("button", { name: "A tip or a note", exact: true }).click();
+  const form = page.getByRole("dialog", { name: "Tip" });
+  const title = form.getByRole("textbox", { name: "A few words on top" });
+  await page.evaluate(() => navigator.clipboard.writeText("x".repeat(80)));
+  await title.click();
+  await page.keyboard.press("Control+v");
+  await expect(title).toHaveValue("x".repeat(60));
+  await expect(form.getByRole("status").filter({ hasText: "Shortened to 60 letters, the most it can hold." })).toBeVisible();
+  // A paste that fits says nothing.
+  await title.fill("");
+  await page.evaluate(() => navigator.clipboard.writeText("Short"));
+  await page.keyboard.press("Control+v");
+  await expect(title).toHaveValue("Short");
+  await expect(form.getByText("Shortened to 60 letters")).toHaveCount(0);
+});
+
 test("?add=1 opens the sheet and ?add=table its form; Find has Add a table; the address loses the query", async ({ page }) => {
   await openPost(page, "routes", `${front("Routes")}\nWords.\n`, "?add=1");
   await expect(page.getByRole("dialog", { name: "Add something" })).toBeVisible();

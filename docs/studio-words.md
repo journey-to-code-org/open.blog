@@ -436,6 +436,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `form.runWebParts` | details | Web code needs a ---html, ---css or ---js part. | none | 94 |
 | `form.seeIt` | her | See it in your post | none | 40 |
 | `form.seeItNote` | her | Only you can see this. Nothing is added until you press Add it. | none | 126 |
+| `form.shortened` | her | Shortened to {max} letters, the most it can hold. | `{max}` | 98 |
 | `form.shorter` | her | Shorter, please: {max} letters at most. | `{max}` | 78 |
 | `form.sideName` | her | Name for this side | none | 40 |
 | `form.signedOut` | her | You're signed out, so it isn't in yet. What you filled in is kept. Press Try again to sign in. | none | 188 |

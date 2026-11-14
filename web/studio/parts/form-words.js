@@ -60,6 +60,7 @@ export const WORDS = {
   // a tip or a note
   "form.tipKind": { text: "Kind", layer: "her" },
   "form.tipEvery": { text: "Every kind", layer: "details" },
+  "form.shortened": { text: "Shortened to {max} letters, the most it can hold.", layer: "her" },
   "form.tipTitle": { text: "A few words on top", layer: "her" },
   "form.tipTitleHelp": { text: "Like Before you start.", layer: "her" },
   "form.tipText": { text: "What it says", layer: "her" },

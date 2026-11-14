@@ -2013,6 +2013,14 @@
       "max": 126,
       "vars": []
     },
+    "form.shortened": {
+      "text": "Shortened to {max} letters, the most it can hold.",
+      "layer": "her",
+      "max": 98,
+      "vars": [
+        "max"
+      ]
+    },
     "form.shorter": {
       "text": "Shorter, please: {max} letters at most.",
       "layer": "her",

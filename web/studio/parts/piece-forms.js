@@ -21,10 +21,29 @@ const trimmed = (field) => text(field).trim();
 
 /** A text field; `error` set on it says what's wrong (and the field is described by it). */
 function field(label, { help = "", value = "", rows = 0, max = 0, mono = false, type = "", placeholder = "", name = "" } = {}) {
-  return h("text-field", {
+  const control = h("text-field", {
     label, description: help, value: String(value ?? ""), rows: rows || undefined, maxlength: max || undefined, type: type || undefined,
     placeholder: placeholder || undefined, class: mono ? "studio-mono-field" : "", "data-field": name || undefined,
   });
+  if (max) shortenedNote(control, max);
+  return control;
+}
+
+/** A paste that won't fit is cut at the limit by the field; say so under it until she types again. */
+function shortenedNote(control, max) {
+  let note = null;
+  const clear = () => { note?.remove(); note = null; };
+  control.addEventListener("paste", (event) => {
+    const input = event.target;
+    const pasted = event.clipboardData?.getData("text/plain") || "";
+    if (typeof input?.value !== "string") return;
+    const kept = input.value.length - Math.abs((input.selectionEnd ?? 0) - (input.selectionStart ?? 0));
+    if (kept + pasted.length <= max) { clear(); return; }
+    note ||= h("p", { class: "studio-help", role: "status" });
+    control.after(note);
+    note.textContent = say("form.shortened", { max });
+  });
+  control.addEventListener("input", (event) => { if (event.inputType !== "insertFromPaste") clear(); });
 }
 
 /** Focus a field's control now when it is drawn (so typing that follows lands in it), else on the next frame. */
