@@ -244,3 +244,10 @@ site now (Grammi, a trade owner); the editor slices (R5–R8) before research, w
 3. **Override files under `<paths.web>/admin/`:** Grammi's House has none. Mention the change in the release note.
 4. **Rarely used tools:** all are ported: the release kit, the field journal (GPX), portable output to Ghost, Hashnode and Medium, and knowledge checks, runnable-code proposals, continuations, community features and shared reflections.
 5. **Research tier:** port all of it (R11–R14).
+
+## Decided (owner, 2026-11-14)
+
+6. **Routes kept after all (reverses part of 2):** keep `engagement/feedback/publish-decision` (the old Admin calls it; R10 publishes a reader's note with it) and the four collaboration routes `collaboration/approve`, `approve/withdraw`, `schedule`, `publish` (R14 wires them; without them nothing written together can be published). Still deleted: `document/rename` (done in R6), `reading-paths/reorder` (R13), `decorations/preview` and `voice/catalog` (R9, after re-checking callers).
+7. **Limited sign-ins (R14):** invited people get a server-enforced sign-in that reaches only Writing together; invite links let them set their own password; only owner accounts publish or schedule.
+8. **Studio is a product:** every owner-layer string is generic and goes through the words hook (`docs/specs/studio/words/spec.md`); per-site and per-deployment overrides live in config. Grammi is a test persona only.
+9. **Getting started (R9b):** first-run onboarding (helper key unless configured, then a few short stories for her voice), with the nudge in Write, controlled by `OPENBLOG_STUDIO_ONBOARDING` (`docs/specs/studio/onboarding/ux.md`).
