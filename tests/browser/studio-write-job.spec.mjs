@@ -25,7 +25,9 @@ let dir;
 let child;
 let origin;
 
-test.use({ viewport: { width: 400, height: 800 } });
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ viewport: { width: 400, height: 800 }, serviceWorkers: "block" });
 
 test.beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "openblog-write-job-"));

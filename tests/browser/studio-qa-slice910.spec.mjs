@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // QA probes for Studio slices 9 (Cards, Visitors) and 10a (Business, Services, Reviews). Two sites:
 // Grammi's (greeting cards set up, the built-in counter on, no trade) and Dana's trade site. Probes
 // marked "BUG" fail today and demonstrate a defect; the rest guard behaviour that holds.

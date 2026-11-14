@@ -112,6 +112,8 @@ export async function startShell(root, api, meta) {
   async function signOut() {
     if (!(await router.current()?.leave?.() ?? true)) return;
     context.undo?.forget();
+    // Signed out is signed out, with or without a signal: Studio doesn't open as her from its copy.
+    try { localStorage.removeItem("studio:last-start"); } catch { /* nothing kept */ }
     await api.signOut();
     location.hash = "#/";
     location.reload();

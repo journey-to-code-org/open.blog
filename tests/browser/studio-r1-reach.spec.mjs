@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // Studio R1, "Did my work get out, and what's next?": Home's "Get your site ready" list and recipe
 // notes, Share this job (a Facebook Page through her shares, Nextdoor by hand with Undo), "Where
 // each post went" as a view of Sharing, and the old addresses that now open them. The job, its

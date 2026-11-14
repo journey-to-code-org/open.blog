@@ -11,6 +11,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // Your accounts in Studio (R2, ported from social-accounts.spec.mjs): the real binary and the real
 // Admin routes, against a scripted stand-in for the hosted social function that knows `returns` and
 // answers its callback with the 303 back to Studio (G6). The providers' own pages are stood in for

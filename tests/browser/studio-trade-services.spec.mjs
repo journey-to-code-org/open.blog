@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // Studio slices 10b and 10c: Requests, Reminders and Sharing on a trade site. Quote and sharing
 // settings are set where Admin runs (pointing nowhere), so their screens are in the navigation; the
 // hosted answers are mocked at the Admin API. Requests: Call dials the number, customers' words stay

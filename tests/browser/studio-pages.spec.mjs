@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // Studio slice 4: Pages and Collections. Add a page (title, line, menu, words) and see it written;
 // change one line and only that line changes; delete it and Undo brings it back. A collection
 // keeps its file as written; a post can be put in a collection from Write. More tools opens from

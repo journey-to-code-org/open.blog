@@ -24,7 +24,9 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAACgAAAAeCAIAAADRv8uKAAAAK0lEQVR
 let trade;
 let plain;
 
-test.use({ viewport: { width: 400, height: 800 } });
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ viewport: { width: 400, height: 800 }, serviceWorkers: "block" });
 
 async function freePort() {
   const listener = createServer();

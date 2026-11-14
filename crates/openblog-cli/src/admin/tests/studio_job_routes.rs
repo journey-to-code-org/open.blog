@@ -467,7 +467,8 @@ fn the_worker_keeps_only_studios_own_files_and_each_is_served() {
         .collect();
     assert!(files.contains(&"/admin/studio/"));
     assert!(files.contains(&"/admin/studio/studio.js"));
-    assert!(files.contains(&"/admin/studio/screens/home.js"));
+    assert!(files.contains(&"/admin/studio/screens/new-job.js"));
+    assert!(files.contains(&"/admin/studio/parts/capture-queue.js"));
     for file in &files {
         assert!(file.starts_with("/admin/studio/"), "{file}");
         assert!(
