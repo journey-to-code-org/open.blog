@@ -51,7 +51,7 @@ export async function savePhotos(record, title, { here = {}, win = globalThis } 
 /**
  * One card. `title` is the job's name in her words (a numbered "A job kept on this phone" for one
  * that can't be read); `on` is { send, retry, again, done, as, reload,
- * finish(path), throwAway(entry, button), save(entry) }.
+ * finish(path), throwAway(entry, button), save(entry), copy(entry) }.
  */
 export function waitingCard(entry, { jobs, title, noun = "phone", here = {}, now = new Date(), limits = {}, on }) {
   const record = entry.record || null;
@@ -106,7 +106,7 @@ export function waitingCard(entry, { jobs, title, noun = "phone", here = {}, now
       record ? `${(bytes / MB).toFixed(1)} MB of ${Math.round((limits.maxCaptureBytes || 60 * MB) / MB)} MB a job` : "",
       live.status !== undefined ? `last answer: HTTP ${live.status}${live.code ? `, ${live.code}` : ""}${live.error ? `: ${live.error}` : ""}` : "",
       record?.sent ? `sent to ${record.sent.path}${record.sent.removed ? " (deleted there since)" : ""}; skipped ${record.sent.skipped.join(", ") || "none"}` : "",
-    ]));
+    ], h("action-button", { variant: "secondary", size: "sm", label: `Copy details for ${name}`, "data-copy": "true", onClick: () => on.copy?.(entry) }, "Copy details")));
 }
 
 /** Throw it away: what goes, asked once, with Save the photos first. Resolves true when it went. */

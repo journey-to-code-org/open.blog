@@ -403,6 +403,31 @@ test("Send it on Sam's job asks first, sends it as her, and only Details keep th
   expect(herLayer).not.toContain("studio-sent-jobs");
 });
 
+test("Copy details on a waiting card copies the record, the last answer and the step log as text", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: trade.origin });
+  await openNewJob(page);
+  await page.route(/\/admin\/api\/upload/, (route) => route.abort("connectionrefused"));
+  await fillJob(page, "Copytown");
+  await saveButton(page).click();
+  await expect(waitingCards(page).first()).toContainText("No signal when it last tried");
+  const card = waitingCards(page).first();
+  const id = await card.getAttribute("data-waiting");
+  await card.locator("details > summary").click();
+  await card.getByRole("button", { name: "Copy details for Roof repair in Copytown" }).click();
+  await expect(status(page)).toHaveText("Copied the details.");
+  const text = await page.evaluate(() => navigator.clipboard.readText());
+  for (const want of [`id ${id}`, "v 1", "createdAt ", "by writer", "attempts 1", "lastError [offline]", "last answer: HTTP 0, offline", "steps:", "check: server has photos 0", "photo 1: no answer (HTTP 0)"]) {
+    expect(text, want).toContain(want);
+  }
+  // The card's Details stay open as the list redraws.
+  await page.evaluate(() => dispatchEvent(new Event("focus")));
+  await page.waitForTimeout(300);
+  await expect(card.locator("details")).toHaveAttribute("open", "");
+  await page.unroute(/\/admin\/api\/upload/);
+  await card.getByRole("button", { name: "Send Roof repair in Copytown now" }).click();
+  await expect.poll(() => draftsIn(trade, "copytown").length).toBe(1);
+});
+
 test("a reload in the middle of a job puts back every photo and word", async ({ page }) => {
   await openNewJob(page);
   await fillJob(page, "Parsons", "Half typed when the camera opened");

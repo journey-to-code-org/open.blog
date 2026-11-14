@@ -310,9 +310,9 @@ After Publish, R1's "Share this job" link is unchanged.
 
 | | Dana | Mikey |
 | --- | --- | --- |
-| A waiting job | title, photo count, voice note, when saved, state | id (**Copy**), `v`, `createdAt`, `by`, `attempts`, `lastError`, bytes vs `maxCaptureBytes`, last HTTP status and `code` |
+| A waiting job | title, photo count, voice note, when saved, state | id, `v`, `createdAt`, `by`, `attempts`, `lastError`, bytes vs `maxCaptureBytes`, last HTTP status and `code`; **Copy details** copies id, `v`, `createdAt`, `by`, `attempts`, `lastError`, the last HTTP status/code and the step log of its last try in this window, as text (`detailsText`); a card's Details stay open as the list redraws |
 | This phone | "this iPhone" | DB `openblog-capture` v1 / `captures`; count and bytes vs `maxQueued` 5 / `maxQueueBytes` 120 MB; `storage.persist()`; `storage.estimate()`; Web Locks / BroadcastChannel; standalone or tab; "Safari may clear site data after 7 days without a visit; the Home Screen app is exempt; Safari and the Home Screen app don't share storage" |
-| Sending | words | per-step log (slots sent/skipped/already there, audio, document reply incl. `duplicate`) |
+| Sending | words | per-step log of each job's last try in this window (`sendCapture` `onLog`: what the server had, each photo sent/skipped/already there, the voice note, the document reply incl. `duplicate`, or where it stopped and the answer) |
 | Sent from this phone | "Sent this visit" | the last 20 sends, from `localStorage` `studio-sent-jobs` (`parts/sent-log.js`): `{captureId, path, sentAt, skipped, duplicate, by}`, `by` being who saved it; Details only, never her layer |
 | Voice to words | where it goes | engine, destination, model, `OPENBLOG_TRANSCRIBE_COMMAND`, transcript in `.openblog/captures/` |
 | Old Admin | nothing | "Old Admin windows opened before this update use the same list; sending from both makes one draft (ADR 0297)." |

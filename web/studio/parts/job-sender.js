@@ -38,17 +38,24 @@ const limitSignal = (bytes) => (typeof AbortSignal?.timeout === "function" ? Abo
  * Send one job: ask what the server already has (G29), each photo not there yet, the voice note,
  * then the draft. Photos and a voice note her blog refuses for good are skipped and named. Anything
  * else is thrown for the caller, with `step` set to where it stopped. `onStep({ step, index, total })`
- * hears each step. `retry` is api.call's (false: never ask her to sign in from here).
+ * hears each step; `onLog(line)` hears what each step did, for Mikey's step log. `retry` is
+ * api.call's (false: never ask her to sign in from here).
  * Resolves `{ path, skipped, audio, duplicate, removed }`.
  */
-export async function sendCapture({ api, capture, scaffold = "", services = [], now = new Date(), retry = false, onStep = () => {} }) {
+export async function sendCapture({ api, capture, scaffold = "", services = [], now = new Date(), retry = false, onStep = () => {}, onLog = () => {} }) {
   const call = (method, path, options = {}, bytes = 0) => api.call(method, path, { retry, signal: limitSignal(bytes), ...options });
+  const failed = (label, error) => onLog(`${label}: ${answerText(error)}`);
   let have = { photos: [], audio: false, draft: null };
   try {
     have = { ...have, ...(await call("GET", `capture?id=${capture.id}`)) };
+    onLog(`check: server has photos ${Array.isArray(have.photos) ? have.photos.length : 0}, voice note ${have.audio ? "yes" : "no"}, draft ${have.draft?.path || "none"}`);
   } catch (error) {
     // A server from before R4 doesn't know the question; it still makes one draft.
-    if (error?.status !== 404 && error?.status !== 405) throw Object.assign(error, { step: "check" });
+    if (error?.status !== 404 && error?.status !== 405) {
+      failed("check", error);
+      throw Object.assign(error, { step: "check" });
+    }
+    onLog(`check: not known to this server (HTTP ${error.status})`);
   }
   const stored = new Map((Array.isArray(have.photos) ? have.photos : []).map((photo) => [photo.slot, photo.url]));
   const photoUrls = [];
@@ -57,6 +64,7 @@ export async function sendCapture({ api, capture, scaffold = "", services = [], 
     for (const [slot, photo] of capture.photos.entries()) {
       if (stored.has(slot)) {
         photoUrls.push(stored.get(slot));
+        onLog(`photo ${slot + 1}: already there`);
         continue;
       }
       onStep({ step: "photo", index: slot + 1, total: capture.photos.length });
@@ -64,8 +72,13 @@ export async function sendCapture({ api, capture, scaffold = "", services = [], 
         const query = new URLSearchParams({ name: photo.name, capture: capture.id, slot: String(slot) });
         const sent = await call("POST", `upload?${query}`, { body: photo.blob, headers: { "Content-Type": "application/octet-stream" } }, photo.size);
         photoUrls.push(sent.url);
+        onLog(`photo ${slot + 1}: sent`);
       } catch (error) {
-        if (!isPermanentPhotoError(error)) throw Object.assign(error, { step: "photo" });
+        if (!isPermanentPhotoError(error)) {
+          failed(`photo ${slot + 1}`, error);
+          throw Object.assign(error, { step: "photo" });
+        }
+        onLog(`photo ${slot + 1}: skipped (${answerText(error)})`);
         skipped.push(photo.name);
       }
     }
@@ -79,10 +92,17 @@ export async function sendCapture({ api, capture, scaffold = "", services = [], 
     try {
       await call("POST", `capture-audio?capture=${capture.id}`, { body: capture.audio.blob, headers: { "Content-Type": "application/octet-stream" } }, capture.audio.size);
       audio = "kept";
+      onLog("voice note: sent");
     } catch (error) {
-      if (!isPermanentPhotoError(error)) throw Object.assign(error, { step: "audio" });
+      if (!isPermanentPhotoError(error)) {
+        failed("voice note", error);
+        throw Object.assign(error, { step: "audio" });
+      }
+      onLog(`voice note: skipped (${answerText(error)})`);
       audio = "refused";
     }
+  } else if (capture.audio) {
+    onLog(`voice note: ${have.audio ? "already there" : "not sent (the draft was made already)"}`);
   }
   onStep({ step: "document" });
   let saved;
@@ -96,10 +116,40 @@ export async function sendCapture({ api, capture, scaffold = "", services = [], 
       },
     });
   } catch (error) {
+    failed("document", error);
     throw Object.assign(error, { step: "document" });
   }
-  if (typeof saved?.path !== "string" || !saved.path) throw Object.assign(new Error("No path"), { status: 502, step: "document" });
+  if (typeof saved?.path !== "string" || !saved.path) {
+    onLog("document: answered without a path");
+    throw Object.assign(new Error("No path"), { status: 502, step: "document" });
+  }
+  onLog(`document: ${saved.duplicate === true ? `HTTP 200 duplicate${saved.status === "removed" ? ", removed there since" : ""}` : "HTTP 201"}, ${saved.path}`);
   return { path: saved.path, skipped, audio, duplicate: saved.duplicate === true, removed: saved.status === "removed" };
+}
+
+/** An answer for the step log: "HTTP 415, heic", or "no answer (HTTP 0)". */
+function answerText(error) {
+  const status = error?.status ?? 0;
+  if (!status) return `no answer (HTTP 0${error?.name === "TimeoutError" || error?.name === "AbortError" ? ", time limit" : ""})`;
+  return `HTTP ${status}${error?.data?.code ? `, ${error.data.code}` : ""}`;
+}
+
+/**
+ * Copy details (Mikey's): what's kept about a job on this phone, its last answer in this window and
+ * the step log of its last try, as plain text.
+ */
+export function detailsText(entry, live = {}) {
+  const record = entry.record;
+  const lines = [`id ${entry.id || "(none)"}`];
+  if (record) {
+    lines.push(`v ${record.v}`, `createdAt ${record.createdAt}`, `by ${record.by || "(not recorded)"}`, `attempts ${record.attempts}`, `lastError ${record.lastError || "none"}`);
+    if (record.sent) lines.push(`sent ${record.sent.path}${record.sent.removed ? " (deleted there since)" : ""}; skipped ${record.sent.skipped.join(", ") || "none"}`);
+  } else {
+    lines.push(`state ${entry.state}`);
+  }
+  if (live.status !== undefined) lines.push(`last answer: HTTP ${live.status}${live.code ? `, ${live.code}` : ""}${live.error ? `: ${live.error}` : ""}`);
+  lines.push("steps:", ...(live.log?.length ? live.log.map((line) => `  ${line}`) : ["  (none in this window)"]));
+  return lines.join("\n");
 }
 
 /**
@@ -324,6 +374,7 @@ export function createJobSender({
       if (!current || current.state !== "ok" || current.record.sent) return "gone";
       state.sending = true;
       state.step = null;
+      state.log = [`try at ${new Date().toISOString()}`];
       tell(`sending ${id}`);
       emit();
       try {
@@ -332,6 +383,7 @@ export function createJobSender({
           api, capture: current.record, scaffold: meta.job?.scaffold || "", services: meta.job?.services || [],
           now: new Date(current.record.createdAt), retry: manual,
           onStep: (step) => { state.step = step; tell(`sending ${id}`); emit({ type: "step", id, step }); },
+          onLog: (line) => { if (state.log.length < 40) state.log.push(line); },
         });
         state.sending = false;
         state.signin = false;

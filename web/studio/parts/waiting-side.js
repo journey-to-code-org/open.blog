@@ -11,6 +11,7 @@ import { savePhotos, throwAwayAsk, waitingCard } from "./waiting-cards.js";
 import { clearSavedPages, readReleases } from "./releases.js";
 import { readSentLog, sentLogLines } from "./sent-log.js";
 import { ask } from "./dialogs.js";
+import { detailsText } from "./job-sender.js";
 
 /** `{ jobs, meta, api, here, noun, limits, services, say }`. */
 export function createWaitingSide({ jobs, meta, api, here, noun, limits, services, say }) {
@@ -43,6 +44,10 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
       return null;
     },
     reload: () => location.reload(),
+    // Mikey's: the record, the last answer and the step log, as text.
+    copy: (entry) => navigator.clipboard?.writeText(detailsText(entry, jobs.live(entry.id)))
+      .then(() => say("Copied the details."), () => say("Couldn't copy. Select the lines in Details instead."))
+      ?? say("Couldn't copy. Select the lines in Details instead."),
     save: async (entry) => say(await savePhotos(entry.record, titleOf(entry.record), { here })),
     throwAway: async (entry) => {
       const name = nameOf(entry);
@@ -59,10 +64,19 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
     const entries = jobs.entries();
     const focusId = document.activeElement?.closest?.("[data-waiting]")?.dataset.waiting;
     const focusStep = document.activeElement?.closest?.("[data-step]")?.dataset.step;
+    // A card's Details Mikey opened stay open through the redraw.
+    const opened = new Set([...list.querySelectorAll("[data-waiting] > details[open]")].map((node) => node.closest("[data-waiting]").dataset.waiting));
     box.hidden = entries.length === 0;
     names = new Map(entries.filter((entry) => !entry.record).map((entry, index) => [entry, keptTitle(index, noun)]));
     list.replaceChildren(...entries.map((entry) => waitingCard(entry, { jobs, title: nameOf(entry), noun, here, limits, on: actions })));
-    if (focusId) requestAnimationFrame(() => (list.querySelector(`[data-waiting="${focusId}"] [data-step="${focusStep}"] button`) || list.querySelector(`[data-waiting="${focusId}"] h4`) || heading)?.focus());
+    for (const id of opened) {
+      const details = list.querySelector(`[data-waiting="${CSS.escape(id)}"] > details`);
+      if (details) details.open = true;
+    }
+    if (focusId) {
+      const card = `[data-waiting="${CSS.escape(focusId)}"]`;
+      requestAnimationFrame(() => ((focusStep && list.querySelector(`${card} [data-step="${CSS.escape(focusStep)}"] button`)) || list.querySelector(`${card} h4`) || heading)?.focus());
+    }
     link.replaceChildren(...(entries.length ? [`${waitingCount(entries.length, noun)}. `, h("a", { href: "#/new-job?focus=waiting", onClick: (event) => { event.preventDefault(); heading.focus(); heading.scrollIntoView({ block: "start" }); }, text: "See them" })] : []));
     const sent = jobs.sentThisVisit();
     sentBox.hidden = sent.length === 0;

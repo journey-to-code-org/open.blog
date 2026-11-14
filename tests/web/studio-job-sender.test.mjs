@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createCaptureQueue, createMemoryStore, makeRecord } from "../../web/studio/parts/capture-queue.js";
-import { createJobSender, entryState, freshCopy, retryDelay, sendCapture, sendOutcome, stepWords, timeLimit } from "../../web/studio/parts/job-sender.js";
+import { createJobSender, detailsText, entryState, freshCopy, retryDelay, sendCapture, sendOutcome, stepWords, timeLimit } from "../../web/studio/parts/job-sender.js";
 import * as old from "../../web/admin/capture-queue.js";
 
 const SCAFFOLD = "## Problem\n\n## What we found\n\n## What we did\n\n## Result\n\n";
@@ -570,4 +570,38 @@ test("the signal coming back while a try is failing isn't lost: one more pass go
   await again;
   assert.equal(blog.drafts.size, 1, "sent by the pass asked for meanwhile");
   assert.equal((await store.all()).length, 0);
+});
+
+test("each send keeps a step log, and Copy details puts the record, the last answer and that log in plain text", async () => {
+  const blog = fakeBlog();
+  blog.photos.set(`${idOf(1)}:0`, "/images/uploads/captures/already.jpg");
+  blog.skip.add("b.jpg");
+  const log = [];
+  const note = { type: "audio/webm", size: 4, seconds: 2, blob: new Blob(["abcd"]) };
+  await sendCapture({ api: blog.api, capture: capture(1, { audio: note }), scaffold: SCAFFOLD, onLog: (line) => log.push(line) });
+  assert.deepEqual(log, [
+    "check: server has photos 1, voice note no, draft none",
+    "photo 1: already there",
+    "photo 2: skipped (HTTP 415, heic)",
+    "voice note: sent",
+    "document: HTTP 201, posts/roof-repair-in-elkins-000000.md",
+  ]);
+  const failing = fakeBlog();
+  failing.online = false;
+  const lines = [];
+  await assert.rejects(sendCapture({ api: failing.api, capture: capture(2), onLog: (line) => lines.push(line) }));
+  assert.deepEqual(lines, ["check: no answer (HTTP 0)"]);
+
+  // Through the sender, the log is the window's, per job, and goes into Copy details.
+  const store = createMemoryStore();
+  await store.put(makeRecord(capture(3), new Date("2026-11-13T10:00:00Z"), "dana"));
+  const jobs = sender(failing, store);
+  await jobs.start();
+  await jobs.flush();
+  const entry = jobs.entries()[0];
+  const text = detailsText(entry, jobs.live(entry.id));
+  for (const want of [`id ${idOf(3)}`, "v 1", "createdAt 2026-11-13T10:00:00.000Z", "by dana", "attempts 1", "lastError [offline] Waiting for a signal.", "last answer: HTTP 0, offline", "steps:", "check: no answer (HTTP 0)"]) {
+    assert.ok(text.includes(want), `${want} in:\n${text}`);
+  }
+  assert.match(detailsText({ id: "x", state: "unreadable" }, {}), /^id x\nstate unreadable/);
 });
