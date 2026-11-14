@@ -195,7 +195,7 @@ test("no shipped string names one owner, her family, her site or her food", () =
 test("W-a: no literal \"person who set up your site\" left in Studio's code", () => {
   const found = sources
     .filter((file) => !file.endsWith("/parts/words.js"))
-    .filter((file) => /person who set up (your|the) site/.test(code(readFileSync(file, "utf8"))))
+    .filter((file) => /person who set (up (your|the) site|it up)/.test(code(readFileSync(file, "utf8"))))
     .map((file) => file.slice(studio.length + 1));
   assert.deepEqual(found, []);
 });

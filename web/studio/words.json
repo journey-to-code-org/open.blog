@@ -712,6 +712,14 @@
         "helper"
       ]
     },
+    "common.catchesUp": {
+      "text": "Your public site catches up when {helper} sends it out.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "helper"
+      ]
+    },
     "common.chose": {
       "text": "{helper} chose this.",
       "layer": "her",

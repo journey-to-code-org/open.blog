@@ -12,5 +12,6 @@ export const WORDS = {
   "common.canTurnOn": { text: "{helper} can turn it on.", layer: "her" },
   "common.chose": { text: "{helper} chose this.", layer: "her" },
   "common.canChange": { text: "{helper} can change that.", layer: "her" },
+  "common.catchesUp": { text: "Your public site catches up when {helper} sends it out.", layer: "her" },
   "common.keepsHappening": { text: "Try again, and if it keeps happening, tell {helper}.", layer: "her" },
 };

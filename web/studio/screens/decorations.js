@@ -324,7 +324,7 @@ export async function createDecorations({ api, meta }) {
     const here = result && result.sent === "none" && !servedHere(meta);
     const heading = `${label(choice.theme)} is up${here ? " here" : ""}.${before.wearing !== choice.theme ? ` ${label(before.wearing)} came down.` : ""}`;
     banner.replaceChildren(h("alert-banner", { variant: "success", dismissible: true, heading },
-      here ? "Your public site catches up when the person who set it up sends it out. " : "",
+      here ? `${word("common.catchesUp")} ` : "",
       h("cluster-layout", { gap: "0.5rem" }, undo)));
     requestAnimationFrame(() => { element.scrollIntoView?.({ block: "start" }); undo.querySelector("button")?.focus({ preventScroll: true }); });
   }

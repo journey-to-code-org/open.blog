@@ -1,5 +1,6 @@
 // Sending the site out after a publish, and links to a post on the site. Shared by every screen
 // that publishes, so each one says the same true thing about where a post went.
+import { say } from "./words.js";
 
 /**
  * How this site goes out: { kind: "none" } (no repository or no remote: saved on this server only),
@@ -59,7 +60,7 @@ export function wentOutWords(result, { meta, action = "published", origin } = {}
   const verb = { published: "Published", updated: "Updated", saved: "Saved", takenOff: "Taken off your site. It's a draft again" }[action];
   if (result.sent === "failed") return { words: action === "takenOff" ? "It's a draft again here, but your site hasn't caught up yet, so readers may still see it." : `${verb} here, but it hasn't reached your readers yet.`, variant: "warning" };
   if (result.sent === "none" && !servedHere(meta, origin)) {
-    return { words: action === "takenOff" ? "It's a draft again. Your public site catches up when the person who set it up sends it out." : `${verb}. Your public site catches up when the person who set it up sends it out.`, variant: "warning" };
+    return { words: `${action === "takenOff" ? "It's a draft again" : verb}. ${say("common.catchesUp")}`, variant: "warning" };
   }
   if (action === "takenOff") return { words: `${verb}.`, variant: "success" };
   if (result.sent === "none") return { words: `${verb}. It's on your site.`, variant: "success" };

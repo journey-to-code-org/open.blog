@@ -237,6 +237,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `common.ask` | her | Ask {helper}. | `{helper}` | 40 |
 | `common.canChange` | her | {helper} can change that. | `{helper}` | 50 |
 | `common.canTurnOn` | her | {helper} can turn it on. | `{helper}` | 48 |
+| `common.catchesUp` | her | Your public site catches up when {helper} sends it out. | `{helper}` | 110 |
 | `common.chose` | her | {helper} chose this. | `{helper}` | 40 |
 | `common.detailsFor` | her | Details for {helper} | `{helper}` | 40 |
 | `common.forHelper` | her | For {helper} | `{helper}` | 40 |
