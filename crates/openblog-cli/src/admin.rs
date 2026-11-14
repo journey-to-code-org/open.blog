@@ -1189,7 +1189,6 @@ fn authenticated_api(
                 None => Response::error(400, "Missing ?path="),
             }
         }
-        ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "document/restore") => restore_document(state, req),
         ("POST", "upload") => upload(state, req),
@@ -17554,28 +17553,6 @@ fn unique_trash_target(trash: &Path, stamp: &str, name: &str) -> PathBuf {
     target
 }
 
-fn post_context_path_pairs(
-    root: &Path,
-    old_document: &str,
-    new_document: &str,
-) -> Result<Vec<(PathBuf, PathBuf)>, Response> {
-    let mut pairs = Vec::new();
-    for visibility in ["portable", "private"] {
-        let (old, _, _) = assistant_context_target(root, "post", visibility, Some(old_document))?;
-        let (new, _, _) = assistant_context_target(root, "post", visibility, Some(new_document))?;
-        if old.exists() {
-            if !old.is_file() {
-                return Err(Response::error(
-                    409,
-                    "Associated post context is not a file",
-                ));
-            }
-            pairs.push((old, new));
-        }
-    }
-    Ok(pairs)
-}
-
 fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
     for (from, to) in moves {
         if !from.is_file() {
@@ -17615,93 +17592,6 @@ fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String
         moved.push((from.clone(), to.clone()));
     }
     Ok(())
-}
-
-fn rename_document(state: &AppState, req: &Request) -> Response {
-    if let Err(response) = require_json(req) {
-        return response;
-    }
-    let body: Json = match serde_json::from_slice(&req.body) {
-        Ok(body) => body,
-        Err(_) => return Response::error(400, "Invalid rename request"),
-    };
-    let Some(old_rel) = body["path"].as_str() else {
-        return Response::error(400, "Missing path");
-    };
-    let Some(new_rel) = body["newPath"].as_str() else {
-        return Response::error(400, "Missing newPath");
-    };
-    if old_rel == new_rel {
-        return Response::error(422, "The new document path is unchanged");
-    }
-    if check_rel_path(old_rel).ok() != Some("posts")
-        || check_rel_path(new_rel).ok() != Some("posts")
-    {
-        return Response::error(422, "Only post Markdown paths can be renamed here");
-    }
-    let mut status = lock(&state.build);
-    let _filesystem_transaction = match content_transaction(state) {
-        Ok(lock) => lock,
-        Err(response) => return response,
-    };
-    let config = match site::load_config(&state.root) {
-        Ok(config) => config,
-        Err(error) => return Response::error(500, &error),
-    };
-    let old_path = match resolve_content_path(&state.root, &config, old_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    let new_path = match resolve_content_path(&state.root, &config, new_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    let source = match fs::read_to_string(&old_path) {
-        Ok(source) => source,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Response::error(404, "No such document")
-        }
-        Err(error) => return Response::error(500, &format!("Cannot read document: {error}")),
-    };
-    if body["etag"].as_str() != Some(etag(&source).as_str()) {
-        return Response::error(
-            409,
-            "Document changed since it was opened; reload and retry",
-        );
-    }
-    let mut moves = vec![(old_path, new_path)];
-    let old_credit = match resolve_credit_path(&state.root, &config, old_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    if old_credit.is_file() {
-        let new_credit = match resolve_credit_path(&state.root, &config, new_rel) {
-            Ok(path) => path,
-            Err(error) => return Response::error(400, &error),
-        };
-        moves.push((old_credit, new_credit));
-    }
-    match post_context_path_pairs(&state.root, old_rel, new_rel) {
-        Ok(context_moves) => moves.extend(context_moves),
-        Err(response) => return response,
-    }
-    if let Err(error) = move_files_transactionally(&moves) {
-        let status = if error.contains("destination already exists") {
-            409
-        } else {
-            500
-        };
-        return Response::error(status, &format!("Cannot rename document bundle: {error}"));
-    }
-    let build = state.rebuild_locked(&mut status);
-    let build_json = match build {
-        Ok(report) => json!({ "ok": true, "posts": report.posts }),
-        Err(error) => json!({ "ok": false, "error": error }),
-    };
-    Response::json(
-        200,
-        &json!({ "ok": true, "path": new_rel, "etag": etag(&source), "build": build_json }),
-    )
 }
 
 fn delete_document(state: &AppState, req: &Request) -> Response {
@@ -33347,78 +33237,6 @@ What I read:
             .dir
             .join(".openblog/private/context/references/style-notes.txt")
             .exists());
-    }
-
-    #[test]
-    fn document_rename_moves_post_context_and_conflicts_without_partial_changes() {
-        let f = fixture("post-context-rename");
-        let session = login_ok(&f);
-        let old_rel = "posts/2026-01-01-old-name.md";
-        let new_rel = "posts/2026-01-01-new-name.md";
-        let source = "---\ntitle: Old name\ndate: 2026-01-01\n---\n\nBody.\n";
-        fs::write(f.dir.join("content").join(old_rel), source).unwrap();
-        for root in ["assistant/context", ".openblog/private/context"] {
-            let directory = f.dir.join(root).join("posts");
-            fs::create_dir_all(&directory).unwrap();
-            fs::write(
-                directory.join("2026-01-01-old-name.md"),
-                "## Goal\n\nKeep me.\n",
-            )
-            .unwrap();
-        }
-
-        let renamed = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "POST",
-                    "/admin/api/document/rename",
-                    json!({ "path": old_rel, "newPath": new_rel, "etag": etag(source) }),
-                ),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(
-            renamed.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&renamed.body)
-        );
-        assert!(!f.dir.join("content").join(old_rel).exists());
-        assert!(f.dir.join("content").join(new_rel).is_file());
-        for root in ["assistant/context", ".openblog/private/context"] {
-            assert!(!f
-                .dir
-                .join(root)
-                .join("posts/2026-01-01-old-name.md")
-                .exists());
-            assert_eq!(
-                fs::read_to_string(f.dir.join(root).join("posts/2026-01-01-new-name.md")).unwrap(),
-                "## Goal\n\nKeep me.\n"
-            );
-        }
-
-        let conflict_rel = "posts/2026-01-01-conflict.md";
-        fs::write(f.dir.join("content").join(conflict_rel), "occupied").unwrap();
-        let conflict = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "POST",
-                    "/admin/api/document/rename",
-                    json!({ "path": new_rel, "newPath": conflict_rel, "etag": etag(source) }),
-                ),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(conflict.status, 409);
-        assert!(f.dir.join("content").join(new_rel).is_file());
-        assert!(f
-            .dir
-            .join("assistant/context/posts/2026-01-01-new-name.md")
-            .is_file());
     }
 
     #[test]
