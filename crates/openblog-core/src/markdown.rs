@@ -222,6 +222,38 @@ fn rust_check_error(starter: &str, checks: Option<&str>) -> Option<&'static str>
     None
 }
 
+/// What a code fence's info string says, as the build reads it: the language, title, highlighted
+/// lines, line numbers and whether readers can run it. Studio's Code form writes an info string
+/// and reads it back through this, so the form and the build agree (Studio R6 G45).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CodeFenceSummary {
+    pub lang: String,
+    pub title: Option<String>,
+    pub highlight: Option<String>,
+    /// `Some(false)` for `showLineNumbers=false`, `None` when the fence doesn't say.
+    pub line_numbers: Option<bool>,
+    pub line_start: Option<u32>,
+    pub runnable: bool,
+}
+
+/// Read a code fence's info string the way the build does.
+pub fn code_fence_summary(info: &str) -> CodeFenceSummary {
+    let parsed = parse_fence_info(info);
+    CodeFenceSummary {
+        lang: parsed.lang,
+        title: parsed.title,
+        highlight: parsed.highlight,
+        line_numbers: parsed.line_numbers,
+        line_start: parsed.line_start,
+        runnable: parsed.runnable,
+    }
+}
+
+/// What the build would refuse in a `quiz` fence's body, or `None` when it renders.
+pub fn quiz_problem(body: &str) -> Option<String> {
+    parse_quiz(body).err()
+}
+
 pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
     let mut out = FenceInfo::default();
     let mut rest = info.trim();

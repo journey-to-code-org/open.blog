@@ -95,6 +95,7 @@ mod greetings;
 mod job_sharing;
 mod landing;
 mod look;
+mod pieces;
 mod post_settings;
 mod push;
 mod quote;
@@ -18424,24 +18425,25 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
 /// Check one piece's form values and return the Markdown that holds it in a
 /// post (ADR 0253). The engine is the only place a piece is validated or
 /// written, so the Admin cannot save one the build would refuse. Nothing is
-/// stored.
+/// stored. Problems carry codes (Studio R6 G44); a question for readers and a
+/// code block are checked here too (G45). See `admin/pieces.rs`.
 fn build_piece(req: &Request) -> Response {
     if let Err(r) = require_json(req) {
         return r;
     }
     if req.body.len() > MAX_PIECE_REQUEST_BYTES {
-        return Response::error(413, "A piece is limited to 64 KiB");
+        return coded_error(413, "too-large", "A piece is limited to 64 KiB");
     }
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
-        Err(_) => return Response::error(400, "Invalid JSON"),
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
     };
     let kind = body["kind"].as_str().unwrap_or("");
     if body["values"]
         .as_array()
         .is_some_and(|pairs| pairs.len() > MAX_PIECE_VALUES)
     {
-        return Response::error(413, "That piece has too many details");
+        return coded_error(413, "too-many", "That piece has too many details");
     }
     let Some(values) = body["values"].as_array().map(|pairs| {
         pairs
@@ -18454,23 +18456,15 @@ fn build_piece(req: &Request) -> Response {
             })
             .collect::<Vec<_>>()
     }) else {
-        return Response::error(400, "values must be a list of [field, value] pairs");
+        return coded_error(
+            400,
+            "bad-request",
+            "values must be a list of [field, value] pairs",
+        );
     };
-    if kind == openblog_core::compare::FENCE {
-        return match openblog_core::compare::from_values(&values) {
-            Ok(pair) => Response::json(200, &json!({ "markdown": pair.to_markdown() })),
-            Err(problems) => Response::json(
-                422,
-                &json!({ "error": "Check the highlighted details", "problems": problems }),
-            ),
-        };
-    }
-    match openblog_core::piece::Piece::from_values(kind, &values) {
-        Ok(piece) => Response::json(200, &json!({ "markdown": piece.to_markdown() })),
-        Err(problems) => Response::json(
-            422,
-            &json!({ "error": "Check the highlighted details", "problems": problems }),
-        ),
+    match pieces::build(kind, &values) {
+        Ok(markdown) => Response::json(200, &json!({ "markdown": markdown })),
+        Err(problems) => Response::json(422, &pieces::refusal(&problems)),
     }
 }
 
@@ -19514,6 +19508,7 @@ mod tests {
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod piece_routes;
     mod post_settings_routes;
     mod proof_routes;
     mod push_routes;
