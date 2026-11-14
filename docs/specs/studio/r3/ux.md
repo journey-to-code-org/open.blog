@@ -353,3 +353,7 @@ iPhone, Safari                              Android or computer, browser can ask
 - Banned on her layer, next to "deploy": push, subscription, PWA, service worker, permission, endpoint, device, browser (except naming the app she is in).
 - "Works on her phone": every screen works in the installed app, which has no Back button or address bar; every screen has its own way home.
 - Review checklist: platform steps show only the ones for the device in her hand.
+
+**Note (R4, 2026-11-13):** the worker now also keeps Studio's own static files (G35: versioned, network-first,
+never API replies), so "caches nothing" above is narrowed to "never an API reply". Everything else here (exactly
+`/admin/sw.js`, scope `/admin/`, message-not-navigate on tap) is unchanged. See `r4/ux.md`.

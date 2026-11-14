@@ -47,7 +47,10 @@ Android and computer installs update themselves (Chrome may say the app was upda
 added before Studio still starts at `/admin/`, which sends it on to Studio, with the same sign-in and the same
 notifications. There is no need to add it again: a second icon is a second app that has to turn notifications
 on by itself. The one service worker stays at `/admin/sw.js` (scope `/admin/`); it shows notifications and
-opens Studio when one is tapped, caches nothing, and can't be replaced by a site's own file. A site can still
+opens Studio when one is tapped, and can't be replaced by a site's own file. Since Studio R4 it also keeps a
+copy of Studio's own files (a new copy with each release, fetched from the server first whenever there is a
+signal), so New job opens on a job site with no signal; it never keeps an `/admin/api/` reply, anything of the
+session, or the old Admin's pages. A site can still
 bring its own icons under `<paths.web>/admin/icons/`.
 
 ## Setting it up
