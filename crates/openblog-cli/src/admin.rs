@@ -95,6 +95,7 @@ mod greetings;
 mod job_sharing;
 mod landing;
 mod look;
+mod post_settings;
 mod push;
 mod quote;
 mod reading_paths;
@@ -450,12 +451,28 @@ impl AppState {
         // Scheduled shared reflections are held privately and checked again as they fall due.
         fire_due_shared_publications(self);
         let mut status = lock(&self.build);
-        let due = status.next_due.is_some_and(|d| d <= clock::now());
-        if due {
-            Some(self.rebuild_locked(&mut status))
-        } else {
-            None
+        let now = clock::now();
+        let due = status.next_due.is_some_and(|d| d <= now);
+        if !due {
+            return None;
         }
+        // The posts going up now, by title, so the send-out says which (Studio R5 G37).
+        let titles: Vec<String> = status
+            .scheduled
+            .iter()
+            .filter(|(_, _, date)| DateTime::parse(date).is_some_and(|date| date <= now))
+            .map(|(title, _, _)| title.clone())
+            .collect();
+        let result = self.rebuild_locked(&mut status);
+        drop(status);
+        // A site that sends itself out after a save sends a scheduled post out when it goes up too,
+        // so it reaches readers by itself and not at the next save.
+        if result.is_ok() {
+            if let Some(summary) = post_settings::scheduled_summary(&titles) {
+                state_arc(self).auto_publish(summary);
+            }
+        }
+        Some(result)
     }
 
     fn out_dir(&self, config: &SiteConfig) -> PathBuf {
@@ -1201,6 +1218,10 @@ fn authenticated_api(
             match crate::publish::status(&state.root, &config) {
                 Ok(mut v) => {
                     v["filesMayVanish"] = json!(state.files_may_vanish());
+                    // Studio R5 G37: how the site goes out and when the next scheduled post is due.
+                    v["mode"] = json!(post_settings::publish_mode(&state.root, &config));
+                    v["schedule"] = json!(post_settings::schedule_mode(&state.root, &config));
+                    v["nextDue"] = json!(lock(&state.build).next_due.map(|due| due.rfc3339()));
                     Response::json(200, &v)
                 }
                 Err(e) => Response::error(500, &e),
@@ -4398,14 +4419,25 @@ fn meta(state: &AppState) -> Response {
                 "label": profile.label,
                 "description": profile.description,
                 "starter": profile.starter,
-                "fields": profile.fields.iter().map(|field| json!({
-                    "key": field.key,
-                    "label": field.label,
-                    "kind": field.kind.as_str(),
-                    "help": openblog_core::profile::field_help(field, config.recipes.listing),
-                    "aliases": openblog_core::profile::field_aliases(field.key),
-                    "suggestions": suggestions(field.key),
-                })).collect::<Vec<_>>(),
+                "fields": profile.fields.iter().map(|field| {
+                    // Studio R5 G40: a web address, a file, or one of a few choices.
+                    let (kind, choices) = post_settings::field_control(field.key, field.kind.as_str());
+                    let mut out = json!({
+                        "key": field.key,
+                        "label": field.label,
+                        "kind": kind,
+                        "help": openblog_core::profile::field_help(field, config.recipes.listing),
+                        "aliases": openblog_core::profile::field_aliases(field.key),
+                        "suggestions": suggestions(field.key),
+                    });
+                    if let Some(choices) = choices {
+                        out["choices"] = json!(choices.iter().map(|value| json!({ "value": value })).collect::<Vec<_>>());
+                    }
+                    if let Some(max) = post_settings::field_max(field.key) {
+                        out["max"] = json!(max);
+                    }
+                    out
+                }).collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -4462,7 +4494,11 @@ fn meta(state: &AppState) -> Response {
                 "trade": trade_site,
                 // Something has gone somewhere (G16): Sharing shows "Where it went" for it.
                 "shared": crate::outcomes::any_shared(&state.root, &config),
+                // Pins are sent (Studio R5 G39): a post's Pin words are on her layer.
+                "pinterest": config.syndication.pinterest.as_ref().is_some_and(|pins| pins.enabled),
             },
+            // How a scheduled post reaches readers (Studio R5 G37): "self" or "next-send".
+            "schedule": post_settings::schedule_mode(&state.root, &config),
             "job": job_form,
             "capture": openblog_core::capture::limits_json(
                 (upload_intake_bytes(&config) / (1024 * 1024)) as u32,
@@ -12496,6 +12532,21 @@ fn get_document(state: &AppState, req: &Request) -> Response {
                 Json::Null
             };
             let mut reply = json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error });
+            // Studio R5 G38/G43: what the post is now, where it lives, whether it was ever on the
+            // site (its address stays put once it may have been), and its automatic excerpt.
+            if kind == "posts" {
+                let facts = post_settings::post_facts(rel, &text, &config, clock::now());
+                reply["status"] = json!(facts.status);
+                reply["url"] = json!(facts.url);
+                reply["slug"] = json!(facts.slug);
+                reply["excerpt"] = json!(facts.excerpt);
+                reply["wasPublished"] = json!(post_settings::was_published(
+                    &state.root,
+                    &config,
+                    rel,
+                    facts.status == "published",
+                ));
+            }
             // A job made on a phone: the capture it came from, for its voice note (Studio R4 G30).
             if kind == "posts" && doc.front_matter.get("profile") == Some("job") {
                 if let Some(capture) = capture_for_path(state, rel) {
@@ -12643,10 +12694,10 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
     let Some(contributors) = body.get("contributors").and_then(Json::as_object) else {
-        return Response::error(422, "contributors must be an object");
+        return coded_error(422, "invalid", "contributors must be an object");
     };
     if contributors.len() > 500 {
-        return Response::error(422, "contributors has too many entries");
+        return coded_error(422, "invalid", "contributors has too many entries");
     }
 
     let mut status = lock(&state.build);
@@ -12661,9 +12712,11 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             return Response::error(500, &format!("cannot read {}: {error}", path.display()))
         }
     };
+    // Every refusal carries a `code` (Studio R5 G41).
     if body.get("etag").and_then(Json::as_str) != Some(etag_bytes(&current_bytes).as_str()) {
-        return Response::error(
+        return coded_error(
             409,
+            "changed",
             "Site settings changed on disk since you opened Contributors. Reload before saving.",
         );
     }
@@ -12691,7 +12744,12 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
     };
     let candidate_config = match SiteConfig::from_json(&candidate_text) {
         Ok(config) => config,
-        Err(error) => return Response::error(422, &error),
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({ "error": error, "code": "invalid", "field": post_settings::contributor_field(&error) }),
+            )
+        }
     };
     let removed = current_config
         .contributors
@@ -12708,7 +12766,9 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Referenced contributors cannot be removed. Update these post credits first.",
+                "code": "named-on-posts",
                 "paths": references,
+                "posts": post_settings::posts_naming(&state.root, &current_config, &references),
             }),
         );
     }
@@ -12726,6 +12786,7 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Contributors who take part in a shared reflection cannot be removed.",
+                "code": "in-shared-reflection",
                 "contributors": bound_removed,
             }),
         );
@@ -12749,6 +12810,7 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Contributors named as interpreters in the source library cannot be removed. Change those interpretations first.",
+                "code": "named-in-sources",
                 "contributors": contributors,
                 "interpretations": interpretations,
             }),
@@ -16672,7 +16734,11 @@ fn validate_candidate(
     ) {
         Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e])?,
         Err(errors) => {
-            let sidecar = openblog_core::contributor::sidecar_path(rel);
+            // The credit file's own problems are this save's only when it changes the credits: a
+            // file that was already broken never stops the title saving (Studio R5).
+            let sidecar = (!matches!(credit_edit, CreditEdit::Unchanged))
+                .then(|| openblog_core::contributor::sidecar_path(rel))
+                .flatten();
             let mine: Vec<String> = errors
                 .into_iter()
                 .filter(|error| {
@@ -17061,17 +17127,18 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if let Err(r) = require_json(req) {
         return r;
     }
+    // Every refusal carries a `code` Studio says in its own words (Studio R5 G36).
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
-        Err(_) => return Response::error(400, "Invalid JSON"),
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
     };
     let mut fields = match fields_from_json(&body["fields"]) {
         Ok(f) => f,
-        Err(e) => return Response::error(422, &e),
+        Err(e) => return coded_error(422, "bad-request", &e),
     };
     let text_body = body["body"].as_str().unwrap_or("");
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
-        return Response::error(413, "The post body is too large");
+        return coded_error(413, "too-large", "The post body is too large");
     }
     // A capture id makes creation idempotent: the same id never creates a second draft (ADR 0297).
     let capture_id = match body.get("captureId") {
@@ -17119,54 +17186,57 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             let kind = body["kind"].as_str().unwrap_or("posts");
             match derive_new_path(kind, &fields) {
                 Ok(rel) => (rel, true),
-                Err(e) => return Response::error(422, &e),
+                Err(e) => return coded_error(422, "bad-request", &e),
             }
         }
     };
     let path = match resolve_content_path(&state.root, &config, &rel) {
         Ok(p) => p,
-        Err(e) => return Response::error(400, &e),
+        Err(e) => return coded_error(400, "bad-path", &e),
     };
     let kind = check_rel_path(&rel).unwrap_or("posts");
     let credit_path = if kind == "posts" {
         match resolve_credit_path(&state.root, &config, &rel) {
             Ok(path) => Some(path),
-            Err(error) => return Response::error(400, &error),
+            Err(error) => return coded_error(400, "bad-path", &error),
         }
     } else {
         None
     };
     let credit_edit = match requested_credit_edit(&body, kind) {
         Ok(edit) => edit,
-        Err(error) => return Response::error(422, &error),
+        Err(error) => return coded_error(422, "bad-request", &error),
     };
 
     let mut retired_track = None;
     if created {
         if path.exists() {
-            return Response::error(
+            // Named by its address (`slug`), the address is what's taken; else the title.
+            return Response::json(
                 409,
-                "A file with that name already exists. Change the title, slug, or date.",
+                &json!({ "error": "A file with that name already exists. Change the title, slug, or date.", "code": "exists", "slug": field_scalar(&fields, "slug").is_some_and(|slug| !slug.trim().is_empty()) }),
             );
         }
         if matches!(credit_edit, CreditEdit::Unchanged)
             && credit_path.as_ref().is_some_and(|path| path.exists())
         {
-            return Response::error(
+            return coded_error(
                 409,
+                "credit-file-exists",
                 "A credit sidecar with that name already exists. Reload with a credits-aware Admin client or move the orphaned sidecar.",
             );
         }
     } else {
         let current = match fs::read_to_string(&path) {
             Ok(t) => t,
-            Err(_) => return Response::error(404, "No such document"),
+            Err(_) => return coded_error(404, "not-found", "No such document"),
         };
         match body["etag"].as_str() {
             Some(sent) if sent == etag(&current) => {}
             _ => {
-                return Response::error(
+                return coded_error(
                     409,
+                    "changed",
                     "This file changed on disk since you opened it. Reload it before saving.",
                 )
             }
@@ -17253,8 +17323,9 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             None => body.get("creditEtag").is_none_or(Json::is_null),
         };
         if !matches {
-            return Response::error(
+            return coded_error(
                 409,
+                "credits-changed",
                 "The post credits changed on disk since you opened them. Reload before saving.",
             );
         }
@@ -17277,8 +17348,9 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                 &config.contributors,
             );
             if !published.sections().is_empty() && edited.sections().is_empty() {
-                return Response::error(
+                return coded_error(
                     422,
+                    "shared-order",
                     "These credits no longer match the order in which each contributor first appears in this shared reflection, so readers could no longer write to or answer each author’s own section. List each contributor once, in the order they first appear.",
                 );
             }
@@ -17297,15 +17369,12 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             &credit_edit,
             &config,
         ) {
-            return Response::error(422, &message);
+            return coded_error(422, "shared-rebind", &message);
         }
     }
 
     if let Err(problems) = validate_candidate(&state.root, &config, &rel, &source, &credit_edit) {
-        return Response::json(
-            422,
-            &json!({ "error": "This can't be saved yet.", "problems": problems }),
-        );
+        return post_settings::save_refused(&problems);
     }
     let sidecar = credit_path.as_deref().unwrap_or(&path);
     if let Err(e) = write_document_bundle(
@@ -19545,6 +19614,7 @@ mod tests {
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod post_settings_routes;
     mod proof_routes;
     mod push_routes;
     mod quote_routes;
@@ -34908,8 +34978,19 @@ href: /about/
 
         let config = site::load_config(&f.dir).unwrap();
         let source = fs::read_to_string(&markdown).unwrap();
-        let problems =
-            validate_candidate(&f.dir, &config, &rel, &source, &CreditEdit::Unchanged).unwrap_err();
+        // A credit file that was already broken doesn't stop a save that leaves it alone (Studio
+        // R5); one that changes the credits answers for them.
+        assert!(validate_candidate(&f.dir, &config, &rel, &source, &CreditEdit::Unchanged).is_ok());
+        let problems = validate_candidate(
+            &f.dir,
+            &config,
+            &rel,
+            &source,
+            &CreditEdit::Set(
+                r#"{"version":1,"credits":[{"contributor":"missing","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#.into(),
+            ),
+        )
+        .unwrap_err();
         assert!(problems.iter().any(|problem| {
             problem.contains(".credits.json") && problem.contains("unknown contributor `missing`")
         }));
