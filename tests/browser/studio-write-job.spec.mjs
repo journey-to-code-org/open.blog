@@ -133,6 +133,9 @@ test("A job from What are you writing? starts with today, the four parts, and sa
   await expect(about(page).getByRole("combobox", { name: "Price shown" })).toHaveValue("2k-10k");
   await expect(page.getByRole("textbox", { name: "Problem", exact: true })).toHaveValue("Leak by the chimney.");
   await axeClean(page, "About this job");
+  // Posts says which posts are jobs.
+  await page.goto(`${origin}/admin/studio/#/posts`);
+  await expect(page.locator(".studio-post-row", { hasText: "Chimney leak in Elkins" }).locator("status-badge", { hasText: "Job" })).toBeVisible();
 });
 
 test("the four parts come back byte for byte, and any other shape stays one box", async ({ page }) => {

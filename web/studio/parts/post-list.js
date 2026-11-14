@@ -29,6 +29,8 @@ export function postRow(post, menu, sameTitle = false) {
   return h("li", { class: "studio-post-row", "data-status": post.status },
     h("a", { class: "studio-post-link", href: postHref(post.path) },
       h("span", { class: "studio-post-title", text: post.title || "Untitled" }),
+      // R4: a job says so (its profile, G15).
+      post.profile === "job" ? h("status-badge", { variant: "outline", class: "studio-post-kind" }, "Job") : null,
       h("span", { class: "studio-post-when", text: when }),
       sameTitle ? h("span", { class: "studio-post-file", text: `File: ${post.path.split("/").pop()}` }) : null),
     h("status-badge", { variant: badge.variant, dot: true }, badge.text),

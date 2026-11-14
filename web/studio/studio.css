@@ -525,3 +525,4 @@ side-sheet.studio-wide-sheet dialog, side-sheet.studio-wide-sheet .sheet { width
 .studio-job-part-box text-field { justify-self: stretch; }
 .studio-photo-chip .studio-photo-mark { grid-column: 1 / -1; min-width: 0; }
 .studio-undo-row { align-items: center; margin: 0; }
+.studio-post-kind { justify-self: start; }
