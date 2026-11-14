@@ -380,3 +380,37 @@ test("a queue over the same store sees what the sender changed", async () => {
   await queue.refresh();
   assert.equal(queue.entries()[0].record.by, "dana");
 });
+
+test("Throw it away never removes a job another window is sending, and a list that closes loses nothing", async () => {
+  const blog = fakeBlog();
+  const store = createMemoryStore();
+  await store.put(makeRecord(capture(1), new Date(), "dana"));
+  const locks = fakeLocks();
+  const jobs = sender(blog, store, { win: fakeWindow(locks) });
+  await jobs.start();
+  await jobs.flush();
+  await store.put(makeRecord(capture(2), new Date(), "dana"));
+  await jobs.reload();
+  let release;
+  const held = locks.request(`openblog-capture:${idOf(2)}`, {}, () => new Promise((done) => { release = done; }));
+  assert.equal(await jobs.discard(idOf(2)), false);
+  assert.ok(await store.get(idOf(2)), "still there");
+  release();
+  await held;
+  assert.equal(await jobs.discard(idOf(2)), true);
+
+  // Another page upgrading the list closes it mid-send: the job stays, and the next try reads it again.
+  const inner = createMemoryStore();
+  let closed = false;
+  const closing = { ...inner, all: async () => { if (closed) throw new DOMException("closed", "InvalidStateError"); return inner.all(); } };
+  await inner.put(makeRecord(capture(3), new Date(), "dana"));
+  blog.online = false;
+  const shut = sender(blog, closing);
+  await shut.start();
+  await shut.flush();
+  blog.online = true;
+  closed = true;
+  assert.deepEqual(await shut.flush(), { sent: 0, blocked: "waiting" });
+  assert.ok(await inner.get(idOf(3)), "still kept");
+  assert.equal(await sender(blog, closing).start(), false, "a list that can't be read doesn't open");
+});

@@ -118,6 +118,7 @@ export async function throwAwayAsk(entry, title, { jobs, noun = "phone", onSave 
       continue;
     }
     if (choice !== "throw") return false;
-    return jobs.discard(entry.id);
+    if (await jobs.discard(entry.id)) return true;
+    return "busy";
   }
 }

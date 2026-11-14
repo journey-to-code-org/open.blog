@@ -201,8 +201,13 @@ export function createJobSender({
         unusable = create;
         return null;
       }
-      queue = createCaptureQueue({ store, limits, onChange: () => emit() });
-      await queue.refresh();
+      const opened = createCaptureQueue({ store, limits, onChange: () => emit() });
+      try {
+        await opened.refresh();
+      } catch {
+        return null;
+      }
+      queue = opened;
       listen();
       return queue;
     })().finally(() => { opening = null; });
@@ -349,7 +354,14 @@ export function createJobSender({
       let result;
       do {
         again = false;
-        result = await run();
+        try {
+          result = await run();
+        } catch {
+          // The list closed under it (another page upgrading it, the phone out of room): nothing
+          // was removed, and the next try reads it again.
+          result = { sent: 0, blocked: "waiting" };
+          emit({ type: "flushed", ...result });
+        }
       } while (again && !result.blocked && !only);
       return result;
     };
@@ -418,9 +430,14 @@ export function createJobSender({
       tell();
       await reload();
     },
+    /** She threw it away. False when it's being sent (here or in another window): nothing is removed. */
     async discard(id) {
       if (live.get(id)?.sending) return false;
-      await locked(id, () => queue.discard(id));
+      const done = await locked(id, async () => {
+        await queue.discard(id);
+        return "gone";
+      });
+      if (done !== "gone") return false;
       live.delete(id);
       tell();
       await reload();

@@ -1,0 +1,75 @@
+// New job's side column (Studio R4): "Waiting on this phone" with a card per job and what each
+// card's buttons do, "Sent this visit", the line under the lede that says how many wait, and Mikey's
+// details about the list on this phone. Redrawn whenever the sender says something changed; focus
+// stays on the card it was on.
+import { h } from "./dom.js";
+import { detailsBox } from "./account-details.js";
+import { captureBytes, DB_NAME, DB_VERSION, STORE_NAME } from "./capture-queue.js";
+import { captureTitle } from "./new-job-rules.js";
+import { waitingCount } from "./job-words.js";
+import { savePhotos, throwAwayAsk, waitingCard } from "./waiting-cards.js";
+
+/** `{ jobs, meta, api, here, noun, limits, services, say }`. */
+export function createWaitingSide({ jobs, meta, api, here, noun, limits, services, say }) {
+  const heading = h("h3", { id: "studio-waiting-h", tabindex: "-1", text: here.desktop ? "Waiting on this computer" : `Waiting on this ${noun}` });
+  const list = h("ul", { class: "studio-comment-list", "aria-labelledby": "studio-waiting-h" });
+  const box = h("section", { class: "studio-section", "aria-labelledby": "studio-waiting-h", hidden: true }, heading, list);
+  const sentList = h("ul", { class: "studio-sent-list", "aria-labelledby": "studio-sent-h" });
+  const sentBox = h("section", { class: "studio-section", "aria-labelledby": "studio-sent-h", hidden: true }, h("h3", { id: "studio-sent-h", text: "Sent this visit" }), sentList);
+  const appHint = h("p", { class: "studio-help" });
+  const details = h("div");
+  const link = h("p", { class: "studio-help" });
+  const element = h("div", { class: "studio-account-side" }, box, sentBox, appHint, details);
+
+  const titleOf = (record) => captureTitle(record.fields, new Date(record.createdAt), services);
+  const actions = {
+    send: () => jobs.sendNow(),
+    retry: (entry) => jobs.retry(entry.id),
+    again: (entry) => jobs.sendAgain(entry.id),
+    done: (entry) => jobs.done(entry.id),
+    as: (entry) => jobs.sendAs(entry.id),
+    reload: () => location.reload(),
+    save: async (entry) => say(await savePhotos(entry.record, titleOf(entry.record), { here })),
+    throwAway: async (entry) => {
+      const name = entry.record ? titleOf(entry.record) : "this job";
+      const gone = await throwAwayAsk(entry, name, { jobs, noun, onSave: actions.save });
+      if (gone === "busy") say("It's being sent right now, so it wasn't thrown away. Look again in a moment.");
+      else if (gone) {
+        say("Thrown away.");
+        heading.focus();
+      }
+    },
+  };
+
+  function draw() {
+    const entries = jobs.entries();
+    const focusId = document.activeElement?.closest?.("[data-waiting]")?.dataset.waiting;
+    const focusStep = document.activeElement?.closest?.("[data-step]")?.dataset.step;
+    box.hidden = entries.length === 0;
+    list.replaceChildren(...entries.map((entry) => waitingCard(entry, { jobs, title: entry.record ? titleOf(entry.record) : "", noun, here, limits, on: actions })));
+    if (focusId) requestAnimationFrame(() => (list.querySelector(`[data-waiting="${focusId}"] [data-step="${focusStep}"] button`) || list.querySelector(`[data-waiting="${focusId}"] h4`) || heading)?.focus());
+    link.replaceChildren(...(entries.length ? [`${waitingCount(entries.length, noun)}. `, h("a", { href: "#/new-job?focus=waiting", onClick: (event) => { event.preventDefault(); heading.focus(); heading.scrollIntoView({ block: "start" }); }, text: "See them" })] : []));
+    const sent = jobs.sentThisVisit();
+    sentBox.hidden = sent.length === 0;
+    sentList.replaceChildren(...sent.map((item) => h("li", {}, h("span", { text: `${item.title}. ` }), h("a", { href: `#/write/${encodeURIComponent(item.path)}`, text: "Finish it" }))));
+    appHint.textContent = entries.length === 0 && here.apple && here.standalone ? "Saved a job in Safari instead? It's waiting there: open your blog in Safari to send it." : "";
+    drawDetails(entries);
+  }
+
+  async function drawDetails(entries) {
+    const bytes = entries.reduce((sum, entry) => sum + (entry.record ? captureBytes(entry.record) : 0), 0);
+    const estimate = await navigator.storage?.estimate?.().catch(() => null);
+    const persisted = await navigator.storage?.persisted?.().catch(() => null);
+    details.replaceChildren(detailsBox([
+      `IndexedDB ${DB_NAME} v${DB_VERSION} / ${STORE_NAME}: ${entries.length} of ${limits.maxQueued} jobs, ${(bytes / 1048576).toFixed(1)} of ${Math.round(limits.maxQueueBytes / 1048576)} MB`,
+      `in progress: IndexedDB studio-new-job v1 / open, key ${api.user || "(none)"}`,
+      `storage.persist(): ${persisted === null || persisted === undefined ? "unknown" : persisted ? "granted" : "not granted"}${estimate ? `; estimate ${(estimate.usage / 1048576).toFixed(1)} of ${(estimate.quota / 1048576).toFixed(0)} MB` : ""}`,
+      `Web Locks ${navigator.locks ? "yes" : "no"}; BroadcastChannel ${typeof BroadcastChannel === "function" ? "yes" : "no"}; ${here.standalone ? "Home Screen app" : "browser tab"}`,
+      "Safari may clear site data after 7 days without a visit; the Home Screen app is exempt; Safari and the Home Screen app don't share storage.",
+      "Old Admin windows opened before this update use the same list; sending from both makes one draft (ADR 0297).",
+      `limits: ${Object.entries(meta.capture || {}).map(([k, v]) => `${k} ${v}`).join(", ")}`,
+    ]));
+  }
+
+  return { element, link, heading, list, draw };
+}

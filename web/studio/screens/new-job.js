@@ -12,20 +12,18 @@ import { detailsBox } from "../parts/account-details.js";
 import { sayWhen } from "../parts/dates.js";
 import { herePhone, deviceNoun } from "../parts/notification-rules.js";
 import { tradeSite } from "../parts/record-kinds.js";
-import { captureBytes, queueLimits, DB_NAME, STORE_NAME, DB_VERSION } from "../parts/capture-queue.js";
-import { captureLimits, captureProblem, captureTitle, newCaptureId, photoProblem, photosToRemove, readPrefs, rememberPicks, serviceTitle, writePrefs } from "../parts/new-job-rules.js";
-import { tradeLabel } from "../parts/job-rules.js";
-import { PHOTO_WORDS, ROOM_WORDS, cameraHelp, flushWords, sentWords, tooManyWords, waitingCount } from "../parts/job-words.js";
+import { queueLimits } from "../parts/capture-queue.js";
+import { captureLimits, captureProblem, captureTitle, newCaptureId, photoProblem, photosToRemove, readPrefs, rememberPicks, writePrefs } from "../parts/new-job-rules.js";
+import { PHOTO_WORDS, ROOM_WORDS, cameraHelp, flushWords, sentWords, tooManyWords } from "../parts/job-words.js";
 import { shrinkPhoto } from "../parts/photo-shrink.js";
 import { createJobInProgress } from "../parts/job-in-progress.js";
 import { createVoiceNote } from "../parts/new-job-voice.js";
-import { savePhotos, throwAwayAsk, waitingCard } from "../parts/waiting-cards.js";
+import { createWaitingSide } from "../parts/waiting-side.js";
+import { createPicks } from "../parts/new-job-picks.js";
 import { stepWords } from "../parts/job-sender.js";
 
 const KEEP_MS = 500;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const OTHER = "__other";
-const slug = (text) => String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
 
 export async function createNewJob(context, route = { query: {} }) {
   const { api, meta = {}, jobs } = context;
@@ -35,7 +33,6 @@ export async function createNewJob(context, route = { query: {} }) {
   const noun = deviceNoun(here);
   const limits = { ...captureLimits(meta), ...queueLimits(meta) };
   const services = Array.isArray(meta.job?.services) ? meta.job.services.filter((s) => s && typeof s.id === "string") : [];
-  const siteTrade = String(meta.job?.siteTrade || "");
   const storage = safeStorage();
   const inProgress = createJobInProgress();
   const sheet = await createSheet({ label: "Voice note", wide: false });
@@ -55,7 +52,6 @@ export async function createNewJob(context, route = { query: {} }) {
   const undoSlot = h("div", { class: "studio-notifications-undo" });
   const banners = h("div", { class: "studio-banner" });
   const problemBox = h("div", { class: "studio-banner", role: "alert", id: "studio-new-job-problem" });
-  const waitingLink = h("p", { class: "studio-help" });
   const thumbs = h("auto-grid", { min: "5.5rem", class: "studio-thumbs", role: "list", "aria-label": "Photos in this job" });
   const camera = h("file-drop", { label: "Take a photo", look: "button", accept: "image/*", capture: "environment", multiple: false, "data-camera": "true" });
   const library = h("file-drop", { label: "Choose photos", look: "button", accept: "image/*", multiple: true, "data-library": "true" });
@@ -67,46 +63,24 @@ export async function createNewJob(context, route = { query: {} }) {
     say, offerUndo, onChange: () => keepSoon(),
   });
 
-  // Trade, service, town: a summary line once remembered, the fields on first use or Change.
-  const trades = [...new Set([...(meta.job?.trades || []), prefs.trade].filter(Boolean))];
-  const trade = h("select-field", { label: "Trade", options: [{ value: "", label: "Choose your trade" }, ...trades.map((t) => ({ value: t, label: tradeLabel(t) }))], value: siteTrade || prefs.trade, hidden: Boolean(siteTrade) });
-  const serviceKnown = (value) => services.some((s) => s.id === value);
-  const service = h("select-field", {
-    label: "Service",
-    options: [{ value: "", label: "Choose a service" }, ...services.map((s) => ({ value: s.id, label: s.title })), { value: OTHER, label: "Something else" }],
-    value: serviceKnown(prefs.service) ? prefs.service : prefs.service ? OTHER : "",
-  });
-  const otherService = h("text-field", { label: "What service?", description: "Add it under Services later so it shows on your site.", value: serviceKnown(prefs.service) ? "" : serviceTitle(prefs.service), hidden: service.value !== OTHER });
-  const town = h("text-field", { label: "Town", description: "Just the town, never the street. Customers see it.", value: prefs.towns[0] || "", autocomplete: "off" });
-  const towns = h("div", { class: "studio-row", role: "group", "aria-label": "Recent towns" });
-  const pickFields = h("div", { class: "studio-picks" }, trade, service, otherService, town, towns);
-  const summary = h("p", { class: "studio-picks-summary" });
-  const change = h("action-button", { variant: "link", onClick: () => openPicks(true) }, "Change");
-  const picks = h("div", { class: "studio-picks-box" }, h("div", { class: "studio-row studio-picks-line" }, summary, change), pickFields);
+  // Trade, service, town (parts/new-job-picks.js).
+  const picks = createPicks({ meta, services, prefs: () => prefs, onChange: () => keepSoon() });
   const cameraTrouble = h("details", { class: "studio-help" }, h("summary", { text: "Camera won't open?" }), h("p", { text: cameraHelp(here) }));
   const save = h("action-button", { size: "lg", class: "studio-primary", "aria-keyshortcuts": "Control+S Meta+S", "aria-describedby": "studio-new-job-problem", onClick: () => saveJob() }, "Save this job");
 
-  const waitingHeading = h("h3", { id: "studio-waiting-h", tabindex: "-1", text: here.desktop ? "Waiting on this computer" : `Waiting on this ${noun}` });
-  const waitingList = h("ul", { class: "studio-comment-list", "aria-labelledby": "studio-waiting-h" });
-  const waitingBox = h("section", { class: "studio-section", "aria-labelledby": "studio-waiting-h", hidden: true }, waitingHeading, waitingList);
-  const sentHeading = h("h3", { id: "studio-sent-h", text: "Sent this visit" });
-  const sentList = h("ul", { class: "studio-sent-list", "aria-labelledby": "studio-sent-h" });
-  const sentBox = h("section", { class: "studio-section", "aria-labelledby": "studio-sent-h", hidden: true }, sentHeading, sentList);
-  const appHint = h("p", { class: "studio-help" });
-  const details = h("div");
+  const side = createWaitingSide({ jobs, meta, api, here, noun, limits, services, say });
 
   const form = h("div", { class: "studio-account-main studio-new-job-form" },
     problemBox, thumbs,
     h("div", { class: "studio-new-job-photos" }, camera, library), count,
-    voice.element, notes, notesCount, picks, cameraTrouble);
-  const side = h("div", { class: "studio-account-side" }, waitingBox, sentBox, appHint, details);
-  const columns = h("div", { class: "studio-account-columns" }, form, side);
+    voice.element, notes, notesCount, picks.element, cameraTrouble);
+  const columns = h("div", { class: "studio-account-columns" }, form, side.element);
   const bar = h("div", { class: "studio-write-bar studio-new-job-bar" }, save);
   const element = h("section", { class: "studio-page studio-new-job", "aria-labelledby": "studio-new-job-h" },
     h("breadcrumb-trail", { items: [{ label: "Home", href: "#/" }, { label: "New job", href: "" }] }),
     heading,
     h("p", { class: "studio-lede", text: `Take photos and say what you did. It's kept on this ${noun} until there's a signal, then goes to your blog as a draft.` }),
-    status, undoSlot, banners, waitingLink, columns, bar);
+    status, undoSlot, banners, side.link, columns, bar);
 
   // ---- words and status
   function say(words) {
@@ -169,29 +143,7 @@ export async function createNewJob(context, route = { query: {} }) {
   }
   for (const picker of [camera, library]) picker.addEventListener("fileschange", (event) => addFiles([...(event.detail || [])]));
 
-  // ---- the picks
-  function drawTowns() {
-    towns.replaceChildren(...prefs.towns.slice(0, 5).map((name) => h("action-button", { variant: "link", label: `Use ${name}`, onClick: () => { town.value = name; keepSoon(); drawSummary(); town.querySelector("input")?.focus(); } }, name)));
-    towns.hidden = prefs.towns.length === 0;
-  }
-  const serviceValue = () => (service.value === OTHER ? slug(otherService.value) : String(service.value || ""));
-  const tradeValue = () => String(siteTrade || trade.value || "");
-  function drawSummary() {
-    const parts = [tradeLabel(tradeValue()), serviceValue() ? serviceTitle(serviceValue(), services) : "", String(town.value || "").trim()].filter(Boolean);
-    summary.textContent = parts.join(" · ") || "No trade, service or town yet";
-  }
-  function openPicks(focus) {
-    pickFields.hidden = false;
-    change.hidden = true;
-    if (focus) requestAnimationFrame(() => [...pickFields.querySelectorAll("select-field")].find((field) => !field.hidden)?.querySelector("select")?.focus());
-  }
-  service.addEventListener("valuechange", () => {
-    otherService.hidden = service.value !== OTHER;
-    if (service.value === OTHER) requestAnimationFrame(() => otherService.querySelector("input")?.focus());
-    drawSummary();
-    keepSoon();
-  });
-  for (const field of [trade, otherService, town, notes]) field.addEventListener("valuechange", () => { drawSummary(); drawCount(); keepSoon(); });
+  notes.addEventListener("valuechange", () => { drawCount(); keepSoon(); });
   function drawCount() {
     const length = String(notes.value || "").length;
     notesCount.textContent = length >= limits.maxNotesChars * 0.9 ? `${length.toLocaleString("en-US")} of ${limits.maxNotesChars.toLocaleString("en-US")} letters` : "";
@@ -208,7 +160,7 @@ export async function createNewJob(context, route = { query: {} }) {
   // ---- the job she's in the middle of
   const read = () => ({
     id,
-    fields: { trade: tradeValue(), service: serviceValue(), town: String(town.value || "").trim(), notes: String(notes.value || "") },
+    fields: { ...picks.values(), notes: String(notes.value || "") },
     photos: photos.filter((p) => !p.busy).map(({ name, type, size, blob }) => ({ name, type, size, blob })),
     audio: voice.note(),
   });
@@ -225,7 +177,7 @@ export async function createNewJob(context, route = { query: {} }) {
       if (held) await inProgress.clear(api.user);
       held = false;
     } else {
-      held = await inProgress.keep(api.user, { ...job, left: voice.left(), open: !pickFields.hidden });
+      held = await inProgress.keep(api.user, { ...job, left: voice.left(), open: picks.isOpen() });
     }
   }
 
@@ -236,18 +188,11 @@ export async function createNewJob(context, route = { query: {} }) {
     id = kept.id;
     photos = (kept.photos || []).filter((p) => p?.blob instanceof Blob).map((p) => ({ ...p, key: Math.random().toString(16).slice(2), preview: URL.createObjectURL(p.blob), busy: false }));
     notes.value = kept.fields?.notes || "";
-    if (kept.fields?.trade && !siteTrade) trade.value = kept.fields.trade;
-    if (kept.fields?.service) {
-      service.value = serviceKnown(kept.fields.service) ? kept.fields.service : OTHER;
-      otherService.hidden = service.value !== OTHER;
-      if (service.value === OTHER) otherService.value = serviceTitle(kept.fields.service);
-    }
-    town.value = kept.fields?.town || "";
-    if (kept.open) openPicks(false);
+    picks.set(kept.fields || {});
+    if (kept.open) picks.open(false);
     voice.set(kept.audio || null, { left: kept.left });
     restoredAt = kept.keptAt ? new Date(kept.keptAt) : new Date();
     drawPhotos();
-    drawSummary();
     drawCount();
     const when = sayWhen(restoredAt.toISOString());
     say(`Picked up where you left off, ${/^(Today|Yesterday)/.test(when) ? when.charAt(0).toLowerCase() + when.slice(1) : when}.`);
@@ -272,9 +217,8 @@ export async function createNewJob(context, route = { query: {} }) {
     id = newCaptureId();
     notes.value = "";
     voice.reset();
-    town.value = prefs.towns[0] || "";
+    picks.reset();
     drawPhotos();
-    drawSummary();
     drawCount();
     clearTimeout(keepTimer);
     if (held) await inProgress.clear(api.user);
@@ -311,7 +255,6 @@ export async function createNewJob(context, route = { query: {} }) {
         writePrefs(storage, prefs);
         askToKeep();
         await clearForm();
-        drawTowns();
         say(`Saved on this ${noun}.`);
         status.focus();
         return true;
@@ -351,40 +294,10 @@ export async function createNewJob(context, route = { query: {} }) {
     }
   }
 
-  // ---- waiting on this phone
-  const titleOf = (record) => captureTitle(record.fields, new Date(record.createdAt), services);
-  const actions = {
-    send: () => jobs.sendNow(),
-    retry: (entry) => jobs.retry(entry.id),
-    again: (entry) => jobs.sendAgain(entry.id),
-    done: (entry) => jobs.done(entry.id),
-    as: (entry) => jobs.sendAs(entry.id),
-    reload: () => location.reload(),
-    save: async (entry) => say(await savePhotos(entry.record, titleOf(entry.record), { here })),
-    throwAway: async (entry) => {
-      const name = entry.record ? titleOf(entry.record) : "this job";
-      if (await throwAwayAsk(entry, name, { jobs, noun, onSave: actions.save })) {
-        say("Thrown away.");
-        waitingHeading.focus();
-      }
-    },
-  };
-
+  // ---- waiting on this phone (parts/waiting-side.js), and what's said above it
   function drawWaiting() {
-    const entries = jobs.entries();
-    const focused = document.activeElement?.closest?.("[data-waiting]");
-    const focusId = focused?.dataset.waiting;
-    const focusStep = document.activeElement?.closest?.("[data-step]")?.dataset.step;
-    waitingBox.hidden = entries.length === 0;
-    waitingList.replaceChildren(...entries.map((entry) => waitingCard(entry, { jobs, title: entry.record ? titleOf(entry.record) : "", noun, here, limits, on: actions })));
-    if (focusId) requestAnimationFrame(() => (waitingList.querySelector(`[data-waiting="${focusId}"] [data-step="${focusStep}"] button`) || waitingList.querySelector(`[data-waiting="${focusId}"] h4`) || waitingHeading)?.focus());
-    waitingLink.replaceChildren(...(entries.length ? [`${waitingCount(entries.length, noun)}. `, h("a", { href: "#/new-job?focus=waiting", onClick: (event) => { event.preventDefault(); waitingHeading.focus(); waitingHeading.scrollIntoView({ block: "start" }); }, text: "See them" })] : []));
-    const sent = jobs.sentThisVisit();
-    sentBox.hidden = sent.length === 0;
-    sentList.replaceChildren(...sent.map((item) => h("li", {}, h("span", { text: `${item.title}. ` }), h("a", { href: `#/write/${encodeURIComponent(item.path)}`, text: "Finish it" }))));
-    appHint.textContent = entries.length === 0 && here.apple && here.standalone ? "Saved a job in Safari instead? It's waiting there: open your blog in Safari to send it." : "";
-    drawBanners(entries.length);
-    drawDetails(entries);
+    side.draw();
+    drawBanners(jobs.entries().length);
   }
 
   function drawBanners(waiting) {
@@ -400,28 +313,13 @@ export async function createNewJob(context, route = { query: {} }) {
     banners.replaceChildren(...nodes, ...(start ? [start] : []));
   }
 
-  async function drawDetails(entries) {
-    const bytes = entries.reduce((sum, entry) => sum + (entry.record ? captureBytes(entry.record) : 0), 0);
-    const estimate = await navigator.storage?.estimate?.().catch(() => null);
-    const persisted = await navigator.storage?.persisted?.().catch(() => null);
-    details.replaceChildren(detailsBox([
-      `IndexedDB ${DB_NAME} v${DB_VERSION} / ${STORE_NAME}: ${entries.length} of ${limits.maxQueued} jobs, ${(bytes / 1048576).toFixed(1)} of ${Math.round(limits.maxQueueBytes / 1048576)} MB`,
-      `in progress: IndexedDB studio-new-job v1 / open, key ${api.user || "(none)"}`,
-      `storage.persist(): ${persisted === null || persisted === undefined ? "unknown" : persisted ? "granted" : "not granted"}${estimate ? `; estimate ${(estimate.usage / 1048576).toFixed(1)} of ${(estimate.quota / 1048576).toFixed(0)} MB` : ""}`,
-      `Web Locks ${navigator.locks ? "yes" : "no"}; BroadcastChannel ${typeof BroadcastChannel === "function" ? "yes" : "no"}; ${here.standalone ? "Home Screen app" : "browser tab"}`,
-      "Safari may clear site data after 7 days without a visit; the Home Screen app is exempt; Safari and the Home Screen app don't share storage.",
-      "Old Admin windows opened before this update use the same list; sending from both makes one draft (ADR 0297).",
-      `limits: ${Object.entries(meta.capture || {}).map(([k, v]) => `${k} ${v}`).join(", ")}`,
-    ]));
-  }
-
   // Sending, said in the status line at most every 2 s.
   const unsubscribe = jobs.subscribe((event) => {
     if (!element.isConnected) return;
     if (event.type === "flush") flushing = { total: event.total, done: 0 };
     if (event.type === "sent") flushing.done += 1;
     if (event.type === "step") {
-      const card = waitingList.querySelector(`[data-waiting="${event.id}"] p:not(.studio-help)`);
+      const card = side.list.querySelector(`[data-waiting="${event.id}"] p:not(.studio-help)`);
       if (card) card.textContent = stepWords(event.step);
       if (Date.now() - lastSaid > 2000 && flushing.total) say(flushWords({ total: flushing.total, done: flushing.done }));
       return;
@@ -454,16 +352,11 @@ export async function createNewJob(context, route = { query: {} }) {
       form.hidden = true;
       bar.hidden = true;
     }
-    drawTowns();
-    drawSummary();
-    if (prefs.trade || prefs.service || prefs.towns.length) pickFields.hidden = true;
-    else openPicks(false);
-    change.hidden = !pickFields.hidden;
     drawPhotos();
     await restore();
     drawWaiting();
     jobs.watch(true);
-    if (route.query?.focus === "waiting" && jobs.entries().length) requestAnimationFrame(() => waitingHeading.focus());
+    if (route.query?.focus === "waiting" && jobs.entries().length) requestAnimationFrame(() => side.heading.focus());
   }
 
   return {
@@ -483,7 +376,7 @@ export async function createNewJob(context, route = { query: {} }) {
       sheet.close();
       return true;
     },
-    focus: () => (route.query?.focus === "waiting" && jobs.entries().length ? waitingHeading : heading).focus(),
+    focus: () => (route.query?.focus === "waiting" && jobs.entries().length ? side.heading : heading).focus(),
     get palette() {
       return [
         { id: "save", label: "Save this job", group: "This job" },
