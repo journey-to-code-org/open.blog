@@ -508,3 +508,32 @@ test("another window hears a job is sending: it shows Sending, won't throw it aw
   assert.equal(two.live(idOf(1)).elsewhere, undefined);
   assert.ok(heard.includes("sending"));
 });
+
+test("the signal coming back while a try is failing isn't lost: one more pass goes", async () => {
+  const blog = fakeBlog();
+  const store = createMemoryStore();
+  await store.put(makeRecord(capture(1), new Date(), "dana"));
+  const jobs = sender(blog, store);
+  blog.online = false;
+  await jobs.start();
+  await jobs.flush();
+  blog.online = true;
+  // The try under way finds no signal (it went out just before the signal came back)...
+  const call = blog.api.call;
+  let open;
+  const gate = new Promise((resolve) => { open = resolve; });
+  blog.api.call = async (...args) => {
+    blog.api.call = call;
+    await gate;
+    throw fail(0);
+  };
+  const failing = jobs.flush();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // ...and meanwhile the signal comes back.
+  const again = jobs.flush({ back: true });
+  open();
+  await failing;
+  await again;
+  assert.equal(blog.drafts.size, 1, "sent by the pass asked for meanwhile");
+  assert.equal((await store.all()).length, 0);
+});

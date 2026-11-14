@@ -515,9 +515,11 @@ test("two windows sending one job make one draft, and the list loses nothing", a
   await expect(waitingCards(other)).toHaveCount(1);
   await page.unroute(/\/admin\/api\/(upload|document|capture\?)/);
   await other.unroute(/\/admin\/api\/(upload|document|capture\?)/);
+  // Both windows' senders go at the same moment, as when the signal comes back. (Once one starts,
+  // the other hides its Send now, so two taps can't race.)
   await Promise.all([
-    page.getByRole("button", { name: "Send Roof repair in Twotown now" }).click(),
-    other.getByRole("button", { name: "Send Roof repair in Twotown now" }).click(),
+    page.evaluate(() => dispatchEvent(new Event("online"))),
+    other.evaluate(() => dispatchEvent(new Event("online"))),
   ]);
   await expect(waitingCards(page)).toHaveCount(0);
   await expect(waitingCards(other)).toHaveCount(0);

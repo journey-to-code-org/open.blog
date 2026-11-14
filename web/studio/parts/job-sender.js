@@ -173,6 +173,7 @@ export function createJobSender({
   let opening = null;
   let flushing = null;
   let again = false;
+  let againBack = false; // asked again because the signal came back
   let tries = 0;
   let timer = 0;
   let watching = false;
@@ -266,9 +267,9 @@ export function createJobSender({
   function listen() {
     if (listening) return;
     listening = true;
-    win.addEventListener?.("online", () => flush());
+    win.addEventListener?.("online", () => flush({ back: true }));
     win.document?.addEventListener?.("visibilitychange", () => {
-      if (win.document.visibilityState === "visible") reload().then(() => flush());
+      if (win.document.visibilityState === "visible") reload().then(() => flush({ back: true }));
     });
     win.addEventListener?.("focus", () => reload());
     try {
@@ -377,10 +378,11 @@ export function createJobSender({
    * otherwise a 401 marks the job "Needs you". `only` limits it to one job. Resolves
    * `{ sent, blocked }` (`blocked`: "", "waiting" or "signin").
    */
-  function flush({ manual = false, only = "" } = {}) {
+  function flush({ manual = false, only = "", back = false } = {}) {
     // Asked again while sending (a job kept a moment ago): one more pass after this one.
     if (flushing && !manual) {
       again = true;
+      againBack = againBack || back;
       return flushing;
     }
     const run = async () => {
@@ -408,6 +410,7 @@ export function createJobSender({
       let result;
       do {
         again = false;
+        againBack = false;
         try {
           result = await run();
         } catch {
@@ -416,7 +419,10 @@ export function createJobSender({
           result = { sent: 0, blocked: "waiting" };
           emit({ type: "flushed", ...result });
         }
-      } while (again && !result.blocked && !only);
+        // Asked again meanwhile (a job just kept): one more pass, unless this one found no signal.
+        // When the ask was the signal coming back, one more pass even then, or it would wait for
+        // the next timed try.
+      } while (again && !only && (!result.blocked || againBack));
       return result;
     };
     const job = (flushing ? flushing.then(passes, passes) : passes()).finally(() => { if (flushing === job) flushing = null; });
