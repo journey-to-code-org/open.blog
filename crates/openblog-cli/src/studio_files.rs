@@ -88,6 +88,7 @@ pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("parts/season-windows.js", include_bytes!("../../../web/studio/parts/season-windows.js")),
     ("parts/season-words.js", include_bytes!("../../../web/studio/parts/season-words.js")),
     ("parts/seasonal-rules.js", include_bytes!("../../../web/studio/parts/seasonal-rules.js")),
+    ("parts/sent-log.js", include_bytes!("../../../web/studio/parts/sent-log.js")),
     ("parts/services-rules.js", include_bytes!("../../../web/studio/parts/services-rules.js")),
     ("parts/share-preview.js", include_bytes!("../../../web/studio/parts/share-preview.js")),
     ("parts/share-sheets.js", include_bytes!("../../../web/studio/parts/share-sheets.js")),

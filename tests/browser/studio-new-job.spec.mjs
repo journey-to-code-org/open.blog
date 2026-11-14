@@ -363,6 +363,46 @@ test("in a Safari tab, a job waiting more than 5 days says Safari may clear it, 
   await context.close();
 });
 
+test("Send it on Sam's job asks first, sends it as her, and only Details keep that Sam saved it", async ({ page }) => {
+  await signIn(page, trade, "#/posts");
+  await page.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));
+  await page.evaluate(async () => {
+    const queue = await import("/admin/studio/parts/capture-queue.js");
+    const store = await queue.openIndexedStore();
+    await store.put(queue.makeRecord({ id: "3123456789abcdef0123456789abcdef", fields: { trade: "roofing", service: "roof-repair", town: "Samtown", notes: "Sam's notes." }, photos: [], audio: null }, new Date(), "Sam"));
+    store.close();
+  });
+  await page.goto(`${trade.origin}/admin/studio/#/new-job`);
+  const card = waitingCards(page).first();
+  await expect(card).toContainText("Saved while Sam was signed in on this computer.");
+  await page.unroute(/\/admin\/api\/(upload|document|capture\?)/);
+  await card.getByRole("button", { name: "Send it: Roof repair in Samtown" }).click();
+  let dialog = page.getByRole("dialog", { name: "Send Sam's job as you?" });
+  await expect(dialog).toContainText("It goes to your blog as yours.");
+  await dialog.getByRole("button", { name: "Not now" }).click();
+  await page.waitForTimeout(300);
+  expect(draftsIn(trade, "samtown")).toHaveLength(0);
+  await card.getByRole("button", { name: "Send it: Roof repair in Samtown" }).click();
+  dialog = page.getByRole("dialog", { name: "Send Sam's job as you?" });
+  await dialog.getByRole("button", { name: "Send it" }).click();
+  await expect.poll(() => draftsIn(trade, "samtown").length).toBe(1);
+  await expect(waitingCards(page)).toHaveCount(0);
+  const log = await page.evaluate(() => JSON.parse(localStorage.getItem("studio-sent-jobs")));
+  expect(log.at(-1)).toMatchObject({ captureId: "3123456789abcdef0123456789abcdef", by: "Sam", duplicate: false, skipped: [] });
+  // Details show the log; her layer never does.
+  const details = page.locator(".studio-account-side details").last();
+  await details.locator("summary").click();
+  await expect(details).toContainText("sent on this phone (last 20, studio-sent-jobs)");
+  await expect(details).toContainText("3123456789abcdef0123456789abcdef");
+  await expect(details).toContainText("by Sam");
+  const herLayer = await screen(page).evaluate((node) => {
+    const copy = node.cloneNode(true);
+    copy.querySelectorAll("details").forEach((d) => d.remove());
+    return copy.innerText;
+  });
+  expect(herLayer).not.toContain("studio-sent-jobs");
+});
+
 test("a reload in the middle of a job puts back every photo and word", async ({ page }) => {
   await openNewJob(page);
   await fillJob(page, "Parsons", "Half typed when the camera opened");

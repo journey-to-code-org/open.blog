@@ -202,7 +202,7 @@ One list over `openblog-capture` (DB v1, store `captures`). One `content-card` p
 | Refused | Didn't send | words by code (below) + "Nothing is lost: it's still on this phone." | **Try again**; More |
 | Sent before, deleted since (`duplicate`, `removed`) | Needs you | "This job went to your blog before, and was deleted there since." | **Send it again** (new id: copy, put copy, remove old, send); More |
 | Sent, a photo couldn't go (`sent.skipped`) | Sent | "It's a draft on your blog, but 1 photo couldn't go: “IMG_0042” is in a format websites can't show." | **Save that photo to this phone**, **Done**; **Finish it** |
-| Saved by someone else (`by` ≠ user) | Needs you | "Saved while Sam was signed in on this phone." | **Send it** (as her); More |
+| Saved by someone else (`by` ≠ user) | Needs you | "Saved while Sam was signed in on this phone." | **Send it** asks first (`modal-dialog` "Send Sam's job as you?" / "It goes to your blog as yours." **Send it** / **Not now**), then it goes as hers like her own jobs in this window; the record's `by` is never rewritten and the sent log keeps it; More |
 | Newer format (`v` > 1) | Needs you | "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell the person who set up your site." | **Reload**; More |
 | Unreadable | Can't read | "Part of this job can't be read on this phone, so it can't be sent." | More |
 
@@ -313,6 +313,7 @@ After Publish, R1's "Share this job" link is unchanged.
 | A waiting job | title, photo count, voice note, when saved, state | id (**Copy**), `v`, `createdAt`, `by`, `attempts`, `lastError`, bytes vs `maxCaptureBytes`, last HTTP status and `code` |
 | This phone | "this iPhone" | DB `openblog-capture` v1 / `captures`; count and bytes vs `maxQueued` 5 / `maxQueueBytes` 120 MB; `storage.persist()`; `storage.estimate()`; Web Locks / BroadcastChannel; standalone or tab; "Safari may clear site data after 7 days without a visit; the Home Screen app is exempt; Safari and the Home Screen app don't share storage" |
 | Sending | words | per-step log (slots sent/skipped/already there, audio, document reply incl. `duplicate`) |
+| Sent from this phone | "Sent this visit" | the last 20 sends, from `localStorage` `studio-sent-jobs` (`parts/sent-log.js`): `{captureId, path, sentAt, skipped, duplicate, by}`, `by` being who saved it; Details only, never her layer |
 | Voice to words | where it goes | engine, destination, model, `OPENBLOG_TRANSCRIBE_COMMAND`, transcript in `.openblog/captures/` |
 | Old Admin | nothing | "Old Admin windows opened before this update use the same list; sending from both makes one draft (ADR 0297)." |
 | Releases | nothing | the worker's (asked by message), the page's (`/admin/studio/release.js`, written by the server) and the server's (first line of `/admin/sw.js`) side by side, read again each time Details opens; a `status-badge` "Releases differ" when the known ones differ; **Clear saved pages** (deletes only `studio-*` caches and reloads; never unregisters the worker, never touches IndexedDB; disabled with no signal) |

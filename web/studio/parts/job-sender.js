@@ -15,6 +15,7 @@
 //   stays as `sent` until she says Done.
 import { createCaptureQueue, errorCode, errorText, isRetryable, openIndexedStore, queueLimits, storeExists, DB_NAME } from "./capture-queue.js";
 import { captureBody, captureFields, isPermanentPhotoError, newCaptureId } from "./new-job-rules.js";
+import { addToSentLog } from "./sent-log.js";
 
 const MIN_TIME_MS = 60_000;
 // How long "sending" heard from another window counts without a word since (where there are no
@@ -118,8 +119,8 @@ export function sendOutcome(error) {
 /**
  * Where a waiting job stands, for its card: `waiting`, `tried` (no signal last time), `sending`,
  * `signin`, `refused`, `removed` (sent before, deleted there since), `sent` (a photo couldn't go),
- * `someone-else` (saved while another person was signed in), `newer`, `unreadable`.
- * `live` is this window's own knowledge: `{ sending, signin }`.
+ * `someone-else` (saved while another person was signed in, until she agrees to send it as
+ * herself), `newer`, `unreadable`. `live` is this window's own knowledge: `{ sending, signin, as }`.
  */
 export function entryState(entry, user = "", live = {}) {
   if (entry.state === "newer") return "newer";
@@ -128,7 +129,7 @@ export function entryState(entry, user = "", live = {}) {
   if (live.sending) return "sending";
   if (record.sent?.removed) return "removed";
   if (record.sent) return "sent";
-  if (record.by && user && record.by !== user) return "someone-else";
+  if (record.by && user && record.by !== user && !live.as) return "someone-else";
   if (record.failed) return "refused";
   if (live.signin) return "signin";
   return record.attempts ? "tried" : "waiting";
@@ -162,7 +163,7 @@ export function stepWords({ step, index, total } = {}) {
  */
 export function createJobSender({
   api, meta = {}, title = (record) => record.id, win = globalThis, factory = globalThis.indexedDB,
-  exists = () => storeExists(factory), openStore = () => openIndexedStore(factory),
+  exists = () => storeExists(factory), openStore = () => openIndexedStore(factory), storage = safeStorage(win),
 }) {
   const limits = queueLimits(meta);
   const listeners = new Set();
@@ -343,6 +344,7 @@ export function createJobSender({
         }
         tell();
         if (!result.removed) {
+          addToSentLog(storage, { captureId: id, path: result.path, sentAt: new Date(), skipped: result.skipped, duplicate: result.duplicate, by: current.record.by || "" });
           sentHere.push({ id, title: title(current.record), path: result.path });
           emit({ type: "sent", id, title: title(current.record), path: result.path, quiet: result.duplicate && !manual, skipped: result.skipped, audio: result.audio });
         }
@@ -485,9 +487,14 @@ export function createJobSender({
       await reload();
       return moved === "ok" ? flush({ manual: true, only: fresh }) : null;
     },
-    /** Saved while someone else was signed in on this phone: send it as her. */
+    /**
+     * Saved while someone else was signed in on this phone, and she said to send it as herself:
+     * from now on in this window it goes like her own. Who saved it stays on the record (and in the
+     * sent log).
+     */
     async sendAs(id) {
-      await queue.update(id, { by: api.user, failed: false, lastError: "" });
+      liveOf(id).as = true;
+      await queue.update(id, { failed: false, lastError: "" });
       return flush({ manual: true, only: id });
     },
     /** Sent, with photos that couldn't go: she's seen it. */
@@ -524,4 +531,12 @@ export function createJobSender({
     },
     reload,
   };
+}
+
+function safeStorage(win) {
+  try {
+    return win.localStorage || null;
+  } catch {
+    return null;
+  }
 }

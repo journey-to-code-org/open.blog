@@ -9,6 +9,8 @@ import { captureTitle } from "./new-job-rules.js";
 import { keptTitle, waitingCount } from "./job-words.js";
 import { savePhotos, throwAwayAsk, waitingCard } from "./waiting-cards.js";
 import { clearSavedPages, readReleases } from "./releases.js";
+import { readSentLog, sentLogLines } from "./sent-log.js";
+import { ask } from "./dialogs.js";
 
 /** `{ jobs, meta, api, here, noun, limits, services, say }`. */
 export function createWaitingSide({ jobs, meta, api, here, noun, limits, services, say }) {
@@ -33,7 +35,13 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
     retry: (entry) => jobs.retry(entry.id),
     again: (entry) => jobs.sendAgain(entry.id),
     done: (entry) => jobs.done(entry.id),
-    as: (entry) => jobs.sendAs(entry.id),
+    // Someone else's job goes as hers only once she says so; who saved it stays on the record.
+    as: async (entry, button) => {
+      const choice = await ask({ heading: `Send ${entry.record.by}'s job as you?`, text: "It goes to your blog as yours.", choices: [{ label: "Send it", value: "send" }, { label: "Not now", value: "no", variant: "secondary" }] });
+      if (choice === "send") return jobs.sendAs(entry.id);
+      button?.querySelector?.("button")?.focus();
+      return null;
+    },
     reload: () => location.reload(),
     save: async (entry) => say(await savePhotos(entry.record, titleOf(entry.record), { here })),
     throwAway: async (entry) => {
@@ -94,6 +102,7 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
       "Old Admin windows opened before this update use the same list; sending from both makes one draft (ADR 0297).",
       `limits: ${Object.entries(meta.capture || {}).map(([k, v]) => `${k} ${v}`).join(", ")}`,
       ...release.lines,
+      ...sentLogLines(readSentLog(safeStorage())),
     ], release.mismatch ? h("status-badge", { variant: "warning", "data-release-mismatch": "true" }, "Releases differ") : null, clearButton()));
     const box = details.querySelector("details");
     // Re-opened here after a redraw: that toggle isn't Mikey's, so it doesn't read again.
@@ -112,4 +121,12 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
   }
 
   return { element, link, heading, list, draw };
+}
+
+function safeStorage() {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return null;
+  }
 }

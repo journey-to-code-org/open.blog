@@ -355,6 +355,40 @@ test("one saved while someone else was signed in waits for her; a newer or unrea
   assert.equal(await store.get(idOf(8)), newer);
 });
 
+/** localStorage's calls over a Map. */
+function fakeStorage() {
+  const map = new Map();
+  return { map, getItem: (key) => (map.has(key) ? map.get(key) : null), setItem: (key, value) => map.set(key, String(value)), removeItem: (key) => map.delete(key) };
+}
+
+test("Send it sends Sam's job as her without rewriting who saved it, and the sent log on this phone keeps Sam", async () => {
+  const blog = fakeBlog();
+  const store = createMemoryStore();
+  const storage = fakeStorage();
+  await store.put(makeRecord(capture(1), new Date(), "sam"));
+  const jobs = createJobSender({
+    api: blog.api, meta: { siteUses: { trade: true } }, win: fakeWindow(), exists: async () => true, openStore: async () => store, storage,
+  });
+  await jobs.start();
+  blog.online = false;
+  await jobs.sendAs(idOf(1));
+  assert.equal((await store.get(idOf(1))).by, "sam", "who saved it is never rewritten");
+  assert.equal(jobs.stateOf(jobs.entries()[0]), "tried", "she agreed: it waits for a signal like her own");
+  blog.online = true;
+  await jobs.flush();
+  assert.equal(blog.drafts.size, 1);
+  const log = JSON.parse(storage.getItem("studio-sent-jobs"));
+  assert.equal(log.length, 1);
+  assert.deepEqual(Object.keys(log[0]).sort(), ["by", "captureId", "duplicate", "path", "sentAt", "skipped"]);
+  assert.equal(log[0].by, "sam");
+  assert.equal(log[0].captureId, idOf(1));
+  assert.equal(log[0].path, blog.drafts.get(idOf(1)).path);
+  assert.equal(log[0].duplicate, false);
+  assert.deepEqual(log[0].skipped, []);
+  assert.ok(!Number.isNaN(Date.parse(log[0].sentAt)));
+});
+
+
 test("a phone that never kept a job gets no database: not on a site that isn't a trade site, not without asking", async () => {
   const blog = fakeBlog();
   let opened = 0;
