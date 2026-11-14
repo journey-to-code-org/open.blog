@@ -446,42 +446,69 @@ id; a prompt id the bundled catalog already uses is rejected. Write prompts the 
 at least three so a draw has something to choose from. `openblog voice --list` shows your packs and a warning
 for any section that could not be read.
 
-### Write visually or in Markdown
+### Your words, with cards in place
 
-The Write view defaults to **Visual**, which behaves like a word processor while keeping
-Markdown as the saved file format. Switch to **Markdown** whenever you want to inspect or
-edit the underlying text. The browser remembers the last mode selected on that device.
+In Studio's Write, her words are plain boxes she types in. Anything in a post that isn't plain
+words shows as a **card** in place: a photo (with the words under it), a tip or a note, a checklist,
+a table, a video, before and after photos, questions and answers, a question for readers, a button,
+links to other pages, a map, opening hours, how to reach you, code, a footnote. A card shows a short
+sketch of what it holds and never its Markdown. Each card has **Change** (the form for that kind,
+filled in) and **Move** (**Move up**, **Move down**, **Take it out**); Alt+↑ and Alt+↓ move a focused
+card, and ↓ on a box's last line (↑ on its first) goes to the card next to it. Every add, change, move
+and take-out says what happened under the box, with **Undo**, which puts the box's words back exactly
+as they were. Words, Your story, a recipe's notes and a job's four parts take cards; ingredient and
+step rows never do.
 
-Visual mode directly edits paragraphs, Heading 2–6, emphasis, links, quotes, simple lists,
-images, and code. Advanced constructs such as callouts, knowledge checks, embeds, task or
-nested lists, tables, footnotes, and raw HTML appear as protected blocks. Move or remove a
-protected block visually, or choose **Edit in Markdown** to change its exact source. This
-boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
-represent safely.
+Nothing about a card is rewritten unless you change it: a post opened and saved with no change keeps
+every byte. **Done** with nothing changed writes nothing. A card the form couldn't write back exactly
+(a hand-written piece with a field the form doesn't know, raw HTML, a lesson demo, a quote request
+form, indented code) has no **Change**; it can still be moved and taken out, and its source is in its
+details. A code fence that never ends leaves the rest of that box shown as written, so nothing in it
+moves; the details say on which line it starts.
 
-Callouts, tables, flat task lists, embedded videos and pens, and pieces also have an **Edit**
-button that opens a form inside the block: a callout's kind and text, a table's rows and columns,
-a task list's items and checkboxes, an embed's provider and address, or a piece's details. Apply
-writes the same Markdown the block uses today; Cancel (or Escape) leaves it untouched, and a block
-you do not edit is saved byte for byte. A block the form could not write back exactly stays
-protected.
+**Show the words as written** (in Add something's details, or in Find) turns every box into one plain
+box with the Markdown exactly as it's saved, for this post and this visit. It replaces the old Admin's
+Markdown mode; the old Admin's Visual and Markdown modes stay until it is retired (R15).
+
+Pasting from a web page, a document or an email keeps headings, bold, italic, links and lists and
+leaves fonts and colours out, in every box; a photo in the paste with no description is left out and
+said so. A pasted or dropped photo file opens **Put a photo in** at the describe step. Ctrl/⌘ B and I
+make the selected words bold or slanted.
+
+**Suggestions** under the words list gentle checks once you stop typing: a photo with no description,
+a link with no words or that says "click here", an http:// address, a heading that skips a level, all
+capitals, a very long paragraph. **Show me** goes to the place (or opens the card); **Fix it**, where it
+is safe, changes only that place, with Undo. Suggestions never stop a save. An HTML tag is noted only in
+the details for the person who set up the site.
 
 ### Add something
 
-Choose **Add something** in the Write toolbar (in Visual or Markdown mode) to add a button, image
-with caption, video, map, opening hours, contact details, social links, questions and answers, or
-a call-out at the caret. Pick what you want, fill in the labelled fields, and choose **Insert**:
-the details are checked by the same rules as the build, a problem is explained next to the form
-and nothing is inserted until it is fixed. In Visual mode the piece appears as an editable block;
-in Markdown mode its text is written at the caret. Ctrl+Z or **Undo piece** takes it back out.
-There is no option to write your own HTML. See [Pieces](content.md#pieces-buttons-videos-maps-and-more).
+**Add something** sits beside every **Put a photo in**. It opens a sheet that first says where the thing
+goes ("It goes in Your story, after “My mother made this every…”."), then lists what you can put in,
+in two groups, with a search. Typing `/` alone on an empty line in any box opens it with the search
+ready (a line like "1/2 cup" never does). It also opens from Write's **More** ("Add something…"), from
+Find ("Add a table", "Add a video"...), and from an address ending `?add=1` (the list) or `?add=<kind>`
+(that form, for example `?add=table`).
 
-**Before and after** is in the same list. It asks for two pictures and a description of each (required, for
-people who cannot see them), and optionally a caption and a label for each side. For each picture you can type
-an address or choose a file; a chosen file is uploaded the same way as any image and its address is filled in.
-**Insert** checks the pair with the build's rules and says what is missing inside the dialog, for example that the
-after picture needs a description. In Visual mode the pair is an editable block (**Edit before and after**); in
-Markdown mode the `compare` fence is written at the caret. See [Before and after](content.md#before-and-after).
+Each thing has a short form with a live **How it looks**, **See it in your post** (the preview with it
+included; nothing is added yet) and **Add it** (Ctrl/⌘ Enter). A problem is said beside its field and
+focus goes there. Tips, checklists, tables, headings, quotes, links, questions for readers and code are
+written by Studio and work with no signal. Pieces (a video, a button, links to other pages, questions and
+answers, a map, opening hours, how to reach you, a photo with words under it) and before and after photos
+are checked and written by the server (`POST /admin/api/pieces`), so the file holds exactly what the build
+reads; with no signal the form keeps what you filled in on this device and **Finish adding the video**
+appears at the top of the sheet the next time. Closing a filled-in form asks once ("Add this table?").
+
+With the caret in a link, a heading or a quote, Add something opens **Change this link** (heading, quote)
+filled in; a link also offers **Take the link off**. On a research post, **Abstract** and **References**
+add their headings (the Abstract at the start, References at the end) unless the post already has them.
+
+The details ("For the person who set up your site") hold **Code** (language, title, highlighted lines,
+line numbers), **Code readers can run** (an example or a challenge; generating one comes in R8), **A
+CodePen**, **A footnote** (`[^n]` at the caret and the note at the end), opening hours and how to reach
+you on a site that isn't a trade site, and **Show the words as written**. Each form's details show
+**What it writes**. There is no option to write your own HTML. See
+[Pieces](content.md#pieces-buttons-videos-maps-and-more) and [Before and after](content.md#before-and-after).
 
 ### Cite a source while writing
 
