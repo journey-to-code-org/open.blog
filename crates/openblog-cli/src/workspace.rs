@@ -385,6 +385,25 @@ impl Policy {
         if let Some(relative) = path.strip_prefix(".openblog/private/admin-preferences/") {
             return token_file(relative, ".json");
         }
+        if let Some(relative) = path.strip_prefix(".openblog/pending-tracks/held/") {
+            // A route file held until its post is live, and the post it belongs to
+            // (G47): `<year>/<name>.gpx` and `<year>/<name>.gpx.owner`. Never pruned, so a
+            // restart must bring them back.
+            let Some((year, name)) = relative.split_once('/') else {
+                return false;
+            };
+            let stem = name
+                .strip_suffix(".gpx.owner")
+                .or_else(|| name.strip_suffix(".gpx"));
+            return year.len() == 4
+                && year.bytes().all(|b| b.is_ascii_digit())
+                && stem.is_some_and(|stem| {
+                    !stem.is_empty()
+                        && stem
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+                });
+        }
         if let Some(relative) = path.strip_prefix(".openblog/pending-tracks/") {
             return token_file(relative, ".gpx");
         }
@@ -1552,6 +1571,40 @@ mod tests {
         fs::remove_file(&state).unwrap();
         workspace.restore(&fixture.0).unwrap();
         assert_eq!(fs::read_to_string(&state).unwrap(), text);
+    }
+
+    #[test]
+    fn a_held_route_file_and_its_owner_are_kept_across_restarts() {
+        let policy = policy();
+        for path in [
+            ".openblog/pending-tracks/held/2026/ridge-walk.gpx",
+            ".openblog/pending-tracks/held/2026/ridge-walk.gpx.owner",
+            ".openblog/pending-tracks/held/2026/ridge_walk-2.gpx",
+        ] {
+            assert!(policy.allowed(path), "{path}");
+        }
+        for path in [
+            ".openblog/pending-tracks/held/ridge.gpx",
+            ".openblog/pending-tracks/held/26/ridge.gpx",
+            ".openblog/pending-tracks/held/2026/a/ridge.gpx",
+            ".openblog/pending-tracks/held/2026/ridge.txt",
+            ".openblog/pending-tracks/held/2026/ridge.gpx.tmp",
+            ".openblog/pending-tracks/held/2026/.gpx",
+            ".openblog/pending-tracks/held/2026/ri dge.gpx",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let held = fixture.0.join(".openblog/pending-tracks/held/2026");
+        fs::create_dir_all(&held).unwrap();
+        fs::write(held.join("ridge.gpx"), "<gpx/>").unwrap();
+        fs::write(held.join("ridge.gpx.owner"), "posts/2026-01-03-ridge.md\n").unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(
+            files[".openblog/pending-tracks/held/2026/ridge.gpx"],
+            b"<gpx/>"
+        );
+        assert!(files.contains_key(".openblog/pending-tracks/held/2026/ridge.gpx.owner"));
     }
 
     #[test]
