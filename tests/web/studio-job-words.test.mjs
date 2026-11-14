@@ -43,7 +43,7 @@ test("a waiting card says where it stands, never a size or a code", () => {
     tried: ["Waiting", "No signal when it last tried, at 11:52 AM. It tries again by itself."],
     signin: ["Needs you", "Sign in again to send it."],
     removed: ["Needs you", "This job went to your blog before, and was deleted there since."],
-    newer: ["Needs you", "This job was saved by a newer version of your blog's pages. Reload to send it."],
+    newer: ["Needs you", "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell the person who set up your site."],
     unreadable: ["Can't read", "Part of this job can't be read on this phone, so it can't be sent."],
   };
   for (const [state, [badge, said]] of Object.entries(cases)) {
@@ -89,7 +89,8 @@ test("each job check problem is said for her field", () => {
   assert.equal(say("job.service", "unknown-service", { service: "Gutter guards" }), "“Gutter guards” isn't one of your services yet. Choose one, or add it under Services first.");
   assert.equal(say("job.place.town", "missing"), "Add the town.");
   assert.equal(say("job.place.town", "address"), "Just the town's name, not a street address or zip code.");
-  assert.equal(say("job.place.region", "missing"), "Just the state's name or its two letters.");
+  assert.equal(say("job.place.region", "missing"), "Add the state.");
+  assert.equal(say("job.place.region", "address"), "Just the state's name or its two letters.");
   assert.equal(say("job.started", "missing"), "Add the day you started.");
   assert.equal(say("job.finished", "missing"), "Add the day you finished.");
   assert.equal(say("job.finished", "order"), "Finished can't be before Started.");
@@ -110,4 +111,15 @@ test("the company is named, never its address or model", () => {
 
 test("a list closed by another window's update: reload, then save again, and the job stays", () => {
   assert.equal(words.ROOM_WORDS("closed"), "Another window updated your blog's pages. Reload, then save again. This job stays here.");
+});
+
+test("a refused job's words name the phone in her hand", () => {
+  assert.equal(words.refusedWords("capture-id", "iPhone"), "This job's label got damaged on this iPhone, so it can't be sent. Save its photos, then throw it away.");
+  assert.equal(words.waitingWords("refused", { record: { lastError: "[capture-id] x" }, noun: "computer" }).words, "This job's label got damaged on this computer, so it can't be sent. Save its photos, then throw it away. Nothing is lost: it's still on this computer.");
+});
+
+test("jobs that can't be read get names of their own", () => {
+  assert.equal(words.keptTitle(0, "iPhone"), "A job kept on this iPhone");
+  assert.equal(words.keptTitle(1, "iPhone"), "A job kept on this iPhone (2)");
+  assert.equal(words.keptTitle(2), "A job kept on this phone (3)");
 });

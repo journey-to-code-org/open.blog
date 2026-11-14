@@ -49,14 +49,15 @@ export async function savePhotos(record, title, { here = {}, win = globalThis } 
 }
 
 /**
- * One card. `title` is the job's name in her words; `on` is { send, retry, again, done, as, reload,
+ * One card. `title` is the job's name in her words (a numbered "A job kept on this phone" for one
+ * that can't be read); `on` is { send, retry, again, done, as, reload,
  * finish(path), throwAway(entry, button), save(entry) }.
  */
 export function waitingCard(entry, { jobs, title, noun = "phone", here = {}, now = new Date(), limits = {}, on }) {
   const record = entry.record || null;
   const state = jobs.stateOf(entry);
   const live = jobs.live(entry.id);
-  const name = record ? title : "A job kept on this phone";
+  const name = title;
   const said = waitingWords(state, { record, live, step: live.step ? stepWords(live.step) : "", now, noun });
   const id = `studio-waiting-${entry.id || Math.random().toString(16).slice(2)}`;
   const buttons = [];

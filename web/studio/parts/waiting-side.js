@@ -6,7 +6,7 @@ import { h } from "./dom.js";
 import { detailsBox } from "./account-details.js";
 import { captureBytes, DB_NAME, DB_VERSION, STORE_NAME } from "./capture-queue.js";
 import { captureTitle } from "./new-job-rules.js";
-import { waitingCount } from "./job-words.js";
+import { keptTitle, waitingCount } from "./job-words.js";
 import { savePhotos, throwAwayAsk, waitingCard } from "./waiting-cards.js";
 
 /** `{ jobs, meta, api, here, noun, limits, services, say }`. */
@@ -22,8 +22,13 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
   const element = h("div", { class: "studio-account-side" }, box, sentBox, appHint, details);
 
   const titleOf = (record) => captureTitle(record.fields, new Date(record.createdAt), services);
+  // A job that can't be read has no title of its own: each gets a number, so the cards and their
+  // More buttons are told apart.
+  let names = new Map();
+  const nameOf = (entry) => (entry.record ? titleOf(entry.record) : names.get(entry) || keptTitle(0, noun));
   const actions = {
-    send: () => jobs.sendNow(),
+    // A card's Send now sends that job only (Home's and the palette's send them all).
+    send: (entry) => jobs.flush({ manual: true, only: entry.id }),
     retry: (entry) => jobs.retry(entry.id),
     again: (entry) => jobs.sendAgain(entry.id),
     done: (entry) => jobs.done(entry.id),
@@ -31,7 +36,7 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
     reload: () => location.reload(),
     save: async (entry) => say(await savePhotos(entry.record, titleOf(entry.record), { here })),
     throwAway: async (entry) => {
-      const name = entry.record ? titleOf(entry.record) : "this job";
+      const name = nameOf(entry);
       const gone = await throwAwayAsk(entry, name, { jobs, noun, onSave: actions.save });
       if (gone === "busy") say("It's being sent right now, so it wasn't thrown away. Look again in a moment.");
       else if (gone) {
@@ -46,7 +51,8 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
     const focusId = document.activeElement?.closest?.("[data-waiting]")?.dataset.waiting;
     const focusStep = document.activeElement?.closest?.("[data-step]")?.dataset.step;
     box.hidden = entries.length === 0;
-    list.replaceChildren(...entries.map((entry) => waitingCard(entry, { jobs, title: entry.record ? titleOf(entry.record) : "", noun, here, limits, on: actions })));
+    names = new Map(entries.filter((entry) => !entry.record).map((entry, index) => [entry, keptTitle(index, noun)]));
+    list.replaceChildren(...entries.map((entry) => waitingCard(entry, { jobs, title: nameOf(entry), noun, here, limits, on: actions })));
     if (focusId) requestAnimationFrame(() => (list.querySelector(`[data-waiting="${focusId}"] [data-step="${focusStep}"] button`) || list.querySelector(`[data-waiting="${focusId}"] h4`) || heading)?.focus());
     link.replaceChildren(...(entries.length ? [`${waitingCount(entries.length, noun)}. `, h("a", { href: "#/new-job?focus=waiting", onClick: (event) => { event.preventDefault(); heading.focus(); heading.scrollIntoView({ block: "start" }); }, text: "See them" })] : []));
     const sent = jobs.sentThisVisit();

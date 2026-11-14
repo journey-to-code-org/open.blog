@@ -262,6 +262,49 @@ test("a kept job survives a reload, sends on Send now without a second draft, an
   await page.unroute(/\/admin\/api\/(upload|document|capture\?)/);
 });
 
+test("jobs that can't be read have names of their own, a newer one says who to tell, and a card's Send now sends only its job", async ({ page }) => {
+  await openNewJob(page);
+  await page.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));
+  await fillJob(page, "Firstcard");
+  await saveButton(page).click();
+  await expect(waitingCards(page)).toHaveCount(1);
+  await fillJob(page, "Secondcard");
+  await saveButton(page).click();
+  await expect(waitingCards(page)).toHaveCount(2);
+  await page.evaluate(async () => {
+    const queue = await import("/admin/studio/parts/capture-queue.js");
+    const store = await queue.openIndexedStore();
+    await store.put({ v: 1, id: "damaged-one", fields: null, photos: "?" });
+    await store.put({ v: 1, id: "damaged-two", fields: null, photos: "?" });
+    await store.put({ v: 2, id: "ffffffffffffffffffffffffffffffff", createdAt: "2026-11-13T10:00:00Z", whatever: { new: true } });
+    store.close();
+  });
+  await page.reload();
+  await expect(waitingCards(page)).toHaveCount(5);
+  for (const name of ["A job kept on this computer", "A job kept on this computer (2)", "A job kept on this computer (3)"]) {
+    await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: `More for ${name}`, exact: true })).toHaveCount(1);
+  }
+  await expect(page.locator('[data-state="newer"]')).toContainText("This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell the person who set up your site.");
+  // Send now on one card sends that job and no other.
+  await page.unroute(/\/admin\/api\/(upload|document|capture\?)/);
+  await page.getByRole("button", { name: "Send Roof repair in Secondcard now" }).click();
+  await expect.poll(() => draftsIn(trade, "secondcard").length).toBe(1);
+  await page.waitForTimeout(500);
+  expect(draftsIn(trade, "firstcard")).toHaveLength(0);
+  await expect(page.getByRole("heading", { name: "Roof repair in Firstcard" })).toBeVisible();
+  const left = await stored(page);
+  expect(left.map((r) => r.id).sort()).toEqual(expect.arrayContaining(["damaged-one", "damaged-two", "ffffffffffffffffffffffffffffffff"]));
+  // Clean up: only by throwing each away.
+  for (const name of ["Roof repair in Firstcard", "A job kept on this computer (3)", "A job kept on this computer (2)", "A job kept on this computer"]) {
+    await page.getByRole("button", { name: `More for ${name}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "Throw it away…" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Throw it away" }).click();
+    await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
+  }
+  expect(await stored(page)).toEqual([]);
+});
+
 test("a reload in the middle of a job puts back every photo and word", async ({ page }) => {
   await openNewJob(page);
   await fillJob(page, "Parsons", "Half typed when the camera opened");

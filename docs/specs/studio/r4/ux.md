@@ -203,8 +203,11 @@ One list over `openblog-capture` (DB v1, store `captures`). One `content-card` p
 | Sent before, deleted since (`duplicate`, `removed`) | Needs you | "This job went to your blog before, and was deleted there since." | **Send it again** (new id: copy, put copy, remove old, send); More |
 | Sent, a photo couldn't go (`sent.skipped`) | Sent | "It's a draft on your blog, but 1 photo couldn't go: “IMG_0042” is in a format websites can't show." | **Save that photo to this phone**, **Done**; **Finish it** |
 | Saved by someone else (`by` ≠ user) | Needs you | "Saved while Sam was signed in on this phone." | **Send it** (as her); More |
-| Newer format (`v` > 1) | Needs you | "This job was saved by a newer version of your blog's pages. Reload to send it." | **Reload**; More |
+| Newer format (`v` > 1) | Needs you | "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell the person who set up your site." | **Reload**; More |
 | Unreadable | Can't read | "Part of this job can't be read on this phone, so it can't be sent." | More |
+
+- A card that can't be read (unreadable or newer) is titled "A job kept on this phone", the next "A job kept on this phone (2)", and so on, so each card and its **More** have names of their own.
+- A card's **Send now** sends that job only; Home's **Send now**, the palette and the account menu send them all.
 
 - **More** ("More for Roof repair in Elkins"): **Save the photos to this phone** (phones: `navigator.share({files})`; computers: one download per photo, `roof-repair-elkins-1.jpg`; refused: "Your phone didn't let them be saved. Try again from the Photos button."), **Throw it away…**.
 - **Throw it away** (`modal-dialog`): "Throw away Roof repair in Elkins?" / "Its 4 photos, voice note and words are only on this phone, so they'll be gone for good." **Save the photos first** / **Keep it** (focused) / **Throw it away** (destructive) → `queue.discard` → "Thrown away." No Undo. Disabled while that job sends.
@@ -231,7 +234,7 @@ One list over `openblog-capture` (DB v1, store `captures`). One `content-card` p
 | 401 | sign-in | "Sign in again to send it." |
 | photo 415 / 413 | skip that photo | named in the Sent row |
 | voice 415 / 413 | skip it | "…but the voice note couldn't be kept." |
-| `document` 422/400/409 (not `busy`) | refused | `capture-id` "This job's label got damaged on this phone, so it can't be sent. Save its photos, then throw it away."; `ledger-version` "Your blog was updated in a way this page doesn't understand yet. Reload, then try again."; other "Your blog said no to this job. Tell the person who set up your site." |
+| `document` 422/400/409 (not `busy`) | refused | `capture-id` "This job's label got damaged on this phone (`deviceNoun`), so it can't be sent. Save its photos, then throw it away."; `ledger-version` "Your blog was updated in a way this page doesn't understand yet. Reload, then try again."; other "Your blog said no to this job. Tell the person who set up your site." |
 | 403 / CSRF | refused, reload session | "Sign in again to send it." |
 
 **Status line (New job and Home):** "Sending 1 of 2 jobs…", then "Sent." or "1 job is still waiting for a signal."
@@ -287,7 +290,7 @@ A post is a job when `fields.profile === "job"`; everything here shows only for 
 | `job.service` missing | "Choose the service this job was." |
 | `unknown-service` | "“Gutter guards” isn't one of your services yet. Choose one, or add it under Services first." |
 | `job.place.town` missing / address-like | "Add the town." / "Just the town's name, not a street address or zip code." |
-| `job.place.region` | "Just the state's name or its two letters." |
+| `job.place.region` missing / other | "Add the state." / "Just the state's name or its two letters." |
 | dates | "Add the day you started." / "Add the day you finished." / "Finished can't be before Started." |
 | `job.costBand` | "Choose a price range from the list." |
 | `job.media.*` | "A photo marked Before or After isn't on your site any more. Mark another." |

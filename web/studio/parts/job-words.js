@@ -75,8 +75,8 @@ export function cameraHelp(here = {}) {
 }
 
 /** What a refused job's card says, by the refusal's code. */
-export function refusedWords(code) {
-  if (code === "capture-id") return "This job's label got damaged on this phone, so it can't be sent. Save its photos, then throw it away.";
+export function refusedWords(code, noun = "phone") {
+  if (code === "capture-id") return `This job's label got damaged on this ${noun}, so it can't be sent. Save its photos, then throw it away.`;
   if (code === "ledger-version") return "Your blog was updated in a way this page doesn't understand yet. Reload, then try again.";
   return "Your blog said no to this job. Tell the person who set up your site.";
 }
@@ -109,7 +109,7 @@ export function waitingWords(state, { record = null, live = {}, step = "", now =
     case "signin":
       return { badge: "Needs you", variant: "warning", words: "Sign in again to send it." };
     case "refused":
-      return { badge: "Didn't send", variant: "danger", words: `${refusedWords(live.code || codeOf(record))} Nothing is lost: it's still on this ${noun}.` };
+      return { badge: "Didn't send", variant: "danger", words: `${refusedWords(live.code || codeOf(record), noun)} Nothing is lost: it's still on this ${noun}.` };
     case "removed":
       return { badge: "Needs you", variant: "warning", words: "This job went to your blog before, and was deleted there since." };
     case "sent": {
@@ -123,7 +123,7 @@ export function waitingWords(state, { record = null, live = {}, step = "", now =
     case "someone-else":
       return { badge: "Needs you", variant: "warning", words: `Saved while ${record?.by || "someone else"} was signed in on this ${noun}.` };
     case "newer":
-      return { badge: "Needs you", variant: "warning", words: "This job was saved by a newer version of your blog's pages. Reload to send it." };
+      return { badge: "Needs you", variant: "warning", words: "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell the person who set up your site." };
     case "unreadable":
       return { badge: "Can't read", variant: "danger", words: `Part of this job can't be read on this ${noun}, so it can't be sent.` };
     default:
@@ -132,6 +132,9 @@ export function waitingWords(state, { record = null, live = {}, step = "", now =
 }
 
 const codeOf = (record) => /^\[([a-z0-9-]+)\]/.exec(String(record?.lastError || ""))?.[1] || "refused";
+
+/** The name of a job that can't be read: "A job kept on this iPhone", then "(2)", "(3)"… so each card and its More are told apart. */
+export const keptTitle = (index = 0, noun = "phone") => `A job kept on this ${noun}${index ? ` (${index + 1})` : ""}`;
 
 /** "2 jobs waiting on this iPhone". */
 export const waitingCount = (count, noun = "phone") => `${plural(count, "job")} waiting on this ${noun}`;
@@ -197,7 +200,7 @@ export function jobProblemWords(problem = {}, { service = "" } = {}) {
     return "Choose the service this job was.";
   }
   if (field === "job.place.town") return code === "missing" ? "Add the town." : "Just the town's name, not a street address or zip code.";
-  if (field === "job.place.region") return "Just the state's name or its two letters.";
+  if (field === "job.place.region") return code === "missing" ? "Add the state." : "Just the state's name or its two letters.";
   if (field === "job.started") return code === "missing" ? "Add the day you started." : "Pick the day you started from the calendar.";
   if (field === "job.finished") return code === "order" ? "Finished can't be before Started." : code === "missing" ? "Add the day you finished." : "Pick the day you finished from the calendar.";
   if (field === "job.costBand") return "Choose a price range from the list.";
