@@ -49,7 +49,8 @@ export const WORDS = {
   "did.movedDown": { text: "Moved down. It's now after “{words}”.", layer: "her" },
   "did.cantMoveUp": { text: "This is already at the top.", layer: "her" },
   "did.cantMoveDown": { text: "This is already at the end.", layer: "her" },
-  "did.undone": { text: "Taken back. Your words are as they were.", layer: "her" },
+  "did.undone": { text: "Taken back.", layer: "her" },
+  "did.cantUndo": { text: "This changed since, so it can't be undone here.", layer: "her" },
   "did.undoFind": { text: "Undo: {what}", layer: "her" },
   "did.fixed": { text: "Fixed.", layer: "her" },
   // cards

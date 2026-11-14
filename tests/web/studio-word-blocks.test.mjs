@@ -135,3 +135,38 @@ test("segmentAt finds the block holding an offset", () => {
   assert.equal(segmentAt(blocks, 6), 1);
   assert.equal(segmentAt(blocks, 40), 2);
 });
+
+test("Undo of a piece action reverses only that action and keeps typing made since", async () => {
+  const { pieceChange, undoPieceChange } = await import("../../web/studio/parts/word-blocks.js");
+  const tip = "> [!TIP]\n> Chill the dough.";
+  // An add, then typing before and after it: Undo takes out only the tip.
+  const before = "First words.\n\nLast words.";
+  const added = insertBlock(before, "First words.".length, tip).text;
+  const change = pieceChange(before, added);
+  const typed = `Typed at the top. ${added} And more at the end.`;
+  assert.deepEqual(undoPieceChange(change, typed)?.text, "Typed at the top. First words.\n\nLast words. And more at the end.");
+  // A take-out, then typing elsewhere: Undo puts it back between its neighbours.
+  const removed = removeBlock(added, added.indexOf(tip)).text;
+  const out = pieceChange(added, removed);
+  assert.equal(undoPieceChange(out, `${removed}\n\nA new line.`)?.text, `${added}\n\nA new line.`);
+  // A change, then typing after it.
+  const changed = replaceBlock(added, added.indexOf(tip), tip, "> [!NOTE]\n> Chill it well.").text;
+  assert.equal(undoPieceChange(pieceChange(added, changed), `${changed} Typed.`)?.text, `${added} Typed.`);
+  // A move.
+  const two = "Top.\n\n> [!TIP]\n> One.\n\n> [!NOTE]\n> Two.\n\nEnd.";
+  const moved = moveBlock(two, two.indexOf("> [!TIP]"), 1).text;
+  assert.equal(undoPieceChange(pieceChange(two, moved), `New. ${moved}`)?.text, `New. ${two}`);
+  // The tip edited since (as written): it can't be found intact, so nothing happens.
+  assert.equal(undoPieceChange(change, added.replace("Chill the dough.", "Chill it.")), null);
+  // The place a taken-out piece went from is gone: nothing happens.
+  assert.equal(undoPieceChange(out, "Something else entirely."), null);
+  // Typing on the line just before an added piece leaves it findable.
+  assert.equal(undoPieceChange(change, added.replace("First words.", "First words, and more."))?.text, "First words, and more.\n\nLast words.");
+  // A box that held only the piece: taken out, then put back while the box is still empty.
+  const alone = pieceChange(tip, "");
+  assert.equal(undoPieceChange(alone, "")?.text, tip);
+  assert.equal(undoPieceChange(alone, "Typed."), null);
+  // The caret stays with the words it was in.
+  const at = typed.indexOf("And more");
+  assert.equal(undoPieceChange(change, typed, at)?.at, at - (added.length - before.length));
+});

@@ -867,6 +867,12 @@
       "max": 54,
       "vars": []
     },
+    "did.cantUndo": {
+      "text": "This changed since, so it can't be undone here.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
     "did.changed": {
       "text": "{thing} changed.",
       "layer": "her",
@@ -932,9 +938,9 @@
       ]
     },
     "did.undone": {
-      "text": "Taken back. Your words are as they were.",
+      "text": "Taken back.",
       "layer": "her",
-      "max": 80,
+      "max": 40,
       "vars": []
     },
     "form.addColumn": {

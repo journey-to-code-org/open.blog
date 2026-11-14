@@ -8,7 +8,7 @@ import { say } from "./words.js";
 import { use } from "../zubra.js";
 import { createSheet } from "./sheet.js";
 import { addItems, countWords, filterItems, whereItGoes } from "./add-words.js";
-import { addFootnote, insertBlock, moveBlock, removeBlock, replaceBlock, splitBlocks, splitChunks } from "./word-blocks.js";
+import { addFootnote, insertBlock, moveBlock, pieceChange, removeBlock, replaceBlock, splitBlocks, splitChunks, undoPieceChange } from "./word-blocks.js";
 import { headingAt, linkAt, quoteAt } from "./block-forms.js";
 import { buildForm } from "./piece-forms.js";
 import { blockThing, cardSummary, firstWords, thingName } from "./piece-words.js";
@@ -79,7 +79,7 @@ export async function createAddMenu(ctx) {
   sheet.element.classList.add("studio-add-sheet");
   let target = null; // { box, caret, slash }
   let form = null; // the open form, with its item and what it changes
-  let last = null; // the last piece action, for Undo: { box, before, what }
+  let last = null; // the last piece action, for Undo: { box, change, what }
   let tipShown = false;
   const asWrittenKey = () => `studio-as-written:${ctx.path() || "new"}`;
   const asWritten = () => Boolean(kept(asWrittenKey()));
@@ -98,18 +98,21 @@ export async function createAddMenu(ctx) {
 
   function did(box, before, words, focus) {
     if (last && last.box !== box) last.box.clearUndo();
-    last = { box, before, what: words.replace(/\.$/, "").toLowerCase() };
+    last = { box, change: pieceChange(before, box.value), what: words.replace(/\.$/, "").toLowerCase() };
     box.tell(words, () => undo());
     box.notify();
     ctx.afterPiece?.(box);
     if (focus) box.focus(focus);
   }
 
+  // Undo reverses only the piece action: what she typed since stays.
   function undo() {
     if (!last) return;
-    const { box, before } = last;
+    const { box, change } = last;
     last = null;
-    box.set(before, { at: box.caret() });
+    const out = undoPieceChange(change, box.value, box.caret());
+    if (!out) { box.tell(say("did.cantUndo")); return; }
+    box.set(out.text, { at: out.at });
     box.tell(say("did.undone"));
     box.notify();
     ctx.afterPiece?.(box);

@@ -455,8 +455,9 @@ links to other pages, a map, opening hours, how to reach you, code, a footnote. 
 sketch of what it holds and never its Markdown. Each card has **Change** (the form for that kind,
 filled in) and **Move** (**Move up**, **Move down**, **Take it out**); Alt+↑ and Alt+↓ move a focused
 card, and ↓ on a box's last line (↑ on its first) goes to the card next to it. Every add, change, move
-and take-out says what happened under the box, with **Undo**, which puts the box's words back exactly
-as they were. Words, Your story, a recipe's notes and a job's four parts take cards; ingredient and
+and take-out says what happened under the box, with **Undo**, which reverses only that action: words
+typed since stay. When what it changed was edited since (or the words around a taken-out card are
+gone), Undo says "This changed since, so it can't be undone here." and changes nothing. Words, Your story, a recipe's notes and a job's four parts take cards; ingredient and
 step rows never do.
 
 Nothing about a card is rewritten unless you change it: a post opened and saved with no change keeps

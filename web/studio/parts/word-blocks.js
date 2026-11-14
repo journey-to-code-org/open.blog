@@ -362,3 +362,62 @@ export function segmentAt(blocks, at) {
   }
   return Math.max(0, blocks.length - 1);
 }
+
+/**
+ * What a piece action changed, for its Undo: the whole lines it touched as they were (`from`) and as
+ * they are (`to`), and where. A take-out leaves only blank lines, so it keeps the nearest line of
+ * words on each side to find its place again.
+ */
+export function pieceChange(before, after) {
+  const a = String(before);
+  const b = String(after);
+  const most = Math.min(a.length, b.length);
+  let p = 0;
+  while (p < most && a[p] === b[p]) p += 1;
+  let s = 0;
+  while (s < most - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s += 1;
+  let start = p === 0 ? 0 : b.lastIndexOf("\n", p - 1) + 1;
+  let endB = b.indexOf("\n", b.length - s);
+  if (endB < 0) endB = b.length;
+  const tail = () => b.length - endB;
+  // Lines of words around a change that left none of its own.
+  if (!b.slice(start, endB).trim()) {
+    while (start > 0) {
+      const lineStart = start < 2 ? 0 : b.lastIndexOf("\n", start - 2) + 1;
+      const lineEnd = b.indexOf("\n", lineStart);
+      start = lineStart;
+      if (b.slice(lineStart, lineEnd < 0 ? b.length : lineEnd).trim()) break;
+    }
+    while (endB < b.length) {
+      const next = b.indexOf("\n", endB + 1);
+      const lineEnd = next < 0 ? b.length : next;
+      const line = b.slice(endB + 1, lineEnd);
+      endB = lineEnd;
+      if (line.trim()) break;
+    }
+  }
+  return { start, from: a.slice(start, a.length - tail()), to: b.slice(start, endB), length: b.length };
+}
+
+/**
+ * Undo `change` (from `pieceChange`) in `text` as it is now, keeping everything typed since.
+ * `{ text, at }` with the caret moved along, or null when what it changed can't be found intact.
+ */
+export function undoPieceChange(change, text, caret = null) {
+  const now = String(text);
+  if (!change) return null;
+  // Nothing left to find (the box held only the piece): only an empty box can take it back.
+  if (!change.to) return now.trim() ? null : { text: change.from, at: change.from.length };
+  const found = [];
+  for (let at = now.indexOf(change.to); at >= 0; at = now.indexOf(change.to, at + 1)) found.push(at);
+  if (!found.length) return null;
+  // Where it was, or that place moved along by what was typed since.
+  const typed = now.length - change.length;
+  const near = (at) => Math.min(Math.abs(at - change.start), Math.abs(at - change.start - typed));
+  const at = found.reduce((best, here) => (near(here) < near(best) ? here : best), found[0]);
+  const out = now.slice(0, at) + change.from + now.slice(at + change.to.length);
+  const delta = change.from.length - change.to.length;
+  let place = at + change.from.length;
+  if (Number.isInteger(caret)) place = caret <= at ? caret : caret >= at + change.to.length ? caret + delta : at + change.from.length;
+  return { text: out, at: place };
+}

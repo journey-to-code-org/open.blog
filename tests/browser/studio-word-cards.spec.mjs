@@ -266,6 +266,38 @@ test("Add something puts a tip where she was, says where first, and Undo takes i
   await expect.poll(() => fileOf("adding")).toBe(text);
 });
 
+test("Undo after typing takes back only the tip and keeps the typing; a take-out whose place is gone says so", async ({ page }) => {
+  const text = `${front("Typed")}\nMy mother made this every year.\n\nPreheat the oven.\n`;
+  await openPost(page, "typed", text);
+  const words = page.getByRole("textbox", { name: "Words", exact: true });
+  await words.click();
+  await words.press("Control+Home");
+  await words.press("End");
+  await page.getByRole("button", { name: "Add something to Words" }).click();
+  await page.getByRole("dialog", { name: "Add something" }).getByRole("button", { name: "A tip or a note" }).click();
+  const form = page.getByRole("dialog", { name: "Tip" });
+  await form.getByRole("textbox", { name: "What it says" }).fill("Read it all first.");
+  await form.getByRole("button", { name: "Add it" }).click();
+  await expect(page.getByRole("group", { name: "Tip: Read it all first." })).toBeFocused();
+  const last = page.locator(".studio-word-box textarea").last();
+  await last.click();
+  await last.press("Control+End");
+  await last.pressSequentially(" Then wait.");
+  await page.getByRole("button", { name: "Undo", exact: true }).first().click();
+  await expect(page.getByRole("group", { name: "Tip: Read it all first." })).toHaveCount(0);
+  await expect(page.locator(".studio-piece-status").first()).toHaveText("Taken back.");
+  await page.keyboard.press("Control+s");
+  await expect.poll(() => fileOf("typed")).toBe(`${front("Typed")}\nMy mother made this every year.\n\nPreheat the oven. Then wait.\n`);
+  // Take out a tip, then rewrite the words on both sides of where it was: Undo can't find its place.
+  await openPost(page, "typed-gone", `${front("Gone")}\nAbove.\n\n> [!TIP]\n> Chill the dough.\n\nBelow.\n`);
+  await page.getByRole("group", { name: "Tip: Chill the dough." }).getByRole("button", { name: /^Move/ }).click();
+  await page.getByRole("menuitem", { name: "Take it out" }).click();
+  await words.fill("Something else.");
+  await page.getByRole("button", { name: "Undo", exact: true }).first().click();
+  await expect(page.locator(".studio-piece-status").first()).toHaveText("This changed since, so it can't be undone here.");
+  await expect(words).toHaveValue("Something else.");
+});
+
 test("/ alone on a line opens Add something with the filter ready; 1/2 cup never does; a table goes in with no signal", async ({ page, context }) => {
   await openPost(page, "slash", `${front("Slash")}\nFirst.\n`);
   const words = page.getByRole("textbox", { name: "Words", exact: true });

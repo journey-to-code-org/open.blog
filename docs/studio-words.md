@@ -255,6 +255,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `did.added` | her | {thing} added. | `{thing}` | 40 |
 | `did.cantMoveDown` | her | This is already at the end. | none | 54 |
 | `did.cantMoveUp` | her | This is already at the top. | none | 54 |
+| `did.cantUndo` | her | This changed since, so it can't be undone here. | none | 94 |
 | `did.changed` | her | {thing} changed. | `{thing}` | 40 |
 | `did.fixed` | her | Fixed. | none | 40 |
 | `did.movedDown` | her | Moved down. It's now after “{words}”. | `{words}` | 74 |
@@ -264,7 +265,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `did.takenOut` | her | {thing} taken out. | `{thing}` | 40 |
 | `did.undo` | her | Undo | none | 40 |
 | `did.undoFind` | her | Undo: {what} | `{what}` | 40 |
-| `did.undone` | her | Taken back. Your words are as they were. | none | 80 |
+| `did.undone` | her | Taken back. | none | 40 |
 | `form.addColumn` | her | Add a column | none | 40 |
 | `form.addIt` | her | Add it | none | 40 |
 | `form.addRow` | her | Add a row | none | 40 |
