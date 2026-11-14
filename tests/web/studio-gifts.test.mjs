@@ -36,4 +36,8 @@ test("the post's commands follow its state", () => {
   assert.deepEqual(ids({ path: "" }).filter((id) => id === "old"), []);
   assert.ok(ids({ recipe: true, boxes: true }).includes("plain"));
   assert.ok(ids({ narrow: true }).includes("draft"));
+  // R4: Write it up for me, only on a job and only once the blog's helper is set up.
+  assert.ok(ids({ job: true, writeUp: true }).includes("write-up"));
+  assert.ok(!ids({ job: true, writeUp: false }).includes("write-up"));
+  assert.ok(!ids({ job: false, writeUp: true }).includes("write-up"));
 });

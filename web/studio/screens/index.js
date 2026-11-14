@@ -86,5 +86,7 @@ export const SCREENS = [
   { name: "tools", area: "tools", create: () => createTools() },
   // #/write asks "a recipe or a story?" (when the site has recipes); #/write/new/recipe|story starts
   // one; #/write/<path> opens a post.
-  { name: "write", area: "posts", create: (context, route) => (route.arg === "" && hasRecipes(context.meta) ? createNewPost(context) : createWrite(context, route.arg)) },
+  // #/write asks what she's writing (recipes on, or a trade site with jobs: R4); #/write/new/job
+  // starts a job at a desk.
+  { name: "write", area: "posts", create: (context, route) => (route.arg === "" && (hasRecipes(context.meta) || tradeSite(context.meta)) ? createNewPost(context) : createWrite(context, route.arg)) },
 ];

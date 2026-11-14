@@ -512,3 +512,16 @@ side-sheet.studio-wide-sheet dialog, side-sheet.studio-wide-sheet .sheet { width
 .studio-home-start { align-items: center; }
 @media (max-width: 40rem) { .studio-home-start > * { flex: 1 1 100%; } .studio-home-start .action-button { width: 100%; } }
 .studio-waiting p { margin: 0; overflow-wrap: anywhere; }
+
+/* A job in Write (R4): About this job, its four parts, and Before or After on each photo. */
+.studio-job-about { margin: 0; padding: var(--space-3) var(--space-4) var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); display: grid; gap: var(--space-3); min-width: 0; }
+.studio-job-about legend { padding-inline: var(--space-1); font-weight: 600; }
+.studio-job-place, .studio-job-days { display: grid; gap: var(--space-3); }
+@media (min-width: 30rem) { .studio-job-place { grid-template-columns: 2fr 1fr; } .studio-job-days { grid-template-columns: 1fr 1fr; } }
+.studio-job-voice:empty { display: none; }
+.studio-job-voice-row { align-items: center; }
+.studio-job-parts { display: grid; gap: var(--space-4); }
+.studio-job-part-box { display: grid; gap: var(--space-2); justify-items: start; }
+.studio-job-part-box text-field { justify-self: stretch; }
+.studio-photo-chip .studio-photo-mark { grid-column: 1 / -1; min-width: 0; }
+.studio-undo-row { align-items: center; margin: 0; }

@@ -20,6 +20,8 @@ import { showPreview } from "../parts/preview.js";
 import { createTrouble } from "../parts/write-trouble.js";
 import { collectionOptions, crumbs, isMacLike, writeCommands, writePage } from "../parts/write-page.js";
 import { postActions } from "../parts/write-actions.js";
+import { createWriteJob } from "../parts/write-job.js";
+import { localDay } from "../parts/job-rules.js";
 
 const AUTOSAVE_MS = 3000;
 const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
@@ -27,11 +29,11 @@ const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
 export async function createWrite(context, arg) {
   const { api, meta } = context;
   await use("text-field", "date-field", "tag-input", "select-field", "action-button", "dropdown-menu", "side-sheet", "breadcrumb-trail", "alert-banner", "cluster-layout", "loading-spinner");
-  const starting = /^new\/(recipe|story)$/.exec(arg || "")?.[1] || (arg ? "" : "story");
+  const starting = /^new\/(recipe|story|job)$/.exec(arg || "")?.[1] || (arg ? "" : "story");
   const path = starting ? "" : arg;
   const keptKey = starting ? `new-${starting}` : path;
   const kept = createKept(safeStorage(), api.user);
-  const doc = { path, etag: "", fields: starting === "recipe" ? { profile: "recipe" } : {}, url: "", state: path ? "draft" : "new" };
+  const doc = { path, etag: "", fields: starting === "recipe" ? { profile: "recipe" } : starting === "job" ? newJobFields(meta) : {}, url: "", state: path ? "draft" : "new" };
   let form = { title: "", date: "", tags: [], cover: "", coverAlt: "", draft: true, body: "", extra: {} };
   let baseline = "";
   let dirty = false;
@@ -45,6 +47,8 @@ export async function createWrite(context, arg) {
   let lastLayout = null;
   let goesOut = null;
   let numbers = null; // Serves and the times, for a recipe
+  let job = null; // About this job and the rest, for a job (R4)
+  let writeUpReady = false;
 
   // ---- the page
   const body = await createBodyHost({ api, maxBytes: meta.capture?.maxPhotoBytes || 0, onChange: () => changed() });
@@ -60,7 +64,7 @@ export async function createWrite(context, arg) {
     body: bodyText(),
     date: safeJoin(day.value || "", time.value || ""),
     tags: [...(tags.value || [])],
-    extra: { ...(numbers ? numbers.values() : {}), ...(collection.hidden ? {} : { series: String(collection.value || "") }) },
+    extra: { ...(numbers ? numbers.values() : {}), ...(job ? job.values() : {}), ...(collection.hidden ? {} : { series: String(collection.value || "") }) },
   });
   const snapshot = () => JSON.stringify({ ...read(), draft: undefined });
   const now = () => new Date();
@@ -76,12 +80,12 @@ export async function createWrite(context, arg) {
     primaryLabel.textContent = action;
     saveLabel.textContent = doc.state === "scheduled" ? "Make it a draft again" : "Save draft";
     save.hidden = doc.state === "published";
-    const name = current.title.trim() || (isRecipePost() ? "New recipe" : "New post");
+    const name = current.title.trim() || (isRecipePost() ? "New recipe" : isJob() ? "New job" : "New post");
     trail.items = crumbs(name);
     context.setTitle(name);
     if (notSaved) status.textContent = notSaved;
     else if (pending) status.textContent = doc.state === "new" ? "Not saved yet" : "Draft · saving in a moment…";
-    else if (doc.state === "new") status.textContent = `${isRecipePost() ? "New recipe" : "New story"}. Add a title and your draft will save itself.`;
+    else if (doc.state === "new") status.textContent = `${isRecipePost() ? "New recipe" : isJob() ? "New job" : "New story"}. Add a title and your draft will save itself.`;
     else status.textContent = statusLine({ state: doc.state, savedAt, dirtyPublished: isPublished() && dirty, date: form.date || current.date }, now());
     if (doc.url && doc.state === "published" && !dirty) status.append(" ", h("a", { href: link(), target: "_blank", rel: "noopener", text: "See it on your site" }));
     if (doc.path && doc.state === "published" && !dirty && isJob()) status.append(" · ", h("a", { href: shareJobHref(), text: "Share this job" }));
@@ -90,7 +94,7 @@ export async function createWrite(context, arg) {
 
   const commands = () => writeCommands({
     state: doc.state, path: doc.path, url: doc.url, recipe: isRecipePost(), boxes: body.usesBoxes(),
-    saveLabel: saveLabel.textContent, narrow: narrow(), mac: isMacLike(), job: isJob(),
+    saveLabel: saveLabel.textContent, narrow: narrow(), mac: isMacLike(), job: isJob(), writeUp: writeUpReady,
   });
   const isJob = () => doc.fields?.profile === "job";
   const shareJobHref = () => `#/sharing/job/${encodeURIComponent(doc.path)}?from=write`;
@@ -104,7 +108,8 @@ export async function createWrite(context, arg) {
     tags.value = [...values.tags];
 
     if (numbers && values.extra) numbers.set(values.extra);
-    await body.set(values.body, { boxes: isRecipePost() });
+    if (job && values.extra && Object.keys(values.extra).some((key) => key.startsWith("job."))) job.set(values.extra);
+    await body.set(values.body, { boxes: isRecipePost(), job: job ? job.bodyOptions() : null });
   }
 
   function settle() {
@@ -186,6 +191,13 @@ export async function createWrite(context, arg) {
     title.error = "";
     const fields = fieldsFor(values, intent);
     const button = intent === "publish" ? primary : save;
+    // A job is checked the way the build checks it before it goes up; a draft always saves.
+    if (intent === "publish" && job && !(await job.check(fields))) {
+      pending = false;
+      paint();
+      if (!quiet) banner.querySelector("alert-banner")?.scrollIntoView?.({ block: "nearest" });
+      return false;
+    }
     const wasLive = doc.state === "published";
     if (!quiet) button.loading = true;
     saving = (async () => {
@@ -276,6 +288,7 @@ export async function createWrite(context, arg) {
     if (value === "details") showDetails();
     if (value === "view" && doc.url) open(link(), "_blank", "noopener");
     if (value === "share-job" && doc.path) context.go(shareJobHref());
+    if (value === "write-up" && job) job.writeUp(more.querySelector("button"));
     if (value === "draft") saveNow("draft");
     if (value === "about") numbers?.openAbout();
     if (value === "takeoff" && doc.state === "published") takeOff();
@@ -323,6 +336,7 @@ export async function createWrite(context, arg) {
   }
 
   // ---- loading
+  let captureOf = null; // the job's capture: its voice note (R4 G30)
   async function load() {
     const asking = howItGoesOut(api).then((how) => { goesOut = how; paint(); });
     if (path) {
@@ -351,9 +365,16 @@ export async function createWrite(context, arg) {
       }
       doc.etag = reply.etag;
       doc.fields = { ...reply.fields };
+      captureOf = reply.capture && typeof reply.capture.id === "string" ? reply.capture : null;
       form = { ...formFromDocument(reply), extra: {} };
       doc.state = postState(reply, now());
       doc.url = reply.url || "";
+    }
+    if (isJob()) {
+      job = await createWriteJob({ api, meta, fields: doc.fields, capture: path ? captureOf : null, body, banner, title, say: (words) => { status.textContent = words; }, changed: () => changed() });
+      numbersHost.replaceChildren(job.element);
+      if (!path && !form.body) form.body = meta.job?.scaffold || "";
+      job.canWriteUp().then((ready) => { writeUpReady = ready; paint(); });
     }
     if (isRecipePost()) {
       const recipeFields = meta.profiles?.find((profile) => profile.id === "recipe")?.fields || [];
@@ -395,7 +416,7 @@ export async function createWrite(context, arg) {
   }
 
   return {
-    title: path ? "Write" : starting === "recipe" ? "New recipe" : "New post",
+    title: path ? "Write" : starting === "recipe" ? "New recipe" : starting === "job" ? "New job" : "New post",
     element,
     load,
     leave,
@@ -414,6 +435,12 @@ export async function createWrite(context, arg) {
     },
     command: run,
   };
+}
+
+/** A job started at a desk: today for Started and Finished, and the site's trade. */
+function newJobFields(meta) {
+  const today = localDay(new Date());
+  return { profile: "job", "job.started": today, "job.finished": today, ...(meta.job?.siteTrade ? { "job.trade": meta.job.siteTrade } : {}) };
 }
 
 function safeJoin(date, time) {

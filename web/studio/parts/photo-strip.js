@@ -23,8 +23,12 @@ export function withoutPhoto(text, line) {
   return lines.join("\n");
 }
 
-/** A strip under a text box. Call `update(text)` after every change. */
-export function photoStrip({ onRemove }) {
+/**
+ * A strip under a text box. Call `update(text)` after every change. `extra(photo, index)` may add
+ * something to each photo (a job's Before and After, R4); `force` redraws even when the photos are
+ * the same.
+ */
+export function photoStrip({ onRemove, extra = null }) {
   const list = h("ul", { class: "studio-photo-strip", "aria-label": "Photos in this box" });
   const element = h("div", { class: "studio-photo-strip-wrap", hidden: true },
     h("p", { class: "studio-help", text: "Your photos. In the box above, each one is the line starting with ![ — leave it as it is, or take it out here." }),
@@ -32,17 +36,18 @@ export function photoStrip({ onRemove }) {
   let shown = "";
   return {
     element,
-    update(text) {
+    update(text, { force = false } = {}) {
       const photos = photosIn(text);
       const key = JSON.stringify(photos);
-      if (key === shown) return;
+      if (key === shown && !force) return;
       shown = key;
       element.hidden = !photos.length;
-      list.replaceChildren(...photos.map((photo) => h("li", { class: "studio-photo-chip" },
+      list.replaceChildren(...photos.map((photo, index) => h("li", { class: "studio-photo-chip" },
         h("img", { src: photo.url, alt: "" }),
         h("span", { text: photo.alt || "A photo" }),
         h("action-button", { variant: "ghost", size: "sm", onClick: () => onRemove(photo) },
-          "Take it out", h("span", { class: "studio-visually-hidden", text: `: ${photo.alt || "this photo"}` })))));
+          "Take it out", h("span", { class: "studio-visually-hidden", text: `: ${photo.alt || "this photo"}` })),
+        extra ? extra(photo, index) : null)));
     },
   };
 }
