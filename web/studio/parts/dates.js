@@ -208,3 +208,18 @@ export function sayClock(iso, { timeZone } = {}) {
   const { hour, minute } = calendarDay(parsed, timeZone);
   return clockWords(hour, minute);
 }
+
+/**
+ * The time a day she picks gets when she leaves the time empty: 8:00 AM her time for a future day
+ * (a post scheduled for Thanksgiving goes up that morning, not at midnight UTC the evening
+ * before), else what she has. Studio R5, Decided 1.
+ * @param {string} date "YYYY-MM-DD" from the date field
+ * @param {string} time "HH:MM" from the time field ("" when empty)
+ * @param {Date} [now]
+ * @param {string} [timeZone]
+ */
+export function defaultTime(date, time, now = new Date(), timeZone) {
+  if (String(time || "").trim() || !DATE_ONLY.test(String(date || "").trim())) return String(time || "");
+  const [y, m, d] = String(date).trim().split("-").map(Number);
+  return wallToMs(y, m, d, 8, 0, timeZone) > now.getTime() ? "08:00" : "";
+}

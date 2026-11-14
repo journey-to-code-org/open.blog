@@ -187,11 +187,7 @@ test("statusLine words", () => {
   assert.equal(line({ state: "draft" }), "Draft");
   assert.equal(
     line({ state: "published", dirtyPublished: true, date: "2026-11-03T13:00:00Z" }),
-    "Published Nov 3 · changes not on your site yet",
-  );
-  assert.equal(
-    line({ state: "published", dirtyPublished: true, date: "2025-11-03" }),
-    "Published Nov 3, 2025 · changes not on your site yet",
+    "Changed · not on your site yet. Press Update to put them up.",
   );
   assert.equal(line({ state: "scheduled", date: "2026-11-27T13:00:00Z" }), "Scheduled for Friday, November 27 at 8 AM");
   assert.equal(line({ state: "published", date: "2026-11-12T21:00:00Z" }), "Published today at 4 PM");
@@ -204,4 +200,20 @@ test("onlyChanges sends just what changed and nulls for what goes", async () => 
   assert.deepEqual(onlyChanges(received, { title: "Pie", draft: true, tags: ["a"], cover: "", coverAlt: null, series: "thanksgiving", prep: "20 min" }), { prep: "20 min" });
   assert.deepEqual(onlyChanges(received, { title: "Pie", draft: null, tags: ["a", "b"], cover: "" }), { draft: null, tags: ["a", "b"] });
   assert.deepEqual(onlyChanges({ title: "A" }, { title: "A", date: "2026-11-13T10:00:00-05:00" }), { date: "2026-11-13T10:00:00-05:00" });
+});
+
+test("When it appears says when it goes up, and only what's true", async () => {
+  const { whenHelp, whenProblem } = await import("../../web/studio/parts/post-fields.js");
+  const at = "2026-11-27T08:00:00-05:00";
+  assert.equal(whenHelp({ state: "draft", date: "" }, now, timeZone).words, "Leave it empty to use the day you publish.");
+  assert.equal(whenHelp({ state: "draft", date: at, defaulted: true }, now, timeZone).words, "It goes up at 8 AM unless you change the time.");
+  assert.equal(whenHelp({ state: "draft", date: at, schedule: "self" }, now, timeZone).words, "It goes up by itself on Friday, November 27 at 8 AM, even with your blog closed.");
+  assert.equal(whenHelp({ state: "draft", date: at, schedule: "next-send" }, now, timeZone).words, "It's ready to go up on Friday, November 27 at 8 AM. Your blog puts it up the next time it's sent out after that.");
+  assert.equal(whenHelp({ state: "draft", date: at, schedule: null }, now, timeZone).words, "It's ready to go up on Friday, November 27 at 8 AM. Your blog puts it up the next time it's sent out after that.", "unknown is not a promise");
+  assert.equal(whenHelp({ state: "draft", date: "2026-03-03" }, now, timeZone).words, "That day has passed, so it will show as published on Tuesday, March 3.");
+  const live = whenHelp({ state: "published", date: at }, now, timeZone);
+  assert.equal(live.words, "Your post comes off your site until Friday, November 27 at 8 AM.");
+  assert.deepEqual(live.ask, { heading: "Take it off until Friday, November 27?", yes: "Yes, schedule it", no: "Keep it up" });
+  assert.equal(whenProblem("", "08:00"), "Add the day too, or clear the time.");
+  assert.equal(whenProblem("2026-11-27", "08:00"), "");
 });

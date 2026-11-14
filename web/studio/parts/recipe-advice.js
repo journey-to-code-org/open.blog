@@ -6,7 +6,7 @@
 import { recipeKeys } from "./recipe-fields.js";
 
 /** The names Studio shows for the time fields the check names. */
-const TIME_NAMES = { prep: "Time to get ready", cook: "Time to cook", total: "Total time" };
+const TIME_NAMES = { prep: "Time to get ready", cook: "Time to cook", total: "Time from start to table" };
 
 const ingredient = (n) => ({ list: "ingredients", index: Math.max(0, n - 1) });
 const step = (n) => ({ list: "steps", index: Math.max(0, n - 1) });
@@ -30,10 +30,10 @@ const ADVICE = {
   "servings-not-numeric": () => ["Serves should start with a number, like 8, so readers can make more or less.", { field: "servings" }],
   "time-not-exported": (n, p) => [`${TIME_NAMES[p.field] || "A time"} can't be read as a length of time. Write it like 20 minutes.`, timeTarget(p.field)],
   "zero-time": (n, p) => [`${TIME_NAMES[p.field] || "A time"} is zero. Write how long it takes, or clear it.`, timeTarget(p.field)],
-  "total-shorter-than-parts": () => ["Total time is shorter than the time to get ready and the time to cook together.", { field: "total" }],
+  "total-shorter-than-parts": () => ["Time from start to table is shorter than the time to get ready and the time to cook together.", { field: "total" }],
   "incomplete-times": (n, p, fields) => ["Only one of the times is filled in. Add the other.", { field: missingTime(fields) }],
   "calories-without-yield": () => ["Calories don't say what they're for. Fill in Serves.", { field: "servings" }],
-  "unreadable-adapted-from": () => ["Adapted from should be a web address starting with https://.", { field: "adaptedFrom" }],
+  "unreadable-adapted-from": () => ["Where you found it should be a web address starting with https://.", { field: "adaptedFrom" }],
   "no-image": () => ["Add a cover photo. Many recipe apps and search results look for one.", { field: "cover" }],
   "canonical-elsewhere": () => ["This recipe says its original is on another website, so recipe apps are sent there. Ask the person who set up your site.", null],
   "no-canonical-address": () => ["Your site's web address isn't set up, so recipe apps can't link back here. Ask the person who set up your site.", null],
