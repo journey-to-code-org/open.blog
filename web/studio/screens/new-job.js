@@ -87,7 +87,16 @@ export async function createNewJob(context, route = { query: {} }) {
     status.textContent = words;
     lastSaid = Date.now();
   }
+  // One Undo at a time, inline under the status. Removing a photo offers it until her next action;
+  // any change to the job (keepSoon) ends it.
+  let undoPhoto = null; // { photo, index } while removing it can be undone
+  function clearUndo() {
+    if (undoPhoto && !photos.includes(undoPhoto.photo) && undoPhoto.photo.preview) URL.revokeObjectURL(undoPhoto.photo.preview);
+    undoPhoto = null;
+    undoSlot.replaceChildren();
+  }
   function offerUndo(words, undo) {
+    clearUndo();
     say(words);
     const button = h("action-button", { variant: "secondary", size: "sm", onClick: () => { undoSlot.replaceChildren(); undo(); notes.querySelector("textarea")?.focus(); } }, "Undo");
     undoSlot.replaceChildren(h("p", {}, h("span", { text: "Undo adding those words?" }), button));
@@ -105,14 +114,32 @@ export async function createNewJob(context, route = { query: {} }) {
 
   function removePhoto(index) {
     const [gone] = photos.splice(index, 1);
-    if (gone?.preview) URL.revokeObjectURL(gone.preview);
     drawPhotos();
-    say(`Removed photo ${index + 1}.`);
     keepSoon();
+    say(`Removed photo ${index + 1}.`);
+    if (gone) {
+      // Kept (with its preview) until the Undo goes.
+      undoPhoto = { photo: gone, index };
+      const button = h("action-button", { variant: "secondary", size: "sm", label: `Undo removing photo ${index + 1}`, onClick: () => putBack() }, "Undo");
+      undoSlot.replaceChildren(h("p", {}, h("span", { text: `Removed photo ${index + 1}. ` }), button));
+    }
     requestAnimationFrame(() => (thumbs.querySelector(`[data-photo="${index + 1}"] button`) || camera.querySelector("input"))?.focus());
   }
 
+  function putBack() {
+    if (!undoPhoto) return;
+    const { photo, index } = undoPhoto;
+    undoPhoto = null;
+    undoSlot.replaceChildren();
+    photos.splice(Math.min(index, photos.length), 0, photo);
+    drawPhotos();
+    keepSoon();
+    say(`Photo ${index + 1} is back.`);
+    requestAnimationFrame(() => thumbs.querySelector(`[data-photo="${index + 1}"] button`)?.focus());
+  }
+
   async function addFiles(files) {
+    clearUndo();
     const problems = [];
     const over = [];
     const work = [];
@@ -166,6 +193,7 @@ export async function createNewJob(context, route = { query: {} }) {
   });
   const empty = (job) => !job.photos.length && !job.fields.notes.trim() && !job.audio;
   function keepSoon() {
+    clearUndo();
     clearTimeout(keepTimer);
     keepTimer = setTimeout(keepNow, KEEP_MS);
   }
@@ -212,6 +240,7 @@ export async function createNewJob(context, route = { query: {} }) {
   }
 
   async function clearForm() {
+    clearUndo();
     for (const photo of photos) if (photo.preview) URL.revokeObjectURL(photo.preview);
     photos = [];
     id = newCaptureId();

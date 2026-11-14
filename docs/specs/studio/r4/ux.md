@@ -113,7 +113,7 @@ Desktop: form in the main column; "Waiting on this computer" and "Sent this visi
 
 - **Take a photo** opens the camera (`accept="image/*" capture="environment"`, one at a time). **Choose photos** opens the library (`multiple`). Both add to the same grid. Needs `capture` on `file-drop` (Zubra change).
 - Each picked photo is shrunk on the phone (Decided 2) before it is kept; while that runs, its thumbnail shows `skeleton-block`.
-- Thumbnail: the picture (`URL.createObjectURL`, `alt=""`) and × "Remove photo 2". Removing says "Removed photo 2." and focuses the next thumbnail or **Take a photo**.
+- Thumbnail: the picture (`URL.createObjectURL`, `alt=""`) and × "Remove photo 2". Removing says "Removed photo 2." and focuses the next thumbnail or **Take a photo**; an inline **Undo** ("Undo removing photo 2") stays under the status until her next action (any change to the job, adding photos, saving), and puts the photo back where it was: "Photo 2 is back.", focus on its ×.
 - Checked at once (`photoProblem`); every problem is named, and usable photos are still added:
 
 | Problem | Words |

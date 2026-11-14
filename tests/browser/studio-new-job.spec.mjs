@@ -193,6 +193,32 @@ test("photos, words and the remembered picks become one draft, the photos made s
   await axeClean(page, "New job");
 });
 
+test("removing a photo can be undone until the next thing she does", async ({ page }) => {
+  await openNewJob(page);
+  await choosePhotos(page, [photo("front.png"), photo("middle.png"), photo("rear.png")]);
+  await expect(page.locator(".studio-thumb img")).toHaveCount(3);
+  await page.getByRole("button", { name: "Remove photo 2" }).click();
+  await expect(page.locator(".studio-thumb img")).toHaveCount(2);
+  await expect(status(page)).toHaveText("Removed photo 2.");
+  const undo = page.getByRole("button", { name: "Undo removing photo 2" });
+  await expect(undo).toBeVisible();
+  // It stays: no timer takes it away.
+  await page.waitForTimeout(1500);
+  await expect(undo).toBeVisible();
+  await undo.click();
+  await expect(page.locator(".studio-thumb img")).toHaveCount(3);
+  await expect(status(page)).toHaveText("Photo 2 is back.");
+  await expect(page.getByRole("button", { name: "Remove photo 2" })).toBeFocused();
+  await expect(undo).toHaveCount(0);
+  // The next action ends it.
+  await page.getByRole("button", { name: "Remove photo 1" }).click();
+  await expect(page.getByRole("button", { name: "Undo removing photo 1" })).toBeVisible();
+  await notesBox(page).fill("Something else now.");
+  await expect(page.getByRole("button", { name: "Undo removing photo 1" })).toHaveCount(0);
+  await expect(page.locator(".studio-thumb img")).toHaveCount(2);
+  await noStrayWords(page, "after undo");
+});
+
 test("an empty job is refused with a sentence, and Take a photo has the focus", async ({ page }) => {
   await openNewJob(page);
   await saveButton(page).click();
