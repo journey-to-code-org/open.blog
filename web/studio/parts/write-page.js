@@ -37,8 +37,13 @@ export function writePage({ meta, body, on }) {
     collection: h("select-field", { label: "Collection", description: "Put it with others, like all your Thanksgiving recipes.", options: [{ value: "", label: "None" }], value: "", hidden: true }),
     saveLabel: h("span", { text: "Save draft" }),
     primaryLabel: h("span", { text: "Publish" }),
-    details: h("side-sheet", { label: "About this post", side: "right" }),
+    // R5: the help under When it appears follows what's true about when it goes up.
+    whenHelp: h("p", { class: "studio-help", id: "studio-when-help", "aria-live": "polite", text: "Leave it empty to use the day you publish." }),
+    // R5: the little things about the post, in one sheet; the line says what's set.
+    aboutLine: h("span", { class: "studio-about-line" }),
   };
+  parts.about = h("action-button", { variant: "secondary", class: "studio-about-open", onClick: (e) => on.about(e.currentTarget) },
+    h("span", { class: "studio-about-name", text: "About this post" }), parts.aboutLine);
   parts.save = h("action-button", { variant: "secondary", class: "studio-save", onClick: () => on.save() }, parts.saveLabel);
   parts.primary = h("action-button", { onClick: () => on.publish() }, parts.primaryLabel);
   parts.look = h("action-button", { variant: "secondary", onClick: (e) => on.preview(e.currentTarget) }, "See how it looks");
@@ -50,30 +55,39 @@ export function writePage({ meta, body, on }) {
     h("div", { class: "studio-write-grid" },
       h("div", { class: "studio-write-main" }, parts.title, parts.numbersHost, body.element),
       h("div", { class: "studio-write-side" },
-        h("fieldset", { class: "studio-when" }, h("legend", { text: "When it appears" }),
+        h("fieldset", { class: "studio-when", "aria-describedby": "studio-when-help" }, h("legend", { text: "When it appears" }),
           h("cluster-layout", { gap: "0.75rem" }, parts.day, parts.time),
-          h("p", { class: "studio-help", text: "Leave it empty to use the day you publish." })),
+          parts.whenHelp),
         h("div", { class: "studio-tags" }, h("p", { class: "studio-label", "aria-hidden": "true", text: "Tags" }), parts.tags,
           h("p", { class: "studio-help", text: "Type a tag and press Enter." })),
         parts.collection,
-        parts.cover)),
-    h("div", { class: "studio-write-bar" }, parts.look, parts.save, parts.primary),
-    parts.details);
+        parts.cover,
+        parts.about)),
+    h("div", { class: "studio-write-bar" }, parts.look, parts.save, parts.primary));
   return parts;
 }
 
 export const isMacLike = () => /Mac|iPhone|iPad/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || "");
 
-/** What she can do with this post. Pure: given the post's state, the list. Exported for tests. */
+/**
+ * What she can do with this post. Pure: given the post's state, the list. Exported for tests.
+ * R5: About this post (and its groups, from Find) replaces Show details and More about this
+ * recipe.
+ */
 export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narrow, mac, job = false, writeUp = false }) {
   const published = state === "published" || state === "scheduled";
   return [
     { id: "save", label: "Save", hint: mac ? "⌘S" : "Ctrl S", more: false },
     { id: "publish", label: "Publish or update", hint: mac ? "⌘↵" : "Ctrl Enter", more: false },
     { id: "preview", label: "See how it looks", more: false },
+    { id: "about-post", label: "About this post" },
+    { id: "about-search", label: "Summary for search and sharing", more: false },
+    { id: "about-credits", label: "Who wrote it", more: false },
+    { id: "about-recipe", label: "More about this recipe", when: recipe, more: false },
+    { id: "about-details", label: "Details for the person who set up your site", more: false },
+    { id: "people", label: "People", more: false },
     { id: "takeoff", label: "Take it off my site", when: state === "published" },
     { id: "draft", label: saveLabel, when: narrow && state !== "published", palette: false },
-    { id: "about", label: "More about this recipe", when: recipe },
     { id: "view", label: "See it on your site", when: Boolean(url) && published },
     // A published job can be shared where customers look (R1).
     { id: "share-job", label: "Share this job", when: job && state === "published" && Boolean(path) },
@@ -82,6 +96,5 @@ export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narr
     { id: "delete", label: path ? "Delete this post" : "Throw this away" },
     { id: "plain", label: "Write it all in one box", when: recipe && boxes },
     { id: "boxes", label: "Use the recipe boxes", when: recipe && !boxes },
-    { id: "details", label: "Show details" },
   ].filter((command) => command.when !== false);
 }

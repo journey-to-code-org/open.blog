@@ -25,7 +25,7 @@ export function postHref(path) {
 /** One row. `menu(post)` may return a node (a "More" menu) to end the row with. */
 export function postRow(post, menu, sameTitle = false) {
   const badge = BADGE[post.status] || BADGE.draft;
-  const when = post.status === "error" ? "This file can't be read; open it in the old Admin." : sayListDate(post.date) || "No date yet";
+  const when = post.status === "error" ? "This file can't be read. Open it to see why." : sayListDate(post.date) || "No date yet";
   return h("li", { class: "studio-post-row", "data-status": post.status },
     h("a", { class: "studio-post-link", href: postHref(post.path) },
       h("span", { class: "studio-post-title", text: post.title || "Untitled" }),

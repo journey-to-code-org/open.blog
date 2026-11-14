@@ -4,8 +4,29 @@ import { h } from "./dom.js";
 
 const row = (label, value, mono = false) => [h("dt", { text: label }), h("dd", { class: mono ? "studio-mono" : null }, value || "—")];
 
+/** Where the person who set up the site reads about scheduled builds (G37). */
+export const SCHEDULED_BUILDS_DOCS = "https://github.com/journey-to-code-org/open.blog/blob/main/docs/deploy.md#scheduled-builds";
+
+const MODE_WORDS = {
+  none: "This server is the site: nothing sends it anywhere else.",
+  local: "Saved in Git here, with nowhere set up to send it.",
+  auto: "Sent out by itself after every save.",
+  "by-hand": "Sent out when Publish or Update is pressed.",
+};
+
+/** "Scheduled posts": whether they go up by themselves, and when the next one is due. */
+function scheduledRow({ schedule, nextDue, mode }) {
+  const due = nextDue ? ` The next one is due ${new Date(nextDue).toLocaleString()}.` : "";
+  if (schedule === "self") return `Go up by themselves at their time, on this server.${due}`;
+  if (schedule === "next-send") {
+    return h("span", {}, `Go up the next time the live site is built after their time${mode === "auto" || mode === "by-hand" ? ", where it's built from what's sent" : ""}.${due} `,
+      h("a", { href: SCHEDULED_BUILDS_DOCS, target: "_blank", rel: "noopener", text: "How to build it on a schedule" }));
+  }
+  return "Not known: go up when your site next builds after their time.";
+}
+
 /** The details list. `link` is the post's address on the site ("" before it's published). */
-export function postDetails({ path, link, words, savedAt, layout, publish, goesOut }) {
+export function postDetails({ path, link, words, savedAt, layout, publish, goesOut, schedule = null, nextDue = null }) {
   const sending = publish
     ? [publish.message, publish.commit ? `commit ${String(publish.commit).slice(0, 12)}` : "", publish.sent === "pushed" ? "pushed" : publish.sent === "failed" ? "not pushed" : ""].filter(Boolean).join(" · ")
     : !goesOut ? "Not known"
@@ -20,7 +41,8 @@ export function postDetails({ path, link, words, savedAt, layout, publish, goesO
     ...(layout ? row("File kept as written", layout.kept ? "Yes: only what you changed was written." : `No, it was written in the usual layout, because ${layout.reason || "it couldn't be kept"}.`) : []),
     row(publish ? "Last send-out" : "Sending out", sending),
     ...(publish?.committed?.length ? row("Sent with it", publish.committed.join(", "), true) : []),
-    row("Scheduled posts", "go up when your site next builds after their time."));
+    ...(goesOut?.info?.mode ? row("How it's sent out", MODE_WORDS[goesOut.info.mode] || goesOut.info.mode) : []),
+    row("Scheduled posts", scheduledRow({ schedule, nextDue: nextDue ?? goesOut?.info?.nextDue ?? null, mode: goesOut?.info?.mode })));
 }
 
 /** Her own words, set aside after she chose the other version in a conflict. */
