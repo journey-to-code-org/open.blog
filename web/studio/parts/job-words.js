@@ -24,7 +24,6 @@ export function ROOM_WORDS(code, { limits = {}, noun = "phone", queued = 0, remo
 /** What's wrong with a photo she picked (`photoProblem` codes). */
 export function PHOTO_WORDS(code, { name = "", limits = {} } = {}) {
   if (code === "not-photo") return `${quoted(name || "That file")} isn't a photo.`;
-  if (code === "heic") return `${quoted(stem(name))} is in the iPhone's own photo format, which websites can't show. Take it again with Take a photo.`;
   if (code === "too-big") return `${quoted(stem(name))} is too big to use. The limit is ${mb(limits.maxPhotoBytes || 40 * 1024 * 1024)} MB a photo.`;
   return "";
 }

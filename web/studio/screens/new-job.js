@@ -13,7 +13,7 @@ import { sayWhen } from "../parts/dates.js";
 import { herePhone, deviceNoun } from "../parts/notification-rules.js";
 import { tradeSite } from "../parts/record-kinds.js";
 import { queueLimits } from "../parts/capture-queue.js";
-import { captureLimits, captureProblem, captureTitle, newCaptureId, photoProblem, photosToRemove, readPrefs, rememberPicks, writePrefs } from "../parts/new-job-rules.js";
+import { captureLimits, captureProblem, captureTitle, newCaptureId, photoBytesLines, photoProblem, photosToRemove, readPrefs, rememberPicks, writePrefs } from "../parts/new-job-rules.js";
 import { PHOTO_WORDS, ROOM_WORDS, cameraHelp, flushWords, sentWords, tooManyWords } from "../parts/job-words.js";
 import { shrinkPhoto } from "../parts/photo-shrink.js";
 import { createJobInProgress } from "../parts/job-in-progress.js";
@@ -38,7 +38,7 @@ export async function createNewJob(context, route = { query: {} }) {
   const sheet = await createSheet({ label: "Voice note", wide: false });
   let prefs = readPrefs(storage);
   let id = newCaptureId();
-  let photos = []; // { key, name, type, size, blob, preview, busy }
+  let photos = []; // { key, name, type, size, blob, preview, busy, originalSize, originalType }
   let saving = null;
   let keepTimer = 0;
   let restoredAt = null;
@@ -56,6 +56,7 @@ export async function createNewJob(context, route = { query: {} }) {
   const camera = h("file-drop", { label: "Take a photo", look: "button", accept: "image/*", capture: "environment", multiple: false, "data-camera": "true" });
   const library = h("file-drop", { label: "Choose photos", look: "button", accept: "image/*", multiple: true, "data-library": "true" });
   const count = h("p", { class: "studio-help", "aria-live": "polite" });
+  const photoDetails = h("div", { "data-photo-details": "true" }); // Mikey's: original vs kept bytes
   const notes = h("text-field", { label: "What did you do?", rows: 4, maxlength: limits.maxNotesChars, "data-notes": "true" });
   const notesCount = h("p", { class: "studio-help" });
   const voice = createVoiceNote({
@@ -72,7 +73,7 @@ export async function createNewJob(context, route = { query: {} }) {
 
   const form = h("div", { class: "studio-account-main studio-new-job-form" },
     problemBox, thumbs,
-    h("div", { class: "studio-new-job-photos" }, camera, library), count,
+    h("div", { class: "studio-new-job-photos" }, camera, library), count, photoDetails,
     voice.element, notes, notesCount, picks.element, cameraTrouble);
   const columns = h("div", { class: "studio-account-columns" }, form, side.element);
   const bar = h("div", { class: "studio-write-bar studio-new-job-bar" }, save);
@@ -110,6 +111,9 @@ export async function createNewJob(context, route = { query: {} }) {
       h("action-button", { variant: "ghost", size: "sm", class: "studio-thumb-remove", label: `Remove photo ${index + 1}`, onClick: () => removePhoto(index) }, "×"))));
     thumbs.hidden = photos.length === 0;
     count.textContent = `${photos.length} of ${limits.maxPhotos} photos`;
+    const open = Boolean(photoDetails.querySelector("details")?.open);
+    photoDetails.replaceChildren(...(photos.length ? [detailsBox(photoBytesLines(photos))] : []));
+    if (open && photos.length) photoDetails.querySelector("details").open = true;
   }
 
   function removePhoto(index) {
@@ -157,7 +161,7 @@ export async function createNewJob(context, route = { query: {} }) {
           photos = photos.filter((photo) => photo !== slot);
           return;
         }
-        Object.assign(slot, { name: ready.name || slot.name, type: ready.type || "image/jpeg", size: ready.size, blob: ready, preview: URL.createObjectURL(ready), busy: false });
+        Object.assign(slot, { name: ready.name || slot.name, type: ready.type || "image/jpeg", size: ready.size, blob: ready, preview: URL.createObjectURL(ready), busy: false, originalSize: file.size, originalType: file.type || "" });
       }));
     }
     drawPhotos();
@@ -188,7 +192,9 @@ export async function createNewJob(context, route = { query: {} }) {
   const read = () => ({
     id,
     fields: { ...picks.values(), notes: String(notes.value || "") },
-    photos: photos.filter((p) => !p.busy).map(({ name, type, size, blob }) => ({ name, type, size, blob })),
+    // The original's size and type stay with the job in progress (for Details); the record kept on
+    // this phone takes only name, type, size and blob (makeRecord).
+    photos: photos.filter((p) => !p.busy).map(({ name, type, size, blob, originalSize, originalType }) => ({ name, type, size, blob, originalSize, originalType })),
     audio: voice.note(),
   });
   const empty = (job) => !job.photos.length && !job.fields.notes.trim() && !job.audio;

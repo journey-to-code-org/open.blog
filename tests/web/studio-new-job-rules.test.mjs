@@ -87,8 +87,11 @@ test("a job needs something in it, and each photo problem has a code", () => {
   assert.equal(captureProblem({ ...empty, fields: { notes: "x".repeat(11) } }, { ...DEFAULT_LIMITS, maxNotesChars: 10 }), "notes");
   assert.equal(photoProblem(photo), "");
   assert.equal(photoProblem({ name: "Invoice.pdf", type: "application/pdf", size: 5 }), "not-photo");
-  assert.equal(photoProblem({ name: "IMG_0042.HEIC", type: "image/heic", size: 5 }), "heic");
-  assert.equal(photoProblem({ name: "IMG_0042.heic", type: "", size: 5 }), "heic");
+  // A photo this phone couldn't shrink (an iPhone's own format too) is kept as it was.
+  assert.equal(photoProblem({ name: "IMG_0042.HEIC", type: "image/heic", size: 5 }), "");
+  assert.equal(photoProblem({ name: "IMG_0042.heic", type: "", size: 5 }), "");
+  assert.equal(photoProblem({ name: "IMG_0042.HEIC", type: "image/heic", size: 41 * 1024 * 1024 }), "too-big");
+  assert.equal(photoProblem({ name: "notes.txt", type: "", size: 5 }), "not-photo");
   assert.equal(photoProblem({ name: "big.jpg", type: "image/jpeg", size: 41 * 1024 * 1024 }), "too-big");
   for (const status of [400, 413, 415, 422]) assert.equal(isPermanentPhotoError({ status }), true);
   for (const status of [0, 401, 500]) assert.equal(isPermanentPhotoError({ status }), false);
@@ -116,4 +119,20 @@ test("Safari may clear a job kept in a Safari tab for more than 5 days; never in
   assert.equal(safariMayClear(record(6), { ...safari, inApp: true }, now), false);
   assert.equal(safariMayClear({ createdAt: "not a date" }, safari, now), false);
   assert.equal(safariMayClear(null, safari, now), false);
+});
+
+test("Details say each photo's original and kept bytes", async () => {
+  const { photoBytesLines } = await import("../../web/studio/parts/new-job-rules.js");
+  assert.deepEqual(photoBytesLines([
+    { name: "IMG_1.jpg", type: "image/jpeg", size: 412331, originalSize: 3145728, originalType: "image/jpeg" },
+    { name: "IMG_2.HEIC", type: "image/heic", size: 2000000, originalSize: 2000000, originalType: "image/heic" },
+    { name: "old.png", type: "image/png", size: 10 },
+    { name: "busy.jpg", busy: true },
+  ]), [
+    "photo 1 IMG_1.jpg: original 3,145,728 bytes (image/jpeg), kept 412,331 bytes (image/jpeg)",
+    "photo 2 IMG_2.HEIC: original 2,000,000 bytes (image/heic), kept as it was (not made smaller on this phone)",
+    "photo 3 old.png: kept 10 bytes (image/png); original not recorded",
+    "photo 4 busy.jpg: getting ready",
+  ]);
+  assert.deepEqual(photoBytesLines([]), []);
 });

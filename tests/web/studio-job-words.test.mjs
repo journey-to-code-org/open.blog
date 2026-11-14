@@ -18,7 +18,7 @@ test("each reason a job couldn't be kept says what to do, and the job stays", ()
 
 test("each photo problem names the photo", () => {
   assert.equal(words.PHOTO_WORDS("not-photo", { name: "Invoice.pdf" }), "“Invoice.pdf” isn't a photo.");
-  assert.equal(words.PHOTO_WORDS("heic", { name: "IMG_0042.HEIC" }), "“IMG_0042” is in the iPhone's own photo format, which websites can't show. Take it again with Take a photo.");
+  assert.equal(words.PHOTO_WORDS("heic", { name: "IMG_0042.HEIC" }), "", "never refused for its format: kept as it was");
   assert.equal(words.PHOTO_WORDS("too-big", { name: "IMG_0042.jpg", limits: { maxPhotoBytes: 40 * 1024 * 1024 } }), "“IMG_0042” is too big to use. The limit is 40 MB a photo.");
   assert.equal(words.tooManyWords(["IMG_0050.jpg", "IMG_0051.jpg"], 12), "A job holds up to 12 photos, so these 2 weren't added: IMG_0050, IMG_0051.");
   assert.equal(words.tooManyWords(["IMG_0050.jpg"], 12), "A job holds up to 12 photos, so this one wasn't added: IMG_0050.");

@@ -219,6 +219,27 @@ test("removing a photo can be undone until the next thing she does", async ({ pa
   await noStrayWords(page, "after undo");
 });
 
+test("a photo this phone can't read (an iPhone's own format too) is kept as it was, and Details show original vs kept bytes", async ({ page }) => {
+  await openNewJob(page);
+  const heic = { name: "IMG_0042.HEIC", mimeType: "image/heic", buffer: Buffer.from("not really a heic file, but this phone can't read it either") };
+  await choosePhotos(page, [heic, photo("front.png"), { name: "Invoice.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4") }]);
+  await expect(page.locator(".studio-thumb")).toHaveCount(2);
+  await expect(page.getByRole("alert")).toContainText("“Invoice.pdf” isn't a photo.");
+  await expect(page.getByRole("alert")).not.toContainText("IMG_0042");
+  const details = page.locator("[data-photo-details] details");
+  await details.locator("summary").click();
+  await expect(details).toContainText(`photo 1 IMG_0042.HEIC: original ${heic.buffer.length} bytes (image/heic), kept as it was`);
+  await expect(details).toContainText(new RegExp(`photo 2 front\\.jpg: original ${PNG.length} bytes \\(image/png\\), kept [0-9,]+ bytes \\(image/jpeg\\)`));
+  await noStrayWords(page, "a kept HEIC");
+  // Her blog can't show it, so it's named when the job goes, and the rest goes.
+  await page.getByRole("textbox", { name: "Town", exact: true }).fill("Heictown");
+  await saveButton(page).click();
+  await expect.poll(() => draftsIn(trade, "heictown").length).toBe(1);
+  await expect(waitingCards(page).first()).toContainText("1 photo couldn't go: “IMG_0042” is in a format websites can't show.");
+  await waitingCards(page).first().getByRole("button", { name: /^Done/ }).click();
+  await expect(waitingCards(page)).toHaveCount(0);
+});
+
 test("an empty job is refused with a sentence, and Take a photo has the focus", async ({ page }) => {
   await openNewJob(page);
   await saveButton(page).click();

@@ -8,7 +8,7 @@ The job, in Dana's words: **"I'm on a roof with a phone. Photos, a few words, an
 
 **Decided (2026-11-13), following the recommendations below:**
 1. **G35 yes:** `/admin/sw.js` caches Studio's own static files (versioned, installed all or nothing, network-first with a 3 s limit, never API replies); Studio keeps the last `meta` and user in `localStorage`, so New job opens and keeps jobs with no signal. This narrows R3's "no caching" to "never API replies".
-2. **Shrink photos on the phone yes:** before keeping, photos become 2000 px JPEG at quality 0.82 with location dropped (the server's own rule in `photo.rs`); the original is kept when decoding fails.
+2. **Shrink photos on the phone yes:** before keeping, photos become 2000 px JPEG at quality 0.82 with location dropped (the server's own rule in `photo.rs`); the original is kept when decoding fails (an iPhone's own format too), and refused only when it isn't a picture or is over `maxPhotoBytes`.
 3. **Write it up for me moves to Write** (amends ADR 0304; old records with `fields.draft` still send as before).
 
 **Her words:** her layer says "your blog", "this phone" (`deviceNoun`), "a signal", "saved on this phone", "sent", "waiting". Never "Studio", "Admin", "upload", "sync", "offline", "queue", "IndexedDB", "capture", "slot", "ledger", "idempotent", "permission", "device", "browser" (except naming Safari or Chrome), "AI provider", "model". Those go under **Details for the person who set up your site**.
@@ -114,13 +114,13 @@ Desktop: form in the main column; "Waiting on this computer" and "Sent this visi
 - **Take a photo** opens the camera (`accept="image/*" capture="environment"`, one at a time). **Choose photos** opens the library (`multiple`). Both add to the same grid. Needs `capture` on `file-drop` (Zubra change).
 - Each picked photo is shrunk on the phone (Decided 2) before it is kept; while that runs, its thumbnail shows `skeleton-block`.
 - Thumbnail: the picture (`URL.createObjectURL`, `alt=""`) and × "Remove photo 2". Removing says "Removed photo 2." and focuses the next thumbnail or **Take a photo**; an inline **Undo** ("Undo removing photo 2") stays under the status until her next action (any change to the job, adding photos, saving), and puts the photo back where it was: "Photo 2 is back.", focus on its ×.
+- A photo this phone can't read (HEIC/HEIF it can't decode, among others) is kept as it was, never refused for its format; if her blog can't show it, the Sent row names it when the job goes ("…is in a format websites can't show.") and the rest of the job goes. **Details** under the photos list each photo's original and kept bytes and types (`photoBytesLines`; the original's size and type live only in the job in progress, never in the `openblog-capture` record).
 - Checked at once (`photoProblem`); every problem is named, and usable photos are still added:
 
 | Problem | Words |
 | --- | --- |
 | Not a picture | "“Invoice.pdf” isn't a photo." |
-| HEIC/HEIF that can't be shrunk on this phone | "“IMG_0042” is in the iPhone's own photo format, which websites can't show. Take it again with Take a photo." |
-| Over `maxPhotoBytes` after shrinking | "“IMG_0042” is too big to use. The limit is 40 MB a photo." |
+| Over `maxPhotoBytes` after shrinking (or as it was, when it couldn't be shrunk) | "“IMG_0042” is too big to use. The limit is 40 MB a photo." |
 | Over 12 | "A job holds up to 12 photos, so these 2 weren't added: IMG_0050, IMG_0051." |
 
 - **Camera won't open?** (`details`, only this phone's steps): iPhone: "Tap Choose photos, then Take Photo. Or take them in the Camera app and choose them here after." Android: "In the Settings app: Apps, then Chrome, then Permissions, then Camera, then Allow." Computer: "Use Choose photos to pick photos you've already taken." Always there, never an error.
@@ -327,8 +327,8 @@ After Publish, R1's "Share this job" link is unchanged.
 | Waiting list | `parts/capture-queue.js` (moved whole; `DB_NAME`, `STORE_NAME`, `RECORD_VERSION`, `DB_VERSION` unchanged) | `makeRecord` (+`by`), `readRecord`, `roomProblem` (codes), `isRetryable` (+ status 0), `createCaptureQueue`, `openIndexedStore` (+`versionchange` close) |
 | Sending | new `parts/job-sender.js` | `sendCapture` (+ G29 skip, `signal`), `retryDelay`, `entryState(entry, user)`, `sendOutcome(error, step)` |
 | Recording | `parts/capture-recorder.js` (moved whole) | `createRecorder`, `recorderSupport`, `audioLimits`, `clock` |
-| Shrinking | new `parts/photo-shrink.js` (DOM-free planner + thin canvas adapter) | `shrinkPlan(width, height, max=2000)`, `shrinkPhoto(file)` (falls back to the original on decode failure) |
-| New job | new `parts/new-job-rules.js` | `newCaptureId`, `captureLimits`, `readPrefs`/`rememberPicks`/`writePrefs`, `captureTitle`, `captureSlug`, `captureFields`, `captureBody`, `captureProblem`, `photoProblem`, `isPermanentPhotoError`, `photosToRemove` |
+| Shrinking | new `parts/photo-shrink.js` (DOM-free planner + thin canvas adapter) | `shrinkPlan(width, height, max=2000)`, `shrinkPhoto(file)` (falls back to the original on decode failure, HEIC included) |
+| New job | new `parts/new-job-rules.js` | `newCaptureId`, `captureLimits`, `readPrefs`/`rememberPicks`/`writePrefs`, `captureTitle`, `captureSlug`, `captureFields`, `captureBody`, `captureProblem`, `photoProblem`, `photoBytesLines`, `isPermanentPhotoError`, `photosToRemove`, `safariMayClear` |
 | Words | new `parts/job-words.js` | `ROOM_WORDS`, `PHOTO_WORDS`, `RECORD_WORDS`, `micSteps`, `cameraHelp`, `waitingWords`, `transcribeDisclosure`, `jobProblemWords` |
 | Voice/write-up | `parts/capture-assistant-rules.js` | `plainNotes`, `appendTranscript`, `normalizeDraft`, `draftBody`, `SECTION_KEYS` |
 | Job fields | `parts/job-rules.js` | `readJobDraft`, `applyJobDraft`, `bodyTakesScaffold`, `localDay`, `dayValue`, `tradeLabel`, `jobBoxes`/`joinJobBoxes` |

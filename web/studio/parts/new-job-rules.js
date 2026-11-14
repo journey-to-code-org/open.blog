@@ -154,15 +154,28 @@ export function captureProblem(capture, limits = DEFAULT_LIMITS) {
 export const isHeic = (file) => /^image\/hei[cf]/i.test(String(file?.type || "")) || /\.hei[cf]$/i.test(String(file?.name || ""));
 
 /**
- * Whether a picked file can be added, after it was shrunk: "" or `not-photo`, `heic` (still in the
- * iPhone's own format, because this phone couldn't shrink it), `too-big`.
+ * Whether a picked file can be added, after it was shrunk (or kept as it was, when this phone
+ * couldn't read it, an iPhone's own format included): "" or `not-photo`, `too-big`.
  */
 export function photoProblem(file, limits = DEFAULT_LIMITS) {
   if (file.type && !file.type.startsWith("image/") && !isHeic(file)) return "not-photo";
   if (!file.type && !/\.(jpe?g|png|gif|webp|avif|hei[cf])$/i.test(String(file.name || ""))) return "not-photo";
-  if (isHeic(file)) return "heic";
   if (file.size > limits.maxPhotoBytes) return "too-big";
   return "";
+}
+
+const bytes = (count) => `${Number(count).toLocaleString("en-US")} bytes`;
+
+/** Details' lines about the photos in the job: what was picked and what is kept. */
+export function photoBytesLines(photos = []) {
+  return photos.map((photo, index) => {
+    const head = `photo ${index + 1} ${photo.name}`;
+    if (photo.busy) return `${head}: getting ready`;
+    if (!Number.isFinite(photo.originalSize)) return `${head}: kept ${bytes(photo.size)} (${photo.type}); original not recorded`;
+    const original = `original ${bytes(photo.originalSize)} (${photo.originalType || "unknown type"})`;
+    if (photo.originalSize === photo.size && photo.originalType === photo.type) return `${head}: ${original}, kept as it was (not made smaller on this phone)`;
+    return `${head}: ${original}, kept ${bytes(photo.size)} (${photo.type})`;
+  });
 }
 
 /** A photo the server refused for good (not an image, too large): the draft goes on without it. */
