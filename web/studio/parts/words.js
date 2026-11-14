@@ -35,6 +35,8 @@ export const DEFAULT_VARS = Object.freeze({ helper: "the person who set up your 
 export const GLOBAL_VARS = Object.freeze(Object.keys(DEFAULT_VARS));
 export const ID_PATTERN = /^[a-z]+(\.[a-zA-Z0-9]+)+$/;
 const VAR_MAX = 60;
+/** A length as the server counts it: characters (code points), so an emoji is one. */
+const charCount = (value) => [...String(value)].length;
 
 let merged = null;
 /** Every id with its default: `{ text, layer, max, bare?, vars }`. Built on first use. */
@@ -58,7 +60,7 @@ export function varsIn(text) {
 
 /** The longest a changed text may be: its own `max`, else twice the default (at least 40), at most 240. */
 export function maxFor(entry) {
-  return entry.max ?? Math.min(240, Math.max(40, 2 * String(entry.text).length));
+  return entry.max ?? Math.min(240, Math.max(40, 2 * charCount(entry.text)));
 }
 
 let vars = { ...DEFAULT_VARS };
@@ -70,7 +72,7 @@ export function overrideProblem(id, value) {
   if (!entry) return "not a word id";
   if (typeof value !== "string") return "not text";
   if (!value.trim() && !(entry.bare === "" && value === "")) return "empty";
-  if (value.length > entry.max) return "too long";
+  if (charCount(value) > entry.max) return "too long";
   if (/[<>]/.test(value)) return "has < or >";
   const allowed = new Set([...GLOBAL_VARS, ...entry.vars]);
   if (varsIn(value).some((name) => !allowed.has(name))) return "unknown variable";
@@ -82,7 +84,7 @@ export function overrideProblem(id, value) {
 export function varProblem(name, value) {
   if (!GLOBAL_VARS.includes(name)) return "not a variable";
   if (typeof value !== "string") return "not text";
-  if (value.length > VAR_MAX) return "too long";
+  if (charCount(value) > VAR_MAX) return "too long";
   if (/[{}<>]/.test(value)) return "has a brace or < >";
   if (name !== "owner" && !value.trim()) return "empty";
   if (HER_BANNED.test(value)) return "a word she never sees";
@@ -149,9 +151,14 @@ export function say(id, values = {}) {
 export function wordsInEffect(studioWords) {
   const given = studioWords && typeof studioWords === "object" ? studioWords : {};
   const from = given.from && typeof given.from === "object" ? given.from : {};
-  const value = (key) => (key in (given.vars || {}) && GLOBAL_VARS.includes(key) ? given.vars[key] : (given.text || {})[key]);
-  const keys = Object.keys(from).filter((key) => typeof value(key) === "string").sort();
-  const problems = (Array.isArray(given.problems) ? given.problems : []).map((p) => String(p?.words ?? "")).filter(Boolean);
+  const isVar = (key) => key in (given.vars || {}) && GLOBAL_VARS.includes(key);
+  const value = (key) => (isVar(key) ? given.vars[key] : (given.text || {})[key]);
+  // Only what configureWords() really put in place; a change this page refuses is a problem.
+  const why = (key) => (isVar(key) ? varProblem(key, value(key)) : overrideProblem(key, value(key)));
+  const offered = Object.keys(from).filter((key) => typeof value(key) === "string").sort();
+  const keys = offered.filter((key) => !why(key));
+  const refused = offered.filter((key) => why(key)).map((key) => `${key} isn't used here: ${why(key)}.`);
+  const problems = [...(Array.isArray(given.problems) ? given.problems : []).map((p) => String(p?.words ?? "")).filter(Boolean), ...refused];
   if (!keys.length && !problems.length) return null;
   const count = (place) => keys.filter((key) => from[key] === place).length;
   const site = count("site");

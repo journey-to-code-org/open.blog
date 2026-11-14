@@ -106,6 +106,29 @@ test("say() returns text only: markup in a value is never interpreted, and chang
   configureWords();
 });
 
+test("lengths count characters the way the server does: an emoji is one", () => {
+  const helper = `${"😀".repeat(59)}a`; // 60 characters, 119 UTF-16 units
+  assert.equal(varProblem("helper", helper), "");
+  assert.equal(varProblem("helper", `${helper}b`), "too long");
+  const max = catalog()["common.tell"].max;
+  assert.equal(overrideProblem("common.tell", `Tell {helper} ${"🎄".repeat(max - 14)}`), "");
+  assert.equal(overrideProblem("common.tell", `Tell {helper} ${"🎄".repeat(max - 13)}`), "too long");
+  configureWords({ vars: { helper } });
+  assert.equal(say("common.tell"), `Tell ${helper}.`);
+  configureWords();
+});
+
+test("Home's details list only the changes in effect here; one this page can't use is a problem", () => {
+  const words = wordsInEffect({
+    vars: { helper: "a".repeat(61), product: "your blog", owner: "" },
+    text: { "common.ask": "Ask {helper} <now>.", "common.tell": "Tell {helper} soon." },
+    from: { helper: "site", "common.ask": "site", "common.tell": "site" },
+    problems: [],
+  });
+  assert.deepEqual(words.changes, ["common.tell: Tell {helper} soon. (site)"]);
+  assert.deepEqual(words.problems, ["common.ask isn't used here: has < or >.", "helper isn't used here: too long."]);
+});
+
 test("Home's details list the words in effect and every problem, and hide when there are none", () => {
   assert.equal(wordsInEffect(undefined), null);
   assert.equal(wordsInEffect({ vars: DEFAULT_VARS, text: {}, from: {}, problems: [] }), null);
