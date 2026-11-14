@@ -24,9 +24,9 @@ The answer is _layers_: the first layer of every screen is Grammi's; Mikey's pow
 8. **No syntax on her layer.** Anything in her words that isn't plain words shows as a card in place with Change, Move and Take it out; raw text is Mikey's, behind **Show the words as written**. Anything she adds goes where she was, and the screen says where first. A form that writes into the file writes it the way it was: unchanged writes nothing, and a form is offered only when it can write the block back exactly.
 9. **Checks suggest; only the build blocks.** A check that only advises never disables Publish; a blocker names the fix and Publish says why it waits. No scores or totals: counts by kind. A checklist opens by itself only on the first Publish and only with something to show.
 10. **Where someone was stays private by default.** Anything that could show where she lives or was starts hidden, shows what readers will see before it is saved, keeps the source on her phone, and leaves it only by her explicit, confirmed choice, cleaned first.
-8. **Settings are part of the thing they describe.** A sheet of a post's settings has no Save of its own; it saves with the post and says how ("Saves by itself.", "Press Update to put these on your site.").
-9. **Times she picks are complete.** A future day with no time gets a visible default time. A promise about when something happens is made only when the system keeps it.
-10. **Works on her phone.** One column at 400 px with nothing scrolling sideways; the same screen widens into columns on a desktop. Every screen works in the installed app, which has no Back button or address bar: every screen has its own way home.
+11. **Settings are part of the thing they describe.** A sheet of a post's settings has no Save of its own; it saves with the post and says how ("Saves by itself.", "Press Update to put these on your site.").
+12. **Times she picks are complete.** A future day with no time gets a visible default time. A promise about when something happens is made only when the system keeps it.
+13. **Works on her phone.** One column at 400 px with nothing scrolling sideways; the same screen widens into columns on a desktop. Every screen works in the installed app, which has no Back button or address bar: every screen has its own way home.
 
 ## Accessibility (the floor, not a goal)
 
