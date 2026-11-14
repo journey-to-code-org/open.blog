@@ -36,13 +36,19 @@ export async function createWriteJob({ api, meta, fields, capture, body, banner,
   let description = typeof fields.description === "string" ? fields.description : "";
   let linked = []; // [control, id] pairs a check pointed at
 
-  // Each photo in the strip: "Photo 2 shows" Before, After or Neither.
-  const extra = (photo, index) => h("segmented-control", {
-    label: `Photo ${index + 1} shows`, options: MARKS, value: about.markOf(photo.url), class: "studio-photo-mark",
-    onValuechange: (event) => { about.mark(photo.url, event.detail); changed(); },
-  });
+  // Each photo card: "Photo 2 shows" Before, After or Neither. The number is the photo's place in
+  // the whole post, so moving a card renumbers it (and job.media follows the cards' order).
+  function photoMark(block) {
+    const url = /\]\((\/images\/uploads\/[^)\s]+)\)/.exec(block.source)?.[1];
+    if (!url || block.kind !== "photo") return null;
+    const index = photosIn(body.text()).findIndex((photo) => photo.url === url);
+    return h("segmented-control", {
+      label: `Photo ${index + 1} shows`, options: MARKS, value: about.markOf(url), class: "studio-photo-mark",
+      onValuechange: (event) => { about.mark(url, event.detail); changed(); },
+    });
+  }
   const bodyOptions = () => ({
-    scaffold, extra,
+    scaffold,
     help: "Mark at least one After photo. It's the one people see when you share the job.",
     removed: (url) => about.mark(url, "neither"),
   });
@@ -182,6 +188,7 @@ export async function createWriteJob({ api, meta, fields, capture, body, banner,
     },
     set: (next) => about.set(next),
     bodyOptions,
+    photoMark,
     check,
     writeUp,
     /** "Write it up for me" is offered once it's known to be set up. */

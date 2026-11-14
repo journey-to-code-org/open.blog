@@ -4,30 +4,29 @@
 // shape stays one box.
 import { h } from "./dom.js";
 import { jobBoxes, joinJobBoxes } from "./job-rules.js";
+import { createWordBox } from "./word-box.js";
 
-/** The four boxes for `text`, or null when it isn't the four parts. */
-export function jobEditor(text, scaffold, { onChange, onPutPhoto }) {
+/** The four boxes for `text`, or null when it isn't the four parts. `host` is Add something's. */
+export function jobEditor(text, scaffold, { host }) {
   const parts = jobBoxes(text, scaffold);
   if (!parts) return null;
-  const fields = parts.map((part, index) => h("text-field", {
-    label: part.heading, class: "studio-writing studio-job-part", rows: index === 3 ? 6 : 4, value: part.words, "data-job-part": String(index),
-    onValuechange: () => onChange(),
+  const boxes = parts.map((part, index) => createWordBox({
+    label: part.heading, rows: index === 3 ? 6 : 4, value: part.words, host, data: { "data-job-part": String(index), class: "studio-job-part" },
   }));
-  const element = h("div", { class: "studio-job-parts" },
-    ...fields.map((field, index) => h("div", { class: "studio-job-part-box" }, field,
-      h("action-button", { variant: "secondary", size: "sm", class: "studio-put-photo", label: `Put a photo in ${parts[index].heading}`, onClick: (event) => onPutPhoto(`job:${index}`, event.currentTarget) }, "Put a photo in"))));
-  const words = (index) => String(fields[index].value || "");
+  const element = h("div", { class: "studio-job-parts" }, ...boxes.map((box) => h("div", { class: "studio-job-part-box" }, box.element)));
+  const words = (index) => boxes[index].value;
   return {
     element,
     body: () => joinJobBoxes(parts.map((part, index) => ({ ...part, words: words(index) }))),
-    box: (index) => fields[index],
+    box: (index) => boxes[index],
+    boxes: () => boxes,
     get: words,
     set(index, value) {
-      fields[index].value = value;
-      onChange();
+      boxes[index].value = value;
+      host.changed?.(boxes[index]);
     },
     focus(index = 0) {
-      fields[index]?.querySelector("textarea")?.focus();
+      boxes[index]?.focus();
     },
   };
 }

@@ -163,6 +163,13 @@ test("each photo is marked Before, After or Neither, written in the order they'r
   await expect.poll(() => fileOf("porch")).toMatch(/media:\n    after:\n      - \/images\/uploads\/2026\/after\.png\n    before:\n      - \/images\/uploads\/2026\/before\.png/);
   await page.reload();
   await expect(page.getByRole("group", { name: "Photo 2 shows" }).getByRole("button", { name: "After" })).toHaveAttribute("aria-pressed", "true");
+  // R6: the marks sit on the photo cards, and the photos' order follows the cards.
+  await page.getByRole("group", { name: "Photo 1 shows" }).getByRole("button", { name: "After" }).click();
+  await page.getByRole("group", { name: "Photo: New porch" }).getByRole("button", { name: /^Move/ }).click();
+  await page.getByRole("menuitem", { name: "Move up" }).click();
+  await expect(page.getByRole("group", { name: "Photo: New porch" }).getByRole("group", { name: "Photo 1 shows" })).toBeVisible();
+  await page.keyboard.press("Control+s");
+  await expect.poll(() => fileOf("porch")).toMatch(/media:\n    after:\n      - \/images\/uploads\/2026\/after\.png\n      - \/images\/uploads\/2026\/before\.png/);
   await axeClean(page, "a job with Before and After");
 });
 
@@ -235,7 +242,9 @@ test("Write it up for me says what goes and where, fills the title and four part
   await sheet.getByRole("button", { name: "Write it up" }).click();
   await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("New flashing on a chimney in Thomas");
   await expect(page.getByRole("textbox", { name: "What we found", exact: true })).toHaveValue("The flashing had lifted.");
-  await expect(page.getByRole("textbox", { name: "Result", exact: true })).toHaveValue("Dry since the storm.\n\n![Photo 1 from the job](/images/uploads/2026/after.png)");
+  // The photo stays, as its card under the words (R6).
+  await expect(page.getByRole("textbox", { name: "Result", exact: true })).toHaveValue("Dry since the storm.");
+  await expect(page.getByRole("group", { name: "Photo: Photo 1 from the job" })).toBeVisible();
   expect(asked).toHaveLength(1);
   expect(asked[0]).toMatchObject({ notes: "chimney leak flashing lifted fixed it dry now", service: "Roof repair", town: "Thomas", contextIds: [] });
   await expect(status(page)).toContainText("Written up. Read it through, then save.");

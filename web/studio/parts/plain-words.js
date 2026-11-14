@@ -9,6 +9,9 @@ export const HER_BANNED_WORDS = Object.freeze([
   "service worker", "permission", "endpoint", "device", "browser", "slug", "front matter", "metadata",
   "canonical", "noindex", "profile", "credits", "contributor", "seo", "json", "git", "status code",
   "studio", "admin",
+  // R6: what she puts in her words is "a tip", "a photo", "a table", never its syntax.
+  "markdown", "shortcode", "syntax", "fence", "block", "piece", "snippet", "embed", "iframe", "html",
+  "callout", "alt text", "caption",
 ]);
 
 /** Matches any banned word or phrase as a whole word, in any case. */

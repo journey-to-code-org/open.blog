@@ -27,6 +27,9 @@ import { createWhen } from "../parts/write-when.js";
 import { createKindParts } from "../parts/write-kind.js";
 import { fileSlug } from "../parts/about-rules.js";
 import { portabilitySourceSelection } from "../parts/portable-rules.js";
+import { createAddMenu } from "../parts/add-menu.js";
+import { createSuggestions } from "../parts/write-suggestions.js";
+import { say } from "../parts/words.js";
 
 const AUTOSAVE_MS = 3000;
 const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
@@ -60,7 +63,22 @@ export async function createWrite(context, arg, route = {}) {
   let sheetOnOpen = null; // ?sheet=about|copy: opened once the screen has focus
 
   // ---- the page
-  const body = await createBodyHost({ api, maxBytes: meta.capture?.maxPhotoBytes || 0, onChange: () => changed() });
+  // R6: Add something, and the cards in every box of her words.
+  let body = null;
+  let suggestions = null;
+  const addMenu = await createAddMenu({
+    api, meta, context, path: () => doc.path,
+    post: () => ({ kind: isJob() ? "job" : isRecipePost() ? "recipe" : kind() === "research" ? "research" : "" }),
+    boxes: () => body.boxes(),
+    changed: () => suggestions?.schedule(),
+    preview: (opener, box, text) => preview(opener, body.bodyWith(box, text)),
+    extra: (box, block) => job()?.photoMark?.(block) || null,
+    removedPhoto: (url) => job()?.bodyOptions().removed(url),
+    // A job's photos are numbered across its four parts: the other parts follow an add or a move.
+    afterPiece: (box) => { if (isJob()) body.redrawPhotos(box); },
+  });
+  body = await createBodyHost({ onChange: () => changed(), pieces: addMenu.host });
+  suggestions = createSuggestions({ boxes: () => body.boxes(), did: (box, before, words) => addMenu.did(box, before, words), reveal: (box, start, end) => box.reveal(start, end) });
   const { trail, status, banner, title, numbersHost, day, time, tags, cover, collection, saveLabel, save, primaryLabel, primary, look, more, whenHelp, about: aboutButton, aboutLine, element } = writePage({
     meta, body, on: { save: () => saveNow("draft"), publish: () => saveNow("publish"), preview: (opener) => preview(opener), command: (id) => run(id), about: (opener) => about.open({ from: opener }) },
   });
@@ -79,6 +97,7 @@ export async function createWrite(context, arg, route = {}) {
   const job = () => kindPart.job();
   const copySheet = await createCopyPost({ api, post: () => copyPost(), goTo: (range) => goToRange(range) });
   element.append(about.element, copySheet.element);
+  body.element.after(suggestions.element);
   about.onLine((line) => { aboutLine.textContent = line; aboutButton.label = `About this post: ${line}`; });
 
   // ---- reading the form
@@ -134,7 +153,7 @@ export async function createWrite(context, arg, route = {}) {
     saveLabel: saveLabel.textContent, narrow: narrow(), mac: isMacLike(), job: isJob(), writeUp: writeUpReady,
   });
   const shareJobHref = () => `#/sharing/job/${encodeURIComponent(doc.path)}?from=write`;
-  const menuItems = () => commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label }));
+  const menuItems = () => [{ value: "add", label: say("add.more") }, ...commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label }))];
 
   /** What kind of post changed (or was undone): the boxes follow, and her words stay hers. */
   async function switchKind(from, to, options) {
@@ -172,11 +191,12 @@ export async function createWrite(context, arg, route = {}) {
   }
 
   // ---- See how it looks
-  async function preview(opener) {
+  // With `withBody`, the post as it would be with something not yet added (See it in your post).
+  async function preview(opener, withBody = null) {
     const values = read();
     await showPreview(api, {
       path: doc.path, title: values.title.trim(),
-      fields: fieldsFor(values, "draft"), body: values.body, opener,
+      fields: fieldsFor(values, "draft"), body: withBody ?? values.body, opener,
       problemsView: isRecipePost() ? recipeProblems : null,
     });
   }
@@ -199,9 +219,9 @@ export async function createWrite(context, arg, route = {}) {
 
   // A difference found by Copy it for another blog: her words at that place, when they're in one box.
   function goToRange(range) {
-    const area = element.querySelector(".studio-body > text-field textarea");
-    const at = area && !body.usesBoxes() ? portabilitySourceSelection(bodyText(), range) : null;
-    if (at) { area.focus(); area.setSelectionRange(at.start, at.end); } else body.focus();
+    const [box] = body.boxes();
+    const at = !body.usesBoxes() && body.boxes().length === 1 ? portabilitySourceSelection(bodyText(), range) : null;
+    if (at) box.reveal(at.start, at.end); else body.focus();
   }
 
   // ---- changes and saving
@@ -366,6 +386,8 @@ export async function createWrite(context, arg, route = {}) {
   // ---- More and Find
   async function run(value) {
     const opener = more.querySelector("button") || aboutButton;
+    if (value === "suggestions") { suggestions.open(); return; }
+    if (addMenu.command(value)) return;
     if (value === "save") saveCommand();
     if (value === "publish") saveNow("publish");
     if (value === "preview") preview(look.querySelector("button"));
@@ -412,7 +434,12 @@ export async function createWrite(context, arg, route = {}) {
     published: (sent) => { lastPublish = sent; },
     banner, form: () => form, now, schedule: () => scheduleTruth(), read, verb: () => primaryLabel.textContent, focusTitle: () => title.querySelector("input")?.focus(),
   });
-  const leave = () => { clearTimeout(timer); timer = 0; return leaveNow(); };
+  const leave = async () => {
+    if (!(await addMenu.leave())) return false;
+    clearTimeout(timer);
+    timer = 0;
+    return leaveNow();
+  };
 
   // ---- loading
   let captureOf = null; // the job's capture: its voice note (R4 G30)
@@ -492,8 +519,10 @@ export async function createWrite(context, arg, route = {}) {
     });
     // ?sheet=about|copy (an old Settings link, Find, People's Back): opened once Write has focus.
     const query = route.query || {};
-    if (query.add) about.addPerson(String(query.add));
+    if (query.add && query.sheet) about.addPerson(String(query.add));
     if (query.sheet === "about" || (query.sheet === "copy" && doc.path)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
+    // ?add=1 (the list) or ?add=<kind> (that form), when it isn't a person for Who wrote it.
+    else if (query.add && !query.sheet) sheetOnOpen = { add: String(query.add) };
     paint();
     element.removeAttribute("aria-busy");
     await asking;
@@ -516,7 +545,12 @@ export async function createWrite(context, arg, route = {}) {
       }
       if (path) element.querySelector("h2").focus({ preventScroll: true });
       else title.querySelector("input")?.focus({ preventScroll: true });
-      if (sheetOnOpen) {
+      if (sheetOnOpen?.add) {
+        const { add } = sheetOnOpen;
+        sheetOnOpen = null;
+        plainAddress();
+        addMenu.openFromRoute(add);
+      } else if (sheetOnOpen) {
         const { sheet, group } = sheetOnOpen;
         sheetOnOpen = null;
         if (sheet === "copy") copySheet.open({ from: more, closed: plainAddress });
@@ -524,7 +558,11 @@ export async function createWrite(context, arg, route = {}) {
       }
     },
     get palette() {
-      return commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post", hint: c.hint }));
+      return [
+        ...commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post", hint: c.hint })),
+        ...addMenu.palette().map((c) => ({ ...c, group: "This post" })),
+        { id: "suggestions", label: say("add.findSuggestions"), group: "This post" },
+      ];
     },
     command: run,
   };
