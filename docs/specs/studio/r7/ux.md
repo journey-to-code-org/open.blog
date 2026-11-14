@@ -416,6 +416,8 @@ From `POST research/review`, rendered by `parts/research-review.js` with words f
 +------------------------------------------+
 ```
 
+**Lede** (`routeLede(choice, phone)`, true for the choice and redrawn with it): Don't show it: "…It stays on this phone: only the numbers go to your blog, and a drawing of the climb if you switch it on."; the two shapes: "…It stays on this phone: only the numbers and a drawing go to your blog."; the exact route: "…It's read on this phone, then a cleaned copy of the route file goes to your blog too, times and your app's details taken out."
+
 **Choices** (`radio-group`; writes `locationPrivacy`; R5's field uses the same labels ⚑):
 
 | Value | Label | Help | Drawing shown |

@@ -7,6 +7,8 @@
 export const WORDS = {
   "route.sheet": { text: "Your route", layer: "her" },
   "route.lede": { text: "Choose the route file from your hiking app or watch. It stays on this {phone}: only the numbers and a drawing go to {product}.", layer: "her" },
+  "route.ledeHidden": { text: "Choose the route file from your hiking app or watch. It stays on this {phone}: only the numbers go to {product}, and a drawing of the climb if you switch it on.", layer: "her" },
+  "route.ledeExact": { text: "Choose the route file from your hiking app or watch. It's read on this {phone}, then a cleaned copy of the route file goes to {product} too, times and your app's details taken out.", layer: "her" },
   "route.choose": { text: "Choose a route file", layer: "her" },
   "route.appsHelp": { text: "In AllTrails, Strava or Gaia GPS, use Export or Share and choose GPX.", layer: "her" },
   "route.from": { text: "From “{name}”:", layer: "her" },

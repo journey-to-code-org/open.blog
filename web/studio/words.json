@@ -3860,6 +3860,24 @@
         "product"
       ]
     },
+    "route.ledeExact": {
+      "text": "Choose the route file from your hiking app or watch. It's read on this {phone}, then a cleaned copy of the route file goes to {product} too, times and your app's details taken out.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "phone",
+        "product"
+      ]
+    },
+    "route.ledeHidden": {
+      "text": "Choose the route file from your hiking app or watch. It stays on this {phone}: only the numbers go to {product}, and a drawing of the climb if you switch it on.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "phone",
+        "product"
+      ]
+    },
     "route.lineExact": {
       "text": "Route: readers can download your exact route.",
       "layer": "her",

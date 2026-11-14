@@ -168,10 +168,13 @@ test("the exact route goes cleaned, held privately on a draft or a scheduled pos
   await page.getByRole("button", { name: "More" }).click();
   await page.getByRole("menuitem", { name: "Add your route" }).click();
   await sheet(page).locator("file-drop input[type=file]").setInputFiles(join(dir, "ridge.gpx"));
+  await expect(sheet(page).getByText(/only the numbers go to your blog, and a drawing of the climb if you switch it on\./)).toBeVisible();
   await choice(page, "The exact route").check();
   await page.locator("modal-dialog").getByRole("button", { name: "Show it" }).click();
   await expect(choice(page, "The exact route")).toBeChecked();
   await expect(sheet(page).getByText("Readers can download it.")).toBeVisible();
+  // What the sheet says goes is true for the choice: the cleaned file goes too.
+  await expect(sheet(page).getByText(/a cleaned copy of the route file goes to your blog too, times and your app's details taken out\./)).toBeVisible();
   await sheet(page).getByRole("button", { name: "Use this route" }).click();
   await expect(sheet(page).locator(".studio-ready-did")).toContainText("Your route file waits, private, until your post is on your site.");
   // Cleaned on the phone before it left: no times, waypoints, names or the watch's details.

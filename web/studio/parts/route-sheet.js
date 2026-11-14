@@ -12,7 +12,7 @@ import { say } from "./words.js";
 import { ask } from "./dialogs.js";
 import { trapFocus } from "./focus-trap.js";
 import {
-  DEFAULT_TRIM, MAX_GPX_BYTES, PRIVACY, ROUTE_KEYS, RouteError, analyzeGpx, cleanGpx, gpxProblem, numbersWords, routeChange, routeLine,
+  DEFAULT_TRIM, MAX_GPX_BYTES, PRIVACY, ROUTE_KEYS, RouteError, analyzeGpx, cleanGpx, gpxProblem, numbersWords, routeChange, routeLede, routeLine,
   routeValues, sendProblem, trimOptions, trimWords,
 } from "./route-rules.js";
 
@@ -93,7 +93,7 @@ export async function createRouteSheet({ api, write }) {
     const a = analysis();
     const drop = h("file-drop", { label: say("route.choose"), accept: ".gpx,application/gpx+xml,application/xml,text/xml", multiple: false });
     drop.addEventListener("fileschange", (e) => { const [chosen] = e.detail || []; if (chosen) read(chosen); });
-    const parts = [h("p", { class: "studio-help", text: say("route.lede", { phone: write.device() }) }), drop, h("p", { class: "studio-help", text: say("route.appsHelp") })];
+    const parts = [h("p", { class: "studio-help", text: routeLede(choice, write.device()) }), drop, h("p", { class: "studio-help", text: say("route.appsHelp") })];
     if (problem) parts.push(h("p", { class: "studio-field-error", role: "alert", text: problem }));
     if (a) {
       parts.push(h("p", { "aria-live": "polite" }, h("span", { text: say("route.from", { name: file.name }) }), " ", h("strong", { text: numbersWords(a) })));

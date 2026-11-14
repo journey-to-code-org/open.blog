@@ -6,8 +6,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  DEFAULT_TRIM, ROUTE_KEYS, RouteError, TRIM_CHOICES, analyzeGpx, cleanGpx, durationWords, gpxProblem, looksLikeAddress, numbersWords,
-  readGpx, routeChange, routeLine, routeValues, saveRouteProblem, sendProblem, trimEnds, trimOptions, tripSuggestions,
+  DEFAULT_TRIM, PRIVACY, ROUTE_KEYS, RouteError, TRIM_CHOICES, analyzeGpx, cleanGpx, durationWords, gpxProblem, looksLikeAddress, numbersWords,
+  readGpx, routeChange, routeLine, routeValues, saveRouteProblem, sendProblem, routeLede, trimEnds, trimOptions, tripSuggestions,
 } from "../../web/studio/parts/route-rules.js";
 import { HER_BANNED } from "../../web/studio/parts/plain-words.js";
 import { catalog } from "../../web/studio/parts/words.js";
@@ -256,4 +256,15 @@ test("a route that never gets far enough from its ends is too short to trim", ()
   // A loop of small out-and-backs around home: long enough in total, never 500 m away.
   const source = gpxOf(...Array.from({ length: 8 }, () => segment(42, -72, 300)));
   assert.equal(code(() => analyzeGpx(source, { privacy: "trimmed" })), "too-short-to-trim");
+});
+
+test("the lede says what goes to the blog for each choice, the exact route's file included", () => {
+  assert.match(routeLede("hidden", "phone"), /only the numbers go to/);
+  assert.doesNotMatch(routeLede("hidden", "phone"), /a drawing go/);
+  for (const choice of ["trimmed", "approximate"]) assert.match(routeLede(choice, "phone"), /only the numbers and a drawing go to/);
+  const exact = routeLede("exact", "iPad");
+  assert.match(exact, /a cleaned copy of the route file goes to .* too/);
+  assert.match(exact, /times and your app's details taken out/);
+  assert.match(exact, /this iPad/);
+  for (const choice of PRIVACY) assert.doesNotMatch(routeLede(choice, "phone"), HER_BANNED, choice);
 });

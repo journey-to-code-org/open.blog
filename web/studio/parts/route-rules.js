@@ -36,6 +36,17 @@ export function trimWords(metres) {
   return m >= 1000 && m % 1000 === 0 ? `${m / 1000} km` : `${m} m`;
 }
 
+/**
+ * What the sheet says goes to the blog, true for `choice`: hidden sends the numbers (and the
+ * climb drawing only when switched on), the shapes send a drawing, exact sends a cleaned copy of
+ * the file too.
+ */
+export function routeLede(choice, phone) {
+  if (choice === "exact") return say("route.ledeExact", { phone });
+  if (choice === "trimmed" || choice === "approximate") return say("route.lede", { phone });
+  return say("route.ledeHidden", { phone });
+}
+
 /** The trim choices with their words, for a select. */
 export function trimOptions() {
   const words = { 200: say("route.trim200"), 500: say("route.trim500"), 1000: say("route.trim1000"), 2000: say("route.trim2000") };

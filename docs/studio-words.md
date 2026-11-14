@@ -716,6 +716,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `route.leaveOff` | her | Leave off at each end | none | 42 |
 | `route.leaveOut` | her | Leave it out | none | 40 |
 | `route.lede` | her | Choose the route file from your hiking app or watch. It stays on this {phone}: only the numbers and a drawing go to {product}. | `{phone}` `{product}` | 240 |
+| `route.ledeExact` | her | Choose the route file from your hiking app or watch. It's read on this {phone}, then a cleaned copy of the route file goes to {product} too, times and your app's details taken out. | `{phone}` `{product}` | 240 |
+| `route.ledeHidden` | her | Choose the route file from your hiking app or watch. It stays on this {phone}: only the numbers go to {product}, and a drawing of the climb if you switch it on. | `{phone}` `{product}` | 240 |
 | `route.lineExact` | her | Route: readers can download your exact route. | none | 90 |
 | `route.lineHidden` | her | Route: readers see the numbers only. | none | 72 |
 | `route.lineNone` | her | No route added. | none | 40 |
